@@ -544,6 +544,9 @@ export class VoiceTurnOrchestrator {
       // user hears immediate audio instead of ~500 ms of silence.
       // -----------------------------------------------------------------------
       let ackSpeakPromise: Promise<void> | null = null;
+      // Tracks the text that was actually handed to speak(); used for spokenText
+      // in the return value so it reflects what was played, not just composed.
+      let lastSpokenText: string | null = null;
       // is_long_running lives on the raw planner envelope (PlannerV2Response),
       // not on the normalised VoicePlanPayload — read it from plannerEnvelope.
       const isLongRunning = plannerEnvelope.is_long_running === true || ackText !== null;
@@ -560,8 +563,14 @@ export class VoiceTurnOrchestrator {
           turn_id: turnId,
           ack_text_chars: ackText.length,
         });
+        // Capture the ack text in lastSpokenText only if speak resolves; a
+        // failed TTS leaves lastSpokenText null so spokenText is accurate.
+        const capturedAckText = ackText;
         ackSpeakPromise = this.config
           .speak({ text: ackText, turnId, responseId, segmentType: "ack" })
+          .then(() => {
+            lastSpokenText = capturedAckText;
+          })
           .catch((error) => {
             this.config.onDebug?.("parallel_ack_speak_failed", {
               error: error instanceof Error ? error.message : "unknown_error",
@@ -695,6 +704,7 @@ export class VoiceTurnOrchestrator {
             responseId,
             segmentType,
           });
+          lastSpokenText = composedSpeech.text;
         } catch (error) {
           this.config.onDebug?.("post_dispatch_tts_failed_turn_continues", {
             error: error instanceof Error ? error.message : "unknown_error",
@@ -735,7 +745,7 @@ export class VoiceTurnOrchestrator {
         plan: normalizedPlan,
         groundedPlan,
         actionResult,
-        spokenText: composedSpeech?.text || null,
+        spokenText: lastSpokenText,
         source: input.source,
       };
     } finally {
