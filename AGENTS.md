@@ -88,4 +88,4 @@ Subagents improve evidence quality; they do not replace repo skills, workflow ch
 1. Use repo skills first to choose the owner lane.
 2. Delegate only concrete, bounded sidecar tasks.
 3. Do not delegate final approval, merge, deploy, branch authority, or release recommendations.
-4. Require delegated handoffs to include claim inspected, classification, evidence checked, current repo truth, real gap, suggested boundary, blind-acceptance risk, scope, validations, and unresolved risks.
+4. Require delegated handoffs to include claim inspected, classification, evidence checked, current repo truth, real gap, suggested boundary, blind-acceptance risk, scope, inspected surfaces, assumptions, validations, and unresolved risks.

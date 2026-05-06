@@ -60,6 +60,11 @@ TRUTH_FIRST_TOKENS = [
     "real_gap",
     "suggested_boundary",
     "risk_if_prompt_is_accepted_blindly",
+    "scope_covered",
+    "inspected_surfaces",
+    "assumptions",
+    "validations_run",
+    "unresolved_risks",
 ]
 
 

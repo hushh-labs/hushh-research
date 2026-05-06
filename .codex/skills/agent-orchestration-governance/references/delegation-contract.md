@@ -35,6 +35,11 @@ Delegated prompts should ask for evidence in this shape:
 5. `real_gap`
 6. `suggested_boundary`
 7. `risk_if_prompt_is_accepted_blindly`
+8. `scope_covered`
+9. `inspected_surfaces`
+10. `assumptions`
+11. `validations_run`
+12. `unresolved_risks`
 
 Do not ask a child agent only "is this okay?" or "summarize this." That creates agreeable but weak evidence.
 
@@ -141,8 +146,10 @@ Every delegated result should include:
 6. `suggested_boundary`
 7. `risk_if_prompt_is_accepted_blindly`
 8. `scope_covered`
-9. `validations_run`
-10. `unresolved_risks`
+9. `inspected_surfaces`
+10. `assumptions`
+11. `validations_run`
+12. `unresolved_risks`
 
 ## Current repo-scoped custom-agent baseline
 

@@ -95,6 +95,8 @@ Non-owned surfaces:
    - `suggested_boundary`
    - `risk_if_prompt_is_accepted_blindly`
    - `scope_covered`
+   - `inspected_surfaces`
+   - `assumptions`
    - `validations_run`
    - `unresolved_risks`
 10. When changing this surface, keep docs and workflow routing aligned with the actual agent/config files.
