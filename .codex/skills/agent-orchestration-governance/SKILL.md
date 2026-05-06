@@ -60,6 +60,8 @@ Non-owned surfaces:
 1. Verify that a repo-scoped custom agent is actually justified before adding one; prefer skills and workflows when role specialization is not needed.
 2. Keep the agent fleet at the curated sweet spot: broad evidence lanes, not one agent per skill. Add a new agent only when a recurring high-risk evidence family crosses multiple skills and existing agents have repeatedly missed it.
 3. Preserve the project-wide delegation checkpoint in `AGENTS.md` before narrowing behavior in any skill or workflow:
+   - run the project-wide premise verification gate before delegation; agents are evidence lanes, not agreement lanes
+   - classify important prompt claims as `already exists`, `partially exists`, `missing`, `future-state only`, `wrong direction`, or `needs verification` before final synthesis
    - use subagents only when the user explicitly allows delegation or a repo workflow/global repo policy has an approved delegation step
    - treat every non-trivial repo workflow as eligible for read-only evidence lanes when the checkpoint passes
    - treat high-stakes PR governance, RCA, release readiness, security/consent review, schema/migration review, docs/founder-language work, analytics/observability work, mobile/native work, frontend/backend contract review, and voice/action-runtime review as especially strong delegation candidates
@@ -83,6 +85,7 @@ Non-owned surfaces:
    - only `governor` produces final merge, deploy, or plan recommendations inside delegated workflows
    - child agents return evidence and judgments, not final authority
 9. Require every delegated handoff to include:
+   - claim inspected and claim classification
    - scope covered
    - files or surfaces inspected
    - findings or conclusion
