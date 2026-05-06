@@ -209,9 +209,10 @@ No strong match (top score < 10). Surface the catalog. Pick by description, re-i
 
 The matched entry is a repo-scoped custom agent (under `.codex/agents/`). Treat it as a **delegation lane**, not instructions to execute directly:
 
-1. Decide whether the current turn actually benefits from delegation. Most single-lane requests do not.
-2. If delegation fits, confirm with the user before invoking the agent.
-3. When the briefing appears as `Suggested delegation lanes` on a skill/workflow briefing, treat it as context only. Execute the primary briefing normally.
+1. Run the project delegation checkpoint from `AGENTS.md` before deciding.
+2. If a repo workflow or global policy authorizes read-only evidence lanes and the checkpoint passes, invoke the relevant agent lane without a separate user confirmation.
+3. Ask the user first only for write-capable workers, branch operations, merge, deploy, secrets, or final approval authority.
+4. When the briefing appears as `Suggested delegation lanes` on a skill/workflow briefing, treat it as evidence-lane context and execute the primary briefing normally.
 
 ### A `--check` report
 

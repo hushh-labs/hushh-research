@@ -73,7 +73,7 @@ Use these rules for public community responses:
    - answer as the maintainer of the architecture, not as a passive reviewer
    - do not "yes-and" a proposal before checking whether the capability already exists
    - correct the premise first when a proposal describes shipped functionality as missing
-   - separate `already exists`, `valid improvement`, and `not the right direction`
+   - separate `already_exists`, `partially_exists`, and `wrong_direction`
    - prefer the smallest useful next PR boundary over broad agreement
 45. For MCP, consent, scope, and tool-discovery questions, always check the current shipped contract before drafting:
    - dynamic per-user scopes already exist through `discover_user_domains(user_id)` and `/api/v1/user-scopes/{user_id}`
