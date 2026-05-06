@@ -148,7 +148,11 @@ def _watch_renew_auth_enabled() -> bool:
     raw = os.getenv("ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED")
     if raw is not None:
         return raw.strip().lower() in {"1", "true", "yes", "on"}
-    environment = str(os.getenv("ENVIRONMENT") or "development").strip().lower()
+    environment = (
+        str(os.getenv("ENVIRONMENT") or os.getenv("HUSHH_DEPLOY_ENV") or "development")
+        .strip()
+        .lower()
+    )
     return environment not in {"development", "dev", "local", "test"}
 
 

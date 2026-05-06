@@ -75,6 +75,14 @@ _KYC_WORKFLOW_STATES = {
 }
 
 
+def _runtime_environment() -> str:
+    return (
+        _clean_text(os.getenv("ENVIRONMENT"))
+        or _clean_text(os.getenv("HUSHH_DEPLOY_ENV"))
+        or "development"
+    ).lower()
+
+
 class OneEmailKycError(RuntimeError):
     """Raised when One email KYC processing cannot continue."""
 
@@ -156,8 +164,7 @@ class OneEmailKycConfig:
             "ONE_EMAIL_WEBHOOK_AUTH_ENABLED",
             _env_bool(
                 "GMAIL_WEBHOOK_AUTH_ENABLED",
-                (_clean_text(os.getenv("ENVIRONMENT")) or "development").lower()
-                not in {"development", "dev", "local", "test"},
+                _runtime_environment() not in {"development", "dev", "local", "test"},
             ),
         )
         default_scope = _validate_kyc_data_scope(

@@ -112,6 +112,17 @@ def _message(*, body: str, sender: str = "broker@example.com") -> dict:
     }
 
 
+def test_config_enables_webhook_auth_from_deploy_environment(monkeypatch):
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.delenv("ONE_EMAIL_WEBHOOK_AUTH_ENABLED", raising=False)
+    monkeypatch.delenv("GMAIL_WEBHOOK_AUTH_ENABLED", raising=False)
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+
+    config = OneEmailKycConfig.from_env()
+
+    assert config.webhook_auth_enabled is True
+
+
 class _FakeDb:
     def __init__(self, *, user_id: str | None = "user_123", connector: bool = True) -> None:
         self.user_id = user_id

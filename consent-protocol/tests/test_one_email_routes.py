@@ -36,6 +36,19 @@ def test_one_watch_renew_rejects_missing_maintenance_token(monkeypatch):
     assert response.json()["detail"]["code"] == "ONE_EMAIL_WATCH_RENEW_UNAUTHORIZED"
 
 
+def test_one_watch_renew_auth_follows_deploy_environment(monkeypatch):
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.delenv("ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED", raising=False)
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    monkeypatch.setenv("ONE_EMAIL_WATCH_RENEW_TOKEN", "expected-token")
+    client = _build_app()
+
+    response = client.post("/api/one/email/watch/renew")
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "ONE_EMAIL_WATCH_RENEW_UNAUTHORIZED"
+
+
 def test_one_kyc_reject_route_uses_authenticated_user(monkeypatch):
     calls: list[dict] = []
 
