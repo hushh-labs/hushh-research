@@ -161,7 +161,7 @@ def _mcp_error(result: tuple[list, dict]) -> CallToolResult:
 
 
 @server.list_tools()
-async def list_tools():
+async def list_tools() -> list[Tool]:
     """Expose Hussh consent tools to MCP hosts."""
     allowed_tool_names = set(get_current_visible_tool_names())
     return get_tool_definitions(
@@ -306,13 +306,13 @@ async def call_tool(name: str, arguments: dict):
 
 
 @server.list_resources()
-async def list_resources():
+async def list_resources() -> list[Resource]:
     """List available MCP resources."""
     return await mcp_resources.list_resources()
 
 
 @server.read_resource()
-async def read_resource(uri: str):
+async def read_resource(uri: str) -> str | bytes:
     """Read MCP resource content by URI."""
     return await mcp_resources.read_resource(uri)
 
@@ -322,7 +322,7 @@ async def read_resource(uri: str):
 # ============================================================================
 
 
-async def main():
+async def main() -> None:
     """
     Run the Hussh MCP Server.
 

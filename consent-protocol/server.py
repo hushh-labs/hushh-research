@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 import time
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
@@ -206,7 +207,9 @@ def _database_error_payload(
 
 
 @app.exception_handler(DatabaseUnavailableError)
-async def database_unavailable_exception_handler(_request: Request, exc: DatabaseUnavailableError):
+async def database_unavailable_exception_handler(
+    _request: Request, exc: DatabaseUnavailableError
+) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content=_database_error_payload(
@@ -218,7 +221,9 @@ async def database_unavailable_exception_handler(_request: Request, exc: Databas
 
 
 @app.exception_handler(DatabaseExecutionError)
-async def database_execution_exception_handler(_request: Request, exc: DatabaseExecutionError):
+async def database_execution_exception_handler(
+    _request: Request, exc: DatabaseExecutionError
+) -> JSONResponse:
     status_code = getattr(exc, "status_code", 500)
     return JSONResponse(
         status_code=status_code,
@@ -932,7 +937,7 @@ def _require_debug_access() -> None:
 
 
 @app.get("/debug/diagnostics", tags=["Debug"])
-async def diagnostics():
+async def diagnostics() -> dict[str, Any]:
     """List all registered routes to debug 404s."""
     _require_debug_access()
     routes = []
@@ -955,7 +960,7 @@ async def diagnostics():
 
 
 @app.get("/debug/consent-listener", tags=["Debug"])
-async def debug_consent_listener():
+async def debug_consent_listener() -> dict[str, Any]:
     """Consent NOTIFY listener status: listener_active, queue_count, notify_received_count.
     Use to confirm the listener is running and that NOTIFY is being received."""
     _require_debug_access()

@@ -116,7 +116,7 @@ def _route_template(request: Request) -> str:
         path = getattr(route, "path", None)
         if isinstance(path, str) and path:
             return path
-    return request.url.path
+    return str(request.url.path)
 
 
 def _sanitize_request_id(raw: str | None) -> str | None:

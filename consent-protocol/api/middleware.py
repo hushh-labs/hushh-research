@@ -264,7 +264,7 @@ async def require_firebase_auth(
 
         background_tasks.add_task(background_sync, firebase_uid)
 
-        return firebase_uid
+        return str(firebase_uid)
 
     except HTTPException:
         raise
