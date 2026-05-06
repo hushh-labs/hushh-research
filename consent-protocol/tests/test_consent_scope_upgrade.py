@@ -269,6 +269,9 @@ def test_approve_consent_reused_token_still_syncs_ria_relationship(monkeypatch):
                 "expires_at": 123456789,
             }
 
+        async def insert_event(self, **_kwargs):
+            return None
+
     async def _mock_sync(self, **kwargs):  # noqa: ANN001
         sync_calls.append(kwargs)
 

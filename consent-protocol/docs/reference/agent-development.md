@@ -405,7 +405,7 @@ async def delegate_to_my_agent(query: str) -> dict:
 | OneAgent            | `agents/one/` and legacy `agents/orchestrator/` | `agent.one.orchestrate` | delegate to Kai, Nav, and KYC |
 | KaiAgent            | `agents/kai/`                | `agent.kai.analyze`             | `perform_fundamental_analysis`, `perform_sentiment_analysis`, `perform_valuation_analysis` |
 | NavAgent            | `agents/nav/`                | `agent.nav.review`              | scope review, vault/deletion/revocation guidance |
-| KycAgent            | `agents/kyc/`                | `agent.kyc.process`             | identity workflow state, approval-gated drafts, structured PKM writeback |
+| KycAgent            | `agents/kyc/`                | `agent.kyc.process`             | identity workflow state, approval-gated drafts, structured PKM writeback contract |
 | PortfolioImportAgent| (inline in `kai/portfolio.py`)| `vault.owner`                  | File parsing + LLM fallback      |
 
 ### One Email KYC Intake
@@ -415,10 +415,10 @@ The broker/KYC email lane is One-led, not Kai-owned:
 - `one@hushh.ai` is the Workspace user mailbox.
 - `POST /api/one/email/webhook` receives Gmail Pub/Sub notifications.
 - `POST /api/one/email/watch/renew` renews the mailbox watch.
-- workflow state lives in `one_kyc_workflows` and stores metadata only.
-- One creates a scoped `agent_kyc` consent request with strict connector export metadata.
-- `/one/kyc` lets the user inspect state, continue consent, review drafts, approve send, or reject.
-- outbound Gmail send is blocked until `draft_status=ready`, `status=waiting_on_user`, and the authenticated user approves.
+- workflow state lives in `one_kyc_workflows` and stores metadata, hashes, send status, and encrypted PKM writeback receipts; `draft_body` is legacy and must stay null/redacted in strict client-side ZK mode.
+- One creates a scoped `agent_kyc` consent request with the user's registered public client connector metadata.
+- `/one/kyc` requires vault unlock so the frontend can own the connector private key, decrypt approved exports locally, build review drafts locally, approve send, or reject.
+- outbound Gmail send is blocked until `draft_status=ready`, `status=waiting_on_user`, and the vault owner approves the final body; the backend handles that body transiently only for Gmail send.
 
 Do not store raw email bodies, raw vault contents, broad decrypted PKM, tokens, or chain-of-thought in this lane.
 

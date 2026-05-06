@@ -24,8 +24,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from api.middleware import require_firebase_auth, verify_user_id_match
-from db.connection import DatabaseUnavailableError
-from db.db_client import DatabaseExecutionError
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.vault_keys_service import VaultKeysService
@@ -79,17 +77,21 @@ def _check_client_version_or_raise(http_request: Request) -> None:
 
 
 def _raise_database_http_exception(exc: Exception) -> None:
-    if isinstance(exc, DatabaseUnavailableError):
+    if exc.__class__.__name__ == "DatabaseUnavailableError":
+        status_code = getattr(exc, "status_code", 503)
+        code = getattr(exc, "code", "DATABASE_UNAVAILABLE")
+        hint = getattr(exc, "hint", None)
         raise HTTPException(
-            status_code=exc.status_code,
+            status_code=status_code,
             detail={
                 "error": "Database is temporarily unavailable.",
-                "code": exc.code,
-                **({"hint": exc.hint} if exc.hint else {}),
+                "code": code,
+                **({"hint": hint} if hint else {}),
             },
         ) from exc
-    if isinstance(exc, DatabaseExecutionError):
+    if exc.__class__.__name__ == "DatabaseExecutionError":
         status_code = getattr(exc, "status_code", 500)
+        hint = getattr(exc, "hint", None)
         raise HTTPException(
             status_code=status_code,
             detail={
@@ -97,7 +99,7 @@ def _raise_database_http_exception(exc: Exception) -> None:
                 if status_code == 503
                 else "Database error",
                 "code": getattr(exc, "code", "DATABASE_EXECUTION_ERROR"),
-                **({"hint": getattr(exc, "hint", None)} if getattr(exc, "hint", None) else {}),
+                **({"hint": hint} if hint else {}),
             },
         ) from exc
 

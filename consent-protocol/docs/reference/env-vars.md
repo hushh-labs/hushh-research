@@ -40,12 +40,11 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `ONE_EMAIL_PUBSUB_TOPIC` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (One email intake) | Gmail `users.watch` Pub/Sub topic for `one@hushh.ai`. |
 | `ONE_EMAIL_WEBHOOK_AUDIENCE` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (hosted intake) | Expected audience for Pub/Sub push OIDC verification. Falls back to `GMAIL_WEBHOOK_AUDIENCE`. |
 | `ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | `hushh_mcp/services/one_email_kyc_service.py` | Recommended | Expected Pub/Sub push service-account email. Falls back to `GMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL`. |
-| `ONE_EMAIL_WEBHOOK_AUTH_ENABLED` | `hushh_mcp/services/one_email_kyc_service.py` | Optional | Defaults on outside local/dev/test. Disables Pub/Sub token verification only for local testing. |
+| `ONE_EMAIL_WEBHOOK_AUTH_ENABLED` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (hosted intake) | Must be `true` in UAT/production. Defaults on outside local/dev/test, including `HUSHH_DEPLOY_ENV=uat`, but hosted deploys set it explicitly. |
 | `ONE_EMAIL_WATCH_LABEL_IDS` | `hushh_mcp/services/one_email_kyc_service.py` | Optional | Comma-separated Gmail labels for watch registration. Default: `INBOX`. |
 | `ONE_EMAIL_WATCH_RENEW_TOKEN` | `api/routes/one/email.py` | Yes (hosted watch renewal) | Shared maintenance token required by `POST /api/one/email/watch/renew` outside local/dev/test. Send as `X-Hushh-Maintenance-Token`. |
-| `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | `api/routes/one/email.py` | Optional | Defaults on outside local/dev/test. Disable only for local testing. |
-| `ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (One KYC) | Connector public key used to force strict scoped encrypted PKM export for KYC consent. |
-| `ONE_EMAIL_KYC_CONNECTOR_KEY_ID` | `hushh_mcp/services/one_email_kyc_service.py` | Recommended | Connector key id for KYC export wrapping. |
+| `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | `api/routes/one/email.py` | Yes (hosted renewal) | Must be `true` in UAT/production. Defaults on outside local/dev/test, including `HUSHH_DEPLOY_ENV=uat`, but hosted deploys set it explicitly. |
+| `ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED` | `hushh_mcp/services/one_email_kyc_service.py` | Optional | Defaults to `true`. Backend must not decrypt scoped exports or persist review draft plaintext. |
 | `ONE_EMAIL_KYC_DEFAULT_SCOPE` | `hushh_mcp/services/one_email_kyc_service.py` | Optional | Default least-privilege identity scope requested for broker KYC. Default: `attr.identity.*`. |
 | `SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON` | `hushh_mcp/services/support_email_service.py` | Optional legacy override | Dedicated service account JSON for support mail. Prefer the canonical Firebase Admin credential unless an explicit exception is approved. |
 | `SUPPORT_EMAIL_DELEGATED_USER` | `hushh_mcp/services/support_email_service.py` | Optional override | Workspace mailbox to impersonate for Gmail send. Default: `ONE_EMAIL_ADDRESS` or `one@hushh.ai`. Must be a real user mailbox, not a group. |
@@ -285,9 +284,11 @@ Local runtime bootstrap:
 | `ONE_EMAIL_PUBSUB_TOPIC` | No | Cloud Run env var |
 | `ONE_EMAIL_WEBHOOK_AUDIENCE` | No | Cloud Run env var |
 | `ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | No | Cloud Run env var |
+| `ONE_EMAIL_WEBHOOK_AUTH_ENABLED` | No | Cloud Run env var |
 | `ONE_EMAIL_WATCH_RENEW_TOKEN` | Yes | Secret Manager |
-| `ONE_EMAIL_KYC_CONNECTOR_PUBLIC_KEY` | No | Cloud Run env var |
-| `ONE_EMAIL_KYC_CONNECTOR_KEY_ID` | No | Cloud Run env var |
+| `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | No | Cloud Run env var |
+| `ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED` | No | Cloud Run env var |
+| `ONE_EMAIL_KYC_DEFAULT_SCOPE` | No | Cloud Run env var |
 | `GMAIL_OAUTH_CLIENT_ID` | Yes | GCP Secret Manager |
 | `GMAIL_OAUTH_CLIENT_SECRET` | Yes | GCP Secret Manager |
 | `GMAIL_OAUTH_REDIRECT_URI` | Yes | GCP Secret Manager |

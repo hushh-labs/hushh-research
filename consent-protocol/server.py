@@ -28,7 +28,11 @@ def _env_truthy(name: str, fallback: str = "false") -> bool:
 
 
 def _environment() -> str:
-    return _APP_RUNTIME_SETTINGS.environment
+    return (
+        str(os.getenv("ENVIRONMENT") or _APP_RUNTIME_SETTINGS.environment or "development")
+        .strip()
+        .lower()
+    )
 
 
 def _is_production() -> bool:

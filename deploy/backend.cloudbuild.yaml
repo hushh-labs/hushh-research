@@ -79,8 +79,33 @@ steps:
         append_optional_secret "${_REVIEWER_UID_SECRET}" "REVIEWER_UID"
         append_optional_secret "${_REVIEWER_VAULT_PASSPHRASE_SECRET}" "REVIEWER_VAULT_PASSPHRASE"
         append_optional_secret "${_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET}" "RIA_INTELLIGENCE_VERIFY_BASE_URL"
+        append_optional_secret "${_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET}" "ONE_EMAIL_WATCH_RENEW_TOKEN"
 
-        deploy_env_vars="HUSHH_DEPLOY_ENV=${_DEPLOY_ENV},HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE},HUSHH_DEPLOY_SHA=${_DEPLOY_SHA},HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID}"
+        env_vars=(
+          "ENVIRONMENT=${_DEPLOY_ENV}"
+          "HUSHH_DEPLOY_ENV=${_DEPLOY_ENV}"
+          "HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE}"
+          "HUSHH_DEPLOY_SHA=${_DEPLOY_SHA}"
+          "HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID}"
+        )
+        append_optional_env() {
+          local env_name="$1"
+          local env_value="$2"
+          if [[ -n "${env_value}" ]]; then
+            env_vars+=("${env_name}=${env_value}")
+          fi
+        }
+        append_optional_env "ONE_EMAIL_ADDRESS" "${_ONE_EMAIL_ADDRESS}"
+        append_optional_env "ONE_EMAIL_DELEGATED_USER" "${_ONE_EMAIL_DELEGATED_USER}"
+        append_optional_env "ONE_EMAIL_PUBSUB_TOPIC" "${_ONE_EMAIL_PUBSUB_TOPIC}"
+        append_optional_env "ONE_EMAIL_WEBHOOK_AUDIENCE" "${_ONE_EMAIL_WEBHOOK_AUDIENCE}"
+        append_optional_env "ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL" "${_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL}"
+        append_optional_env "ONE_EMAIL_WEBHOOK_AUTH_ENABLED" "${_ONE_EMAIL_WEBHOOK_AUTH_ENABLED}"
+        append_optional_env "ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED" "${_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED}"
+        append_optional_env "ONE_EMAIL_KYC_DEFAULT_SCOPE" "${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
+        append_optional_env "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED" "${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
+
+        env_var_string="$(IFS=,; echo "${env_vars[*]}")"
         deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
 
         cmd=(
@@ -96,7 +121,7 @@ steps:
           "--max-instances=10"
           "--min-instances=1"
           "--labels=${deploy_labels}"
-          "--set-env-vars=${deploy_env_vars}"
+          "--set-env-vars=${env_var_string}"
           "--set-secrets=${secrets}"
         )
 
@@ -141,6 +166,16 @@ substitutions:
   _REVIEWER_UID_SECRET: ""
   _REVIEWER_VAULT_PASSPHRASE_SECRET: ""
   _RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET: ""
+  _ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET: ""
+  _ONE_EMAIL_ADDRESS: ""
+  _ONE_EMAIL_DELEGATED_USER: ""
+  _ONE_EMAIL_PUBSUB_TOPIC: ""
+  _ONE_EMAIL_WEBHOOK_AUDIENCE: ""
+  _ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL: ""
+  _ONE_EMAIL_WEBHOOK_AUTH_ENABLED: "true"
+  _ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED: "true"
+  _ONE_EMAIL_KYC_DEFAULT_SCOPE: ""
+  _ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED: "true"
   _IMAGE_TAG: v2.1.0
   _DEPLOY_ENV: manual
   _DEPLOY_SOURCE: manual

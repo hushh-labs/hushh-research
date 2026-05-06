@@ -105,6 +105,31 @@ Client surfaces
 | DELETE | `/api/notifications/unregister` | Unregister FCM tokens (logout) |
 | POST | `/api/kai/consent/grant` | Grant consent for Kai scopes |
 
+### One Email KYC
+
+One mailbox intake is One-led and approval-gated. KYC workspace routes require
+a VAULT_OWNER token plus a matching `user_id`; mailbox maintenance routes use
+Pub/Sub OIDC or the One maintenance token, not user Firebase auth. Strict
+client-side ZK means the backend never decrypts consent exports or persists
+review draft plaintext.
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| POST | `/api/one/email/webhook` | Pub/Sub OIDC | Receive Gmail Pub/Sub notifications for the delegated One mailbox |
+| POST | `/api/one/email/watch/renew` | `X-Hushh-Maintenance-Token` | Renew the Gmail watch for the delegated One mailbox |
+| GET | `/api/one/kyc/client-connector?user_id={user_id}` | VAULT_OWNER Bearer | Read registered public client connector metadata |
+| POST | `/api/one/kyc/client-connector` | VAULT_OWNER Bearer | Register public client connector metadata after vault unlock; private key remains client/vault-only |
+| GET | `/api/one/kyc/workflows?user_id={user_id}` | VAULT_OWNER Bearer | List One KYC workflows for the vault owner |
+| GET | `/api/one/kyc/workflows/{workflow_id}?user_id={user_id}` | VAULT_OWNER Bearer | Read one workflow and metadata-only draft state for the vault owner |
+| POST | `/api/one/kyc/workflows/{workflow_id}/refresh` | VAULT_OWNER Bearer | Refresh workflow state after consent approval; returns encrypted export metadata for client-side draft generation |
+| GET | `/api/one/kyc/workflows/{workflow_id}/consent-export?user_id={user_id}` | VAULT_OWNER Bearer | Return the encrypted wrapped-key export package for this ready workflow without exposing the consent token to the browser |
+| POST | `/api/one/kyc/workflows/{workflow_id}/send-approved-reply` | VAULT_OWNER Bearer | Transiently send the user-approved final email body through Gmail; persist metadata/hashes only |
+| POST | `/api/one/kyc/workflows/{workflow_id}/writeback-complete` | VAULT_OWNER Bearer | Record encrypted PKM writeback status and artifact hash |
+| POST | `/api/one/kyc/workflows/{workflow_id}/approve-draft` | VAULT_OWNER Bearer | Deprecated; returns gone because server-side draft approval is disabled |
+| POST | `/api/one/kyc/workflows/{workflow_id}/reject-draft` | VAULT_OWNER Bearer | Reject and block the workflow |
+| POST | `/api/one/kyc/workflows/{workflow_id}/redraft` | VAULT_OWNER Bearer | Record typed or voice-originated redraft instruction metadata; draft revision is client-local |
+| POST | `/api/one/kyc/retention/purge` | `X-Hushh-Maintenance-Token` | Redact terminal workflow drafts after the retention window |
+
 ### VAULT_OWNER (Consent-Gated)
 
 #### Consent Management
@@ -275,7 +300,7 @@ Security invariant:
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/consent/data?token={consent_token}` | Retrieve encrypted export for token |
+| GET | `/api/consent/data` | Retrieve encrypted export for a valid consent token carried as `Authorization: Bearer <consent-token>`; legacy `consent_token` query transport remains backend-supported for non-browser callers |
 
 ### SSE (Server-Sent Events)
 
@@ -410,7 +435,7 @@ External developers (MCP agents, third-party apps) use the `/api/v1` endpoints:
    Body: { token: "<consent-token>" }
    → Returns: { valid, user_id, scope, expires_at }
 
-5. GET /api/consent/data?token=<consent-token>
+5. GET /api/consent/data with Authorization: Bearer <consent-token>
    → Returns: { ciphertext, iv, tag, export_key }
    → Developer decrypts with export_key
 ```
