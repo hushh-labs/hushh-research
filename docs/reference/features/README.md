@@ -10,7 +10,7 @@ flowchart TD
   root --> n1
 ```
 
-Cross-cutting feature documentation for Hushh and Kai product capabilities.
+Cross-cutting feature documentation for Kai product capabilities.
 
 Each page covers a shipped feature's scope, architecture, integration points, and operational requirements.
 

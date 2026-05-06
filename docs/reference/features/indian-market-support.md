@@ -6,7 +6,7 @@
 
 ## Overview
 
-Hushh and Kai now support Indian stock market workflows for NSE and BSE equities, indices, and broker portfolio imports.
+Kai now supports Indian stock market workflows for NSE and BSE equities, indices, and broker portfolio imports.
 
 **Market data works immediately with zero credentials.** Broker-specific features (portfolio import, order routing) require maintainers to inject API keys via environment variables.
 
@@ -16,7 +16,7 @@ Hushh and Kai now support Indian stock market workflows for NSE and BSE equities
 
 Canonical visual owner: [Features Reference](./README.md). Use that index for the feature placement map; this page is the narrower detail for Indian stock market support beneath it.
 
-For the broader Hushh/Kai product surface, see the [Kai Index](../kai/README.md).
+For the broader Kai product surface, see the [Kai Index](../kai/README.md).
 
 ### Flow overview
 
