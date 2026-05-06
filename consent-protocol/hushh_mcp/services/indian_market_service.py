@@ -138,8 +138,8 @@ class IndianMarketSettings:
 
     @classmethod
     def from_env(cls) -> "IndianMarketSettings":
-        from hushh_mcp.adapters.zerodha_kite_adapter import ZerodhaKiteConfig
         from hushh_mcp.adapters.upstox_adapter import UpstoxConfig
+        from hushh_mcp.adapters.zerodha_kite_adapter import ZerodhaKiteConfig
 
         enabled_raw = (os.getenv("INDIAN_MARKET_ENABLED") or "true").strip().lower()
         enabled = enabled_raw not in {"0", "false", "no", "off"}

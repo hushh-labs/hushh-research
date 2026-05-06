@@ -18,7 +18,7 @@ export function IndianIndexBar({ className = '' }: { className?: string }) {
       const { indices: data } = await getIndianIndices();
       setIndices(data);
       setError(null);
-    } catch (err) {
+    } catch (_err) {
       setError('Index data unavailable');
     } finally {
       setLoading(false);

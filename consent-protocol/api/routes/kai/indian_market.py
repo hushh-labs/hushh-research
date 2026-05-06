@@ -16,7 +16,11 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from hushh_mcp.adapters.upstox_adapter import UpstoxConfig, UpstoxNotConfiguredError, get_upstox_adapter
+from hushh_mcp.adapters.upstox_adapter import (
+    UpstoxConfig,
+    UpstoxNotConfiguredError,
+    get_upstox_adapter,
+)
 from hushh_mcp.adapters.zerodha_kite_adapter import (
     ZerodhaKiteConfig,
     ZerodhaNotConfiguredError,

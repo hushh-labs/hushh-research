@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from hushh_mcp.services.indian_market_service import (
     is_indian_symbol,
     normalize_indian_symbol,
@@ -11,7 +9,6 @@ from hushh_mcp.services.indian_market_service import (
     resolve_spoken_to_symbol,
 )
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
-
 
 # ---------------------------------------------------------------------------
 # normalize_indian_symbol

@@ -12,6 +12,43 @@ Hushh and Kai now support Indian stock market workflows for NSE and BSE equities
 
 ---
 
+## Visual Context
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  User voice / text utterance                                            │
+│  "Show me Nifty" / "Analyze Reliance" / "RELIANCE.NS quote"            │
+└────────────────────────────┬────────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│  voice_intent_service  ──  COMMAND_ALIASES                              │
+│  nifty / sensex / nse / bse → "indian_market"                          │
+│  resolve_spoken_to_symbol: "reliance" → RELIANCE.NS                    │
+└────────────────────────────┬────────────────────────────────────────────┘
+                             │  REST /kai/indian-market/*
+                             ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│  IndianMarketService (3-tier cache)                                     │
+│  L1: in-process dict (60 s TTL)                                         │
+│  L2: MarketCacheStore — Postgres (15 min TTL)                           │
+│  L3: yfinance  ──  Yahoo Finance  (public, ~15 min delayed)             │
+│       └─ broker fallback: ZerodhaKiteAdapter / UpstoxAdapter            │
+│          (activated only when API keys present in env)                  │
+└──────────┬───────────────────────────┬──────────────────────────────────┘
+           │                           │
+           ▼                           ▼
+┌──────────────────────┐   ┌──────────────────────────────────────────────┐
+│  API responses (INR) │   │  Frontend components                         │
+│  /quote/{symbol}     │   │  IndianIndexBar  — Nifty 50 / Sensex ticker  │
+│  /indices            │   │  IndianQuoteCard — price card (INR, lakh/Cr) │
+│  /search             │   │  ExchangeBadge   — NSE (blue) / BSE (orange) │
+│  /portfolio          │   └──────────────────────────────────────────────┘
+└──────────────────────┘
+```
+
+---
+
 ## What Ships in Phase 1
 
 | Feature | Status | Notes |
