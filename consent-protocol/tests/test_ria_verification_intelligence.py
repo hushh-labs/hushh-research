@@ -341,7 +341,7 @@ def test_iapd_adapter_never_bypasses_even_with_bypass_env(monkeypatch):
     assert result.outcome != "bypassed"
 
 
-def test_stage1_lookup_sends_query_only_even_when_input_crd_present(monkeypatch):
+def test_stage1_lookup_sends_query_with_context_when_input_crd_present(monkeypatch):
     monkeypatch.setenv("RIA_INTELLIGENCE_VERIFY_BASE_URL", "https://ria-intelligence.example")
     monkeypatch.delenv("RIA_INTELLIGENCE_VERIFY_URL", raising=False)
 
