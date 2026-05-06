@@ -80,3 +80,50 @@ Kai Agent Layer
         ↓
 User Data / AI Services
 ```
+## Repository Structure
+
+This repository contains multiple components and services.
+
+Example structure:
+
+```text
+hushh-research/
+├── hushh-webapp/
+├── docs/
+├── api/
+├── supabase/
+├── scripts/
+└── tests/
+```
+
+Different components may contain their own package.json files and dependency requirements.
+
+## Troubleshooting
+
+### npm install fails with package.json error
+
+If you encounter:
+
+```text
+ENOENT: no such file or directory, open 'package.json'
+```
+
+this means you are running npm commands outside a valid Node.js project directory.
+
+Use the following command to locate package.json files:
+
+```bash
+Get-ChildItem -Recurse -Filter package.json
+```
+
+Then navigate into the appropriate component directory before running npm install.
+
+## Recommended Development Workflow
+
+1. Fork the repository
+2. Clone your fork locally
+3. Create a dedicated branch
+4. Make focused changes
+5. Commit with meaningful messages
+6. Push changes to GitHub
+7. Open a Pull Request
