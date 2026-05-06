@@ -71,6 +71,7 @@ _ALLOWED_COMMANDS = {
     "history",
     "dashboard",
     "home",
+    "indian_market",
 }
 _ALLOWED_HISTORY_TABS = {"history", "debate", "summary", "transcript"}
 _PLANNER_NORMALIZATION_VERSION = "2026-04-21-canonical-plan-a"
@@ -100,6 +101,16 @@ _COMMAND_ALIASES = {
     "analysis_page": "history",
     "analysis_tab": "history",
     "analysis_workspace": "history",
+    # Indian market aliases
+    "nifty": "indian_market",
+    "sensex": "indian_market",
+    "nse": "indian_market",
+    "bse": "indian_market",
+    "bank_nifty": "indian_market",
+    "banknifty": "indian_market",
+    "indian_stocks": "indian_market",
+    "india_market": "indian_market",
+    "indian_market_section": "indian_market",
 }
 _ALLOWED_CONTEXT_KEYS = {
     "route",

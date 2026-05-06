@@ -165,6 +165,36 @@ class VoiceRuntimeSettings:
     vad_silence_ms: int
 
 
+@dataclass(frozen=True)
+class IndianMarketSettings:
+    """Runtime settings for the Indian stock market feature."""
+
+    enabled: bool
+    default_exchange: str          # "NSE" or "BSE"
+    zerodha_configured: bool
+    upstox_configured: bool
+
+
+def get_indian_market_settings() -> IndianMarketSettings:
+    """Return current Indian market settings (not cached — broker keys can be rotated)."""
+    enabled_raw = _clean_env("INDIAN_MARKET_ENABLED", "true").lower()
+    enabled = enabled_raw not in {"0", "false", "no", "off", "disabled"}
+    default_exchange = _clean_env("INDIAN_MARKET_DEFAULT_EXCHANGE", "NSE").upper() or "NSE"
+    zerodha_configured = bool(
+        _clean_env("ZERODHA_API_KEY") and _clean_env("ZERODHA_ACCESS_TOKEN")
+    )
+    upstox_configured = bool(
+        _clean_env("UPSTOX_API_KEY") and _clean_env("UPSTOX_ACCESS_TOKEN")
+    )
+    return IndianMarketSettings(
+        enabled=enabled,
+        default_exchange=default_exchange,
+        zerodha_configured=zerodha_configured,
+        upstox_configured=upstox_configured,
+    )
+
+
+
 def get_optional_gmail_oauth_token_key() -> str:
     return _clean_env(GMAIL_OAUTH_TOKEN_KEY_ENV)
 
