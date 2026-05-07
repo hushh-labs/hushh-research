@@ -15,14 +15,17 @@ const GMAIL_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(15_000, {
   developmentFloorMs: 15_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_TIMEOUT_MS",
 });
+
 const GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
   developmentFloorMs: 45_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS",
 });
+
 const GMAIL_RECONCILE_TIMEOUT_MS = resolveSlowRequestTimeoutMs(30_000, {
   developmentFloorMs: 30_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_RECONCILE_TIMEOUT_MS",
 });
+
 const GMAIL_CONNECT_COMPLETE_TIMEOUT_MS = resolveSlowRequestTimeoutMs(30_000, {
   developmentFloorMs: 30_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_CONNECT_COMPLETE_TIMEOUT_MS",
@@ -34,11 +37,14 @@ function isGmailPath(path: string): boolean {
 
 function isUpstreamTimeoutError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
+
   const normalizedMessage = error.message.toLowerCase();
+
   const causeCode =
     typeof (error as Error & { cause?: { code?: unknown } }).cause?.code === "string"
       ? (error as Error & { cause: { code: string } }).cause.code
       : "";
+
   return (
     error.name === "TimeoutError" ||
     normalizedMessage.includes("timed out") ||
@@ -104,15 +110,19 @@ function resolveKaiUpstreamTimeoutMs(path: string): number | null {
   if (path === "gmail/receipts-memory/preview") {
     return GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS;
   }
+
   if (path === "gmail/reconcile") {
     return GMAIL_RECONCILE_TIMEOUT_MS;
   }
+
   if (path === "gmail/connect/complete") {
     return GMAIL_CONNECT_COMPLETE_TIMEOUT_MS;
   }
+
   if (isGmailPath(path)) {
     return GMAIL_PROXY_TIMEOUT_MS;
   }
+
   return null;
 }
 
@@ -121,13 +131,45 @@ function summarizeProxyError(error: unknown): Record<string, unknown> {
     return { message: String(error) };
   }
 
-  const cause = error as Error & { cause?: { code?: unknown; message?: unknown } };
+  const cause = error as Error & {
+    cause?: { code?: unknown; message?: unknown };
+  };
+
   return {
     name: error.name,
     message: error.message,
     causeCode: typeof cause.cause?.code === "string" ? cause.cause.code : undefined,
-    causeMessage: typeof cause.cause?.message === "string" ? cause.cause.message : undefined,
+    causeMessage:
+      typeof cause.cause?.message === "string"
+        ? cause.cause.message
+        : undefined,
   };
+}
+
+async function safeParseUpstreamResponse(response: Response) {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    try {
+      return await response.json();
+    } catch {
+      return {
+        error: "Malformed JSON response from upstream service",
+      };
+    }
+  }
+
+  try {
+    const text = await response.text();
+
+    return text
+      ? { detail: text }
+      : { detail: "Empty upstream response" };
+  } catch {
+    return {
+      error: "Unable to parse upstream response",
+    };
+  }
 }
 
 /**
@@ -163,9 +205,13 @@ export async function DELETE(
   return proxyRequest(request, params);
 }
 
-async function proxyRequest(request: NextRequest, params: { path: string[] }) {
+async function proxyRequest(
+  request: NextRequest,
+  params: { path: string[] }
+) {
   const requestId = resolveRequestId(request);
   const path = params.path.join("/");
+
   // Forward query string to backend
   const queryString = request.nextUrl.search;
   const url = `${getPythonApiUrl()}/api/kai/${path}${queryString}`;
@@ -173,34 +219,43 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
   // Debug: Check if Authorization header is present
   const authHeader = request.headers.get("authorization");
   const acceptHeader = request.headers.get("accept");
+
   const consentHeader =
-    request.headers.get("x-hushh-consent") || request.headers.get("X-Hushh-Consent");
+    request.headers.get("x-hushh-consent") ||
+    request.headers.get("X-Hushh-Consent");
+
   const voiceTurnIdHeader =
-    request.headers.get("x-voice-turn-id") || request.headers.get("X-Voice-Turn-Id");
+    request.headers.get("x-voice-turn-id") ||
+    request.headers.get("X-Voice-Turn-Id");
+
   const contentType = request.headers.get("content-type") || "";
+
   console.log(
     `[Kai API] request_id=${requestId} method=${request.method} path=${path} auth=${Boolean(authHeader)} content_type=${contentType || "none"}`
   );
 
   try {
     const headers = createUpstreamHeaders(requestId);
-    
+
     // Copy authorization header
     if (authHeader) {
       headers.set("Authorization", authHeader);
     }
+
     if (consentHeader) {
       headers.set("X-Hushh-Consent", consentHeader);
     }
+
     if (acceptHeader) {
       headers.set("Accept", acceptHeader);
     }
+
     if (voiceTurnIdHeader) {
       headers.set("X-Voice-Turn-Id", voiceTurnIdHeader);
     }
 
     let body: BodyInit | undefined;
-    
+
     // Handle different content types
     if (request.method === "GET" || request.method === "DELETE") {
       body = undefined;
@@ -209,6 +264,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       // Don't set Content-Type - let fetch set it with boundary
       const formData = await request.formData();
       body = formData;
+
       console.log(`[Kai API] Forwarding multipart form data`);
     } else {
       // For JSON requests
@@ -222,20 +278,26 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       method: request.method,
       headers: headers,
       body: body,
-      ...(upstreamTimeoutMs ? { signal: AbortSignal.timeout(upstreamTimeoutMs) } : {}),
+      ...(upstreamTimeoutMs
+        ? { signal: AbortSignal.timeout(upstreamTimeoutMs) }
+        : {}),
     });
 
     // Check for SSE stream response
     const responseContentType = response.headers.get("content-type");
+
     if (responseContentType?.includes("text/event-stream")) {
-      console.log(`[Kai API] request_id=${requestId} sse_pass_through=true`);
+      console.log(
+        `[Kai API] request_id=${requestId} sse_pass_through=true`
+      );
+
       // Return SSE stream directly without parsing
       return new Response(response.body, {
         status: response.status,
         headers: {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
+          Connection: "keep-alive",
           "Content-Encoding": "none",
           "X-Accel-Buffering": "no",
           "x-request-id": requestId,
@@ -244,11 +306,14 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     }
 
     if (path === "voice/tts") {
-      console.log(`[Kai API] request_id=${requestId} binary_pass_through=true path=${path}`);
+      console.log(
+        `[Kai API] request_id=${requestId} binary_pass_through=true path=${path}`
+      );
+
       return withRequestIdResponse(requestId, response);
     }
 
-    const data = await response.json().catch(() => ({}));
+    const data = await safeParseUpstreamResponse(response);
 
     if (!response.ok) {
       const expectedAnalyzeRunMiss =
@@ -256,8 +321,11 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
         response.status === 404 &&
         typeof data === "object" &&
         data !== null &&
-        typeof (data as { detail?: { code?: unknown } }).detail?.code === "string" &&
-        (data as { detail: { code: string } }).detail.code === "ANALYZE_RUN_NOT_FOUND";
+        typeof (data as { detail?: { code?: unknown } }).detail?.code ===
+          "string" &&
+        (data as { detail: { code: string } }).detail.code ===
+          "ANALYZE_RUN_NOT_FOUND";
+
       if (expectedAnalyzeRunMiss) {
         console.info(
           `[Kai API] request_id=${requestId} no_active_analyze_run status=${response.status}`
@@ -268,7 +336,10 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
           data
         );
       }
-      return withRequestIdJson(requestId, data, { status: response.status });
+
+      return withRequestIdJson(requestId, data, {
+        status: response.status,
+      });
     }
 
     return withRequestIdJson(requestId, data);
@@ -277,7 +348,9 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       `[Kai API] request_id=${requestId} proxy_error path=${path}`,
       summarizeProxyError(error)
     );
+
     const statusCode = isUpstreamTimeoutError(error) ? 504 : 502;
+
     return withRequestIdJson(
       requestId,
       buildUpstreamFailurePayload(path, error),
