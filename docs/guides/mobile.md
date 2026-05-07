@@ -120,6 +120,7 @@ Before calling iOS/Android parity complete, run:
 
 That release gate includes:
 
+- native microphone permission metadata verification
 - full route-contract verification
 - native plugin parity verification
 - Capacitor route classification verification
