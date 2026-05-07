@@ -127,3 +127,15 @@ Then navigate into the appropriate component directory before running npm instal
 5. Commit with meaningful messages
 6. Push changes to GitHub
 7. Open a Pull Request
+
+## Architecture Overview
+
+```text
+Frontend (Next.js / Capacitor)
+        ↓
+Consent Protocol Backend (FastAPI)
+        ↓
+Kai Agent Layer
+        ↓
+User Data / AI Services
+```
