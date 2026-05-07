@@ -334,6 +334,14 @@ def _service(db: _FakeDb, consent_db: _FakeConsentDb) -> OneEmailKycService:
     return service
 
 
+async def _select_identity_scope(service: OneEmailKycService, workflow: dict) -> dict:
+    return await service.select_scopes(
+        user_id=workflow["user_id"],
+        workflow_id=workflow["workflow_id"],
+        selected_scopes=["attr.identity.*"],
+    )
+
+
 def test_decode_pubsub_notification_normalizes_numeric_history_id():
     service = _service(_FakeDb(), _FakeConsentDb())
     payload = {
@@ -379,15 +387,21 @@ async def test_process_message_creates_scoped_kyc_consent_without_storing_raw_bo
     workflow = result["workflow"]
     assert workflow["status"] == "needs_scope"
     assert workflow["requested_scope"] == "attr.identity.*"
-    assert workflow["consent_request_id"].startswith("okyc_")
-    assert len(workflow["consent_request_id"]) <= 32
+    assert workflow["consent_request_id"] is None
+    assert workflow["metadata"]["scope_selection_required"] is True
+    assert workflow["metadata"]["candidate_scopes"][0]["scope"] == "attr.identity.*"
     assert workflow["required_fields"] == ["full_name", "date_of_birth", "address"]
+    assert consent_db.events == []
+    assert raw_body_marker not in json.dumps(db.workflows, default=str)
+
+    selected = await _select_identity_scope(service, workflow)
+    assert selected["consent_request_id"].startswith("okyc_")
+    assert len(selected["consent_request_id"]) <= 32
     assert consent_db.events[0]["agent_id"] == "agent_kyc"
     assert consent_db.events[0]["scope"] == "attr.identity.*"
-    assert consent_db.events[0]["request_id"] == workflow["consent_request_id"]
+    assert consent_db.events[0]["request_id"] == selected["consent_request_id"]
     assert consent_db.events[0]["metadata"]["requester_actor_type"] == "developer"
     assert consent_db.events[0]["metadata"]["connector_public_key"] == _CONNECTOR_PUBLIC_B64
-    assert raw_body_marker not in json.dumps(db.workflows, default=str)
 
 
 @pytest.mark.asyncio
@@ -433,7 +447,9 @@ async def test_register_client_connector_repairs_waiting_workflow():
     )
 
     assert refreshed["status"] == "needs_scope"
-    assert refreshed["consent_request_id"].startswith("okyc_")
+    assert refreshed["consent_request_id"] is None
+    selected = await _select_identity_scope(service, refreshed)
+    assert selected["consent_request_id"].startswith("okyc_")
     assert consent_db.events[0]["metadata"]["connector_public_key"] == _CONNECTOR_PUBLIC_B64
     assert consent_db.events[0]["metadata"]["connector_key_id"] == "one-kyc-key"
 
@@ -571,7 +587,9 @@ async def test_process_message_matches_verified_email_alias_without_relay_infere
 
     assert result["workflow"]["user_id"] == "user_123"
     assert result["workflow"]["status"] == "needs_scope"
-    assert result["workflow"]["consent_request_id"].startswith("okyc_")
+    assert result["workflow"]["consent_request_id"] is None
+    selected = await _select_identity_scope(service, result["workflow"])
+    assert selected["consent_request_id"].startswith("okyc_")
     assert consent_db.events
 
 
@@ -610,8 +628,63 @@ async def test_process_message_prefers_verified_recipient_identity_over_sender_i
     assert workflow["status"] == "needs_scope"
     assert workflow["metadata"]["identity_match_source"] == "recipients"
     assert workflow["metadata"]["identity_matched_by"] == "actor_identity_cache"
-    assert workflow["consent_request_id"].startswith("okyc_")
+    assert workflow["consent_request_id"] is None
+    assert "attr.financial.*" in [
+        item["scope"] for item in workflow["metadata"]["candidate_scopes"]
+    ]
+    selected = await service.select_scopes(
+        user_id=workflow["user_id"],
+        workflow_id=workflow["workflow_id"],
+        selected_scopes=["attr.financial.*"],
+    )
+    assert selected["consent_request_id"].startswith("okyc_")
     assert consent_db.events
+
+
+@pytest.mark.asyncio
+async def test_select_scopes_creates_bundled_multi_scope_consent_requests():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+
+    result = await service._process_message(
+        _message(
+            subject="Broker API KYC and financial questionnaire",
+            body=(
+                "Please complete KYC and include all financial information for broker API "
+                "onboarding. Required: full name, date of birth, portfolio."
+            ),
+        ),
+        history_id="101multi",
+    )
+
+    workflow = result["workflow"]
+    assert workflow["metadata"]["scope_selection_required"] is True
+    assert [item["scope"] for item in workflow["metadata"]["candidate_scopes"]] == [
+        "attr.identity.*",
+        "attr.financial.*",
+    ]
+
+    selected = await service.select_scopes(
+        user_id="user_123",
+        workflow_id=workflow["workflow_id"],
+        selected_scopes=["attr.identity.*", "attr.financial.*"],
+    )
+
+    assert selected["status"] == "needs_scope"
+    assert selected["requested_scope"] == "attr.identity.*"
+    assert selected["requested_scopes"] == ["attr.identity.*", "attr.financial.*"]
+    assert selected["metadata"]["scope_selection_required"] is False
+    assert selected["consent_bundle_id"].startswith("okycb_")
+    assert "/consents?tab=incoming" in selected["consent_request_url"]
+    assert "bundleId=" in selected["consent_request_url"]
+    assert len(consent_db.events) == 2
+    bundle_ids = {event["metadata"]["bundle_id"] for event in consent_db.events}
+    assert bundle_ids == {selected["consent_bundle_id"]}
+    assert [event["scope"] for event in consent_db.events] == [
+        "attr.identity.*",
+        "attr.financial.*",
+    ]
 
 
 @pytest.mark.asyncio
@@ -661,7 +734,8 @@ async def test_refresh_workflow_marks_client_draft_ready_without_decrypting_expo
         _message(body="Broker KYC questionnaire asking for full name."),
         history_id="102",
     )
-    request_id = result["workflow"]["consent_request_id"]
+    workflow_with_consent = await _select_identity_scope(service, result["workflow"])
+    request_id = workflow_with_consent["consent_request_id"]
     consent_db.status_by_request[request_id] = {
         "action": "CONSENT_GRANTED",
         "token_id": "token_123",
@@ -678,7 +752,7 @@ async def test_refresh_workflow_marks_client_draft_ready_without_decrypting_expo
 
     workflow = await service.refresh_workflow(
         user_id="user_123",
-        workflow_id=result["workflow"]["workflow_id"],
+        workflow_id=workflow_with_consent["workflow_id"],
     )
 
     assert workflow["status"] == "waiting_on_user"
@@ -691,12 +765,121 @@ async def test_refresh_workflow_marks_client_draft_ready_without_decrypting_expo
 
     export_package = await service.get_workflow_consent_export(
         user_id="user_123",
-        workflow_id=result["workflow"]["workflow_id"],
+        workflow_id=workflow_with_consent["workflow_id"],
     )
     assert export_package["status"] == "success"
     assert export_package["encrypted_data"]
     assert export_package["wrapped_key_bundle"]["connector_key_id"] == "one-kyc-key"
     assert "token_123" not in json.dumps(export_package, default=str)
+
+
+@pytest.mark.asyncio
+async def test_refresh_workflow_marks_multi_scope_exports_ready():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+    result = await service._process_message(
+        _message(
+            subject="Broker API KYC and financial questionnaire",
+            body="Broker KYC questionnaire asking for full name and all financial information.",
+        ),
+        history_id="102multi",
+    )
+    selected = await service.select_scopes(
+        user_id="user_123",
+        workflow_id=result["workflow"]["workflow_id"],
+        selected_scopes=["attr.identity.*", "attr.financial.*"],
+    )
+    requests = selected["metadata"]["consent_requests"]
+    consent_db.status_by_request[requests[0]["request_id"]] = {
+        "action": "CONSENT_GRANTED",
+        "token_id": "token_identity_multi",
+    }
+    consent_db.export_by_token["token_identity_multi"] = _encrypted_export(
+        {"identity": {"full_name": "Test Reviewer"}},
+        scope="attr.identity.*",
+        export_revision=1,
+    )
+
+    pending = await service.refresh_workflow(
+        user_id="user_123",
+        workflow_id=selected["workflow_id"],
+    )
+    assert pending["status"] == "needs_scope"
+
+    consent_db.status_by_request[requests[1]["request_id"]] = {
+        "action": "CONSENT_GRANTED",
+        "token_id": "token_financial_multi",
+    }
+    consent_db.export_by_token["token_financial_multi"] = _encrypted_export(
+        {"financial": {"portfolio": [{"ticker": "UAT", "value": "test only"}]}},
+        scope="attr.financial.*",
+        export_revision=7,
+    )
+
+    ready = await service.refresh_workflow(
+        user_id="user_123",
+        workflow_id=selected["workflow_id"],
+    )
+    assert ready["status"] == "waiting_on_user"
+    assert ready["draft_status"] == "ready"
+    assert ready["draft_body"] is None
+    assert len(ready["metadata"]["consent_exports"]) == 2
+
+    export_response = await service.get_workflow_consent_exports(
+        user_id="user_123",
+        workflow_id=selected["workflow_id"],
+    )
+    assert [item["scope"] for item in export_response["exports"]] == [
+        "attr.identity.*",
+        "attr.financial.*",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_denied_selected_scope_blocks_external_reply():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+    result = await service._process_message(
+        _message(
+            subject="Broker API KYC and financial questionnaire",
+            body="Broker KYC questionnaire asking for full name and all financial information.",
+        ),
+        history_id="102denied",
+    )
+    selected = await service.select_scopes(
+        user_id="user_123",
+        workflow_id=result["workflow"]["workflow_id"],
+        selected_scopes=["attr.identity.*", "attr.financial.*"],
+    )
+    requests = selected["metadata"]["consent_requests"]
+    consent_db.status_by_request[requests[0]["request_id"]] = {
+        "action": "CONSENT_GRANTED",
+        "token_id": "token_identity_denied",
+    }
+    consent_db.export_by_token["token_identity_denied"] = _encrypted_export(
+        {"identity": {"full_name": "Test Reviewer"}},
+        scope="attr.identity.*",
+    )
+    consent_db.status_by_request[requests[1]["request_id"]] = {"action": "CONSENT_DENIED"}
+
+    blocked = await service.refresh_workflow(
+        user_id="user_123",
+        workflow_id=selected["workflow_id"],
+    )
+
+    assert blocked["status"] == "blocked"
+    assert blocked["metadata"]["external_reply_blocked"] is True
+    with pytest.raises(OneEmailKycError) as exc:
+        await service.send_approved_reply(
+            user_id="user_123",
+            workflow_id=selected["workflow_id"],
+            approved_subject="Re: Broker API KYC and financial questionnaire",
+            approved_body="Approved body",
+            pkm_writeback_artifact_hash="a" * 64,
+        )
+    assert exc.value.code == "ONE_KYC_EXTERNAL_REPLY_BLOCKED"
 
 
 @pytest.mark.asyncio
@@ -708,7 +891,8 @@ async def test_refresh_workflow_rejects_export_for_wrong_client_connector_key():
         _message(body="Broker KYC questionnaire asking for full name and date of birth."),
         history_id="103",
     )
-    request_id = result["workflow"]["consent_request_id"]
+    workflow_with_consent = await _select_identity_scope(service, result["workflow"])
+    request_id = workflow_with_consent["consent_request_id"]
     consent_db.status_by_request[request_id] = {
         "action": "CONSENT_GRANTED",
         "token_id": "token_missing",
@@ -730,7 +914,7 @@ async def test_refresh_workflow_rejects_export_for_wrong_client_connector_key():
     with pytest.raises(OneEmailKycError) as exc:
         await service.refresh_workflow(
             user_id="user_123",
-            workflow_id=result["workflow"]["workflow_id"],
+            workflow_id=workflow_with_consent["workflow_id"],
         )
 
     assert exc.value.code == "ONE_KYC_CONNECTOR_KEY_MISMATCH"
@@ -745,7 +929,8 @@ async def test_redraft_records_instruction_hash_without_storing_plaintext():
         _message(body="Broker KYC questionnaire asking for full name."),
         history_id="104",
     )
-    request_id = result["workflow"]["consent_request_id"]
+    workflow_with_consent = await _select_identity_scope(service, result["workflow"])
+    request_id = workflow_with_consent["consent_request_id"]
     consent_db.status_by_request[request_id] = {
         "action": "CONSENT_GRANTED",
         "token_id": "token_redraft",
@@ -755,7 +940,7 @@ async def test_redraft_records_instruction_hash_without_storing_plaintext():
     )
     workflow = await service.refresh_workflow(
         user_id="user_123",
-        workflow_id=result["workflow"]["workflow_id"],
+        workflow_id=workflow_with_consent["workflow_id"],
     )
 
     redrafted = await service.redraft(
@@ -780,10 +965,14 @@ async def test_send_approved_reply_revalidates_consent_and_sends_transient_body(
     consent_db = _FakeConsentDb()
     service = _service(db, consent_db)
     result = await service._process_message(
-        _message(body="Broker KYC questionnaire asking for full name."),
+        _message(
+            body="Broker KYC questionnaire asking for full name.",
+            cc="User <verified@example.com>, Broker Assistant <assistant@example.com>",
+        ),
         history_id="105",
     )
-    request_id = result["workflow"]["consent_request_id"]
+    workflow_with_consent = await _select_identity_scope(service, result["workflow"])
+    request_id = workflow_with_consent["consent_request_id"]
     consent_db.status_by_request[request_id] = {
         "action": "CONSENT_GRANTED",
         "token_id": "token_send",
@@ -793,15 +982,16 @@ async def test_send_approved_reply_revalidates_consent_and_sends_transient_body(
     )
     workflow = await service.refresh_workflow(
         user_id="user_123",
-        workflow_id=result["workflow"]["workflow_id"],
+        workflow_id=workflow_with_consent["workflow_id"],
     )
     sent_payloads = []
 
     def _capture_send(url, *, json_payload, scopes):
         sent_payloads.append(json_payload)
-        return {"id": "gmail_sent_1"}
+        return {"id": "gmail_sent_1", "threadId": "gmail_thread_1"}
 
     service._post_json_sync = _capture_send
+    service._fetch_message = lambda message_id: {"id": message_id, "threadId": "gmail_thread_1"}
 
     sent = await service.send_approved_reply(
         user_id="user_123",
@@ -822,6 +1012,14 @@ async def test_send_approved_reply_revalidates_consent_and_sends_transient_body(
         base64.urlsafe_b64decode((raw + ("=" * (-len(raw) % 4))).encode("utf-8"))
     )
     assert parsed["From"] == "One <one@hushh.ai>"
+    assert parsed["To"] == "broker@example.com"
+    assert parsed["Cc"] == "assistant@example.com"
+    assert parsed["Subject"] == "Broker API KYC questionnaire"
+    assert parsed["In-Reply-To"] == "<m1@example.com>"
+    assert parsed["References"] == "<m1@example.com>"
+    assert sent_payloads[0]["threadId"] == "gmail_thread_1"
+    assert sent["sent_thread_id"] == "gmail_thread_1"
+    assert sent["thread_match_status"] == "matched"
     assert parsed.get_payload() == "Approved KYC reply body\n"
     assert "Approved KYC reply body" not in json.dumps(db.workflows, default=str)
 
@@ -835,7 +1033,8 @@ async def test_send_approved_reply_rejects_when_bound_export_revision_changes():
         _message(body="Broker KYC questionnaire asking for full name."),
         history_id="106",
     )
-    request_id = result["workflow"]["consent_request_id"]
+    workflow_with_consent = await _select_identity_scope(service, result["workflow"])
+    request_id = workflow_with_consent["consent_request_id"]
     consent_db.status_by_request[request_id] = {
         "action": "CONSENT_GRANTED",
         "token_id": "token_revision",
@@ -846,7 +1045,7 @@ async def test_send_approved_reply_rejects_when_bound_export_revision_changes():
     )
     workflow = await service.refresh_workflow(
         user_id="user_123",
-        workflow_id=result["workflow"]["workflow_id"],
+        workflow_id=workflow_with_consent["workflow_id"],
     )
     consent_db.export_by_token["token_revision"] = _encrypted_export(
         {"identity": {"full_name": "Test Reviewer"}},
@@ -875,7 +1074,8 @@ async def test_send_approved_reply_clears_writeback_pending_when_gmail_send_fail
         _message(body="Broker KYC questionnaire asking for full name."),
         history_id="106a",
     )
-    request_id = result["workflow"]["consent_request_id"]
+    workflow_with_consent = await _select_identity_scope(service, result["workflow"])
+    request_id = workflow_with_consent["consent_request_id"]
     consent_db.status_by_request[request_id] = {
         "action": "CONSENT_GRANTED",
         "token_id": "token_send_failed",
@@ -885,7 +1085,7 @@ async def test_send_approved_reply_clears_writeback_pending_when_gmail_send_fail
     )
     workflow = await service.refresh_workflow(
         user_id="user_123",
-        workflow_id=result["workflow"]["workflow_id"],
+        workflow_id=workflow_with_consent["workflow_id"],
     )
 
     def _fail_send(url, *, json_payload, scopes):
@@ -920,7 +1120,8 @@ async def test_writeback_complete_updates_metadata_without_plaintext():
         _message(body="Broker KYC questionnaire asking for full name."),
         history_id="106b",
     )
-    request_id = result["workflow"]["consent_request_id"]
+    workflow_with_consent = await _select_identity_scope(service, result["workflow"])
+    request_id = workflow_with_consent["consent_request_id"]
     consent_db.status_by_request[request_id] = {
         "action": "CONSENT_GRANTED",
         "token_id": "token_writeback",
@@ -930,7 +1131,7 @@ async def test_writeback_complete_updates_metadata_without_plaintext():
     )
     workflow = await service.refresh_workflow(
         user_id="user_123",
-        workflow_id=result["workflow"]["workflow_id"],
+        workflow_id=workflow_with_consent["workflow_id"],
     )
     service._post_json_sync = lambda url, *, json_payload, scopes: {"id": "gmail_sent_writeback"}
     sent = await service.send_approved_reply(
@@ -965,7 +1166,8 @@ async def test_writeback_complete_requires_declared_artifact_hash_match():
         _message(body="Broker KYC questionnaire asking for full name."),
         history_id="106bb",
     )
-    request_id = result["workflow"]["consent_request_id"]
+    workflow_with_consent = await _select_identity_scope(service, result["workflow"])
+    request_id = workflow_with_consent["consent_request_id"]
     consent_db.status_by_request[request_id] = {
         "action": "CONSENT_GRANTED",
         "token_id": "token_writeback_mismatch",
@@ -975,7 +1177,7 @@ async def test_writeback_complete_requires_declared_artifact_hash_match():
     )
     workflow = await service.refresh_workflow(
         user_id="user_123",
-        workflow_id=result["workflow"]["workflow_id"],
+        workflow_id=workflow_with_consent["workflow_id"],
     )
     service._post_json_sync = lambda url, *, json_payload, scopes: {"id": "gmail_sent_writeback"}
     sent = await service.send_approved_reply(
