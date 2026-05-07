@@ -29,14 +29,13 @@ git checkout -b feature-name
 
 ## Install Dependencies
 
-Locate the appropriate project directory containing package.json before running npm install.
-
-Example:
+Bootstrap the development environment using:
 
 ```bash
-cd webapp
-npm install
+./bin/hushh bootstrap
 ```
+
+This command installs and configures the required project dependencies and local development setup.
 
 ---
 
@@ -55,7 +54,7 @@ npm install
 ## Commit Message Example
 
 ```bash
-git commit -m "Add contributor onboarding documentation"
+git commit -s -m "Add contributor onboarding documentation"
 ```
 
 ---
@@ -69,17 +68,6 @@ git commit -m "Add contributor onboarding documentation"
 
 ---
 
-## Architecture Overview
-
-```text
-Frontend (Next.js / Capacitor)
-        ↓
-Consent Protocol Backend (FastAPI)
-        ↓
-Kai Agent Layer
-        ↓
-User Data / AI Services
-```
 ## Repository Structure
 
 This repository contains multiple components and services.
@@ -98,9 +86,11 @@ hushh-research/
 
 Different components may contain their own package.json files and dependency requirements.
 
+---
+
 ## Troubleshooting
 
-### npm install fails with package.json error
+### package.json Error
 
 If you encounter:
 
@@ -108,7 +98,7 @@ If you encounter:
 ENOENT: no such file or directory, open 'package.json'
 ```
 
-this means you are running npm commands outside a valid Node.js project directory.
+this means npm commands are being executed outside a valid Node.js project directory.
 
 Use the following command to locate package.json files:
 
@@ -116,7 +106,9 @@ Use the following command to locate package.json files:
 Get-ChildItem -Recurse -Filter package.json
 ```
 
-Then navigate into the appropriate component directory before running npm install.
+Then navigate into the appropriate component directory before running npm commands.
+
+---
 
 ## Recommended Development Workflow
 
@@ -127,6 +119,8 @@ Then navigate into the appropriate component directory before running npm instal
 5. Commit with meaningful messages
 6. Push changes to GitHub
 7. Open a Pull Request
+
+---
 
 ## Architecture Overview
 
