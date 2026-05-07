@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import { proxyRequest } from "@/app/api/_utils/proxy";
 
 const BACKEND_URL = getPythonApiUrl();
 
@@ -38,43 +39,27 @@ export async function POST(request: NextRequest) {
 
     console.log("[API] Issuing session token");
 
-    const response = await fetch(`${BACKEND_URL}/api/consent/issue-token`, {
-       method: "POST",
-       headers: {
-        "Content-Type": "application/json",
-         Authorization: authHeader,
-   },
-  body: JSON.stringify({ userId, scope: "session" }),
-  signal: AbortSignal.timeout(20_000),
-});
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error("[API] Backend error:", error);
-     
-      return NextResponse.json(
-        { error: "Failed to issue session token" },
-        { status: response.status }
-      );
-    }
-
-    const data = await response.json();
-    console.log(`[API] Session token issued, expires at: ${data.expiresAt}`);
-
-    return NextResponse.json(data);
+    return proxyRequest({
+      url: `${BACKEND_URL}/api/consent/issue-token`,
+      options: {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({
+          userId,
+          scope: "session",
+        }),
+      },
+      timeoutMessage: "Session token service timed out",
+    });
   } catch (error) {
-  console.error("[API] Session token error:", error);
+    console.error("[SESSION_TOKEN_API_ERROR]", error);
 
-  if (error instanceof Error && error.name === "TimeoutError") {
     return NextResponse.json(
-      { error: "Upstream request timed out" },
-      { status: 504 }
+      { error: "Internal server error" },
+      { status: 500 }
     );
   }
-
-  return NextResponse.json(
-    { error: "Internal server error" },
-    { status: 500 }
-  );
-}
 }
