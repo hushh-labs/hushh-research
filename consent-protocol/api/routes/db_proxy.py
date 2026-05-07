@@ -249,7 +249,6 @@ async def vault_check(
     except Exception as e:
         logger.error(f"vault/check error: {e}")
         _raise_database_http_exception(e)
-        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.post("/vault/bootstrap-state", response_model=VaultBootstrapStateResponse)
@@ -290,7 +289,6 @@ async def vault_bootstrap_state(
     except Exception as e:
         logger.error("vault/bootstrap-state error user=%s: %s", _mask_user_id(user_id), e)
         _raise_database_http_exception(e)
-        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.post("/vault/pre-vault-state", response_model=VaultBootstrapStateResponse)
@@ -337,7 +335,6 @@ async def vault_pre_vault_state(
     except Exception as e:
         logger.error("vault/pre-vault-state error user=%s: %s", _mask_user_id(user_id), e)
         _raise_database_http_exception(e)
-        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.post("/vault/get", response_model=VaultStateData)
@@ -369,7 +366,6 @@ async def vault_get(
     except Exception as e:
         logger.error(f"vault/get error: {e}")
         _raise_database_http_exception(e)
-        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.post("/vault/setup", response_model=SuccessResponse)
@@ -433,7 +429,6 @@ async def vault_setup(
             e,
         )
         _raise_database_http_exception(e)
-        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.post("/vault/wrapper/upsert", response_model=SuccessResponse)
@@ -491,7 +486,6 @@ async def vault_wrapper_upsert(
             e,
         )
         _raise_database_http_exception(e)
-        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.post("/vault/primary/set", response_model=SuccessResponse)
@@ -536,7 +530,6 @@ async def vault_primary_set(
             e,
         )
         _raise_database_http_exception(e)
-        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.post("/vault/integrity", response_model=VaultIntegrityResponse)
@@ -587,7 +580,6 @@ async def vault_integrity(
     except Exception as e:
         logger.error("vault/integrity error user=%s: %s", _mask_user_id(request.userId), e)
         _raise_database_http_exception(e)
-        raise HTTPException(status_code=500, detail="Database error")
 
 
 # ============================================================================
