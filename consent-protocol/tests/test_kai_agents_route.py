@@ -1,18 +1,7 @@
-"""
-Tests for api/routes/agents.py — Kai Financial agent endpoints.
-
-Security regression: /api/agents/kai/chat must never expose internal exception
-detail (str(e)) in the HTTP response body.  Gemini/DB errors can contain model
-IDs, internal endpoints, API-key fragments, table/column names, or file paths
-with user IDs.  The fix returns a fixed generic message and keeps the full
-exception server-side in the logger.
-"""
-
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -35,7 +24,7 @@ _VALID_CHAT_PAYLOAD = {
     "sessionState": None,
 }
 
-_INTERNAL_SECRET = "projects/my-gcp-project/locations/us-central1/publishers/google/models/gemini-2.0-flash"
+_LEAKED_ERROR_TEXT = "projects/my-gcp-project/locations/us-central1/publishers/google/models/gemini-2.0-flash"  # noqa: S105
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +39,7 @@ def test_kai_chat_does_not_expose_exception_detail_on_error(monkeypatch):
     """
 
     def _raise(*args, **kwargs):
-        raise RuntimeError(_INTERNAL_SECRET)
+        raise RuntimeError(_LEAKED_ERROR_TEXT)
 
     mock_agent = MagicMock()
     mock_agent.handle_message.side_effect = _raise
@@ -63,7 +52,7 @@ def test_kai_chat_does_not_expose_exception_detail_on_error(monkeypatch):
 
     body = response.text
     # The internal error string must not appear anywhere in the response body.
-    assert _INTERNAL_SECRET not in body, (
+    assert _LEAKED_ERROR_TEXT not in body, (
         f"Internal exception detail leaked into HTTP response: {body!r}"
     )
 
