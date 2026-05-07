@@ -9,7 +9,7 @@ export interface SSEBlockResult {
  * Robustly parses SSE chunks. If a network chunk ends mid-message,
  * it saves the fragment to be prepended to the next chunk.
  */
-export function parseSSEChunk(chunk: string, existingBuffer = ''): SSEBlockResult {
+export function parseSSEBlocks(chunk: string, existingBuffer = ''): SSEBlockResult {
   const combined = existingBuffer + chunk;
 
   // SSE events are separated by double newlines
@@ -39,3 +39,6 @@ export function parseSSEChunk(chunk: string, existingBuffer = ''): SSEBlockResul
 
   return { parsedEvents, leftoverBuffer };
 }
+
+// Alias for backwards compatibility
+export const parseSSEChunk = parseSSEBlocks;
