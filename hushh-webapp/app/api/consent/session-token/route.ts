@@ -39,17 +39,19 @@ export async function POST(request: NextRequest) {
     console.log("[API] Issuing session token");
 
     const response = await fetch(`${BACKEND_URL}/api/consent/issue-token`, {
-      method: "POST",
-      headers: {
+       method: "POST",
+       headers: {
         "Content-Type": "application/json",
-        Authorization: authHeader, // Forward the Firebase ID token
-      },
-      body: JSON.stringify({ userId, scope: "session" }),
-    });
+         Authorization: authHeader,
+   },
+  body: JSON.stringify({ userId, scope: "session" }),
+  signal: AbortSignal.timeout(20_000),
+});
 
     if (!response.ok) {
       const error = await response.text();
       console.error("[API] Backend error:", error);
+     
       return NextResponse.json(
         { error: "Failed to issue session token" },
         { status: response.status }
@@ -61,10 +63,18 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(data);
   } catch (error) {
-    console.error("[API] Session token error:", error);
+  console.error("[API] Session token error:", error);
+
+  if (error instanceof Error && error.name === "TimeoutError") {
     return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
+      { error: "Upstream request timed out" },
+      { status: 504 }
     );
   }
+
+  return NextResponse.json(
+    { error: "Internal server error" },
+    { status: 500 }
+  );
+}
 }
