@@ -85,7 +85,12 @@ vi.mock("@/lib/capacitor", () => ({
 }));
 
 import { FirebaseAuthentication } from "@capacitor-firebase/authentication";
-import { linkWithCredential, PhoneAuthProvider, updatePhoneNumber } from "firebase/auth";
+import {
+  linkWithCredential,
+  onAuthStateChanged,
+  PhoneAuthProvider,
+  updatePhoneNumber,
+} from "firebase/auth";
 import { HushhAuth } from "@/lib/capacitor";
 import { AuthService } from "@/lib/services/auth-service";
 
@@ -107,6 +112,10 @@ describe("AuthService.restoreNativeSession", () => {
     mockCapacitor.getPlatform.mockReturnValue("ios");
     mockAuth.currentUser = null;
     mockAuth.onAuthStateChanged.mockReset();
+    vi.mocked(onAuthStateChanged).mockImplementation(((_auth, next) => {
+      next(null);
+      return vi.fn();
+    }) as any);
     mockPhoneAuthProvider.mockImplementation(function () {
       return {
         verifyPhoneNumber: vi.fn(),
@@ -126,6 +135,24 @@ describe("AuthService.restoreNativeSession", () => {
     vi.mocked(FirebaseAuthentication.unlink).mockResolvedValue({ user: null } as any);
     vi.mocked(HushhAuth.getCurrentUser).mockResolvedValue({ user: null } as any);
     vi.mocked(HushhAuth.getIdToken).mockResolvedValue({ idToken: null } as any);
+  });
+
+  it("cleans up a synchronously restored Firebase JS listener", async () => {
+    const unsubscribe = vi.fn();
+    const firebaseUser = {
+      uid: "firebase-js-user",
+      getIdToken: vi.fn(),
+    } as any;
+    vi.mocked(onAuthStateChanged).mockImplementation(((_auth, next) => {
+      next(firebaseUser);
+      return unsubscribe;
+    }) as any);
+
+    const restoredUser = await AuthService.restoreNativeSession();
+
+    expect(restoredUser).toBe(firebaseUser);
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(FirebaseAuthentication.getCurrentUser).not.toHaveBeenCalled();
   });
 
   it("restores a native session from HushhAuth when FirebaseAuthentication has no current user", async () => {
