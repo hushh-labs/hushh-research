@@ -107,6 +107,35 @@ export async function hashKycWorkflowArtifact(artifact: KycWorkflowArtifact): Pr
     .join("");
 }
 
+function mergeCheck(
+  next: KycWorkflowCheck,
+  existing: KycWorkflowCheck | undefined
+): KycWorkflowCheck {
+  if (next.status !== "not_started") return next;
+  return existing ?? next;
+}
+
+export function mergeKycWorkflowArtifact(
+  artifact: KycWorkflowArtifact,
+  existing: KycWorkflowArtifact | null
+): KycWorkflowArtifact {
+  return {
+    checks: {
+      identity: mergeCheck(artifact.checks.identity, existing?.checks.identity),
+      address: mergeCheck(artifact.checks.address, existing?.checks.address),
+      bank: mergeCheck(artifact.checks.bank, existing?.checks.bank),
+      email: mergeCheck(artifact.checks.email, existing?.checks.email),
+    },
+    overall_status: artifact.overall_status,
+    counterparty: artifact.counterparty ?? existing?.counterparty ?? null,
+    request_summary: artifact.request_summary ?? existing?.request_summary ?? null,
+    pending_requirements: artifact.pending_requirements,
+    completed_requirements: artifact.completed_requirements,
+    last_updated: artifact.last_updated,
+    schema_version: 1,
+  };
+}
+
 export class KycWorkflowPkmService {
   static async writeWorkflowArtifact(
     params: KycWorkflowPkmWriteParams
@@ -118,10 +147,12 @@ export class KycWorkflowPkmService {
       domain: KYC_WORKFLOW_PKM_DOMAIN,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
-      build: () => {
+      build: (context) => {
+        const existing = this.readWorkflowArtifact(context.currentDomainData).artifact;
+        const merged = mergeKycWorkflowArtifact(artifact, existing);
         return {
-          domainData: artifact as unknown as Record<string, unknown>,
-          summary: buildKycSummary(artifact),
+          domainData: merged as unknown as Record<string, unknown>,
+          summary: buildKycSummary(merged),
         };
       },
     });

@@ -147,7 +147,7 @@ final class AppUITests: XCTestCase {
             RouteCase(
                 name: "ria-workspace",
                 initialRoute: "/login?redirect=%2Fria%2Fworkspace",
-                expectedMarker: "native-route-ria-workspace",
+                expectedMarker: "native-route-ria-clients",
                 expectedRoute: "/ria/clients",
                 expectedRoutePrefix: nil,
                 autoReviewerLogin: true,

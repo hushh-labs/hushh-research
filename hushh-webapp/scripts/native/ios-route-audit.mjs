@@ -165,10 +165,12 @@ function waitForStatus(route) {
         lastRaw = fs.readFileSync(statusPath, "utf8").trim();
         if (lastRaw) {
           lastParsed = parseStatus(lastRaw);
+          const readyOk = (lastParsed.ready || "") === "1";
+          const markerOk = (lastParsed.marker || "") === route.expectedMarker;
           const routeOk = matchesRoute(lastParsed.route || "", route);
           const authOk = (lastParsed.auth || "") === route.expectedAuth;
           const dataOk = route.allowedDataStates.includes(lastParsed.data || "");
-          if (routeOk && authOk && dataOk) {
+          if (readyOk && markerOk && routeOk && authOk && dataOk) {
             return {
               ok: true,
               status: lastParsed,

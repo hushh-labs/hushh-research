@@ -12,6 +12,7 @@ import {
   hashKycWorkflowArtifact,
   KycWorkflowPkmService,
   KYC_WORKFLOW_PKM_DOMAIN,
+  mergeKycWorkflowArtifact,
 } from "@/lib/services/kyc-pkm-write-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 
@@ -64,7 +65,7 @@ describe("KycWorkflowPkmService", () => {
     expect(result.artifact).not.toHaveProperty("email.address");
   });
 
-  it("hashes the same final artifact that is written to encrypted PKM", async () => {
+  it("hashes the approved artifact and preserves existing workflow checks during PKM merge", async () => {
     const artifact = buildKycWorkflowArtifact(
       {
         checks: {
@@ -102,11 +103,28 @@ describe("KycWorkflowPkmService", () => {
       "2026-05-06T00:00:01.000Z"
     );
     const expectedHash = await hashKycWorkflowArtifact(artifact);
+    const existingDomainData = {
+      checks: {
+        address: {
+          status: "verified",
+          updated_at: "2026-05-05T00:00:00.000Z",
+          method: "existing_address_review",
+          source_domain: "address",
+        },
+      },
+      overall_status: "pending",
+      counterparty: "existing broker",
+      request_summary: "Existing request",
+      pending_requirements: [],
+      completed_requirements: ["proof_of_address"],
+      last_updated: "2026-05-05T00:00:00.000Z",
+      schema_version: 1,
+    };
     let writtenArtifact: Record<string, unknown> | null = null;
 
     (PkmWriteCoordinator.saveMergedDomain as Mock).mockImplementationOnce(async (params) => {
       const plan = await params.build({
-        currentDomainData: {},
+        currentDomainData: existingDomainData,
         currentManifest: null,
         currentEncryptedDomain: null,
         baseFullBlob: {},
@@ -128,7 +146,14 @@ describe("KycWorkflowPkmService", () => {
       artifact,
     });
 
-    expect(writtenArtifact).toEqual(artifact);
-    expect(await hashKycWorkflowArtifact(writtenArtifact as typeof artifact)).toBe(expectedHash);
+    const expectedMerged = mergeKycWorkflowArtifact(
+      artifact,
+      KycWorkflowPkmService.readWorkflowArtifact(existingDomainData).artifact
+    );
+    expect(writtenArtifact).toEqual(expectedMerged);
+    expect(expectedMerged.checks.identity).toEqual(artifact.checks.identity);
+    expect(expectedMerged.checks.address.status).toBe("verified");
+    expect(expectedMerged.checks.address.method).toBe("existing_address_review");
+    expect(await hashKycWorkflowArtifact(artifact)).toBe(expectedHash);
   });
 });

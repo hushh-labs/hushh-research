@@ -278,7 +278,7 @@
       "route": "/ria/workspace",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fria%2Fworkspace",
-      "expectedMarker": "native-route-ria-workspace",
+      "expectedMarker": "native-route-ria-clients",
       "expectedRoute": "/ria/clients",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",

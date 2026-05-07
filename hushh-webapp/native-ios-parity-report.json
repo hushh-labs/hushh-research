@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-07T03:31:30.419Z",
+  "generated_at": "2026-05-07T04:31:00.520Z",
   "destination": "platform=iOS Simulator,id=9C5B1D61-028C-474A-BDFC-523BACC3B02C",
   "audited_routes": 32,
   "passed_routes": 32,
@@ -164,10 +164,10 @@
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nMarket\nTra",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nMarket\nTrack",
         "error": ""
       },
-      "raw": "route=/kai/;ready=1;marker=native-route-kai-home;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nMarket\nTra;error="
+      "raw": "route=/kai/;ready=1;marker=native-route-kai-home;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nMarket\nTrack;error="
     },
     {
       "route": "/kai/analysis",
@@ -328,10 +328,10 @@
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nYour money\nYou",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nYour money\nYour",
         "error": ""
       },
-      "raw": "route=/kai/import/;ready=1;marker=native-route-kai-import;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nYour money\nYou;error="
+      "raw": "route=/kai/import/;ready=1;marker=native-route-kai-import;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nYour money\nYour;error="
     },
     {
       "route": "/kai/investments",
@@ -870,10 +870,10 @@
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nGmail connectio",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nGmail connect",
         "error": "gmail_oauth"
       },
-      "raw": "route=/profile/gmail/oauth/return/;ready=1;marker=native-route-profile-gmail-return;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nGmail connectio;error=gmail_oauth"
+      "raw": "route=/profile/gmail/oauth/return/;ready=1;marker=native-route-profile-gmail-return;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nGmail connect;error=gmail_oauth"
     },
     {
       "route": "/ria",
@@ -1133,7 +1133,7 @@
         "route": "/ria/workspace",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fria%2Fworkspace",
-        "expectedMarker": "native-route-ria-workspace",
+        "expectedMarker": "native-route-ria-clients",
         "expectedRoute": "/ria/clients",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
@@ -1145,12 +1145,12 @@
       },
       "observed": {
         "route": "/ria/clients/",
-        "ready": "0",
-        "marker": "native-route-ria-workspace",
+        "ready": "1",
+        "marker": "native-route-ria-clients",
         "auth": "authenticated",
         "data": "empty-valid",
         "doc": "complete",
-        "found": "0",
+        "found": "1",
         "routeok": "1",
         "test": "1",
         "auto": "1",
@@ -1167,7 +1167,7 @@
         "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nRIA\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai pa",
         "error": ""
       },
-      "raw": "route=/ria/clients/;ready=0;marker=native-route-ria-workspace;auth=authenticated;data=empty-valid;doc=complete;found=0;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nRIA\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai pa;error="
+      "raw": "route=/ria/clients/;ready=1;marker=native-route-ria-clients;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nRIA\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai pa;error="
     },
     {
       "route": "/marketplace",
@@ -1325,7 +1325,7 @@
         "test": "1",
         "auto": "1",
         "bridge": "1",
-        "trigger": "1",
+        "trigger": "0",
         "domtest": "",
         "domauto": "",
         "reviewer": "0",
@@ -1337,7 +1337,7 @@
         "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\nMARKETPLACE PROFILE\nRIA profile\nVerified public profile metadata only. Private advisory access stays b",
         "error": "marketplace_ria"
       },
-      "raw": "route=/marketplace/ria/?riaId=missing-demo-ria;ready=1;marker=native-route-marketplace-ria;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=1;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\nMARKETPLACE PROFILE\nRIA profile\nVerified public profile metadata only. Private advisory access stays b;error=marketplace_ria"
+      "raw": "route=/marketplace/ria/?riaId=missing-demo-ria;ready=1;marker=native-route-marketplace-ria;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\nMARKETPLACE PROFILE\nRIA profile\nVerified public profile metadata only. Private advisory access stays b;error=marketplace_ria"
     }
   ]
 }
