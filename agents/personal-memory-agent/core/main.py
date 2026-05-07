@@ -10,6 +10,7 @@ from core.analytics import analyze_productivity
 from core.insights import generate_insights
 from core.chat_agent import process_chat
 from timeline_engine.timeline_router import process_timeline
+from importance_engine.priority_router import process_priority_memories
 
 # =========================================================
 # FASTAPI INITIALIZATION
@@ -246,6 +247,44 @@ def memory_timeline():
         )
 
         return timeline_results
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+    # =========================================================
+# ADAPTIVE MEMORY IMPORTANCE ENGINE
+# =========================================================
+
+@app.get("/priority-memories")
+def priority_memories():
+
+    try:
+
+        results = collection.get()
+
+        documents = results.get("documents", [])
+
+        metadatas = results.get("metadatas", [])
+
+        combined_memories = []
+
+        for doc, metadata in zip(documents, metadatas):
+
+            combined_memories.append(
+                {
+                    "document": doc,
+                    "metadata": metadata
+                }
+            )
+
+        priority_results = process_priority_memories(
+            combined_memories
+        )
+
+        return priority_results
 
     except Exception as error:
 
