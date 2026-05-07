@@ -2,13 +2,13 @@
 
 ## Status
 
-- Status: future roadmap and R&D assessment only
-- Execution state: not approved for implementation
-- Promotion rule: move execution detail into `docs/reference/...`, `consent-protocol/docs/...`, and `hushh-webapp/docs/...` only after the workflow, authority boundaries, and owners are approved
+- Status: superseded planning history
+- Execution state: strict client-side One Email KYC is implemented for dev/UAT; production/public automation remains gated
+- Current owner docs: [One Email Intake Roadmap](../one-email-intake-roadmap.md), [API contracts](../../reference/architecture/api-contracts.md), and `consent-protocol/docs/reference/agent-development.md`
 
 ## Visual Context
 
-Canonical visual owner: [Vision Index](../../vision/README.md), with the detailed planning map in [One/Kai/Nav/KYC Runtime Plan](../one-nav-runtime-plan.md) and the mailbox rollout path in [One Email Intake Roadmap](../one-email-intake-roadmap.md). This page supersedes the previous Kai-owned KYC framing and remains here only as planning history until it is moved into a One/KYC future home.
+Canonical visual owner: [Vision Index](../../vision/README.md), with the detailed planning map in [One/Kai/Nav/KYC Runtime Plan](../one-nav-runtime-plan.md) and the mailbox rollout path in [One Email Intake Roadmap](../one-email-intake-roadmap.md). This page is retained only as planning history; it must not be used as the current implementation contract.
 
 ## Summary
 
@@ -44,15 +44,14 @@ What already exists in the repo today:
 - connector-aware runtime patterns for delegated actions
 - authenticated support and feedback delivery routed through the existing Gmail-backed support transport
 
-What does not yet exist as a first-class product/runtime contract:
+What is still not complete as product/runtime rollout:
 
-- a One-owned email/KYC delegated specialist contract
-- workflow-specific on-demand consent metadata for this task family
-- a canonical runtime-memory/writeback split for delegated email/KYC workflows
-- explicit user-facing trust-state UX for this workflow family
-- an approved `one@hushh.ai` runtime contract for public inbound KYC email
+- real post-`050`/`051` UAT smoke evidence across mailbox, vault unlock, consent, local decrypt/draft, approved send, encrypted PKM writeback, and retention
+- production mailbox-watch ownership and production enablement
+- public inbound KYC rollout
+- accepted iOS device proof for `/one/kyc`
 
-## Future Concept
+## Historical Concept
 
 The future-state model is:
 
@@ -97,9 +96,9 @@ Structured PKM writeback may include:
 
 It should not default to broad raw-thread persistence as durable memory.
 
-## Required New Primitives
+## Historical Required Primitives
 
-Before execution, this concept likely needs:
+This historical list records what the concept expected before execution. Several items now exist in dev/UAT; use the current owner docs above for implementation truth.
 
 1. delegated workflow consent metadata
 2. explicit task-local runtime-state contract
@@ -157,9 +156,9 @@ This concept does not assume:
 - bypassing consent or trust-state UX in the name of speed
 - approval of a live public `one@hushh.ai` inbound webhook before the trust and rollout contract is explicitly owned
 
-## Promotion Readiness Checklist
+## Historical Promotion Readiness Checklist
 
-Do not promote this concept into execution docs until these are explicit:
+This checklist is preserved for provenance only. Do not use it to judge current implementation readiness:
 
 1. workflow owners and execution surfaces
 2. delegated-consent contract shape
