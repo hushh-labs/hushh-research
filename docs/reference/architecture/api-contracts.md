@@ -113,6 +113,13 @@ Pub/Sub OIDC or the One maintenance token, not user Firebase auth. Strict
 client-side ZK means the backend never decrypts consent exports or persists
 review draft plaintext.
 
+Inbound user resolution uses exact verified email evidence. The resolver checks
+verified `To`, `Cc`, and `Reply-To` recipients before falling back to all
+participants, so a broker or alternate sender account does not override the
+vault owner explicitly copied on the request. Apple private relay addresses are
+not inferred to original emails; original addresses must be verified as aliases
+before they can resolve intake.
+
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
 | POST | `/api/one/email/webhook` | Pub/Sub OIDC | Receive Gmail Pub/Sub notifications for the delegated One mailbox |
@@ -257,6 +264,10 @@ Frontend reads/writes these fields through the centralized onboarding/profile fl
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
+| POST | `/api/account/identity/refresh` | Refresh backend identity shadow from Firebase Auth |
+| GET | `/api/account/email-aliases` | List vault-owner account email aliases |
+| POST | `/api/account/email-aliases/verification/start` | Start explicit email alias verification; dev/UAT review mode may echo the code |
+| POST | `/api/account/email-aliases/verification/confirm` | Confirm an email alias before it can match One Email KYC intake |
 | DELETE | `/api/account/delete` | Delete user account and all data |
 
 Reserved future surface:

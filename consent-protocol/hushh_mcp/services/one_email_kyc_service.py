@@ -338,6 +338,10 @@ def _extract_addresses(*values: str | None) -> list[str]:
     return addresses
 
 
+def _without_addresses(values: list[str], excluded: set[str]) -> list[str]:
+    return [value for value in values if value not in excluded]
+
+
 def _extract_name(value: str | None) -> str | None:
     parsed = email.utils.getaddresses([value or ""])
     if not parsed:
@@ -863,12 +867,29 @@ class OneEmailKycService:
             )
             if item != mailbox
         ]
+        recipient_participants = _without_addresses(
+            _extract_addresses(headers.get("to"), headers.get("cc"), headers.get("reply-to")),
+            {mailbox},
+        )
 
         if sender_email == mailbox:
             return {"handled": False, "reason": "self_sent_message", "message_id": gmail_message_id}
 
         is_kyc = self._looks_like_kyc(subject=subject, body=body_text)
-        user_match = self._match_verified_user(participants)
+        recipient_user_match = self._match_verified_user(recipient_participants)
+        if recipient_user_match.get("user_id") or recipient_user_match.get("error_code") in (
+            "ambiguous_identity_resolution",
+            "ambiguous_user_match",
+        ):
+            user_match = {
+                **recipient_user_match,
+                "matched_from": "recipients",
+            }
+        else:
+            user_match = {
+                **self._match_verified_user(participants),
+                "matched_from": "participants",
+            }
         common = {
             "workflow_id": uuid.uuid4().hex,
             "user_id": user_match.get("user_id"),
@@ -890,6 +911,8 @@ class OneEmailKycService:
                 "one_agent_id": _ONE_AGENT_ID,
                 "nav_agent_id": _NAV_AGENT_ID,
                 "kyc_agent_id": _KYC_AGENT_ID,
+                "identity_match_source": user_match.get("matched_from"),
+                "identity_matched_by": user_match.get("matched_by"),
             },
         }
 
@@ -1005,15 +1028,20 @@ class OneEmailKycService:
         if not unique_emails:
             return {"user_id": None, "error_code": "no_participant_email"}
         rows = self._find_actor_identity_rows(unique_emails)
+        alias_rows = self._find_verified_email_alias_rows(unique_emails)
+        rows.extend(alias_rows)
         user_ids = sorted(
             {str(row.get("user_id") or "").strip() for row in rows if row.get("user_id")}
         )
         if len(user_ids) == 1:
-            return {"user_id": user_ids[0], "matched_by": "actor_identity_cache"}
+            matched_by = "actor_verified_email_alias" if alias_rows else "actor_identity_cache"
+            return {"user_id": user_ids[0], "matched_by": matched_by}
         if len(user_ids) > 1:
             return {
                 "user_id": None,
-                "error_code": "ambiguous_user_match",
+                "error_code": (
+                    "ambiguous_identity_resolution" if alias_rows else "ambiguous_user_match"
+                ),
                 "message": "Multiple verified Hussh users matched the email participants.",
             }
 
@@ -1045,6 +1073,22 @@ class OneEmailKycService:
             return [dict(row) for row in self.db.execute_raw(sql, {"emails": emails}).data]
         except Exception as exc:
             logger.warning("one_email_kyc.actor_identity_lookup_failed reason=%s", exc)
+            return []
+
+    def _find_verified_email_alias_rows(self, emails: list[str]) -> list[dict[str, Any]]:
+        if not emails:
+            return []
+        sql = """
+            SELECT user_id, email, email_normalized
+            FROM actor_verified_email_aliases
+            WHERE verification_status = 'verified'
+              AND revoked_at IS NULL
+              AND email_normalized = ANY(:emails)
+        """
+        try:
+            return [dict(row) for row in self.db.execute_raw(sql, {"emails": emails}).data]
+        except Exception as exc:
+            logger.warning("one_email_kyc.actor_verified_alias_lookup_failed reason=%s", exc)
             return []
 
     def _find_firebase_users_by_email(self, emails: list[str]) -> list[str]:

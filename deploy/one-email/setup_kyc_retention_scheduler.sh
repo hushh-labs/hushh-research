@@ -43,7 +43,7 @@ if gcloud scheduler jobs describe "${JOB_NAME}" \
     --uri="${URI}" \
     --http-method=POST \
     --headers="${HEADERS}" \
-    --attempt-deadline=300s
+    --attempt-deadline=300s >/dev/null
 else
   gcloud scheduler jobs create http "${JOB_NAME}" \
     --project="${PROJECT_ID}" \
@@ -53,7 +53,7 @@ else
     --uri="${URI}" \
     --http-method=POST \
     --headers="${HEADERS}" \
-    --attempt-deadline=300s
+    --attempt-deadline=300s >/dev/null
 fi
 
 echo "Configured Cloud Scheduler job ${JOB_NAME} -> ${URI}"
