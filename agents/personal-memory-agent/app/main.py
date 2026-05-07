@@ -5,7 +5,8 @@ import chromadb
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
-
+from app.analytics import analyze_productivity
+from app.insights import generate_insights
 # =========================================================
 # FASTAPI INITIALIZATION
 # =========================================================
@@ -143,7 +144,6 @@ def search_memory(query: QueryInput):
 # =========================================================
 # MEMORY COUNT
 # =========================================================
-
 @app.get("/memory-count")
 def memory_count():
 
@@ -153,6 +153,47 @@ def memory_count():
 
         return {
             "total_memories": count
+        }
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+    # =========================================================
+# GENERATE INSIGHTS
+# =========================================================
+
+@app.get("/generate-insights")
+def get_insights():
+
+    try:
+
+        results = collection.get()
+
+        documents = results.get("documents", [])
+
+        metadatas = results.get("metadatas", [])
+
+        combined_memories = []
+
+        for doc, metadata in zip(documents, metadatas):
+
+            combined_memories.append(
+                {
+                    "document": doc,
+                    "metadata": metadata
+                }
+            )
+
+        analytics = analyze_productivity(combined_memories)
+
+        insights = generate_insights(analytics)
+
+        return {
+            "analytics": analytics,
+            "insights": insights
         }
 
     except Exception as error:
