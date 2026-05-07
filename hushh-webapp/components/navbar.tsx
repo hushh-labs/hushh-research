@@ -4,6 +4,7 @@
 "use client";
 
 import React, { useEffect, useMemo, type CSSProperties } from "react";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BriefcaseBusiness,
