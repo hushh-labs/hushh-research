@@ -1,45 +1,38 @@
-import type { ParsedSSEFrame } from "./kai-stream-types";
 
-export interface ParseSSEBlocksResult {
-  events: ParsedSSEFrame[];
-  remainder: string;
+
+export interface SSEBlockResult {
+  parsedEvents: any[];
+  leftoverBuffer: string;
 }
 
-export function parseSSEBlocks(chunk: string, remainder = ""): ParseSSEBlocksResult {
-  const normalized = (remainder + chunk).replace(/\r\n/g, "\n");
-  const blocks = normalized.split("\n\n");
-  const nextRemainder = blocks.pop() ?? "";
 
-  const events: ParsedSSEFrame[] = [];
-  for (const rawBlock of blocks) {
-    if (!rawBlock.trim()) continue;
 
-    let eventName: string | undefined;
-    let eventId: string | undefined;
-    const dataLines: string[] = [];
+export function parseSSEChunk(chunk: string, existingBuffer: string = ''): SSEBlockResult {
+  const combined = existingBuffer + chunk;
+  
+ 
+  const blocks = combined.split('\n\n');
 
-    const lines = rawBlock.split("\n");
-    for (const line of lines) {
-      if (!line || line.startsWith(":")) continue;
-      if (line.startsWith("event:")) {
-        eventName = line.slice(6).trim();
-      } else if (line.startsWith("id:")) {
-        eventId = line.slice(3).trim();
-      } else if (line.startsWith("data:")) {
-        dataLines.push(line.slice(5).trimStart());
+  const isComplete = combined.endsWith('\n\n');
+  const leftoverBuffer = isComplete ? '' : (blocks.pop() || '');
+
+  const parsedEvents = blocks
+    .map(block => block.trim())
+    .filter(block => block.startsWith('data: '))
+    .map(block => {
+      const jsonStr = block.replace(/^data:\s*/, '');
+      
+      // Standard SSE end-of-stream marker
+      if (jsonStr === '[DONE]') return null;
+      
+      try {
+        return JSON.parse(jsonStr);
+      } catch (e) {
+        console.warn('SSE JSON Parse skip (fragmented frame):', jsonStr);
+        return null;
       }
-    }
+    })
+    .filter(Boolean); // Removes the nulls
 
-    if (!eventName || dataLines.length === 0) {
-      continue;
-    }
-
-    events.push({
-      event: eventName,
-      id: eventId,
-      data: dataLines.join("\n"),
-    });
-  }
-
-  return { events, remainder: nextRemainder };
+  return { parsedEvents, leftoverBuffer };
 }
