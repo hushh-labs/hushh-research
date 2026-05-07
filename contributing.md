@@ -1,4 +1,4 @@
-# Contributing to Hushh Research
+# Contributing Guide
 
 ## Prerequisites
 
