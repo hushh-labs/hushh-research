@@ -1101,17 +1101,24 @@ export class AuthService {
     const waitForFirebaseJsUser = async (): Promise<User | null> =>
       new Promise((resolve) => {
         let settled = false;
-        let unsubscribe = () => {};
+        let unsubscribe: (() => void) | undefined;
         let timeout: ReturnType<typeof setTimeout>;
         const finish = (user: User | null) => {
           if (settled) return;
           settled = true;
-          unsubscribe();
+          unsubscribe?.();
           clearTimeout(timeout);
           resolve(user);
         };
-        unsubscribe = onAuthStateChanged(auth, finish, () => finish(null));
         timeout = setTimeout(() => finish(auth.currentUser), 1_000);
+        const unsubscribeCandidate = onAuthStateChanged(auth, finish, () => finish(null));
+        if (typeof unsubscribeCandidate === "function") {
+          if (settled) {
+            unsubscribeCandidate();
+          } else {
+            unsubscribe = unsubscribeCandidate;
+          }
+        }
       });
 
     const restoreFromFirebaseAuthentication = async (): Promise<User | null> => {
