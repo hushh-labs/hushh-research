@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, Inbox, RefreshCw, Send, ShieldCheck, Wand2, XCircle } from "lucide-react";
+import { CheckCircle2, Inbox, MailPlus, RefreshCw, Send, ShieldCheck, Wand2, XCircle } from "lucide-react";
 
 import { AppPageContentRegion, AppPageHeaderRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
@@ -14,10 +14,15 @@ import {
 } from "@/components/app-ui/surfaces";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { ROUTES } from "@/lib/navigation/routes";
+import {
+  AccountService,
+  type AccountEmailAlias,
+} from "@/lib/services/account-service";
 import {
   buildKycWorkflowArtifact,
   hashKycWorkflowArtifact,
@@ -72,6 +77,13 @@ function OneKycWorkspace() {
   const [redraftInstructions, setRedraftInstructions] = useState("");
   const [localDrafts, setLocalDrafts] = useState<Record<string, KycDraftBuildResult>>({});
   const [connectorReady, setConnectorReady] = useState(false);
+  const [emailAliases, setEmailAliases] = useState<AccountEmailAlias[]>([]);
+  const [aliasEmail, setAliasEmail] = useState("");
+  const [aliasCode, setAliasCode] = useState("");
+  const [aliasChallenge, setAliasChallenge] = useState<{
+    email: string;
+    reviewCode?: string | null;
+  } | null>(null);
 
   const selected = useMemo(
     () => workflows.find((workflow) => workflow.workflow_id === selectedId) || workflows[0] || null,
@@ -164,6 +176,10 @@ function OneKycWorkspace() {
         userId: auth.userId,
         vaultOwnerToken,
       });
+      const aliasResponse = await AccountService.listEmailAliases(vaultOwnerToken).catch(() => null);
+      if (aliasResponse) {
+        setEmailAliases(aliasResponse.aliases);
+      }
       setWorkflows(response.workflows);
       const initialId = new URLSearchParams(window.location.search).get("workflowId");
       setSelectedId((current) => current || initialId || response.workflows[0]?.workflow_id || null);
@@ -237,6 +253,57 @@ function OneKycWorkspace() {
     });
     setSelectedId(next.workflow_id);
   }, []);
+
+  const refreshAliases = useCallback(async () => {
+    if (!vaultOwnerToken) return;
+    const response = await AccountService.listEmailAliases(vaultOwnerToken);
+    setEmailAliases(response.aliases);
+  }, [vaultOwnerToken]);
+
+  const startAliasVerification = useCallback(async () => {
+    if (!vaultOwnerToken || !aliasEmail.trim()) return;
+    setBusy("alias");
+    setError(null);
+    try {
+      const response = await AccountService.startEmailAliasVerification(
+        vaultOwnerToken,
+        aliasEmail.trim()
+      );
+      await refreshAliases().catch(() => undefined);
+      setAliasChallenge({
+        email: response.alias.email_normalized,
+        reviewCode: response.review_verification_code,
+      });
+      if (response.review_verification_code) {
+        setAliasCode(response.review_verification_code);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Email alias verification failed.");
+    } finally {
+      setBusy(null);
+    }
+  }, [aliasEmail, refreshAliases, vaultOwnerToken]);
+
+  const confirmAliasVerification = useCallback(async () => {
+    if (!vaultOwnerToken || !aliasChallenge?.email || !aliasCode.trim()) return;
+    setBusy("alias");
+    setError(null);
+    try {
+      await AccountService.confirmEmailAliasVerification(
+        vaultOwnerToken,
+        aliasChallenge.email,
+        aliasCode.trim()
+      );
+      await refreshAliases();
+      setAliasEmail("");
+      setAliasCode("");
+      setAliasChallenge(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Email alias confirmation failed.");
+    } finally {
+      setBusy(null);
+    }
+  }, [aliasChallenge?.email, aliasCode, refreshAliases, vaultOwnerToken]);
 
   const runAction = useCallback(
     async (
@@ -430,46 +497,108 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className="grid gap-4 lg:grid-cols-[minmax(18rem,24rem)_1fr]">
-        <SurfaceCard>
-          <SurfaceCardHeader>
-            <SurfaceCardTitle>Inbox</SurfaceCardTitle>
-          </SurfaceCardHeader>
-          <SurfaceCardContent className="space-y-2">
-            {loading ? (
-              <p className="text-sm text-muted-foreground">Loading workflows.</p>
-            ) : workflows.length === 0 ? (
-              <div className="flex items-start gap-3 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-                <Inbox className="mt-0.5 size-4 shrink-0" />
-                <span>No KYC emails have been matched to this account yet.</span>
-              </div>
-            ) : (
-              workflows.map((workflow) => (
-                <button
-                  key={workflow.workflow_id}
-                  type="button"
-                  onClick={() => setSelectedId(workflow.workflow_id)}
-                  className={`w-full rounded-md border p-3 text-left transition hover:bg-muted/60 ${
-                    selected?.workflow_id === workflow.workflow_id
-                      ? "border-foreground/30 bg-muted"
-                      : "border-border"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="line-clamp-2 text-sm font-medium">
-                      {workflow.subject || "KYC request"}
+        <div className="space-y-4">
+          <SurfaceCard>
+            <SurfaceCardHeader>
+              <SurfaceCardTitle>Inbox</SurfaceCardTitle>
+            </SurfaceCardHeader>
+            <SurfaceCardContent className="space-y-2">
+              {loading ? (
+                <p className="text-sm text-muted-foreground">Loading workflows.</p>
+              ) : workflows.length === 0 ? (
+                <div className="flex items-start gap-3 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                  <Inbox className="mt-0.5 size-4 shrink-0" />
+                  <span>No KYC emails have been matched to this account yet.</span>
+                </div>
+              ) : (
+                workflows.map((workflow) => (
+                  <button
+                    key={workflow.workflow_id}
+                    type="button"
+                    onClick={() => setSelectedId(workflow.workflow_id)}
+                    className={`w-full rounded-md border p-3 text-left transition hover:bg-muted/60 ${
+                      selected?.workflow_id === workflow.workflow_id
+                        ? "border-foreground/30 bg-muted"
+                        : "border-border"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="line-clamp-2 text-sm font-medium">
+                        {workflow.subject || "KYC request"}
+                      </p>
+                      <Badge variant={statusVariant(workflow.status)}>
+                        {STATUS_LABELS[workflow.status] || workflow.status}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                      {workflow.counterparty_label || workflow.sender_email || "Counterparty"}
                     </p>
-                    <Badge variant={statusVariant(workflow.status)}>
-                      {STATUS_LABELS[workflow.status] || workflow.status}
+                  </button>
+                ))
+              )}
+            </SurfaceCardContent>
+          </SurfaceCard>
+
+          <SurfaceCard>
+            <SurfaceCardHeader>
+              <SurfaceCardTitle>Email aliases</SurfaceCardTitle>
+            </SurfaceCardHeader>
+            <SurfaceCardContent className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {emailAliases
+                  .filter((alias) => alias.verification_status === "verified")
+                  .map((alias) => (
+                    <Badge key={alias.alias_id || alias.email_normalized} variant="secondary">
+                      {alias.email}
                     </Badge>
-                  </div>
-                  <p className="mt-1 truncate text-xs text-muted-foreground">
-                    {workflow.counterparty_label || workflow.sender_email || "Counterparty"}
-                  </p>
-                </button>
-              ))
-            )}
-          </SurfaceCardContent>
-        </SurfaceCard>
+                  ))}
+                {emailAliases.filter((alias) => alias.verification_status === "verified").length === 0 ? (
+                  <span className="text-sm text-muted-foreground">No verified aliases.</span>
+                ) : null}
+              </div>
+              <Input
+                type="email"
+                value={aliasEmail}
+                onChange={(event) => setAliasEmail(event.target.value)}
+                placeholder="original@example.com"
+                autoComplete="email"
+              />
+              {aliasChallenge ? (
+                <Input
+                  value={aliasCode}
+                  onChange={(event) => setAliasCode(event.target.value)}
+                  placeholder="Verification code"
+                  inputMode="numeric"
+                />
+              ) : null}
+              {aliasChallenge?.reviewCode ? (
+                <p className="text-xs text-muted-foreground">
+                  UAT code: {aliasChallenge.reviewCode}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void startAliasVerification()}
+                  disabled={Boolean(busy) || !aliasEmail.trim()}
+                >
+                  <MailPlus className="size-4" />
+                  Register alias
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => void confirmAliasVerification()}
+                  disabled={Boolean(busy) || !aliasChallenge || !aliasCode.trim()}
+                >
+                  Verify
+                </Button>
+              </div>
+            </SurfaceCardContent>
+          </SurfaceCard>
+        </div>
 
         <SurfaceCard>
           <SurfaceCardHeader>

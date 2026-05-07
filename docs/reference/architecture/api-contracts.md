@@ -257,6 +257,10 @@ Frontend reads/writes these fields through the centralized onboarding/profile fl
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
+| POST | `/api/account/identity/refresh` | Refresh backend identity shadow from Firebase Auth |
+| GET | `/api/account/email-aliases` | List vault-owner account email aliases |
+| POST | `/api/account/email-aliases/verification/start` | Start explicit email alias verification; dev/UAT review mode may echo the code |
+| POST | `/api/account/email-aliases/verification/confirm` | Confirm an email alias before it can match One Email KYC intake |
 | DELETE | `/api/account/delete` | Delete user account and all data |
 
 Reserved future surface:
