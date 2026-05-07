@@ -415,10 +415,12 @@ The broker/KYC email lane is One-led, not Kai-owned:
 - `one@hushh.ai` is the Workspace user mailbox.
 - `POST /api/one/email/webhook` receives Gmail Pub/Sub notifications.
 - `POST /api/one/email/watch/renew` renews the mailbox watch.
-- workflow state lives in `one_kyc_workflows` and stores metadata, hashes, send status, and encrypted PKM writeback receipts; `draft_body` is legacy and must stay null/redacted in strict client-side ZK mode.
-- One creates a scoped `agent_kyc` consent request with the user's registered public client connector metadata.
-- `/one/kyc` requires vault unlock so the frontend can own the connector private key, decrypt approved exports locally, build review drafts locally, approve send, or reject.
-- outbound Gmail send is blocked until `draft_status=ready`, `status=waiting_on_user`, and the vault owner approves the final body; the backend handles that body transiently only for Gmail send.
+- workflow state lives in `one_kyc_workflows` and stores metadata, hashes, send status, Gmail thread verification, and encrypted PKM writeback receipts; `draft_body` is legacy and must stay null/redacted in strict client-side ZK mode.
+- One performs text-only request detection for identity/KYC and financial disclosure signals, stores candidate scopes only, and waits for the vault owner to confirm or narrow scopes in `/one/kyc`.
+- One creates one `agent_kyc` consent request per selected scope with a shared bundle id and the user's registered public client connector metadata.
+- `/one/kyc` requires vault unlock so the frontend can own the connector private key, decrypt approved exports locally, build deterministic review drafts locally, approve send, or reject.
+- outbound Gmail send is blocked until every selected scope is granted/current, `draft_status=ready`, `status=waiting_on_user`, and the vault owner approves the final body; the backend handles that body transiently only for Gmail reply-all send.
+- if a selected scope is denied, One does not send an external counterparty reply and surfaces an internal-only explanation to the user.
 
 Do not store raw email bodies, raw vault contents, broad decrypted PKM, tokens, or chain-of-thought in this lane.
 
