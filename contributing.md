@@ -18,6 +18,13 @@ cd hushh-research
 ```
 
 ---
+## Getting Started Guide
+
+For detailed project onboarding and setup instructions, refer to:
+
+```text
+docs/guides/getting-started.md
+```
 
 ## Create a New Branch
 
