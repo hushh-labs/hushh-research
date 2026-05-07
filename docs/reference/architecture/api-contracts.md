@@ -113,6 +113,13 @@ Pub/Sub OIDC or the One maintenance token, not user Firebase auth. Strict
 client-side ZK means the backend never decrypts consent exports or persists
 review draft plaintext.
 
+Inbound user resolution uses exact verified email evidence. The resolver checks
+verified `To`, `Cc`, and `Reply-To` recipients before falling back to all
+participants, so a broker or alternate sender account does not override the
+vault owner explicitly copied on the request. Apple private relay addresses are
+not inferred to original emails; original addresses must be verified as aliases
+before they can resolve intake.
+
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
 | POST | `/api/one/email/webhook` | Pub/Sub OIDC | Receive Gmail Pub/Sub notifications for the delegated One mailbox |

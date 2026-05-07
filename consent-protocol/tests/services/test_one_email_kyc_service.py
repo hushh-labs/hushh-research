@@ -93,6 +93,7 @@ def _message(
     body: str,
     sender: str = "broker@example.com",
     cc: str = "User <verified@example.com>",
+    subject: str = "Broker API KYC questionnaire",
 ) -> dict:
     return {
         "id": "gmail_msg_1",
@@ -103,7 +104,7 @@ def _message(
                 {"name": "From", "value": f"Broker Ops <{sender}>"},
                 {"name": "To", "value": "one@hushh.ai"},
                 {"name": "Cc", "value": cc},
-                {"name": "Subject", "value": "Broker API KYC questionnaire"},
+                {"name": "Subject", "value": subject},
                 {"name": "Message-ID", "value": "<m1@example.com>"},
             ],
             "mimeType": "multipart/mixed",
@@ -135,11 +136,13 @@ class _FakeDb:
         user_id: str | None = "user_123",
         connector: bool = True,
         alias_rows: list[dict] | None = None,
+        identity_rows: list[dict] | None = None,
     ) -> None:
         self.user_id = user_id
         self.workflows: list[dict] = []
         self.connectors: list[dict] = []
         self.alias_rows = alias_rows or []
+        self.identity_rows = identity_rows
         if user_id and connector:
             self.connectors.append(
                 {
@@ -162,6 +165,10 @@ class _FakeDb:
         normalized = " ".join(sql.lower().split())
         if "from actor_identity_cache" in normalized:
             emails = set(params.get("emails") or [])
+            if self.identity_rows is not None:
+                return SimpleNamespace(
+                    data=[row for row in self.identity_rows if row.get("email") in emails]
+                )
             if not self.user_id or "verified@example.com" not in emails:
                 return SimpleNamespace(data=[])
             return SimpleNamespace(
@@ -565,6 +572,45 @@ async def test_process_message_matches_verified_email_alias_without_relay_infere
     assert result["workflow"]["user_id"] == "user_123"
     assert result["workflow"]["status"] == "needs_scope"
     assert result["workflow"]["consent_request_id"].startswith("okyc_")
+    assert consent_db.events
+
+
+@pytest.mark.asyncio
+async def test_process_message_prefers_verified_recipient_identity_over_sender_identity():
+    db = _FakeDb(
+        user_id="relay_user",
+        identity_rows=[
+            {
+                "user_id": "gmail_user",
+                "email": "kushaltrivedi1711@gmail.com",
+                "email_verified": True,
+            },
+            {
+                "user_id": "relay_user",
+                "email": "jd77v9k4nx@privaterelay.appleid.com",
+                "email_verified": True,
+            },
+        ],
+    )
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+
+    result = await service._process_message(
+        _message(
+            sender="kushaltrivedi1711@gmail.com",
+            cc="Kushal Relay <jd77v9k4nx@privaterelay.appleid.com>",
+            subject="KYC check",
+            body="Hey One, can you draft an email that has all my financial information",
+        ),
+        history_id="101relay",
+    )
+
+    workflow = result["workflow"]
+    assert workflow["user_id"] == "relay_user"
+    assert workflow["status"] == "needs_scope"
+    assert workflow["metadata"]["identity_match_source"] == "recipients"
+    assert workflow["metadata"]["identity_matched_by"] == "actor_identity_cache"
+    assert workflow["consent_request_id"].startswith("okyc_")
     assert consent_db.events
 
 
