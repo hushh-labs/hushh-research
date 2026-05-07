@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
 
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({
   PkmWriteCoordinator: {
@@ -7,9 +8,12 @@ vi.mock("@/lib/services/pkm-write-coordinator", () => ({
 }));
 
 import {
+  buildKycWorkflowArtifact,
+  hashKycWorkflowArtifact,
   KycWorkflowPkmService,
   KYC_WORKFLOW_PKM_DOMAIN,
 } from "@/lib/services/kyc-pkm-write-service";
+import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 
 describe("KycWorkflowPkmService", () => {
   it("uses a workflow namespace instead of a canonical kyc fact domain", () => {
@@ -58,5 +62,73 @@ describe("KycWorkflowPkmService", () => {
     expect(result.artifact?.checks.bank.status).toBe("not_started");
     expect(result.artifact?.pending_requirements).toEqual(["proof_of_address"]);
     expect(result.artifact).not.toHaveProperty("email.address");
+  });
+
+  it("hashes the same final artifact that is written to encrypted PKM", async () => {
+    const artifact = buildKycWorkflowArtifact(
+      {
+        checks: {
+          identity: {
+            status: "verified",
+            updated_at: "2026-05-06T00:00:00.000Z",
+            method: "one_email_kyc_consent_export",
+            source_domain: "identity",
+          },
+          address: {
+            status: "not_started",
+            updated_at: null,
+            method: null,
+            source_domain: null,
+          },
+          bank: {
+            status: "not_started",
+            updated_at: null,
+            method: null,
+            source_domain: null,
+          },
+          email: {
+            status: "not_started",
+            updated_at: null,
+            method: null,
+            source_domain: null,
+          },
+        },
+        overall_status: "verified",
+        counterparty: "broker",
+        request_summary: "KYC request",
+        pending_requirements: [],
+        completed_requirements: ["legal_name"],
+      },
+      "2026-05-06T00:00:01.000Z"
+    );
+    const expectedHash = await hashKycWorkflowArtifact(artifact);
+    let writtenArtifact: Record<string, unknown> | null = null;
+
+    (PkmWriteCoordinator.saveMergedDomain as Mock).mockImplementationOnce(async (params) => {
+      const plan = await params.build({
+        currentDomainData: {},
+        currentManifest: null,
+        currentEncryptedDomain: null,
+        baseFullBlob: {},
+        attempt: 0,
+        upgradedInSession: false,
+      });
+      writtenArtifact = plan.domainData;
+      return {
+        saveState: "saved",
+        success: true,
+        fullBlob: {},
+      };
+    });
+
+    await KycWorkflowPkmService.writeWorkflowArtifact({
+      userId: "user_1",
+      vaultKey: "vault",
+      vaultOwnerToken: "token",
+      artifact,
+    });
+
+    expect(writtenArtifact).toEqual(artifact);
+    expect(await hashKycWorkflowArtifact(writtenArtifact as typeof artifact)).toBe(expectedHash);
   });
 });

@@ -13,13 +13,16 @@ const webDir = repoRoot;
 const monorepoRoot = path.resolve(webDir, "..");
 const inventoryPath = path.join(repoRoot, "native-route-inventory.json");
 const reportPath = path.join(repoRoot, "native-ios-parity-report.json");
+const derivedDataPath = path.resolve(
+  repoRoot,
+  process.env.IOS_DERIVED_DATA_PATH || "ios/App/build/DerivedData"
+);
 const appPath =
   process.env.IOS_APP_PATH ||
-  path.join(
-    process.env.HOME || "",
-    "Library/Developer/Xcode/DerivedData/App-gsttmaaoiypjtdgzrlnctebtjvgt/Build/Products/Debug-iphonesimulator/App.app"
-  );
+  path.join(derivedDataPath, "Build/Products/Debug-iphonesimulator/App.app");
 const destination = process.env.IOS_TEST_DESTINATION || "platform=iOS Simulator,name=iPhone 14 Plus";
+const destinationDeviceId = destination.match(/(?:^|,)id=([^,]+)/)?.[1] || "";
+const simulatorDevice = destinationDeviceId || "booted";
 const bundleId = "com.hushh.app";
 const timeoutMs = Number(process.env.IOS_ROUTE_AUDIT_TIMEOUT_MS || "60000");
 const routeFilter = (process.env.IOS_ROUTE_FILTER || "").trim();
@@ -47,6 +50,16 @@ function tryRun(cmd, args) {
   } catch {
     // Best effort cleanup.
   }
+}
+
+function ensureSimulatorBooted() {
+  if (!destinationDeviceId) {
+    return;
+  }
+  tryRun("xcrun", ["simctl", "boot", destinationDeviceId]);
+  run("xcrun", ["simctl", "bootstatus", destinationDeviceId, "-b"], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 }
 
 function parseStatus(raw) {
@@ -92,9 +105,9 @@ function matchesRoute(parsedRoute, route) {
 }
 
 function launchRoute(route) {
-  tryRun("xcrun", ["simctl", "terminate", "booted", bundleId]);
+  tryRun("xcrun", ["simctl", "terminate", simulatorDevice, bundleId]);
   try {
-    const container = run("xcrun", ["simctl", "get_app_container", "booted", bundleId, "data"]);
+    const container = run("xcrun", ["simctl", "get_app_container", simulatorDevice, bundleId, "data"]);
     const statusPath = path.join(container, "Documents", "native-test-status.txt");
     if (fs.existsSync(statusPath)) {
       fs.unlinkSync(statusPath);
@@ -102,12 +115,13 @@ function launchRoute(route) {
   } catch {
     // Best effort cleanup.
   }
-  const args = ["simctl", "launch", "booted", bundleId, "-UITestMode", "-UITestInitialRoute", route.initialRoute];
+  const args = ["simctl", "launch", simulatorDevice, bundleId, "-UITestMode", "-UITestInitialRoute", route.initialRoute];
   args.push("-UITestExpectedMarker", route.expectedMarker);
   if (route.expectedRoute) {
     args.push("-UITestExpectedRoute", route.expectedRoute);
   }
   args.push("-UITestAutoReviewerLogin", route.autoReviewerLogin ? "true" : "false");
+  args.push("-UITestResetAppState", "false");
   args.push("-UITestVaultPassphrase", reviewerVaultPassphrase);
   args.push("-UITestExpectedUserId", reviewerUid);
   run("xcrun", args);
@@ -129,6 +143,8 @@ function buildApp() {
     xcodeScheme,
     "-destination",
     destination,
+    "-derivedDataPath",
+    derivedDataPath,
     "build",
   ], {
     stdio: ["ignore", "pipe", "pipe"],
@@ -143,7 +159,7 @@ function waitForStatus(route) {
 
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      const container = run("xcrun", ["simctl", "get_app_container", "booted", bundleId, "data"]);
+      const container = run("xcrun", ["simctl", "get_app_container", simulatorDevice, bundleId, "data"]);
       const statusPath = path.join(container, "Documents", "native-test-status.txt");
       if (fs.existsSync(statusPath)) {
         lastRaw = fs.readFileSync(statusPath, "utf8").trim();
@@ -185,9 +201,10 @@ function main() {
   console.log(`==> destination: ${destination}`);
 
   buildApp();
-  tryRun("xcrun", ["simctl", "terminate", "booted", bundleId]);
-  tryRun("xcrun", ["simctl", "uninstall", "booted", bundleId]);
-  run("xcrun", ["simctl", "install", "booted", appPath]);
+  ensureSimulatorBooted();
+  tryRun("xcrun", ["simctl", "terminate", simulatorDevice, bundleId]);
+  tryRun("xcrun", ["simctl", "uninstall", simulatorDevice, bundleId]);
+  run("xcrun", ["simctl", "install", simulatorDevice, appPath]);
 
   const results = [];
 
@@ -196,7 +213,7 @@ function main() {
     try {
       launchRoute(route);
       const result = waitForStatus(route);
-      tryRun("xcrun", ["simctl", "terminate", "booted", bundleId]);
+      tryRun("xcrun", ["simctl", "terminate", simulatorDevice, bundleId]);
 
       if (!result.ok) {
         console.log("FAIL");

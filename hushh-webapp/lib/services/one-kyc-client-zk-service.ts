@@ -181,11 +181,22 @@ function replySubject(subject: string | null | undefined): string {
   return value.toLowerCase().startsWith("re:") ? value.slice(0, 500) : `Re: ${value}`.slice(0, 500);
 }
 
+function kycX25519UnsupportedError(): Error {
+  return new Error(
+    "One Email KYC requires WebCrypto X25519 support. Use iOS 17 or later for direct device testing."
+  );
+}
+
 async function generateConnectorRecord(): Promise<KycClientConnectorPrivateRecord> {
   const algorithm = { name: "X25519" } as unknown as AlgorithmIdentifier;
-  const keyPair = (await crypto.subtle.generateKey(algorithm, true, [
-    "deriveBits",
-  ])) as CryptoKeyPair;
+  let keyPair: CryptoKeyPair;
+  try {
+    keyPair = (await crypto.subtle.generateKey(algorithm, true, [
+      "deriveBits",
+    ])) as CryptoKeyPair;
+  } catch {
+    throw kycX25519UnsupportedError();
+  }
   const publicKeyBytes = new Uint8Array(await crypto.subtle.exportKey("raw", keyPair.publicKey));
   const privateKeyBytes = new Uint8Array(await crypto.subtle.exportKey("pkcs8", keyPair.privateKey));
   const publicKey = bytesToBase64(publicKeyBytes);
@@ -320,25 +331,30 @@ export class OneKycClientZkService {
     }
 
     const x25519 = { name: "X25519" } as unknown as AlgorithmIdentifier;
-    const privateKey = await crypto.subtle.importKey(
-      "pkcs8",
-      toArrayBuffer(base64ToBytesCompat(params.connector.connector_private_key)),
-      x25519,
-      false,
-      ["deriveBits"]
-    );
-    const senderPublicKey = await crypto.subtle.importKey(
-      "raw",
-      toArrayBuffer(base64ToBytesCompat(wrapped.sender_public_key)),
-      x25519,
-      false,
-      []
-    );
-    const sharedSecret = await crypto.subtle.deriveBits(
-      { name: "X25519", public: senderPublicKey } as unknown as AlgorithmIdentifier,
-      privateKey,
-      256
-    );
+    let sharedSecret: ArrayBuffer;
+    try {
+      const privateKey = await crypto.subtle.importKey(
+        "pkcs8",
+        toArrayBuffer(base64ToBytesCompat(params.connector.connector_private_key)),
+        x25519,
+        false,
+        ["deriveBits"]
+      );
+      const senderPublicKey = await crypto.subtle.importKey(
+        "raw",
+        toArrayBuffer(base64ToBytesCompat(wrapped.sender_public_key)),
+        x25519,
+        false,
+        []
+      );
+      sharedSecret = await crypto.subtle.deriveBits(
+        { name: "X25519", public: senderPublicKey } as unknown as AlgorithmIdentifier,
+        privateKey,
+        256
+      );
+    } catch {
+      throw kycX25519UnsupportedError();
+    }
     const wrappingKeyBytes = await sha256Bytes(sharedSecret);
     const wrappingKey = await crypto.subtle.importKey(
       "raw",

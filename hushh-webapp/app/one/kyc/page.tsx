@@ -19,6 +19,8 @@ import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
+  buildKycWorkflowArtifact,
+  hashKycWorkflowArtifact,
   KycWorkflowPkmService,
   type KycWorkflowCheck,
   type KycWorkflowCheckKey,
@@ -314,7 +316,7 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
           } satisfies Record<KycWorkflowCheckKey, KycWorkflowCheck>;
           const overallStatus: KycWorkflowStatus =
             localDraft.missingFields.length === 0 ? "verified" : "pending";
-          const artifact = {
+          const artifact = buildKycWorkflowArtifact({
             checks,
             overall_status: overallStatus,
             counterparty: workflow.counterparty_label || workflow.sender_email || null,
@@ -323,8 +325,8 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
             completed_requirements: workflow.required_fields.filter(
               (field) => !localDraft.missingFields.includes(field)
             ),
-          };
-          const artifactHash = await sha256Hex(JSON.stringify(artifact));
+          });
+          const artifactHash = await hashKycWorkflowArtifact(artifact);
           next = await OneKycService.sendApprovedReply({
             ...input,
             approvedSubject: localDraft.subject || workflow.draft_subject,

@@ -70,7 +70,7 @@ final class AppUITests: XCTestCase {
                 name: "kai-dashboard-analysis",
                 initialRoute: "/login?redirect=%2Fkai%2Fdashboard%2Fanalysis%3Fticker%3DAAPL",
                 expectedMarker: "native-route-kai-analysis",
-                expectedRoute: "/kai/analysis?ticker=AAPL",
+                expectedRoute: "/kai/analysis",
                 expectedRoutePrefix: nil,
                 autoReviewerLogin: true,
                 expectedAuth: "authenticated",
@@ -97,16 +97,17 @@ final class AppUITests: XCTestCase {
     func testConsentAndProfileRoutes() throws {
         try assertRoutes([
             reviewerRoute(name: "consents", redirect: "/consents", marker: "native-route-consents"),
+            reviewerRoute(name: "one-kyc", redirect: "/one/kyc", marker: "native-route-one-kyc"),
             reviewerRoute(name: "profile", redirect: "/profile", marker: "native-route-profile"),
             RouteCase(
                 name: "profile-pkm",
                 initialRoute: "/login?redirect=%2Fprofile%2Fpkm",
-                expectedMarker: "native-route-profile-pkm",
-                expectedRoute: nil,
-                expectedRoutePrefix: "/profile/pkm",
+                expectedMarker: "native-route-profile",
+                expectedRoute: "/profile?panel=my-data",
+                expectedRoutePrefix: nil,
                 autoReviewerLogin: true,
                 expectedAuth: "authenticated",
-                allowedDataStates: ["loaded"]
+                allowedDataStates: ["loaded", "redirect-valid"]
             ),
             reviewerRoute(
                 name: "profile-receipts",
@@ -143,18 +144,40 @@ final class AppUITests: XCTestCase {
                 expectedAuth: "authenticated",
                 allowedDataStates: ["loaded"]
             ),
-            reviewerRoute(name: "ria-workspace", redirect: "/ria/workspace", marker: "native-route-ria-workspace", allowedDataStates: ["loaded", "empty-valid", "unavailable-valid"]),
+            RouteCase(
+                name: "ria-workspace",
+                initialRoute: "/login?redirect=%2Fria%2Fworkspace",
+                expectedMarker: "native-route-ria-workspace",
+                expectedRoute: "/ria/clients",
+                expectedRoutePrefix: nil,
+                autoReviewerLogin: true,
+                expectedAuth: "authenticated",
+                allowedDataStates: ["loaded", "empty-valid", "unavailable-valid"]
+            ),
         ])
     }
 
     func testMarketplaceRoutes() throws {
         try assertRoutes([
             reviewerRoute(name: "marketplace", redirect: "/marketplace", marker: "native-route-marketplace", allowedDataStates: ["loaded", "empty-valid", "unavailable-valid"]),
-            reviewerRoute(name: "marketplace-connections", redirect: "/marketplace/connections", marker: "native-route-marketplace-connections", allowedDataStates: ["loaded", "empty-valid"]),
-            reviewerRoute(
+            RouteCase(
+                name: "marketplace-connections",
+                initialRoute: "/login?redirect=%2Fmarketplace%2Fconnections",
+                expectedMarker: "native-route-consents",
+                expectedRoute: "/consents?tab=pending",
+                expectedRoutePrefix: nil,
+                autoReviewerLogin: true,
+                expectedAuth: "authenticated",
+                allowedDataStates: ["loaded", "empty-valid"]
+            ),
+            RouteCase(
                 name: "marketplace-connections-portfolio",
-                redirect: "/marketplace/connections/portfolio",
-                marker: "native-route-marketplace-connections-portfolio",
+                initialRoute: "/login?redirect=%2Fmarketplace%2Fconnections%2Fportfolio",
+                expectedMarker: "native-route-ria-clients",
+                expectedRoute: "/ria/clients",
+                expectedRoutePrefix: nil,
+                autoReviewerLogin: true,
+                expectedAuth: "authenticated",
                 allowedDataStates: ["loaded", "empty-valid", "unavailable-valid"]
             ),
             reviewerRoute(
@@ -227,9 +250,19 @@ final class AppUITests: XCTestCase {
             "-UITestInitialRoute", route.initialRoute,
             "-UITestExpectedMarker", route.expectedMarker,
             "-UITestAutoReviewerLogin", route.autoReviewerLogin ? "true" : "false",
+            "-UITestResetAppState", "false",
         ]
         if let expectedRoute = route.expectedRoute {
             app.launchArguments += ["-UITestExpectedRoute", expectedRoute]
+        }
+        let environment = ProcessInfo.processInfo.environment
+        if let reviewerUid = environment["HUSHH_UI_TEST_REVIEWER_UID"] ?? environment["REVIEWER_UID"],
+           !reviewerUid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            app.launchArguments += ["-UITestExpectedUserId", reviewerUid]
+        }
+        if let vaultPassphrase = environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"],
+           !vaultPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            app.launchArguments += ["-UITestVaultPassphrase", vaultPassphrase]
         }
         app.launch()
         return app
@@ -264,10 +297,11 @@ final class AppUITests: XCTestCase {
                 let authMatches = parsed["auth"] == route.expectedAuth
                 let markerMatches = parsed["marker"] == route.expectedMarker
                 let routeMatches: Bool
+                let observedRoute = normalizeRoute(parsed["route"] ?? "")
                 if let expectedRoute = route.expectedRoute {
-                    routeMatches = parsed["route"] == expectedRoute
+                    routeMatches = observedRoute == normalizeRoute(expectedRoute)
                 } else if let expectedPrefix = route.expectedRoutePrefix {
-                    routeMatches = (parsed["route"] ?? "").hasPrefix(expectedPrefix)
+                    routeMatches = observedRoute.hasPrefix(normalizeRoute(expectedPrefix))
                 } else {
                     routeMatches = true
                 }
@@ -292,5 +326,17 @@ final class AppUITests: XCTestCase {
             }
         }
         return result
+    }
+
+    private func normalizeRoute(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "/" else { return trimmed.isEmpty ? "/" : trimmed }
+        guard var components = URLComponents(string: "https://native-test.local\(trimmed)") else {
+            return trimmed.hasSuffix("/") ? String(trimmed.dropLast()) : trimmed
+        }
+        if components.path.count > 1 && components.path.hasSuffix("/") {
+            components.path = String(components.path.dropLast())
+        }
+        return "\(components.path)\(components.percentEncodedQuery.map { "?\($0)" } ?? "")"
     }
 }
