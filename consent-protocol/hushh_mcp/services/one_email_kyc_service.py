@@ -338,6 +338,10 @@ def _extract_addresses(*values: str | None) -> list[str]:
     return addresses
 
 
+def _without_addresses(values: list[str], excluded: set[str]) -> list[str]:
+    return [value for value in values if value not in excluded]
+
+
 def _extract_name(value: str | None) -> str | None:
     parsed = email.utils.getaddresses([value or ""])
     if not parsed:
@@ -863,12 +867,29 @@ class OneEmailKycService:
             )
             if item != mailbox
         ]
+        recipient_participants = _without_addresses(
+            _extract_addresses(headers.get("to"), headers.get("cc"), headers.get("reply-to")),
+            {mailbox},
+        )
 
         if sender_email == mailbox:
             return {"handled": False, "reason": "self_sent_message", "message_id": gmail_message_id}
 
         is_kyc = self._looks_like_kyc(subject=subject, body=body_text)
-        user_match = self._match_verified_user(participants)
+        recipient_user_match = self._match_verified_user(recipient_participants)
+        if recipient_user_match.get("user_id") or recipient_user_match.get("error_code") in (
+            "ambiguous_identity_resolution",
+            "ambiguous_user_match",
+        ):
+            user_match = {
+                **recipient_user_match,
+                "matched_from": "recipients",
+            }
+        else:
+            user_match = {
+                **self._match_verified_user(participants),
+                "matched_from": "participants",
+            }
         common = {
             "workflow_id": uuid.uuid4().hex,
             "user_id": user_match.get("user_id"),
@@ -890,6 +911,8 @@ class OneEmailKycService:
                 "one_agent_id": _ONE_AGENT_ID,
                 "nav_agent_id": _NAV_AGENT_ID,
                 "kyc_agent_id": _KYC_AGENT_ID,
+                "identity_match_source": user_match.get("matched_from"),
+                "identity_matched_by": user_match.get("matched_by"),
             },
         }
 
