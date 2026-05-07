@@ -6,7 +6,7 @@ Before getting started, ensure the following tools are installed:
 
 - Git
 - Node.js
-- Visual Studio Code (Recommended)
+- Visual Studio Code
 
 ---
 
@@ -18,13 +18,16 @@ cd hushh-research
 ```
 
 ---
+
 ## Getting Started Guide
 
-For detailed project onboarding and setup instructions, refer to:
+For detailed onboarding instructions, refer to:
 
 ```text
 docs/guides/getting-started.md
 ```
+
+---
 
 ## Create a New Branch
 
@@ -42,23 +45,21 @@ Bootstrap the development environment using:
 ./bin/hushh bootstrap
 ```
 
-This command installs and configures the required project dependencies and local development setup.
-
 ---
 
 ## Contribution Workflow
 
 1. Fork the repository
 2. Clone your fork
-3. Create a new branch
+3. Create a branch
 4. Make changes
-5. Commit your changes
+5. Commit changes
 6. Push changes
 7. Open a Pull Request
 
 ---
 
-## Commit Message Example
+## Commit Example
 
 ```bash
 git commit -s -m "Add contributor onboarding documentation"
@@ -66,20 +67,7 @@ git commit -s -m "Add contributor onboarding documentation"
 
 ---
 
-## Pull Request Guidelines
-
-- Keep pull requests focused
-- Avoid unrelated file changes
-- Write meaningful commit messages
-- Test changes before submitting
-
----
-
 ## Repository Structure
-
-This repository contains multiple components and services.
-
-Example structure:
 
 ```text
 hushh-research/
@@ -90,42 +78,6 @@ hushh-research/
 ├── scripts/
 └── tests/
 ```
-
-Different components may contain their own package.json files and dependency requirements.
-
----
-
-## Troubleshooting
-
-### package.json Error
-
-If you encounter:
-
-```text
-ENOENT: no such file or directory, open 'package.json'
-```
-
-this means npm commands are being executed outside a valid Node.js project directory.
-
-Use the following command to locate package.json files:
-
-```bash
-Get-ChildItem -Recurse -Filter package.json
-```
-
-Then navigate into the appropriate component directory before running npm commands.
-
----
-
-## Recommended Development Workflow
-
-1. Fork the repository
-2. Clone your fork locally
-3. Create a dedicated branch
-4. Make focused changes
-5. Commit with meaningful messages
-6. Push changes to GitHub
-7. Open a Pull Request
 
 ---
 
