@@ -5,7 +5,7 @@
 
 Canonical visual owner: [Mobile Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
-Last audited: March 29, 2026
+Last audited: May 7, 2026
 
 Founder-language note: this report is evidence for `Separation of Duties`, not a new architecture concept. It confirms that the mobile delivery boundary stayed aligned with the shared platform contract at the audit date above.
 
@@ -17,6 +17,7 @@ The following all pass together:
 
 - `bash scripts/ci/orchestrate.sh all`
 - `bash scripts/ci/docs-parity-check.sh`
+- `cd hushh-webapp && npm run verify:capacitor:static`
 - `xcodebuild -list -project ios/App/App.xcodeproj`
 - `./gradlew tasks --all`
 
@@ -27,6 +28,8 @@ None at the time of this audit.
 The repo now hard-fails when:
 
 - the canonical app route contract in `hushh-webapp/lib/navigation/routes.ts` drifts from the docs/runtime contract
+- native microphone permission metadata is missing while Kai voice uses `getUserMedia({ audio: true })`
+- native route inventory omits a `ROUTES` entry or leaves a legacy route unclassified
 - route-facing browser-only APIs bypass shared wrappers or explicit exemptions
 - docs drift from the current runtime/native contract
 
