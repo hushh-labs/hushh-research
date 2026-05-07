@@ -9,6 +9,7 @@ from sentence_transformers import SentenceTransformer
 from core.analytics import analyze_productivity
 from core.insights import generate_insights
 from core.chat_agent import process_chat
+from timeline_engine.timeline_router import process_timeline
 
 # =========================================================
 # FASTAPI INITIALIZATION
@@ -207,6 +208,44 @@ def chat(chat_input: ChatInput):
         )
 
         return response
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+   # =========================================================
+# MEMORY TIMELINE ENGINE
+# =========================================================
+
+@app.get("/memory-timeline")
+def memory_timeline():
+
+    try:
+
+        results = collection.get()
+
+        documents = results.get("documents", [])
+
+        metadatas = results.get("metadatas", [])
+
+        combined_memories = []
+
+        for doc, metadata in zip(documents, metadatas):
+
+            combined_memories.append(
+                {
+                    "document": doc,
+                    "metadata": metadata
+                }
+            )
+
+        timeline_results = process_timeline(
+            combined_memories
+        )
+
+        return timeline_results
 
     except Exception as error:
 
