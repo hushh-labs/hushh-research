@@ -102,6 +102,7 @@ def _raise_database_http_exception(exc: Exception) -> None:
                 **({"hint": hint} if hint else {}),
             },
         ) from exc
+    raise HTTPException(status_code=500, detail="Database error") from exc
 
 
 # ============================================================================
