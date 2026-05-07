@@ -7,72 +7,65 @@ from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 
 # =========================================================
-
 # FASTAPI INITIALIZATION
-
 # =========================================================
 
 app = FastAPI(
-title="Personal Memory Intelligence Agent",
-description="AI-powered semantic memory retrieval system",
-version="1.0.0"
+    title="Personal Memory Intelligence Agent",
+    description="AI-powered semantic memory retrieval system",
+    version="1.0.0"
 )
 
 # =========================================================
-
 # CHROMADB SETUP
-
 # =========================================================
 
 client = chromadb.PersistentClient(path="./data/memory_store")
 
 collection = client.get_or_create_collection(
-name="personal_memories"
+    name="personal_memories"
 )
 
 # =========================================================
-
 # EMBEDDING MODEL
-
 # =========================================================
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
 # =========================================================
-
 # REQUEST MODELS
-
 # =========================================================
 
 class MemoryInput(BaseModel):
-text: str
-category: str
+    text: str
+    category: str
+
 
 class QueryInput(BaseModel):
-question: str
+    question: str
+
 
 # =========================================================
-
 # ROOT ENDPOINT
-
 # =========================================================
 
 @app.get("/")
 def home():
-return {
-"message": "Personal Memory Intelligence Agent Running Successfully"
-}
+
+    return {
+        "message": "Personal Memory Intelligence Agent Running Successfully"
+    }
+
 
 # =========================================================
-
 # STORE MEMORY
-
 # =========================================================
 
 @app.post("/store-memory")
 def store_memory(memory: MemoryInput):
 
     try:
+
         memory_id = str(uuid.uuid4())
 
         embedding = model.encode(memory.text).tolist()
@@ -96,21 +89,22 @@ def store_memory(memory: MemoryInput):
         }
 
     except Exception as error:
+
         raise HTTPException(
             status_code=500,
             detail=str(error)
         )
 
+
 # =========================================================
-
 # SEARCH MEMORY
-
 # =========================================================
 
 @app.post("/search-memory")
 def search_memory(query: QueryInput):
 
     try:
+
         query_embedding = model.encode(query.question).tolist()
 
         results = collection.query(
@@ -139,21 +133,22 @@ def search_memory(query: QueryInput):
         }
 
     except Exception as error:
+
         raise HTTPException(
             status_code=500,
             detail=str(error)
         )
 
+
 # =========================================================
-
 # MEMORY COUNT
-
 # =========================================================
 
 @app.get("/memory-count")
 def memory_count():
 
     try:
+
         count = collection.count()
 
         return {
@@ -161,6 +156,7 @@ def memory_count():
         }
 
     except Exception as error:
+
         raise HTTPException(
             status_code=500,
             detail=str(error)
