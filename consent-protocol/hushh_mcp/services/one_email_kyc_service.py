@@ -1005,15 +1005,20 @@ class OneEmailKycService:
         if not unique_emails:
             return {"user_id": None, "error_code": "no_participant_email"}
         rows = self._find_actor_identity_rows(unique_emails)
+        alias_rows = self._find_verified_email_alias_rows(unique_emails)
+        rows.extend(alias_rows)
         user_ids = sorted(
             {str(row.get("user_id") or "").strip() for row in rows if row.get("user_id")}
         )
         if len(user_ids) == 1:
-            return {"user_id": user_ids[0], "matched_by": "actor_identity_cache"}
+            matched_by = "actor_verified_email_alias" if alias_rows else "actor_identity_cache"
+            return {"user_id": user_ids[0], "matched_by": matched_by}
         if len(user_ids) > 1:
             return {
                 "user_id": None,
-                "error_code": "ambiguous_user_match",
+                "error_code": (
+                    "ambiguous_identity_resolution" if alias_rows else "ambiguous_user_match"
+                ),
                 "message": "Multiple verified Hussh users matched the email participants.",
             }
 
@@ -1045,6 +1050,22 @@ class OneEmailKycService:
             return [dict(row) for row in self.db.execute_raw(sql, {"emails": emails}).data]
         except Exception as exc:
             logger.warning("one_email_kyc.actor_identity_lookup_failed reason=%s", exc)
+            return []
+
+    def _find_verified_email_alias_rows(self, emails: list[str]) -> list[dict[str, Any]]:
+        if not emails:
+            return []
+        sql = """
+            SELECT user_id, email, email_normalized
+            FROM actor_verified_email_aliases
+            WHERE verification_status = 'verified'
+              AND revoked_at IS NULL
+              AND email_normalized = ANY(:emails)
+        """
+        try:
+            return [dict(row) for row in self.db.execute_raw(sql, {"emails": emails}).data]
+        except Exception as exc:
+            logger.warning("one_email_kyc.actor_verified_alias_lookup_failed reason=%s", exc)
             return []
 
     def _find_firebase_users_by_email(self, emails: list[str]) -> list[str]:

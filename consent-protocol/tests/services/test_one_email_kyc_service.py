@@ -88,7 +88,12 @@ def _encrypted_export(
     }
 
 
-def _message(*, body: str, sender: str = "broker@example.com") -> dict:
+def _message(
+    *,
+    body: str,
+    sender: str = "broker@example.com",
+    cc: str = "User <verified@example.com>",
+) -> dict:
     return {
         "id": "gmail_msg_1",
         "threadId": "gmail_thread_1",
@@ -97,7 +102,7 @@ def _message(*, body: str, sender: str = "broker@example.com") -> dict:
             "headers": [
                 {"name": "From", "value": f"Broker Ops <{sender}>"},
                 {"name": "To", "value": "one@hushh.ai"},
-                {"name": "Cc", "value": "User <verified@example.com>"},
+                {"name": "Cc", "value": cc},
                 {"name": "Subject", "value": "Broker API KYC questionnaire"},
                 {"name": "Message-ID", "value": "<m1@example.com>"},
             ],
@@ -124,10 +129,17 @@ def test_config_enables_webhook_auth_from_deploy_environment(monkeypatch):
 
 
 class _FakeDb:
-    def __init__(self, *, user_id: str | None = "user_123", connector: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        user_id: str | None = "user_123",
+        connector: bool = True,
+        alias_rows: list[dict] | None = None,
+    ) -> None:
         self.user_id = user_id
         self.workflows: list[dict] = []
         self.connectors: list[dict] = []
+        self.alias_rows = alias_rows or []
         if user_id and connector:
             self.connectors.append(
                 {
@@ -149,10 +161,22 @@ class _FakeDb:
         params = params or {}
         normalized = " ".join(sql.lower().split())
         if "from actor_identity_cache" in normalized:
-            if not self.user_id:
+            emails = set(params.get("emails") or [])
+            if not self.user_id or "verified@example.com" not in emails:
                 return SimpleNamespace(data=[])
             return SimpleNamespace(
                 data=[{"user_id": self.user_id, "email": "verified@example.com"}]
+            )
+        if "from actor_verified_email_aliases" in normalized:
+            emails = set(params.get("emails") or [])
+            return SimpleNamespace(
+                data=[
+                    row
+                    for row in self.alias_rows
+                    if row.get("verification_status", "verified") == "verified"
+                    and row.get("revoked_at") is None
+                    and row.get("email_normalized") in emails
+                ]
             )
         if "from one_kyc_workflows" in normalized and "where gmail_message_id" in normalized:
             message_id = params.get("gmail_message_id")
@@ -510,6 +534,75 @@ async def test_process_message_blocks_unknown_user_without_creating_consent():
 
     assert result["workflow"]["status"] == "blocked"
     assert result["workflow"]["last_error_code"] == "user_not_found"
+    assert consent_db.events == []
+
+
+@pytest.mark.asyncio
+async def test_process_message_matches_verified_email_alias_without_relay_inference():
+    db = _FakeDb(
+        user_id="user_123",
+        alias_rows=[
+            {
+                "user_id": "user_123",
+                "email": "original@example.com",
+                "email_normalized": "original@example.com",
+                "verification_status": "verified",
+                "revoked_at": None,
+            }
+        ],
+    )
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+
+    result = await service._process_message(
+        _message(
+            body="KYC questionnaire for broker onboarding. Required: full name.",
+            cc="Original User <original@example.com>",
+        ),
+        history_id="101a",
+    )
+
+    assert result["workflow"]["user_id"] == "user_123"
+    assert result["workflow"]["status"] == "needs_scope"
+    assert result["workflow"]["consent_request_id"].startswith("okyc_")
+    assert consent_db.events
+
+
+@pytest.mark.asyncio
+async def test_process_message_blocks_ambiguous_verified_aliases():
+    db = _FakeDb(
+        user_id=None,
+        alias_rows=[
+            {
+                "user_id": "user_123",
+                "email": "original@example.com",
+                "email_normalized": "original@example.com",
+                "verification_status": "verified",
+                "revoked_at": None,
+            },
+            {
+                "user_id": "user_456",
+                "email": "original@example.com",
+                "email_normalized": "original@example.com",
+                "verification_status": "verified",
+                "revoked_at": None,
+            },
+        ],
+    )
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+    service._find_firebase_users_by_email = lambda emails: []
+
+    result = await service._process_message(
+        _message(
+            body="KYC questionnaire for broker onboarding.",
+            cc="Original User <original@example.com>",
+        ),
+        history_id="101b",
+    )
+
+    assert result["workflow"]["status"] == "blocked"
+    assert result["workflow"]["last_error_code"] == "ambiguous_identity_resolution"
     assert consent_db.events == []
 
 

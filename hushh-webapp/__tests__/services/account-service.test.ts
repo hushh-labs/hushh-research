@@ -142,4 +142,62 @@ describe("AccountService", () => {
       expect(result.requested_target).toBe("account");
     });
   });
+
+  describe("email aliases", () => {
+    it("lists aliases with VAULT_OWNER authorization", async () => {
+      mockApiJson.mockResolvedValue({
+        success: true,
+        user_id: "user_1",
+        aliases: [],
+      });
+
+      await AccountService.listEmailAliases("vault-token-abc");
+
+      expect(mockApiJson).toHaveBeenCalledWith(
+        "/api/account/email-aliases",
+        expect.objectContaining({
+          method: "GET",
+          headers: { Authorization: "Bearer vault-token-abc" },
+        })
+      );
+    });
+
+    it("starts and confirms alias verification without Firebase-only auth", async () => {
+      mockApiJson.mockResolvedValue({ success: true });
+
+      await AccountService.startEmailAliasVerification(
+        "vault-token-abc",
+        "Original@Example.com"
+      );
+      await AccountService.confirmEmailAliasVerification(
+        "vault-token-abc",
+        "original@example.com",
+        "123456"
+      );
+
+      expect(mockApiJson).toHaveBeenNthCalledWith(
+        1,
+        "/api/account/email-aliases/verification/start",
+        expect.objectContaining({
+          method: "POST",
+          headers: {
+            Authorization: "Bearer vault-token-abc",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ email: "Original@Example.com" }),
+        })
+      );
+      expect(mockApiJson).toHaveBeenNthCalledWith(
+        2,
+        "/api/account/email-aliases/verification/confirm",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            email: "original@example.com",
+            verification_code: "123456",
+          }),
+        })
+      );
+    });
+  });
 });
