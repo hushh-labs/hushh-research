@@ -85,6 +85,10 @@ Native parity for authenticated flows now includes the verified phone mandate af
 
 - `FirebaseAuthentication.providers` must include `"phone"` alongside the existing provider list.
 - `/register-phone` is a contract route even though it bypasses the standard shell.
+- Kai voice surfaces require native microphone permission metadata:
+  `NSMicrophoneUsageDescription` on iOS and `android.permission.RECORD_AUDIO` on Android.
+- `/kai/funding-trade` is part of the native route inventory because voice/action parity can
+  land users on the funding trade surface.
 - Web, iOS, and Android must all produce the same product truth: a signed-in user without
   `FirebaseAuth.currentUser.phoneNumber` cannot continue past the mandate.
 - Android still requires a documented OTP smoke on device or UAT because the repo does not

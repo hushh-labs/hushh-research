@@ -11,6 +11,7 @@ struct NativeTestConfiguration {
     let autoReviewerLogin: Bool
     let vaultPassphrase: String?
     let expectedUserId: String?
+    let resetAppState: Bool
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         enabled = arguments.contains("-UITestMode")
@@ -22,6 +23,11 @@ struct NativeTestConfiguration {
         autoReviewerLogin = NativeTestConfiguration.boolValue(for: "-UITestAutoReviewerLogin", in: arguments)
         vaultPassphrase = NativeTestConfiguration.value(for: "-UITestVaultPassphrase", in: arguments)
         expectedUserId = NativeTestConfiguration.value(for: "-UITestExpectedUserId", in: arguments)
+        resetAppState = NativeTestConfiguration.boolValue(
+            for: "-UITestResetAppState",
+            in: arguments,
+            defaultValue: true
+        )
     }
 
     var injectedScript: String {
@@ -44,6 +50,7 @@ struct NativeTestConfiguration {
 
         return """
         (function() {
+          if (window.top !== window) return;
           var config = \(json);
           var bridge = window.__HUSHH_NATIVE_TEST__ || {};
           var initialRouteKey = "__hushh_native_test_initial_route_applied__";
@@ -291,9 +298,13 @@ struct NativeTestConfiguration {
         return value.isEmpty ? nil : value
     }
 
-    private static func boolValue(for key: String, in arguments: [String]) -> Bool {
+    private static func boolValue(
+        for key: String,
+        in arguments: [String],
+        defaultValue: Bool = false
+    ) -> Bool {
         guard let value = value(for: key, in: arguments)?.lowercased() else {
-            return false
+            return defaultValue
         }
         return value == "1" || value == "true" || value == "yes"
     }
@@ -319,7 +330,7 @@ struct NativeTestConfiguration {
 
 enum NativeTestResetter {
     static func resetAppStateIfNeeded(configuration: NativeTestConfiguration) {
-        guard configuration.enabled else { return }
+        guard configuration.enabled, configuration.resetAppState else { return }
 
         clearFirebaseAuth()
         clearUserDefaults()
