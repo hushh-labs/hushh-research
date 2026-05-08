@@ -271,7 +271,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       return withRequestIdJson(requestId, data, { status: response.status });
     }
 
-    return withRequestIdJson(requestId, data);
+    return withRequestIdJson(requestId, data, { status: response.status });
   } catch (error) {
     console.error(
       `[Kai API] request_id=${requestId} proxy_error path=${path}`,

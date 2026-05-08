@@ -54,6 +54,31 @@ describe("/api/kai/[...path] proxy", () => {
     expect(headers.get("Content-Type")).toBe("application/json");
   });
 
+  it("preserves upstream success status codes for JSON responses", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ created: true }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const req = createRequest("http://localhost:3000/api/kai/chat", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer vault_owner_token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id: "user_123", message: "hello" }),
+    });
+
+    const res = await kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["chat"] }),
+    });
+
+    expect(res.status).toBe(201);
+    await expect(res.json()).resolves.toEqual({ created: true });
+  });
+
   it("forwards Authorization for import multipart path without overriding multipart content-type", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ success: true }), {
