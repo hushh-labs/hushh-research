@@ -8,6 +8,7 @@ from sentence_transformers import SentenceTransformer
 
 from core.analytics import analyze_productivity
 from core.insights import generate_insights
+from forecast_engine.forecast_router import process_forecast
 from core.chat_agent import process_chat
 from timeline_engine.timeline_router import process_timeline
 from importance_engine.priority_router import process_priority_memories
@@ -324,6 +325,45 @@ def memory_reflections():
         )
 
         return reflection_results
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+    
+    # =========================================================
+# PREDICTIVE MEMORY FORECASTING ENGINE
+# =========================================================
+
+@app.get("/memory-forecast")
+def memory_forecast():
+
+    try:
+
+        results = collection.get()
+
+        documents = results.get("documents", [])
+
+        metadatas = results.get("metadatas", [])
+
+        combined_memories = []
+
+        for doc, metadata in zip(documents, metadatas):
+
+            combined_memories.append(
+                {
+                    "document": doc,
+                    "metadata": metadata
+                }
+            )
+
+        forecast_results = process_forecast(
+            combined_memories
+        )
+
+        return forecast_results
 
     except Exception as error:
 
