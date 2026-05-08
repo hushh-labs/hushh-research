@@ -183,7 +183,7 @@ def validate_token(
                     None,
                 )
 
-        if int(time.time() * 1000) > int(expires_at_str):
+        if int(time.time() * 1000) >= int(expires_at_str):
             return False, "Token expired", None
 
         # Commercial-flag gate (issue #30).

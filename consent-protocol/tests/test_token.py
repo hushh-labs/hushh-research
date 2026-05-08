@@ -48,6 +48,22 @@ def test_token_expiry():
     assert valid is False
     assert reason == "Token expired"
 
+def test_token_expiry_boundary():
+    token_obj = issue_token(
+        USER_ID,
+        AGENT_ID,
+        VALID_SCOPE,
+        expires_in_ms=0,
+    )
+
+    valid, reason, _ = validate_token(token_obj.token, VALID_SCOPE)
+
+    assert valid is False
+    
+    
+    
+    assert reason == "Token expired"
+
 
 def test_token_revocation():
     token_obj = issue_token(USER_ID, AGENT_ID, VALID_SCOPE)
