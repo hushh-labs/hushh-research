@@ -13,6 +13,7 @@ from core.chat_agent import process_chat
 from timeline_engine.timeline_router import process_timeline
 from importance_engine.priority_router import process_priority_memories
 from reflection_engine.reflection_router import process_reflections
+from relationship_engine.relationship_router import process_relationships
 
 # =========================================================
 # FASTAPI INITIALIZATION
@@ -364,6 +365,44 @@ def memory_forecast():
         )
 
         return forecast_results
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+    # =========================================================
+# CONTEXTUAL MEMORY RELATIONSHIP GRAPH ENGINE
+# =========================================================
+
+@app.get("/memory-relationships")
+def memory_relationships():
+
+    try:
+
+        results = collection.get()
+
+        documents = results.get("documents", [])
+
+        metadatas = results.get("metadatas", [])
+
+        combined_memories = []
+
+        for doc, metadata in zip(documents, metadatas):
+
+            combined_memories.append(
+                {
+                    "document": doc,
+                    "metadata": metadata
+                }
+            )
+
+        relationship_results = process_relationships(
+            combined_memories
+        )
+
+        return relationship_results
 
     except Exception as error:
 
