@@ -338,8 +338,8 @@ async def startup_pool_and_iam_cache() -> None:
     """
     from db.connection import get_pool
     from hushh_mcp.services.ria_iam_service import (
-        RIAIAMService,
         _IAM_REQUIRED_TABLES,
+        RIAIAMService,
     )
 
     try:
