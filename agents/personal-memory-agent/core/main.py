@@ -11,6 +11,7 @@ from core.insights import generate_insights
 from core.chat_agent import process_chat
 from timeline_engine.timeline_router import process_timeline
 from importance_engine.priority_router import process_priority_memories
+from reflection_engine.reflection_router import process_reflections
 
 # =========================================================
 # FASTAPI INITIALIZATION
@@ -285,6 +286,44 @@ def priority_memories():
         )
 
         return priority_results
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+    # =========================================================
+# AUTONOMOUS MEMORY REFLECTION ENGINE
+# =========================================================
+
+@app.get("/memory-reflections")
+def memory_reflections():
+
+    try:
+
+        results = collection.get()
+
+        documents = results.get("documents", [])
+
+        metadatas = results.get("metadatas", [])
+
+        combined_memories = []
+
+        for doc, metadata in zip(documents, metadatas):
+
+            combined_memories.append(
+                {
+                    "document": doc,
+                    "metadata": metadata
+                }
+            )
+
+        reflection_results = process_reflections(
+            combined_memories
+        )
+
+        return reflection_results
 
     except Exception as error:
 
