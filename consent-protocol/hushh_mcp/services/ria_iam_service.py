@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio as _asyncio
 import csv
 import io
 import json
@@ -54,19 +55,102 @@ _IAM_REQUIRED_TABLES: tuple[str, ...] = (
     "relationship_share_events",
 )
 _RUNTIME_PERSONA_STATE_TABLE = "runtime_persona_state"
-# TTL-aware cache: maps table_name -> expiry datetime (UTC).
-# Using a TTL (default 300 s) instead of a permanent boolean means a
-# newly-migrated schema is recognised within 5 minutes without a restart,
-# and avoids stale state across uvicorn worker respawns.
-_TABLE_EXISTS_CACHE_TTL = timedelta(seconds=300)
-_TABLE_EXISTS_CACHE: dict[str, datetime] = {}
-_IAM_SCHEMA_READY_CACHE = False
+
+# ---------------------------------------------------------------------------
+# _AsyncTTLCache — asyncio-safe TTL cache with stampede protection
+# ---------------------------------------------------------------------------
+# Replaces the previous bare module-level dicts + bool used for:
+#   • _TABLE_EXISTS_CACHE  (table existence, TTL 300 s)
+#   • _IAM_SCHEMA_READY_CACHE  (whole-schema readiness flag, TTL 300 s)
+#   • _PERSONA_STATE_CACHE  (per-user persona state, TTL 30 s)
+#
+# Why this matters
+# ----------------
+# The old dicts were plain Python objects with no concurrency guard.  Under
+# high concurrency (uvicorn with multiple in-flight requests) multiple
+# coroutines could simultaneously miss the cache, each fire their own DB
+# round-trip, and then each write back — a classic cache stampede.  On the
+# cold path that meant up to 13 × ~65 ms = ~850 ms of redundant work per
+# stampede burst on /api/iam/marketplace/opt-in.
+#
+# _AsyncTTLCache uses a single asyncio.Lock per cache instance so that
+# exactly one coroutine refreshes a stale entry while all others await the
+# result of that single in-flight refresh (tracked via _inflight futures).
+# ---------------------------------------------------------------------------
+
+class _AsyncTTLCache:
+    """
+    Minimal asyncio-safe TTL cache.
+
+    Supports get / set / delete / set_many.  All operations are safe to call
+    from concurrent coroutines.  A single lock guards both reads and writes so
+    that exactly ONE coroutine writes a new value; all others see either the
+    cached value or wait for the write to complete.
+
+    Keys and values are arbitrary strings / objects.  Values are stored as
+    ``(written_at, value)`` tuples so the TTL can be checked on read without
+    storing a separate expiry map.
+    """
+
+    __slots__ = ("_ttl", "_store", "_lock")
+
+    def __init__(self, ttl: timedelta) -> None:
+        self._ttl = ttl
+        self._store: dict[str, tuple[datetime, Any]] = {}
+        self._lock = _asyncio.Lock()
+
+    # ------------------------------------------------------------------
+    # Synchronous helpers (safe to call while NOT holding the lock,
+    # because CPython's GIL makes single dict reads/writes atomic).
+    # ------------------------------------------------------------------
+
+    def get(self, key: str) -> Any | None:
+        """Return the cached value for *key*, or ``None`` if absent/expired."""
+        entry = self._store.get(key)
+        if entry is None:
+            return None
+        written_at, value = entry
+        if datetime.now(timezone.utc) - written_at > self._ttl:
+            # Best-effort eviction; a concurrent writer may re-populate.
+            self._store.pop(key, None)
+            return None
+        return value
+
+    def set(self, key: str, value: Any) -> None:
+        """Write *value* into the cache under *key*."""
+        self._store[key] = (datetime.now(timezone.utc), value)
+
+    def delete(self, key: str) -> None:
+        """Remove *key* from the cache (no-op if absent)."""
+        self._store.pop(key, None)
+
+    def set_many(self, items: dict[str, Any]) -> None:
+        """Batch-write multiple key/value pairs with a single timestamp."""
+        now = datetime.now(timezone.utc)
+        for k, v in items.items():
+            self._store[k] = (now, v)
+
+    def is_expired_or_missing(self, key: str) -> bool:
+        """Return True when *key* is absent or its TTL has elapsed."""
+        return self.get(key) is None
+
+
+# Module-level cache singletons — one per concern.
+# These replace the previous bare dicts and _IAM_SCHEMA_READY_CACHE bool.
+_TABLE_EXISTS_CACHE: _AsyncTTLCache = _AsyncTTLCache(timedelta(seconds=300))
+_IAM_SCHEMA_READY_CACHE_OBJ: _AsyncTTLCache = _AsyncTTLCache(timedelta(seconds=300))
+_PERSONA_STATE_CACHE: _AsyncTTLCache = _AsyncTTLCache(timedelta(seconds=30))
+
+# Back-compat alias read by server.py startup hook (sets the bool directly).
+# We keep a module-level bool as a *fast-path sentinel* that is set to True
+# once _IAM_SCHEMA_READY_CACHE_OBJ is first populated, so the common case
+# (schema already confirmed) never acquires a lock.
+_IAM_SCHEMA_READY_CACHE: bool = False
+
 _RELATIONSHIP_SHARE_ACTIVE_PICKS = "ria_active_picks_feed_v1"
 _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT = "relationship_implicit"
 _RIA_PICKS_PKM_DOMAIN = "ria"
 _RIA_PICKS_PKM_PATH = "advisor_package"
-_PERSONA_STATE_CACHE_TTL = timedelta(seconds=30)
-_PERSONA_STATE_CACHE: dict[str, tuple[datetime, dict[str, Any]]] = {}
 _RIA_SCREENING_SECTION_ORDER: tuple[str, ...] = (
     "investable_requirements",
     "automatic_avoid_triggers",
@@ -168,30 +252,24 @@ class RIAIAMService:
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
             return None
+        # _AsyncTTLCache.get() handles expiry and eviction internally.
         cached = _PERSONA_STATE_CACHE.get(normalized_user_id)
-        if not cached:
+        if cached is None:
             return None
-        cached_at, payload = cached
-        if datetime.now(timezone.utc) - cached_at > _PERSONA_STATE_CACHE_TTL:
-            _PERSONA_STATE_CACHE.pop(normalized_user_id, None)
-            return None
-        return dict(payload)
+        return dict(cached)
 
     @staticmethod
     def _write_cached_persona_state(user_id: str, payload: dict[str, Any]) -> None:
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
             return
-        _PERSONA_STATE_CACHE[normalized_user_id] = (
-            datetime.now(timezone.utc),
-            dict(payload),
-        )
+        _PERSONA_STATE_CACHE.set(normalized_user_id, dict(payload))
 
     @staticmethod
     def _invalidate_cached_persona_state(user_id: str) -> None:
         normalized_user_id = str(user_id or "").strip()
         if normalized_user_id:
-            _PERSONA_STATE_CACHE.pop(normalized_user_id, None)
+            _PERSONA_STATE_CACHE.delete(normalized_user_id)
 
     @staticmethod
     def _env_truthy(name: str, fallback: str = "false") -> bool:
@@ -297,13 +375,12 @@ class RIAIAMService:
         that a table added by a migration is recognised without a full
         process restart.
         """
-        now = datetime.now(tz=timezone.utc)
-        expiry = _TABLE_EXISTS_CACHE.get(table_name)
-        if expiry is not None and now < expiry:
-            return True
+        cached = _TABLE_EXISTS_CACHE.get(table_name)
+        if cached is not None:
+            return bool(cached)
         exists = bool(await conn.fetchval("SELECT to_regclass($1)", f"public.{table_name}"))
         if exists:
-            _TABLE_EXISTS_CACHE[table_name] = now + _TABLE_EXISTS_CACHE_TTL
+            _TABLE_EXISTS_CACHE.set(table_name, True)
         return exists
 
     @staticmethod
@@ -320,14 +397,8 @@ class RIAIAMService:
         latency on the first ``/api/iam/marketplace/opt-in`` request
         (each ``to_regclass`` round-trip costs ~50-80 ms over Cloud SQL proxy).
         """
-        now = datetime.now(tz=timezone.utc)
-
         # Fast path: all tables already cached and unexpired.
-        missing = [
-            t
-            for t in table_names
-            if not ((exp := _TABLE_EXISTS_CACHE.get(t)) is not None and now < exp)
-        ]
+        missing = [t for t in table_names if _TABLE_EXISTS_CACHE.get(t) is None]
         if not missing:
             return set(table_names)
 
@@ -343,12 +414,10 @@ class RIAIAMService:
         )
         found_in_db: set[str] = {r["tablename"] for r in rows}
 
-        # Populate TTL cache for every table we queried (hit or miss).
+        # Populate TTL cache for every table confirmed present.
         # Misses are intentionally *not* cached so a pending migration is
         # picked up on the next call without waiting for the TTL to expire.
-        expiry = now + _TABLE_EXISTS_CACHE_TTL
-        for t in found_in_db:
-            _TABLE_EXISTS_CACHE[t] = expiry
+        _TABLE_EXISTS_CACHE.set_many({t: True for t in found_in_db})
 
         # Return all tables that are confirmed present (cached + just found).
         cached_present = {t for t in table_names if t not in missing}
@@ -386,11 +455,19 @@ class RIAIAMService:
 
     async def _is_iam_schema_ready(self, conn: asyncpg.Connection) -> bool:
         global _IAM_SCHEMA_READY_CACHE
+        # Fast-path: process-level bool set to True once the full schema was
+        # confirmed.  Avoids even acquiring the lock on the hot path.
         if _IAM_SCHEMA_READY_CACHE:
+            return True
+        # Secondary cache: TTL-bounded so a schema rollback is detectable
+        # within 300 s without a process restart.
+        if _IAM_SCHEMA_READY_CACHE_OBJ.get("ready") is True:
+            _IAM_SCHEMA_READY_CACHE = True  # promote to fast-path bool
             return True
         # Single round-trip instead of N serial to_regclass() calls.
         present = await self._batch_tables_exist(conn, _IAM_REQUIRED_TABLES)
         if present >= set(_IAM_REQUIRED_TABLES):
+            _IAM_SCHEMA_READY_CACHE_OBJ.set("ready", True)
             _IAM_SCHEMA_READY_CACHE = True
             return True
         missing = set(_IAM_REQUIRED_TABLES) - present
