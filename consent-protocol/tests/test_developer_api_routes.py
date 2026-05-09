@@ -79,6 +79,62 @@ def test_user_scopes_requires_developer_key(monkeypatch):
     assert detail["error_code"] == "DEVELOPER_TOKEN_REQUIRED"
 
 
+def test_user_scopes_returns_403_when_no_consent_grant(monkeypatch):
+    """Consent gate: valid developer token but no active grant for this user → 403."""
+
+    class _NoGrantConsentDBService:
+        async def get_active_tokens(
+            self,
+            user_id: str,
+            agent_id: str | None = None,
+            scope: str | None = None,
+        ) -> list[dict]:
+            return []  # no active grants
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "ConsentDBService", _NoGrantConsentDBService)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.get("/api/v1/user-scopes/user_123?token=hdk_demo")
+
+    assert response.status_code == 403
+    detail = response.json()["detail"]
+    assert detail["error_code"] == "CONSENT_REQUIRED"
+
+
+def test_consent_status_returns_403_when_no_consent_grant(monkeypatch):
+    """Consent gate: valid developer token but no active grant for this user → 403."""
+
+    class _NoGrantConsentDBService:
+        async def get_active_tokens(
+            self,
+            user_id: str,
+            agent_id: str | None = None,
+            scope: str | None = None,
+        ) -> list[dict]:
+            return []  # no active grants
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "ConsentDBService", _NoGrantConsentDBService)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/consent-status?token=hdk_demo&user_id=user_123&scope=attr.financial.*"
+    )
+
+    assert response.status_code == 403
+    detail = response.json()["detail"]
+    assert detail["error_code"] == "CONSENT_REQUIRED"
+
+
 class _EmptyScopeGenerator:
     async def get_available_scopes(self, user_id: str) -> list[str]:
         return []
@@ -98,6 +154,22 @@ class _EmptyPkmService:
         return _EmptyIndex()
 
 
+class _FakeConsentDBServiceWithGrant:
+    """Simulates a developer that already holds an active consent grant for the user.
+
+    Used by tests that exercise token auth / PKM snapshot logic and don't care
+    about the consent-gate itself — they just need it to pass.
+    """
+
+    async def get_active_tokens(
+        self,
+        user_id: str,
+        agent_id: str | None = None,
+        scope: str | None = None,
+    ) -> list[dict]:
+        return [{"scope": "attr.*", "agent_id": agent_id}]
+
+
 def test_user_scopes_accepts_authorization_bearer_header(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
@@ -114,6 +186,7 @@ def test_user_scopes_accepts_authorization_bearer_header(monkeypatch):
         _fake_authenticate_token,
     )
     monkeypatch.setattr(developer, "get_pkm_service", lambda: _EmptyPkmService())
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBServiceWithGrant)
 
     client = TestClient(_build_app())
     response = client.get(
@@ -163,6 +236,7 @@ def test_user_scopes_authorization_bearer_takes_precedence_over_query(monkeypatc
         _fake_authenticate_token,
     )
     monkeypatch.setattr(developer, "get_pkm_service", lambda: _EmptyPkmService())
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBServiceWithGrant)
 
     client = TestClient(_build_app())
     response = client.get(
@@ -186,6 +260,7 @@ def test_user_scopes_query_token_logs_url_leak_warning(monkeypatch, caplog):
         lambda self, *_args, **_kwargs: _fake_principal(),
     )
     monkeypatch.setattr(developer, "get_pkm_service", lambda: _EmptyPkmService())
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBServiceWithGrant)
 
     client = TestClient(_build_app())
     with caplog.at_level(_logging.WARNING, logger="api.developer_auth"):
@@ -279,6 +354,7 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
     monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBServiceWithGrant)
     monkeypatch.setattr(
         developer, "authenticate_developer_principal", lambda **_: _fake_principal()
     )
@@ -364,6 +440,7 @@ def test_user_scopes_verbose_returns_path_level_entries(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
     monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBServiceWithGrant)
     monkeypatch.setattr(
         developer, "authenticate_developer_principal", lambda **_: _fake_principal()
     )
@@ -777,6 +854,15 @@ def test_request_consent_marks_scope_upgrade_metadata(monkeypatch):
 
 def test_get_consent_status_uses_covering_active_token(monkeypatch):
     class _FakeConsentDBService:
+        async def get_active_tokens(
+            self,
+            user_id: str,
+            agent_id: str | None = None,
+            scope: str | None = None,
+        ) -> list[dict]:
+            # consent gate: simulate an active grant so the endpoint proceeds
+            return [{"scope": "attr.financial.analytics.*", "agent_id": agent_id}]
+
         async def get_covering_active_tokens(
             self,
             user_id: str,
