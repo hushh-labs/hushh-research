@@ -152,7 +152,7 @@ def _verify_user(token_data: dict[str, Any], requested_user_id: str) -> None:
 
 
 def _to_http_exception(error: Exception) -> HTTPException:
-    if isinstance(error, FundingOrchestrationError):
+    if isinstance(error, PlaidWebhookVerificationError):
         return HTTPException(
             status_code=error.status_code,
             detail={
@@ -160,8 +160,8 @@ def _to_http_exception(error: Exception) -> HTTPException:
                 "message": str(error),
                 "details": error.details,
             },
-        )
-    if isinstance(error, PlaidWebhookVerificationError):
+        )    
+    if isinstance(error, FundingOrchestrationError):
         return HTTPException(
             status_code=error.status_code,
             detail={
