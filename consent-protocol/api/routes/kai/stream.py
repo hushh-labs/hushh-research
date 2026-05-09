@@ -38,6 +38,10 @@ from hushh_mcp.operons.kai.llm import (
     stream_gemini_response,
     synthesize_debate_recommendation_card,
 )
+
+from hushh_mcp.operons.kai.llm_adapter import (
+    synthesize_debate_recommendation_card_v2,
+)
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.renaissance_service import get_renaissance_service
@@ -2043,7 +2047,7 @@ async def analyze_stream_generator(
         await asyncio.sleep(0.2)
 
         synthesis_payload = await asyncio.wait_for(
-            synthesize_debate_recommendation_card(
+            synthesize_debate_recommendation_card_v2(
                 ticker=ticker,
                 risk_profile=risk_profile,
                 user_context=full_user_context,
@@ -2084,6 +2088,9 @@ async def analyze_stream_generator(
                     "final_statement": debate_result.final_statement,
                 },
                 highlights=debate_highlights,
+                consent_token=consent_token,
+                user_id=user_id,
+                provider_name=os.getenv("KAI_SYNTHESIS_PROVIDER") or None,
             ),
             timeout=min(remaining_timeout(), 30.0),
         )

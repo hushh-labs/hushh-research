@@ -1,0 +1,45 @@
+# config/kai_inference_providers.yaml
+#
+# Provider registry for Kai's multi-agent debate engine.
+#
+# The dispatcher (`hushh_mcp/operons/kai/providers/registry.py`) reads
+# this file at startup to wire up available providers. Each provider
+# is constructed with the kwargs listed under it, MINUS the `class`
+# field which selects the implementation.
+#
+# `default` is the provider used when a caller does not specify one;
+# preserving `gemini` here keeps every existing operon and route
+# byte-for-byte compatible with the pre-adapter behavior.
+#
+# Override the path of this file via $KAI_PROVIDERS_CONFIG.
+
+default: gemini
+
+providers:
+  gemini:
+    class: hushh_mcp.operons.kai.providers.gemini:GeminiProvider
+    # `model` falls back to GEMINI_MODEL from constants.py if omitted.
+
+  openai:
+    class: hushh_mcp.operons.kai.providers.openai:OpenAIProvider
+    model: gpt-4o-mini
+    # base_url defaults to https://api.openai.com/v1; override for Azure
+    # OpenAI or a corporate proxy.
+    api_key_env: OPENAI_API_KEY
+
+  anthropic:
+    class: hushh_mcp.operons.kai.providers.anthropic:AnthropicProvider
+    model: claude-3-5-sonnet-latest
+    api_key_env: ANTHROPIC_API_KEY
+
+  vllm:
+    class: hushh_mcp.operons.kai.providers.vllm:VLLMProvider
+    model: meta-llama/Llama-3.1-8B-Instruct
+    base_url_env: KAI_VLLM_BASE_URL
+    base_url_default: http://localhost:8000/v1
+
+  llamacpp:
+    class: hushh_mcp.operons.kai.providers.llamacpp:LlamaCppProvider
+    model: local-llamacpp
+    base_url_env: KAI_LLAMACPP_BASE_URL
+    base_url_default: http://localhost:8080
