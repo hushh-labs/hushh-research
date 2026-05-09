@@ -312,7 +312,7 @@ class KaiAnalyzeRunManager:
             run.updated_at = _now_iso()
         async with run.condition:
             run.condition.notify_all()
-        return asyncio.run
+        return run
 
     async def stream_run_events(
         self,
