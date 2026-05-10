@@ -153,7 +153,7 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
     """
     from datetime import datetime
 
-    from api.consent_listener import get_consent_queue
+    from api.consent_listener import get_consent_queue, release_consent_queue
     from hushh_mcp.services.consent_db import ConsentDBService
 
     logger.info("consent_sse.open user_id=%s", user_id)
@@ -162,7 +162,7 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
     after_timestamp_ms = connection_start_ms - backfill_window_ms
     notified_event_ids = set()
     heartbeat_interval = 30
-    queue = get_consent_queue(user_id)
+    queue = await get_consent_queue(user_id)
 
     try:
         service = ConsentDBService()
@@ -216,6 +216,8 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
     except Exception as e:
         logger.error("consent_sse.error user_id=%s error=%s", user_id, e)
         raise
+    finally:
+        await release_consent_queue(user_id)
 
 
 @router.get("/events/{user_id}")
