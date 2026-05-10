@@ -1,13 +1,10 @@
 """Tests for SummaryReducerAgent — three-layer PII defense."""
 
-import pytest
-
 from hushh_mcp.agents.summary_reducer.reducer import (
+    _REDACTED,
     SummaryProjection,
     SummaryReducerAgent,
-    _REDACTED,
 )
-
 
 # ---------------------------------------------------------------------------
 # Layer 1: pre_process (The Blindfold)
