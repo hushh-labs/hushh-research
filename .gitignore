@@ -126,3 +126,6 @@ test_kai_endpoints.py
 ehthumbs.db
 ehthumbs_vista.db
 [Tt]humbs.db
+
+# Local self-hosted deployment env (contains HF_TOKEN and signing keys)
+deploy/kai-self-hosted/.env
