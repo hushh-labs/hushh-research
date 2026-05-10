@@ -1,10 +1,51 @@
 // hushh-webapp/lib/utils/json-to-human.ts
 
+// ============================================================================
+// PART 1: STREAMING PARSER CONTEXT (Restored for Morphy UI compatibility)
+// ============================================================================
+
+export interface ParserContext {
+  buffer: string;
+  depth: number;
+  inString: boolean;
+}
+
+export function createParserContext(): ParserContext {
+  return { buffer: '', depth: 0, inString: false };
+}
+
+export function formatJsonChunk(chunk: string, context: ParserContext): string {
+  context.buffer += chunk;
+  // Safely escape the streaming chunk for the UI
+  return escapeHtml(chunk);
+}
+
+export function tryFormatComplete(data: unknown): string {
+  try {
+    if (typeof data === 'string') {
+      try {
+        const parsed = JSON.parse(data);
+        return jsonToHuman(parsed);
+      } catch {
+        return escapeHtml(data);
+      }
+    }
+    return jsonToHuman(data);
+  } catch {
+    return escapeHtml(String(data));
+  }
+}
+
+// ============================================================================
+// PART 2: XSS SANITIZATION & HUMANIZATION (HushhTech Security Core)
+// ============================================================================
+
 /**
  * Safely escapes HTML characters to prevent DOM XSS injection
  * when rendering untrusted marketplace payloads in the Consent UI.
  */
 export function escapeHtml(unsafe: string): string {
+  if (typeof unsafe !== 'string') return '';
   return unsafe
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
