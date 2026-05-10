@@ -3,6 +3,7 @@
 
 from unittest.mock import MagicMock
 
+from api.middlewares import rate_limit
 from api.middlewares.rate_limit import RateLimits, get_rate_limit_key
 from hushh_mcp.constants import ConsentScope
 
@@ -10,12 +11,14 @@ from hushh_mcp.constants import ConsentScope
 class MockRequest:
     """Mock FastAPI request for testing."""
 
-    def __init__(self, headers: dict | None = None, ip: str = "127.0.0.1"):
+    def __init__(self, headers: dict | None = None, ip: str = "127.0.0.1", state=None):
         self.headers = dict(headers or {})
         self.client = MagicMock()
         self.client.host = ip
         self.url = MagicMock()
         self.url.path = "/api/consent/request"
+        if state is not None:
+            self.state = state
 
 
 def _issue_vault_owner_token(user_id: str) -> str:
@@ -54,6 +57,23 @@ class TestRateLimitKeyExtraction:
         assert key_a != key_b
         assert key_a == "user:user_a"
         assert key_b == "user:user_b"
+
+    def test_cached_middleware_user_id_avoids_second_token_decode(self, monkeypatch):
+        def _unexpected_validate_token(*_args, **_kwargs):
+            raise AssertionError("cached middleware identity should avoid a second token decode")
+
+        monkeypatch.setattr(rate_limit, "validate_token", _unexpected_validate_token)
+        state = MagicMock()
+        state.rate_limit_user_id = "cached_user"
+
+        key = get_rate_limit_key(
+            MockRequest(
+                headers={"Authorization": "Bearer token-that-should-not-be-decoded"},
+                state=state,
+            )
+        )
+
+        assert key == "user:cached_user"
 
 
 class TestRateLimitKeyTrustBoundary:
