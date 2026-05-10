@@ -41,8 +41,7 @@ export function parseSSEChunk(chunk: string, existingBuffer: string = ''): SSEBl
       try {
         const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
         parsedEvents.push(parsed);
-      } catch (e) {
-        // We don't log 'e' to avoid unsafe-assignment errors in CI
+      } catch (_e) { // Changed 'e' to '_e' to pass strict linting
         console.warn('SSE JSON Parse skip (fragment):', jsonStr);
       }
     }
@@ -50,11 +49,11 @@ export function parseSSEChunk(chunk: string, existingBuffer: string = ''): SSEBl
 
   return { parsedEvents, leftoverBuffer };
 }
+
 /**
  * Legacy wrapper to support existing imports.
  * @deprecated Use parseSSEChunk with buffer state for robust streaming.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function parseSSEBlocks(chunk: string, existingBuffer: string = ''): { events: any[]; remainder: string } {
   const result = parseSSEChunk(chunk, existingBuffer);
   return {
