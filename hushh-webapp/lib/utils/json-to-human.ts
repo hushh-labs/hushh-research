@@ -8,16 +8,20 @@ export interface ParserContext {
   buffer: string;
   depth: number;
   inString: boolean;
+  lastOutput: string; // Added to satisfy TS2339 in streaming components
 }
 
 export function createParserContext(): ParserContext {
-  return { buffer: '', depth: 0, inString: false };
+  return { buffer: '', depth: 0, inString: false, lastOutput: '' };
 }
 
-export function formatJsonChunk(chunk: string, context: ParserContext): string {
+// Returns { text: string } instead of string to satisfy Morphy UX components
+export function formatJsonChunk(chunk: string, context: ParserContext): { text: string } {
   context.buffer += chunk;
-  // Safely escape the streaming chunk for the UI
-  return escapeHtml(chunk);
+  const safeText = escapeHtml(chunk);
+  context.lastOutput = safeText;
+  
+  return { text: safeText };
 }
 
 export function tryFormatComplete(data: unknown): string {
