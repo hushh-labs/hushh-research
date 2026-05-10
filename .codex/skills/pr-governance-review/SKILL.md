@@ -66,6 +66,9 @@ Non-owned surfaces:
 3. For batched contributor review or merge-train planning, use `python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo <repo> --prs <n1,n2,...> --text` first. This batch mode is the default when the user asks for “all healthy PRs by contributor”, “review these PRs together”, or “tell me how these relate”.
    - Treat the script fields `contract_set`, `duplicate_group`, `author_group`, `exact_file_overlap`, `concept_overlap`, `lane`, `patch_then_merge_reason`, `public_comment_policy`, and `live_report_action` as the minimum decision record.
    - Treat `what_this_is_about` and operator-batch intent as mandatory planning context. Every batch plan must explain the product/runtime purpose before lane mechanics, merge order, or GitHub process.
+   - Every recommended operator batch must include direct Markdown links for every PR, not only PR numbers. The operator should be able to open every PR manually from the report or Codex answer without searching GitHub.
+   - Every recommended operator batch must include a concrete solution, not just a grouping. The solution must name the input PRs, target output, execution order, merge train, patch train, closure/request-changes handling, stop conditions, and report-update requirements.
+   - When the user asks for the next batch, answer with the simulated input/output path: what goes in, what should come out if the batch is legitimate, what gets held, and what evidence would stop the batch.
    - Green CI never overrides exact file overlap, duplicate product contracts, schema-contract drift, or raw-error leakage findings.
 4. Respect the project-wide delegation checkpoint in `AGENTS.md`. For large, high-stakes, or mixed-domain batch reviews, this workflow has an approved read-only delegation step when the checkpoint passes. Record the subagent decision using `.codex/skills/agent-orchestration-governance/references/delegation-contract.md`:
    - run `python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt "<user request>" --paths "<changed paths>" --text` when intent or path ownership is not obvious
@@ -272,6 +275,15 @@ Non-owned surfaces:
    - final PR handoffs should include contributor-impact delta when a PR materially affects trust/security, consent/vault, One/Kai/Nav direction, PKM/memory, user utility, runtime quality, or proof/test posture
 37. If a working report contains its own update checklist, treat that checklist as part of the action flow. Do not end the turn while the checklist is stale.
 38. If the user asks for a batch, produce a comprehensive overview before recommending any merge order. The overview must make product/runtime purpose, overlap, duplication, domain boundaries, lean/core bloat risk, subagent-delegation decision, flow mode, isolation strategy, contract-set grouping, author-grouping decision, and maintainer-patch batching plan explicit enough that the merge plan is auditable.
+39. The final chat answer for a next-batch recommendation must include:
+   - a one-line batch name and purpose
+   - direct PR hyperlinks for every PR in the proposed batch
+   - an `Input` section listing the PRs and current lane
+   - an `Output` section describing the intended end state
+   - an `Execution` section with the exact order and which PRs are merge, patch, close/request-changes, or hold
+   - a `Stop Conditions` section naming what would pause or split the batch
+   - a `Verification` section naming the smallest authoritative local and GitHub checks
+   This is required even if the live report already contains the grouping, because the user needs the solution path in chat before authorizing execution.
 39. For DB migration or schema-contract PRs, use this migration-release gate:
    - `merge_now` is allowed only when the SQL migration, release manifest, checked-in schema contract, and local release-contract verification move together
    - `patch_then_merge` is required when a migration exists but the manifest or contract evidence is incomplete

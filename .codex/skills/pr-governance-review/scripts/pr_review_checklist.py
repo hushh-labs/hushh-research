@@ -2808,6 +2808,53 @@ def _operator_batch_action(reports: list[dict[str, Any]], preferred: dict[str, A
     return "Review these PRs together because they touch the same files; merge one at a time with the shared checks rerun after each merge."
 
 
+def _operator_batch_solution(batch: dict[str, Any]) -> list[str]:
+    lane_items = list(batch.get("lanes", {}).items())
+    merge_now = [pr for pr, lane in lane_items if lane == "merge_now"]
+    patch_then_merge = [pr for pr, lane in lane_items if lane == "patch_then_merge"]
+    closure = [pr for pr, lane in lane_items if lane in {"harvest_then_close", "close_duplicate"}]
+    blocked = [pr for pr, lane in lane_items if lane == "block"]
+    ordered = merge_now + patch_then_merge + closure + blocked
+    ordered_label = ", ".join(ordered) if ordered else "manual review order required"
+
+    lines = [
+        f"  - Input: {', '.join(_operator_batch_links(batch))}.",
+        f"  - Output target: {batch['action']}",
+        f"  - Execution order: {ordered_label}.",
+    ]
+    if merge_now:
+        lines.append(
+            f"  - Merge train: approve and queue {', '.join(merge_now)} one at a time after locking the current head SHA and required gate."
+        )
+    if patch_then_merge:
+        lines.append(
+            f"  - Patch train: rebase/patch {', '.join(patch_then_merge)} only after earlier merge-train items land, then rerun the shared checks before queueing."
+        )
+    if closure:
+        lines.append(
+            f"  - Closure wave: harvest unique tests or evidence from {', '.join(closure)}, then close with the standard maintainer decision record."
+        )
+    if blocked:
+        lines.append(
+            f"  - Hold: keep {', '.join(blocked)} out of the merge train until the blocker changes or a maintainer patch is explicitly approved."
+        )
+    lines.extend(
+        [
+            "  - Stop condition: if any PR changes head SHA, loses CI Status Gate, gains conflicts, or reveals a trust/runtime regression, pause that PR and continue only with independent safe items.",
+            "  - Reporting: refresh `tmp/pr-governance-live-report.md` and `tmp/contributor-impact-dashboard.md` after each merge, close, or requested-changes action.",
+        ]
+    )
+    return lines
+
+
+def _operator_batch_links(batch: dict[str, Any]) -> list[str]:
+    links = batch.get("pr_links", {})
+    return [
+        f"[#{number}]({links.get(str(number)) or links.get(number) or '#'})"
+        for number in batch["prs"]
+    ]
+
+
 def _operator_batches(
     reports: list[dict[str, Any]],
     overlaps: list[dict[str, Any]],
@@ -2851,6 +2898,10 @@ def _operator_batches(
             OrderedDict(
                 title=_operator_batch_title(component_reports, preferred),
                 prs=[report["pr"]["number"] for report in component_reports],
+                pr_links=OrderedDict(
+                    (report["pr"]["number"], report["pr"]["url"])
+                    for report in component_reports
+                ),
                 preferred_pr=preferred["pr"]["number"],
                 contract_sets=sorted({report["contract_set"] for report in component_reports}),
                 lanes=OrderedDict(
@@ -2880,6 +2931,7 @@ def _operator_batches(
             OrderedDict(
                 title=f"Single-PR Closure: #{pr_number}",
                 prs=[pr_number],
+                pr_links=OrderedDict([(pr_number, report["pr"]["url"])]),
                 preferred_pr=pr_number,
                 contract_sets=[report["contract_set"]],
                 lanes=OrderedDict([(f"#{pr_number}", report["lane"])]),
@@ -2915,6 +2967,10 @@ def _operator_batches(
                 OrderedDict(
                     title=f"Adjacent {contract_set} Review Pair",
                     prs=[report["pr"]["number"] for report in grouped],
+                    pr_links=OrderedDict(
+                        (report["pr"]["number"], report["pr"]["url"])
+                        for report in grouped
+                    ),
                     preferred_pr=grouped[0]["pr"]["number"],
                     contract_sets=[contract_set],
                     lanes=OrderedDict((f"#{report['pr']['number']}", report["lane"]) for report in grouped),
@@ -2931,6 +2987,10 @@ def _operator_batches(
                 OrderedDict(
                     title=f"Do Not Batch Yet: {contract_set}",
                     prs=[report["pr"]["number"] for report in grouped],
+                    pr_links=OrderedDict(
+                        (report["pr"]["number"], report["pr"]["url"])
+                        for report in grouped
+                    ),
                     preferred_pr=None,
                     contract_sets=[contract_set],
                     lanes=OrderedDict((f"#{report['pr']['number']}", report["lane"]) for report in grouped),
@@ -2951,7 +3011,7 @@ def _operator_batch_lines(batches: list[OrderedDict[str, Any]]) -> list[str]:
         return ["- No actionable operator batches detected from current live overlap and narrow-contract rules."]
     lines: list[str] = []
     for index, batch in enumerate(batches, start=1):
-        prs = ", ".join(f"#{number}" for number in batch["prs"])
+        prs = ", ".join(_operator_batch_links(batch))
         lines.extend(
             [
                 f"### Batch {index}: {batch['title']}",
@@ -2964,6 +3024,8 @@ def _operator_batch_lines(batches: list[OrderedDict[str, Any]]) -> list[str]:
                 f"- What this is about: {batch.get('intent', 'Shared PR sequencing.')}",
                 f"- Why together: {batch['reason']}",
                 f"- Operator action: {batch['action']}",
+                "- Solution:",
+                *_operator_batch_solution(batch),
                 f"- Shared files: {_compact_file_list(batch['shared_files'], limit=8)}",
                 "",
             ]
@@ -3413,6 +3475,9 @@ def _batch_text_report(batch: dict[str, Any]) -> str:
             "What this batch is about: "
             + str(batch["operator_batches"][0].get("intent", "Shared PR sequencing."))
         )
+        lines.append("")
+        lines.append("Recommended operator solution:")
+        lines.extend(_operator_batch_lines(batch["operator_batches"]))
     lines.append(f"Lane counts: {json.dumps(batch['lane_counts'], sort_keys=True)}")
     lines.append(f"Surface counts: {json.dumps(batch['surface_counts'], sort_keys=True)}")
     lines.append(f"Root counts: {json.dumps(batch['root_counts'], sort_keys=True)}")
