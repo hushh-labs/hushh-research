@@ -2541,7 +2541,7 @@ def _patch_then_merge_reason(findings: list[dict[str, Any]], lane: str) -> str:
 
 def _public_comment_policy(lane: str) -> str:
     if lane == "merge_now":
-        return "no_pre_merge_comment; post_merge_only_if_useful"
+        return "no_pre_merge_comment; required_post_merge_closeout_after_smoke"
     if lane == "patch_then_merge":
         return "no_approval_comment; post_merge_comment_only_if_maintainer_patch_lands"
     if lane in {"harvest_then_close", "close_duplicate"}:
@@ -2847,6 +2847,26 @@ def _operator_batch_solution(batch: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _operator_batch_research_basis(batch: dict[str, Any]) -> list[str]:
+    prs = ", ".join(_operator_batch_links(batch))
+    shared_files = _compact_file_list(batch.get("shared_files", []), limit=6)
+    lanes = json.dumps(batch.get("lanes", {}))
+    risks = json.dumps(batch.get("risks", {}))
+    return [
+        f"  - Current truth: {prs} are grouped because {batch['reason']} Lanes: `{lanes}`. Risk: `{risks}`. Shared files: {shared_files}.",
+        f"  - Recommended path: {batch['action']}",
+        "  - Risk if accepted blindly: green or previously green CI does not override conflicts, stale heads, duplicate runtime paths, trust-boundary regressions, or schema/runtime contract drift.",
+    ]
+
+
+def _operator_batch_decision_questions(batch: dict[str, Any]) -> list[str]:
+    return [
+        "  - Decision needed: accept the recommended operator path or override it with a product/runtime reason not visible in repo evidence.",
+        f"  - Recommended option: follow the researched path for {', '.join(_operator_batch_links(batch))}; expected output is `{batch['action']}`",
+        "  - Alternative option: hold or split the batch; expected output is no merge until the new product/runtime constraint is recorded.",
+    ]
+
+
 def _operator_batch_pr_role_lines(batch: dict[str, Any]) -> list[str]:
     roles = batch.get("pr_roles") or []
     if not roles:
@@ -2855,7 +2875,7 @@ def _operator_batch_pr_role_lines(batch: dict[str, Any]) -> list[str]:
     for role in roles:
         number = role["number"]
         lines.append(
-            f"  - [#{number}]({role['url']}) - `{role['lane']}` / risk `{role['risk']}` / head `{role['head_sha'][:8]}`: {role['role']}"
+            f"  - [#{number}]({role['url']}) - `{role['lane']}` / risk `{role['risk']}` / head `{role['head_sha'][:8]}` / mergeable `{role['mergeable']}` / gate `{role['ci_status_gate']}`: {role['role']}"
         )
     return lines
 
@@ -2886,6 +2906,8 @@ def _operator_batch_pr_roles(reports: list[dict[str, Any]]) -> list[OrderedDict[
                 lane=lane,
                 risk=_lean_core_risk(report),
                 head_sha=pr["head_sha"],
+                mergeable=pr.get("mergeable") or "UNKNOWN",
+                ci_status_gate=report.get("current_ci_status_gate") or "UNKNOWN",
                 role=role,
             )
         )
@@ -3073,10 +3095,14 @@ def _operator_batch_lines(batches: list[OrderedDict[str, Any]]) -> list[str]:
                 f"- What this is about: {batch.get('intent', 'Shared PR sequencing.')}",
                 f"- Why together: {batch['reason']}",
                 f"- Operator action: {batch['action']}",
+                "- Research Basis:",
+                *_operator_batch_research_basis(batch),
                 "- PR roles:",
                 *_operator_batch_pr_role_lines(batch),
                 "- Solution:",
                 *_operator_batch_solution(batch),
+                "- Decision Questions:",
+                *_operator_batch_decision_questions(batch),
                 f"- Shared files: {_compact_file_list(batch['shared_files'], limit=8)}",
                 "",
             ]
@@ -3765,35 +3791,35 @@ def _communication_markdown(report: dict[str, Any]) -> str:
     if lane == "merge_now":
         return "\n".join(
             [
-                f"## Approved: {contract_title}",
+                f"## Merged: {contract_title}",
                 "",
                 "### What Landed",
                 "The current head is aligned with the existing caller, runtime, and trust-boundary contracts.",
                 "",
-                "### Why This Is Safe",
-                "The required gate is green and the review did not find contract or governance regressions.",
+                "### Why It Matters",
+                "This keeps the merged surface aligned with Hussh runtime and trust-boundary expectations.",
                 "",
                 "### Outcome",
-                "This keeps the merged surface aligned with Hussh runtime and trust-boundary expectations.",
+                "Post-merge closeout is required after Main Post-Merge Smoke is green.",
             ]
         )
 
     elif lane == "patch_then_merge":
         return "\n".join(
             [
-                f"## Approved With Maintainer Patch: {contract_title}",
+                f"## Merged: {contract_title}",
                 "",
                 "### What Landed",
                 "The direction is useful, but the current head should not be merged unchanged.",
                 "",
+                "### Why It Matters",
+                report["decision"]["rationale"],
+                "",
                 "### Maintainer Patch",
                 f"Patch required for: {finding_ids}.",
                 "",
-                "### Why This Path",
-                report["decision"]["rationale"],
-                "",
                 "### Outcome",
-                "The maintainer path keeps the useful direction while avoiding a broader contract regression.",
+                "Post-merge closeout is required after Main Post-Merge Smoke is green.",
             ]
         )
 

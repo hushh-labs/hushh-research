@@ -7,7 +7,7 @@ Use this reference for GitHub write actions, post-merge closeouts, live report u
 1. First line must be a markdown headline: `## <Decision>: <contract or outcome>`.
 2. Keep sections short and external-facing.
 3. Do not publish maintainer-only sequencing, report status, CI dumps, or internal governance reminders.
-4. Do not post noisy approval comments. Successful ordinary merges get one post-merge record after post-merge smoke is green.
+4. Do not post noisy approval comments. Every PR merged through PR governance gets one post-merge record after `Main Post-Merge Smoke` is green.
 5. Post before merge only for `block`, `changes_requested`, `comment_only`, or when contributor action is required.
 
 ## Required Headings

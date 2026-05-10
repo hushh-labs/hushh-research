@@ -5,18 +5,20 @@ Use this when answering "next batch", "plan this batch", or any high-volume PR w
 ## Required Chat Shape
 
 1. `Batch`: one sentence naming the product/runtime purpose.
-2. `Input`: every PR with a direct Markdown link and current lane.
-3. `Per-PR Role`: one compact line per PR:
+2. `Research Basis`: concise current truth, recommended path, and risk if accepted blindly.
+3. `Input`: every PR with a direct Markdown link and current lane.
+4. `Per-PR Role`: one compact line per PR:
    - direct link
    - lane
    - lean/core risk
    - current head SHA prefix
    - why it is in the batch
    - planned action: merge, patch/rebase, harvest/close, request changes, or hold
-4. `Output`: intended end state if the batch is legitimate.
-5. `Execution`: exact order, split by merge train, patch train, closure/request-changes wave, and hold/deep-review items.
-6. `Stop Conditions`: what pauses, splits, or blocks the batch.
-7. `Verification`: smallest authoritative local and GitHub checks.
+5. `Output`: intended end state if the batch is legitimate.
+6. `Execution`: exact order, split by merge train, patch train, closure/request-changes wave, and hold/deep-review items.
+7. `Decision Questions`: only unresolved user-owned choices, each with current truth, recommended path, risk if accepted blindly, and recommended option first.
+8. `Stop Conditions`: what pauses, splits, or blocks the batch.
+9. `Verification`: smallest authoritative local and GitHub checks.
 
 ## Batch Selection Rules
 
@@ -39,3 +41,4 @@ The operator should understand:
 6. how the live report and contributor-impact dashboard will be updated
 
 Avoid generic phrasing such as "review these together" without per-PR roles.
+Do not ask the operator to choose before showing the researched solution path.

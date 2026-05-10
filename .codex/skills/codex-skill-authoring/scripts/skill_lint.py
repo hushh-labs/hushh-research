@@ -513,6 +513,9 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
     community_playbook = WORKFLOWS_ROOT / "community-response" / "PLAYBOOK.md"
     community_workflow = WORKFLOWS_ROOT / "community-response" / "workflow.json"
     pr_governance_skill = SKILLS_ROOT / "pr-governance-review" / "SKILL.md"
+    pr_operator_contract = (
+        SKILLS_ROOT / "pr-governance-review" / "references" / "operator-batch-output-contract.md"
+    )
     pr_review_script = SKILLS_ROOT / "pr-governance-review" / "scripts" / "pr_review_checklist.py"
 
     if comms_skill.exists():
@@ -608,8 +611,11 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
             "contract_set",
             "duplicate_group",
             "public_comment_policy",
+            "Research Basis",
+            "Decision Questions",
             "Do not include a separate successful-merge evidence section",
             "### Why It Matters",
+            "Every PR merged through this governance workflow must get one post-merge closeout",
             "Final handoffs for state-changing PR work must include direct links",
             "Green CI never overrides exact file overlap",
         ]
@@ -619,10 +625,35 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
                     f"{pr_governance_skill.relative_to(REPO_ROOT)}: missing PR governance contract phrase `{phrase}`"
                 )
 
+    if pr_operator_contract.exists():
+        operator_text = pr_operator_contract.read_text(encoding="utf-8")
+        required_operator_phrases = [
+            "Research Basis",
+            "Decision Questions",
+            "current truth",
+            "recommended path",
+            "risk if accepted blindly",
+            "recommended option first",
+        ]
+        for phrase in required_operator_phrases:
+            if phrase not in operator_text:
+                errors.append(
+                    f"{pr_operator_contract.relative_to(REPO_ROOT)}: missing operator-batch contract phrase `{phrase}`"
+                )
+
     if pr_review_script.exists():
         script_text = pr_review_script.read_text(encoding="utf-8")
+        for phrase in ["Research Basis", "Decision Questions", "Risk if accepted blindly"]:
+            if phrase not in script_text:
+                errors.append(
+                    f"{pr_review_script.relative_to(REPO_ROOT)}: generated operator batch output missing `{phrase}`"
+                )
         forbidden_template_headings = [
             '"## Acknowledgment"',
+            '"## Approved:"',
+            '"## Approved With Maintainer Patch:"',
+            '"### Why This Is Safe"',
+            '"### Why This Path"',
             '"### Merge Confidence"',
             '"### Proof"',
             '"### Verification"',
@@ -634,6 +665,10 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
                 errors.append(
                     f"{pr_review_script.relative_to(REPO_ROOT)}: generated PR comment template still contains forbidden heading {heading}"
                 )
+        if "post_merge_only_if_useful" in script_text:
+            errors.append(
+                f"{pr_review_script.relative_to(REPO_ROOT)}: merge_now policy must require post-merge closeout after smoke"
+            )
 
 
 def validate_truth_first_contract(errors: list[str]) -> None:
@@ -654,6 +689,12 @@ def validate_truth_first_contract(errors: list[str]) -> None:
         "derive facts from the repo before accepting the prompt",
         "Evidence Order",
         "Default Answer Shape",
+        "Planning Question Contract",
+        "Current truth",
+        "Recommended path",
+        "Risk if accepted blindly",
+        "Decision needed",
+        "recommended option first",
         "Agent Evidence Handoff",
         "Community Q&A Contract",
         "price is missing",
@@ -679,6 +720,22 @@ def validate_truth_first_contract(errors: list[str]) -> None:
         for label in TRUTH_FIRST_LABELS:
             if label not in text:
                 errors.append(f"{path.relative_to(REPO_ROOT)}: missing truth-first label `{label}`")
+
+    planning_question_phrases = [
+        "Current truth",
+        "Recommended path",
+        "Risk if accepted blindly",
+        "Decision needed",
+    ]
+    for path in [agents_md, skill_contract]:
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for phrase in planning_question_phrases:
+            if phrase not in text:
+                errors.append(
+                    f"{path.relative_to(REPO_ROOT)}: missing planning-question contract phrase `{phrase}`"
+                )
 
     for agent_path in sorted((REPO_ROOT / ".codex/agents").glob("*.toml")):
         text = agent_path.read_text(encoding="utf-8")

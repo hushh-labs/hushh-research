@@ -115,14 +115,17 @@ Every next-batch answer must include:
 
 1. Batch name and purpose.
 2. Direct PR hyperlinks for every PR.
-3. `Input` with each PR and current lane.
-4. `Per-PR Role` with one short line per PR explaining why it is in the batch and planned action.
-5. `Output` with the intended end state.
-6. `Execution` with exact order and merge/patch/close/request-changes/hold split.
-7. `Stop Conditions`.
-8. `Verification`.
+3. `Research Basis` with current repo/GitHub truth, recommended path, and risk if accepted blindly.
+4. `Input` with each PR and current lane.
+5. `Per-PR Role` with one short line per PR explaining why it is in the batch and planned action.
+6. `Output` with the intended end state.
+7. `Execution` with exact order and merge/patch/close/request-changes/hold split.
+8. `Decision Questions` only when user-owned choices remain; each question must include current truth, recommended path, risk if accepted blindly, and recommended option first.
+9. `Stop Conditions`.
+10. `Verification`.
 
 Do not reduce individual PR handling to a lane JSON blob. The operator must be able to review each PR manually from the chat/report without searching GitHub.
+Do not ask "what should we do?" before stating the researched solution path.
 
 Detailed batch output requirements live in `references/operator-batch-output-contract.md`.
 
@@ -144,13 +147,14 @@ Default blockers include:
 
 ### GitHub Write Policy
 
-1. No noisy approval comments. For successful work, use one post-merge closeout after post-merge smoke is green.
-2. Post before merge only for `block`, `changes_requested`, `comment_only`, or when contributor action is required.
-3. Public duplicate language is allowed only for exact or manually confirmed semantic duplicates. Shared files alone mean sequencing/rebase, not duplicate.
-4. Maintainer patches must be explained in the post-merge note: who patched, what changed, why this was the smallest safe path, and what happened to related PRs.
-5. Do not include a separate successful-merge evidence section such as `### Merge Confidence`, `### Proof`, or `### Verification`; GitHub already shows checks. Use `### Why It Matters` in post-merge comments.
-6. Do not publish maintainer-only sequencing, CI dumps, or report bookkeeping in GitHub comments.
-7. Final handoffs for state-changing PR work must include direct links to affected PRs and any maintainer-authored merge/patch/closure comment links.
+1. No noisy approval comments. Every PR merged through this governance workflow must get one post-merge closeout after `Main Post-Merge Smoke` is green.
+2. There is no simple-merge exception. Direct `merge_now` PRs still require the closeout record after smoke passes.
+3. Post before merge only for `block`, `changes_requested`, `comment_only`, or when contributor action is required.
+4. Public duplicate language is allowed only for exact or manually confirmed semantic duplicates. Shared files alone mean sequencing/rebase, not duplicate.
+5. Maintainer patches must be explained in the post-merge note: who patched, what changed, why this was the smallest safe path, and what happened to related PRs.
+6. Do not include a separate successful-merge evidence section such as `### Merge Confidence`, `### Proof`, or `### Verification`; GitHub already shows checks. Use `### Why It Matters` in post-merge comments.
+7. Do not publish maintainer-only sequencing, CI dumps, or report bookkeeping in GitHub comments.
+8. Final handoffs for state-changing PR work must include direct links to affected PRs and any maintainer-authored merge/patch/closure comment links.
 
 Detailed comment/report format lives in `references/comment-and-report-contract.md`.
 
