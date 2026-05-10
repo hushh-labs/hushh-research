@@ -4,6 +4,8 @@ This document captures the first safe scaffold for Kai learning without mutating
 
 ## Visual Context
 
+Canonical visual owner: [Kai Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
 ```mermaid
 flowchart TD
     A["PKM decision_projection receipts"] --> B["KaiWeightEvalService (offline candidate run)"]
