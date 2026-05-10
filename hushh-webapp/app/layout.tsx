@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { NetworkRecoveryBanner } from "@/components/system/network-recovery-banner";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
@@ -102,10 +103,11 @@ export default function RootLayout({
         ) : null}
       </head>
       <RootLayoutClient
-        fontClasses={`${geistSans.variable} ${geistMono.variable} ${headingSans.variable}`}
-      >
-        {children}
-      </RootLayoutClient>
+  fontClasses={`${geistSans.variable} ${geistMono.variable} ${headingSans.variable}`}
+>
+  <NetworkRecoveryBanner />
+  {children}
+</RootLayoutClient>
     </html>
   );
 }
