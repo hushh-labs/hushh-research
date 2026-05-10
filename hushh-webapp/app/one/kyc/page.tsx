@@ -31,9 +31,10 @@ import {
   type KycWorkflowCheckKey,
   type KycWorkflowStatus,
 } from "@/lib/services/kyc-pkm-write-service";
-import { OneKycClientZkService, sha256Hex, type KycDraftBuildResult } from "@/lib/services/one-kyc-client-zk-service";
+import { OneKycClientZkService, type KycDraftBuildResult } from "@/lib/services/one-kyc-client-zk-service";
 import {
   OneKycService,
+  type OneKycScopeCandidate,
   type OneKycWorkflow,
   type OneKycWorkflowStatus,
 } from "@/lib/services/one-kyc-service";
@@ -76,6 +77,10 @@ function OneKycWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [redraftInstructions, setRedraftInstructions] = useState("");
   const [localDrafts, setLocalDrafts] = useState<Record<string, KycDraftBuildResult>>({});
+  const [localExportPayloads, setLocalExportPayloads] = useState<
+    Record<string, Array<{ scope?: string | null; payload: Record<string, unknown> }>>
+  >({});
+  const [selectedScopesByWorkflow, setSelectedScopesByWorkflow] = useState<Record<string, string[]>>({});
   const [connectorReady, setConnectorReady] = useState(false);
   const [emailAliases, setEmailAliases] = useState<AccountEmailAlias[]>([]);
   const [aliasEmail, setAliasEmail] = useState("");
@@ -209,21 +214,30 @@ function OneKycWorkspace() {
           vaultKey,
           vaultOwnerToken,
         });
-        const exportPackage = await OneKycService.getWorkflowConsentExport({
+        const exportResponse = await OneKycService.getWorkflowConsentExports({
           userId: auth.userId,
           vaultOwnerToken,
           workflowId: selected.workflow_id,
         });
-        const exportPayload = await OneKycClientZkService.decryptScopedExport({
-          exportPackage,
-          connector,
-        });
+        const exportPayloads = await Promise.all(
+          exportResponse.exports.map(async (exportPackage) => ({
+            scope: exportPackage.scope,
+            payload: await OneKycClientZkService.decryptScopedExport({
+              exportPackage,
+              connector,
+            }),
+          }))
+        );
         const draft = await OneKycClientZkService.buildDraft({
           workflow: selected,
-          exportPayload,
+          exportPayloads,
         });
         if (!cancelled) {
           setLocalDrafts((current) => ({ ...current, [selected.workflow_id]: draft }));
+          setLocalExportPayloads((current) => ({
+            ...current,
+            [selected.workflow_id]: exportPayloads,
+          }));
         }
       } catch (err) {
         if (!cancelled) {
@@ -333,33 +347,27 @@ function OneKycWorkspace() {
             setError("Prepare the KYC draft before revising it.");
             return;
           }
-          const body = `${localDraft.body}
-
----
-User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
-          setLocalDrafts((current) => ({
-            ...current,
-            [workflow.workflow_id]: {
-              ...localDraft,
-              body,
-              draftHash: "",
-            },
-          }));
-          const draftHash = await sha256Hex(body);
-          setLocalDrafts((current) => ({
-            ...current,
-            [workflow.workflow_id]: {
-              ...localDraft,
-              body,
-              draftHash,
-            },
-          }));
           const next = await OneKycService.redraft({
             ...input,
             instructions: redraftInstructions.trim(),
             source: "text",
           });
           updateWorkflow(next);
+          if (next.status === "waiting_on_user") {
+            const exportPayloads = localExportPayloads[workflow.workflow_id] || [];
+            const draft = await OneKycClientZkService.buildDraft({
+              workflow: next,
+              exportPayloads,
+              instructions: redraftInstructions.trim(),
+            });
+            setLocalDrafts((current) => ({ ...current, [workflow.workflow_id]: draft }));
+          } else {
+            setLocalDrafts((current) => {
+              const nextDrafts = { ...current };
+              delete nextDrafts[workflow.workflow_id];
+              return nextDrafts;
+            });
+          }
           setRedraftInstructions("");
           return;
         }
@@ -400,7 +408,9 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
             approvedBody: localDraft.body,
             clientDraftHash: localDraft.draftHash,
             consentExportRevision:
-              typeof workflow.consent_export?.export_revision === "number"
+              Array.isArray(workflow.consent_exports) && workflow.consent_exports.length > 1
+                ? null
+                : typeof workflow.consent_export?.export_revision === "number"
                 ? workflow.consent_export.export_revision
                 : typeof workflow.metadata?.consent_export === "object" &&
                     workflow.metadata.consent_export !== null &&
@@ -461,6 +471,7 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
     [
       auth.user,
       auth.userId,
+      localExportPayloads,
       localDrafts,
       redraftInstructions,
       updateWorkflow,
@@ -468,6 +479,43 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
       vaultOwnerToken,
     ]
   );
+
+  const submitScopeSelection = useCallback(
+    async (workflow: OneKycWorkflow) => {
+      if (!auth.userId || !vaultOwnerToken) return;
+      const selectedScopes = selectedScopesForWorkflow(workflow, selectedScopesByWorkflow);
+      if (!selectedScopes.length) {
+        setError("Select at least one scope before requesting consent.");
+        return;
+      }
+      setBusy("scope");
+      setError(null);
+      try {
+        const next = await OneKycService.selectScopes({
+          userId: auth.userId,
+          vaultOwnerToken,
+          workflowId: workflow.workflow_id,
+          selectedScopes,
+        });
+        updateWorkflow(next);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Scope selection failed.");
+      } finally {
+        setBusy(null);
+      }
+    },
+    [auth.userId, selectedScopesByWorkflow, updateWorkflow, vaultOwnerToken]
+  );
+
+  const toggleScope = useCallback((workflow: OneKycWorkflow, scope: string) => {
+    setSelectedScopesByWorkflow((current) => {
+      const selectedScopes = selectedScopesForWorkflow(workflow, current);
+      const nextScopes = selectedScopes.includes(scope)
+        ? selectedScopes.filter((item) => item !== scope)
+        : [...selectedScopes, scope];
+      return { ...current, [workflow.workflow_id]: nextScopes };
+    });
+  }, []);
 
   return (
     <AppPageShell
@@ -618,8 +666,10 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Info label="Status" value={STATUS_LABELS[selected.status] || selected.status} />
                   <Info label="Counterparty" value={selected.counterparty_label || selected.sender_email || "-"} />
-                  <Info label="Scope" value={selected.requested_scope || "-"} />
+                  <Info label="Intent" value={detectedDomains(selected).join(", ") || "-"} />
+                  <Info label="Scopes" value={selectedScopeLabels(selected).join(", ") || selected.requested_scope || "-"} />
                   <Info label="Updated" value={selected.updated_at ? new Date(selected.updated_at).toLocaleString() : "-"} />
+                  <Info label="Thread" value={threadStatusLabel(selected)} />
                 </div>
 
                 <div className="space-y-2">
@@ -639,13 +689,81 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
                   </div>
                 ) : null}
 
-                {selected.status === "needs_scope" && selected.consent_request_url ? (
-                  <Button asChild>
-                    <a href={selected.consent_request_url} data-voice-control-id="one-kyc-open-consent">
-                      <ShieldCheck className="size-4" />
-                      Review consent
-                    </a>
-                  </Button>
+                {selected.status === "needs_scope" ? (
+                  <div className="space-y-3 rounded-md border bg-background/60 p-3">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">Recommended scopes</p>
+                      <p className="text-xs text-muted-foreground">
+                        Confirm the scopes One should request before any encrypted export is prepared.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      {scopeCandidates(selected).map((candidate) => {
+                        const checked = selectedScopesForWorkflow(
+                          selected,
+                          selectedScopesByWorkflow
+                        ).includes(candidate.scope);
+                        return (
+                          <label
+                            key={candidate.scope}
+                            className="flex items-start gap-3 rounded-md border p-3 text-sm"
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-1"
+                              checked={checked}
+                              onChange={() => toggleScope(selected, candidate.scope)}
+                              disabled={Boolean(selected.consent_request_url)}
+                            />
+                            <span className="space-y-1">
+                              <span className="block font-medium">
+                                {candidate.label || candidate.scope}
+                              </span>
+                              <span className="block text-xs text-muted-foreground">
+                                {candidate.description || candidate.scope}
+                              </span>
+                              <span className="block text-xs text-muted-foreground">
+                                {candidate.reason || "Detected from the email text."}
+                              </span>
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {!selected.consent_request_url ? (
+                        <Button
+                          type="button"
+                          onClick={() => void submitScopeSelection(selected)}
+                          disabled={
+                            Boolean(busy) ||
+                            selectedScopesForWorkflow(selected, selectedScopesByWorkflow).length === 0
+                          }
+                        >
+                          <ShieldCheck className="size-4" />
+                          Request consent
+                        </Button>
+                      ) : (
+                        <Button asChild>
+                          <a href={selected.consent_request_url} data-voice-control-id="one-kyc-open-consent">
+                            <ShieldCheck className="size-4" />
+                            Review consent
+                          </a>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+
+                {selected.metadata?.reply_thread ? (
+                  <div className="space-y-2 rounded-md border bg-background/60 p-3">
+                    <p className="text-sm font-medium">Reply preview</p>
+                    <Info
+                      label="To"
+                      value={replyThreadValue(selected, "reply_all_to") || selected.sender_email || "-"}
+                    />
+                    <Info label="Cc" value={replyThreadValue(selected, "reply_all_cc") || "-"} />
+                  </div>
                 ) : null}
 
                 {selectedDraft ? (
@@ -659,7 +777,7 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
                     </pre>
                     {selectedDraft.missingFields.length > 0 ? (
                       <p className="text-sm text-amber-700 dark:text-amber-200">
-                        Missing approved fields: {selectedDraft.missingFields.map((field) => field.replaceAll("_", " ")).join(", ")}
+                        Approved export did not contain: {selectedDraft.missingFields.map((field) => field.replaceAll("_", " ")).join(", ")}
                       </p>
                     ) : null}
                   </div>
@@ -758,6 +876,76 @@ function Info({ label, value }: { label: string; value: string }) {
       <p className="mt-1 break-words text-sm">{value}</p>
     </div>
   );
+}
+
+function scopeCandidates(workflow: OneKycWorkflow): OneKycScopeCandidate[] {
+  const direct = workflow.candidate_scopes;
+  if (Array.isArray(direct) && direct.length) return direct;
+  const metadataCandidates = workflow.metadata?.candidate_scopes;
+  if (Array.isArray(metadataCandidates)) {
+    return metadataCandidates.filter(
+      (candidate): candidate is OneKycScopeCandidate =>
+        Boolean(candidate && typeof candidate === "object" && "scope" in candidate)
+    );
+  }
+  return workflow.requested_scope
+    ? [
+        {
+          scope: workflow.requested_scope,
+          domain: workflow.requested_scope.includes("financial") ? "financial" : "identity",
+          label: workflow.requested_scope,
+        },
+      ]
+    : [];
+}
+
+function selectedScopesForWorkflow(
+  workflow: OneKycWorkflow,
+  localSelections: Record<string, string[]>
+): string[] {
+  const local = localSelections[workflow.workflow_id];
+  if (local) return local;
+  if (Array.isArray(workflow.selected_scopes) && workflow.selected_scopes.length) {
+    return workflow.selected_scopes;
+  }
+  if (Array.isArray(workflow.requested_scopes) && workflow.requested_scopes.length) {
+    return workflow.requested_scopes;
+  }
+  const recommended = scopeCandidates(workflow)
+    .filter((candidate) => candidate.recommended !== false)
+    .map((candidate) => candidate.scope);
+  if (recommended.length) return recommended;
+  return workflow.requested_scope ? [workflow.requested_scope] : [];
+}
+
+function selectedScopeLabels(workflow: OneKycWorkflow): string[] {
+  const selectedScopes = new Set(selectedScopesForWorkflow(workflow, {}));
+  return scopeCandidates(workflow)
+    .filter((candidate) => selectedScopes.has(candidate.scope))
+    .map((candidate) => candidate.label || candidate.scope);
+}
+
+function detectedDomains(workflow: OneKycWorkflow): string[] {
+  const fromCandidates = scopeCandidates(workflow)
+    .map((candidate) => candidate.domain)
+    .filter(Boolean);
+  if (fromCandidates.length) return Array.from(new Set(fromCandidates));
+  const metadata = workflow.metadata?.detected_domains;
+  return Array.isArray(metadata) ? metadata.map(String) : [];
+}
+
+function replyThreadValue(workflow: OneKycWorkflow, key: "reply_all_to" | "reply_all_cc"): string {
+  const thread = workflow.metadata?.reply_thread;
+  if (!thread || typeof thread !== "object") return "";
+  const value = (thread as Record<string, unknown>)[key];
+  return Array.isArray(value) ? value.map(String).join(", ") : "";
+}
+
+function threadStatusLabel(workflow: OneKycWorkflow): string {
+  if (workflow.thread_match_status === "matched") return "Reply threaded";
+  if (workflow.thread_match_status === "mismatched") return "Sent in new thread";
+  if (workflow.thread_match_status === "unknown") return "Thread verification pending";
+  return workflow.gmail_thread_id || "-";
 }
 
 function emptyKycCheck(): KycWorkflowCheck {
