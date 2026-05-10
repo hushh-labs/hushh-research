@@ -2847,6 +2847,51 @@ def _operator_batch_solution(batch: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _operator_batch_pr_role_lines(batch: dict[str, Any]) -> list[str]:
+    roles = batch.get("pr_roles") or []
+    if not roles:
+        return ["  - Per-PR role detail unavailable; rerun the batch report with current PR metadata."]
+    lines: list[str] = []
+    for role in roles:
+        number = role["number"]
+        lines.append(
+            f"  - [#{number}]({role['url']}) - `{role['lane']}` / risk `{role['risk']}` / head `{role['head_sha'][:8]}`: {role['role']}"
+        )
+    return lines
+
+
+def _operator_batch_pr_roles(reports: list[dict[str, Any]]) -> list[OrderedDict[str, Any]]:
+    roles: list[OrderedDict[str, Any]] = []
+    for report in reports:
+        pr = report["pr"]
+        lane = report["lane"]
+        if lane == "merge_now":
+            role = "candidate for direct merge after current-head lock and shared checks"
+        elif lane == "patch_then_merge":
+            role = "candidate for maintainer rebase/patch after earlier overlapping PRs land"
+        elif lane in {"harvest_then_close", "close_duplicate"}:
+            role = "candidate for unique-proof harvest, then close"
+        elif lane == "block":
+            role = "hold out of the merge train until blocker evidence changes"
+        else:
+            role = "manual review required before operator action"
+        findings = [finding["id"] for finding in report["findings"][:2]]
+        if findings:
+            role += f"; watch: {', '.join(findings)}"
+        roles.append(
+            OrderedDict(
+                number=pr["number"],
+                url=pr["url"],
+                title=pr["title"],
+                lane=lane,
+                risk=_lean_core_risk(report),
+                head_sha=pr["head_sha"],
+                role=role,
+            )
+        )
+    return roles
+
+
 def _operator_batch_links(batch: dict[str, Any]) -> list[str]:
     links = batch.get("pr_links", {})
     return [
@@ -2902,6 +2947,7 @@ def _operator_batches(
                     (report["pr"]["number"], report["pr"]["url"])
                     for report in component_reports
                 ),
+                pr_roles=_operator_batch_pr_roles(component_reports),
                 preferred_pr=preferred["pr"]["number"],
                 contract_sets=sorted({report["contract_set"] for report in component_reports}),
                 lanes=OrderedDict(
@@ -2932,6 +2978,7 @@ def _operator_batches(
                 title=f"Single-PR Closure: #{pr_number}",
                 prs=[pr_number],
                 pr_links=OrderedDict([(pr_number, report["pr"]["url"])]),
+                pr_roles=_operator_batch_pr_roles([report]),
                 preferred_pr=pr_number,
                 contract_sets=[report["contract_set"]],
                 lanes=OrderedDict([(f"#{pr_number}", report["lane"])]),
@@ -2971,6 +3018,7 @@ def _operator_batches(
                         (report["pr"]["number"], report["pr"]["url"])
                         for report in grouped
                     ),
+                    pr_roles=_operator_batch_pr_roles(grouped),
                     preferred_pr=grouped[0]["pr"]["number"],
                     contract_sets=[contract_set],
                     lanes=OrderedDict((f"#{report['pr']['number']}", report["lane"]) for report in grouped),
@@ -2991,6 +3039,7 @@ def _operator_batches(
                         (report["pr"]["number"], report["pr"]["url"])
                         for report in grouped
                     ),
+                    pr_roles=_operator_batch_pr_roles(grouped),
                     preferred_pr=None,
                     contract_sets=[contract_set],
                     lanes=OrderedDict((f"#{report['pr']['number']}", report["lane"]) for report in grouped),
@@ -3024,6 +3073,8 @@ def _operator_batch_lines(batches: list[OrderedDict[str, Any]]) -> list[str]:
                 f"- What this is about: {batch.get('intent', 'Shared PR sequencing.')}",
                 f"- Why together: {batch['reason']}",
                 f"- Operator action: {batch['action']}",
+                "- PR roles:",
+                *_operator_batch_pr_role_lines(batch),
                 "- Solution:",
                 *_operator_batch_solution(batch),
                 f"- Shared files: {_compact_file_list(batch['shared_files'], limit=8)}",
