@@ -54,11 +54,9 @@ export function parseSSEChunk(chunk: string, existingBuffer: string = ''): SSEBl
  * Legacy wrapper to support existing imports.
  * @deprecated Use parseSSEChunk with buffer state for robust streaming.
  */
-export function parseSSEBlocks(chunk: string, existingBuffer: string = '') {
-  // Call our new, safe function
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseSSEBlocks(chunk: string, existingBuffer: string = ''): { events: any[]; remainder: string } {
   const result = parseSSEChunk(chunk, existingBuffer);
-  
-  // Translate the new property names back into the old names the app expects
   return {
     events: result.parsedEvents,
     remainder: result.leftoverBuffer
