@@ -1,6 +1,7 @@
 "use client";
 
 import styles from "./page.module.css";
+import { toast } from "sonner";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ReadonlyURLSearchParams } from "next/navigation";
@@ -27,8 +28,6 @@ import {
   User,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { toast } from "sonner";
-
 import {
   SettingsGroup,
   SettingsRow,

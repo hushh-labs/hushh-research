@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { ToastProvider } from "@/components/toast-provider";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
@@ -101,11 +102,14 @@ export default function RootLayout({
           />
         ) : null}
       </head>
-      <RootLayoutClient
-        fontClasses={`${geistSans.variable} ${geistMono.variable} ${headingSans.variable}`}
-      >
-        {children}
-      </RootLayoutClient>
+     <>
+  <ToastProvider />
+  <RootLayoutClient
+    fontClasses={`${geistSans.variable} ${geistMono.variable} ${headingSans.variable}`}
+  >
+    {children}
+  </RootLayoutClient>
+</>
     </html>
   );
 }
