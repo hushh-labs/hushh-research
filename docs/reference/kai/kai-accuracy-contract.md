@@ -56,6 +56,18 @@ Founder-language note: this contract is part of the platform's `Tamper-Evident H
 - `retry_counts`
 - `analysis_mode`
 
+## Weight Eval Governance Contract
+- Weight adaptation is offline-first and candidate-only; live debate weights are not mutated inline during user analysis.
+- Canonical inputs come from PKM `decision_projection` receipts (decision, risk profile, provenance, dissent, context).
+- Candidate and promotion artifacts are audit-persisted using versioned projection types:
+  - `kai_weight_eval_v1`
+  - `kai_weight_eval_promotion_v1`
+- Promotion is gate-controlled and must include explicit pass/fail outcomes for:
+  - accuracy threshold
+  - safety regression threshold
+  - latency budget threshold
+- Provider-derived outcomes must be replayable with deterministic receipts so promotion decisions can be re-audited.
+
 ## Dashboard Rendering Contract
 - Render only validated holdings from `portfolio_data_v2.holdings`.
 - Surface parser confidence and statement provenance in UI.

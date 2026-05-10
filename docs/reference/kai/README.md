@@ -60,6 +60,7 @@ Brand and compatibility rule: [../operations/brand-and-compatibility-contract.md
 - [kai-voice-runtime-architecture.md](./kai-voice-runtime-architecture.md): canonical current runtime architecture for Kai voice, including English-only STT/realtime/TTS policy, planner, compose, execution, settlement, and how the generated action gateway is consumed at runtime.
 - [kai-brokerage-connectivity-architecture.md](./kai-brokerage-connectivity-architecture.md): brokerage and import architecture.
 - [kai-accuracy-contract.md](./kai-accuracy-contract.md): accuracy and output expectations.
+- [kai-weight-eval-scaffold.md](./kai-weight-eval-scaffold.md): offline-first weight evaluation flow, audit projections, and regression execution path.
 - [kai-route-audit-matrix.md](./kai-route-audit-matrix.md): route-level audit map.
 - [kai-runtime-smoke-checklist.md](./kai-runtime-smoke-checklist.md): runtime smoke checklist.
 - [kai-rate-limit-playbook.md](./kai-rate-limit-playbook.md): rate-limit handling.

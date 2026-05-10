@@ -396,6 +396,21 @@ def test_tool_catalog_filters_to_public_beta_defaults(monkeypatch):
     assert "list_ria_profiles" not in tool_names
 
 
+def test_tool_catalog_includes_end_to_end_consent_tools(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    client = TestClient(_build_app())
+    response = client.get("/api/v1/tool-catalog")
+
+    assert response.status_code == 200
+    payload = response.json()
+    tool_names = [tool["name"] for tool in payload["tools"]]
+    assert "discover_user_domains" in tool_names
+    assert "request_consent" in tool_names
+    assert "get_encrypted_scoped_export" in tool_names
+
+
 def test_tool_catalog_accepts_authorization_bearer_header(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")

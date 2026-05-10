@@ -11,6 +11,7 @@ This package organizes Kai routes into logical modules:
 - decisions.py: Decision history (reads from domain_summaries; legacy CRUD returns 410)
 - consent.py: Kai-specific consent grants
 - support.py: Profile support and bug-report messaging via Gmail API
+- weight_eval.py: Read-only weight-eval observability artifacts
 
 All sub-routers are aggregated into `kai_router` for backward compatibility.
 """
@@ -30,6 +31,7 @@ from .portfolio import router as portfolio_router
 from .stream import router as stream_router
 from .support import router as support_router
 from .voice import router as voice_router
+from .weight_eval import router as weight_eval_router
 
 # Create the main Kai router with prefix
 kai_router = APIRouter(prefix="/api/kai", tags=["kai"])
@@ -105,6 +107,7 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/market/insights/baseline/{user_id}",
     "/market/insights/{user_id}",
     "/stock-preview/{user_id}",
+    "/weight-eval/artifacts",
 ]
 
 # Include all sub-routers (no prefix since main router has /api/kai)
@@ -121,6 +124,7 @@ kai_router.include_router(decisions_router)
 kai_router.include_router(losers_router)
 kai_router.include_router(market_insights_router)
 kai_router.include_router(support_router)
+kai_router.include_router(weight_eval_router)
 
 # Export for server.py
 router = kai_router
