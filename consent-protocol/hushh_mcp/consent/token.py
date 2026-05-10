@@ -130,7 +130,9 @@ def validate_token(
 
     try:
         prefix, signed_part = token_str.split(":", 1)
-        encoded, signature = signed_part.split(".")
+        if "." not in signed_part:
+            return False, "Malformed token", None
+        encoded, signature = signed_part.split(".", 1)
 
         if prefix != CONSENT_TOKEN_PREFIX:
             return False, "Invalid token prefix", None
