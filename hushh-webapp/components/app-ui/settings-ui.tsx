@@ -9,14 +9,12 @@ import { Slot } from "@radix-ui/react-slot";
 import {
   Drawer,
   DrawerContent,
-  DrawerDescription,
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -229,7 +227,8 @@ export function SettingsDetailPanel({
 }) {
   const isMobile = useIsMobile();
 
-  const HeaderContent = () => (
+  // FIX: Moved JSX to a variable instead of a component declaration to pass linting
+  const headerLayout = (
     <>
       <div className="text-base font-semibold tracking-tight">{title}</div>
       {description && (
@@ -243,7 +242,7 @@ export function SettingsDetailPanel({
       <Drawer open={open} onOpenChange={onOpenChange}>
         <DrawerContent className="flex h-[96dvh] flex-col overflow-hidden rounded-t-[32px]">
           <DrawerHeader className="border-b bg-background px-6 py-4 text-left shrink-0">
-            <DrawerTitle><HeaderContent /></DrawerTitle>
+            <DrawerTitle>{headerLayout}</DrawerTitle>
           </DrawerHeader>
           <div className="flex-1 overflow-y-auto px-6 py-4 pb-12">
             {children}
@@ -257,7 +256,7 @@ export function SettingsDetailPanel({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl overflow-hidden p-0 gap-0">
         <DialogHeader className="border-b bg-background px-8 py-5 text-left shrink-0">
-          <DialogTitle><HeaderContent /></DialogTitle>
+          <DialogTitle>{headerLayout}</DialogTitle>
         </DialogHeader>
         <div className="max-h-[70vh] overflow-y-auto px-8 py-6">
           {children}
