@@ -124,7 +124,6 @@ class MarketCacheStoreService:
         return str(value)
 
     async def get_entry(self, cache_key: str) -> MarketCacheStoreEntry | None:
-        await self.ensure_table()
         pool = await get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -166,8 +165,6 @@ class MarketCacheStoreService:
         stale_ttl_seconds: int,
         provider_status: dict[str, Any] | None = None,
     ) -> None:
-        await self.ensure_table()
-
         now = datetime.now(timezone.utc)
         fresh_until = now.timestamp() + max(1, int(fresh_ttl_seconds))
         stale_until = now.timestamp() + max(1, int(stale_ttl_seconds))
@@ -210,7 +207,6 @@ class MarketCacheStoreService:
             )
 
     async def delete_expired(self, *, max_rows: int = 500) -> int:
-        await self.ensure_table()
         pool = await get_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
