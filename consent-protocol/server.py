@@ -350,10 +350,10 @@ async def startup_pool_and_iam_cache() -> None:
                 # Also flip the process-level boolean so the very first
                 # _ensure_iam_schema_ready() call takes the one-line fast path.
                 import hushh_mcp.services.ria_iam_service as _iam_mod
+
                 _iam_mod._IAM_SCHEMA_READY_CACHE = True
                 logger.info(
-                    "startup.pool_and_iam_cache_seeded "
-                    "tables_confirmed=%d pool_min=%d pool_max=%d",
+                    "startup.pool_and_iam_cache_seeded tables_confirmed=%d pool_min=%d pool_max=%d",
                     len(present),
                     pool.get_min_size(),
                     pool.get_max_size(),

@@ -26,7 +26,9 @@ def test_normalize_json_value_serializes_nested_non_json_payloads():
     assert normalized["rows"][0]["bad_number"] is None
     assert sorted(normalized["rows"][0]["source_tags"]) == ["alpha", "beta"]
 
+
 # Opt-9: ensure_table removed from per-request hot paths
+
 
 def _make_service_with_table_ready() -> MarketCacheStoreService:
     """Return a service instance that considers the table already initialised."""
