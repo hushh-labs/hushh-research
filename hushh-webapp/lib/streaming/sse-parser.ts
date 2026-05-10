@@ -50,3 +50,10 @@ export function parseSSEChunk(chunk: string, existingBuffer: string = ''): SSEBl
 
   return { parsedEvents, leftoverBuffer };
 }
+/**
+ * Legacy wrapper to support existing imports.
+ * @deprecated Use parseSSEChunk with buffer state for robust streaming.
+ */
+export function parseSSEBlocks(chunk: string) {
+  return parseSSEChunk(chunk, '').parsedEvents;
+}
