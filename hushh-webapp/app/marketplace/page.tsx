@@ -1009,13 +1009,47 @@ export default function MarketplacePage() {
           })}
 
           {!loading && activeCards.length === 0 ? (
-            <RiaSurface className="col-span-full p-6 text-center">
-              <h3 className="text-lg font-semibold tracking-tight text-foreground">No profiles</h3>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Try a broader search.
-              </p>
-            </RiaSurface>
-          ) : null}
+  <RiaSurface className="col-span-full p-8 text-center">
+    <div className="mx-auto flex max-w-md flex-col items-center gap-4">
+      <div className="rounded-full bg-muted p-4">
+        <Search className="h-6 w-6 text-muted-foreground" />
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-xl font-semibold tracking-tight text-foreground">
+          No matching profiles found
+        </h3>
+
+        <p className="text-sm leading-6 text-muted-foreground">
+          We couldn&apos;t find any{" "}
+          {directoryKind === "rias" ? "advisors" : "investors"} matching
+          your current search.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap justify-center gap-2">
+        <Button
+          variant="blue-gradient"
+          effect="fill"
+          size="sm"
+          onClick={() => setQuery("")}
+        >
+          Clear search
+        </Button>
+
+        <Button
+          variant="none"
+          effect="fade"
+          size="sm"
+          onClick={resetSwipeDeck}
+        >
+          <RotateCcw className="mr-2 h-4 w-4" />
+          Reset discovery
+        </Button>
+      </div>
+    </div>
+  </RiaSurface>
+) : null}
         </div>
       ) : null}
 
