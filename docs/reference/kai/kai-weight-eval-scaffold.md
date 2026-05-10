@@ -2,6 +2,19 @@
 
 This document captures the first safe scaffold for Kai learning without mutating live runtime behavior.
 
+## Visual Context
+
+```mermaid
+flowchart TD
+    A["PKM decision_projection receipts"] --> B["KaiWeightEvalService (offline candidate run)"]
+    B --> C["Gate evaluation (accuracy / safety / latency)"]
+    C --> D["Promotion decision (approve or block)"]
+    B --> E["PKM artifact: kai_weight_eval_v1"]
+    D --> F["PKM artifact: kai_weight_eval_promotion_v1"]
+    G["GET /api/kai/weight-eval/artifacts (read-only)"] --> E
+    G --> F
+```
+
 ## What is implemented
 
 1. Shared eval contracts for promotion governance:
