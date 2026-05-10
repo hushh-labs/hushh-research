@@ -485,7 +485,21 @@ async def startup_market_cache_store_table():
     """Ensure the L2 market cache table exists before any request hits it."""
     from hushh_mcp.services.market_cache_store import get_market_cache_store_service
 
-    await get_market_cache_store_service().ensure_table()
+    try:
+        await get_market_cache_store_service().ensure_table()
+    except Exception as exc:
+        if _require_database_on_startup():
+            logger.critical(
+                "startup.market_cache_store_table_failed environment=%s reason=%s",
+                _environment(),
+                exc,
+            )
+            raise
+        logger.warning(
+            "startup.market_cache_store_table_skipped environment=%s reason=%s",
+            _environment(),
+            exc,
+        )
 
 
 @app.on_event("startup")
