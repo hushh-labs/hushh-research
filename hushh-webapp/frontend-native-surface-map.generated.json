@@ -1,0 +1,1287 @@
+{
+  "schema_version": "hushh.frontend_native_surface_map.v1",
+  "generated_at": "2026-05-08",
+  "purpose": "Scaffolded contract mapping app routes to Next.js API, backend, native parity, plugin, and voice/action surfaces.",
+  "sources": {
+    "route_contract": "lib/navigation/routes.ts",
+    "native_inventory": "native-route-inventory.json",
+    "api_routes": "app/api/**/route.ts",
+    "route_docs": "../docs/reference/architecture/route-contracts.md",
+    "mobile_docs": "../docs/reference/mobile/capacitor-parity-audit.md"
+  },
+  "nextjs_api_routes": [
+    {
+      "template": "/api/account/{path*}",
+      "file": "app/api/account/[...path]/route.ts"
+    },
+    {
+      "template": "/api/account/delete",
+      "file": "app/api/account/delete/route.ts"
+    },
+    {
+      "template": "/api/account/export",
+      "file": "app/api/account/export/route.ts"
+    },
+    {
+      "template": "/api/app-config/review-mode",
+      "file": "app/api/app-config/review-mode/route.ts"
+    },
+    {
+      "template": "/api/app-config/review-mode/session",
+      "file": "app/api/app-config/review-mode/session/route.ts"
+    },
+    {
+      "template": "/api/auth/session",
+      "file": "app/api/auth/session/route.ts"
+    },
+    {
+      "template": "/api/consent/active",
+      "file": "app/api/consent/active/route.ts"
+    },
+    {
+      "template": "/api/consent/cancel",
+      "file": "app/api/consent/cancel/route.ts"
+    },
+    {
+      "template": "/api/consent/center",
+      "file": "app/api/consent/center/route.ts"
+    },
+    {
+      "template": "/api/consent/center/list",
+      "file": "app/api/consent/center/list/route.ts"
+    },
+    {
+      "template": "/api/consent/center/summary",
+      "file": "app/api/consent/center/summary/route.ts"
+    },
+    {
+      "template": "/api/consent/data",
+      "file": "app/api/consent/data/route.ts"
+    },
+    {
+      "template": "/api/consent/events/{userId}",
+      "file": "app/api/consent/events/[userId]/route.ts"
+    },
+    {
+      "template": "/api/consent/export-refresh/fail",
+      "file": "app/api/consent/export-refresh/fail/route.ts"
+    },
+    {
+      "template": "/api/consent/export-refresh/jobs",
+      "file": "app/api/consent/export-refresh/jobs/route.ts"
+    },
+    {
+      "template": "/api/consent/export-refresh/upload",
+      "file": "app/api/consent/export-refresh/upload/route.ts"
+    },
+    {
+      "template": "/api/consent/history",
+      "file": "app/api/consent/history/route.ts"
+    },
+    {
+      "template": "/api/consent/logout",
+      "file": "app/api/consent/logout/route.ts"
+    },
+    {
+      "template": "/api/consent/pending",
+      "file": "app/api/consent/pending/route.ts"
+    },
+    {
+      "template": "/api/consent/pending/approve",
+      "file": "app/api/consent/pending/approve/route.ts"
+    },
+    {
+      "template": "/api/consent/pending/deny",
+      "file": "app/api/consent/pending/deny/route.ts"
+    },
+    {
+      "template": "/api/consent/requests",
+      "file": "app/api/consent/requests/route.ts"
+    },
+    {
+      "template": "/api/consent/requests/outgoing",
+      "file": "app/api/consent/requests/outgoing/route.ts"
+    },
+    {
+      "template": "/api/consent/revoke",
+      "file": "app/api/consent/revoke/route.ts"
+    },
+    {
+      "template": "/api/consent/session-token",
+      "file": "app/api/consent/session-token/route.ts"
+    },
+    {
+      "template": "/api/consent/vault-owner-token",
+      "file": "app/api/consent/vault-owner-token/route.ts"
+    },
+    {
+      "template": "/api/developer/{path*}",
+      "file": "app/api/developer/[...path]/route.ts"
+    },
+    {
+      "template": "/api/iam/{path*}",
+      "file": "app/api/iam/[...path]/route.ts"
+    },
+    {
+      "template": "/api/investors/{id}",
+      "file": "app/api/investors/[id]/route.ts"
+    },
+    {
+      "template": "/api/investors/search",
+      "file": "app/api/investors/search/route.ts"
+    },
+    {
+      "template": "/api/invites/{token}",
+      "file": "app/api/invites/[token]/route.ts"
+    },
+    {
+      "template": "/api/invites/{token}/accept",
+      "file": "app/api/invites/[token]/accept/route.ts"
+    },
+    {
+      "template": "/api/kai/{path*}",
+      "file": "app/api/kai/[...path]/route.ts"
+    },
+    {
+      "template": "/api/marketplace/{path*}",
+      "file": "app/api/marketplace/[...path]/route.ts"
+    },
+    {
+      "template": "/api/notifications/register",
+      "file": "app/api/notifications/register/route.ts"
+    },
+    {
+      "template": "/api/notifications/unregister",
+      "file": "app/api/notifications/unregister/route.ts"
+    },
+    {
+      "template": "/api/one/{path*}",
+      "file": "app/api/one/[...path]/route.ts"
+    },
+    {
+      "template": "/api/pkm/{path*}",
+      "file": "app/api/pkm/[...path]/route.ts"
+    },
+    {
+      "template": "/api/portfolio/share-link",
+      "file": "app/api/portfolio/share-link/route.ts"
+    },
+    {
+      "template": "/api/ria/{path*}",
+      "file": "app/api/ria/[...path]/route.ts"
+    },
+    {
+      "template": "/api/tickers/all",
+      "file": "app/api/tickers/all/route.ts"
+    },
+    {
+      "template": "/api/tickers/search",
+      "file": "app/api/tickers/search/route.ts"
+    },
+    {
+      "template": "/api/tickers/sync-holdings/{userId}",
+      "file": "app/api/tickers/sync-holdings/[userId]/route.ts"
+    },
+    {
+      "template": "/api/vault/bootstrap-state",
+      "file": "app/api/vault/bootstrap-state/route.ts"
+    },
+    {
+      "template": "/api/vault/check",
+      "file": "app/api/vault/check/route.ts"
+    },
+    {
+      "template": "/api/vault/get",
+      "file": "app/api/vault/get/route.ts"
+    },
+    {
+      "template": "/api/vault/pre-vault-state",
+      "file": "app/api/vault/pre-vault-state/route.ts"
+    },
+    {
+      "template": "/api/vault/primary/set",
+      "file": "app/api/vault/primary/set/route.ts"
+    },
+    {
+      "template": "/api/vault/setup",
+      "file": "app/api/vault/setup/route.ts"
+    },
+    {
+      "template": "/api/vault/status",
+      "file": "app/api/vault/status/route.ts"
+    },
+    {
+      "template": "/api/vault/store-preferences",
+      "file": "app/api/vault/store-preferences/route.ts"
+    },
+    {
+      "template": "/api/vault/wrapper/upsert",
+      "file": "app/api/vault/wrapper/upsert/route.ts"
+    },
+    {
+      "template": "/api/world-model/{path*}",
+      "file": "app/api/world-model/[...path]/route.ts"
+    },
+    {
+      "template": "/api/world-model/domains",
+      "file": "app/api/world-model/domains/route.ts"
+    },
+    {
+      "template": "/api/world-model/domains/{userId}",
+      "file": "app/api/world-model/domains/[userId]/route.ts"
+    },
+    {
+      "template": "/api/world-model/metadata/{userId}",
+      "file": "app/api/world-model/metadata/[userId]/route.ts"
+    },
+    {
+      "template": "/api/world-model/scopes/{userId}",
+      "file": "app/api/world-model/scopes/[userId]/route.ts"
+    },
+    {
+      "template": "/api/world-model/store-domain",
+      "file": "app/api/world-model/store-domain/route.ts"
+    }
+  ],
+  "routes": [
+    {
+      "route": "/",
+      "page_file": "app/page.tsx",
+      "native": {
+        "route": "/",
+        "classification": "native-required-functional",
+        "initialRoute": "/",
+        "expectedMarker": "native-route-home",
+        "expectedRoute": "/",
+        "autoReviewerLogin": false,
+        "expectedAuth": "anonymous",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/consents",
+      "page_file": "app/consents/page.tsx",
+      "native": {
+        "route": "/consents",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fconsents",
+        "expectedMarker": "native-route-consents",
+        "expectedRoute": "/consents",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/developers",
+      "page_file": "app/developers/page.tsx",
+      "native": {
+        "route": "/developers",
+        "classification": "excluded-web-only"
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/kai",
+      "page_file": "app/kai/page.tsx",
+      "native": {
+        "route": "/kai",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fkai",
+        "expectedMarker": "native-route-kai-home",
+        "expectedRoute": "/kai",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/kai/alpaca/oauth/return",
+      "page_file": "app/kai/alpaca/oauth/return/page.tsx",
+      "native": {
+        "route": "/kai/alpaca/oauth/return",
+        "classification": "native-required-callback",
+        "initialRoute": "/login?redirect=%2Fkai%2Falpaca%2Foauth%2Freturn",
+        "expectedMarker": "native-route-kai-alpaca-return",
+        "expectedRoute": "/kai/alpaca/oauth/return",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "redirect-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "route-local-check-required"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/kai/analysis",
+      "page_file": "app/kai/analysis/page.tsx",
+      "native": {
+        "route": "/kai/analysis",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fkai%2Fanalysis%3Fticker%3DAAPL",
+        "expectedMarker": "native-route-kai-analysis",
+        "expectedRoute": "/kai/analysis?ticker=AAPL",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": true,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "route-local-check-required"
+      },
+      "voice_action_contract_file": "app/kai/analysis/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "analysis.cancel_active",
+        "analysis.open_transcript_tab_legacy",
+        "analysis.resume_active",
+        "analysis.start",
+        "route.analysis_history",
+        "route.kai_analysis"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/kai/funding-trade",
+      "page_file": "app/kai/funding-trade/page.tsx",
+      "native": {
+        "route": "/kai/funding-trade",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fkai%2Ffunding-trade",
+        "expectedMarker": "native-route-kai-funding-trade",
+        "expectedRoute": "/kai/funding-trade",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/kai/import",
+      "page_file": "app/kai/import/page.tsx",
+      "native": {
+        "route": "/kai/import",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fkai%2Fimport",
+        "expectedMarker": "native-route-kai-import",
+        "expectedRoute": "/kai/import",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/kai/investments",
+      "page_file": "app/kai/investments/page.tsx",
+      "native": {
+        "route": "/kai/investments",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fkai%2Finvestments",
+        "expectedMarker": "native-route-kai-investments",
+        "expectedRoute": "/kai/investments",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/kai/onboarding",
+      "page_file": "app/kai/onboarding/page.tsx",
+      "native": {
+        "route": "/kai/onboarding",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fkai%2Fonboarding",
+        "expectedMarker": "native-route-kai-onboarding",
+        "expectedRoute": "/kai/onboarding",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "route-local-check-required"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/kai/optimize",
+      "page_file": "app/kai/optimize/page.tsx",
+      "native": {
+        "route": "/kai/optimize",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fkai%2Foptimize",
+        "expectedMarker": "native-route-kai-optimize",
+        "expectedRoute": "/kai/optimize",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": true,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "route-local-check-required"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/kai/plaid/oauth/return",
+      "page_file": "app/kai/plaid/oauth/return/page.tsx",
+      "native": {
+        "route": "/kai/plaid/oauth/return",
+        "classification": "native-required-callback",
+        "initialRoute": "/login?redirect=%2Fkai%2Fplaid%2Foauth%2Freturn",
+        "expectedMarker": "native-route-kai-plaid-return",
+        "expectedRoute": "/kai/plaid/oauth/return",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "redirect-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "route-local-check-required"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/kai/portfolio",
+      "page_file": "app/kai/portfolio/page.tsx",
+      "native": {
+        "route": "/kai/portfolio",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fkai%2Fportfolio",
+        "expectedMarker": "native-route-kai-portfolio",
+        "expectedRoute": "/kai/portfolio",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/labs/profile-appearance",
+      "page_file": "app/labs/profile-appearance/page.tsx",
+      "native": {
+        "route": "/labs/profile-appearance",
+        "classification": "excluded-web-only"
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/login",
+      "page_file": "app/login/page.tsx",
+      "native": {
+        "route": "/login",
+        "classification": "native-required-functional",
+        "initialRoute": "/login",
+        "expectedMarker": "native-route-login",
+        "expectedRoute": "/login",
+        "autoReviewerLogin": false,
+        "expectedAuth": "anonymous",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/logout",
+      "page_file": "app/logout/page.tsx",
+      "native": {
+        "route": "/logout",
+        "classification": "native-required-functional",
+        "initialRoute": "/logout",
+        "expectedMarker": "native-route-home",
+        "expectedRoute": "/",
+        "autoReviewerLogin": false,
+        "expectedAuth": "anonymous",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/marketplace",
+      "page_file": "app/marketplace/page.tsx",
+      "native": {
+        "route": "/marketplace",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fmarketplace",
+        "expectedMarker": "native-route-marketplace",
+        "expectedRoute": "/marketplace",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": true,
+        "settings_ui": true,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/marketplace/connections",
+      "page_file": "app/marketplace/connections/page.tsx",
+      "native": {
+        "route": "/marketplace/connections",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fmarketplace%2Fconnections",
+        "expectedMarker": "native-route-consents",
+        "expectedRoute": "/consents?tab=pending",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/marketplace/ria",
+      "page_file": "app/marketplace/ria/page.tsx",
+      "native": {
+        "route": "/marketplace/ria",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fmarketplace%2Fria%3FriaId%3Dmissing-demo-ria",
+        "expectedMarker": "native-route-marketplace-ria",
+        "expectedRoute": "/marketplace/ria?riaId=missing-demo-ria",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/kyc",
+      "page_file": "app/one/kyc/page.tsx",
+      "native": {
+        "route": "/one/kyc",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fkyc",
+        "expectedMarker": "native-route-one-kyc",
+        "expectedRoute": "/one/kyc",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": true,
+        "settings_ui": true,
+        "shared_loader": true,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/kyc/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "kyc.draft.approve_send",
+        "kyc.draft.reject",
+        "kyc.draft.request_redraft",
+        "kyc.draft.review",
+        "kyc.workflow.sync_status",
+        "route.one_kyc"
+      ],
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/one-kyc-service.ts",
+          "service_methods": [
+            "listWorkflows",
+            "refreshWorkflow",
+            "selectScopes",
+            "getWorkflowConsentExports",
+            "sendApprovedReply",
+            "rejectDraft",
+            "redraft",
+            "writebackComplete",
+            "getClientConnector",
+            "registerClientConnector"
+          ],
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/one/kyc/*",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch on native"
+        },
+        {
+          "service_file": "lib/services/account-service.ts",
+          "service_methods": [
+            "listEmailAliases",
+            "startEmailAliasVerification",
+            "confirmEmailAliasVerification"
+          ],
+          "nextjs_api_route": "/api/account/{path*}",
+          "nextjs_proxy_file": "app/api/account/[...path]/route.ts",
+          "backend_endpoint_family": "/account/*",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch on native"
+        },
+        {
+          "service_file": "lib/services/kyc-pkm-write-service.ts",
+          "service_methods": [
+            "writeWorkflowArtifact"
+          ],
+          "nextjs_api_route": "/api/pkm/{path*}",
+          "nextjs_proxy_file": "app/api/pkm/[...path]/route.ts",
+          "backend_endpoint_family": "/pkm/*",
+          "native_transport": "CapacitorHttp direct backend plus client vault/PKM services"
+        }
+      ],
+      "native_plugin_dependencies": [
+        {
+          "js_name": "HushhVault",
+          "reason": "Vault unlock and client-held KYC connector key material stay outside the Next.js server."
+        },
+        {
+          "js_name": "HushhConsent",
+          "reason": "Consent status and export authorization must preserve the native consent boundary."
+        }
+      ],
+      "thread_and_consent_contract": {
+        "original_thread_required": true,
+        "approved_send_requires_workflow_scopes": true,
+        "approved_body_transport": "transient send-approved-reply request only",
+        "local_plaintext_cleanup": "drop local draft/export payloads after terminal or non-ready workflow states"
+      }
+    },
+    {
+      "route": "/profile",
+      "page_file": "app/profile/page.tsx",
+      "native": {
+        "route": "/profile",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/profile",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": true,
+        "settings_ui": true,
+        "shared_loader": false,
+        "back_button_pattern": "route-local-check-required"
+      },
+      "voice_action_contract_file": "app/profile/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "profile.delete_account",
+        "profile.marketplace_visibility.toggle",
+        "profile.sign_out",
+        "profile.support.submit_message",
+        "route.profile",
+        "route.profile_gmail_panel",
+        "route.profile_pkm_agent_lab",
+        "route.profile_security_panel",
+        "route.profile_support_panel"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/profile/gmail/oauth/return",
+      "page_file": "app/profile/gmail/oauth/return/page.tsx",
+      "native": {
+        "route": "/profile/gmail/oauth/return",
+        "classification": "native-required-callback",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fgmail%2Foauth%2Freturn",
+        "expectedMarker": "native-route-profile-gmail-return",
+        "expectedRoute": "/profile/gmail/oauth/return",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "redirect-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/profile/pkm",
+      "page_file": "app/profile/pkm/page.tsx",
+      "native": {
+        "route": "/profile/pkm",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Fpkm",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/profile?panel=my-data",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "redirect-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/profile/pkm-agent-lab",
+      "page_file": "app/profile/pkm-agent-lab/page.tsx",
+      "native": {
+        "route": "/profile/pkm-agent-lab",
+        "classification": "excluded-web-only"
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/profile/receipts",
+      "page_file": "app/profile/receipts/page.tsx",
+      "native": {
+        "route": "/profile/receipts",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fprofile%2Freceipts",
+        "expectedMarker": "native-route-profile-receipts",
+        "expectedRoute": "/profile/receipts",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": true,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "route-local-check-required"
+      },
+      "voice_action_contract_file": "app/profile/receipts/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "profile.gmail.connect",
+        "profile.gmail.disconnect",
+        "profile.gmail.sync_now",
+        "profile.receipts_memory.preview",
+        "profile.receipts_memory.save",
+        "route.profile_receipts"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/register-phone",
+      "page_file": "app/register-phone/page.tsx",
+      "native": {
+        "route": "/register-phone",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fregister-phone",
+        "expectedMarker": "native-route-register-phone",
+        "expectedRoute": "/register-phone",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/ria",
+      "page_file": "app/ria/page.tsx",
+      "native": {
+        "route": "/ria",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fria",
+        "expectedMarker": "native-route-ria-home",
+        "expectedRoute": "/ria",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/ria/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "ria.home.open_priority_item",
+        "route.ria_home"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/ria/clients",
+      "page_file": "app/ria/clients/page.tsx",
+      "native": {
+        "route": "/ria/clients",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fria%2Fclients",
+        "expectedMarker": "native-route-ria-clients",
+        "expectedRoute": "/ria/clients",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": true,
+        "settings_ui": true,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/ria/clients/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "ria.clients.open_client_workspace",
+        "route.ria_clients",
+        "route.ria_marketplace_connect"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/ria/onboarding",
+      "page_file": "app/ria/onboarding/page.tsx",
+      "native": {
+        "route": "/ria/onboarding",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fria%2Fonboarding",
+        "expectedMarker": "native-route-ria-onboarding",
+        "expectedRoute": "/ria/onboarding",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": true,
+        "shared_loader": false,
+        "back_button_pattern": "route-local-check-required"
+      },
+      "voice_action_contract_file": "app/ria/onboarding/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "ria.onboarding.dev_bypass_verification",
+        "ria.onboarding.submit_verification",
+        "ria.onboarding.verify_name",
+        "route.ria_onboarding"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/ria/picks",
+      "page_file": "app/ria/picks/page.tsx",
+      "native": {
+        "route": "/ria/picks",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fria%2Fpicks",
+        "expectedMarker": "native-route-ria-picks",
+        "expectedRoute": "/ria/picks",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": true,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/ria/picks/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "ria.picks.copy_from_kai",
+        "ria.picks.discard_package_changes",
+        "ria.picks.download_template",
+        "ria.picks.edit_rows_manual",
+        "ria.picks.open_category_avoid",
+        "ria.picks.open_category_screening",
+        "ria.picks.open_category_top_picks",
+        "ria.picks.open_source_kai",
+        "ria.picks.open_source_my",
+        "ria.picks.save_package",
+        "ria.picks.start_edit_package",
+        "ria.picks.upload_csv_replace_top_picks",
+        "route.ria_picks"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/ria/requests",
+      "page_file": "app/ria/requests/page.tsx",
+      "native": {
+        "route": "/ria/requests",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fria%2Frequests",
+        "expectedMarker": "native-route-consents",
+        "expectedRoute": "/consents",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/ria/requests/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.ria_requests_compat"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/ria/settings",
+      "page_file": "app/ria/settings/page.tsx",
+      "native": {
+        "route": "/ria/settings",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fria%2Fsettings",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/profile",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/ria/settings/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.ria_settings_compat"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/ria/workspace",
+      "page_file": "app/ria/workspace/page.tsx",
+      "native": {
+        "route": "/ria/workspace",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fria%2Fworkspace",
+        "expectedMarker": "native-route-ria-clients",
+        "expectedRoute": "/ria/clients",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/ria/workspace/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.ria_workspace_compat"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    }
+  ]
+}
