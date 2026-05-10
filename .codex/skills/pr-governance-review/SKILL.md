@@ -237,12 +237,18 @@ Non-owned surfaces:
 37. After any PR state-changing action, update the active working report before final response when one exists, especially `tmp/pr-governance-live-report.md`. Reports named `live` must stay live-only:
    - update the timestamp and live query scope
    - live reports must query all open PRs, including drafts, not only green-gate or ready-for-review PRs; gate status, DCO, review decision, mergeability, and draft state are classifications inside the report
-   - include a clickable `## Index` with anchors for the live summary, live risk matrix, actionable next queue, blocked/waiting register, recommended PR sets, operator batches, individual PR assessments, cross-PR overlaps, and each active PR assessment
-   - keep `## Live Risk Matrix` first, `## Actionable Next Queue` second, `## Blocked / Waiting Register` third, `## Recommended PR Sets` fourth, `## Operator Batches` fifth, and `## Individual PR Assessments` sixth so high-volume review separates situational awareness from fresh work selection
-   - keep PRs with active `CHANGES_REQUESTED`, draft state, failing required gates, or conflicting mergeability out of merge-oriented Actionable Next Queue entries unless the user explicitly asks to revisit that blocked PR
+   - include a clickable `## Index` with anchors for the live summary, live risk matrix, actionable next queue, blocked/waiting register, contract intake sets, recommended operator batches, mass closure candidates, mass changes requested candidates, merge train candidates, patch train candidates, do-not-batch-yet warnings, individual PR assessments, cross-PR overlaps, and each active PR assessment
+   - keep `## Live Risk Matrix` first, `## Actionable Next Queue` second, `## Blocked / Waiting Register` third, `## Contract Intake Sets` fourth, `## Recommended Operator Batches` fifth, the mass action sections sixth, and `## Individual PR Assessments` after that so high-volume review separates situational awareness from executable batch selection
+   - keep PRs with active `CHANGES_REQUESTED`, draft state, failing required gates, failing current non-required checks, or conflicting mergeability out of merge-oriented Actionable Next Queue entries unless the user explicitly asks to revisit that blocked PR
+   - when `CI Status Gate` is green but another current check is failing, classify the PR as blocked or patch-required until the failed check is fixed, removed, or explicitly documented as advisory; the aggregate gate is the branch-protection gate, not permission to ignore a broken workflow introduced by the PR
    - exception: `close_duplicate` and `harvest_then_close` PRs may stay actionable even when draft or conflicting, because the operator action is close/harvest, not merge
-   - group recommended PR sets from actionable candidates by product/runtime contract first and annotate lane plus lean/core risk before applying author convenience; treat these as broad intake buckets, not automatically mergeable batches
-   - derive operator batches from exact file overlap, duplicate groups, or narrow adjacent contract groups among actionable candidates; these are the merge/close planning units
+   - group contract intake sets from actionable candidates by product/runtime contract first and annotate lane plus lean/core risk before applying author convenience; these are broad domain buckets, not automatically mergeable batches
+   - derive recommended operator batches from exact file overlap, duplicate/superseded outcomes, shared implementation dependency, or narrow adjacent contract groups among actionable candidates; these are the merge/close/request-changes planning units
+   - classify high-volume waves into explicit operator lanes: `merge_train`, `patch_train`, `closure_wave`, `changes_requested_wave`, and `deep_review_wave`. A batch can be a close/request-changes wave; it does not need to be a merge wave.
+   - auto-flag new top-level roots not present on `main`, checked-in generated DB/vector/log/binary artifacts, root `.env.example`, root `requirements.txt`, root `package-lock.json`, standalone runtime roots that are not reachable from canonical app/runtime surfaces, PKM/memory implementations outside vault/cache/consent boundaries, direct chain-of-thought persistence, and auxiliary check failures even when `CI Status Gate` is green
+   - for devex/script PRs, auto-flag empty new files, script-language/extension mismatches, replacement of an existing Python/Shell/PowerShell tool with the wrong language, and environment-validation scripts that are not wired into `./bin/hushh` onboarding/doctor or contributor docs
+   - use the report sections `Mass Closure Candidates`, `Mass Changes Requested Candidates`, `Merge Train Candidates`, `Patch Train Candidates`, and `Do Not Batch Yet` to process 100+ PR queues: close or request changes at wave scale, patch only bounded maintainer-fixable trains, and merge only small proven trains with current-head proof
+   - when answering “what batch next,” select from `## Recommended Operator Batches` first. Use `## Contract Intake Sets` only to choose a domain for deeper review when no executable operator batch is available.
    - add explicit `Do Not Batch Yet` operator warnings when PRs share a broad contract label but do not share files, risk shape, or a real implementation dependency
    - include one SOP-shaped assessment per live PR: head SHA, required gate status, review decision, mergeability, contract set, lane, lean/core risk, summary, findings, overlap, related surfaces, decision rationale, live-report action, public-comment policy, and next proof
    - update each affected per-PR register entry, not just the top summary
@@ -256,6 +262,7 @@ Non-owned surfaces:
    - record terminal queue/smoke evidence only in GitHub comments, final handoff, or a separate non-live audit ledger
    - refresh the contributor impact dashboard when PR work changes merge, close, changes-requested, maintainer-patch, or revert state:
      `python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 7 --text > tmp/contributor-impact-dashboard.md`
+   - treat the contributor impact dashboard as the PR impact score board; after state-changing PR work, do not final-handoff until it is refreshed or the refresh failure is explicitly reported
    - keep `tmp/contributor-impact-dashboard.md` historical and rolling: it may include merged, closed, reverted, and patched PRs, unlike the live report
    - use north-star weighted impact, not raw PR count, when summarizing weekly top-10, two-week top-10, monthly top-10, or contributor-impact movement
    - default topper windows must be rolling windows: weekly is 7 days, two-week is 14 days, and monthly is 30 days; use calendar month-to-date only when the operator explicitly requests a calendar-month report
@@ -300,7 +307,7 @@ Non-owned surfaces:
    - state that `tmp/pr-governance-live-report.md` is generated in ignored `tmp/` and is a live workspace artifact, not a durable audit ledger
    - show the three report layers: `Index`, `Live Risk Matrix`, and `Individual PR Assessments`
    - explain the merge philosophy: green CI is intake, not authority; authority comes from contract safety, non-duplication, lean/core fit, proof, and monitored merge outcome
-   - include the command surface for refresh: `python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text > tmp/pr-governance-live-report.md`
+   - include the command surface for refresh: `python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text --output tmp/pr-governance-live-report.md`
    - avoid publishing maintainer-only sequencing details or PR-specific decisions that are not ready for the full channel
 
 ## Handoff Rules
@@ -322,7 +329,7 @@ python3 .codex/skills/pr-governance-review/scripts/build_runtime_schematics.py -
 python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 498,505,444 --text
 python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 531,529,435 --text
 python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text
-python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text
+python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text --output tmp/pr-governance-live-report.md
 python3 -m py_compile .codex/skills/pr-governance-review/scripts/contributor_impact_report.py
 python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 7 --text
 ./bin/hushh codex audit --text
