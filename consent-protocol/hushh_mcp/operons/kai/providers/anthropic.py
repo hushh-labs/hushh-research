@@ -60,7 +60,12 @@ class AnthropicProvider(LLMProvider):
             raise ProviderUnavailable(why or "Anthropic not ready", provider=self.name)
 
         # Anthropic separates system from messages; partition explicitly.
-        system_text: Optional[str] = request.system_instruction
+        # Seed system_text from system_instruction ONLY when explicit messages
+        # are present. When messages=() is empty, synthesized_messages() builds
+        # the SYSTEM block from system_instruction, so we'd double-count.
+        system_text: Optional[str] = (
+            request.system_instruction if request.messages else None
+        )
         msgs = []
         for m in request.synthesized_messages():
             if m.role == Role.SYSTEM:
@@ -129,7 +134,12 @@ class AnthropicProvider(LLMProvider):
 
         client = self._get_client()
         # Reuse the partitioning logic from complete().
-        system_text: Optional[str] = request.system_instruction
+        # Seed system_text from system_instruction ONLY when explicit messages
+        # are present. When messages=() is empty, synthesized_messages() builds
+        # the SYSTEM block from system_instruction, so we'd double-count.
+        system_text: Optional[str] = (
+            request.system_instruction if request.messages else None
+        )
         msgs = []
         for m in request.synthesized_messages():
             if m.role == Role.SYSTEM:

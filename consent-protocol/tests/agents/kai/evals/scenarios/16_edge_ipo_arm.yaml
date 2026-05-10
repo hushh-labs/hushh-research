@@ -1,0 +1,51 @@
+id: edge_ipo_limited_history_arm_2024
+category: edge
+ticker: ARM
+description: |
+  Recent IPO. Limited public history. Tests Kai's handling of sparse
+  data without hallucinating long-term metrics.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024 (first full year as public)"
+    revenue_billions: 3.23
+    gross_margin: 0.954
+    operating_margin: 0.262
+    net_income_billions: 0.31
+    free_cash_flow_billions: 0.74
+    total_debt_billions: 0.0
+    cash_and_equivalents_billions: 2.42
+  business_summary: |
+    IP licensing for CPU architectures. Royalty + licensing model.
+    SoftBank ~90% ownership; limited float. AI workloads driving
+    royalty per chip higher.
+
+market_data:
+  price: 142.00
+  market_cap_billions: 148.0
+  pe_ratio: 478.0  # extreme
+  forward_pe: 110.0
+  ev_ebitda: 195.0
+  beta: 1.85  # limited history
+
+sentiment_data:
+  - source: "FT"
+    headline: "ARM royalty rates rise; AI accelerator share grows"
+    sentiment: "Bullish"
+  - source: "Bloomberg"
+    headline: "ARM concentration risk: SoftBank float overhang persists"
+    sentiment: "Bearish"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Balanced"
+  time_horizon: "3-5 years"
+  investment_style: ["Quality compounders", "Secular themes"]
+  top_holdings: []
+
+expected_recommendation: "HOLD"
+expected_confidence_band: [0.30, 0.65]
+notes: |
+  Edge case: limited history + extreme multiple + float overhang.
+  Confidence MUST be low. High confidence would indicate
+  miscalibration on data sparsity.

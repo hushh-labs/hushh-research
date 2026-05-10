@@ -1,0 +1,51 @@
+id: ambiguous_post_earnings_gap_csco_2024
+category: ambiguous
+ticker: CSCO
+description: |
+  Post-earnings gap-down. Slowing networking, Splunk integration.
+  Tests Kai on near-term vs long-term tension.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 53.80
+    gross_margin: 0.625
+    operating_margin: 0.244
+    net_income_billions: 10.32
+    free_cash_flow_billions: 11.66
+    total_debt_billions: 32.51
+    cash_and_equivalents_billions: 18.65
+  business_summary: |
+    Networking + security. Closed Splunk acquisition. Networking
+    portfolio refresh underway. Order intake shows early stabilization.
+
+market_data:
+  price: 56.20
+  market_cap_billions: 226.0
+  pe_ratio: 21.9
+  forward_pe: 14.8
+  ev_ebitda: 13.4
+  beta: 0.85
+
+sentiment_data:
+  - source: "Reuters"
+    headline: "Cisco guides cautiously on Q4 networking"
+    sentiment: "Bearish"
+  - source: "WSJ"
+    headline: "Splunk synergies tracking; Cisco AI portfolio early traction"
+    sentiment: "Neutral"
+  - source: "Bloomberg"
+    headline: "CSCO buyback continues; dividend yield 3.5%"
+    sentiment: "Bullish"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Balanced"
+  time_horizon: "3-5 years"
+  investment_style: ["Income", "Quality compounders"]
+  top_holdings: []
+
+expected_recommendation: "HOLD"
+expected_confidence_band: [0.45, 0.72]
+notes: |
+  Mixed near-term. HOLD or weak BUY both defensible.

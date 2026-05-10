@@ -195,7 +195,7 @@ async def synthesize_debate_recommendation_card_v2(
         # caller can surface the error to the user verbatim (this is the
         # consent-first invariant -- denial must be visible).
         raise
-    except (ProviderUnavailable, ProviderError) as err:
+    except (ProviderUnavailable, ProviderError, ValueError) as err:
         logger.warning(
             "[Kai LLM Adapter] Provider %s failed for %s (%s); falling back to legacy Gemini path",
             provider_name,

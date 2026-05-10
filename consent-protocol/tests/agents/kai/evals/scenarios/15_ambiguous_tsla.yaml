@@ -1,0 +1,54 @@
+id: ambiguous_profile_mismatch_tsla_2024
+category: ambiguous
+ticker: TSLA
+description: |
+  High-beta name presented to a CONSERVATIVE investor. Tests Kai's
+  willingness to override the bull case for personalization.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 96.77
+    gross_margin: 0.182
+    operating_margin: 0.075
+    net_income_billions: 7.13
+    free_cash_flow_billions: 1.45
+    total_debt_billions: 7.85
+    cash_and_equivalents_billions: 33.65
+  business_summary: |
+    EV manufacturer + energy storage. Margin compression as ASPs fall.
+    Robotaxi/optionality on autonomy. Highly volatile equity.
+
+market_data:
+  price: 250.00
+  market_cap_billions: 800.0
+  pe_ratio: 112.5
+  forward_pe: 95.2
+  ev_ebitda: 65.4
+  beta: 2.45
+
+sentiment_data:
+  - source: "Reuters"
+    headline: "Tesla deliveries beat; ASP pressure persists"
+    sentiment: "Neutral"
+  - source: "Bloomberg"
+    headline: "Tesla robotaxi event sets timeline; analysts skeptical"
+    sentiment: "Neutral"
+  - source: "WSJ"
+    headline: "EV demand softens in Europe; price cuts continue"
+    sentiment: "Bearish"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Conservative"
+  time_horizon: "5+ years"
+  investment_style: ["Income", "Quality compounders"]
+  top_holdings:
+    - ticker: "JNJ"
+    - ticker: "PG"
+
+expected_recommendation: "HOLD"
+expected_confidence_band: [0.55, 0.85]
+notes: |
+  Even bullish fundamentals shouldn't produce BUY for a Conservative
+  investor with Income/Quality style and 2.45 beta. Personalization test.

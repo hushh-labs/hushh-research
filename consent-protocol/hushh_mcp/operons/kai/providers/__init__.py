@@ -54,6 +54,14 @@ from .errors import (
     ProviderTimeout,
     ProviderUnavailable,
 )
+from .audit import (
+    AuditWriter,
+    InferenceAuditRecord,
+    TimedDispatch,
+    get_audit_writer,
+    set_audit_writer,
+    sha256_hex,
+)
 from .registry import (
     available_providers,
     dispatch,
@@ -69,9 +77,11 @@ from .scopes import (
 )
 
 __all__ = [
+    "AuditWriter",
     "CompletionRequest",
     "CompletionResponse",
     "ConsentScopeViolation",
+    "InferenceAuditRecord",
     "KAI_INFERENCE_PROVIDER_SCOPES",
     "LLMProvider",
     "Message",
@@ -80,12 +90,16 @@ __all__ = [
     "ProviderUnavailable",
     "Role",
     "StreamEvent",
+    "TimedDispatch",
     "available_providers",
     "dispatch",
+    "get_audit_writer",
     "get_provider",
     "is_cloud_scope",
     "is_private_scope",
     "load_registry",
     "register",
     "scope_for_provider",
+    "set_audit_writer",
+    "sha256_hex",
 ]

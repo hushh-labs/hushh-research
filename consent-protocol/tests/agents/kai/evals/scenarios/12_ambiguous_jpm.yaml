@@ -1,0 +1,52 @@
+id: ambiguous_bank_rates_jpm_2024
+category: ambiguous
+ticker: JPM
+description: |
+  Quality bank, but NIM peaked, credit normalization underway.
+  Tests Kai on macro-dependent fundamentals.
+
+sec_data:
+  latest_10k:
+    fiscal_year: "FY2024"
+    revenue_billions: 158.10
+    gross_margin: 0.0  # not meaningful for banks
+    operating_margin: 0.418
+    net_income_billions: 49.55
+    free_cash_flow_billions: 53.21
+    total_debt_billions: 750.0  # large bank balance sheet
+    cash_and_equivalents_billions: 1100.0
+
+  business_summary: |
+    Largest US bank. Diversified franchise. CET1 ratio 15.2%.
+    NIM peaked Q1 2024; credit costs rising from cycle lows.
+
+market_data:
+  price: 235.00
+  market_cap_billions: 670.0
+  pe_ratio: 13.5
+  forward_pe: 14.2
+  ev_ebitda: 0  # not meaningful
+  beta: 1.13
+
+sentiment_data:
+  - source: "FT"
+    headline: "JPM trading revenue strong; investment banking recovery"
+    sentiment: "Bullish"
+  - source: "Reuters"
+    headline: "Credit card delinquencies rising; banks build reserves"
+    sentiment: "Bearish"
+  - source: "WSJ"
+    headline: "Fed rate path uncertain; bank NIM trajectory mixed"
+    sentiment: "Neutral"
+
+user_context:
+  name: "Test Investor"
+  risk_tolerance: "Conservative"
+  time_horizon: "5+ years"
+  investment_style: ["Income", "Quality compounders"]
+  top_holdings: []
+
+expected_recommendation: "HOLD"
+expected_confidence_band: [0.50, 0.78]
+notes: |
+  Quality but late-cycle. HOLD or weak BUY both defensible. consistency_pair=large_bank
