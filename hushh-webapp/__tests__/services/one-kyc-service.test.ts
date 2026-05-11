@@ -97,6 +97,45 @@ describe("OneKycService", () => {
     );
   });
 
+  it("submits user-selected scopes before consent creation", async () => {
+    await OneKycService.selectScopes({
+      userId: "user_1",
+      vaultOwnerToken: "vault-token",
+      workflowId: "wf_1",
+      selectedScopes: ["attr.identity.*", "attr.financial.*"],
+    });
+
+    expect(mockApiJson).toHaveBeenCalledWith("/api/one/kyc/workflows/wf_1/scope-selection", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer vault-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        user_id: "user_1",
+        selected_scopes: ["attr.identity.*", "attr.financial.*"],
+      }),
+    });
+  });
+
+  it("loads all encrypted consent exports for multi-scope drafts", async () => {
+    await OneKycService.getWorkflowConsentExports({
+      userId: "user_1",
+      vaultOwnerToken: "vault-token",
+      workflowId: "wf_1",
+    });
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/one/kyc/workflows/wf_1/consent-exports?user_id=user_1",
+      {
+        headers: {
+          Authorization: "Bearer vault-token",
+          "Content-Type": "application/json",
+        },
+      }
+    );
+  });
+
   it("marks encrypted PKM writeback completion separately from Gmail send", async () => {
     await OneKycService.writebackComplete({
       userId: "user_1",
