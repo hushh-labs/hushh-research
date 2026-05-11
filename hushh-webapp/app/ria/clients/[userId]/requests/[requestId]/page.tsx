@@ -1,27 +1,38 @@
-import { RiaClientRequestDetail } from "@/components/ria/ria-client-request-detail";
+import { Suspense } from "react";
 
-type SearchParamsInput = Record<string, string | string[] | undefined>;
+import RiaClientRequestDetailPageClient from "./page-client";
 
-function firstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] || "" : value || "";
+const nativeStaticExportUserId =
+  process.env.REVIEWER_UID ||
+  process.env.UAT_SMOKE_USER_ID ||
+  process.env.KAI_TEST_USER_ID ||
+  "s3xmA4lNSAQFrIaOytnSGAOzXlL2";
+
+export async function generateStaticParams(): Promise<Array<{ userId: string; requestId: string }>> {
+  if (process.env.CAPACITOR_BUILD !== "true") {
+    return [];
+  }
+  return [
+    {
+      userId: nativeStaticExportUserId,
+      requestId: "request_demo_kai_specialized_bundle",
+    },
+  ];
 }
 
 export default async function RiaClientRequestDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ userId: string; requestId: string }>;
-  searchParams?: Promise<SearchParamsInput>;
 }) {
   const resolvedParams = await params;
-  const resolvedSearchParams = (await searchParams) || {};
-  const forceTestProfile = firstParam(resolvedSearchParams.test_profile).trim() === "1";
 
   return (
-    <RiaClientRequestDetail
-      clientId={decodeURIComponent(resolvedParams.userId)}
-      requestId={decodeURIComponent(resolvedParams.requestId)}
-      forceTestProfile={forceTestProfile}
-    />
+    <Suspense fallback={null}>
+      <RiaClientRequestDetailPageClient
+        clientId={decodeURIComponent(resolvedParams.userId)}
+        requestId={decodeURIComponent(resolvedParams.requestId)}
+      />
+    </Suspense>
   );
 }

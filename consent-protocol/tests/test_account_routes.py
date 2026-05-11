@@ -42,6 +42,60 @@ def test_refresh_account_identity_returns_synced_identity(monkeypatch):
     assert payload["identity"]["last_active_persona"] == "investor"
 
 
+def test_list_email_aliases_requires_vault_owner_token():
+    client = TestClient(_build_app())
+    response = client.get("/api/account/email-aliases")
+
+    assert response.status_code == 401
+
+
+def test_email_alias_verification_flow_uses_vault_owner(monkeypatch):
+    async def _mock_list(self, user_id: str):
+        assert user_id == "user_123"
+        return [{"email_normalized": "original@example.com", "verification_status": "verified"}]
+
+    async def _mock_start(self, *, user_id: str, email: str):
+        assert user_id == "user_123"
+        assert email == "Original@Example.com"
+        return {
+            "alias": {"email_normalized": "original@example.com", "verification_status": "pending"},
+            "already_verified": False,
+            "review_verification_code": "123456",
+        }
+
+    async def _mock_confirm(self, *, user_id: str, email: str, verification_code: str):
+        assert user_id == "user_123"
+        assert email == "original@example.com"
+        assert verification_code == "123456"
+        return {"email_normalized": "original@example.com", "verification_status": "verified"}
+
+    app = _build_app()
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "user_123"}
+    monkeypatch.setattr(ActorIdentityService, "list_verified_email_aliases", _mock_list)
+    monkeypatch.setattr(ActorIdentityService, "request_email_alias_verification", _mock_start)
+    monkeypatch.setattr(ActorIdentityService, "confirm_email_alias_verification", _mock_confirm)
+
+    client = TestClient(app)
+
+    list_response = client.get("/api/account/email-aliases")
+    assert list_response.status_code == 200
+    assert list_response.json()["aliases"][0]["verification_status"] == "verified"
+
+    start_response = client.post(
+        "/api/account/email-aliases/verification/start",
+        json={"email": "Original@Example.com"},
+    )
+    assert start_response.status_code == 200
+    assert start_response.json()["review_verification_code"] == "123456"
+
+    confirm_response = client.post(
+        "/api/account/email-aliases/verification/confirm",
+        json={"email": "original@example.com", "verification_code": "123456"},
+    )
+    assert confirm_response.status_code == 200
+    assert confirm_response.json()["alias"]["verification_status"] == "verified"
+
+
 def test_delete_account_requires_vault_owner_token():
     client = TestClient(_build_app())
     response = client.delete("/api/account/delete")

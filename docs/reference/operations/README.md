@@ -86,6 +86,7 @@ Top-level owner skills:
 
 Specialist spoke skills live under the same tree and should be used after the correct owner skill or `repo-context` has narrowed the request.
 Use `.codex/skills/github-contribution-governance/` as the repo-operations spoke for GitHub contribution attribution, author-email checks, PR targeting, and green-dot eligibility.
+Use `.codex/skills/frontend-native-surface-mapper/` before route/API/native/plugin/voice mapping work so the generated frontend/native surface map stays authoritative.
 Workflow packs under `.codex/workflows/` are the canonical recurring task surface for routing and onboarding.
 Use `ci-watch-and-heal` plus `./bin/hushh codex ci-status` when the task depends on live PR checks or GitHub Actions state.
 Use `data-model-audit` plus `./bin/hushh codex data-model-audit` when migrations, table ownership, data classes, retention, or legacy memory write drift are in scope.
