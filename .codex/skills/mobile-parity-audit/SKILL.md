@@ -53,6 +53,7 @@ Non-owned surfaces:
 2. Keep findings tied to concrete platform gaps, not generic “mobile broken” summaries.
 3. Route implementation work back into plugin-contract or owner skills after the audit isolates the issue.
 4. For generated native route audit reports, treat `ok: true` as advisory until the observed status also proves `ready=1`, `found=1`, and the observed marker equals the expected marker. A passed report with a missing marker is a blocker, not release evidence.
+5. Before physical voice or route smoke, run the static native parity gate so missing microphone permission metadata, missing route-inventory entries, or unclassified legacy aliases fail before device work.
 
 ## Handoff Rules
 
@@ -63,6 +64,7 @@ Non-owned surfaces:
 ## Required Checks
 
 ```bash
+cd hushh-webapp && npm run verify:capacitor:static
 cd hushh-webapp && npm run cap:build
 cd hushh-webapp && npm run ios:test
 ```

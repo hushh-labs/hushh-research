@@ -40,6 +40,10 @@ class ApprovedReplyRequest(WorkflowUserRequest):
     pkm_writeback_artifact_hash: str = Field(pattern="^[a-f0-9]{64}$")
 
 
+class ScopeSelectionRequest(WorkflowUserRequest):
+    selected_scopes: list[str] = Field(min_length=1, max_length=8)
+
+
 class WritebackCompleteRequest(WorkflowUserRequest):
     artifact_hash: str = Field(pattern="^[a-f0-9]{64}$")
     status: str = Field(default="succeeded", pattern="^(succeeded|failed)$")
@@ -259,6 +263,28 @@ async def one_kyc_refresh_workflow(
         raise _to_http_exception(exc, operation="refresh_workflow") from exc
 
 
+@router.post("/kyc/workflows/{workflow_id}/scope-selection")
+async def one_kyc_select_scopes(
+    workflow_id: str,
+    payload: ScopeSelectionRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, payload.user_id)
+    try:
+        return await _service().select_scopes(
+            user_id=payload.user_id,
+            workflow_id=workflow_id,
+            selected_scopes=payload.selected_scopes,
+        )
+    except Exception as exc:
+        logger.exception(
+            "one.kyc.scope_selection_failed user_id=%s workflow_id=%s",
+            payload.user_id,
+            workflow_id,
+        )
+        raise _to_http_exception(exc, operation="scope_selection") from exc
+
+
 @router.post("/kyc/workflows/{workflow_id}/approve-draft")
 async def one_kyc_approve_draft(
     workflow_id: str,
@@ -354,6 +380,27 @@ async def one_kyc_get_workflow_consent_export(
             workflow_id,
         )
         raise _to_http_exception(exc, operation="workflow_consent_export") from exc
+
+
+@router.get("/kyc/workflows/{workflow_id}/consent-exports")
+async def one_kyc_get_workflow_consent_exports(
+    workflow_id: str,
+    user_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verified_vault_user_id(token_data, user_id)
+    try:
+        return await _service().get_workflow_consent_exports(
+            user_id=user_id,
+            workflow_id=workflow_id,
+        )
+    except Exception as exc:
+        logger.exception(
+            "one.kyc.workflow_consent_exports_failed user_id=%s workflow_id=%s",
+            user_id,
+            workflow_id,
+        )
+        raise _to_http_exception(exc, operation="workflow_consent_exports") from exc
 
 
 @router.post("/kyc/workflows/{workflow_id}/writeback-complete")

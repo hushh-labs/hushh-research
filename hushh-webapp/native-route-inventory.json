@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-04-02",
-  "total_routes": 35,
-  "native_required_routes": 32,
+  "generated_at": "2026-05-07",
+  "total_routes": 37,
+  "native_required_routes": 34,
   "excluded_routes": 3,
   "routes": [
     {
@@ -22,6 +22,16 @@
       "expectedRoute": "/login",
       "autoReviewerLogin": false,
       "expectedAuth": "anonymous",
+      "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/register-phone",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fregister-phone",
+      "expectedMarker": "native-route-register-phone",
+      "expectedRoute": "/register-phone",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
       "allowedDataStates": ["loaded"]
     },
     {
@@ -57,6 +67,7 @@
     {
       "route": "/kai/dashboard",
       "classification": "native-required-functional",
+      "legacyAlias": true,
       "initialRoute": "/login?redirect=%2Fkai%2Fdashboard",
       "expectedMarker": "native-route-kai-portfolio",
       "expectedRoute": "/kai/portfolio",
@@ -67,6 +78,7 @@
     {
       "route": "/kai/dashboard/analysis",
       "classification": "native-required-functional",
+      "legacyAlias": true,
       "initialRoute": "/login?redirect=%2Fkai%2Fdashboard%2Fanalysis%3Fticker%3DAAPL",
       "expectedMarker": "native-route-kai-analysis",
       "expectedRoute": "/kai/analysis",
@@ -93,6 +105,16 @@
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/kai/funding-trade",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fkai%2Ffunding-trade",
+      "expectedMarker": "native-route-kai-funding-trade",
+      "expectedRoute": "/kai/funding-trade",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded", "unavailable-valid"]
     },
     {
       "route": "/kai/onboarding",
@@ -147,6 +169,7 @@
     {
       "route": "/portfolio/shared",
       "classification": "native-required-functional",
+      "legacyAlias": true,
       "initialRoute": "/portfolio/shared",
       "expectedMarker": "native-route-portfolio-shared",
       "expectedRoute": "/portfolio/shared",
@@ -307,6 +330,7 @@
     {
       "route": "/marketplace/connections/portfolio",
       "classification": "native-required-functional",
+      "legacyAlias": true,
       "initialRoute": "/login?redirect=%2Fmarketplace%2Fconnections%2Fportfolio",
       "expectedMarker": "native-route-ria-clients",
       "expectedRoute": "/ria/clients",
