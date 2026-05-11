@@ -1,15 +1,5 @@
 "use client";
 
-// --- START OF MOUNT GUARD FIX ---
-  const [isMounted, setIsMounted] = React.useState(false);
-  
-  React.useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  if (!isMounted) {
-    return null; // Bypasses SSR build crash for undefined config
-  }
   // --- END OF MOUNT GUARD FIX ---
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -62,6 +52,16 @@ function statusVariant(status: OneKycWorkflowStatus): "default" | "secondary" | 
   if (status === "completed" || status === "waiting_on_counterparty") return "secondary";
   return "outline";
 }
+
+const [isMounted, setIsMounted] = React.useState(false);
+  
+  React.useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  if (!isMounted) {
+    return null; // Bypasses SSR build crash for undefined config
+  }
 
 export default function OneKycPage() {
   return (
