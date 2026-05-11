@@ -2,29 +2,62 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, Inbox, RefreshCw, Send, ShieldCheck, Wand2, XCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  BadgeCheck,
+  Ban,
+  BriefcaseBusiness,
+  CheckCircle2,
+  Clock3,
+  FileText,
+  Inbox,
+  MailPlus,
+  RefreshCw,
+  Send,
+  ShieldCheck,
+  UserRound,
+  Wand2,
+  XCircle,
+  type LucideIcon,
+} from "lucide-react";
 
 import { AppPageContentRegion, AppPageHeaderRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
+import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
-  SurfaceCard,
-  SurfaceCardContent,
-  SurfaceCardHeader,
-  SurfaceCardTitle,
-} from "@/components/app-ui/surfaces";
+  SettingsDetailPanel,
+  SettingsGroup,
+  SettingsRow,
+} from "@/components/app-ui/settings-ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
+  detectedDomains,
+  isKycClientDraftReady,
+  removeKycWorkflowLocalState,
+  retainReadyKycWorkflowLocalState,
+  scopeCandidates,
+  selectedScopeLabels,
+  selectedScopesForWorkflow,
+} from "@/lib/one-kyc/workflow-state";
+import {
+  AccountService,
+  type AccountEmailAlias,
+} from "@/lib/services/account-service";
+import {
+  buildKycWorkflowArtifact,
+  hashKycWorkflowArtifact,
   KycWorkflowPkmService,
   type KycWorkflowCheck,
   type KycWorkflowCheckKey,
   type KycWorkflowStatus,
 } from "@/lib/services/kyc-pkm-write-service";
-import { OneKycClientZkService, sha256Hex, type KycDraftBuildResult } from "@/lib/services/one-kyc-client-zk-service";
+import { OneKycClientZkService, type KycDraftBuildResult } from "@/lib/services/one-kyc-client-zk-service";
 import {
   OneKycService,
   type OneKycWorkflow,
@@ -51,6 +84,14 @@ function statusVariant(status: OneKycWorkflowStatus): "default" | "secondary" | 
   return "outline";
 }
 
+function statusIcon(status: OneKycWorkflowStatus): LucideIcon {
+  if (status === "blocked") return Ban;
+  if (status === "completed" || status === "waiting_on_counterparty") return BadgeCheck;
+  if (status === "needs_scope" || status === "needs_client_connector") return ShieldCheck;
+  if (status === "waiting_on_user") return Send;
+  return Clock3;
+}
+
 export default function OneKycPage() {
   return (
     <VaultLockGuard>
@@ -64,18 +105,34 @@ function OneKycWorkspace() {
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [workflows, setWorkflows] = useState<OneKycWorkflow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [redraftInstructions, setRedraftInstructions] = useState("");
   const [localDrafts, setLocalDrafts] = useState<Record<string, KycDraftBuildResult>>({});
+  const [localExportPayloads, setLocalExportPayloads] = useState<
+    Record<string, Array<{ scope?: string | null; payload: Record<string, unknown> }>>
+  >({});
+  const [selectedScopesByWorkflow, setSelectedScopesByWorkflow] = useState<Record<string, string[]>>({});
   const [connectorReady, setConnectorReady] = useState(false);
+  const [emailAliases, setEmailAliases] = useState<AccountEmailAlias[]>([]);
+  const [aliasEmail, setAliasEmail] = useState("");
+  const [aliasCode, setAliasCode] = useState("");
+  const [aliasChallenge, setAliasChallenge] = useState<{
+    email: string;
+    reviewCode?: string | null;
+  } | null>(null);
 
   const selected = useMemo(
     () => workflows.find((workflow) => workflow.workflow_id === selectedId) || workflows[0] || null,
     [selectedId, workflows]
   );
   const selectedDraft = selected ? localDrafts[selected.workflow_id] || null : null;
+  const verifiedAliases = useMemo(
+    () => emailAliases.filter((alias) => alias.verification_status === "verified"),
+    [emailAliases]
+  );
   const voiceSurfaceMetadata = useMemo(
     () => ({
       screenId: "one_kyc",
@@ -147,6 +204,16 @@ function OneKycWorkspace() {
   );
   usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
 
+  const clearLocalWorkflowState = useCallback((workflowId: string) => {
+    setLocalDrafts((current) => removeKycWorkflowLocalState(current, workflowId));
+    setLocalExportPayloads((current) => removeKycWorkflowLocalState(current, workflowId));
+  }, []);
+
+  const retainReadyLocalWorkflowState = useCallback((nextWorkflows: OneKycWorkflow[]) => {
+    setLocalDrafts((current) => retainReadyKycWorkflowLocalState(current, nextWorkflows));
+    setLocalExportPayloads((current) => retainReadyKycWorkflowLocalState(current, nextWorkflows));
+  }, []);
+
   const load = useCallback(async () => {
     if (!auth.user || !auth.userId || !vaultKey || !vaultOwnerToken) return;
     setLoading(true);
@@ -162,7 +229,12 @@ function OneKycWorkspace() {
         userId: auth.userId,
         vaultOwnerToken,
       });
+      const aliasResponse = await AccountService.listEmailAliases(vaultOwnerToken).catch(() => null);
+      if (aliasResponse) {
+        setEmailAliases(aliasResponse.aliases);
+      }
       setWorkflows(response.workflows);
+      retainReadyLocalWorkflowState(response.workflows);
       const initialId = new URLSearchParams(window.location.search).get("workflowId");
       setSelectedId((current) => current || initialId || response.workflows[0]?.workflow_id || null);
     } catch (err) {
@@ -171,7 +243,7 @@ function OneKycWorkspace() {
     } finally {
       setLoading(false);
     }
-  }, [auth.user, auth.userId, vaultKey, vaultOwnerToken]);
+  }, [auth.user, auth.userId, retainReadyLocalWorkflowState, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     void load();
@@ -191,21 +263,30 @@ function OneKycWorkspace() {
           vaultKey,
           vaultOwnerToken,
         });
-        const exportPackage = await OneKycService.getWorkflowConsentExport({
+        const exportResponse = await OneKycService.getWorkflowConsentExports({
           userId: auth.userId,
           vaultOwnerToken,
           workflowId: selected.workflow_id,
         });
-        const exportPayload = await OneKycClientZkService.decryptScopedExport({
-          exportPackage,
-          connector,
-        });
+        const exportPayloads = await Promise.all(
+          exportResponse.exports.map(async (exportPackage) => ({
+            scope: exportPackage.scope,
+            payload: await OneKycClientZkService.decryptScopedExport({
+              exportPackage,
+              connector,
+            }),
+          }))
+        );
         const draft = await OneKycClientZkService.buildDraft({
           workflow: selected,
-          exportPayload,
+          exportPayloads,
         });
         if (!cancelled) {
           setLocalDrafts((current) => ({ ...current, [selected.workflow_id]: draft }));
+          setLocalExportPayloads((current) => ({
+            ...current,
+            [selected.workflow_id]: exportPayloads,
+          }));
         }
       } catch (err) {
         if (!cancelled) {
@@ -234,7 +315,61 @@ function OneKycWorkspace() {
       return copy;
     });
     setSelectedId(next.workflow_id);
-  }, []);
+    if (!isKycClientDraftReady(next)) {
+      clearLocalWorkflowState(next.workflow_id);
+    }
+  }, [clearLocalWorkflowState]);
+
+  const refreshAliases = useCallback(async () => {
+    if (!vaultOwnerToken) return;
+    const response = await AccountService.listEmailAliases(vaultOwnerToken);
+    setEmailAliases(response.aliases);
+  }, [vaultOwnerToken]);
+
+  const startAliasVerification = useCallback(async () => {
+    if (!vaultOwnerToken || !aliasEmail.trim()) return;
+    setBusy("alias");
+    setError(null);
+    try {
+      const response = await AccountService.startEmailAliasVerification(
+        vaultOwnerToken,
+        aliasEmail.trim()
+      );
+      await refreshAliases().catch(() => undefined);
+      setAliasChallenge({
+        email: response.alias.email_normalized,
+        reviewCode: response.review_verification_code,
+      });
+      if (response.review_verification_code) {
+        setAliasCode(response.review_verification_code);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Email alias verification failed.");
+    } finally {
+      setBusy(null);
+    }
+  }, [aliasEmail, refreshAliases, vaultOwnerToken]);
+
+  const confirmAliasVerification = useCallback(async () => {
+    if (!vaultOwnerToken || !aliasChallenge?.email || !aliasCode.trim()) return;
+    setBusy("alias");
+    setError(null);
+    try {
+      await AccountService.confirmEmailAliasVerification(
+        vaultOwnerToken,
+        aliasChallenge.email,
+        aliasCode.trim()
+      );
+      await refreshAliases();
+      setAliasEmail("");
+      setAliasCode("");
+      setAliasChallenge(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Email alias confirmation failed.");
+    } finally {
+      setBusy(null);
+    }
+  }, [aliasChallenge?.email, aliasCode, refreshAliases, vaultOwnerToken]);
 
   const runAction = useCallback(
     async (
@@ -264,33 +399,23 @@ function OneKycWorkspace() {
             setError("Prepare the KYC draft before revising it.");
             return;
           }
-          const body = `${localDraft.body}
-
----
-User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
-          setLocalDrafts((current) => ({
-            ...current,
-            [workflow.workflow_id]: {
-              ...localDraft,
-              body,
-              draftHash: "",
-            },
-          }));
-          const draftHash = await sha256Hex(body);
-          setLocalDrafts((current) => ({
-            ...current,
-            [workflow.workflow_id]: {
-              ...localDraft,
-              body,
-              draftHash,
-            },
-          }));
           const next = await OneKycService.redraft({
             ...input,
             instructions: redraftInstructions.trim(),
             source: "text",
           });
           updateWorkflow(next);
+          if (next.status === "waiting_on_user") {
+            const exportPayloads = localExportPayloads[workflow.workflow_id] || [];
+            const draft = await OneKycClientZkService.buildDraft({
+              workflow: next,
+              exportPayloads,
+              instructions: redraftInstructions.trim(),
+            });
+            setLocalDrafts((current) => ({ ...current, [workflow.workflow_id]: draft }));
+          } else {
+            clearLocalWorkflowState(workflow.workflow_id);
+          }
           setRedraftInstructions("");
           return;
         }
@@ -314,7 +439,7 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
           } satisfies Record<KycWorkflowCheckKey, KycWorkflowCheck>;
           const overallStatus: KycWorkflowStatus =
             localDraft.missingFields.length === 0 ? "verified" : "pending";
-          const artifact = {
+          const artifact = buildKycWorkflowArtifact({
             checks,
             overall_status: overallStatus,
             counterparty: workflow.counterparty_label || workflow.sender_email || null,
@@ -323,15 +448,17 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
             completed_requirements: workflow.required_fields.filter(
               (field) => !localDraft.missingFields.includes(field)
             ),
-          };
-          const artifactHash = await sha256Hex(JSON.stringify(artifact));
+          });
+          const artifactHash = await hashKycWorkflowArtifact(artifact);
           next = await OneKycService.sendApprovedReply({
             ...input,
             approvedSubject: localDraft.subject || workflow.draft_subject,
             approvedBody: localDraft.body,
             clientDraftHash: localDraft.draftHash,
             consentExportRevision:
-              typeof workflow.consent_export?.export_revision === "number"
+              Array.isArray(workflow.consent_exports) && workflow.consent_exports.length > 1
+                ? null
+                : typeof workflow.consent_export?.export_revision === "number"
                 ? workflow.consent_export.export_revision
                 : typeof workflow.metadata?.consent_export === "object" &&
                     workflow.metadata.consent_export !== null &&
@@ -358,6 +485,7 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
               errorMessage: message,
             }).catch(() => next);
             updateWorkflow(next);
+            clearLocalWorkflowState(workflow.workflow_id);
             setError(`Approved reply sent, but encrypted PKM writeback failed: ${message}`);
             return;
           }
@@ -370,6 +498,7 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
           });
           if (!writeback.success) {
             updateWorkflow(next);
+            clearLocalWorkflowState(workflow.workflow_id);
             setError(
               `Approved reply sent, but encrypted PKM writeback failed: ${
                 writeback.message || "PKM writeback failed."
@@ -392,6 +521,8 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
     [
       auth.user,
       auth.userId,
+      clearLocalWorkflowState,
+      localExportPayloads,
       localDrafts,
       redraftInstructions,
       updateWorkflow,
@@ -399,6 +530,43 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
       vaultOwnerToken,
     ]
   );
+
+  const submitScopeSelection = useCallback(
+    async (workflow: OneKycWorkflow) => {
+      if (!auth.userId || !vaultOwnerToken) return;
+      const selectedScopes = selectedScopesForWorkflow(workflow, selectedScopesByWorkflow);
+      if (!selectedScopes.length) {
+        setError("Select at least one scope before requesting consent.");
+        return;
+      }
+      setBusy("scope");
+      setError(null);
+      try {
+        const next = await OneKycService.selectScopes({
+          userId: auth.userId,
+          vaultOwnerToken,
+          workflowId: workflow.workflow_id,
+          selectedScopes,
+        });
+        updateWorkflow(next);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Scope selection failed.");
+      } finally {
+        setBusy(null);
+      }
+    },
+    [auth.userId, selectedScopesByWorkflow, updateWorkflow, vaultOwnerToken]
+  );
+
+  const toggleScope = useCallback((workflow: OneKycWorkflow, scope: string) => {
+    setSelectedScopesByWorkflow((current) => {
+      const selectedScopes = selectedScopesForWorkflow(workflow, current);
+      const nextScopes = selectedScopes.includes(scope)
+        ? selectedScopes.filter((item) => item !== scope)
+        : [...selectedScopes, scope];
+      return { ...current, [workflow.workflow_id]: nextScopes };
+    });
+  }, []);
 
   return (
     <AppPageShell
@@ -427,133 +595,335 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
         />
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion className="grid gap-4 lg:grid-cols-[minmax(18rem,24rem)_1fr]">
-        <SurfaceCard>
-          <SurfaceCardHeader>
-            <SurfaceCardTitle>Inbox</SurfaceCardTitle>
-          </SurfaceCardHeader>
-          <SurfaceCardContent className="space-y-2">
+      <AppPageContentRegion className="mx-auto grid w-full max-w-5xl gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
+        {error ? (
+          <div className="lg:col-span-2 rounded-[var(--app-card-radius-standard)] border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            {error}
+          </div>
+        ) : null}
+
+        <div className="space-y-4">
+          <SettingsGroup
+            eyebrow="Inbox"
+            title="Broker requests"
+            description="KYC emails matched to one@hushh.ai stay here until you approve, reject, or wait on the counterparty."
+          >
             {loading ? (
-              <p className="text-sm text-muted-foreground">Loading workflows.</p>
-            ) : workflows.length === 0 ? (
-              <div className="flex items-start gap-3 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-                <Inbox className="mt-0.5 size-4 shrink-0" />
-                <span>No KYC emails have been matched to this account yet.</span>
+              <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+                <HushhLoader variant="inline" label="Loading workflows." />
               </div>
+            ) : workflows.length === 0 ? (
+              <SettingsRow
+                icon={Inbox}
+                title="No matched requests"
+                description="New KYC emails appear here after One matches them to a verified email alias."
+              />
             ) : (
               workflows.map((workflow) => (
-                <button
+                <SettingsRow
                   key={workflow.workflow_id}
-                  type="button"
-                  onClick={() => setSelectedId(workflow.workflow_id)}
-                  className={`w-full rounded-md border p-3 text-left transition hover:bg-muted/60 ${
-                    selected?.workflow_id === workflow.workflow_id
-                      ? "border-foreground/30 bg-muted"
-                      : "border-border"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="line-clamp-2 text-sm font-medium">
-                      {workflow.subject || "KYC request"}
-                    </p>
+                  icon={statusIcon(workflow.status)}
+                  title={workflow.subject || "KYC request"}
+                  description={[
+                    workflow.counterparty_label || workflow.sender_email || "Counterparty",
+                    selectedScopeLabels(workflow).join(", ") || workflow.requested_scope || "Scope pending",
+                  ].join(" / ")}
+                  trailing={
                     <Badge variant={statusVariant(workflow.status)}>
                       {STATUS_LABELS[workflow.status] || workflow.status}
                     </Badge>
-                  </div>
-                  <p className="mt-1 truncate text-xs text-muted-foreground">
-                    {workflow.counterparty_label || workflow.sender_email || "Counterparty"}
-                  </p>
-                </button>
+                  }
+                  chevron
+                  onClick={() => {
+                    setSelectedId(workflow.workflow_id);
+                    setDetailOpen(true);
+                  }}
+                  voiceControlId={`one-kyc-workflow-${workflow.workflow_id}`}
+                />
               ))
             )}
-          </SurfaceCardContent>
-        </SurfaceCard>
+          </SettingsGroup>
+        </div>
 
-        <SurfaceCard>
-          <SurfaceCardHeader>
-            <SurfaceCardTitle>{selected?.subject || "Workflow details"}</SurfaceCardTitle>
-          </SurfaceCardHeader>
-          <SurfaceCardContent className="space-y-5">
-            {error ? (
-              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-                {error}
-              </div>
-            ) : null}
-
-            {!selected ? (
-              <p className="text-sm text-muted-foreground">Select a workflow to review.</p>
-            ) : (
+        <div className="space-y-4">
+          <SettingsGroup
+            title="Selected workflow"
+            description="Open the selected request to review consent, draft, thread, and send state."
+          >
+            {selected ? (
               <>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Info label="Status" value={STATUS_LABELS[selected.status] || selected.status} />
-                  <Info label="Counterparty" value={selected.counterparty_label || selected.sender_email || "-"} />
-                  <Info label="Scope" value={selected.requested_scope || "-"} />
-                  <Info label="Updated" value={selected.updated_at ? new Date(selected.updated_at).toLocaleString() : "-"} />
+                <SettingsRow
+                  icon={statusIcon(selected.status)}
+                  title={selected.subject || "KYC request"}
+                  description={selected.counterparty_label || selected.sender_email || "Counterparty"}
+                  trailing={
+                    <Badge variant={statusVariant(selected.status)}>
+                      {STATUS_LABELS[selected.status] || selected.status}
+                    </Badge>
+                  }
+                  chevron
+                  onClick={() => setDetailOpen(true)}
+                  voiceControlId="one-kyc-open-selected"
+                />
+                <SettingsRow
+                  icon={ShieldCheck}
+                  title="Workflow consent"
+                  description={selectedScopeLabels(selected).join(", ") || selected.requested_scope || "No scopes selected yet"}
+                  trailing={<Badge variant="outline">{detectedDomains(selected).join(", ") || "KYC"}</Badge>}
+                />
+                <SettingsRow
+                  icon={Clock3}
+                  title="Thread status"
+                  description={threadStatusLabel(selected)}
+                  trailing={selected.status === "waiting_on_counterparty" ? <CheckCircle2 className="size-4 text-emerald-600" /> : null}
+                />
+              </>
+            ) : (
+              <SettingsRow
+                icon={Inbox}
+                title="No workflow selected"
+                description="Select a broker request from the inbox."
+              />
+            )}
+          </SettingsGroup>
+
+          <SettingsGroup
+            title="Email aliases"
+            description="Verified aliases help One match forwarded or CC'd broker requests to your account."
+          >
+            <SettingsRow
+              icon={MailPlus}
+              title="Verified aliases"
+              description={
+                verifiedAliases.length
+                  ? verifiedAliases.map((alias) => alias.email).join(", ")
+                  : "No verified aliases."
+              }
+              trailing={<Badge variant="secondary">{verifiedAliases.length}</Badge>}
+              stackTrailingOnMobile
+            />
+            <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+              <Input
+                type="email"
+                value={aliasEmail}
+                onChange={(event) => setAliasEmail(event.target.value)}
+                placeholder="original@example.com"
+                autoComplete="email"
+              />
+              {aliasChallenge ? (
+                <Input
+                  value={aliasCode}
+                  onChange={(event) => setAliasCode(event.target.value)}
+                  placeholder="Verification code"
+                  inputMode="numeric"
+                />
+              ) : null}
+              {aliasChallenge?.reviewCode ? (
+                <p className="text-xs text-muted-foreground">UAT code: {aliasChallenge.reviewCode}</p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void startAliasVerification()}
+                  disabled={Boolean(busy) || !aliasEmail.trim()}
+                >
+                  <MailPlus className="size-4" />
+                  Register alias
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => void confirmAliasVerification()}
+                  disabled={Boolean(busy) || !aliasChallenge || !aliasCode.trim()}
+                >
+                  Verify
+                </Button>
+              </div>
+            </div>
+          </SettingsGroup>
+        </div>
+
+        <SettingsDetailPanel
+          open={detailOpen && Boolean(selected)}
+          onOpenChange={setDetailOpen}
+          title={selected?.subject || "KYC workflow"}
+          description={selected?.counterparty_label || selected?.sender_email || "Review the selected request."}
+        >
+          {!selected ? null : (
+            <div className="space-y-4">
+              <SettingsGroup embedded title="Workflow">
+                <SettingsRow
+                  icon={statusIcon(selected.status)}
+                  title="Status"
+                  description={STATUS_LABELS[selected.status] || selected.status}
+                  trailing={<Badge variant={statusVariant(selected.status)}>{STATUS_LABELS[selected.status]}</Badge>}
+                />
+                <SettingsRow
+                  icon={BriefcaseBusiness}
+                  title="Counterparty"
+                  description={selected.counterparty_label || selected.sender_email || "-"}
+                />
+                <SettingsRow
+                  icon={UserRound}
+                  title="Intent"
+                  description={detectedDomains(selected).join(", ") || "-"}
+                />
+                <SettingsRow
+                  icon={ShieldCheck}
+                  title="Scopes"
+                  description={selectedScopeLabels(selected).join(", ") || selected.requested_scope || "-"}
+                />
+                <SettingsRow
+                  icon={Clock3}
+                  title="Updated"
+                  description={selected.updated_at ? new Date(selected.updated_at).toLocaleString() : "-"}
+                />
+                <SettingsRow icon={FileText} title="Thread" description={threadStatusLabel(selected)} />
+              </SettingsGroup>
+
+              <SettingsGroup embedded title="Required fields">
+                <div className="flex flex-wrap gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+                  {(selected.required_fields.length ? selected.required_fields : ["identity_profile"]).map((field) => (
+                    <Badge key={field} variant="outline">
+                      {field.replaceAll("_", " ")}
+                    </Badge>
+                  ))}
                 </div>
+              </SettingsGroup>
 
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">Required fields</p>
-                  <div className="flex flex-wrap gap-2">
-                    {(selected.required_fields.length ? selected.required_fields : ["identity_profile"]).map((field) => (
-                      <Badge key={field} variant="outline">
-                        {field.replaceAll("_", " ")}
-                      </Badge>
-                    ))}
+              {selected.status === "needs_client_connector" ? (
+                <SettingsGroup embedded title="Vault connector">
+                  <SettingsRow
+                    icon={AlertTriangle}
+                    title="Sync required"
+                    description="Unlock completed. Sync this workflow so One can request scoped consent with your client-held KYC connector."
+                  />
+                </SettingsGroup>
+              ) : null}
+
+              {selected.status === "needs_scope" ? (
+                <SettingsGroup
+                  embedded
+                  title="Recommended scopes"
+                  description="Confirm the workflow scopes before any encrypted export is prepared."
+                >
+                  {scopeCandidates(selected).map((candidate) => {
+                    const checked = selectedScopesForWorkflow(
+                      selected,
+                      selectedScopesByWorkflow
+                    ).includes(candidate.scope);
+                    return (
+                      <SettingsRow
+                        key={candidate.scope}
+                        icon={candidate.domain === "financial" ? BriefcaseBusiness : ShieldCheck}
+                        title={candidate.label || candidate.scope}
+                        description={[candidate.description || candidate.scope, candidate.reason || "Detected from the email text."].join(" / ")}
+                        trailing={
+                          <input
+                            type="checkbox"
+                            className="size-4 accent-foreground"
+                            checked={checked}
+                            onChange={() => toggleScope(selected, candidate.scope)}
+                            disabled={Boolean(selected.consent_request_url)}
+                            aria-label={`Select ${candidate.label || candidate.scope}`}
+                          />
+                        }
+                        onClick={() => {
+                          if (!selected.consent_request_url) toggleScope(selected, candidate.scope);
+                        }}
+                        disabled={Boolean(selected.consent_request_url)}
+                        stackTrailingOnMobile
+                      />
+                    );
+                  })}
+                  <div className="flex flex-wrap gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+                    {!selected.consent_request_url ? (
+                      <Button
+                        type="button"
+                        onClick={() => void submitScopeSelection(selected)}
+                        disabled={
+                          Boolean(busy) ||
+                          selectedScopesForWorkflow(selected, selectedScopesByWorkflow).length === 0
+                        }
+                      >
+                        <ShieldCheck className="size-4" />
+                        Request consent
+                      </Button>
+                    ) : (
+                      <Button asChild>
+                        <a href={selected.consent_request_url} data-voice-control-id="one-kyc-open-consent">
+                          <ShieldCheck className="size-4" />
+                          Review consent
+                        </a>
+                      </Button>
+                    )}
                   </div>
-                </div>
+                </SettingsGroup>
+              ) : null}
 
-                {selected.status === "needs_client_connector" ? (
-                  <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-800 dark:text-amber-200">
-                    Unlock completed. Sync this workflow so One can request scoped consent with your client-held KYC connector.
-                  </div>
-                ) : null}
+              {selected.metadata?.reply_thread ? (
+                <SettingsGroup embedded title="Reply thread">
+                  <SettingsRow
+                    icon={Send}
+                    title="To"
+                    description={replyThreadValue(selected, "reply_all_to") || selected.sender_email || "-"}
+                  />
+                  <SettingsRow
+                    icon={MailPlus}
+                    title="Cc"
+                    description={replyThreadValue(selected, "reply_all_cc") || "-"}
+                  />
+                </SettingsGroup>
+              ) : null}
 
-                {selected.status === "needs_scope" && selected.consent_request_url ? (
-                  <Button asChild>
-                    <a href={selected.consent_request_url} data-voice-control-id="one-kyc-open-consent">
-                      <ShieldCheck className="size-4" />
-                      Review consent
-                    </a>
-                  </Button>
-                ) : null}
-
-                {selectedDraft ? (
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Draft reply</p>
+              {selectedDraft ? (
+                <SettingsGroup embedded title="Draft reply">
+                  <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
                     <pre
-                      className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-4 text-sm leading-6"
+                      className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-muted/40 p-4 text-sm leading-6"
                       data-voice-control-id="one-kyc-draft-review"
                     >
                       {selectedDraft.body}
                     </pre>
                     {selectedDraft.missingFields.length > 0 ? (
                       <p className="text-sm text-amber-700 dark:text-amber-200">
-                        Missing approved fields: {selectedDraft.missingFields.map((field) => field.replaceAll("_", " ")).join(", ")}
+                        Approved export did not contain: {selectedDraft.missingFields.map((field) => field.replaceAll("_", " ")).join(", ")}
                       </p>
                     ) : null}
                   </div>
-                ) : null}
+                </SettingsGroup>
+              ) : null}
 
-                {selected.status === "needs_documents" ? (
-                  <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-800 dark:text-amber-200">
-                    One needs additional approved identity details before it can prepare a complete KYC reply.
-                  </div>
-                ) : null}
+              {selected.status === "needs_documents" ? (
+                <SettingsGroup embedded title="Missing data">
+                  <SettingsRow
+                    icon={AlertTriangle}
+                    title="Additional details needed"
+                    description="One needs additional approved identity details before it can prepare a complete KYC reply."
+                  />
+                </SettingsGroup>
+              ) : null}
 
-                {selected.last_error_message ? (
-                  <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-800 dark:text-amber-200">
-                    {selected.last_error_message}
-                  </div>
-                ) : null}
+              {selected.last_error_message ? (
+                <SettingsGroup embedded title="Workflow issue">
+                  <SettingsRow
+                    icon={AlertTriangle}
+                    title="Attention needed"
+                    description={selected.last_error_message}
+                  />
+                </SettingsGroup>
+              ) : null}
 
-                {selected.status === "waiting_on_user" ? (
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Redraft instructions</p>
+              {selected.status === "waiting_on_user" ? (
+                <SettingsGroup embedded title="Redraft">
+                  <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
                     <Textarea
                       value={redraftInstructions}
                       onChange={(event) => setRedraftInstructions(event.target.value)}
                       maxLength={1000}
-                      placeholder="Example: make it shorter, make it more formal, or mention that more documents can be provided on request."
+                      placeholder="Make it shorter, more formal, or mention that more documents can be provided on request."
                       className="min-h-24"
                       data-voice-control-id="one-kyc-redraft-instructions"
                     />
@@ -568,9 +938,11 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
                       Redraft
                     </Button>
                   </div>
-                ) : null}
+                </SettingsGroup>
+              ) : null}
 
-                <div className="flex flex-wrap gap-2">
+              <SettingsGroup embedded title="Actions">
+                <div className="flex flex-wrap gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
                   <Button
                     variant="outline"
                     onClick={() => void runAction("refresh", selected)}
@@ -607,26 +979,31 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
                     </Badge>
                   ) : null}
                 </div>
-              </>
-            )}
+              </SettingsGroup>
 
-            <Button asChild variant="ghost" size="sm">
-              <Link href={ROUTES.CONSENTS}>Open Consent Center</Link>
-            </Button>
-          </SurfaceCardContent>
-        </SurfaceCard>
+              <Button asChild variant="ghost" size="sm">
+                <Link href={ROUTES.CONSENTS}>Open Consent Center</Link>
+              </Button>
+            </div>
+          )}
+        </SettingsDetailPanel>
       </AppPageContentRegion>
     </AppPageShell>
   );
 }
 
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md border bg-background/60 p-3">
-      <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-      <p className="mt-1 break-words text-sm">{value}</p>
-    </div>
-  );
+function replyThreadValue(workflow: OneKycWorkflow, key: "reply_all_to" | "reply_all_cc"): string {
+  const thread = workflow.metadata?.reply_thread;
+  if (!thread || typeof thread !== "object") return "";
+  const value = (thread as Record<string, unknown>)[key];
+  return Array.isArray(value) ? value.map(String).join(", ") : "";
+}
+
+function threadStatusLabel(workflow: OneKycWorkflow): string {
+  if (workflow.thread_match_status === "matched") return "Reply threaded";
+  if (workflow.thread_match_status === "mismatched") return "Sent in new thread";
+  if (workflow.thread_match_status === "unknown") return "Thread verification pending";
+  return workflow.gmail_thread_id || "-";
 }
 
 function emptyKycCheck(): KycWorkflowCheck {

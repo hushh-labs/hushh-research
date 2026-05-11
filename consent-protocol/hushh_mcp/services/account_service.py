@@ -34,6 +34,9 @@ class AccountService:
             "actor_identity_cache": text(
                 "DELETE FROM actor_identity_cache WHERE user_id = :user_id"
             ),
+            "actor_verified_email_aliases": text(
+                "DELETE FROM actor_verified_email_aliases WHERE user_id = :user_id"
+            ),
             "actor_profiles": text("DELETE FROM actor_profiles WHERE user_id = :user_id"),
             "consent_export_refresh_jobs": text(
                 "DELETE FROM consent_export_refresh_jobs WHERE user_id = :user_id"
@@ -182,6 +185,16 @@ class AccountService:
                 ORDER BY created_at DESC
                 """
             ),
+            "verified_email_aliases": text(
+                """
+                SELECT alias_id, user_id, email, email_normalized, verification_status,
+                       verification_source, source_ref, verification_requested_at,
+                       verified_at, revoked_at, last_matched_at, created_at, updated_at
+                FROM actor_verified_email_aliases
+                WHERE user_id = :user_id
+                ORDER BY COALESCE(verified_at, verification_requested_at, created_at) DESC
+                """
+            ),
         }
 
     @property
@@ -322,6 +335,7 @@ class AccountService:
         logger.warning("🚨 FULL ACCOUNT DELETION requested for %s", user_id)
         results = {
             "actor_identity_cache": False,
+            "actor_verified_email_aliases": False,
             "actor_profiles": False,
             "pkm_data": False,
             "pkm_index": False,
@@ -548,6 +562,12 @@ class AccountService:
                     params=params,
                 )
                 results["one_kyc_workflows"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn,
+                    table_name="actor_verified_email_aliases",
+                    params=params,
+                )
+                results["actor_verified_email_aliases"] = True
                 self._delete_user_rows_if_table_exists(
                     conn, table_name="actor_identity_cache", params=params
                 )
@@ -885,6 +905,12 @@ class AccountService:
                         conn,
                         table_name="runtime_persona_state",
                         query_name="runtime_persona_state",
+                        params=params,
+                    ),
+                    "verified_email_aliases": self._fetch_optional_many_rows(
+                        conn,
+                        table_name="actor_verified_email_aliases",
+                        query_name="verified_email_aliases",
                         params=params,
                     ),
                     "encrypted_vault_keys": self._fetch_optional_many_rows(

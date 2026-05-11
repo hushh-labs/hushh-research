@@ -233,6 +233,7 @@ class TestOneNavKycManifests:
 
     def test_kyc_workflow_states_are_canonical(self) -> None:
         assert KYC_WORKFLOW_STATES == (
+            "needs_client_connector",
             "needs_scope",
             "needs_documents",
             "drafting",
