@@ -205,3 +205,43 @@ def test_active_consents_rejects_token_user_mismatch():
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Token user mismatch"
+
+
+def test_consent_history_rejects_negative_page():
+    app = _build_app()
+    app.dependency_overrides[session.require_vault_owner_token] = (
+        lambda: {"user_id": "user_123"}
+    )
+
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/consent/history",
+        params={
+            "userId": "user_123",
+            "page": -1,
+            "limit": 50,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_consent_history_rejects_oversized_limit():
+    app = _build_app()
+    app.dependency_overrides[session.require_vault_owner_token] = (
+        lambda: {"user_id": "user_123"}
+    )
+
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/consent/history",
+        params={
+            "userId": "user_123",
+            "page": 1,
+            "limit": 100000,
+        },
+    )
+
+    assert response.status_code == 422

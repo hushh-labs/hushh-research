@@ -7,7 +7,7 @@ import logging
 import os
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
 from api.middleware import require_vault_owner_token
 from api.models import LogoutRequest, SessionTokenRequest, SessionTokenResponse
@@ -125,8 +125,8 @@ async def logout_session(request: LogoutRequest):
 @router.get("/consent/history")
 async def get_consent_history(
     userId: str,
-    page: int = 1,
-    limit: int = 50,
+    page: int = Query(default=1, ge=1, le=10_000),
+    limit: int = Query(default=50, ge=1, le=200),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
