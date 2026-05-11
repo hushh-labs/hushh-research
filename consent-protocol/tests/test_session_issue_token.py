@@ -64,6 +64,71 @@ def test_issue_session_token_unexpected_verifier_failure_returns_500(monkeypatch
     assert response.json()["detail"] == "Internal server error"
 
 
+def test_issue_session_token_rejects_vault_owner_scope(monkeypatch):
+    monkeypatch.setattr(
+        session,
+        "verify_firebase_bearer",
+        lambda _authorization: "user_123",
+    )
+
+    client = TestClient(_build_app())
+
+    response = client.post(
+        "/api/consent/issue-token",
+        json={
+            "userId": "user_123",
+            "scope": "vault.owner",
+        },
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "INVALID_SCOPE"
+
+
+def test_issue_session_token_rejects_arbitrary_scope(monkeypatch):
+    monkeypatch.setattr(
+        session,
+        "verify_firebase_bearer",
+        lambda _authorization: "user_123",
+    )
+
+    client = TestClient(_build_app())
+
+    response = client.post(
+        "/api/consent/issue-token",
+        json={
+            "userId": "user_123",
+            "scope": "pkm.write",
+        },
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "INVALID_SCOPE"
+
+
+def test_issue_session_token_accepts_session_scope(monkeypatch):
+    monkeypatch.setattr(
+        session,
+        "verify_firebase_bearer",
+        lambda _authorization: "user_123",
+    )
+
+    client = TestClient(_build_app())
+
+    response = client.post(
+        "/api/consent/issue-token",
+        json={
+            "userId": "user_123",
+            "scope": "session",
+        },
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 200
+
+
 class _FakeConsentDBService:
     async def get_audit_log(self, user_id: str, page: int, limit: int):
         assert user_id == "user_123"
