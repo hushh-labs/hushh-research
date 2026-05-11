@@ -156,7 +156,26 @@ function generateRecoveryKey(): string {
 }
 
 /**
- * Wrap vault key with recovery key for backup
+ * Wrap vault key with recovery key for backup.
+ *
+ * Output format — v2 blob (issued after this fix):
+ *   wrappedKey = "v2:" + base64(32-byte random PBKDF2 salt) + "." + base64(AES-GCM wrapped key)
+ *   iv         = base64(12-byte AES-GCM IV)
+ *
+ * The 32-byte random PBKDF2 salt is embedded in wrappedKey so that:
+ *   1. No additional database columns are needed.
+ *   2. unwrapVaultKey is self-contained — it reads the salt from the blob.
+ *   3. Each blob has a cryptographically independent derivation; a pre-computed
+ *      PBKDF2 table built for one blob cannot be reused against any other blob.
+ *
+ * Legacy v1 blobs (no prefix, static salt) produced before this fix continue
+ * to unwrap via the backward-compat branch in unwrapVaultKey.
+ *
+ * KDF parameters:
+ *   - Salt:       32 bytes, crypto.getRandomValues (unique per wrap)
+ *   - Iterations: 600,000 (OWASP Password Storage Cheat Sheet, 2023)
+ *   - Hash:       SHA-256
+ *   - Output:     AES-256-GCM key-encryption key
  */
 async function wrapVaultKey(
   vaultKey: CryptoKey,
@@ -165,8 +184,13 @@ async function wrapVaultKey(
   wrappedKey: string;
   iv: string;
 }> {
-  // Derive wrapping key from recovery key
   const encoder = new TextEncoder();
+
+  // Generate a fresh random salt for this wrap operation.
+  // NEVER reuse a static string — a known salt allows a single pre-computed
+  // PBKDF2 table to attack every vault blob in the database simultaneously.
+  const pbkdf2Salt = crypto.getRandomValues(new Uint8Array(32));
+
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
     encoder.encode(recoveryKey),
@@ -178,8 +202,8 @@ async function wrapVaultKey(
   const wrappingKey = await crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt: encoder.encode("hushh-recovery-salt"),
-      iterations: 100000,
+      salt: pbkdf2Salt,
+      iterations: 600_000,  // OWASP 2023 PBKDF2-HMAC-SHA-256 floor (was 100,000)
       hash: "SHA-256",
     },
     keyMaterial,
@@ -188,7 +212,6 @@ async function wrapVaultKey(
     ["wrapKey"]
   );
 
-  // Wrap the vault key
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const wrappedKeyBuffer = await crypto.subtle.wrapKey(
     "raw",
@@ -197,14 +220,32 @@ async function wrapVaultKey(
     { name: "AES-GCM", iv }
   );
 
+  // Embed the random salt in the blob using a v2: version prefix.
+  // Format: "v2:" + base64(salt) + "." + base64(wrappedKey)
+  // This is the same self-describing pattern used by bcrypt ($2b$12$<salt><hash>),
+  // Argon2 ($argon2id$v=19$...$<salt>$<hash>), and Django
+  // (pbkdf2_sha256$600000$<salt>$<hash>).
   return {
-    wrappedKey: bytesToBase64(new Uint8Array(wrappedKeyBuffer)),
+    wrappedKey: `v2:${bytesToBase64(pbkdf2Salt)}.${bytesToBase64(new Uint8Array(wrappedKeyBuffer))}`,
     iv: bytesToBase64(iv),
   };
 }
 
 /**
- * Unwrap vault key using recovery key
+ * Unwrap vault key using recovery key.
+ *
+ * Supports two blob formats:
+ *
+ *   v2 (issued after this fix):
+ *     wrappedKey = "v2:" + base64(32-byte random salt) + "." + base64(wrapped key)
+ *     KDF: PBKDF2-HMAC-SHA256, 600,000 iterations, random per-blob salt
+ *
+ *   v1 / legacy (issued before this fix, no prefix):
+ *     wrappedKey = base64(wrapped key)
+ *     KDF: PBKDF2-HMAC-SHA256, 100,000 iterations, static salt "hushh-recovery-salt"
+ *     Supported indefinitely for backward compatibility — existing users' vaults
+ *     are not affected. A "rotate on next login" migration can re-wrap v1 blobs
+ *     as v2 by calling unwrapVaultKey (v1 path) then wrapVaultKey (v2 path).
  */
 export async function unwrapVaultKey(
   wrappedKey: string,
@@ -213,7 +254,29 @@ export async function unwrapVaultKey(
 ): Promise<CryptoKey> {
   const encoder = new TextEncoder();
 
-  // Derive unwrapping key from recovery key
+  // Detect blob version from the wrappedKey prefix.
+  let pbkdf2Salt: Uint8Array | ArrayBuffer;
+  let iterations: number;
+  let rawWrappedKey: string;
+
+  if (wrappedKey.startsWith("v2:")) {
+    // v2: random salt embedded in blob — no static salt, no shared secret.
+    const payload = wrappedKey.slice(3); // strip "v2:"
+    const dotIndex = payload.indexOf(".");
+    if (dotIndex === -1) {
+      throw new Error("Malformed v2 vault blob: missing salt/key separator");
+    }
+    pbkdf2Salt = base64ToBytes(payload.slice(0, dotIndex));
+    rawWrappedKey = payload.slice(dotIndex + 1);
+    iterations = 600_000;
+  } else {
+    // v1 legacy: static salt. Supported for backward compat only.
+    // New wraps never use this path.
+    pbkdf2Salt = encoder.encode("hushh-recovery-salt");
+    rawWrappedKey = wrappedKey;
+    iterations = 100_000;
+  }
+
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
     encoder.encode(recoveryKey),
@@ -225,8 +288,8 @@ export async function unwrapVaultKey(
   const unwrappingKey = await crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt: encoder.encode("hushh-recovery-salt"),
-      iterations: 100000,
+      salt: pbkdf2Salt,
+      iterations,
       hash: "SHA-256",
     },
     keyMaterial,
@@ -235,11 +298,9 @@ export async function unwrapVaultKey(
     ["unwrapKey"]
   );
 
-  // Decode wrapped key and IV
-  const wrappedKeyBuffer = base64ToBytes(wrappedKey);
+  const wrappedKeyBuffer = base64ToBytes(rawWrappedKey);
   const ivBuffer = base64ToBytes(iv);
 
-  // Unwrap the vault key
   const vaultKey = await crypto.subtle.unwrapKey(
     "raw",
     wrappedKeyBuffer,
