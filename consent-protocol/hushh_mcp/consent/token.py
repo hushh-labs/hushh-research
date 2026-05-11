@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 # Also persisted to DB for cross-instance consistency
 _revoked_tokens: set[str] = set()
 
+_MAX_TOKEN_BYTES = 2048
+
 # ========== Token Generator ==========
 
 
@@ -64,6 +66,7 @@ def issue_token(
         raw = f"{user_id}|{agent_id}|{scope_str}|{issued_at}|{expires_at}|commercial"
     else:
         raw = f"{user_id}|{agent_id}|{scope_str}|{issued_at}|{expires_at}"
+
     signature = _sign(raw)
 
     token_string = (
@@ -128,10 +131,19 @@ def validate_token(
     if token_str in _revoked_tokens:
         return False, "Token has been revoked", None
 
+    if (
+        not isinstance(token_str, str)
+        or not token_str.strip()
+        or len(token_str) > _MAX_TOKEN_BYTES
+    ):
+        return False, "Malformed token", None
+
     try:
         prefix, signed_part = token_str.split(":", 1)
+
         if "." not in signed_part:
             return False, "Malformed token", None
+
         encoded, signature = signed_part.split(".", 1)
 
         if prefix != CONSENT_TOKEN_PREFIX:
@@ -160,6 +172,7 @@ def validate_token(
             raw = f"{user_id}|{agent_id}|{scope_str}|{issued_at_str}|{expires_at_str}|commercial"
         else:
             raw = f"{user_id}|{agent_id}|{scope_str}|{issued_at_str}|{expires_at_str}"
+
         expected_sig = _sign(raw)
 
         if not hmac.compare_digest(signature, expected_sig):
@@ -169,7 +182,9 @@ def validate_token(
         if expected_scope:
             # Convert enum to string if needed
             expected_scope_str = (
-                expected_scope.value if isinstance(expected_scope, ConsentScope) else expected_scope
+                expected_scope.value
+                if isinstance(expected_scope, ConsentScope)
+                else expected_scope
             )
 
             # Use the ACTUAL scope string from token, not enum value
@@ -191,6 +206,7 @@ def validate_token(
         # Commercial-flag gate (issue #30).
         if require_commercial is True and not commercial:
             return False, "Commercial consent required for this operation", None
+
         if require_commercial is False and commercial:
             return False, "Non-commercial consent required for this operation", None
 
@@ -205,10 +221,12 @@ def validate_token(
             signature=signature,
             commercial=commercial,
         )
+
         return True, None, token
 
     except (ValueError, UnicodeDecodeError) as e:
         return False, f"Malformed token: {str(e)}", None
+
     except Exception as e:
         logger.error(f"Unexpected error during token validation: {e}", exc_info=True)
         raise
@@ -243,37 +261,55 @@ async def validate_token_with_db(
             from hushh_mcp.services.consent_db import ConsentDBService
 
             service = ConsentDBService()
+
             # CRITICAL FIX: Use scope_str (actual scope) for DB lookup, not enum value!
-            scope_for_lookup = token_obj.scope_str if token_obj.scope_str else token_obj.scope.value
+            scope_for_lookup = (
+                token_obj.scope_str
+                if token_obj.scope_str
+                else token_obj.scope.value
+            )
+
             is_active = await service.is_token_active(
                 str(token_obj.user_id),
                 scope_for_lookup,
                 str(token_obj.agent_id),
             )
+
             if not is_active:
                 if str(os.getenv("TESTING", "")).strip().lower() == "true":
-                    logger.info("TESTING mode: skipping DB inactive check for token validation")
+                    logger.info(
+                        "TESTING mode: skipping DB inactive check for token validation"
+                    )
                     return valid, reason, token_obj
 
                 # Add to in-memory set for future fast checks
                 _revoked_tokens.add(token_str)
-                logger.warning(f"Token revoked in DB but not in memory: {token_str[:30]}...")
+
+                logger.warning(
+                    f"Token revoked in DB but not in memory: {token_str[:30]}..."
+                )
+
                 return False, "Token has been revoked (DB check)", None
+
     except Exception as e:
         # DB is unreachable — apply fail-closed policy based on token scope.
         # VAULT_OWNER tokens get a short grace period to avoid locking users
         # out of their own vault during brief DB hiccups.
         # All other scoped tokens fail closed immediately — when revocation
         # status cannot be confirmed, access to third-party data is denied.
+
         is_vault_owner = token_obj is not None and (
-            token_obj.scope_str == "vault.owner" or token_obj.scope == ConsentScope.VAULT_OWNER
+            token_obj.scope_str == "vault.owner"
+            or token_obj.scope == ConsentScope.VAULT_OWNER
         )
+
         if is_vault_owner:
             logger.warning(
                 "DB revocation check failed for VAULT_OWNER token, "
                 "applying grace period fallback: %s",
                 e,
             )
+
             return valid, reason, token_obj
 
         logger.error(
@@ -281,7 +317,12 @@ async def validate_token_with_db(
             "failing closed to protect consent integrity: %s",
             e,
         )
-        return False, "Token revocation status could not be confirmed (DB unavailable)", None
+
+        return (
+            False,
+            "Token revocation status could not be confirmed (DB unavailable)",
+            None,
+        )
 
     return valid, reason, token_obj
 
@@ -301,4 +342,8 @@ def is_token_revoked(token_str: str) -> bool:
 
 
 def _sign(input_string: str) -> str:
-    return hmac.new(APP_SIGNING_KEY.encode(), input_string.encode(), hashlib.sha256).hexdigest()
+    return hmac.new(
+        APP_SIGNING_KEY.encode(),
+        input_string.encode(),
+        hashlib.sha256,
+    ).hexdigest()
