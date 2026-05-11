@@ -117,6 +117,34 @@ function createNoopGroundedPlan(): GroundedVoicePlan {
   };
 }
 
+type DurableMemoryReadAccess =
+  | {
+      ok: true;
+      vaultUnlocked: boolean;
+      vaultKey?: string | null;
+    }
+  | {
+      ok: false;
+      reason: "missing_vault_context" | "missing_vault_key";
+    };
+
+function resolveDurableMemoryReadAccess(
+  appRuntimeState: AppRuntimeState | undefined,
+  vaultKey?: string | null
+): DurableMemoryReadAccess {
+  if (!appRuntimeState?.vault) {
+    return { ok: false, reason: "missing_vault_context" };
+  }
+  if (appRuntimeState.vault.unlocked && !String(vaultKey || "").trim()) {
+    return { ok: false, reason: "missing_vault_key" };
+  }
+  return {
+    ok: true,
+    vaultUnlocked: appRuntimeState.vault.unlocked,
+    vaultKey,
+  };
+}
+
 export type VoiceTurnOrchestratorConfig = {
   userId: string;
   vaultOwnerToken: string;
@@ -295,13 +323,23 @@ export class VoiceTurnOrchestrator {
     });
 
     const memoryShort: ShortTermTurn[] = voiceMemoryStore.getShortTerm(this.config.userId, 20);
-    const memoryRetrieved: DurableMemoryItem[] = await voiceMemoryStore.retrieveDurable({
-      userId: this.config.userId,
-      query: cleanTranscript,
-      limit: 8,
-      vaultUnlocked: Boolean(appRuntimeState?.vault.unlocked),
-      vaultKey: this.config.vaultKey,
-    });
+    const durableMemoryReadAccess = resolveDurableMemoryReadAccess(appRuntimeState, this.config.vaultKey);
+    const memoryRetrieved: DurableMemoryItem[] = durableMemoryReadAccess.ok
+      ? await voiceMemoryStore.retrieveDurable({
+          userId: this.config.userId,
+          query: cleanTranscript,
+          limit: 8,
+          vaultUnlocked: durableMemoryReadAccess.vaultUnlocked,
+          vaultKey: durableMemoryReadAccess.vaultKey,
+        })
+      : [];
+
+    if (!durableMemoryReadAccess.ok) {
+      this.config.onDebug?.("durable_memory_read_rejected", {
+        turn_id: turnId,
+        reason: durableMemoryReadAccess.reason,
+      });
+    }
 
     this.config.onDebug?.("orchestrator_turn_started", {
       turn_id: turnId,
