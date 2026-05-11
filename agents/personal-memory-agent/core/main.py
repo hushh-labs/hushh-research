@@ -18,6 +18,7 @@ from planning_engine.planning_router import process_goal
 from evolution_engine.evolution_router import process_evolution
 from metacognition_engine.metacognition_router import process_metacognition
 from multiagent_engine.coordination_router import process_multiagent_coordination
+from executive_engine.executive_router import process_executive_reasoning
 
 # =========================================================
 # FASTAPI INITIALIZATION
@@ -545,6 +546,44 @@ def multi_agent_coordination():
         )
 
         return coordination_results
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+    # =========================================================
+# HIERARCHICAL EXECUTIVE DECISION ENGINE
+# =========================================================
+
+@app.get("/executive-decision")
+def executive_decision():
+
+    try:
+
+        results = collection.get()
+
+        documents = results.get("documents", [])
+
+        metadatas = results.get("metadatas", [])
+
+        combined_memories = []
+
+        for doc, metadata in zip(documents, metadatas):
+
+            combined_memories.append(
+                {
+                    "document": doc,
+                    "metadata": metadata
+                }
+            )
+
+        executive_results = process_executive_reasoning(
+            combined_memories
+        )
+
+        return executive_results
 
     except Exception as error:
 
