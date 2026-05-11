@@ -78,7 +78,7 @@ See `deploy/kai-self-hosted/README.md` for the validated consumer-GPU profile (v
 
 ## Why this matters for Kai
 
-Hushh's consent-first thesis lives or dies on whether private inference is actually viable, not just structurally permitted. This PR turns "the abstraction allows on-prem inference" into "a developer with a laptop GPU runs `docker compose up` and gets a working private-Kai in under 2 minutes." The synthesis quality holds up vs. cloud Gemini (3 / 3 identical decisions), and the latency story (10× faster local) is a genuine win, not a privacy tax.
+The consent-first thesis at the heart of this project lives or dies on whether private inference is actually viable, not just structurally permitted. This PR turns "the abstraction allows on-prem inference" into "a developer with a laptop GPU runs `docker compose up` and gets a working private-Kai in under 2 minutes." The synthesis quality holds up vs. cloud Gemini (3 / 3 identical decisions), and the latency story (10× faster local) is a genuine win, not a privacy tax.
 
 ## Compatibility & rollout
 
