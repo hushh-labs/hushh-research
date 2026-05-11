@@ -14,6 +14,7 @@ from timeline_engine.timeline_router import process_timeline
 from importance_engine.priority_router import process_priority_memories
 from reflection_engine.reflection_router import process_reflections
 from relationship_engine.relationship_router import process_relationships
+from planning_engine.planning_router import process_goal
 
 # =========================================================
 # FASTAPI INITIALIZATION
@@ -52,6 +53,9 @@ class MemoryInput(BaseModel):
 
 class QueryInput(BaseModel):
     question: str
+
+class GoalInput(BaseModel):
+    goal: str
 
 
 class ChatInput(BaseModel):
@@ -403,6 +407,27 @@ def memory_relationships():
         )
 
         return relationship_results
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+    # =========================================================
+# GOAL-DRIVEN AUTONOMOUS PLANNING ENGINE
+# =========================================================
+
+@app.post("/generate-plan")
+def generate_plan(goal_input: GoalInput):
+
+    try:
+
+        planning_results = process_goal(
+            goal_input.goal
+        )
+
+        return planning_results
 
     except Exception as error:
 
