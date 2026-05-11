@@ -6,6 +6,8 @@ The change is additive and behaviour-preserving: when no consent token is passed
 
 ## Visual Context
 
+Canonical visual owner: [consent-protocol README](../../consent-protocol/README.md). That index is the canonical map for backend changes; this PR is one slice beneath it (LLM provider adapter, scope hierarchy, self-hosted deployment).
+
 | Layer | What changed | Where to look |
 |---|---|---|
 | Provider abstraction | 5 LLM backends behind one ABC | `consent-protocol/hushh_mcp/operons/kai/providers/` |

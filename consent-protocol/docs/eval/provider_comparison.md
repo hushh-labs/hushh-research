@@ -5,6 +5,8 @@ Both providers reached via the same consent-scoped `dispatch()` call path.
 
 ## Visual Context
 
+Canonical visual owner: [Eval Harness README](../../tests/agents/kai/evals/__init__.py). That module docstring is the canonical map for the Kai eval harness; this comparison report is one captured run beneath it.
+
 | | Local | Cloud |
 |---|---|---|
 | Provider | vllm | gemini |
