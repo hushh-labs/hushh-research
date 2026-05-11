@@ -248,15 +248,14 @@ This path requires Workspace domain-wide delegation for client ID `1090213248283
 recipient or visible alias only if Gmail send-as policy allows it; the delegated
 subject itself must be a real user mailbox.
 
-## One Email Intake Roadmap
+## One Email KYC
 
 `one@hushh.ai` is the inbound mailbox for One-led email workflows. The roadmap
-and rollout gates live in [One Email Intake Roadmap](../../../docs/future/one-email-intake-roadmap.md).
+and rollout gates live in [One Email KYC](../../../docs/reference/architecture/one-email-kyc.md).
 The repo now includes metadata-only Gmail Pub/Sub intake, watch renewal,
 workflow state, scoped KYC consent requests, `/one/kyc`, and approval-gated
-draft send. Hosted current-state still requires the database migration,
-Pub/Sub subscription, watch renewal schedule, connector key envs, and a real
-UAT smoke.
+same-thread send. Hosted current-state still requires Pub/Sub subscription,
+watch renewal schedule, strict client-side ZK env parity, and a real UAT smoke.
 
 Local runtime bootstrap:
 

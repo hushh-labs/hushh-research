@@ -31,6 +31,7 @@ Hussh uses a code-owned route contract plus docs/runtime checks to keep the decl
 
 - Canonical app route source: `hushh-webapp/lib/navigation/routes.ts`
 - Route governance reference: `docs/reference/architecture/route-contracts.md`
+- Frontend/native surface mapper: `docs/reference/architecture/frontend-native-surface-map.md`
 - Mobile parity reference: `docs/reference/mobile/capacitor-parity-audit.md`
 - Docs/runtime verification:
   - `bash scripts/ci/docs-parity-check.sh`
@@ -106,6 +107,8 @@ The practical contract is split across:
 - `hushh-webapp/lib/navigation/routes.ts` for app-visible routes
 - backend route modules and Next.js proxy handlers for API surfaces
 - mobile parity docs for platform-specific expectations and exceptions
+- `hushh-webapp/frontend-native-surface-map.generated.json` for the
+  route-to-API/native/plugin/voice scaffold used by Codex agents and parity audits
 
 ## Relationship To Other Docs
 

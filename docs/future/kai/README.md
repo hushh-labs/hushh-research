@@ -7,9 +7,6 @@
 ```mermaid
 flowchart TD
   root["docs/future/kai/<br/>Kai future roadmap"]
-  email["Superseded Email / KYC / PKM concept"]
-
-  root --> email
 ```
 
 ## Purpose
@@ -24,9 +21,13 @@ Kai north stars stay in [../../vision/kai/README.md](../../vision/kai/README.md)
 
 ## Current Concepts
 
-- [email-kyc-pkm-assistant.md](./email-kyc-pkm-assistant.md): superseded planning history for email/KYC structured writeback. KYC is now owned by the One-led multi-agent roadmap, not by Kai.
+No active Kai future concept files are maintained in this folder right now.
+The superseded email/KYC planning note was promoted out of `docs/future/`
+because One Email KYC now has execution-owned references.
 
-Current One/Kai/Nav/KYC ownership lives in [../one-nav-runtime-plan.md](../one-nav-runtime-plan.md).
+Current One/Kai/Nav/KYC planning boundaries live in [../one-nav-runtime-plan.md](../one-nav-runtime-plan.md).
+Current One Email KYC implementation truth lives in
+[../../reference/architecture/one-email-kyc.md](../../reference/architecture/one-email-kyc.md).
 
 ## Promotion Rule
 
