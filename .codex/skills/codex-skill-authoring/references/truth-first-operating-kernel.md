@@ -51,6 +51,20 @@ For repo-backed Q&A and contributor guidance, answer in this order:
 
 Do not write as if the project is blank. Hussh already has shipped contracts, and Codex must actively find and reuse them.
 
+## Planning Question Contract
+
+For non-trivial plans, do not ask bare choices. Research first, synthesize the likely solution, then ask only the user-owned decision that remains.
+
+Every material planning question should include:
+
+1. `Current truth`: verified facts from repo, GitHub, CI, docs, runtime logs, or generated contracts.
+2. `Recommended path`: the solution Codex would choose and the expected output.
+3. `Risk if accepted blindly`: what could break if the prompt or PR is accepted without the decision.
+4. `Decision needed`: the precise unresolved choice.
+5. `Options`: mutually exclusive choices with the recommended option first and a short outcome for each.
+
+Keep this concise. Include enough research for the operator to approve the recommended path without opening unrelated context, but do not dump every inspected detail. Do not ask the user to discover facts Codex can verify.
+
 ## Agent Evidence Handoff
 
 Every read-only evidence lane should return:
