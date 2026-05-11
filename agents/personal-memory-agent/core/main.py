@@ -17,6 +17,7 @@ from relationship_engine.relationship_router import process_relationships
 from planning_engine.planning_router import process_goal
 from evolution_engine.evolution_router import process_evolution
 from metacognition_engine.metacognition_router import process_metacognition
+from multiagent_engine.coordination_router import process_multiagent_coordination
 
 # =========================================================
 # FASTAPI INITIALIZATION
@@ -506,6 +507,44 @@ def meta_cognition():
         )
 
         return metacognition_results
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+    # =========================================================
+# COLLABORATIVE MULTI-AGENT COORDINATION ENGINE
+# =========================================================
+
+@app.get("/multi-agent-coordination")
+def multi_agent_coordination():
+
+    try:
+
+        results = collection.get()
+
+        documents = results.get("documents", [])
+
+        metadatas = results.get("metadatas", [])
+
+        combined_memories = []
+
+        for doc, metadata in zip(documents, metadatas):
+
+            combined_memories.append(
+                {
+                    "document": doc,
+                    "metadata": metadata
+                }
+            )
+
+        coordination_results = process_multiagent_coordination(
+            combined_memories
+        )
+
+        return coordination_results
 
     except Exception as error:
 
