@@ -264,7 +264,6 @@ export async function registerWithPrf(
     },
     timeout: 120000,
     extensions: {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       prf: {
         eval: {
           first: prfInput as unknown as BufferSource,
@@ -279,7 +278,6 @@ export async function registerWithPrf(
 
   if (!credential) throw new Error("Failed to create passkey");
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const extResults = credential.getClientExtensionResults() as any;
   const prfResult = extResults?.prf?.results?.first;
 
@@ -332,7 +330,6 @@ export async function authenticateWithPrf(
         ]
       : undefined,
     extensions: {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       prf: {
         eval: {
           first: prfInput as unknown as BufferSource,
@@ -347,7 +344,6 @@ export async function authenticateWithPrf(
 
   if (!credential) throw new Error("Authentication cancelled");
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const extResults2 = credential.getClientExtensionResults() as any;
   const prfResult = extResults2?.prf?.results?.first;
 
