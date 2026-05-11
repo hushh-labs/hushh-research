@@ -8,6 +8,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
 python3 scripts/ci/verify-protected-pipeline-edits.py
+python3 scripts/ci/verify-no-runtime-artifacts.py
 ./bin/hushh docs verify
 ./bin/hushh codex data-model-audit
 python3 scripts/licenses/verify_apache_surface.py
