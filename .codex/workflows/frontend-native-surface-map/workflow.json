@@ -1,0 +1,65 @@
+{
+  "id": "frontend-native-surface-map",
+  "title": "Frontend Native Surface Map",
+  "goal": "Keep route, page, Next.js proxy, backend endpoint, native transport, plugin, and voice/action mappings synchronized before cross-surface work.",
+  "owner_skill": "frontend",
+  "default_spoke": "frontend-native-surface-mapper",
+  "task_type": "frontend-native-surface-map",
+  "affected_surfaces": [
+    "hushh-webapp/app",
+    "hushh-webapp/app/api",
+    "hushh-webapp/lib/services",
+    "hushh-webapp/native-route-inventory.json",
+    "hushh-webapp/frontend-native-surface-map.generated.json",
+    "docs/reference/architecture/frontend-native-surface-map.md"
+  ],
+  "required_reads": [
+    "docs/reference/architecture/frontend-native-surface-map.md",
+    "docs/reference/architecture/route-contracts.md",
+    "docs/reference/mobile/capacitor-parity-audit.md",
+    "hushh-webapp/frontend-native-surface-map.generated.json"
+  ],
+  "required_commands": [
+    "cd hushh-webapp && npm run verify:surface-map",
+    "cd hushh-webapp && npm run verify:capacitor:static",
+    "cd hushh-webapp && npm run verify:docs"
+  ],
+  "verification_bundle": {
+    "id": "frontend-native-surface-map",
+    "commands": [
+      "cd hushh-webapp && npm run verify:surface-map",
+      "cd hushh-webapp && npm run verify:capacitor:static",
+      "cd hushh-webapp && npm run verify:docs"
+    ],
+    "tests": [
+      "cd hushh-webapp && npm run verify:surface-map"
+    ]
+  },
+  "deliverables": [
+    "Updated generated surface map when route/API/native/plugin/voice dependencies change",
+    "Updated route, API, mobile, or voice docs when the contract changes",
+    "Verification output for the surface-map gate"
+  ],
+  "impact_fields": [
+    "Routes touched",
+    "Service/API/backend families touched",
+    "Native transport or plugin impact",
+    "Voice/action contract impact",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "frontend",
+    "frontend-native-surface-mapper",
+    "frontend-architecture",
+    "backend-api-contracts",
+    "mobile-parity-audit",
+    "kai-voice-governance",
+    "docs-governance"
+  ],
+  "common_failures": [
+    "Route calls a new service but the generated map still shows no API dependency",
+    "Native route inventory is updated without the surface map",
+    "Voice action contract docs reference stale planning docs",
+    "A native build assumes a Next.js API server exists"
+  ]
+}

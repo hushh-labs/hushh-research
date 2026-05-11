@@ -4,7 +4,8 @@
   "surface_title": "One KYC Workflows",
   "docs_references": [
     "docs/reference/kai/kai-action-gateway-vnext.md",
-    "docs/future/one-email-intake-roadmap.md"
+    "docs/reference/architecture/one-email-kyc.md",
+    "docs/reference/architecture/frontend-native-surface-map.md"
   ],
   "defaults": {
     "reachability": {
