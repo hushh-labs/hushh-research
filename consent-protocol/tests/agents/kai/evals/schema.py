@@ -11,7 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
-
 Recommendation = Literal["BUY", "HOLD", "SELL", "STRONG_BUY", "STRONG_SELL"]
 Category = Literal["bull", "bear", "ambiguous", "edge"]
 

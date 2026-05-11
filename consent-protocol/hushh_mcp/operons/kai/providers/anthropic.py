@@ -16,8 +16,11 @@ from .base import CompletionRequest, CompletionResponse, LLMProvider, Role, Stre
 from .errors import ProviderError, ProviderResponseInvalid, ProviderTimeout, ProviderUnavailable
 
 try:
-    from anthropic import AsyncAnthropic  # type: ignore
-    from anthropic import APIError, APITimeoutError  # type: ignore
+    from anthropic import (  # type: ignore
+        APIError,
+        APITimeoutError,
+        AsyncAnthropic,  # type: ignore
+    )
 
     _ANTHROPIC_AVAILABLE = True
 except ImportError:  # pragma: no cover

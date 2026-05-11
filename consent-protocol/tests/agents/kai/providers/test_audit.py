@@ -23,8 +23,8 @@ def test_sha256_hex_matches_python_stdlib():
 
 def test_audit_record_metadata_contains_no_plaintext():
     """The cardinal BYOK invariant: nothing in `metadata` may be the prompt or output."""
-    secret_prompt = "my SSN is 123-45-6789"
-    secret_output = "Per the user's PKM holdings of $5M in AAPL..."
+    secret_prompt = "my SSN is 123-45-6789"  # noqa: S105 - test fixture, not a real secret
+    secret_output = "Per the user's PKM holdings of $5M in AAPL..."  # noqa: S105 - test fixture
     with TimedDispatch(provider="gemini", scope="agent.kai.inference.cloud.gemini",
                        model="gemini-3", prompt=secret_prompt) as t:
         t.set_output(secret_output, outcome="ok")
@@ -81,11 +81,11 @@ def test_audit_writer_default_appends_records():
     )
 
     asyncio.get_event_loop().run_until_complete(
-        writer.write(token_id="tok_1", user_id="u_1", agent_id="agent_kai", record=record)
+        writer.write(token_id="tok_1", user_id="u_1", agent_id="agent_kai", record=record)  # noqa: S106 - test fixture
     )
     assert len(writer.records) == 1
     captured_token, captured_record = writer.records[0]
-    assert captured_token == "tok_1"
+    assert captured_token == "tok_1"  # noqa: S105 - test fixture
     assert captured_record == record
 
 

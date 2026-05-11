@@ -40,6 +40,14 @@ Public surface:
     - get_provider             registry lookup
 """
 
+from .audit import (
+    AuditWriter,
+    InferenceAuditRecord,
+    TimedDispatch,
+    get_audit_writer,
+    set_audit_writer,
+    sha256_hex,
+)
 from .base import (
     CompletionRequest,
     CompletionResponse,
@@ -53,14 +61,6 @@ from .errors import (
     ProviderError,
     ProviderTimeout,
     ProviderUnavailable,
-)
-from .audit import (
-    AuditWriter,
-    InferenceAuditRecord,
-    TimedDispatch,
-    get_audit_writer,
-    set_audit_writer,
-    sha256_hex,
 )
 from .registry import (
     available_providers,

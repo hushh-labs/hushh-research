@@ -36,9 +36,7 @@ from hushh_mcp.operons.kai.llm import (
     get_gemini_unavailable_reason,
     is_gemini_ready,
     stream_gemini_response,
-    synthesize_debate_recommendation_card,
 )
-
 from hushh_mcp.operons.kai.llm_adapter import (
     synthesize_debate_recommendation_card_v2,
 )

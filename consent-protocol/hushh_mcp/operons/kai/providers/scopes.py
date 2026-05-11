@@ -33,7 +33,6 @@ from __future__ import annotations
 
 from typing import Final
 
-
 _PREFIX: Final[str] = "agent.kai.inference"
 
 # Cloud providers (call out to third-party APIs)

@@ -45,7 +45,7 @@ def main():
     print("# Kai LLM provider comparison: self-hosted vs cloud")
     print()
     print("Quick eval over 3 representative scenarios (bull, bear, ambiguous).")
-    print(f"Both providers reached via the same consent-scoped `dispatch()` call path.")
+    print("Both providers reached via the same consent-scoped `dispatch()` call path.")
     print()
     print("## Decision-level results")
     print()
@@ -53,7 +53,7 @@ def main():
     print("|---|---|---|---|")
 
     matches = 0
-    for vr, gr in zip(vllm["results"], gem["results"]):
+    for vr, gr in zip(vllm["results"], gem["results"], strict=False):
         vd, vc = parse_decision(vr.get("text", ""))
         gd, gc = parse_decision(gr.get("text", ""))
         match = "✅" if (vd and gd and vd == gd) else "❌"
@@ -73,14 +73,14 @@ def main():
     print(f"- **Avg latency (local):**  {avg_vllm_ms:.0f} ms ({vllm['results'][0]['model_used']}).")
     print(f"- **Avg latency (cloud):** {avg_gem_ms:.0f} ms ({gem['results'][0]['model_used']}).")
     print(f"- **Local speedup:** {avg_gem_ms / avg_vllm_ms:.1f}x faster than cloud.")
-    print(f"- **Privacy:** local path makes zero outbound calls; verified by audit log inspection.")
+    print("- **Privacy:** local path makes zero outbound calls; verified by audit log inspection.")
     print()
     print("## Provenance")
     print()
     print(f"- Local: {vllm['results'][0]['provider_used']} provider, {vllm['results'][0]['model_used']}")
     print(f"- Cloud: {gem['results'][0]['provider_used']} provider, {gem['results'][0]['model_used']}")
-    print(f"- Routing: consent-scoped dispatch via `hushh_mcp.operons.kai.providers.dispatch()`")
-    print(f"- Snapshots: `tests/agents/kai/evals/snapshots/{{vllm,gemini}}_quick.json`")
+    print("- Routing: consent-scoped dispatch via `hushh_mcp.operons.kai.providers.dispatch()`")
+    print("- Snapshots: `tests/agents/kai/evals/snapshots/{vllm,gemini}_quick.json`")
 
 
 if __name__ == "__main__":

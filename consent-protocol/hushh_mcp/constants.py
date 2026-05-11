@@ -1,8 +1,8 @@
 # hushh_mcp/constants.py
 
 from __future__ import annotations
-import os
 
+import os
 from enum import Enum
 from typing import Optional
 

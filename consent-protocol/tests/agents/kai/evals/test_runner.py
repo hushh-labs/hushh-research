@@ -32,8 +32,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from pathlib import Path
-from typing import Optional
 
 import pytest
 
@@ -51,7 +49,6 @@ from .fixtures import (
 )
 from .metrics import compute_all
 from .schema import DebateOutput, EvalReport, Scenario
-
 
 # ---------------------------------------------------------------------------
 # Canned responses for MockProvider (quick mode)
@@ -299,8 +296,6 @@ def test_slow_eval_real_provider(scenarios, provider_name, request):
     if not _has_creds(provider_name):
         pytest.skip(f"no creds for provider {provider_name}")
 
-    # Only run a small subset in tests; full eval runs via compare.py
-    subset_ids = ["bull_megacap_aapl_2024", "bear_secular_decline_int_2024"]
     pytest.skip(
         "Slow real-provider tests are run via tests/agents/kai/evals/compare.py "
         "outside pytest to keep this file deterministic. Marker preserved for "

@@ -23,8 +23,11 @@ from .base import CompletionRequest, CompletionResponse, LLMProvider, Role, Stre
 from .errors import ProviderError, ProviderResponseInvalid, ProviderTimeout, ProviderUnavailable
 
 try:
-    from openai import AsyncOpenAI  # type: ignore
-    from openai import APIError, APITimeoutError  # type: ignore
+    from openai import (  # type: ignore
+        APIError,
+        APITimeoutError,
+        AsyncOpenAI,  # type: ignore
+    )
 
     _OPENAI_AVAILABLE = True
 except ImportError:  # pragma: no cover

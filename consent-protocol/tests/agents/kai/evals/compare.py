@@ -31,7 +31,6 @@ import json
 import os
 import sys
 import time
-from dataclasses import asdict
 from pathlib import Path
 
 # Allow running as a script from the repo root.
@@ -51,7 +50,6 @@ from hushh_mcp.operons.kai.providers.scopes import scope_for_provider
 from .fixtures import load_scenarios, parse_debate_from_synthesis_text
 from .metrics import compute_all
 from .schema import DebateOutput, EvalReport, Scenario
-
 
 # ---------------------------------------------------------------------------
 # Per-scenario invocation

@@ -23,7 +23,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import time
 from pathlib import Path
 from typing import Any
@@ -34,8 +33,6 @@ from hushh_mcp.consent.token import issue_token
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.operons.kai.providers import (
     CompletionRequest,
-    Message,
-    Role,
     dispatch,
     load_registry,
 )

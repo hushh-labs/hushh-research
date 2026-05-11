@@ -27,7 +27,6 @@ from hushh_mcp.operons.kai.providers import (
 )
 from hushh_mcp.operons.kai.providers.scopes import SCOPE_GEMINI, SCOPE_PRIVATE_ANY
 
-
 _BASE_INPUTS = dict(
     ticker="AAPL",
     risk_profile="Balanced",

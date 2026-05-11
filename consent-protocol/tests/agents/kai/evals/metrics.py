@@ -51,8 +51,7 @@ from typing import Iterable, Optional
 
 import numpy as np
 
-from .schema import DebateOutput, MetricResult, Scenario
-
+from .schema import AgentOutput, DebateOutput, MetricResult, Scenario
 
 # ---------------------------------------------------------------------------
 # 1. Recommendation Calibration -- Brier

@@ -4,6 +4,16 @@ This PR generalizes Kai's synthesis path from a hard-coded Gemini-Vertex call to
 
 The change is additive and behaviour-preserving: when no consent token is passed, `synthesize_debate_recommendation_card` continues to call the existing Gemini path verbatim. When a token is passed, the provider is selected by the token's scope, with a graceful fallback to the legacy path on provider failure.
 
+## Visual Context
+
+| Layer | What changed | Where to look |
+|---|---|---|
+| Provider abstraction | 5 LLM backends behind one ABC | `consent-protocol/hushh_mcp/operons/kai/providers/` |
+| Consent gate | Scope-checked before any network I/O | `providers/registry.py::dispatch()` |
+| Audit | SHA-256 hashes only, no plaintext | `providers/audit.py` |
+| Eval | 20 scenarios × 5 metrics | `tests/agents/kai/evals/` |
+| Self-hosted deployment | Docker stack for 6 GB consumer GPU | `deploy/kai-self-hosted/` |
+
 ## Headline numbers
 
 | Provider | Avg latency | Outbound network | Hardware |

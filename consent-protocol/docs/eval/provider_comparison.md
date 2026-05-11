@@ -3,6 +3,15 @@
 Quick eval over 3 representative scenarios (bull, bear, ambiguous).
 Both providers reached via the same consent-scoped `dispatch()` call path.
 
+## Visual Context
+
+| | Local | Cloud |
+|---|---|---|
+| Provider | vllm | gemini |
+| Model | Qwen2.5-3B-Instruct-AWQ | gemini-3.1-pro-preview |
+| Hardware | RTX 3060 Laptop 6 GB | Vertex AI managed |
+| Outbound network | None | Vertex AI |
+
 ## Decision-level results
 
 | Scenario | Local (Qwen 2.5 3B AWQ) | Cloud (Gemini Pro on Vertex) | Match |

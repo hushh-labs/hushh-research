@@ -14,7 +14,6 @@ These are the highest-leverage tests in this PR. They prove that:
 
 from __future__ import annotations
 
-import asyncio
 from typing import AsyncIterator, Optional
 
 import pytest
@@ -34,12 +33,9 @@ from hushh_mcp.operons.kai.providers.audit import AuditWriter, set_audit_writer
 from hushh_mcp.operons.kai.providers.registry import _REGISTRY  # noqa: SLF001
 from hushh_mcp.operons.kai.providers.scopes import (
     SCOPE_GEMINI,
-    SCOPE_LOCAL,
     SCOPE_OPENAI,
-    SCOPE_PRIVATE_ANY,
     SCOPE_SELF_HOSTED,
 )
-
 
 # ---------------------------------------------------------------------------
 # Test doubles
@@ -128,7 +124,7 @@ async def test_dispatch_rejects_invalid_token(fresh_registry, capture_audit):
     with pytest.raises(ConsentScopeViolation):
         await dispatch(
             CompletionRequest(prompt="hi"),
-            consent_token="HCT:not-a-real-token.invalid-signature",
+            consent_token="HCT:not-a-real-token.invalid-signature",  # noqa: S106 - intentionally invalid
             provider_name="gemini",
         )
 
@@ -205,7 +201,7 @@ async def test_dispatch_writes_one_audit_record_per_call(fresh_registry, capture
 async def test_dispatch_audit_record_contains_no_prompt_plaintext(fresh_registry, capture_audit):
     cloud = RecordingProvider(name="openai")
     register(cloud)
-    secret = "my retirement portfolio is $4.2M in Vanguard funds"
+    secret = "my retirement portfolio is $4.2M in Vanguard funds"  # noqa: S105 - test fixture
     token = issue_token(user_id="u1", agent_id="agent_kai", scope=SCOPE_OPENAI)
     token_str = token.token if hasattr(token, "token") else str(token)
     await dispatch(
