@@ -16,6 +16,7 @@ from reflection_engine.reflection_router import process_reflections
 from relationship_engine.relationship_router import process_relationships
 from planning_engine.planning_router import process_goal
 from evolution_engine.evolution_router import process_evolution
+from metacognition_engine.metacognition_router import process_metacognition
 
 # =========================================================
 # FASTAPI INITIALIZATION
@@ -467,6 +468,44 @@ def memory_evolution():
         )
 
         return evolution_results
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+    # =========================================================
+# META-COGNITIVE SELF-EVALUATION ENGINE
+# =========================================================
+
+@app.get("/meta-cognition")
+def meta_cognition():
+
+    try:
+
+        results = collection.get()
+
+        documents = results.get("documents", [])
+
+        metadatas = results.get("metadatas", [])
+
+        combined_memories = []
+
+        for doc, metadata in zip(documents, metadatas):
+
+            combined_memories.append(
+                {
+                    "document": doc,
+                    "metadata": metadata
+                }
+            )
+
+        metacognition_results = process_metacognition(
+            combined_memories
+        )
+
+        return metacognition_results
 
     except Exception as error:
 
