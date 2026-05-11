@@ -19,6 +19,7 @@ from evolution_engine.evolution_router import process_evolution
 from metacognition_engine.metacognition_router import process_metacognition
 from multiagent_engine.coordination_router import process_multiagent_coordination
 from executive_engine.executive_router import process_executive_reasoning
+from simulation_engine.simulation_router import process_simulation
 
 # =========================================================
 # FASTAPI INITIALIZATION
@@ -61,6 +62,8 @@ class QueryInput(BaseModel):
 class GoalInput(BaseModel):
     goal: str
 
+class SimulationInput(BaseModel):
+    scenario: str
 
 class ChatInput(BaseModel):
     message: str
@@ -584,6 +587,48 @@ def executive_decision():
         )
 
         return executive_results
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+    # =========================================================
+# AUTONOMOUS COGNITIVE SIMULATION SANDBOX ENGINE
+# =========================================================
+
+@app.post("/simulate-cognition")
+def simulate_cognition(simulation_input: SimulationInput):
+
+    try:
+
+        results = collection.get()
+
+        documents = results.get("documents", [])
+
+        metadatas = results.get("metadatas", [])
+
+        combined_memories = []
+
+        for doc, metadata in zip(documents, metadatas):
+
+            combined_memories.append(
+                {
+                    "document": doc,
+                    "metadata": metadata
+                }
+            )
+
+        simulation_results = process_simulation(
+            combined_memories
+        )
+
+        simulation_results["custom_scenario"] = (
+            simulation_input.scenario
+        )
+
+        return simulation_results
 
     except Exception as error:
 
