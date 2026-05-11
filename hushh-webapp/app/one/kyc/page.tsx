@@ -1,5 +1,17 @@
 "use client";
 
+// --- START OF MOUNT GUARD FIX ---
+  const [isMounted, setIsMounted] = React.useState(false);
+  
+  React.useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  if (!isMounted) {
+    return null; // Bypasses SSR build crash for undefined config
+  }
+  // --- END OF MOUNT GUARD FIX ---
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, Inbox, RefreshCw, Send, ShieldCheck, Wand2, XCircle } from "lucide-react";
