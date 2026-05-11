@@ -148,7 +148,7 @@ async def logout_session(
 
 @router.get("/consent/history")
 async def get_consent_history(
-    userId: str,
+    userId: str = Query(..., min_length=1, max_length=256),
     page: int = Query(default=1, ge=1, le=10_000),
     limit: int = Query(default=50, ge=1, le=200),
     token_data: dict = Depends(require_vault_owner_token),
@@ -207,7 +207,7 @@ async def get_consent_history(
 
 @router.get("/consent/active")
 async def get_active_consents(
-    userId: str,
+    userId: str = Query(..., min_length=1, max_length=256),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """

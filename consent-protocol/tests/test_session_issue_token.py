@@ -313,6 +313,44 @@ def test_consent_history_rejects_oversized_limit():
     assert response.status_code == 422
 
 
+
+def test_consent_history_rejects_oversized_userid():
+    app = _build_app()
+
+    app.dependency_overrides[
+        session.require_vault_owner_token
+    ] = lambda: {"user_id": "user_123"}
+
+    client = TestClient(app)
+
+    oversized_userid = "A" * 5000
+
+    response = client.get(
+        "/api/consent/history",
+        params={"userId": oversized_userid},
+    )
+
+    assert response.status_code == 422
+
+
+def test_active_consents_rejects_oversized_userid():
+    app = _build_app()
+
+    app.dependency_overrides[
+        session.require_vault_owner_token
+    ] = lambda: {"user_id": "user_123"}
+
+    client = TestClient(app)
+
+    oversized_userid = "A" * 5000
+
+    response = client.get(
+        "/api/consent/active",
+        params={"userId": oversized_userid},
+    )
+
+    assert response.status_code == 422
+
 def test_logout_invalid_firebase_token_returns_401(monkeypatch):
     def _raise_invalid_token(_authorization: str | None) -> str:
         raise ValueError("malformed firebase token")
