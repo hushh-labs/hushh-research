@@ -206,7 +206,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
   }, [user?.uid, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
-    if (!user?.uid || !vaultKey) {
+    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
       return;
     }
 
@@ -225,10 +225,11 @@ export function VaultProvider({ children }: VaultProviderProps) {
           userId: user.uid,
           domain: "financial",
           vaultKey,
+          vaultOwnerToken,
         })
       )
       .catch(() => null);
-  }, [user?.uid, vaultKey]);
+  }, [user?.uid, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
     if (!user?.uid || !vaultKey || !vaultOwnerToken) {

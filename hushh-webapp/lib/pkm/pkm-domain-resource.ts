@@ -155,7 +155,7 @@ export class PkmDomainResourceService {
   static async hydrateFromSecureCache(
     params: PkmDomainResourceParams
   ): Promise<PkmDomainResourceSnapshot | null> {
-    if (!params.vaultKey) {
+    if (!params.vaultKey || !hasUserConsent(params)) {
       return null;
     }
     const resourceKey = toDeviceResourceKey(params);
@@ -311,7 +311,7 @@ export class PkmDomainResourceService {
   static async refresh(
     params: PkmDomainResourceParams
   ): Promise<PkmDomainResourceSnapshot | null> {
-    if (!params.userId || !params.domain || !params.vaultKey) {
+    if (!params.userId || !params.domain || !params.vaultKey || !hasUserConsent(params)) {
       return null;
     }
 
