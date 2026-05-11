@@ -26,12 +26,18 @@ vi.mock("@/lib/services/auth-service", () => ({
   },
 }));
 
+// Mock progress tracker to avoid dynamic import overhead in tests
+vi.mock("../motion/api-progress-tracker", () => ({
+  trackRequestStart: vi.fn(),
+  trackRequestEnd: vi.fn(),
+}));
+
 describe("ApiService consent token plumbing", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("fails fast for protected consent methods when token is missing", async () => {
+  it("fails fast for protected consent methods when token is missing", { timeout: 10000 }, async () => {
     const { ApiService } = await import("../../../lib/services/api-service");
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 

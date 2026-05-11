@@ -1,6 +1,6 @@
 "use client";
 
-import { Children, cloneElement, isValidElement } from "react";
+import { cloneElement, forwardRef, isValidElement } from "react";
 import type { ReactElement, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { ChevronRight } from "lucide-react";
@@ -24,18 +24,6 @@ import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 
 type ChildWithProps = ReactElement<{ className?: string; children?: ReactNode }>;
-
-function containsInteractiveNode(node: ReactNode, depth = 0): boolean {
-  if (depth > 5) return false;
-  return Children.toArray(node).some((child) => {
-    if (!isValidElement(child)) return false;
-    const type = child.type as any;
-    if (typeof type === "string" && ["button", "a", "input", "select", "textarea"].includes(type)) return true;
-    const displayName = type?.displayName?.toLowerCase() || "";
-    if (displayName.includes("button") || displayName.includes("switch") || displayName.includes("checkbox")) return true;
-    return containsInteractiveNode((child.props as any)?.children, depth + 1);
-  });
-}
 
 export const SettingsSegmentedTabs = SegmentedTabs;
 
@@ -88,7 +76,28 @@ export function SettingsGroup({
   );
 }
 
-export function SettingsRow({
+export const SettingsRow = forwardRef<
+  HTMLDivElement,
+  {
+    asChild?: boolean;
+    children?: ReactNode;
+    icon?: LucideIcon;
+    leading?: ReactNode;
+    title: ReactNode;
+    description?: ReactNode;
+    trailing?: ReactNode;
+    onClick?: () => void;
+    chevron?: boolean;
+    disabled?: boolean;
+    tone?: "default" | "destructive";
+    stackTrailingOnMobile?: boolean;
+    className?: string;
+    voiceControlId?: string;
+    voiceActionId?: string;
+    voiceLabel?: string;
+    voicePurpose?: string;
+  }
+>(({
   asChild = false,
   children,
   icon,
@@ -106,30 +115,16 @@ export function SettingsRow({
   voiceActionId,
   voiceLabel,
   voicePurpose,
-}: {
-  asChild?: boolean;
-  children?: ReactNode;
-  icon?: LucideIcon;
-  leading?: ReactNode;
-  title: ReactNode;
-  description?: ReactNode;
-  trailing?: ReactNode;
-  onClick?: () => void;
-  chevron?: boolean;
-  disabled?: boolean;
-  tone?: "default" | "destructive";
-  stackTrailingOnMobile?: boolean;
-  className?: string;
-  voiceControlId?: string;
-  voiceActionId?: string;
-  voiceLabel?: string;
-  voicePurpose?: string;
-}) {
+  ...props
+}, ref) => {
   const isMobile = useIsMobile();
-  const hasInteractiveTrailing = containsInteractiveNode(trailing);
   const isClickable = !!onClick && !disabled;
 
-  const Comp = asChild ? Slot : isClickable ? "button" : "div";
+  const baseStyles = cn(
+    "group relative flex flex-wrap items-center overflow-hidden transition-colors px-4 min-h-[3.5rem]",
+    isClickable && "cursor-pointer select-none hover:bg-foreground/[0.02] active:bg-foreground/[0.04]",
+    className
+  );
 
   const voiceProps = {
     "data-voice-control-id": voiceControlId,
@@ -160,57 +155,58 @@ export function SettingsRow({
   );
 
   const trailingSection = (trailing || chevron) && (
-    <div className={cn(
-      "flex shrink-0 items-center gap-2 pl-2 pr-4",
-      stackTrailingOnMobile && isMobile && "w-full pb-3 pl-11"
-    )}>
+    <div
+      className={cn(
+        "flex shrink-0 items-center gap-2 pl-2",
+        stackTrailingOnMobile && isMobile && "w-full pb-3 pl-11"
+      )}
+      onClick={(e) => e.stopPropagation()}
+    >
       {trailing}
       {chevron && <ChevronRight className="h-4 w-4 opacity-40" />}
     </div>
   );
 
-  const asChildContent =
-    asChild && isValidElement(children)
-      ? cloneElement(children as ChildWithProps, {
-        className: cn((children.props as any)?.className, "w-full flex items-center"),
-        children: (
-          <>
-            {mainContent}
-            {trailingSection}
-          </>
-        ),
-      })
-      : children;
+  const innerContent = (
+    <>
+      {mainContent}
+      {trailingSection}
+      {isClickable && <MaterialRipple className="z-0" />}
+    </>
+  );
+
+  if (asChild && isValidElement(children)) {
+    return (
+      <Slot
+        ref={ref}
+        className={cn(baseStyles, (children.props as any).className)}
+        {...voiceProps}
+        {...props}
+      >
+        {cloneElement(children as ChildWithProps, {
+          children: innerContent,
+        })}
+      </Slot>
+    );
+  }
+
+  const Comp = isClickable ? "button" : "div";
 
   return (
-    <div className={cn(
-      "group relative flex flex-wrap items-center overflow-hidden transition-colors",
-      isClickable && "hover:bg-foreground/[0.02] active:bg-foreground/[0.04]",
-      className
-    )}>
-      <Comp
-        {...(isClickable ? { onClick, type: "button" } : {})}
-        className={cn(
-          "flex min-w-0 flex-1 items-center text-left outline-none border-none bg-transparent px-4",
-          isClickable ? "cursor-pointer select-none" : "cursor-default"
-        )}
-        {...voiceProps}
-      >
-        {asChild ? asChildContent : (
-          <>
-            {mainContent}
-            {trailingSection}
-          </>
-        )}
-        {isClickable && <MaterialRipple className="z-0" />}
-      </Comp>
-
-      <div className={cn("relative z-10", !hasInteractiveTrailing && "pointer-events-none")}>
-        {!asChild && trailingSection}
-      </div>
-    </div>
+    <Comp
+      ref={ref as any}
+      className={baseStyles}
+      onClick={isClickable ? onClick : undefined}
+      {...voiceProps}
+      {...props}
+    >
+      {innerContent}
+    </Comp>
   );
-}
+});
+
+SettingsRow.displayName = "SettingsRow";
+
 
 export function SettingsDetailPanel({
   open,
