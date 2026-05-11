@@ -15,6 +15,7 @@ from importance_engine.priority_router import process_priority_memories
 from reflection_engine.reflection_router import process_reflections
 from relationship_engine.relationship_router import process_relationships
 from planning_engine.planning_router import process_goal
+from evolution_engine.evolution_router import process_evolution
 
 # =========================================================
 # FASTAPI INITIALIZATION
@@ -428,6 +429,44 @@ def generate_plan(goal_input: GoalInput):
         )
 
         return planning_results
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+    # =========================================================
+# ADAPTIVE MEMORY EVOLUTION ENGINE
+# =========================================================
+
+@app.get("/memory-evolution")
+def memory_evolution():
+
+    try:
+
+        results = collection.get()
+
+        documents = results.get("documents", [])
+
+        metadatas = results.get("metadatas", [])
+
+        combined_memories = []
+
+        for doc, metadata in zip(documents, metadatas):
+
+            combined_memories.append(
+                {
+                    "document": doc,
+                    "metadata": metadata
+                }
+            )
+
+        evolution_results = process_evolution(
+            combined_memories
+        )
+
+        return evolution_results
 
     except Exception as error:
 
