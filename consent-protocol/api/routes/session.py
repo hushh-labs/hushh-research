@@ -102,13 +102,37 @@ async def issue_session_token(
 
 
 @router.post("/consent/logout")
-async def logout_session(request: LogoutRequest):
+async def logout_session(
+    request: LogoutRequest,
+    authorization: Optional[str] = Header(None),
+):
     """
     Destroy all session tokens for a user.
 
     Called when user logs out. Invalidates all active session tokens.
     External API tokens are NOT affected.
     """
+
+    try:
+        verified_uid = verify_firebase_bearer(authorization)
+
+        # Ensure request userId matches verified token
+        if request.userId != verified_uid:
+            logger.warning("session_logout.user_mismatch")
+            raise HTTPException(status_code=403, detail="userId mismatch")
+
+        logger.info("session_logout.firebase_verified")
+
+    except HTTPException:
+        raise
+
+    except ValueError as e:
+        logger.warning("session_logout.invalid_token: %s", e)
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    except Exception as e:
+        logger.error("session_logout.internal_error: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
     logger.info("session.logout")
 
