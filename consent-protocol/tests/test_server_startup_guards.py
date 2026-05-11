@@ -104,3 +104,46 @@ def test_schema_guard_still_fails_when_required_tables_are_missing(
         RuntimeError, match="Required runtime tables are missing: runtime_persona_state"
     ):
         asyncio.run(server.startup_required_schema_guard())
+
+
+def test_market_cache_table_startup_warns_and_continues_in_development(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    class _FailingMarketCacheStore:
+        async def ensure_table(self):
+            raise ConnectionRefusedError("db offline")
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.delenv("REQUIRE_DATABASE_ON_STARTUP", raising=False)
+    monkeypatch.setattr(
+        "hushh_mcp.services.market_cache_store.get_market_cache_store_service",
+        lambda: _FailingMarketCacheStore(),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        asyncio.run(server.startup_market_cache_store_table())
+
+    assert "startup.market_cache_store_table_skipped" in caplog.text
+
+
+def test_market_cache_table_startup_fails_when_database_required(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    class _FailingMarketCacheStore:
+        async def ensure_table(self):
+            raise ConnectionRefusedError("db offline")
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("REQUIRE_DATABASE_ON_STARTUP", raising=False)
+    monkeypatch.setattr(
+        "hushh_mcp.services.market_cache_store.get_market_cache_store_service",
+        lambda: _FailingMarketCacheStore(),
+    )
+
+    with caplog.at_level(logging.CRITICAL):
+        with pytest.raises(ConnectionRefusedError, match="db offline"):
+            asyncio.run(server.startup_market_cache_store_table())
+
+    assert "startup.market_cache_store_table_failed" in caplog.text

@@ -131,7 +131,9 @@ def validate_token(
 
     try:
         prefix, signed_part = token_str.split(":", 1)
-        encoded, signature = signed_part.split(".")
+        if "." not in signed_part:
+            return False, "Malformed token", None
+        encoded, signature = signed_part.split(".", 1)
 
         if prefix != CONSENT_TOKEN_PREFIX:
             return False, "Invalid token prefix", None
@@ -184,7 +186,7 @@ def validate_token(
                     None,
                 )
 
-        if int(time.time() * 1000) > int(expires_at_str):
+        if int(time.time() * 1000) >= int(expires_at_str):
             return False, "Token expired", None
 
         # Commercial-flag gate (issue #30).

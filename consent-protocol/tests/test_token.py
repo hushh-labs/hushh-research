@@ -49,6 +49,42 @@ def test_token_expiry():
     assert reason == "Token expired"
 
 
+def test_token_expiry_boundary():
+    token_obj = issue_token(
+        USER_ID,
+        AGENT_ID,
+        VALID_SCOPE,
+        expires_in_ms=0,
+    )
+
+    valid, reason, _ = validate_token(token_obj.token, VALID_SCOPE)
+
+    assert valid is False
+    assert reason == "Token expired"
+
+
+def test_token_missing_signature_separator_is_malformed():
+    token_obj = issue_token(USER_ID, AGENT_ID, VALID_SCOPE)
+    prefix, signed_part = token_obj.token.split(":", 1)
+    encoded, _ = signed_part.split(".", 1)
+
+    valid, reason, parsed = validate_token(f"{prefix}:{encoded}", VALID_SCOPE)
+
+    assert valid is False
+    assert reason == "Malformed token"
+    assert parsed is None
+
+
+def test_token_extra_signature_separator_fails_without_crashing():
+    token_obj = issue_token(USER_ID, AGENT_ID, VALID_SCOPE)
+
+    valid, reason, parsed = validate_token(f"{token_obj.token}.extra", VALID_SCOPE)
+
+    assert valid is False
+    assert reason == "Invalid signature"
+    assert parsed is None
+
+
 def test_token_revocation():
     token_obj = issue_token(USER_ID, AGENT_ID, VALID_SCOPE)
     revoke_token(token_obj.token)
