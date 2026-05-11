@@ -1017,11 +1017,106 @@ async def test_send_approved_reply_revalidates_consent_and_sends_transient_body(
     assert parsed["Subject"] == "Broker API KYC questionnaire"
     assert parsed["In-Reply-To"] == "<m1@example.com>"
     assert parsed["References"] == "<m1@example.com>"
+    assert sent_payloads[0].keys() == {"raw", "threadId"}
     assert sent_payloads[0]["threadId"] == "gmail_thread_1"
     assert sent["sent_thread_id"] == "gmail_thread_1"
     assert sent["thread_match_status"] == "matched"
     assert parsed.get_payload() == "Approved KYC reply body\n"
     assert "Approved KYC reply body" not in json.dumps(db.workflows, default=str)
+
+
+@pytest.mark.asyncio
+async def test_send_approved_reply_requires_original_gmail_thread_before_send():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+    result = await service._process_message(
+        _message(body="Broker KYC questionnaire asking for full name."),
+        history_id="105a",
+    )
+    workflow_with_consent = await _select_identity_scope(service, result["workflow"])
+    request_id = workflow_with_consent["consent_request_id"]
+    consent_db.status_by_request[request_id] = {
+        "action": "CONSENT_GRANTED",
+        "token_id": "token_no_thread",
+    }
+    consent_db.export_by_token["token_no_thread"] = _encrypted_export(
+        {"identity": {"full_name": "Test Reviewer"}}
+    )
+    workflow = await service.refresh_workflow(
+        user_id="user_123",
+        workflow_id=workflow_with_consent["workflow_id"],
+    )
+    db.workflows[0]["gmail_thread_id"] = None
+    send_called = False
+
+    def _capture_send(url, *, json_payload, scopes):
+        nonlocal send_called
+        send_called = True
+        return {"id": "gmail_sent_no_thread", "threadId": "new_thread"}
+
+    service._post_json_sync = _capture_send
+
+    with pytest.raises(OneEmailKycError) as exc:
+        await service.send_approved_reply(
+            user_id="user_123",
+            workflow_id=workflow["workflow_id"],
+            approved_subject=workflow["draft_subject"],
+            approved_body="Approved KYC reply body",
+            consent_export_revision=1,
+            pkm_writeback_artifact_hash="a" * 64,
+        )
+
+    assert exc.value.code == "ONE_KYC_ORIGINAL_THREAD_REQUIRED"
+    assert send_called is False
+    failed = await service.get_workflow(user_id="user_123", workflow_id=workflow["workflow_id"])
+    assert failed["send_status"] == "failed"
+    assert failed["pkm_writeback_status"] == "not_started"
+
+
+@pytest.mark.asyncio
+async def test_send_approved_reply_fails_if_gmail_returns_different_thread():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+    result = await service._process_message(
+        _message(body="Broker KYC questionnaire asking for full name."),
+        history_id="105b",
+    )
+    workflow_with_consent = await _select_identity_scope(service, result["workflow"])
+    request_id = workflow_with_consent["consent_request_id"]
+    consent_db.status_by_request[request_id] = {
+        "action": "CONSENT_GRANTED",
+        "token_id": "token_mismatch_thread",
+    }
+    consent_db.export_by_token["token_mismatch_thread"] = _encrypted_export(
+        {"identity": {"full_name": "Test Reviewer"}}
+    )
+    workflow = await service.refresh_workflow(
+        user_id="user_123",
+        workflow_id=workflow_with_consent["workflow_id"],
+    )
+
+    service._post_json_sync = lambda url, *, json_payload, scopes: {
+        "id": "gmail_sent_wrong_thread",
+        "threadId": "gmail_thread_new",
+    }
+    service._fetch_message = lambda message_id: {"id": message_id, "threadId": "gmail_thread_new"}
+
+    with pytest.raises(OneEmailKycError) as exc:
+        await service.send_approved_reply(
+            user_id="user_123",
+            workflow_id=workflow["workflow_id"],
+            approved_subject=workflow["draft_subject"],
+            approved_body="Approved KYC reply body",
+            consent_export_revision=1,
+            pkm_writeback_artifact_hash="a" * 64,
+        )
+
+    assert exc.value.code == "ONE_KYC_THREAD_MISMATCH"
+    failed = await service.get_workflow(user_id="user_123", workflow_id=workflow["workflow_id"])
+    assert failed["send_status"] == "failed"
+    assert failed["pkm_writeback_status"] == "not_started"
 
 
 @pytest.mark.asyncio
@@ -1133,7 +1228,11 @@ async def test_writeback_complete_updates_metadata_without_plaintext():
         user_id="user_123",
         workflow_id=workflow_with_consent["workflow_id"],
     )
-    service._post_json_sync = lambda url, *, json_payload, scopes: {"id": "gmail_sent_writeback"}
+    service._post_json_sync = lambda url, *, json_payload, scopes: {
+        "id": "gmail_sent_writeback",
+        "threadId": "gmail_thread_1",
+    }
+    service._fetch_message = lambda message_id: {"id": message_id, "threadId": "gmail_thread_1"}
     sent = await service.send_approved_reply(
         user_id="user_123",
         workflow_id=workflow["workflow_id"],
@@ -1179,7 +1278,11 @@ async def test_writeback_complete_requires_declared_artifact_hash_match():
         user_id="user_123",
         workflow_id=workflow_with_consent["workflow_id"],
     )
-    service._post_json_sync = lambda url, *, json_payload, scopes: {"id": "gmail_sent_writeback"}
+    service._post_json_sync = lambda url, *, json_payload, scopes: {
+        "id": "gmail_sent_writeback",
+        "threadId": "gmail_thread_1",
+    }
+    service._fetch_message = lambda message_id: {"id": message_id, "threadId": "gmail_thread_1"}
     sent = await service.send_approved_reply(
         user_id="user_123",
         workflow_id=workflow["workflow_id"],

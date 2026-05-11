@@ -2721,10 +2721,14 @@ class OneEmailKycService:
             msg["References"] = references
         msg.set_content(approved_body)
         encoded = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
-        payload: dict[str, Any] = {"raw": encoded}
         thread_id = _clean_text(workflow.get("gmail_thread_id"))
-        if thread_id:
-            payload["threadId"] = thread_id
+        if not thread_id:
+            raise OneEmailKycError(
+                "KYC approved replies require the original Gmail thread.",
+                status_code=409,
+                code="ONE_KYC_ORIGINAL_THREAD_REQUIRED",
+            )
+        payload: dict[str, Any] = {"raw": encoded, "threadId": thread_id}
         send_result = self._post_json_sync(
             f"{_GMAIL_MESSAGES_URL}/send",
             json_payload=payload,
@@ -2742,16 +2746,20 @@ class OneEmailKycService:
                     workflow.get("workflow_id"),
                     exc,
                 )
-        if thread_id and sent_thread_id:
-            thread_match_status = "matched" if sent_thread_id == thread_id else "mismatched"
-        elif thread_id:
-            thread_match_status = "unknown"
-        else:
-            thread_match_status = "not_applicable"
+        if sent_thread_id != thread_id:
+            raise OneEmailKycError(
+                "Gmail did not preserve the original KYC thread for the approved reply.",
+                status_code=502,
+                code="ONE_KYC_THREAD_MISMATCH",
+                payload={
+                    "expected_thread_id": thread_id,
+                    "sent_thread_id": sent_thread_id or None,
+                },
+            )
         return {
             **send_result,
-            "threadId": sent_thread_id or send_result.get("threadId"),
-            "thread_match_status": thread_match_status,
+            "threadId": sent_thread_id,
+            "thread_match_status": "matched",
         }
 
     def _get_mailbox_state(self) -> dict[str, Any] | None:
