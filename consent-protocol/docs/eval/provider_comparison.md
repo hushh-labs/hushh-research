@@ -5,7 +5,7 @@ Both providers reached via the same consent-scoped `dispatch()` call path.
 
 ## Visual Context
 
-Canonical visual owner: [consent-protocol README](../../README.md). That module docstring is the canonical map for the Kai eval harness; this comparison report is one captured run beneath it.
+Canonical visual owner: [Kai Reference README](../../../docs/reference/kai/README.md). That index is the canonical map for Kai changes; this comparison report is one captured run beneath the Kai inference subsystem.
 
 | | Local | Cloud |
 |---|---|---|

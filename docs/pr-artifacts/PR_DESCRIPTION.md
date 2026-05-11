@@ -6,7 +6,7 @@ The change is additive and behaviour-preserving: when no consent token is passed
 
 ## Visual Context
 
-Canonical visual owner: [consent-protocol README](../../consent-protocol/README.md). That index is the canonical map for backend changes; this PR is one slice beneath it (LLM provider adapter, scope hierarchy, self-hosted deployment).
+Canonical visual owner: [Kai Reference README](../reference/kai/README.md). That index is the canonical map for Kai changes; this PR is one slice beneath it (LLM provider adapter, scope hierarchy, self-hosted deployment).
 
 | Layer | What changed | Where to look |
 |---|---|---|
