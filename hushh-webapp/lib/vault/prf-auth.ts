@@ -1,4 +1,4 @@
-// lib/vault/prf-auth.ts
+﻿// lib/vault/prf-auth.ts
 
 /**
  * PRF-Based Passkey Authentication
