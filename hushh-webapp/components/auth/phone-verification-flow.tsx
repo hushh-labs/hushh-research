@@ -379,6 +379,7 @@ export function PhoneVerificationFlow({
               >
                 <ComboboxInput
                   id="phone-flow-country"
+                  aria-label="Country code"
                   placeholder="Search country code"
                   value={countryQuery}
                   onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
@@ -423,6 +424,7 @@ export function PhoneVerificationFlow({
               <InputGroup className={FLOW_CONTROL_SHELL_CLASS_NAME}>
                 <InputGroupInput
                   id="phone-flow-number"
+                  aria-label="Phone number"
                   type="tel"
                   inputMode="tel"
                   autoComplete="tel-national"
@@ -479,6 +481,7 @@ export function PhoneVerificationFlow({
             <InputGroup className={FLOW_CONTROL_SHELL_CLASS_NAME}>
               <InputGroupInput
                 id="phone-flow-code"
+                aria-label="One-time verification code"
                 type="text"
                 inputMode="numeric"
                 autoComplete="one-time-code"
