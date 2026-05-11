@@ -1,4 +1,6 @@
 "use client";
+import { ApiRetryState } from "@/components/system/api-retry-state";
+
 
 import Link from "next/link";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
@@ -576,6 +578,9 @@ export function ConsentCenterPage() {
   const [searchValue, setSearchValue] = useState(searchParams.get("q") || "");
   const deferredQuery = useDeferredValue(searchValue.trim());
   const [mutationTick, setMutationTick] = useState(0);
+  const retryConsentCenter = () => {
+  setMutationTick((value) => value + 1);
+};
   const summaryCacheKey = user?.uid
     ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(user.uid, `${actor}:${mode}`)
     : "consent_center_summary_guest";
@@ -984,6 +989,7 @@ export function ConsentCenterPage() {
 
             <SettingsGroup embedded>
               <div className="px-4 py-4">
+            
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -1009,11 +1015,19 @@ export function ConsentCenterPage() {
             <section data-testid="consent-manager-list">
               <SettingsGroup embedded>
                 <div className="space-y-2 px-2 py-2">
-                  {listResource.loading && items.length === 0 ? (
-                    <div className="px-3 py-6 text-sm text-muted-foreground">
-                      Loading consent entries…
-                    </div>
-                  ) : null}
+  {listResource.error || centerResource.error || summaryResource.error ? (
+    <ApiRetryState
+      title="Unable to refresh consent data"
+      description="Consent data could not be loaded right now. Retry to refresh the latest consent state."
+      onRetry={retryConsentCenter}
+    />
+  ) : null}
+
+  {listResource.loading && items.length === 0 ? (
+  <div className="px-3 py-6 text-sm text-muted-foreground">
+    Loading consent entries…
+  </div>
+) : null}
                   {!listResource.loading && tab !== "relationships" && items.length === 0 ? (
                     <div className="px-3 py-8 text-sm text-muted-foreground">
                       No {tab} entries match this view right now.
@@ -1024,32 +1038,35 @@ export function ConsentCenterPage() {
                       No relationship entries match this view right now.
                     </div>
                   ) : null}
-                  {tab === "history" && items.length > 0 ? (
-                    <ConsentAuditTimeline
-                      entries={items}
-                      selectedId={selectedId}
-                      onSelect={(entry) =>
-                        setParam({
-                          requestId: entry.request_id || entry.id,
-                        })
-                      }
-                      resolveCounterpartLabel={resolveCounterpartLabel}
-                      summarizeEntry={entrySummary}
-                    />
-                  ) : (
-                    items.map((entry) => (
-                      <ConsentEntryRow
-                        key={entry.id}
-                        entry={entry}
-                        selected={selectedEntry?.id === entry.id}
-                        onSelect={() =>
-                          setParam({
-                            requestId: entry.request_id || entry.id,
-                          })
-                        }
-                      />
-                    ))
-                  )}
+                 {tab === "history" && items.length > 0 ? (
+  <ConsentAuditTimeline
+    entries={items}
+    selectedId={selectedId}
+    onSelect={(entry) =>
+      setParam({
+        requestId: entry.request_id || entry.id,
+      })
+    }
+    resolveCounterpartLabel={resolveCounterpartLabel}
+    summarizeEntry={entrySummary}
+  />
+) : (
+  items.map((entry) => (
+    <ConsentEntryRow
+      key={entry.id}
+      entry={entry}
+      selected={
+        selectedEntry?.id === entry.id ||
+        selectedEntry?.request_id === entry.request_id
+      }
+      onSelect={() =>
+        setParam({
+          requestId: entry.request_id || entry.id,
+        })
+      }
+    />
+  ))
+)}
                 </div>
 
                 {tab !== "relationships" && listData ? (
