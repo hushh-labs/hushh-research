@@ -36,6 +36,9 @@ export function HushhLoader({
 
   return (
     <div
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
       className={cn(
         "flex items-center justify-center",
         isFullscreen
