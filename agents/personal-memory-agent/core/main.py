@@ -20,6 +20,7 @@ from metacognition_engine.metacognition_router import process_metacognition
 from multiagent_engine.coordination_router import process_multiagent_coordination
 from executive_engine.executive_router import process_executive_reasoning
 from simulation_engine.simulation_router import process_simulation
+from optimization_engine.optimization_router import process_recursive_optimization
 
 # =========================================================
 # FASTAPI INITIALIZATION
@@ -629,6 +630,44 @@ def simulate_cognition(simulation_input: SimulationInput):
         )
 
         return simulation_results
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+    # =========================================================
+# RECURSIVE SELF-IMPROVEMENT OPTIMIZATION ENGINE
+# =========================================================
+
+@app.get("/recursive-optimization")
+def recursive_optimization():
+
+    try:
+
+        results = collection.get()
+
+        documents = results.get("documents", [])
+
+        metadatas = results.get("metadatas", [])
+
+        combined_memories = []
+
+        for doc, metadata in zip(documents, metadatas):
+
+            combined_memories.append(
+                {
+                    "document": doc,
+                    "metadata": metadata
+                }
+            )
+
+        optimization_results = process_recursive_optimization(
+            combined_memories
+        )
+
+        return optimization_results
 
     except Exception as error:
 
