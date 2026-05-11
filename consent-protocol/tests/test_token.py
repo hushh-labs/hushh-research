@@ -65,3 +65,12 @@ def test_signature_tampering():
     valid, reason, _ = validate_token(tampered, VALID_SCOPE)
     assert valid is False
     assert "Malformed token" in reason or "Invalid token prefix" in reason
+
+def test_invalid_base64_token_is_rejected():
+    malformed = "HCT:%%%%.signature"
+
+    valid, reason, token = validate_token(malformed)
+
+    assert valid is False
+    assert "Malformed token" in reason
+    assert token is None

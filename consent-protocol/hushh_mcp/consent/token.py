@@ -1,6 +1,7 @@
 # hushh_mcp/consent/token.py
 
 import base64
+import binascii
 import hashlib
 import hmac
 import logging
@@ -205,7 +206,7 @@ def validate_token(
         )
         return True, None, token
 
-    except (ValueError, UnicodeDecodeError) as e:
+    except (ValueError, UnicodeDecodeError, binascii.Error) as e:
         return False, f"Malformed token: {str(e)}", None
     except Exception as e:
         logger.error(f"Unexpected error during token validation: {e}", exc_info=True)
