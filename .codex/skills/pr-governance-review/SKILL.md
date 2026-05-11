@@ -61,8 +61,9 @@ Always start with current repo/GitHub truth, not memory:
 Load these only when the decision needs them:
 
 1. `.codex/skills/pr-governance-review/references/operator-batch-output-contract.md`
-2. `.codex/skills/pr-governance-review/references/blocker-gates.md`
-3. `.codex/skills/pr-governance-review/references/comment-and-report-contract.md`
+2. `.codex/skills/pr-governance-review/references/operator-question-fixtures.json`
+3. `.codex/skills/pr-governance-review/references/blocker-gates.md`
+4. `.codex/skills/pr-governance-review/references/comment-and-report-contract.md`
 
 ## Workflow
 

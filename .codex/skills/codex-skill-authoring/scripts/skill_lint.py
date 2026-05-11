@@ -516,6 +516,9 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
     pr_operator_contract = (
         SKILLS_ROOT / "pr-governance-review" / "references" / "operator-batch-output-contract.md"
     )
+    pr_operator_question_fixtures = (
+        SKILLS_ROOT / "pr-governance-review" / "references" / "operator-question-fixtures.json"
+    )
     pr_review_script = SKILLS_ROOT / "pr-governance-review" / "scripts" / "pr_review_checklist.py"
 
     if comms_skill.exists():
@@ -640,6 +643,78 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
                 errors.append(
                     f"{pr_operator_contract.relative_to(REPO_ROOT)}: missing operator-batch contract phrase `{phrase}`"
                 )
+
+    if pr_operator_question_fixtures.exists():
+        fixtures_doc = load_json(pr_operator_question_fixtures)
+        fixtures = fixtures_doc.get("fixtures", [])
+        fixture_required_fields = [
+            "id",
+            "operator_prompt",
+            "evidence_sources",
+            "current_truth",
+            "recommended_path",
+            "risk_if_accepted_blindly",
+            "decision_needed",
+            "options",
+        ]
+        if fixtures_doc.get("schema_version") != "operator-question-fixtures.v1":
+            errors.append(
+                f"{pr_operator_question_fixtures.relative_to(REPO_ROOT)}: unexpected schema_version"
+            )
+        if not isinstance(fixtures, list) or not fixtures:
+            errors.append(
+                f"{pr_operator_question_fixtures.relative_to(REPO_ROOT)}: must define at least one fixture"
+            )
+        for index, fixture in enumerate(fixtures):
+            origin = f"{pr_operator_question_fixtures.relative_to(REPO_ROOT)} fixture[{index}]"
+            if not isinstance(fixture, dict):
+                errors.append(f"{origin}: must be an object")
+                continue
+            for field in fixture_required_fields:
+                if field not in fixture:
+                    errors.append(f"{origin}: missing `{field}`")
+            for field in [
+                "id",
+                "operator_prompt",
+                "current_truth",
+                "recommended_path",
+                "risk_if_accepted_blindly",
+                "decision_needed",
+            ]:
+                value = fixture.get(field)
+                if not isinstance(value, str) or not value.strip():
+                    errors.append(f"{origin}: `{field}` must be a non-empty string")
+            evidence_sources = fixture.get("evidence_sources")
+            if not isinstance(evidence_sources, list) or not evidence_sources:
+                errors.append(f"{origin}: `evidence_sources` must be a non-empty list")
+            else:
+                for source in evidence_sources:
+                    if not isinstance(source, str) or not source.strip():
+                        errors.append(f"{origin}: each evidence source must be a non-empty string")
+                    elif not path_exists(source):
+                        errors.append(f"{origin}: evidence source `{source}` does not exist")
+            options = fixture.get("options")
+            if not isinstance(options, list) or len(options) < 2:
+                errors.append(f"{origin}: `options` must include at least two choices")
+                continue
+            recommended_count = sum(
+                1 for option in options if isinstance(option, dict) and option.get("recommended") is True
+            )
+            if recommended_count != 1:
+                errors.append(f"{origin}: exactly one option must be recommended")
+            if not isinstance(options[0], dict) or options[0].get("recommended") is not True:
+                errors.append(f"{origin}: recommended option must appear first")
+            for option_index, option in enumerate(options):
+                option_origin = f"{origin} option[{option_index}]"
+                if not isinstance(option, dict):
+                    errors.append(f"{option_origin}: must be an object")
+                    continue
+                for field in ["label", "expected_output"]:
+                    value = option.get(field)
+                    if not isinstance(value, str) or not value.strip():
+                        errors.append(f"{option_origin}: `{field}` must be a non-empty string")
+                if not isinstance(option.get("recommended"), bool):
+                    errors.append(f"{option_origin}: `recommended` must be a boolean")
 
     if pr_review_script.exists():
         script_text = pr_review_script.read_text(encoding="utf-8")
