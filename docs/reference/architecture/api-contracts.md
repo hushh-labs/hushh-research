@@ -115,7 +115,8 @@ review drafts, and never persists review draft plaintext. Dev/UAT One Email now
 uses text-only multi-scope disclosure intake: the backend stores detected
 domains, candidate scopes, thread metadata, hashes, and consent/writeback/send
 metadata only; the vault-unlocked client confirms scopes and builds the final
-draft from approved encrypted exports.
+draft from approved encrypted exports. The maintained architecture reference is
+[One Email KYC](./one-email-kyc.md).
 
 Inbound user resolution uses exact verified email evidence. The resolver checks
 verified `To`, `Cc`, and `Reply-To` recipients before falling back to all
@@ -136,7 +137,7 @@ before they can resolve intake.
 | POST | `/api/one/kyc/workflows/{workflow_id}/refresh` | VAULT_OWNER Bearer | Refresh workflow state after consent approval; returns encrypted export metadata for client-side draft generation |
 | GET | `/api/one/kyc/workflows/{workflow_id}/consent-export?user_id={user_id}` | VAULT_OWNER Bearer | Return the encrypted wrapped-key export package for this ready workflow without exposing the consent token to the browser |
 | GET | `/api/one/kyc/workflows/{workflow_id}/consent-exports?user_id={user_id}` | VAULT_OWNER Bearer | Return all selected encrypted wrapped-key export packages for multi-scope client-side draft generation |
-| POST | `/api/one/kyc/workflows/{workflow_id}/send-approved-reply` | VAULT_OWNER Bearer | Transiently send the user-approved final email body as Gmail reply-all in the original thread; persist metadata/hashes and thread verification only |
+| POST | `/api/one/kyc/workflows/{workflow_id}/send-approved-reply` | VAULT_OWNER Bearer | Transiently send the user-approved final email body as Gmail reply-all in the original Gmail thread; persist metadata/hashes and matched-thread verification only |
 | POST | `/api/one/kyc/workflows/{workflow_id}/writeback-complete` | VAULT_OWNER Bearer | Record encrypted PKM writeback status and artifact hash |
 | POST | `/api/one/kyc/workflows/{workflow_id}/approve-draft` | VAULT_OWNER Bearer | Deprecated; returns gone because server-side draft approval is disabled |
 | POST | `/api/one/kyc/workflows/{workflow_id}/reject-draft` | VAULT_OWNER Bearer | Reject and block the workflow |

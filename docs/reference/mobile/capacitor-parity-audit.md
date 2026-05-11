@@ -21,6 +21,7 @@ Founder-language note: this audit is one of the concrete proofs behind the platf
 
 - Canonical app routes: `hushh-webapp/lib/navigation/routes.ts`
 - Route governance reference: `docs/reference/architecture/route-contracts.md`
+- Frontend/native surface map: `hushh-webapp/frontend-native-surface-map.generated.json`
 - Mobile parity reference: `docs/reference/mobile/capacitor-parity-audit.md`
 - Docs/runtime verification: `bash scripts/ci/docs-parity-check.sh`
 - Full CI lane: `bash scripts/ci/orchestrate.sh all`
@@ -50,6 +51,10 @@ Current policy keeps the full visible app surface in scope, including:
 ## Browser API Policy
 
 Route-facing code must not directly own browser-only APIs when a shared wrapper should exist.
+Before changing a route that calls a service or plugin, run
+`cd hushh-webapp && npm run verify:surface-map` and update the generated map
+when the route's Next.js proxy, backend endpoint family, native transport, or
+voice/action contract changes.
 
 Current shared wrappers:
 
