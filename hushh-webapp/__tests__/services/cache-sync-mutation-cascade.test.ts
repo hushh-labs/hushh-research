@@ -137,6 +137,26 @@ describe("CacheSyncService mutation cascades", () => {
     expect(invalidatedKeys).toContain(CACHE_KEYS.KAI_FINANCIAL_RESOURCE(userId));
   });
 
+  it("onVaultRekeyed invalidates stale PKM session state and domain prefixes", () => {
+    cache.set(CACHE_KEYS.PKM_METADATA(userId), { userId }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.PKM_BLOB(userId), { ciphertext: "old" }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId), { financial: {} }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"), { ciphertext: "old" }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.DOMAIN_DATA(userId, "financial"), { holdings: [] }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial"), { domain: "financial" }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.PORTFOLIO_DATA(userId), { holdings: [] }, CACHE_TTL.SESSION);
+
+    CacheSyncService.onVaultRekeyed(userId);
+
+    expect(cache.get(CACHE_KEYS.PKM_METADATA(userId))).toBeNull();
+    expect(cache.get(CACHE_KEYS.PKM_BLOB(userId))).toBeNull();
+    expect(cache.get(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId))).toBeNull();
+    expect(cache.get(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"))).toBeNull();
+    expect(cache.get(CACHE_KEYS.DOMAIN_DATA(userId, "financial"))).toBeNull();
+    expect(cache.get(CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial"))).toBeNull();
+    expect(cache.get(CACHE_KEYS.PORTFOLIO_DATA(userId))).toBeNull();
+  });
+
   // ---------- 9. onPkmDomainStored (financial) ----------
   it("onPkmDomainStored for financial domain sets PORTFOLIO_DATA and DOMAIN_DATA to SESSION and invalidates PKM_DECRYPTED_BLOB", () => {
     const portfolioData = {

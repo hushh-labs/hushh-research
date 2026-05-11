@@ -52,6 +52,20 @@ function normalizeVaultMethodError(error: unknown): Error {
   return error instanceof Error ? error : new Error(message);
 }
 
+function dispatchVaultRekeyed(userId: string, reason: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.dispatchEvent(
+    new CustomEvent("vault-rekeyed", {
+      detail: {
+        userId,
+        reason,
+      },
+    })
+  );
+}
+
 export class VaultMethodService {
   static async getCurrentMethod(userId: string): Promise<VaultMethod> {
     const state = await VaultService.getVaultState(userId);
@@ -136,6 +150,7 @@ export class VaultMethodService {
         });
 
         await VaultService.setPrimaryVaultMethod(params.userId, "passphrase");
+        dispatchVaultRekeyed(params.userId, "vault_method_switched_to_passphrase");
         trackEvent("profile_method_switch_result", {
           result: "success",
         });
@@ -184,6 +199,7 @@ export class VaultMethodService {
           material.mode,
           material.passkeyCredentialId ?? "default"
         );
+        dispatchVaultRekeyed(params.userId, "vault_method_switched_to_generated");
         trackEvent("profile_method_switch_result", {
           result: "success",
         });
@@ -252,9 +268,11 @@ export class VaultMethodService {
           "passphrase",
           "default"
         );
+        dispatchVaultRekeyed(params.userId, "vault_passphrase_changed");
         return { primaryMethod: "passphrase", passphraseUpdated: true };
       }
 
+      dispatchVaultRekeyed(params.userId, "vault_passphrase_changed");
       return {
         primaryMethod: state.primaryMethod,
         passphraseUpdated: true,

@@ -411,6 +411,28 @@ export class CacheSyncService {
     }
   }
 
+  static onVaultRekeyed(userId: string): void {
+    const cache = CacheService.getInstance();
+    cache.invalidateMany([
+      CACHE_KEYS.VAULT_CHECK(userId),
+      CACHE_KEYS.VAULT_STATUS(userId),
+      CACHE_KEYS.PKM_METADATA(userId),
+      CACHE_KEYS.PKM_BLOB(userId),
+      CACHE_KEYS.PKM_DECRYPTED_BLOB(userId),
+      CACHE_KEYS.PKM_UPGRADE_STATUS(userId),
+      CACHE_KEYS.PORTFOLIO_DATA(userId),
+      CACHE_KEYS.ANALYSIS_HISTORY(userId),
+      CACHE_KEYS.KAI_FINANCIAL_RESOURCE(userId),
+    ]);
+    cache.invalidatePattern(`domain_manifest_${userId}_`);
+    cache.invalidatePattern(`domain_data_${userId}_`);
+    cache.invalidatePattern(`domain_blob_${userId}_`);
+    cache.invalidatePattern(`pkm_domain_resource_${userId}_`);
+    cache.invalidatePattern(`stock_context_${userId}_`);
+    this.invalidateKaiFinancialResource(userId);
+    this.onKaiMarketContextChanged(userId);
+  }
+
   static onConsentMutated(userId: string): void {
     const cache = CacheService.getInstance();
     cache.invalidate(CACHE_KEYS.ACTIVE_CONSENTS(userId));

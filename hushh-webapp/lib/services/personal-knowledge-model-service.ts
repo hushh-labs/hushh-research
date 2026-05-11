@@ -244,6 +244,27 @@ export class PersonalKnowledgeModelService {
   private static migrationInflight = new Map<string, Promise<void>>();
   private static readonly TICKER_SYNC_THROTTLE_MS = 5 * 60 * 1000;
 
+  static invalidateSessionStateAfterVaultRekey(userId: string): void {
+    CacheSyncService.onVaultRekeyed(userId);
+    for (const map of [
+      this.metadataInflight,
+      this.encryptedDataInflight,
+      this.domainDataInflight,
+      this.domainManifestInflight,
+      this.tickerSyncInflight,
+      this.migrationInflight,
+    ]) {
+      for (const key of map.keys()) {
+        if (key.includes(userId)) {
+          map.delete(key);
+        }
+      }
+    }
+    this.tickerSyncSignatureByUser.delete(userId);
+    this.tickerSyncLastAt.delete(userId);
+    void DeviceResourceCacheService.invalidateResourcePrefix(userId, "pkm:").catch(() => undefined);
+  }
+
   private static async pause(ms: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, ms));
   }
