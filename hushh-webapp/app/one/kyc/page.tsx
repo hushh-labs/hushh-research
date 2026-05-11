@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
@@ -93,15 +94,19 @@ function statusIcon(status: OneKycWorkflowStatus): LucideIcon {
 }
 
 export default function OneKycPage() {
-  const [isMounted, setIsMounted] = useState(false);
+  function KycPageBase() {
+  return (
+    <VaultLockGuard>
+      <OneKycWorkspace />
+    </VaultLockGuard>
+  );
+}
 
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  if (!isMounted) {
-    return null; 
-  }
+// Heavy Artillery: Completely disable Server-Side Rendering (SSR) for this page.
+// Next.js will completely ignore this file during the build/prerender phase,
+// bypassing the undefined 'config' crash entirely.
+const OneKycPage = dynamic(() => Promise.resolve(KycPageBase), { ssr: false });
+export default OneKycPage;}
 
   return (
     <VaultLockGuard>
