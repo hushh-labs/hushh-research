@@ -51,9 +51,12 @@ export function resolveSignedInShellContentOffset(params: {
   // Base logic: standard mode needs the extra 32px start gap.
   const pageStart = mode === "standard" ? STANDARD_PAGE_TOP_START : "0px";
 
+<<<<<<< Updated upstream
   // Improvement: Pre-calculate the clearance to simplify the CSS output
   const totalClearance = `calc(${pageStart} + ${localOffset})`;
 
+=======
+>>>>>>> Stashed changes
   return {
     mode,
     shellVisible: params.shellVisible,
@@ -61,17 +64,30 @@ export function resolveSignedInShellContentOffset(params: {
     style: {
       "--page-top-local-offset": localOffset,
       "--page-top-start": pageStart,
+<<<<<<< Updated upstream
       "--app-top-mask-tail-clearance": totalClearance,
+=======
+      // Use CSS variable references instead of interpolating values
+      "--app-top-mask-tail-clearance": "calc(var(--page-top-start) + var(--page-top-local-offset, 0px))",
+>>>>>>> Stashed changes
 
       // If shell is hidden, offset is just the local gap. 
       // If flow, it handles shell height but doesn't push content.
       "--app-top-content-offset":
         mode === "standard"
+<<<<<<< Updated upstream
           ? `calc(var(--top-shell-reserved-height, 0px) + ${totalClearance})`
           : localOffset,
 
       "--app-fullscreen-flow-content-offset": params.shellVisible
         ? `calc(var(--top-shell-reserved-height, 0px) + ${totalClearance})`
+=======
+          ? "calc(var(--top-shell-reserved-height, 0px) + var(--app-top-mask-tail-clearance))"
+          : localOffset,
+
+      "--app-fullscreen-flow-content-offset": params.shellVisible
+        ? "calc(var(--top-shell-reserved-height, 0px) + var(--app-top-mask-tail-clearance))"
+>>>>>>> Stashed changes
         : localOffset,
     } as CSSProperties,
   };

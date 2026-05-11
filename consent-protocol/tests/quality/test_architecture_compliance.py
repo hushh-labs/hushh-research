@@ -421,7 +421,7 @@ The personal_knowledge_model_service.py file is required for dynamic data storag
         """VaultDBService must have deprecation notice pointing to PersonalKnowledgeModelService."""
         vault_db_path = os.path.join(self.cwd, "hushh_mcp/services/vault_db.py")
 
-        with open(vault_db_path, "r") as f:
+        with open(vault_db_path, "r", encoding="utf-8") as f:
             content = f.read()
 
         assert "DEPRECATION" in content or "deprecated" in content.lower(), """
