@@ -43,12 +43,20 @@ class VLLMProvider(LLMProvider):
     def __init__(
         self,
         model: str = "meta-llama/Llama-3.1-8B-Instruct",
+        model_env: Optional[str] = None,
         base_url_env: str = "KAI_VLLM_BASE_URL",
         base_url_default: str = "http://localhost:8000/v1",
         api_key_env: str = "KAI_VLLM_API_KEY",
         api_key_default: str = "EMPTY",
     ) -> None:
-        self.default_model = model
+        # Allow ops to override the served model via env var without
+        # editing the YAML config -- useful when the same registry
+        # config is deployed to multiple GPU tiers.
+        self.default_model = (
+            os.environ[model_env]
+            if model_env and os.environ.get(model_env)
+            else model
+        )
         self._base_url_env = base_url_env
         self._base_url_default = base_url_default
         self._api_key_env = api_key_env

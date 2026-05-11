@@ -35,6 +35,7 @@ providers:
   vllm:
     class: hushh_mcp.operons.kai.providers.vllm:VLLMProvider
     model: meta-llama/Llama-3.1-8B-Instruct
+    model_env: KAI_VLLM_MODEL  # set KAI_VLLM_MODEL to override at runtime
     base_url_env: KAI_VLLM_BASE_URL
     base_url_default: http://localhost:8000/v1
 

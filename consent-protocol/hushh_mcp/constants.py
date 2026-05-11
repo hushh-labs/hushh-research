@@ -1,6 +1,7 @@
 # hushh_mcp/constants.py
 
 from __future__ import annotations
+import os
 
 from enum import Enum
 from typing import Optional
@@ -286,7 +287,7 @@ KAI_OPTIMIZE_MAX_OUTPUT_TOKENS = 16384
 # Debate synthesis output budget.
 KAI_SYNTHESIS_MAX_OUTPUT_TOKENS = 8192
 # Keep reasoning mode enabled for optimize/debate quality.
-KAI_LLM_THINKING_ENABLED = True
+KAI_LLM_THINKING_ENABLED = os.getenv("KAI_LLM_THINKING_ENABLED", "true").lower() != "false"
 # Generic default for non-import LLM paths.
 KAI_LLM_THINKING_LEVEL = "MEDIUM"
 # Stream thought chunks for telemetry/progress surfaces.
