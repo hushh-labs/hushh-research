@@ -46,6 +46,23 @@ def _conn_with_schema_rows():
         "runtime_persona_state": [
             {"user_id": USER_ID, "last_active_persona": "investor", "updated_at": NOW}
         ],
+        "actor_verified_email_aliases": [
+            {
+                "alias_id": "alias_123",
+                "user_id": USER_ID,
+                "email": "original@example.com",
+                "email_normalized": "original@example.com",
+                "verification_status": "verified",
+                "verification_source": "user_verified",
+                "source_ref": None,
+                "verification_requested_at": NOW,
+                "verified_at": NOW,
+                "revoked_at": None,
+                "last_matched_at": None,
+                "created_at": NOW,
+                "updated_at": NOW,
+            }
+        ],
         "vault_keys": [
             {
                 "user_id": USER_ID,
@@ -144,6 +161,7 @@ async def test_export_data_uses_current_schema_contract_columns(monkeypatch):
     assert result["data"]["encrypted_pkm_blobs"][0]["ciphertext"] == "encrypted-payload"
     assert result["data"]["encrypted_pkm_manifests"][0]["manifest_version"] == 1
     assert result["data"]["consent_audit"][0]["issued_at"] == NOW
+    assert result["data"]["verified_email_aliases"][0]["email_normalized"] == "original@example.com"
 
     executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
     assert "activity_score" not in executed_sql
