@@ -55,6 +55,7 @@ function Button({
       data-slot="button"
       data-variant={variant}
       data-size={size}
+      aria-disabled={props.disabled}
       className={cn(
          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         buttonVariants({ variant, size, className })
