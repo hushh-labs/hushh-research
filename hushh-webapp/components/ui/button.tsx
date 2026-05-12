@@ -56,6 +56,7 @@ function Button({
       data-variant={variant}
       data-size={size}
       aria-disabled={props.disabled}
+      aria-label={props["aria-label"]}
       className={cn(
          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         buttonVariants({ variant, size, className })
