@@ -1098,6 +1098,29 @@ export class AuthService {
    * Works on all platforms for uniform behavior
    */
   static async restoreNativeSession(): Promise<User | null> {
+    const waitForFirebaseJsUser = async (): Promise<User | null> =>
+      new Promise((resolve) => {
+        let settled = false;
+        let unsubscribe: (() => void) | undefined;
+        let timeout: ReturnType<typeof setTimeout>;
+        const finish = (user: User | null) => {
+          if (settled) return;
+          settled = true;
+          unsubscribe?.();
+          clearTimeout(timeout);
+          resolve(user);
+        };
+        timeout = setTimeout(() => finish(auth.currentUser), 1_000);
+        const unsubscribeCandidate = onAuthStateChanged(auth, finish, () => finish(null));
+        if (typeof unsubscribeCandidate === "function") {
+          if (settled) {
+            unsubscribeCandidate();
+          } else {
+            unsubscribe = unsubscribeCandidate;
+          }
+        }
+      });
+
     const restoreFromFirebaseAuthentication = async (): Promise<User | null> => {
       const result = await FirebaseAuthentication.getCurrentUser();
       if (!result.user) {
@@ -1137,6 +1160,12 @@ export class AuthService {
       if (auth.currentUser) {
         this.debugLog("✅ [AuthService] Firebase JS SDK user already available");
         return auth.currentUser;
+      }
+
+      const firebaseJsUser = await waitForFirebaseJsUser();
+      if (firebaseJsUser) {
+        this.debugLog("✅ [AuthService] Firebase JS SDK user restored from persistence");
+        return firebaseJsUser;
       }
 
       const maxAttempts = Capacitor.getPlatform() === "ios" ? 4 : 2;

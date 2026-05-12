@@ -1,12 +1,12 @@
 import { Suspense } from "react";
 
-import { ConsentCenterPage } from "@/components/consent/consent-center-page";
-import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { ConsentCenterPage } from "@/components/consent/consent-center-page";
+import { RouteSuspenseFallback } from "@/components/system/route-suspense-fallback";
 
 export default function ConsentsPage() {
   return (
-    <Suspense fallback={<HushhLoader variant="inline" label="Loading consents…" />}>
+    <Suspense fallback={<RouteSuspenseFallback label="Loading consents…" />}>
       <>
         <NativeTestBeacon
           routeId="/consents"
