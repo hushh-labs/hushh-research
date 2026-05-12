@@ -78,7 +78,8 @@ export type ObservabilityEventName =
   | "growth_funnel_step_completed"
   | "investor_activation_completed"
   | "ria_activation_completed"
-  | "api_request_completed";
+  | "api_request_completed"
+  | "startup_readiness_warmup_completed";
 
 export type StatusBucket =
   | "2xx"
@@ -159,6 +160,7 @@ const EVENT_CATEGORY_BY_NAME: Record<
   investor_activation_completed: "funnel",
   ria_activation_completed: "funnel",
   api_request_completed: "system",
+  startup_readiness_warmup_completed: "system",
 };
 
 export function resolveObservabilityEventCategory(
@@ -356,6 +358,19 @@ export interface EventPayloadMap {
     status_bucket: StatusBucket;
     duration_ms_bucket: DurationBucket;
     retry_count?: number;
+  };
+  startup_readiness_warmup_completed: {
+    result: EventResult;
+    warm_priority: string;
+    duration_ms: number;
+    duration_ms_bucket: DurationBucket;
+    onboarding_synced: boolean;
+    metadata_warmed: boolean;
+    financial_warmed: boolean;
+    kai_market_warmed: boolean;
+    dashboard_picks_warmed: boolean;
+    consents_warmed: boolean;
+    vault_status_warmed: boolean;
   };
 }
 
