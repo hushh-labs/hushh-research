@@ -1,5 +1,6 @@
 "use client";
 
+import { EmptyState } from "@/components/system/empty-state";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -1007,14 +1008,22 @@ export default function MarketplacePage() {
               </RiaSurface>
             );
           })}
-
           {!loading && activeCards.length === 0 ? (
-            <RiaSurface className="col-span-full p-6 text-center">
-              <h3 className="text-lg font-semibold tracking-tight text-foreground">No profiles</h3>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Try a broader search.
-              </p>
-            </RiaSurface>
+            <EmptyState
+              title="No matching profiles found"
+              description={`We couldn't find any ${
+                directoryKind === "rias" ? "advisors" : "investors"
+              } matching your current search.`}
+              actionLabel={query ? "Clear search" : "Reset discovery"}
+              onAction={() => {
+                if (query) {
+                  setQuery("");
+                  return;
+                }
+
+                resetSwipeDeck();
+              }}
+            />
           ) : null}
         </div>
       ) : null}
