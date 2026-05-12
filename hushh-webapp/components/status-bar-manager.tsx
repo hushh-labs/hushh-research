@@ -50,6 +50,7 @@ export function StatusBarManager() {
   const { resolvedTheme, theme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const isUpdating = useRef(false);
+  const pendingStyleRef = useRef<SystemBarsStyle | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -94,29 +95,34 @@ export function StatusBarManager() {
     if (!Capacitor.isNativePlatform() || !mounted) return;
 
     async function updateSystemBars() {
+      const effectiveTheme = resolvedTheme || theme || "dark";
+      pendingStyleRef.current = effectiveTheme === "dark"
+        ? SystemBarsStyle.Dark
+        : SystemBarsStyle.Light;
+
       if (isUpdating.current) return;
       isUpdating.current = true;
 
       try {
-        const effectiveTheme = resolvedTheme || theme || "dark";
-        const style = effectiveTheme === "dark"
-          ? SystemBarsStyle.Dark
-          : SystemBarsStyle.Light;
+        while (pendingStyleRef.current) {
+          const nextStyle = pendingStyleRef.current;
+          pendingStyleRef.current = null;
 
-        // Ensure bars are visible
-        await SystemBars.show({});
+          // Ensure bars are visible
+          await SystemBars.show({});
 
-        // Set styles in parallel for better performance
-        await Promise.all([
-          SystemBars.setStyle({
-            bar: SystemBarType.StatusBar,
-            style,
-          }),
-          SystemBars.setStyle({
-            bar: SystemBarType.NavigationBar,
-            style,
-          })
-        ]);
+          // Set styles in parallel for better performance
+          await Promise.all([
+            SystemBars.setStyle({
+              bar: SystemBarType.StatusBar,
+              style: nextStyle,
+            }),
+            SystemBars.setStyle({
+              bar: SystemBarType.NavigationBar,
+              style: nextStyle,
+            })
+          ]);
+        }
       } catch (err) {
         console.error("[StatusBarManager] Failed to update system bars:", err);
       } finally {
