@@ -17,6 +17,9 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Install pytest
+        run: pip install pytest
+
       - name: Run Repository Health Checker
         run: python tools/repo_health/health_checker.py
 
