@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
@@ -93,6 +94,20 @@ function statusIcon(status: OneKycWorkflowStatus): LucideIcon {
 }
 
 export default function OneKycPage() {
+  function KycPageBase() {
+  return (
+    <VaultLockGuard>
+      <OneKycWorkspace />
+    </VaultLockGuard>
+  );
+}
+
+// Heavy Artillery: Completely disable Server-Side Rendering (SSR) for this page.
+// Next.js will completely ignore this file during the build/prerender phase,
+// bypassing the undefined 'config' crash entirely.
+const OneKycPage = dynamic(() => Promise.resolve(KycPageBase), { ssr: false });
+export default OneKycPage;}
+
   return (
     <VaultLockGuard>
       <OneKycWorkspace />
@@ -461,8 +476,8 @@ function OneKycWorkspace() {
                 : typeof workflow.consent_export?.export_revision === "number"
                 ? workflow.consent_export.export_revision
                 : typeof workflow.metadata?.consent_export === "object" &&
-                    workflow.metadata.consent_export !== null &&
-                    typeof (workflow.metadata.consent_export as Record<string, unknown>).export_revision === "number"
+                  workflow.metadata.consent_export !== null &&
+                  typeof (workflow.metadata.consent_export as Record<string, unknown>).export_revision === "number"
                   ? ((workflow.metadata.consent_export as Record<string, unknown>).export_revision as number)
                   : null,
             pkmWritebackArtifactHash: artifactHash,
