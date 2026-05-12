@@ -61,8 +61,9 @@ Always start with current repo/GitHub truth, not memory:
 Load these only when the decision needs them:
 
 1. `.codex/skills/pr-governance-review/references/operator-batch-output-contract.md`
-2. `.codex/skills/pr-governance-review/references/blocker-gates.md`
-3. `.codex/skills/pr-governance-review/references/comment-and-report-contract.md`
+2. `.codex/skills/pr-governance-review/references/operator-question-fixtures.json`
+3. `.codex/skills/pr-governance-review/references/blocker-gates.md`
+4. `.codex/skills/pr-governance-review/references/comment-and-report-contract.md`
 
 ## Workflow
 
@@ -89,9 +90,18 @@ Load these only when the decision needs them:
    - `close_duplicate`
 6. Green CI never overrides exact file overlap, duplicate product contracts, schema-contract drift, raw-error leakage findings, or current auxiliary check failures introduced by the PR.
 7. The checklist fields `contract_set`, `duplicate_group`, `public_comment_policy`, `lane`, and `live_report_action` are decision records, not decoration.
-8. For high-risk or mixed-domain batches, run the delegation router and record whether evidence lanes were used:
+8. Treat app/backend reachability as a merge-readiness input. A PR that adds standalone code, tests, helpers, components, or scripts must prove it is used by a canonical app/backend/package path, or it must be classified as test/devex hygiene rather than product/runtime value.
+9. If a PR title/body claims one contract but the changed files touch another, stop the merge path until the PR is retitled/rescoped, patched to the claimed contract, or closed/requested-changes.
+10. If a PR says it is stacked, depends on a prior PR, or will have a different diff after another PR lands, do not review it as a merge candidate until it is rebased to `main` or explicitly scoped as a harvest/reference PR.
+11. Treat local worktree overlap as a merge blocker. If an open PR touches files with uncommitted maintainer changes, resolve local ownership first: commit/stash/rebase the maintainer branch, harvest only unique PR value, or request a contributor rebase. Do not merge a GitHub-green head over active local governance/product work.
+12. Run the Founder Wiki North-Star Probe for material PRs that touch product direction, One/Kai/Nav, PCHP, BYOA/BYOK, MLX/on-device posture, consent/vault/PKM, World Model, voice/action, Aha Moment, user-facing workflows, or founder-language claims. Use `.codex/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md` as the contract:
+   - repo code/contracts/tests/CI remain current-state truth
+   - founder wiki pages define north-star and future-state alignment
+   - conflicts are `current_state_vs_north_star_drift`
+   - private wiki evidence stays local-only and must not be cited in public GitHub comments
+13. For high-risk or mixed-domain batches, run the delegation router and record whether evidence lanes were used:
    `python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt "<request>" --paths "<paths>" --text`
-9. Keep final authority local to the parent/governor. Do not delegate branch switching, approval, merge, deploy, credential handling, or final decision.
+14. Keep final authority local to the parent/governor. Do not delegate branch switching, approval, merge, deploy, credential handling, or final decision.
 
 ### Decision Order
 
@@ -101,11 +111,22 @@ Review findings in this order:
 2. Duplicate or parallel architecture.
 3. Trust-boundary, auth, consent, vault, PKM, or finance-safety regression.
 4. Backend/frontend/proxy/generated-contract mismatch.
-5. Deploy/runtime/schema/migration reproducibility drift.
-6. Tests, docs, and proof gaps.
-7. Contributor communication accuracy.
+5. Claimed product/runtime value that is not reachable from the current app, backend, package, route, generated contract, or documented devex entrypoint.
+6. Stacked-branch contamination where the current diff includes prior/unrelated PR work.
+7. Deploy/runtime/schema/migration reproducibility drift.
+8. Tests, docs, and proof gaps.
+9. Contributor communication accuracy.
 
-Use `patch_then_merge` only when the useful direction is bounded and maintainer-fixable. Use `block` when the PR needs product decision, split, contributor rewrite, missing proof, or new architecture approval.
+Prefer low-friction maintainer ownership when the direction is aligned, the fix is bounded, and maintainers can safely patch without inventing product intent. Use `patch_then_merge` for that case because it reduces contributor round trips. Use `changes_requested` when the PR needs contributor clarity, a split/rebase, proof the maintainer cannot supply, or a correction that would change the contributor's product intent. Use `block` when the PR needs product decision, rewrite, missing proof, or new architecture approval.
+
+Every review answer must be research driven. Before recommending a lane, include a compact `Research Basis` and `Reasoned Review Steps`:
+
+1. `Research Basis`: current PR head, CI freshness, mergeability, touched surfaces, canonical repo contracts checked, overlap/duplicate evidence, and trust/runtime risks.
+2. `Reasoned Review Steps`: the ordered checks Codex performed and how each check affected the decision. Include founder wiki pages checked and `current_state_vs_north_star_drift` only when the Founder Wiki North-Star Probe materially affected the review.
+3. `Decision`: the lane and operator action derived from those checks.
+4. `Verification`: the smallest authoritative checks needed before merge, patch, close, or request-changes.
+
+Do not present a review as only a conclusion such as "safe", "aligned", "green", or "mergeable". Those are outputs of research, not the review itself.
 
 ### Batch Rules
 
@@ -117,17 +138,46 @@ Every next-batch answer must include:
 2. Direct PR hyperlinks for every PR.
 3. `Research Basis` with current repo/GitHub truth, recommended path, and risk if accepted blindly.
 4. `Input` with each PR and current lane.
-5. `Per-PR Role` with one short line per PR explaining why it is in the batch and planned action.
+5. `Per-PR Assessment` with a compact block per PR explaining what changed, touched surface, why it belongs in the batch, blind-merge risk, planned action, and smallest proof.
 6. `Output` with the intended end state.
 7. `Execution` with exact order and merge/patch/close/request-changes/hold split.
 8. `Decision Questions` only when user-owned choices remain; each question must include current truth, recommended path, risk if accepted blindly, and recommended option first.
 9. `Stop Conditions`.
 10. `Verification`.
 
-Do not reduce individual PR handling to a lane JSON blob. The operator must be able to review each PR manually from the chat/report without searching GitHub.
+Do not reduce individual PR handling to a lane JSON blob or one-line purpose. The operator must be able to understand how each PR will be tackled from the chat/report without searching GitHub.
 Do not ask "what should we do?" before stating the researched solution path.
 
 Detailed batch output requirements live in `references/operator-batch-output-contract.md`.
+
+### Merge Train Capacity Model
+
+Use trains to maximize throughput without lowering the merge bar:
+
+1. Keep at most one shared-file or runtime-sensitive merge train actively merging.
+2. Treat CI/Queue Validation/Main Post-Merge Smoke as an asynchronous monitor lane. Do not idle the whole operator loop while checks run.
+3. While that train is in PR Validation, Queue Validation, or Main Post-Merge Smoke, immediately review the next independent operator batch.
+4. Closure waves and changes-requested waves can run in parallel with queue monitoring when they do not touch the active train's files or runtime contract.
+5. Do not start merging a dependent train until the previous train has passed Main Post-Merge Smoke and the live report has been refreshed.
+6. Treat "automatic next train" as automatic next-train discovery and review preparation, not blind approval or merge.
+7. A PR can enter a merge train only after current head, current required gate, mergeability, lane, overlap, and smallest proof are rechecked.
+8. Large-scale rhythm:
+   - mass classify open PRs
+   - close/request changes for clear drifts in waves
+   - queue small proven merge trains
+   - monitor PR Validation/queue/smoke asynchronously
+   - review the next independent batch while the queue runs
+   - refresh reports and contributor impact after every state change
+
+After every successful merge/smoke cycle, run the next-train kickoff:
+
+```bash
+git fetch origin main
+python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text --output tmp/pr-governance-live-report.md
+python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 7 --text > tmp/contributor-impact-dashboard.md
+```
+
+Then select the first independent `Recommended Operator Batches` item that does not depend on the train that just landed. Present the researched path with `Per-PR Assessment` before asking for approval to act.
 
 ### Blocker Gate
 
@@ -149,12 +199,15 @@ Default blockers include:
 
 1. No noisy approval comments. Every PR merged through this governance workflow must get one post-merge closeout after `Main Post-Merge Smoke` is green.
 2. There is no simple-merge exception. Direct `merge_now` PRs still require the closeout record after smoke passes.
-3. Post before merge only for `block`, `changes_requested`, `comment_only`, or when contributor action is required.
-4. Public duplicate language is allowed only for exact or manually confirmed semantic duplicates. Shared files alone mean sequencing/rebase, not duplicate.
-5. Maintainer patches must be explained in the post-merge note: who patched, what changed, why this was the smallest safe path, and what happened to related PRs.
-6. Do not include a separate successful-merge evidence section such as `### Merge Confidence`, `### Proof`, or `### Verification`; GitHub already shows checks. Use `### Why It Matters` in post-merge comments.
-7. Do not publish maintainer-only sequencing, CI dumps, or report bookkeeping in GitHub comments.
-8. Final handoffs for state-changing PR work must include direct links to affected PRs and any maintainer-authored merge/patch/closure comment links.
+3. Every GitHub write must use the lane-specific heading contract from `references/comment-and-report-contract.md`.
+4. Before posting a new GitHub comment, inspect existing maintainer-authored comments/reviews on that PR. Edit the existing current-lane record when possible; do not create duplicate or contradictory maintainer records.
+5. Post before merge only for `block`, `changes_requested`, `comment_only`, or when contributor action is required.
+6. If a PR can be corrected safely by maintainers without changing product intent, prefer `patch_then_merge` over contributor round trips. Use a `## Changes Requested` record when the change needs contributor clarity, split/rebase, proof, or direction correction.
+7. Public duplicate language is allowed only for exact or manually confirmed semantic duplicates. Shared files alone mean sequencing/rebase, not duplicate.
+8. Maintainer patches must be explained in the post-merge note: who patched, what changed, why this was the smallest safe path, and what happened to related PRs.
+9. Do not include a separate successful-merge evidence section such as `### Merge Confidence`, `### Proof`, or `### Verification`; GitHub already shows checks. Use `### Why It Matters` in post-merge comments.
+10. Do not publish maintainer-only sequencing, CI dumps, or report bookkeeping in GitHub comments.
+11. Final handoffs for state-changing PR work must include direct links to affected PRs and any maintainer-authored merge/patch/closure comment links.
 
 Detailed comment/report format lives in `references/comment-and-report-contract.md`.
 

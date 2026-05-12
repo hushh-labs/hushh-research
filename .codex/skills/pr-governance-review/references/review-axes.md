@@ -7,10 +7,15 @@ Use these axes in order. A green gate does not clear a PR if any blocker remains
 - Does the change make the repo leaner, clearer, and more scalable?
 - Does it preserve consent-first, trust-boundary clarity, and local-first contributor ergonomics?
 - Does it remove friction or add invisible complexity?
+- For material product or roadmap claims, does the Founder Wiki North-Star Probe confirm the direction, or is this `current_state_vs_north_star_drift`?
+- Is private wiki evidence kept local-only instead of leaking into public PR comments?
 
 ## 2. Lean/Core Bloat Control
 
 - Is the PR solving a core product/runtime/docs problem, or adding optional surface before the canonical path is stable?
+- Does the changed code connect to a reachable app/backend/package path, canonical proof surface, or documented devex entrypoint?
+- Does the PR title/body accurately describe the actual changed files and behavior?
+- Is this a stacked branch whose diff includes unrelated earlier PR work that must land or be rebased first?
 - Is it the smallest implementation that preserves correctness, security, maintainability, and contributor clarity?
 - Does it duplicate another open PR, an existing `main` concept, or a maintainer patch that should be the canonical path?
 - Are broad dependency/package/platform changes isolated and proven by install, build, and smoke checks?
@@ -29,6 +34,7 @@ Use these axes in order. A green gate does not clear a PR if any blocker remains
 - If a backend route changes, did the frontend caller or Next proxy change too?
 - If the runtime contract changes, did bootstrap, docs, and tests move with it?
 - If event semantics change, do clients still interpret them correctly?
+- If a new export/helper is added, is it used by current production/devex code, or only by a new test?
 
 ## 5. Main Overlap and Architecture Path Integrity
 
@@ -58,6 +64,8 @@ Use these axes in order. A green gate does not clear a PR if any blocker remains
 - public ingress added without explicit rollout and abuse-control proof
 - a second product surface added when `main` already has the concept
 - tests that cannot fail, broad package churn without proof, or a new trust surface without explicit scope/caller contract
+- readable standalone code that is not reachable from a real use case
+- contributor claims that describe a different subsystem than the diff actually changes
 
 ## Decision Rule
 

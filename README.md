@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/Hussh-Research-5B4BFF?style=for-the-badge" alt="Hussh Research"/>
-</p>
-
 <h1 align="center">Hussh Research</h1>
 
 <p align="center">
