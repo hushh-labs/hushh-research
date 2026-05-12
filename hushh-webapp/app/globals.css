@@ -1805,3 +1805,16 @@ html.dark .morphy-app-bg {
   background-color: #1c1c1e !important;
   background-image: none !important;
 }
+@keyframes route-progress-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.route-transition-progress {
+  animation: route-progress-slide 0.9s ease-in-out infinite;
+}

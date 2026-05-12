@@ -1,3 +1,4 @@
+import { RouteTransitionProgress } from "@/components/system/route-transition-progress";
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
 import Script from "next/script";
@@ -102,10 +103,11 @@ export default function RootLayout({
         ) : null}
       </head>
       <RootLayoutClient
-        fontClasses={`${geistSans.variable} ${geistMono.variable} ${headingSans.variable}`}
-      >
-        {children}
-      </RootLayoutClient>
+  fontClasses={`${geistSans.variable} ${geistMono.variable} ${headingSans.variable}`}
+>
+  <RouteTransitionProgress />
+  {children}
+</RootLayoutClient>
     </html>
   );
 }
