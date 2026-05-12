@@ -1,5 +1,6 @@
 "use client";
 
+import { StaleCacheTimestamp } from "@/components/system/stale-cache-timestamp";
 import Link from "next/link";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { ReadonlyURLSearchParams } from "next/navigation";
@@ -713,6 +714,10 @@ export function ConsentCenterPage() {
     (retainedSummary?.key === summaryCacheKey ? retainedSummary.data : null);
   const listData =
     listResource.data ?? (retainedList?.key === listCacheKey ? retainedList.data : null);
+
+  const consentListUpdatedAt =
+  retainedList?.key === listCacheKey ? Date.now() : null;
+  
   const relationshipItems = useMemo(
     () => filterRelationshipEntries(buildRelationshipEntries(centerResource.data || null), deferredQuery),
     [centerResource.data, deferredQuery]
@@ -1010,6 +1015,12 @@ export function ConsentCenterPage() {
                     data-voice-control-id="consent_search"
                   />
                 </div>
+                <div className="mt-3">
+  <StaleCacheTimestamp
+    updatedAt={consentListUpdatedAt}
+    stale={Boolean(listResource.error && listData?.items?.length)}
+  />
+</div>
                 {((tab === "relationships" ? centerResource.loading || centerResource.refreshing : listResource.loading || listResource.refreshing) && items.length > 0) ? (
                   <div className="mt-3 text-xs text-muted-foreground">
                     Refreshing from the latest consent state…
