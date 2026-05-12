@@ -26,11 +26,13 @@ export type KycWorkflowArtifact = {
   schema_version: 1;
 };
 
+export type KycWorkflowArtifactInput = Omit<KycWorkflowArtifact, "last_updated" | "schema_version">;
+
 export type KycWorkflowPkmWriteParams = {
   userId: string;
   vaultKey: string | null;
   vaultOwnerToken: string | null;
-  artifact: Omit<KycWorkflowArtifact, "last_updated" | "schema_version">;
+  artifact: KycWorkflowArtifact;
 };
 
 export type KycWorkflowPkmReadResult = {
@@ -84,17 +86,61 @@ function buildKycSummary(artifact: KycWorkflowArtifact): Record<string, unknown>
   };
 }
 
+export function buildKycWorkflowArtifact(
+  artifact: KycWorkflowArtifactInput,
+  lastUpdated = new Date().toISOString()
+): KycWorkflowArtifact {
+  return {
+    ...artifact,
+    last_updated: lastUpdated,
+    schema_version: 1,
+  };
+}
+
+export async function hashKycWorkflowArtifact(artifact: KycWorkflowArtifact): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(artifact))
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function mergeCheck(
+  next: KycWorkflowCheck,
+  existing: KycWorkflowCheck | undefined
+): KycWorkflowCheck {
+  if (next.status !== "not_started") return next;
+  return existing ?? next;
+}
+
+export function mergeKycWorkflowArtifact(
+  artifact: KycWorkflowArtifact,
+  existing: KycWorkflowArtifact | null
+): KycWorkflowArtifact {
+  return {
+    checks: {
+      identity: mergeCheck(artifact.checks.identity, existing?.checks.identity),
+      address: mergeCheck(artifact.checks.address, existing?.checks.address),
+      bank: mergeCheck(artifact.checks.bank, existing?.checks.bank),
+      email: mergeCheck(artifact.checks.email, existing?.checks.email),
+    },
+    overall_status: artifact.overall_status,
+    counterparty: artifact.counterparty ?? existing?.counterparty ?? null,
+    request_summary: artifact.request_summary ?? existing?.request_summary ?? null,
+    pending_requirements: artifact.pending_requirements,
+    completed_requirements: artifact.completed_requirements,
+    last_updated: artifact.last_updated,
+    schema_version: 1,
+  };
+}
+
 export class KycWorkflowPkmService {
   static async writeWorkflowArtifact(
     params: KycWorkflowPkmWriteParams
   ): Promise<PkmWriteCoordinatorResult> {
-    const now = new Date().toISOString();
-
-    const artifact: KycWorkflowArtifact = {
-      ...params.artifact,
-      last_updated: now,
-      schema_version: 1,
-    };
+    const artifact = params.artifact;
 
     return PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,
@@ -103,30 +149,7 @@ export class KycWorkflowPkmService {
       vaultOwnerToken: params.vaultOwnerToken,
       build: (context) => {
         const existing = this.readWorkflowArtifact(context.currentDomainData).artifact;
-        const merged: KycWorkflowArtifact = {
-          checks: {
-            identity: artifact.checks.identity.status !== "not_started"
-              ? artifact.checks.identity
-              : existing?.checks.identity ?? artifact.checks.identity,
-            address: artifact.checks.address.status !== "not_started"
-              ? artifact.checks.address
-              : existing?.checks.address ?? artifact.checks.address,
-            bank: artifact.checks.bank.status !== "not_started"
-              ? artifact.checks.bank
-              : existing?.checks.bank ?? artifact.checks.bank,
-            email: artifact.checks.email.status !== "not_started"
-              ? artifact.checks.email
-              : existing?.checks.email ?? artifact.checks.email,
-          },
-          overall_status: artifact.overall_status,
-          counterparty: artifact.counterparty ?? existing?.counterparty ?? null,
-          request_summary: artifact.request_summary ?? existing?.request_summary ?? null,
-          pending_requirements: artifact.pending_requirements,
-          completed_requirements: artifact.completed_requirements,
-          last_updated: now,
-          schema_version: 1,
-        };
-
+        const merged = mergeKycWorkflowArtifact(artifact, existing);
         return {
           domainData: merged as unknown as Record<string, unknown>,
           summary: buildKycSummary(merged),
