@@ -208,7 +208,7 @@ import { Icon } from "@/lib/morphy-ux/ui";
 Use `SettingsRow` for clickable list rows across the app, not only on Profile.
 
 ```tsx
-import { SettingsRow } from "@/components/profile/settings-ui";
+import { SettingsRow } from "@/components/app-ui/settings-ui";
 
 <SettingsRow
   leading={<span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl">AAPL</span>}
