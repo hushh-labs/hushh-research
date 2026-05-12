@@ -709,7 +709,6 @@ export function ConsentCenterPage() {
       setRetainedList({ key: listCacheKey, data: listResource.data });
     }
   }, [listCacheKey, listResource.data]);
-
   const summaryData =
     summaryResource.data ??
     (retainedSummary?.key === summaryCacheKey ? retainedSummary.data : null);
