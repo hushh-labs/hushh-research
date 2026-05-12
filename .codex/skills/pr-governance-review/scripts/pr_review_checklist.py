@@ -47,6 +47,7 @@ SALVAGEABLE_MEDIUM_FINDINGS = {
     "ignore_surface_changed",
     "sensitive_runtime_change_without_supporting_proof",
     "marketplace_flow_overlap_on_main",
+    "new_export_without_app_or_backend_caller",
 }
 CANONICAL_VOICE_RUNTIME_PATHS = (
     "hushh-webapp/components/kai/kai-search-bar.tsx",
@@ -101,6 +102,65 @@ CANONICAL_TOP_LEVEL_ROOTS = {
     "tests",
     "tmp",
 }
+FOUNDER_WIKI_PRODUCT_CANON = (
+    "hussh://docs/non-negotiables",
+    "hussh://wiki/index",
+    "wiki/products/one.md",
+    "wiki/products/kai.md",
+    "wiki/products/nav.md",
+    "wiki/products/pchp.md",
+    "wiki/concepts/personal-operating-layer.md",
+    "wiki/concepts/byoa.md",
+    "wiki/concepts/world-model.md",
+    "wiki/concepts/aha-moment.md",
+    "wiki/concepts/mlx-on-one-surfaces.md",
+    "wiki/concepts/app-intents-conformance.md",
+    "wiki/concepts/llm-wiki-pattern.md",
+    "wiki/concepts/openclaw.md",
+    "wiki/concepts/hu-ssh.md",
+    "wiki/concepts/signature-vault.md",
+    "wiki/concepts/north-star-user-persona.md",
+    "wiki/concepts/one-lens.md",
+    "wiki/concepts/pchp-brand-side-endpoint.md",
+    "wiki/products/ibrokerage.md",
+    "wiki/projects/one-email-kyc-wiki-integration.md",
+)
+FOUNDER_WIKI_PROBE_KEYWORDS = (
+    "one",
+    "kai",
+    "nav",
+    "pchp",
+    "byoa",
+    "byok",
+    "mlx",
+    "on-device",
+    "on device",
+    "app intents",
+    "world model",
+    "pkm",
+    "vault",
+    "consent",
+    "privacy",
+    "personal agent",
+    "personal operating layer",
+    "aha moment",
+    "ibrokerage",
+    "openclaw",
+    "open claw",
+    "hu-ssh",
+    "human secure socket",
+    "one lens",
+    "north-star user",
+    "north star user",
+    "one email kyc",
+    "email kyc",
+    "pchp brand-side",
+    "brand-side endpoint",
+    "signature vault",
+    "founder",
+    "north-star",
+    "north star",
+)
 PARALLEL_RUNTIME_ROOTS = {
     "agents",
     "audit_logging",
@@ -212,6 +272,37 @@ CANONICAL_CAPABILITY_BASELINES: tuple[dict[str, Any], ...] = (
             "Auth, token, or session changes overlap Firebase sign-in, phone verification, "
             "bearer/session handling, and DB-backed revocation checks. Review against the "
             "canonical auth runtime instead of accepting an isolated route fix."
+        ),
+    },
+    {
+        "id": "streaming-runtime",
+        "severity": "medium",
+        "keywords": (
+            "sse",
+            "stream",
+            "streaming",
+            "backoff",
+            "envelope",
+            "parser",
+            "parseSSEBlocks",
+        ),
+        "path_markers": (
+            "streaming",
+            "sse-parser",
+            "kai-stream-client",
+        ),
+        "canonical_paths": (
+            "hushh-webapp/lib/streaming/sse-parser.ts",
+            "hushh-webapp/lib/streaming/kai-stream-client.ts",
+            "hushh-webapp/components/kai/kai-flow.tsx",
+            "hushh-webapp/components/consent/notification-provider.tsx",
+            "hushh-webapp/app/kai/optimize/page.tsx",
+            "hushh-webapp/ios/App/App/Plugins/KaiPlugin.swift",
+            "hushh-webapp/__tests__/streaming/sse-parser.test.ts",
+        ),
+        "summary": (
+            "Streaming parser/client changes overlap Kai and consent live event consumers. "
+            "Review against canonical event-name, id, multiline data, remainder, and native parity semantics."
         ),
     },
     {
@@ -625,6 +716,25 @@ def _run(cmd: list[str]) -> str:
     raise RuntimeError(f"{' '.join(cmd)}: {last_message}")
 
 
+def _local_worktree_changed_paths() -> set[str]:
+    """Return repo-relative paths with local, uncommitted changes."""
+    output = _run(["git", "status", "--porcelain", "--untracked-files=all"])
+    paths: set[str] = set()
+    for raw_line in output.splitlines():
+        if not raw_line:
+            continue
+        entry = raw_line[3:].strip()
+        if not entry:
+            continue
+        if " -> " in entry:
+            old_path, new_path = entry.split(" -> ", 1)
+            paths.add(old_path.strip())
+            paths.add(new_path.strip())
+        else:
+            paths.add(entry)
+    return paths
+
+
 def _project_schematics() -> dict[str, Any]:
     global PROJECT_SCHEMATICS
     if PROJECT_SCHEMATICS is not None:
@@ -764,6 +874,56 @@ def _contract_set(files: list[str], patch_map: dict[str, str]) -> str:
     if any(path.startswith("docs/") for path in files):
         return "content"
     return "general"
+
+
+def _founder_wiki_probe(
+    *,
+    title: str,
+    summary: str | None,
+    files: list[str],
+    patch_map: dict[str, str],
+    contract_set: str,
+) -> OrderedDict[str, Any]:
+    patch_text = "\n".join(patch_map.values())
+    normalized = _normal_text(title, summary, patch_text, " ".join(files))
+    path_trigger = any(
+        path.startswith("docs/vision/")
+        or path.startswith("docs/future/")
+        or path.startswith("docs/reference/architecture/")
+        or path.startswith("hushh-webapp/components/kai/")
+        or path.startswith("hushh-webapp/app/kai/")
+        or path.startswith("hushh-webapp/lib/voice/")
+        or path.startswith("contracts/kai/")
+        or path.startswith("consent-protocol/hushh_mcp/agents/")
+        or "voice" in path.lower()
+        or "pkm" in path.lower()
+        or "vault" in path.lower()
+        or "consent" in path.lower()
+        for path in files
+    )
+    keyword_trigger = any(keyword in normalized for keyword in FOUNDER_WIKI_PROBE_KEYWORDS)
+    contract_trigger = contract_set in {"voice", "pkm-privacy", "content"}
+    required = path_trigger or keyword_trigger or contract_trigger
+    reasons: list[str] = []
+    if path_trigger:
+        reasons.append("changed paths touch product, trust, voice, PKM, or founder-language surfaces")
+    if keyword_trigger:
+        reasons.append("title, body, or diff uses Product Canon terms")
+    if contract_trigger:
+        reasons.append(f"contract set `{contract_set}` is material to north-star alignment")
+    return OrderedDict(
+        required=required,
+        status="needs_founder_wiki_probe" if required else "not_required_for_mechanical_review",
+        reason="; ".join(reasons) if reasons else "no material product-direction trigger detected",
+        product_canon=list(FOUNDER_WIKI_PRODUCT_CANON if required else []),
+        north_star_alignment="needs_verification" if required else "not_applicable",
+        drift_classification="current_state_vs_north_star_drift" if required else "none",
+        public_comment_policy=(
+            "private_wiki_evidence_local_only"
+            if required
+            else "no_private_wiki_evidence_needed"
+        ),
+    )
 
 
 def _duplicate_group(contract_set: str, files: list[str]) -> str | None:
@@ -1309,6 +1469,23 @@ def _has_test_or_doc_change(files: list[str]) -> bool:
     )
 
 
+def _is_test_path(path: str) -> bool:
+    return (
+        "/tests/" in path
+        or path.startswith("consent-protocol/tests/")
+        or path.startswith("hushh-webapp/__tests__/")
+        or path.endswith((".test.ts", ".test.tsx", ".test.py"))
+    )
+
+
+def _is_doc_path(path: str) -> bool:
+    return (
+        path.startswith("docs/")
+        or path.startswith("consent-protocol/docs/")
+        or path.startswith("hushh-webapp/docs/")
+    )
+
+
 def _pascal_from_component_path(path: str) -> str:
     stem = Path(path).stem
     return "".join(part[:1].upper() + part[1:] for part in re.split(r"[-_]+", stem) if part)
@@ -1375,6 +1552,216 @@ def _frontend_component_reachability_findings(
             }
         )
     return findings
+
+
+def _new_export_reachability_findings(
+    files: list[str],
+    patch_map: dict[str, str],
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for path in files:
+        if _is_test_path(path) or _is_doc_path(path):
+            continue
+        if not path.startswith(("hushh-webapp/", "consent-protocol/", "packages/")):
+            continue
+        section = patch_map.get(path, "")
+        exported_symbols = sorted(
+            set(
+                re.findall(
+                    r"^\+export\s+(?:async\s+)?(?:function|const|class|interface|type)\s+([A-Za-z_][A-Za-z0-9_]*)",
+                    section,
+                    flags=re.MULTILINE,
+                )
+            )
+        )
+        if not exported_symbols:
+            continue
+
+        unreachable: list[str] = []
+        for symbol in exported_symbols:
+            changed_non_test_refs = [
+                changed_path
+                for changed_path, changed_section in patch_map.items()
+                if changed_path != path
+                and not _is_test_path(changed_path)
+                and not _is_doc_path(changed_path)
+                and symbol in changed_section
+            ]
+            origin_refs = [
+                line
+                for line in _git_grep_origin_main(symbol)
+                if f":{path}:" not in line
+                and "/__tests__/" not in line
+                and "/tests/" not in line
+            ]
+            if not changed_non_test_refs and not origin_refs:
+                unreachable.append(symbol)
+
+        if unreachable:
+            findings.append(
+                {
+                    "id": "new_export_without_app_or_backend_caller",
+                    "severity": "medium",
+                    "summary": (
+                        "A new exported helper/API is only proven by tests or local code, not by a "
+                        "reachable app, backend, package, or existing caller. Treat the PR as "
+                        "standalone utility work until it links to a canonical use case or narrows "
+                        "the claim to internal test coverage."
+                    ),
+                    "files": [path],
+                    "details": {"symbols": unreachable},
+                }
+            )
+    return findings
+
+
+CLAIM_SURFACE_RULES: tuple[dict[str, Any], ...] = (
+    {
+        "id": "vault",
+        "keywords": (
+            "vault",
+            "encrypt",
+            "decrypt",
+            "zero key",
+            "zero-key",
+            "all-zero",
+            "zero-salt",
+            "salt coercion",
+            "recovery key",
+        ),
+        "path_markers": (
+            "/vault/",
+            "vault-web",
+            "encrypt.ts",
+            "prf-auth",
+            "recovery-key",
+            "lib/capacitor/plugins/vault",
+        ),
+    },
+    {
+        "id": "streaming",
+        "keywords": (
+            "sse",
+            "stream",
+            "streaming",
+            "parser",
+            "backoff",
+            "envelope",
+            "oom",
+        ),
+        "path_markers": (
+            "/streaming/",
+            "sse-parser",
+            "kai-stream",
+        ),
+    },
+    {
+        "id": "consent",
+        "keywords": (
+            "consent",
+            "scope",
+            "session",
+            "token",
+            "logout",
+            "revoke",
+        ),
+        "path_markers": (
+            "/consent",
+            "/session",
+            "consent/",
+            "token.py",
+        ),
+    },
+)
+
+
+def _claim_surface_mismatch_findings(
+    title: str,
+    summary: str | None,
+    files: list[str],
+) -> list[dict[str, Any]]:
+    text = _normal_text(title, summary)
+    touched = "\n".join(files).lower()
+    claimed = [
+        rule
+        for rule in CLAIM_SURFACE_RULES
+        if any(keyword in text for keyword in rule["keywords"])
+    ]
+    if len(claimed) < 1:
+        return []
+
+    findings: list[dict[str, Any]] = []
+    for rule in claimed:
+        touches_claimed_surface = any(marker in touched for marker in rule["path_markers"])
+        if touches_claimed_surface:
+            continue
+        findings.append(
+            {
+                "id": "pr_claim_changed_surface_mismatch",
+                "severity": "high",
+                "summary": (
+                    f"The PR title/body claims `{rule['id']}` behavior, but the changed files do "
+                    "not touch that canonical surface. Do not merge on the stated premise until "
+                    "the contributor retitles/rescopes the PR or the diff is replaced with the "
+                    "claimed implementation."
+                ),
+                "files": files,
+                "details": {"claimed_surface": rule["id"]},
+            }
+        )
+    return findings
+
+
+def _stacked_branch_findings(
+    title: str,
+    summary: str | None,
+    files: list[str],
+) -> list[dict[str, Any]]:
+    text = _normal_text(title, summary)
+    stack_markers = (
+        "stacked pr",
+        "stacked branch",
+        "created from the previous",
+        "created from previous",
+        "once earlier pr",
+        "once earlier prs",
+        "after earlier pr",
+        "after earlier prs",
+        "diff against main will collapse",
+        "extends pr",
+        "previous fix",
+        "relies on",
+    )
+    if not any(marker in text for marker in stack_markers):
+        return []
+
+    non_test_doc_files = [
+        path for path in files if not _is_test_path(path) and not _is_doc_path(path)
+    ]
+    top_dirs = sorted(
+        {
+            "/".join(path.split("/")[:3])
+            for path in non_test_doc_files
+            if "/" in path
+        }
+    )
+    broad_or_unstable = len(non_test_doc_files) > 2 or len(top_dirs) > 1
+    if not broad_or_unstable and "diff against main will collapse" not in text:
+        return []
+
+    return [
+        {
+            "id": "stacked_branch_diff_not_reviewable",
+            "severity": "high",
+            "summary": (
+                "The PR describes itself as stacked or dependent on earlier work, and the current "
+                "diff against main includes prior/unrelated surfaces. Do not merge or judge it as "
+                "the stated feature until it is rebased/split so the diff is reviewable."
+            ),
+            "files": files,
+            "details": {"top_dirs": top_dirs},
+        }
+    ]
 
 
 def _kai_finance_action_language_findings(
@@ -1943,6 +2330,7 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
         )
 
     findings.extend(_frontend_component_reachability_findings(files, patch_map))
+    findings.extend(_new_export_reachability_findings(files, patch_map))
     findings.extend(_kai_finance_action_language_findings(files, patch_map))
     findings.extend(_kai_finance_runtime_llm_findings(files, patch_map))
     findings.extend(_new_agent_runtime_boundary_findings(files, patch_map))
@@ -2505,12 +2893,13 @@ def _recommend_merge_lane(
             lane="patch_then_merge",
             rationale=(
                 "The direction appears useful, but the current head is not merge-safe. "
-                "The remaining findings are bounded integration or reproducibility issues "
-                "that should be corrected by a small maintainer patch before merge."
+                "The remaining findings are bounded integration or reproducibility issues. "
+                "Prefer a small maintainer patch over contributor round trips when maintainers "
+                "can safely fix it without changing product intent."
             ),
             next_steps=[
                 "Do not merge the contributor head directly.",
-                "Apply the smallest maintainer integration patch on the contributor branch when maintainers can modify it.",
+                "Apply the smallest maintainer integration patch on the contributor branch when maintainers can modify it without changing product intent.",
                 "If direct patching is not possible, use a short-lived `temp/pr-<number>-patch` branch and delete it after the merge path is resolved.",
                 "Rerun PR Validation on the updated merge candidate and re-review the new head SHA.",
                 "Then thank the author and explain the integration fix that was needed.",
@@ -2543,10 +2932,10 @@ def _public_comment_policy(lane: str) -> str:
     if lane == "merge_now":
         return "no_pre_merge_comment; required_post_merge_closeout_after_smoke"
     if lane == "patch_then_merge":
-        return "no_approval_comment; post_merge_comment_only_if_maintainer_patch_lands"
+        return "operator_explicit_maintainer_patch_only; required_post_merge_closeout_after_smoke"
     if lane in {"harvest_then_close", "close_duplicate"}:
-        return "post_close_superseded_comment"
-    return "comment_before_merge_only_if_contributor_action_required"
+        return "standard_closed_or_superseded_comment"
+    return "standard_changes_requested_comment_before_merge"
 
 
 def _live_report_action(lane: str) -> str:
@@ -2647,6 +3036,12 @@ def _single_pr_live_assessment(report: dict[str, Any]) -> list[str]:
         f"- Findings: {_findings_summary(report)}",
         f"- Overlap: {_overlap_summary(report)}",
         f"- Related surfaces: {_related_surface_summary(report)}",
+        (
+            f"- Founder Wiki North-Star Probe: `{report['founder_wiki_probe']['status']}`; "
+            f"policy `{report['founder_wiki_probe']['public_comment_policy']}`"
+            if report.get("founder_wiki_probe")
+            else "- Founder Wiki North-Star Probe: `not_evaluated`"
+        ),
         f"- Decision rationale: {report['decision']['rationale']}",
         f"- SOP action: `{report['live_report_action']}`; public comment policy `{report['public_comment_policy']}`",
         f"- Next proof: {' '.join(report['decision']['next_steps'][:2])}",
@@ -2757,13 +3152,13 @@ def _operator_batch_intent(reports: list[dict[str, Any]], shared_files: list[str
             "Kai chat service evolution: coordinate startup latency, response latency, "
             "and answer-safety changes that share one service file but affect different runtime behaviors."
         )
+    if any("package.json" in path or "package-lock.json" in path for path in shared):
+        return "Dependency/test surface alignment: sequence package-lock changes before dependent test infrastructure."
     if {
         "hushh-webapp/components/navbar.tsx",
         "hushh-webapp/components/theme-toggle.tsx",
     } <= shared:
         return "Theme toggle shell placement: choose one compact top-right UI implementation."
-    if any("package.json" in path or "package-lock.json" in path for path in shared):
-        return "Dependency/test surface alignment: sequence package-lock changes before dependent test infrastructure."
     if any(_report_has_duplicate_finding(report) for report in reports):
         return "Shared contract cleanup: select the canonical implementation and harvest only unique proof."
     return "Shared-file sequencing: same files require ordered merge or rebase, but are not automatically duplicate work."
@@ -2847,6 +3242,15 @@ def _operator_batch_solution(batch: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _operator_batch_after_merge_kickoff(batch: dict[str, Any]) -> list[str]:
+    return [
+        "  - After each merge, monitor Queue Validation and Main Post-Merge Smoke before treating dependent PRs as unblocked.",
+        "  - While queue/smoke runs, start review preparation for the next independent `Recommended Operator Batches` item that does not share this train's files or runtime contract.",
+        "  - After smoke passes, refresh `tmp/pr-governance-live-report.md` and `tmp/contributor-impact-dashboard.md`, then rerun the checklist for the next train before any GitHub write.",
+        "  - Automatic next train means automatic discovery and review preparation; approval, merge, close, deploy, and maintainer patch actions still require explicit operator intent.",
+    ]
+
+
 def _operator_batch_research_basis(batch: dict[str, Any]) -> list[str]:
     prs = ", ".join(_operator_batch_links(batch))
     shared_files = _compact_file_list(batch.get("shared_files", []), limit=6)
@@ -2867,15 +3271,22 @@ def _operator_batch_decision_questions(batch: dict[str, Any]) -> list[str]:
     ]
 
 
-def _operator_batch_pr_role_lines(batch: dict[str, Any]) -> list[str]:
+def _operator_batch_pr_assessment_lines(batch: dict[str, Any]) -> list[str]:
     roles = batch.get("pr_roles") or []
     if not roles:
-        return ["  - Per-PR role detail unavailable; rerun the batch report with current PR metadata."]
+        return ["  - Per-PR assessment unavailable; rerun the batch report with current PR metadata."]
     lines: list[str] = []
     for role in roles:
         number = role["number"]
-        lines.append(
-            f"  - [#{number}]({role['url']}) - `{role['lane']}` / risk `{role['risk']}` / head `{role['head_sha'][:8]}` / mergeable `{role['mergeable']}` / gate `{role['ci_status_gate']}`: {role['role']}"
+        lines.extend(
+            [
+                f"  - [#{number}]({role['url']}) `{role['lane']}` / risk `{role['risk']}` / head `{role['head_sha'][:8]}` / mergeable `{role['mergeable']}` / gate `{role['ci_status_gate']}`",
+                f"    - What changed: {role['change_summary']}",
+                f"    - Why in batch: {role['batch_reason']}",
+                f"    - Blind-merge risk: {role['blind_merge_risk']}",
+                f"    - Planned action: {role['planned_action']}",
+                f"    - Smallest proof: {role['smallest_proof']}",
+            ]
         )
     return lines
 
@@ -2885,19 +3296,33 @@ def _operator_batch_pr_roles(reports: list[dict[str, Any]]) -> list[OrderedDict[
     for report in reports:
         pr = report["pr"]
         lane = report["lane"]
-        if lane == "merge_now":
-            role = "candidate for direct merge after current-head lock and shared checks"
-        elif lane == "patch_then_merge":
-            role = "candidate for maintainer rebase/patch after earlier overlapping PRs land"
-        elif lane in {"harvest_then_close", "close_duplicate"}:
-            role = "candidate for unique-proof harvest, then close"
-        elif lane == "block":
-            role = "hold out of the merge train until blocker evidence changes"
-        else:
-            role = "manual review required before operator action"
+        changed_files = report.get("changed_files") or []
+        related_files = _compact_file_list(changed_files, limit=4)
         findings = [finding["id"] for finding in report["findings"][:2]]
-        if findings:
-            role += f"; watch: {', '.join(findings)}"
+        if lane == "merge_now":
+            planned_action = "lock current head, verify green required gate, queue one at a time, then post closeout after smoke"
+            smallest_proof = "current GitHub required checks plus shared-file targeted check when overlap exists"
+        elif lane == "patch_then_merge":
+            planned_action = "rebase or maintainer-patch only the bounded defect, then rerun contract-specific checks before queue"
+            smallest_proof = "targeted test proving the patched boundary, not just green stale CI"
+        elif lane in {"harvest_then_close", "close_duplicate"}:
+            planned_action = "harvest unique useful proof or small code only if canonical, then close with decision record"
+            smallest_proof = "manual duplicate/harvest comparison against canonical surface"
+        elif lane == "block":
+            planned_action = "request changes or hold until blocker evidence changes"
+            smallest_proof = "contributor-side rewrite, split, or missing contract proof"
+        else:
+            planned_action = "manual review required before operator action"
+            smallest_proof = "fresh checklist plus maintainer review"
+
+        finding_label = ", ".join(findings) if findings else "none detected by checklist"
+        batch_reason = (
+            f"contract `{report['contract_set']}`, risk `{_lean_core_risk(report)}`, "
+            f"overlap/related files `{related_files or 'none'}`"
+        )
+        blind_merge_risk = (
+            f"checklist findings `{finding_label}`; exact overlap can still create merge-order drift even when CI is green"
+        )
         roles.append(
             OrderedDict(
                 number=pr["number"],
@@ -2908,7 +3333,14 @@ def _operator_batch_pr_roles(reports: list[dict[str, Any]]) -> list[OrderedDict[
                 head_sha=pr["head_sha"],
                 mergeable=pr.get("mergeable") or "UNKNOWN",
                 ci_status_gate=report.get("current_ci_status_gate") or "UNKNOWN",
-                role=role,
+                change_summary=(
+                    f"{pr['title']} (+{pr['additions']}/-{pr['deletions']} across "
+                    f"{pr['changed_files_count']} files; related `{related_files or 'none'}`)"
+                ),
+                batch_reason=batch_reason,
+                blind_merge_risk=blind_merge_risk,
+                planned_action=planned_action,
+                smallest_proof=smallest_proof,
             )
         )
     return roles
@@ -3097,10 +3529,12 @@ def _operator_batch_lines(batches: list[OrderedDict[str, Any]]) -> list[str]:
                 f"- Operator action: {batch['action']}",
                 "- Research Basis:",
                 *_operator_batch_research_basis(batch),
-                "- PR roles:",
-                *_operator_batch_pr_role_lines(batch),
+                "- Per-PR Assessment:",
+                *_operator_batch_pr_assessment_lines(batch),
                 "- Solution:",
                 *_operator_batch_solution(batch),
+                "- After-Merge Kickoff:",
+                *_operator_batch_after_merge_kickoff(batch),
                 "- Decision Questions:",
                 *_operator_batch_decision_questions(batch),
                 f"- Shared files: {_compact_file_list(batch['shared_files'], limit=8)}",
@@ -3154,6 +3588,55 @@ def _mass_operator_section_lines(
     return lines
 
 
+def _review_research_basis_lines(report: dict[str, Any]) -> list[str]:
+    pr = report["pr"]
+    related_files = ", ".join(entry["path"] for entry in report["related_surfaces"]["files"][:4])
+    finding_ids = ", ".join(finding["id"] for finding in report["findings"][:4]) or "none"
+    overlap = report.get("exact_file_overlap") or []
+    overlap_label = (
+        "; ".join(
+            f"#{item['other_pr']} shares {', '.join(item['shared_files'][:3])}"
+            for item in overlap[:3]
+        )
+        if overlap
+        else "none"
+    )
+    founder_probe = report.get("founder_wiki_probe") or {}
+    founder_probe_line = (
+        f"- Founder Wiki North-Star Probe: `{founder_probe.get('status')}`; "
+        f"reason `{founder_probe.get('reason')}`; public policy `{founder_probe.get('public_comment_policy')}`."
+        if founder_probe
+        else "- Founder Wiki North-Star Probe: `not_evaluated`."
+    )
+    return [
+        "Research Basis:",
+        f"- Current truth: head `{pr['head_sha'][:8]}`, mergeable `{pr['mergeable']}` / `{pr['merge_state_status']}`, CI Status Gate `{report['current_ci_status_gate']}`.",
+        f"- Surfaces checked: contract `{report['contract_set']}`, changed surfaces `{', '.join(report['surface_tags']) or 'none'}`, related files `{related_files or 'none'}`.",
+        f"- Overlap/duplicate evidence: duplicate group `{report['duplicate_group'] or 'none'}`, exact overlap `{overlap_label}`.",
+        founder_probe_line,
+        f"- Risk if accepted blindly: flags `{finding_ids}`; green CI does not override duplicate, trust-boundary, schema/runtime, or reachability findings.",
+    ]
+
+
+def _reasoned_review_steps_lines(report: dict[str, Any]) -> list[str]:
+    decision = report["decision"]
+    lines = [
+        "Reasoned Review Steps:",
+        f"- Locked the reviewed head SHA and current CI gate before using any PR claim.",
+        f"- Classified the runtime contract as `{report['contract_set']}` and checked related canonical surfaces before selecting a lane.",
+        f"- Applied blocker order: north-star drift, duplicate/parallel architecture, trust boundary, contract mismatch, reachability/use-case proof, stacked-branch contamination, deploy/schema reproducibility, then proof gaps.",
+        f"- Derived lane `{decision['lane']}` because: {decision['rationale']}",
+    ]
+    founder_probe = report.get("founder_wiki_probe") or {}
+    if founder_probe.get("required"):
+        lines.insert(
+            3,
+            "- Marked founder wiki pages for local-only north-star review and "
+            "`current_state_vs_north_star_drift` classification before public comment or merge action.",
+        )
+    return lines
+
+
 def _text_report(report: dict[str, Any]) -> str:
     lines: list[str] = []
     pr = report["pr"]
@@ -3178,6 +3661,8 @@ def _text_report(report: dict[str, Any]) -> str:
     if pr.get("summary"):
         lines.append(f"Summary: {pr['summary']}")
     lines.append(f"What this is about: {report['what_this_is_about']}")
+    lines.extend(_review_research_basis_lines(report))
+    lines.extend(_reasoned_review_steps_lines(report))
     lines.append(f"Current CI Status Gate: {report['current_ci_status_gate']}")
     lines.append(f"Contract set: {report['contract_set']}")
     lines.append(f"Duplicate group: {report['duplicate_group'] or 'none'}")
@@ -3191,6 +3676,13 @@ def _text_report(report: dict[str, Any]) -> str:
     lines.append(f"Public comment policy: {report['public_comment_policy']}")
     lines.append(f"Live report action: {report['live_report_action']}")
     lines.append(f"Changed surfaces: {', '.join(report['surface_tags']) or 'none'}")
+    if report.get("founder_wiki_probe"):
+        probe = report["founder_wiki_probe"]
+        lines.append(
+            "Founder Wiki North-Star Probe: "
+            f"{probe['status']} ({probe['public_comment_policy']}); "
+            f"alignment `{probe['north_star_alignment']}`; drift `{probe['drift_classification']}`"
+        )
     if report.get("exact_file_overlap"):
         lines.append("Exact file overlap:")
         for overlap in report["exact_file_overlap"]:
@@ -3816,7 +4308,7 @@ def _communication_markdown(report: dict[str, Any]) -> str:
                 report["decision"]["rationale"],
                 "",
                 "### Maintainer Patch",
-                f"Patch required for: {finding_ids}.",
+                f"Maintainer-owned patch was explicitly chosen for: {finding_ids}.",
                 "",
                 "### Outcome",
                 "Post-merge closeout is required after Main Post-Merge Smoke is green.",
@@ -3974,7 +4466,30 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
         ],
         findings=_build_findings(files, patch_map),
         related_surfaces=_related_surfaces(files),
+        founder_wiki_probe=_founder_wiki_probe(
+            title=pr_view["title"],
+            summary=_extract_summary(pr_view.get("body")),
+            files=files,
+            patch_map=patch_map,
+            contract_set=contract_set,
+        ),
     )
+    local_overlap = sorted(set(files) & _local_worktree_changed_paths())
+    if local_overlap:
+        _append_finding(
+            report,
+            _finding(
+                "local_worktree_overlap",
+                "high",
+                (
+                    "PR touches files with uncommitted local maintainer changes. "
+                    "Do not merge the PR head until the local branch is committed, "
+                    "stashed, rebased, or the useful PR content is explicitly harvested."
+                ),
+                local_overlap,
+                details={"local_changed_paths": local_overlap},
+            ),
+        )
     if ci_status_gate == "SUCCESS" and failed_non_required_checks:
         _append_finding(
             report,
@@ -3997,6 +4512,18 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
                 ],
             ),
         )
+    for finding in _claim_surface_mismatch_findings(
+        pr_view["title"],
+        pr_view.get("body"),
+        files,
+    ):
+        _append_finding(report, finding)
+    for finding in _stacked_branch_findings(
+        pr_view["title"],
+        pr_view.get("body"),
+        files,
+    ):
+        _append_finding(report, finding)
     if report["pr"]["review_decision"] == "CHANGES_REQUESTED":
         _append_finding(
             report,

@@ -9,6 +9,10 @@ Use this reference for GitHub write actions, post-merge closeouts, live report u
 3. Do not publish maintainer-only sequencing, report status, CI dumps, or internal governance reminders.
 4. Do not post noisy approval comments. Every PR merged through PR governance gets one post-merge record after `Main Post-Merge Smoke` is green.
 5. Post before merge only for `block`, `changes_requested`, `comment_only`, or when contributor action is required.
+6. Before posting, inspect existing maintainer-authored comments and reviews. Edit the current maintainer record when possible; do not create duplicate or contradictory comments.
+7. Prefer low-friction maintainer patching when the PR is aligned, bounded, and maintainers can safely resolve it without changing product intent.
+8. Use changes-requested when the PR needs contributor clarity, split/rebase, proof the maintainer cannot supply, or direction correction.
+9. A maintainer harvest is not a merge approval. If the exact PR head should not land, use the `Changes Requested` or `Closed / Superseded` shape and say what was harvested or what should be resubmitted.
 
 ## Required Headings
 
@@ -64,6 +68,8 @@ Add `### Documentation Updated` only when durable docs changed.
 ### Proof Needed
 ...
 ```
+
+Use this shape when the right answer is contributor clarity, a split/rebase, proof the maintainer cannot supply, or direction correction. If the PR is aligned and maintainers can safely apply the bounded fix, prefer the maintainer-patch path instead.
 
 ### Closed / Superseded
 
