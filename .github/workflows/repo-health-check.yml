@@ -1,0 +1,24 @@
+name: Repository Health Check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  repository-health:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Run Repository Health Checker
+        run: python tools/repo_health/health_checker.py
+
+      - name: Run Tests
+        run: pytest tools/repo_health/test_repo_health.py
