@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import os
+import re
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
@@ -16,6 +20,20 @@ _IDENTITY_STALE_AFTER = timedelta(hours=24)
 _IDENTITY_SYNC_COOLDOWN = timedelta(minutes=5)
 _IDENTITY_SYNC_TASKS: dict[str, asyncio.Task[dict[str, Any] | None]] = {}
 _IDENTITY_SYNC_COOLDOWN_UNTIL: dict[str, datetime] = {}
+_ALIAS_CODE_PATTERN = re.compile(r"\s+")
+
+
+class ActorIdentityAliasError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "ACTOR_IDENTITY_ALIAS_ERROR",
+        status_code: int = 400,
+    ) -> None:
+        self.code = code
+        self.status_code = status_code
+        super().__init__(message)
 
 
 class ActorIdentityService:
@@ -93,6 +111,102 @@ class ActorIdentityService:
         if lowered.startswith(("ria_", "ria-", "dev_", "dev-", "app_", "app-", "agent_", "agent-")):
             return False
         return len(candidate) >= 20
+
+    @staticmethod
+    def _normalize_email_alias(value: str | None) -> str:
+        email = str(value or "").strip().lower()
+        if not email or len(email) > 320 or email.count("@") != 1:
+            raise ActorIdentityAliasError(
+                "A valid email alias is required.",
+                code="EMAIL_ALIAS_INVALID",
+                status_code=422,
+            )
+        local, domain = email.rsplit("@", 1)
+        if not local or not domain or "." not in domain or any(char.isspace() for char in email):
+            raise ActorIdentityAliasError(
+                "A valid email alias is required.",
+                code="EMAIL_ALIAS_INVALID",
+                status_code=422,
+            )
+        return email
+
+    @staticmethod
+    def _runtime_environment() -> str:
+        return (
+            str(
+                os.getenv("ENVIRONMENT")
+                or os.getenv("HUSHH_DEPLOY_ENV")
+                or os.getenv("APP_ENV")
+                or "development"
+            )
+            .strip()
+            .lower()
+        )
+
+    @staticmethod
+    def _env_truthy(name: str) -> bool:
+        return str(os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+    @classmethod
+    def _may_return_review_alias_code(cls) -> bool:
+        environment = cls._runtime_environment()
+        if environment in {"prod", "production"}:
+            return False
+        return cls._env_truthy("APP_REVIEW_MODE") or environment in {
+            "dev",
+            "development",
+            "local",
+            "test",
+            "testing",
+            "uat",
+        }
+
+    @staticmethod
+    def _alias_verification_secret() -> str:
+        return (
+            os.getenv("ACCOUNT_EMAIL_ALIAS_VERIFICATION_SECRET")
+            or os.getenv("HUSHH_EMAIL_ALIAS_VERIFICATION_SECRET")
+            or "hushh-dev-uat-email-alias-verification"
+        )
+
+    @classmethod
+    def _hash_alias_verification_code(
+        cls,
+        *,
+        user_id: str,
+        email_normalized: str,
+        verification_code: str,
+    ) -> str:
+        normalized_code = _ALIAS_CODE_PATTERN.sub("", str(verification_code or "")).lower()
+        if not normalized_code:
+            raise ActorIdentityAliasError(
+                "Verification code is required.",
+                code="EMAIL_ALIAS_CODE_REQUIRED",
+                status_code=422,
+            )
+        material = (
+            f"{cls._alias_verification_secret()}:{user_id}:{email_normalized}:{normalized_code}"
+        )
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _normalize_alias_row(row: Any) -> dict[str, Any]:
+        payload = dict(row or {})
+        return {
+            "alias_id": str(payload.get("alias_id") or "").strip(),
+            "user_id": str(payload.get("user_id") or "").strip(),
+            "email": str(payload.get("email") or "").strip(),
+            "email_normalized": str(payload.get("email_normalized") or "").strip(),
+            "verification_status": str(payload.get("verification_status") or "").strip(),
+            "verification_source": str(payload.get("verification_source") or "").strip(),
+            "source_ref": payload.get("source_ref"),
+            "verification_requested_at": payload.get("verification_requested_at"),
+            "verified_at": payload.get("verified_at"),
+            "revoked_at": payload.get("revoked_at"),
+            "last_matched_at": payload.get("last_matched_at"),
+            "created_at": payload.get("created_at"),
+            "updated_at": payload.get("updated_at"),
+        }
 
     async def _get_many_fallback(self, user_ids: list[str]) -> dict[str, dict[str, Any]]:
         pool = await get_pool()
@@ -326,6 +440,320 @@ class ActorIdentityService:
             return None
 
         return self._normalize_row(row)
+
+    async def list_verified_email_aliases(self, user_id: str) -> list[dict[str, Any]]:
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            return []
+
+        pool = await get_pool()
+        try:
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT
+                      alias_id,
+                      user_id,
+                      email,
+                      email_normalized,
+                      verification_status,
+                      verification_source,
+                      source_ref,
+                      verification_requested_at,
+                      verified_at,
+                      revoked_at,
+                      last_matched_at,
+                      created_at,
+                      updated_at
+                    FROM actor_verified_email_aliases
+                    WHERE user_id = $1
+                    ORDER BY
+                      CASE verification_status
+                        WHEN 'verified' THEN 0
+                        WHEN 'pending' THEN 1
+                        ELSE 2
+                      END,
+                      COALESCE(verified_at, verification_requested_at, created_at) DESC
+                    """,
+                    normalized_user_id,
+                )
+        except asyncpg.UndefinedTableError:
+            logger.debug("actor_verified_email_aliases missing; alias list empty")
+            return []
+        return [self._normalize_alias_row(row) for row in rows]
+
+    async def request_email_alias_verification(
+        self,
+        *,
+        user_id: str,
+        email: str,
+        verification_source: str = "user_verified",
+        source_ref: str | None = None,
+    ) -> dict[str, Any]:
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            raise ActorIdentityAliasError(
+                "User id is required.",
+                code="EMAIL_ALIAS_USER_REQUIRED",
+                status_code=422,
+            )
+        email_normalized = self._normalize_email_alias(email)
+        source = str(verification_source or "user_verified").strip() or "user_verified"
+        if source not in {"user_verified", "firebase_auth", "admin_seed", "review_seed"}:
+            source = "user_verified"
+
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            verified_owner = await conn.fetchrow(
+                """
+                SELECT user_id
+                FROM actor_verified_email_aliases
+                WHERE email_normalized = $1
+                  AND verification_status = 'verified'
+                  AND revoked_at IS NULL
+                  AND user_id <> $2
+                LIMIT 1
+                """,
+                email_normalized,
+                normalized_user_id,
+            )
+            if verified_owner:
+                raise ActorIdentityAliasError(
+                    "This email alias is already verified for another account.",
+                    code="EMAIL_ALIAS_ALREADY_VERIFIED",
+                    status_code=409,
+                )
+
+            existing = await conn.fetchrow(
+                """
+                SELECT
+                  alias_id,
+                  user_id,
+                  email,
+                  email_normalized,
+                  verification_status,
+                  verification_source,
+                  source_ref,
+                  verification_requested_at,
+                  verified_at,
+                  revoked_at,
+                  last_matched_at,
+                  created_at,
+                  updated_at
+                FROM actor_verified_email_aliases
+                WHERE user_id = $1
+                  AND email_normalized = $2
+                """,
+                normalized_user_id,
+                email_normalized,
+            )
+            if (
+                existing
+                and existing["verification_status"] == "verified"
+                and existing["revoked_at"] is None
+            ):
+                return {
+                    "alias": self._normalize_alias_row(existing),
+                    "already_verified": True,
+                    "review_verification_code": None,
+                }
+
+            verification_code = f"{secrets.randbelow(1_000_000):06d}"
+            code_hash = self._hash_alias_verification_code(
+                user_id=normalized_user_id,
+                email_normalized=email_normalized,
+                verification_code=verification_code,
+            )
+            row = await conn.fetchrow(
+                """
+                INSERT INTO actor_verified_email_aliases (
+                  user_id,
+                  email,
+                  email_normalized,
+                  verification_status,
+                  verification_source,
+                  source_ref,
+                  verification_code_hash,
+                  verification_requested_at,
+                  verified_at,
+                  revoked_at,
+                  created_at,
+                  updated_at
+                )
+                VALUES (
+                  $1,
+                  $2,
+                  $3,
+                  'pending',
+                  $4,
+                  $5,
+                  $6,
+                  NOW(),
+                  NULL,
+                  NULL,
+                  NOW(),
+                  NOW()
+                )
+                ON CONFLICT (user_id, email_normalized) DO UPDATE SET
+                  email = EXCLUDED.email,
+                  verification_status = 'pending',
+                  verification_source = EXCLUDED.verification_source,
+                  source_ref = EXCLUDED.source_ref,
+                  verification_code_hash = EXCLUDED.verification_code_hash,
+                  verification_requested_at = NOW(),
+                  verified_at = NULL,
+                  revoked_at = NULL,
+                  updated_at = NOW()
+                RETURNING
+                  alias_id,
+                  user_id,
+                  email,
+                  email_normalized,
+                  verification_status,
+                  verification_source,
+                  source_ref,
+                  verification_requested_at,
+                  verified_at,
+                  revoked_at,
+                  last_matched_at,
+                  created_at,
+                  updated_at
+                """,
+                normalized_user_id,
+                email_normalized,
+                email_normalized,
+                source,
+                str(source_ref or "").strip() or None,
+                code_hash,
+            )
+
+        return {
+            "alias": self._normalize_alias_row(row),
+            "already_verified": False,
+            "review_verification_code": (
+                verification_code if self._may_return_review_alias_code() else None
+            ),
+        }
+
+    async def confirm_email_alias_verification(
+        self,
+        *,
+        user_id: str,
+        email: str,
+        verification_code: str,
+    ) -> dict[str, Any]:
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            raise ActorIdentityAliasError(
+                "User id is required.",
+                code="EMAIL_ALIAS_USER_REQUIRED",
+                status_code=422,
+            )
+        email_normalized = self._normalize_email_alias(email)
+        expected_hash = self._hash_alias_verification_code(
+            user_id=normalized_user_id,
+            email_normalized=email_normalized,
+            verification_code=verification_code,
+        )
+
+        pool = await get_pool()
+        try:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT
+                      alias_id,
+                      user_id,
+                      email,
+                      email_normalized,
+                      verification_status,
+                      verification_source,
+                      source_ref,
+                      verification_requested_at,
+                      verified_at,
+                      revoked_at,
+                      last_matched_at,
+                      created_at,
+                      updated_at,
+                      verification_code_hash
+                    FROM actor_verified_email_aliases
+                    WHERE user_id = $1
+                      AND email_normalized = $2
+                    """,
+                    normalized_user_id,
+                    email_normalized,
+                )
+                if not row:
+                    raise ActorIdentityAliasError(
+                        "Email alias verification has not been requested.",
+                        code="EMAIL_ALIAS_VERIFICATION_NOT_FOUND",
+                        status_code=404,
+                    )
+                if row["verification_status"] == "verified" and row["revoked_at"] is None:
+                    return self._normalize_alias_row(row)
+                if row["verification_code_hash"] != expected_hash:
+                    raise ActorIdentityAliasError(
+                        "Email alias verification code is invalid.",
+                        code="EMAIL_ALIAS_CODE_INVALID",
+                        status_code=400,
+                    )
+
+                verified_owner = await conn.fetchrow(
+                    """
+                    SELECT user_id
+                    FROM actor_verified_email_aliases
+                    WHERE email_normalized = $1
+                      AND verification_status = 'verified'
+                      AND revoked_at IS NULL
+                      AND user_id <> $2
+                    LIMIT 1
+                    """,
+                    email_normalized,
+                    normalized_user_id,
+                )
+                if verified_owner:
+                    raise ActorIdentityAliasError(
+                        "This email alias is already verified for another account.",
+                        code="EMAIL_ALIAS_ALREADY_VERIFIED",
+                        status_code=409,
+                    )
+
+                verified = await conn.fetchrow(
+                    """
+                    UPDATE actor_verified_email_aliases
+                    SET
+                      verification_status = 'verified',
+                      verified_at = NOW(),
+                      revoked_at = NULL,
+                      verification_code_hash = NULL,
+                      updated_at = NOW()
+                    WHERE user_id = $1
+                      AND email_normalized = $2
+                    RETURNING
+                      alias_id,
+                      user_id,
+                      email,
+                      email_normalized,
+                      verification_status,
+                      verification_source,
+                      source_ref,
+                      verification_requested_at,
+                      verified_at,
+                      revoked_at,
+                      last_matched_at,
+                      created_at,
+                      updated_at
+                    """,
+                    normalized_user_id,
+                    email_normalized,
+                )
+        except asyncpg.UniqueViolationError as exc:
+            raise ActorIdentityAliasError(
+                "This email alias is already verified for another account.",
+                code="EMAIL_ALIAS_ALREADY_VERIFIED",
+                status_code=409,
+            ) from exc
+        return self._normalize_alias_row(verified)
 
     async def sync_from_firebase(
         self,
