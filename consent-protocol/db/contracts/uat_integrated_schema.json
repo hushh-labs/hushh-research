@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 51,
+  "expected_migration_version": 52,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -41,6 +41,23 @@
       "phone_verified",
       "source",
       "last_synced_at",
+      "created_at",
+      "updated_at"
+    ],
+    "actor_verified_email_aliases": [
+      "alias_id",
+      "user_id",
+      "email",
+      "email_normalized",
+      "verification_status",
+      "verification_source",
+      "source_ref",
+      "verification_code_hash",
+      "verification_requested_at",
+      "verified_at",
+      "revoked_at",
+      "last_matched_at",
+      "metadata",
       "created_at",
       "updated_at"
     ],
