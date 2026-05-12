@@ -56,6 +56,11 @@ import { cn } from "@/lib/utils";
 
 const TABLE_SWIPE_THRESHOLD_PX = 44;
 
+// Helper function to safely resolve nested object paths (e.g., "user.name")
+const getValueByPath = (obj: Record<string, any>, path: string): any => {
+  return path.split(".").reduce((acc, part) => (acc && acc[part] !== undefined ? acc[part] : undefined), obj);
+};
+
 function buildPaginationItems(currentPage: number, pageCount: number): Array<number | "ellipsis"> {
   if (pageCount <= 7) {
     return Array.from({ length: pageCount }, (_, index) => index + 1);
@@ -112,11 +117,10 @@ export function DataTable<TData, TValue>({
   stickyHeader = false,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
-    []
-  );
+  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [globalFilter, setGlobalFilter] = React.useState("");
   const swipeStartRef = React.useRef<{ x: number; y: number } | null>(null);
+
   const normalizedSearchKeys = React.useMemo(
     () =>
       Array.from(
@@ -133,6 +137,7 @@ export function DataTable<TData, TValue>({
       ),
     [globalSearchKeys, searchKey]
   );
+
   const globalSearchFilterFn = React.useCallback(
     (row: { original: TData }, _columnId: string, filterValue: unknown) => {
       if (typeof filterValue !== "string") return true;
@@ -141,20 +146,19 @@ export function DataTable<TData, TValue>({
 
       const source = row.original as Record<string, unknown>;
       return normalizedSearchKeys.some((key) => {
-        const value = source[key];
+        // Fix 1: Properly resolve nested dot-notation paths
+        const value = getValueByPath(source, key);
         if (value === null || value === undefined) return false;
         return String(value).toLowerCase().includes(query);
       });
     },
     [normalizedSearchKeys]
   );
-  const normalizedPageSizeOptions = React.useMemo(
-    () =>
-      Array.from(new Set([initialPageSize, ...pageSizeOptions]))
-        .filter((size) => Number.isFinite(size) && size > 0)
-        .sort((a, b) => a - b),
-    [initialPageSize, pageSizeOptions]
-  );
+
+  // Fix 4: Removed useMemo to prevent dependency array tracking issues on simple array unions
+  const normalizedPageSizeOptions = Array.from(new Set([initialPageSize, ...pageSizeOptions]))
+    .filter((size) => Number.isFinite(size) && size > 0)
+    .sort((a, b) => a - b);
 
   const table = useReactTable({
     data,
@@ -168,8 +172,8 @@ export function DataTable<TData, TValue>({
     onGlobalFilterChange: setGlobalFilter,
     ...(normalizedSearchKeys.length > 0
       ? {
-          globalFilterFn: globalSearchFilterFn,
-        }
+        globalFilterFn: globalSearchFilterFn,
+      }
       : {}),
     state: {
       sorting,
@@ -195,6 +199,7 @@ export function DataTable<TData, TValue>({
   const pageCount = table.getPageCount();
   const currentPage = pageCount === 0 ? 0 : pageIndex + 1;
   const hasMultiplePages = pageCount > 1;
+
   const paginationItems = React.useMemo(
     () => buildPaginationItems(currentPage, pageCount),
     [currentPage, pageCount]
@@ -209,7 +214,9 @@ export function DataTable<TData, TValue>({
   const handleTouchEnd = React.useCallback(
     (event: React.TouchEvent<HTMLDivElement>) => {
       const start = swipeStartRef.current;
+      // Fix 5: Clear the swipe reference immediately before any conditional returns
       swipeStartRef.current = null;
+
       if (!start || !hasMultiplePages) return;
 
       const touch = event.changedTouches[0];
@@ -235,6 +242,7 @@ export function DataTable<TData, TValue>({
 
   const compact = density === "compact";
   const resolvedTableShellClassName = cn("w-full", tableContainerClassName);
+
   return (
     <div
       className="space-y-[var(--data-table-controls-gap)]"
@@ -259,7 +267,8 @@ export function DataTable<TData, TValue>({
           ) : null}
 
           {/* Column Filter Dropdown */}
-          {filterKey && filterOptions && (
+          {/* Fix 3: Ensure the column actually exists in the table instance before rendering */}
+          {filterKey && filterOptions && table.getColumn(filterKey) && (
             <Select
               value={
                 (table.getColumn(filterKey)?.getFilterValue() as string) ?? "all"
@@ -321,9 +330,9 @@ export function DataTable<TData, TValue>({
                     {header.isPlaceholder
                       ? null
                       : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )}
+                        header.column.columnDef.header,
+                        header.getContext()
+                      )}
                     {{
                       asc: " ↑",
                       desc: " ↓",
@@ -345,7 +354,17 @@ export function DataTable<TData, TValue>({
                       : "transition-[background-color] duration-200 ease-out hover:bg-foreground/[0.032]",
                     rowClassName?.(row.original)
                   )}
-                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                  onClick={(e) => {
+                    if (!onRowClick) return;
+
+                    // Fix 2: Prevent row click event if the user clicked an interactive nested element
+                    const target = e.target as HTMLElement;
+                    if (target.closest("button, input, select, a, [role='menuitem']")) {
+                      return;
+                    }
+
+                    onRowClick(row.original);
+                  }}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell

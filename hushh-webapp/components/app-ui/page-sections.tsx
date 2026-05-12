@@ -1,13 +1,13 @@
 "use client";
 
-import type { ReactNode } from "react";
+import React, { type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 
 import { SurfaceCard, type SurfaceAccent, type SurfaceTone } from "@/components/app-ui/surfaces";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 
-type SectionAccent =
+export type SectionAccent =
   | "neutral"
   | "kai"
   | "ria"
@@ -134,18 +134,8 @@ function HeaderLeading({
   );
 }
 
-export function PageHeader({
-  eyebrow,
-  title,
-  description,
-  actions,
-  actionsInlineMobile = false,
-  descriptionFullWidth = false,
-  icon,
-  leading,
-  accent = "default",
-  className,
-}: {
+// --- PAGE HEADER ---
+export interface PageHeaderProps extends Omit<React.HTMLAttributes<HTMLElement>, "title"> {
   eyebrow?: string;
   title: ReactNode;
   description?: ReactNode;
@@ -155,95 +145,111 @@ export function PageHeader({
   icon?: LucideIcon;
   leading?: ReactNode;
   accent?: SectionAccent;
-  className?: string;
-}) {
-  const styles = ACCENT_STYLES[accent];
-  return (
-    <header
-      className={cn("space-y-[var(--page-header-stack-gap)]", className)}
-      data-slot="page-header"
-      data-page-primary="true"
-    >
-      <div className="flex items-stretch gap-3 sm:gap-4">
-        {icon || leading ? (
-          <HeaderLeading
-            icon={icon}
-            leading={leading}
-            iconSize="lg"
-            iconClassName={cn(
-              "flex w-10 shrink-0 items-center justify-center rounded-[var(--app-card-radius-feature)] px-2 py-3 sm:w-12 sm:px-3",
-              styles.icon
-            )}
-          />
-        ) : null}
-        <div className="min-w-0 flex-1">
-          <div
-            className={cn(
-              "gap-[var(--page-header-row-gap)] sm:flex-row sm:items-center sm:justify-between",
-              actionsInlineMobile ? "flex items-start justify-between" : "flex flex-col"
-            )}
-            data-slot="page-header-row"
-          >
-            <div className="min-w-0 flex-1 space-y-[var(--page-header-copy-gap)]">
-              {eyebrow ? (
-                <p
-                  className={cn(
-                    "text-xs font-semibold uppercase tracking-[0.24em]",
-                    styles.eyebrow
-                  )}
-                >
-                  {eyebrow}
-                </p>
-              ) : null}
-              <h1 className="text-[clamp(1.28rem,3vw,1.75rem)] font-semibold tracking-tight leading-[1.1] text-foreground">
-                {title}
-              </h1>
-              {description && !descriptionFullWidth ? (
+  headingLevel?: "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
+}
+
+export const PageHeader = React.forwardRef<HTMLElement, PageHeaderProps>(
+  (
+    {
+      eyebrow,
+      title,
+      description,
+      actions,
+      actionsInlineMobile = false,
+      descriptionFullWidth = false,
+      icon,
+      leading,
+      accent = "default",
+      headingLevel: Heading = "h1",
+      className,
+      ...props
+    },
+    ref
+  ) => {
+    const styles = ACCENT_STYLES[accent] || ACCENT_STYLES.default;
+
+    return (
+      <header
+        ref={ref}
+        className={cn("space-y-[var(--page-header-stack-gap)]", className)}
+        data-slot="page-header"
+        data-page-primary="true"
+        {...props}
+      >
+        <div className="flex items-stretch gap-3 sm:gap-4">
+          {icon || leading ? (
+            <HeaderLeading
+              icon={icon}
+              leading={leading}
+              iconSize="lg"
+              iconClassName={cn(
+                "flex w-10 shrink-0 items-center justify-center rounded-[var(--app-card-radius-feature)] px-2 py-3 sm:w-12 sm:px-3",
+                styles.icon
+              )}
+            />
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <div
+              className={cn(
+                "gap-[var(--page-header-row-gap)] sm:flex-row sm:items-center sm:justify-between",
+                actionsInlineMobile ? "flex items-start justify-between" : "flex flex-col"
+              )}
+              data-slot="page-header-row"
+            >
+              <div className="min-w-0 flex-1 space-y-[var(--page-header-copy-gap)]">
+                {eyebrow ? (
+                  <p
+                    className={cn(
+                      "text-xs font-semibold uppercase tracking-[0.24em]",
+                      styles.eyebrow
+                    )}
+                  >
+                    {eyebrow}
+                  </p>
+                ) : null}
+                <Heading className="text-[clamp(1.28rem,3vw,1.75rem)] font-semibold tracking-tight leading-[1.1] text-foreground">
+                  {title}
+                </Heading>
+                {description && !descriptionFullWidth ? (
+                  <div
+                    className="max-w-2xl line-clamp-2 text-sm leading-6 text-muted-foreground sm:line-clamp-none"
+                    data-slot="page-header-description"
+                  >
+                    {description}
+                  </div>
+                ) : null}
+              </div>
+              {actions ? (
                 <div
-                  className="max-w-2xl line-clamp-2 text-sm leading-6 text-muted-foreground sm:line-clamp-none"
-                  data-slot="page-header-description"
+                  className={cn(
+                    "flex flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center",
+                    actionsInlineMobile ? "w-auto shrink-0 justify-end self-start" : "w-full"
+                  )}
+                  data-slot="page-header-actions"
                 >
-                  {description}
+                  {actions}
                 </div>
               ) : null}
             </div>
-            {actions ? (
-              <div
-                className={cn(
-                  "flex flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center",
-                  actionsInlineMobile ? "w-auto shrink-0 justify-end self-start" : "w-full"
-                )}
-                data-slot="page-header-actions"
-              >
-                {actions}
-              </div>
-            ) : null}
           </div>
         </div>
-      </div>
-      {description && descriptionFullWidth ? (
-        <div
-          className="text-sm leading-6 text-muted-foreground"
-          data-slot="page-header-description"
-        >
-          {description}
-        </div>
-      ) : null}
-      <div className={cn("h-px w-full", styles.divider)} />
-    </header>
-  );
-}
+        {description && descriptionFullWidth ? (
+          <div
+            className="text-sm leading-6 text-muted-foreground"
+            data-slot="page-header-description"
+          >
+            {description}
+          </div>
+        ) : null}
+        <div className={cn("h-px w-full", styles.divider)} />
+      </header>
+    );
+  }
+);
+PageHeader.displayName = "PageHeader";
 
-export function SectionHeader({
-  eyebrow,
-  title,
-  description,
-  actions,
-  icon,
-  leading,
-  accent = "default",
-  className,
-}: {
+// --- SECTION HEADER ---
+export interface SectionHeaderProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "title"> {
   eyebrow?: string;
   title: ReactNode;
   description?: ReactNode;
@@ -251,76 +257,100 @@ export function SectionHeader({
   icon?: LucideIcon;
   leading?: ReactNode;
   accent?: SectionAccent;
-  className?: string;
-}) {
-  const styles = ACCENT_STYLES[accent];
-  return (
-    <div className={cn("space-y-[var(--section-header-stack-gap)]", className)}>
-      <div className="flex items-stretch gap-3">
-        {icon || leading ? (
-          <HeaderLeading
-            icon={icon}
-            leading={leading}
-            iconSize="md"
-            iconClassName={cn(
-              "flex w-9 shrink-0 items-center justify-center rounded-[var(--app-card-radius-feature)] px-2 py-2.5 sm:w-10 sm:px-2.5",
-              styles.icon
-            )}
-          />
-        ) : null}
-        <div className="min-w-0 flex-1">
-          <div
-            className="flex flex-col gap-[var(--section-header-stack-gap)] sm:flex-row sm:items-center sm:justify-between"
-            data-slot="section-header-row"
-          >
-            <div className="min-w-0 flex-1 space-y-[var(--section-header-copy-gap)]">
-              {eyebrow ? (
-                <p className={cn("text-xs font-semibold uppercase tracking-[0.2em]", styles.eyebrow)}>
-                  {eyebrow}
-                </p>
-              ) : null}
-              <h2 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">
-                {title}
-              </h2>
-              {description ? (
+  headingLevel?: "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
+}
+
+export const SectionHeader = React.forwardRef<HTMLDivElement, SectionHeaderProps>(
+  (
+    {
+      eyebrow,
+      title,
+      description,
+      actions,
+      icon,
+      leading,
+      accent = "default",
+      headingLevel: Heading = "h2",
+      className,
+      ...props
+    },
+    ref
+  ) => {
+    const styles = ACCENT_STYLES[accent] || ACCENT_STYLES.default;
+
+    return (
+      <div
+        ref={ref}
+        className={cn("space-y-[var(--section-header-stack-gap)]", className)}
+        {...props}
+      >
+        <div className="flex items-stretch gap-3">
+          {icon || leading ? (
+            <HeaderLeading
+              icon={icon}
+              leading={leading}
+              iconSize="md"
+              iconClassName={cn(
+                "flex w-9 shrink-0 items-center justify-center rounded-[var(--app-card-radius-feature)] px-2 py-2.5 sm:w-10 sm:px-2.5",
+                styles.icon
+              )}
+            />
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <div
+              className="flex flex-col gap-[var(--section-header-stack-gap)] sm:flex-row sm:items-center sm:justify-between"
+              data-slot="section-header-row"
+            >
+              <div className="min-w-0 flex-1 space-y-[var(--section-header-copy-gap)]">
+                {eyebrow ? (
+                  <p className={cn("text-xs font-semibold uppercase tracking-[0.2em]", styles.eyebrow)}>
+                    {eyebrow}
+                  </p>
+                ) : null}
+                <Heading className="text-sm font-semibold tracking-tight text-foreground sm:text-base">
+                  {title}
+                </Heading>
+                {description ? (
+                  <div
+                    className="line-clamp-2 text-sm leading-6 text-muted-foreground sm:line-clamp-none"
+                    data-slot="section-header-description"
+                  >
+                    {description}
+                  </div>
+                ) : null}
+              </div>
+              {actions ? (
                 <div
-                  className="line-clamp-2 text-sm leading-6 text-muted-foreground sm:line-clamp-none"
-                  data-slot="section-header-description"
+                  className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center"
+                  data-slot="section-header-actions"
                 >
-                  {description}
+                  {actions}
                 </div>
               ) : null}
             </div>
-            {actions ? (
-              <div
-                className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center"
-                data-slot="section-header-actions"
-              >
-                {actions}
-              </div>
-            ) : null}
           </div>
         </div>
+        <div className={cn("h-px w-full", styles.divider)} />
       </div>
-      <div className={cn("h-px w-full", styles.divider)} />
-    </div>
-  );
-}
+    );
+  }
+);
+SectionHeader.displayName = "SectionHeader";
 
-export function ContentSurface({
-  children,
-  className,
-  accent = "none",
-  tone = "default",
-}: {
+// --- CONTENT SURFACE ---
+export interface ContentSurfaceProps extends React.HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
-  className?: string;
   accent?: SurfaceAccent;
   tone?: SurfaceTone;
-}) {
-  return (
-    <SurfaceCard tone={tone} accent={accent} className={className}>
-      {children}
-    </SurfaceCard>
-  );
 }
+
+export const ContentSurface = React.forwardRef<HTMLDivElement, ContentSurfaceProps>(
+  ({ children, className, accent = "none", tone = "default", ...props }, ref) => {
+    return (
+      <SurfaceCard ref={ref} tone={tone} accent={accent} className={className} {...props}>
+        {children}
+      </SurfaceCard>
+    );
+  }
+);
+ContentSurface.displayName = "ContentSurface";
