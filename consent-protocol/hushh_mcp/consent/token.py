@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import logging
 import os
+import threading
 import time
 from typing import Optional, Tuple, Union
 
@@ -15,9 +16,85 @@ from hushh_mcp.types import AgentID, HushhConsentToken, UserID
 logger = logging.getLogger(__name__)
 
 # ========== Internal Revocation Registry ==========
-# In-memory set for fast revocation checks (immediate effect)
-# Also persisted to DB for cross-instance consistency
-_revoked_tokens: set[str] = set()
+
+
+class _BoundedRevocationCache:
+    """Thread-safe in-memory revocation cache with TTL eviction and size cap.
+
+    Entries are evicted 25 h after insertion — one hour past the maximum token
+    lifetime of 24 h.  Because validate_token() already rejects tokens whose
+    embedded expiry has passed, dropping a revoked-but-expired entry from this
+    cache introduces no security regression; the DB remains the authoritative
+    revocation store for cross-instance consistency.
+
+    Size cap (100 000 entries × ≈400 B ≈ 40 MB) prevents unbounded memory
+    growth in long-running Cloud Run instances where scope upgrades, session
+    rollovers, and logout continuously add entries that the original bare set
+    never evicted.
+    """
+
+    _TTL_MS: int = 25 * 60 * 60 * 1000  # 25 h in milliseconds
+    _MAX_SIZE: int = 100_000
+
+    def __init__(self) -> None:
+        self._entries: dict[str, int] = {}  # token_str -> added_at_ms
+        self._lock = threading.Lock()
+
+    # ------------------------------------------------------------------
+    # Public interface — drop-in replacement for set[str]
+    # ------------------------------------------------------------------
+
+    def add(self, token_str: str) -> None:
+        now_ms = int(time.time() * 1000)
+        with self._lock:
+            self._evict_expired_locked(now_ms)
+            if len(self._entries) >= self._MAX_SIZE:
+                if not self._entries:
+                    return
+                # Eviction insufficient — drop the single oldest entry so we
+                # always stay within the cap without a full scan.
+                oldest = min(self._entries, key=self._entries.__getitem__)
+                del self._entries[oldest]
+            self._entries[token_str] = now_ms
+
+    def __contains__(self, token_str: object) -> bool:
+        if not isinstance(token_str, str):
+            return False
+        now_ms = int(time.time() * 1000)
+        with self._lock:
+            added_at = self._entries.get(token_str)
+            if added_at is None:
+                return False
+            if now_ms - added_at >= self._TTL_MS:
+                # Safe to evict: the token's own expiry has long since passed.
+                del self._entries[token_str]
+                return False
+            return True
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._entries)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _evict_expired_locked(self, now_ms: int) -> int:
+        """Remove TTL-expired entries.  Caller must hold self._lock."""
+        cutoff = now_ms - self._TTL_MS
+        expired = [k for k, added_at in self._entries.items() if added_at <= cutoff]
+        for k in expired:
+            del self._entries[k]
+        return len(expired)
+
+
+# In-memory cache for fast revocation checks (immediate effect).
+# Also persisted to DB for cross-instance consistency.
+_revoked_tokens: _BoundedRevocationCache = _BoundedRevocationCache()
 
 # ========== Token Generator ==========
 
