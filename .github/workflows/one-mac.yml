@@ -1,0 +1,35 @@
+name: "One for macOS — Build & Test"
+
+on:
+  pull_request:
+    branches: ["**"]
+    paths:
+      - "apps/one-mac/**"
+      - ".github/workflows/one-mac.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: one-mac-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: "Swift build + test"
+    runs-on: macos-15
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/one-mac
+    steps:
+      - uses: actions/checkout@v6
+      - name: Show Swift version
+        run: swift --version
+      - name: Resolve package dependencies
+        run: swift package resolve
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
