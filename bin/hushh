@@ -22,6 +22,7 @@ Core commands:
   web [--mode <local|uat|prod>] [-- <next-dev args>]
   backend [--mode local] [--reload|--no-reload]
   native <ios|android> [--mode <local|uat|prod>] [--fresh]
+  native mac <build|run|test>
   lint
   test
   ci [--include-advisory]
@@ -269,10 +270,45 @@ EOF
     -- "${command_args[@]}"
 }
 
+run_native_mac() {
+  local action="${1:-build}"
+  shift || true
+
+  case "$action" in
+    -h|--help)
+      cat <<'EOF'
+Usage:
+  ./bin/hushh native mac <build|run|test>
+
+Subcommands:
+  build   swift build inside apps/one-mac/ (default)
+  run     swift run OneMac inside apps/one-mac/
+  test    swift test inside apps/one-mac/
+EOF
+      exit 0
+      ;;
+    build|run|test) ;;
+    *)
+      die "native mac subcommand must be build, run, or test"
+      ;;
+  esac
+
+  cd "$REPO_ROOT/apps/one-mac"
+  case "$action" in
+    build) exec swift build ;;
+    run)   exec swift run OneMac ;;
+    test)  exec swift test ;;
+  esac
+}
+
 run_native() {
-  [ "$#" -ge 1 ] || die "native requires <ios|android>"
+  [ "$#" -ge 1 ] || die "native requires <ios|android|mac>"
   local platform="$1"
   shift
+  if [ "$platform" = "mac" ]; then
+    run_native_mac "$@"
+    return
+  fi
   local mode="uat"
   local fresh="false"
 
@@ -290,6 +326,7 @@ run_native() {
         cat <<'EOF'
 Usage:
   ./bin/hushh native <ios|android> [--mode <local|uat|prod>] [--fresh]
+  ./bin/hushh native mac <build|run|test>
 EOF
         exit 0
         ;;
@@ -302,7 +339,7 @@ EOF
   case "$platform" in
     ios|android) ;;
     *)
-      die "native platform must be ios or android"
+      die "native platform must be ios, android, or mac"
       ;;
   esac
 
