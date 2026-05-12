@@ -8,6 +8,7 @@ import json
 import subprocess
 import sys
 import time
+import tempfile
 from collections import OrderedDict
 from itertools import combinations
 from datetime import datetime, timezone
@@ -71,6 +72,45 @@ DB_RELEASE_MANIFEST_FILE = "consent-protocol/db/release_migration_manifest.json"
 SCHEMA_CONTRACT_PATH = REPO_ROOT / "consent-protocol/db/contracts/uat_integrated_schema.json"
 SCHEMATICS_SCRIPT_PATH = Path(__file__).with_name("build_runtime_schematics.py")
 PROJECT_SCHEMATICS: dict[str, Any] | None = None
+GENERATED_OR_RUNTIME_ARTIFACT_SUFFIXES = (
+    ".bin",
+    ".db",
+    ".sqlite",
+    ".sqlite3",
+)
+GENERATED_OR_RUNTIME_ARTIFACT_NAMES = {
+    "audit_logs.json",
+}
+ROOT_SETUP_FILES = {
+    ".env.example",
+    "package-lock.json",
+    "requirements.txt",
+}
+CANONICAL_TOP_LEVEL_ROOTS = {
+    ".codex",
+    ".devcontainer",
+    ".github",
+    "android",
+    "bin",
+    "consent-protocol",
+    "contracts",
+    "docs",
+    "hushh-webapp",
+    "ios",
+    "scripts",
+    "tests",
+    "tmp",
+}
+PARALLEL_RUNTIME_ROOTS = {
+    "agents",
+    "audit_logging",
+    "consentgrid_agent",
+    "policy_engine",
+    "privacy_engine",
+    "recommendation_engine",
+    "semantic_search",
+    "trust_scoring",
+}
 CANONICAL_CAPABILITY_BASELINES: tuple[dict[str, Any], ...] = (
     {
         "id": "voice-runtime",
@@ -481,7 +521,7 @@ RELATED_SURFACE_RULES: tuple[dict[str, Any], ...] = (
             "consent-protocol/api/routes/kai/support.py",
         ),
         "docs": (
-            "docs/future/kai/email-kyc-pkm-assistant.md",
+            "docs/reference/architecture/one-email-kyc.md",
             "docs/reference/architecture/api-contracts.md",
         ),
     },
@@ -559,7 +599,7 @@ PATH_SUMMARIES: dict[str, str] = {
     "docs/reference/architecture/cache-coherence.md": "Frontend cache coherence contract for local write-through, encrypted device cache, and mutation invalidation.",
     "docs/reference/kai/kai-interconnection-map.md": "High-level Kai subsystem map including the canonical decision-card surface.",
     "docs/reference/kai/kai-change-impact-matrix.md": "Kai change-governance matrix describing decision-card and stream-contract impacts.",
-    "docs/future/kai/email-kyc-pkm-assistant.md": "Superseded planning history for One-led KYC workflow and consent-scoped rollout.",
+    "docs/reference/architecture/one-email-kyc.md": "Current One-led KYC mailbox, consent, draft, send, and PKM writeback contract.",
     "hushh-webapp/lib/voice/voice-turn-orchestrator.ts": "Current frontend voice turn coordinator for realtime voice flow and action execution.",
     "hushh-webapp/lib/voice/voice-action-dispatcher.ts": "Current action dispatcher that maps generated voice actions to UI/runtime handlers.",
     "hushh-webapp/lib/voice/kai-action-gateway.ts": "Generated frontend action gateway used as the semantic authority for Kai voice actions.",
@@ -1129,6 +1169,20 @@ def _current_checks(status_check_rollup: list[dict[str, Any]]) -> list[dict[str,
         if current is None or candidate_ts >= current_ts:
             latest_by_name[name] = item
     return sorted(latest_by_name.values(), key=lambda item: item.get("name") or "")
+
+
+def _failed_non_required_checks(
+    current_checks: list[dict[str, Any]],
+    required_status_check: str,
+) -> list[dict[str, Any]]:
+    failed_states = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED"}
+    failed: list[dict[str, Any]] = []
+    for check in current_checks:
+        name = str(check.get("name") or "")
+        conclusion = str(check.get("conclusion") or "UNKNOWN").upper()
+        if name != required_status_check and conclusion in failed_states:
+            failed.append(check)
+    return failed
 
 
 def _surface_tags(files: list[str]) -> list[str]:
@@ -1733,6 +1787,150 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
             for path in files
         )
     )
+
+    new_roots = _new_top_level_roots(files)
+    if new_roots:
+        findings.append(
+            {
+                "id": "new_top_level_parallel_root",
+                "severity": "high",
+                "summary": (
+                    "PR creates a new top-level root that is not present on `origin/main`. "
+                    "New root subsystems require explicit canonical ownership, route/service "
+                    "reachability, and north-star fit before merge."
+                ),
+                "files": [
+                    path
+                    for path in files
+                    if path.split("/", 1)[0] in new_roots
+                ],
+                "details": {"new_roots": new_roots},
+            }
+        )
+
+    setup_files = _root_setup_files(files)
+    if setup_files:
+        findings.append(
+            {
+                "id": "root_setup_surface_added",
+                "severity": "high",
+                "summary": (
+                    "PR adds generic root setup files such as `.env.example`, root "
+                    "`requirements.txt`, or root `package-lock.json`. Hussh setup and "
+                    "dependencies must stay in canonical package/runtime surfaces."
+                ),
+                "files": setup_files,
+            }
+        )
+
+    generated_artifacts = _generated_or_runtime_artifact_files(files)
+    if generated_artifacts:
+        findings.append(
+            {
+                "id": "checked_in_generated_runtime_artifact",
+                "severity": "high",
+                "summary": (
+                    "PR checks in generated/runtime data such as vector-store binaries, "
+                    "SQLite databases, or logs. These artifacts do not belong in source review."
+                ),
+                "files": generated_artifacts,
+            }
+        )
+
+    parallel_runtime_files = _parallel_runtime_root_files(files)
+    if parallel_runtime_files:
+        findings.append(
+            {
+                "id": "standalone_unreachable_runtime_root",
+                "severity": "high",
+                "summary": (
+                    "PR introduces a standalone runtime subsystem outside the canonical app, "
+                    "protocol, vault, consent, or Kai surfaces. Green tests for the new path "
+                    "alone are not proof that the current product calls or owns it."
+                ),
+                "files": parallel_runtime_files,
+                "details": {
+                    "roots": sorted(
+                        {path.split("/", 1)[0] for path in parallel_runtime_files}
+                    )
+                },
+            }
+        )
+
+    personal_memory_files = [
+        path for path in files if path.startswith("agents/personal-memory-agent/")
+    ]
+    if personal_memory_files:
+        findings.append(
+            {
+                "id": "pkm_memory_outside_vault_consent_boundaries",
+                "severity": "high",
+                "summary": (
+                    "PR adds personal-memory/PKM behavior outside the canonical vault, cache, "
+                    "consent, and PKM projection contracts. Memory intelligence must extend "
+                    "the existing encrypted/vault-gated PKM path, not create a parallel agent root."
+                ),
+                "files": personal_memory_files,
+            }
+        )
+
+    cot_paths = _chain_of_thought_persistence_paths(patch_map)
+    if cot_paths:
+        findings.append(
+            {
+                "id": "direct_chain_of_thought_persistence",
+                "severity": "high",
+                "summary": (
+                    "PR appears to persist reasoning traces or chain-of-thought-like data. "
+                    "Persist durable receipts, evidence, decisions, and evaluation metadata, "
+                    "not hidden reasoning traces."
+                ),
+                "files": cot_paths,
+            }
+        )
+
+    empty_files = _empty_new_files(patch_map)
+    if empty_files:
+        findings.append(
+            {
+                "id": "empty_new_file_without_behavior",
+                "severity": "high",
+                "summary": (
+                    "PR adds an empty new file. Green CI only proves there is no executable "
+                    "behavior to validate; this should not be merged as a functional contribution."
+                ),
+                "files": empty_files,
+            }
+        )
+
+    language_mismatches = _script_language_mismatch_files(patch_map)
+    if language_mismatches:
+        findings.append(
+            {
+                "id": "script_language_extension_mismatch",
+                "severity": "high",
+                "summary": (
+                    "PR writes content in the wrong script language for the file extension or "
+                    "replaces an existing script with a different language. This can silently "
+                    "break developer tooling even when lightweight CI passes."
+                ),
+                "files": language_mismatches,
+            }
+        )
+
+    if _devex_env_validation_unwired(files):
+        findings.append(
+            {
+                "id": "devex_validation_script_unwired",
+                "severity": "medium",
+                "summary": (
+                    "PR adds environment-validation scripts without wiring them to the canonical "
+                    "`./bin/hushh` onboarding/doctor path or updating contributor docs. Devex checks "
+                    "should extend the existing operator entrypoint instead of adding isolated scripts."
+                ),
+                "files": [path for path in files if path.startswith("scripts/validate-env")],
+            }
+        )
 
     if _route_files_without_caller_changes(files):
         findings.append(
@@ -2343,7 +2541,7 @@ def _patch_then_merge_reason(findings: list[dict[str, Any]], lane: str) -> str:
 
 def _public_comment_policy(lane: str) -> str:
     if lane == "merge_now":
-        return "no_pre_merge_comment; post_merge_only_if_useful"
+        return "no_pre_merge_comment; required_post_merge_closeout_after_smoke"
     if lane == "patch_then_merge":
         return "no_approval_comment; post_merge_comment_only_if_maintainer_patch_lands"
     if lane in {"harvest_then_close", "close_duplicate"}:
@@ -2610,6 +2808,120 @@ def _operator_batch_action(reports: list[dict[str, Any]], preferred: dict[str, A
     return "Review these PRs together because they touch the same files; merge one at a time with the shared checks rerun after each merge."
 
 
+def _operator_batch_solution(batch: dict[str, Any]) -> list[str]:
+    lane_items = list(batch.get("lanes", {}).items())
+    merge_now = [pr for pr, lane in lane_items if lane == "merge_now"]
+    patch_then_merge = [pr for pr, lane in lane_items if lane == "patch_then_merge"]
+    closure = [pr for pr, lane in lane_items if lane in {"harvest_then_close", "close_duplicate"}]
+    blocked = [pr for pr, lane in lane_items if lane == "block"]
+    ordered = merge_now + patch_then_merge + closure + blocked
+    ordered_label = ", ".join(ordered) if ordered else "manual review order required"
+
+    lines = [
+        f"  - Input: {', '.join(_operator_batch_links(batch))}.",
+        f"  - Output target: {batch['action']}",
+        f"  - Execution order: {ordered_label}.",
+    ]
+    if merge_now:
+        lines.append(
+            f"  - Merge train: approve and queue {', '.join(merge_now)} one at a time after locking the current head SHA and required gate."
+        )
+    if patch_then_merge:
+        lines.append(
+            f"  - Patch train: rebase/patch {', '.join(patch_then_merge)} only after earlier merge-train items land, then rerun the shared checks before queueing."
+        )
+    if closure:
+        lines.append(
+            f"  - Closure wave: harvest unique tests or evidence from {', '.join(closure)}, then close with the standard maintainer decision record."
+        )
+    if blocked:
+        lines.append(
+            f"  - Hold: keep {', '.join(blocked)} out of the merge train until the blocker changes or a maintainer patch is explicitly approved."
+        )
+    lines.extend(
+        [
+            "  - Stop condition: if any PR changes head SHA, loses CI Status Gate, gains conflicts, or reveals a trust/runtime regression, pause that PR and continue only with independent safe items.",
+            "  - Reporting: refresh `tmp/pr-governance-live-report.md` and `tmp/contributor-impact-dashboard.md` after each merge, close, or requested-changes action.",
+        ]
+    )
+    return lines
+
+
+def _operator_batch_research_basis(batch: dict[str, Any]) -> list[str]:
+    prs = ", ".join(_operator_batch_links(batch))
+    shared_files = _compact_file_list(batch.get("shared_files", []), limit=6)
+    lanes = json.dumps(batch.get("lanes", {}))
+    risks = json.dumps(batch.get("risks", {}))
+    return [
+        f"  - Current truth: {prs} are grouped because {batch['reason']} Lanes: `{lanes}`. Risk: `{risks}`. Shared files: {shared_files}.",
+        f"  - Recommended path: {batch['action']}",
+        "  - Risk if accepted blindly: green or previously green CI does not override conflicts, stale heads, duplicate runtime paths, trust-boundary regressions, or schema/runtime contract drift.",
+    ]
+
+
+def _operator_batch_decision_questions(batch: dict[str, Any]) -> list[str]:
+    return [
+        "  - Decision needed: accept the recommended operator path or override it with a product/runtime reason not visible in repo evidence.",
+        f"  - Recommended option: follow the researched path for {', '.join(_operator_batch_links(batch))}; expected output is `{batch['action']}`",
+        "  - Alternative option: hold or split the batch; expected output is no merge until the new product/runtime constraint is recorded.",
+    ]
+
+
+def _operator_batch_pr_role_lines(batch: dict[str, Any]) -> list[str]:
+    roles = batch.get("pr_roles") or []
+    if not roles:
+        return ["  - Per-PR role detail unavailable; rerun the batch report with current PR metadata."]
+    lines: list[str] = []
+    for role in roles:
+        number = role["number"]
+        lines.append(
+            f"  - [#{number}]({role['url']}) - `{role['lane']}` / risk `{role['risk']}` / head `{role['head_sha'][:8]}` / mergeable `{role['mergeable']}` / gate `{role['ci_status_gate']}`: {role['role']}"
+        )
+    return lines
+
+
+def _operator_batch_pr_roles(reports: list[dict[str, Any]]) -> list[OrderedDict[str, Any]]:
+    roles: list[OrderedDict[str, Any]] = []
+    for report in reports:
+        pr = report["pr"]
+        lane = report["lane"]
+        if lane == "merge_now":
+            role = "candidate for direct merge after current-head lock and shared checks"
+        elif lane == "patch_then_merge":
+            role = "candidate for maintainer rebase/patch after earlier overlapping PRs land"
+        elif lane in {"harvest_then_close", "close_duplicate"}:
+            role = "candidate for unique-proof harvest, then close"
+        elif lane == "block":
+            role = "hold out of the merge train until blocker evidence changes"
+        else:
+            role = "manual review required before operator action"
+        findings = [finding["id"] for finding in report["findings"][:2]]
+        if findings:
+            role += f"; watch: {', '.join(findings)}"
+        roles.append(
+            OrderedDict(
+                number=pr["number"],
+                url=pr["url"],
+                title=pr["title"],
+                lane=lane,
+                risk=_lean_core_risk(report),
+                head_sha=pr["head_sha"],
+                mergeable=pr.get("mergeable") or "UNKNOWN",
+                ci_status_gate=report.get("current_ci_status_gate") or "UNKNOWN",
+                role=role,
+            )
+        )
+    return roles
+
+
+def _operator_batch_links(batch: dict[str, Any]) -> list[str]:
+    links = batch.get("pr_links", {})
+    return [
+        f"[#{number}]({links.get(str(number)) or links.get(number) or '#'})"
+        for number in batch["prs"]
+    ]
+
+
 def _operator_batches(
     reports: list[dict[str, Any]],
     overlaps: list[dict[str, Any]],
@@ -2653,6 +2965,11 @@ def _operator_batches(
             OrderedDict(
                 title=_operator_batch_title(component_reports, preferred),
                 prs=[report["pr"]["number"] for report in component_reports],
+                pr_links=OrderedDict(
+                    (report["pr"]["number"], report["pr"]["url"])
+                    for report in component_reports
+                ),
+                pr_roles=_operator_batch_pr_roles(component_reports),
                 preferred_pr=preferred["pr"]["number"],
                 contract_sets=sorted({report["contract_set"] for report in component_reports}),
                 lanes=OrderedDict(
@@ -2682,6 +2999,8 @@ def _operator_batches(
             OrderedDict(
                 title=f"Single-PR Closure: #{pr_number}",
                 prs=[pr_number],
+                pr_links=OrderedDict([(pr_number, report["pr"]["url"])]),
+                pr_roles=_operator_batch_pr_roles([report]),
                 preferred_pr=pr_number,
                 contract_sets=[report["contract_set"]],
                 lanes=OrderedDict([(f"#{pr_number}", report["lane"])]),
@@ -2695,7 +3014,11 @@ def _operator_batches(
         )
         batched_numbers.add(pr_number)
 
-    narrow_contracts = {"pkm-privacy", "voice"}
+    narrow_contracts = {
+        "docs/devex",
+        "tests/CI/devex",
+        "frontend/UI",
+    }
     contract_groups: dict[str, list[dict[str, Any]]] = {}
     for report in reports:
         if report["pr"]["number"] in batched_numbers:
@@ -2708,19 +3031,24 @@ def _operator_batches(
         grouped = sorted(grouped, key=_report_sort_key)
         lane_set = {report["lane"] for report in grouped}
         risk_set = {_lean_core_risk(report) for report in grouped}
-        if contract_set in narrow_contracts and lane_set <= {"merge_now"} and risk_set <= {"low", "non-runtime"}:
+        if contract_set in narrow_contracts and lane_set <= {"merge_now"} and risk_set <= {"low", "low-medium", "non-runtime"}:
             batches.append(
                 OrderedDict(
                     title=f"Adjacent {contract_set} Review Pair",
                     prs=[report["pr"]["number"] for report in grouped],
+                    pr_links=OrderedDict(
+                        (report["pr"]["number"], report["pr"]["url"])
+                        for report in grouped
+                    ),
+                    pr_roles=_operator_batch_pr_roles(grouped),
                     preferred_pr=grouped[0]["pr"]["number"],
                     contract_sets=[contract_set],
                     lanes=OrderedDict((f"#{report['pr']['number']}", report["lane"]) for report in grouped),
                     risks=OrderedDict((f"#{report['pr']['number']}", _lean_core_risk(report)) for report in grouped),
                     intent=f"Adjacent {contract_set} review: same narrow contract, separate files, low current risk.",
                     shared_files=[],
-                    action="Review together for product/context coherence, but merge separately unless manual review finds a shared proof surface.",
-                    reason="Same narrow contract, green gate, low/non-runtime risk, and no exact file overlap.",
+                    action="Review together for product/context coherence, then split into merge, patch, request-changes, or close outcomes per PR. Merge separately unless manual review proves a shared proof surface.",
+                    reason="Same narrow contract, green gate, low/low-medium risk, and no exact file overlap; this is a review batch, not an automatic merge batch.",
                     confidence="medium",
                 )
             )
@@ -2729,6 +3057,11 @@ def _operator_batches(
                 OrderedDict(
                     title=f"Do Not Batch Yet: {contract_set}",
                     prs=[report["pr"]["number"] for report in grouped],
+                    pr_links=OrderedDict(
+                        (report["pr"]["number"], report["pr"]["url"])
+                        for report in grouped
+                    ),
+                    pr_roles=_operator_batch_pr_roles(grouped),
                     preferred_pr=None,
                     contract_sets=[contract_set],
                     lanes=OrderedDict((f"#{report['pr']['number']}", report["lane"]) for report in grouped),
@@ -2749,7 +3082,7 @@ def _operator_batch_lines(batches: list[OrderedDict[str, Any]]) -> list[str]:
         return ["- No actionable operator batches detected from current live overlap and narrow-contract rules."]
     lines: list[str] = []
     for index, batch in enumerate(batches, start=1):
-        prs = ", ".join(f"#{number}" for number in batch["prs"])
+        prs = ", ".join(_operator_batch_links(batch))
         lines.extend(
             [
                 f"### Batch {index}: {batch['title']}",
@@ -2762,9 +3095,61 @@ def _operator_batch_lines(batches: list[OrderedDict[str, Any]]) -> list[str]:
                 f"- What this is about: {batch.get('intent', 'Shared PR sequencing.')}",
                 f"- Why together: {batch['reason']}",
                 f"- Operator action: {batch['action']}",
+                "- Research Basis:",
+                *_operator_batch_research_basis(batch),
+                "- PR roles:",
+                *_operator_batch_pr_role_lines(batch),
+                "- Solution:",
+                *_operator_batch_solution(batch),
+                "- Decision Questions:",
+                *_operator_batch_decision_questions(batch),
                 f"- Shared files: {_compact_file_list(batch['shared_files'], limit=8)}",
                 "",
             ]
+        )
+    return lines
+
+
+MASS_CLOSURE_FINDINGS = {
+    "checked_in_generated_runtime_artifact",
+    "direct_chain_of_thought_persistence",
+    "new_top_level_parallel_root",
+    "pkm_memory_outside_vault_consent_boundaries",
+    "root_setup_surface_added",
+    "standalone_unreachable_runtime_root",
+}
+
+
+def _mass_operator_lane(report: dict[str, Any]) -> str:
+    finding_ids = {finding["id"] for finding in report["findings"]}
+    if finding_ids & MASS_CLOSURE_FINDINGS:
+        return "mass_closure"
+    if report["lane"] == "merge_now" and _lean_core_risk(report) in {"low", "low-medium", "non-runtime"}:
+        return "merge_train"
+    if report["lane"] == "patch_then_merge":
+        return "patch_train"
+    if report["lane"] == "block":
+        return "changes_requested"
+    return "do_not_batch_yet"
+
+
+def _mass_operator_section_lines(
+    title: str,
+    reports: list[dict[str, Any]],
+    empty: str,
+) -> list[str]:
+    lines = ["", f"## {title}", ""]
+    if not reports:
+        lines.append(f"- {empty}")
+        return lines
+    for report in sorted(reports, key=_report_sort_key):
+        pr = report["pr"]
+        finding_ids = ", ".join(finding["id"] for finding in report["findings"][:4]) or "none"
+        reason = report.get("patch_then_merge_reason") or report["decision"]["rationale"]
+        lines.append(
+            f"- [#{pr['number']}]({pr['url']}) - `{report['contract_set']}`, "
+            f"lane `{report['lane']}`, risk `{_lean_core_risk(report)}`; "
+            f"flags `{finding_ids}`; {reason}"
         )
     return lines
 
@@ -2852,6 +3237,107 @@ def _top_roots(files: list[str]) -> list[str]:
         if root not in roots:
             roots.append(root)
     return roots
+
+
+def _path_exists_on_origin_main(path: str) -> bool:
+    completed = subprocess.run(
+        ["git", "cat-file", "-e", f"origin/main:{path}"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPO_ROOT,
+    )
+    return completed.returncode == 0
+
+
+def _generated_or_runtime_artifact_files(files: list[str]) -> list[str]:
+    result: list[str] = []
+    for path in files:
+        name = path.rsplit("/", 1)[-1]
+        if name in GENERATED_OR_RUNTIME_ARTIFACT_NAMES or path.endswith(
+            GENERATED_OR_RUNTIME_ARTIFACT_SUFFIXES
+        ):
+            result.append(path)
+        elif "/logs/" in path and path.endswith((".json", ".log", ".txt")):
+            result.append(path)
+    return result
+
+
+def _new_top_level_roots(files: list[str]) -> list[str]:
+    roots: list[str] = []
+    for root in _top_roots(files):
+        if root in CANONICAL_TOP_LEVEL_ROOTS:
+            continue
+        if _path_exists_on_origin_main(root):
+            continue
+        roots.append(root)
+    return roots
+
+
+def _parallel_runtime_root_files(files: list[str]) -> list[str]:
+    return [
+        path
+        for path in files
+        if path.split("/", 1)[0] in PARALLEL_RUNTIME_ROOTS
+    ]
+
+
+def _root_setup_files(files: list[str]) -> list[str]:
+    return [path for path in files if "/" not in path and path in ROOT_SETUP_FILES]
+
+
+def _chain_of_thought_persistence_paths(patch_map: dict[str, str]) -> list[str]:
+    risky_paths: list[str] = []
+    for path, section in patch_map.items():
+        lowered = section.lower()
+        if (
+            "chain-of-thought" in lowered
+            or "chain of thought" in lowered
+            or "reasoningstep" in section
+            or "log_reasoning_to_pkm" in section
+            or (
+                ("reasoning" in lowered or "trace" in lowered)
+                and ("pkm" in lowered or "personal knowledge" in lowered)
+            )
+        ):
+            risky_paths.append(path)
+    return risky_paths
+
+
+def _empty_new_files(patch_map: dict[str, str]) -> list[str]:
+    return [
+        path
+        for path, section in patch_map.items()
+        if "new file mode" in section and "index 000000000..e69de29bb" in section
+    ]
+
+
+def _script_language_mismatch_files(patch_map: dict[str, str]) -> list[str]:
+    mismatches: list[str] = []
+    for path, section in patch_map.items():
+        if path.endswith(".ps1") and (
+            re.search(r"^\+#!\s*/bin/(?:ba)?sh", section, re.MULTILINE)
+            or re.search(r"^\+if \[\[", section, re.MULTILINE)
+            or re.search(r"^\+OS=\"\\$\\(uname\\)\"", section, re.MULTILINE)
+        ):
+            mismatches.append(path)
+        if path.endswith(".py") and "-#!/usr/bin/env python3" in section and "+#!/bin/bash" in section:
+            mismatches.append(path)
+    return mismatches
+
+
+def _devex_env_validation_unwired(files: list[str]) -> bool:
+    touches_env_validation = any(path.startswith("scripts/validate-env") for path in files)
+    touches_canonical_entrypoint = any(
+        path in files
+        for path in (
+            "bin/hushh",
+            "docs/guides/getting-started.md",
+            "docs/reference/operations/README.md",
+            "docs/reference/operations/env-and-secrets.md",
+        )
+    )
+    return touches_env_validation and not touches_canonical_entrypoint
 
 
 def _finding(
@@ -3066,6 +3552,9 @@ def _batch_text_report(batch: dict[str, Any]) -> str:
             "What this batch is about: "
             + str(batch["operator_batches"][0].get("intent", "Shared PR sequencing."))
         )
+        lines.append("")
+        lines.append("Recommended operator solution:")
+        lines.extend(_operator_batch_lines(batch["operator_batches"]))
     lines.append(f"Lane counts: {json.dumps(batch['lane_counts'], sort_keys=True)}")
     lines.append(f"Surface counts: {json.dumps(batch['surface_counts'], sort_keys=True)}")
     lines.append(f"Root counts: {json.dumps(batch['root_counts'], sort_keys=True)}")
@@ -3138,8 +3627,13 @@ def _live_report_text(batch: dict[str, Any]) -> str:
         "- [Live Risk Matrix](#live-risk-matrix)",
         "- [Actionable Next Queue](#actionable-next-queue)",
         "- [Blocked / Waiting Register](#blocked--waiting-register)",
-        "- [Recommended PR Sets](#recommended-pr-sets)",
-        "- [Operator Batches](#operator-batches)",
+        "- [Contract Intake Sets](#contract-intake-sets)",
+        "- [Recommended Operator Batches](#recommended-operator-batches)",
+        "- [Mass Closure Candidates](#mass-closure-candidates)",
+        "- [Mass Changes Requested Candidates](#mass-changes-requested-candidates)",
+        "- [Merge Train Candidates](#merge-train-candidates)",
+        "- [Patch Train Candidates](#patch-train-candidates)",
+        "- [Do Not Batch Yet](#do-not-batch-yet)",
         "- [Individual PR Assessments](#individual-pr-assessments)",
         "- [Cross-PR File Overlaps](#cross-pr-file-overlaps)",
         "",
@@ -3182,9 +3676,9 @@ def _live_report_text(batch: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "## Recommended PR Sets",
+            "## Contract Intake Sets",
             "",
-            "Recommended sets are grouped from the Actionable Next Queue first, then by product/runtime contract. Blocked PRs stay in the waiting register and are not recommended as fresh batches.",
+            "These are broad intake buckets grouped from the Actionable Next Queue by product/runtime contract. They are not merge batches by themselves. Use them to choose which domain to inspect next, then use Recommended Operator Batches for actual merge/close execution.",
             "",
         ]
     )
@@ -3202,9 +3696,9 @@ def _live_report_text(batch: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "## Operator Batches",
+            "## Recommended Operator Batches",
             "",
-            "Operator batches are the smaller execution groups derived from exact overlap, duplicate groups, or narrow adjacent contracts among actionable candidates. Blocked PRs are excluded until their review state or branch state changes.",
+            "These are the execution groups to take at once. They are derived from exact file overlap, duplicate/superseded outcomes, shared implementation dependencies, or narrow adjacent contracts with the same proof surface. Broad contract labels alone are not enough.",
             "",
         ]
     )
@@ -3215,6 +3709,51 @@ def _live_report_text(batch: dict[str, Any]) -> str:
         if set(overlap.get("pair", [])) <= actionable_numbers
     ]
     lines.extend(_operator_batch_lines(_operator_batches(actionable_reports, actionable_overlaps)))
+    mass_groups: dict[str, list[dict[str, Any]]] = {
+        "mass_closure": [],
+        "changes_requested": [],
+        "merge_train": [],
+        "patch_train": [],
+        "do_not_batch_yet": [],
+    }
+    for report in actionable_reports:
+        lane = _mass_operator_lane(report)
+        mass_groups.setdefault(lane, []).append(report)
+    lines.extend(
+        _mass_operator_section_lines(
+            "Mass Closure Candidates",
+            mass_groups["mass_closure"],
+            "none detected from current actionable PRs.",
+        )
+    )
+    lines.extend(
+        _mass_operator_section_lines(
+            "Mass Changes Requested Candidates",
+            mass_groups["changes_requested"],
+            "none detected from current actionable PRs.",
+        )
+    )
+    lines.extend(
+        _mass_operator_section_lines(
+            "Merge Train Candidates",
+            mass_groups["merge_train"],
+            "none detected from current actionable PRs.",
+        )
+    )
+    lines.extend(
+        _mass_operator_section_lines(
+            "Patch Train Candidates",
+            mass_groups["patch_train"],
+            "none detected from current actionable PRs.",
+        )
+    )
+    lines.extend(
+        _mass_operator_section_lines(
+            "Do Not Batch Yet",
+            mass_groups["do_not_batch_yet"],
+            "none detected from current actionable PRs.",
+        )
+    )
     lines.extend(
         [
             "## Individual PR Assessments",
@@ -3252,35 +3791,35 @@ def _communication_markdown(report: dict[str, Any]) -> str:
     if lane == "merge_now":
         return "\n".join(
             [
-                f"## Approved: {contract_title}",
+                f"## Merged: {contract_title}",
                 "",
                 "### What Landed",
                 "The current head is aligned with the existing caller, runtime, and trust-boundary contracts.",
                 "",
-                "### Why This Is Safe",
-                "The required gate is green and the review did not find contract or governance regressions.",
+                "### Why It Matters",
+                "This keeps the merged surface aligned with Hussh runtime and trust-boundary expectations.",
                 "",
                 "### Outcome",
-                "This keeps the merged surface aligned with Hussh runtime and trust-boundary expectations.",
+                "Post-merge closeout is required after Main Post-Merge Smoke is green.",
             ]
         )
 
     elif lane == "patch_then_merge":
         return "\n".join(
             [
-                f"## Approved With Maintainer Patch: {contract_title}",
+                f"## Merged: {contract_title}",
                 "",
                 "### What Landed",
                 "The direction is useful, but the current head should not be merged unchanged.",
                 "",
+                "### Why It Matters",
+                report["decision"]["rationale"],
+                "",
                 "### Maintainer Patch",
                 f"Patch required for: {finding_ids}.",
                 "",
-                "### Why This Path",
-                report["decision"]["rationale"],
-                "",
                 "### Outcome",
-                "The maintainer path keeps the useful direction while avoiding a broader contract regression.",
+                "Post-merge closeout is required after Main Post-Merge Smoke is green.",
             ]
         )
 
@@ -3333,6 +3872,23 @@ def _communication_markdown(report: dict[str, Any]) -> str:
     )
 
 
+def _write_text_atomic(path: str, text: str) -> None:
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        delete=False,
+        dir=str(output_path.parent),
+        prefix=f".{output_path.name}.",
+        suffix=".tmp",
+    ) as handle:
+        handle.write(text)
+        handle.write("\n")
+        temp_name = handle.name
+    Path(temp_name).replace(output_path)
+
+
 def build_report(repo: str, pr: int) -> dict[str, Any]:
     schematics = _schematics_summary()
     pr_view = _gh_json(
@@ -3367,6 +3923,7 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
         (item.get("conclusion", "UNKNOWN") for item in current_checks if item.get("name") == required_status_check),
         "MISSING",
     )
+    failed_non_required_checks = _failed_non_required_checks(current_checks, required_status_check)
     report = OrderedDict(
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         repo=repo,
@@ -3418,6 +3975,28 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
         findings=_build_findings(files, patch_map),
         related_surfaces=_related_surfaces(files),
     )
+    if ci_status_gate == "SUCCESS" and failed_non_required_checks:
+        _append_finding(
+            report,
+            _finding(
+                "auxiliary_check_failing",
+                "high",
+                (
+                    "A non-required current check is failing while the aggregate required gate is green. "
+                    "Do not treat this PR as merge-ready until the failing check is fixed, removed, or "
+                    "explicitly classified as intentionally advisory."
+                ),
+                files,
+                details=[
+                    {
+                        "name": item.get("name"),
+                        "conclusion": item.get("conclusion"),
+                        "details_url": item.get("detailsUrl"),
+                    }
+                    for item in failed_non_required_checks
+                ],
+            ),
+        )
     if report["pr"]["review_decision"] == "CHANGES_REQUESTED":
         _append_finding(
             report,
@@ -3453,6 +4032,7 @@ def main() -> int:
     parser.add_argument("--prs", help="Comma-separated PR numbers for batch review.")
     parser.add_argument("--live-report", action="store_true", help="Build a live-only report from current open PRs, including drafts.")
     parser.add_argument("--limit", type=int, default=100, help="Open PR query limit for --live-report.")
+    parser.add_argument("--output", help="Write output atomically to this path instead of stdout.")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--text", action="store_true")
     args = parser.parse_args()
@@ -3490,11 +4070,15 @@ def main() -> int:
         return 1
 
     if args.json:
-        print(json.dumps(report, indent=2))
+        rendered = json.dumps(report, indent=2)
     elif is_live_report:
-        print(_live_report_text(report))
+        rendered = _live_report_text(report)
     else:
-        print(_batch_text_report(report) if is_batch else _text_report(report))
+        rendered = _batch_text_report(report) if is_batch else _text_report(report)
+    if args.output:
+        _write_text_atomic(args.output, rendered)
+    else:
+        print(rendered)
     return 0
 
 

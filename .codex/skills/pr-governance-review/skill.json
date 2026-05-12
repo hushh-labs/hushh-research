@@ -26,7 +26,10 @@
     ".codex/skills/repo-operations/SKILL.md",
     ".codex/skills/quality-contracts/SKILL.md",
     ".codex/skills/pr-governance-review/references/review-axes.md",
-    ".codex/skills/pr-governance-review/references/runtime-schematics-contract.md"
+    ".codex/skills/pr-governance-review/references/runtime-schematics-contract.md",
+    ".codex/skills/pr-governance-review/references/operator-batch-output-contract.md",
+    ".codex/skills/pr-governance-review/references/blocker-gates.md",
+    ".codex/skills/pr-governance-review/references/comment-and-report-contract.md"
   ],
   "required_commands": [
     "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",
@@ -37,7 +40,7 @@
     "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 498,505,444 --text",
     "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 531,529,435 --text",
     "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text",
-    "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text",
+    "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text --output tmp/pr-governance-live-report.md",
     "python3 -m py_compile .codex/skills/pr-governance-review/scripts/contributor_impact_report.py",
     "python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 7 --text",
     "./bin/hushh codex audit --text",
@@ -55,7 +58,7 @@
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 498,505,444 --text",
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 531,529,435 --text",
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text",
-        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text",
+        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text --output tmp/pr-governance-live-report.md",
         "python3 -m py_compile .codex/skills/pr-governance-review/scripts/contributor_impact_report.py",
         "python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 7 --text",
         "./bin/hushh codex audit --text",
@@ -70,7 +73,7 @@
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 498,505,444 --text",
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 531,529,435 --text",
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text",
-        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text",
+        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text --output tmp/pr-governance-live-report.md",
         "python3 -m py_compile .codex/skills/pr-governance-review/scripts/contributor_impact_report.py",
         "python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 7 --text",
         "./bin/hushh codex audit --text",

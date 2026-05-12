@@ -40,10 +40,11 @@
       "exact_tables": [
         "actor_profiles",
         "actor_identity_cache",
+        "actor_verified_email_aliases",
         "runtime_persona_state",
         "user_push_tokens"
       ],
-      "primary_access_path": "account, persona, notification, and identity-cache services",
+      "primary_access_path": "account, persona, notification, verified email alias, and identity-cache services",
       "retention_policy": "Retain while account exists; refresh from authoritative identity sources where possible.",
       "deletion_behavior": "Delete or invalidate on account deletion; unregister push tokens on sign-out/delete.",
       "trust_boundary": "Metadata only; no vault keys, passphrases, tokens, or decrypted PKM.",
