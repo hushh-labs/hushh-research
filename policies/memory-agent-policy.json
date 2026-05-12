@@ -1,0 +1,7 @@
+{
+  "agent": "memory-agent",
+  "permissions": [
+    "read_memory",
+    "write_memory"
+  ]
+}
