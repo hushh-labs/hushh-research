@@ -21,6 +21,7 @@ import {
   SettingsRow,
   SettingsSegmentedTabs,
 } from "@/components/profile/settings-ui";
+import { ApiRetryState } from "@/components/system/api-retry-state";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
@@ -576,6 +577,9 @@ export function ConsentCenterPage() {
   const [searchValue, setSearchValue] = useState(searchParams.get("q") || "");
   const deferredQuery = useDeferredValue(searchValue.trim());
   const [mutationTick, setMutationTick] = useState(0);
+  const retryConsentCenter = () => {
+    setMutationTick((value) => value + 1);
+  };
   const summaryCacheKey = user?.uid
     ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(user.uid, `${actor}:${mode}`)
     : "consent_center_summary_guest";
@@ -717,6 +721,14 @@ export function ConsentCenterPage() {
     () => (tab === "relationships" ? relationshipItems : listData?.items || []),
     [listData?.items, relationshipItems, tab]
   );
+  const activeListError =
+    tab === "relationships" ? centerResource.error : listResource.error;
+  const consentLoadError = activeListError || summaryResource.error;
+  const hasVisibleConsentListData =
+    items.length > 0 ||
+    (tab === "relationships" ? Boolean(centerResource.data) : Boolean(listData));
+  const showCompactRetryState = Boolean(consentLoadError && hasVisibleConsentListData);
+  const showFullRetryState = Boolean(consentLoadError && !hasVisibleConsentListData);
   const selectedEntry = useMemo(() => {
     if (!items.length) return null;
     if (selectedId) {
@@ -1009,17 +1021,34 @@ export function ConsentCenterPage() {
             <section data-testid="consent-manager-list">
               <SettingsGroup embedded>
                 <div className="space-y-2 px-2 py-2">
-                  {listResource.loading && items.length === 0 ? (
+                  {showCompactRetryState ? (
+                    <ApiRetryState
+                      variant="compact"
+                      title="Showing saved consent data"
+                      description="The latest refresh failed. You can keep reviewing cached data or retry."
+                      onRetry={retryConsentCenter}
+                    />
+                  ) : null}
+
+                  {showFullRetryState ? (
+                    <ApiRetryState
+                      title="Unable to refresh consent data"
+                      description="Consent data could not be loaded right now. Retry to fetch the latest consent state."
+                      onRetry={retryConsentCenter}
+                    />
+                  ) : null}
+
+                  {listResource.loading && items.length === 0 && !showFullRetryState ? (
                     <div className="px-3 py-6 text-sm text-muted-foreground">
                       Loading consent entries…
                     </div>
                   ) : null}
-                  {!listResource.loading && tab !== "relationships" && items.length === 0 ? (
+                  {!listResource.loading && !showFullRetryState && tab !== "relationships" && items.length === 0 ? (
                     <div className="px-3 py-8 text-sm text-muted-foreground">
                       No {tab} entries match this view right now.
                     </div>
                   ) : null}
-                  {!centerResource.loading && tab === "relationships" && items.length === 0 ? (
+                  {!centerResource.loading && !showFullRetryState && tab === "relationships" && items.length === 0 ? (
                     <div className="px-3 py-8 text-sm text-muted-foreground">
                       No relationship entries match this view right now.
                     </div>
@@ -1041,7 +1070,10 @@ export function ConsentCenterPage() {
                       <ConsentEntryRow
                         key={entry.id}
                         entry={entry}
-                        selected={selectedEntry?.id === entry.id}
+                        selected={
+                          selectedEntry?.id === entry.id ||
+                          selectedEntry?.request_id === entry.request_id
+                        }
                         onSelect={() =>
                           setParam({
                             requestId: entry.request_id || entry.id,
