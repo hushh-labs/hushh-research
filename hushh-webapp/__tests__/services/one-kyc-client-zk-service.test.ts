@@ -101,6 +101,44 @@ describe("OneKycClientZkService", () => {
     expect(draft.body).not.toContain("address:");
   });
 
+  it("builds multi-scope drafts without appending redraft instructions as outgoing text", async () => {
+    const workflow: OneKycWorkflow = {
+      ...baseWorkflow,
+      required_fields: ["full_name", "portfolio", "financial_profile"],
+      requested_scopes: ["attr.identity.*", "attr.financial.*"],
+    };
+
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow,
+      instructions: "add financial information",
+      exportPayloads: [
+        {
+          scope: "attr.identity.*",
+          payload: {
+            identity: {
+              full_name: "Ada Lovelace",
+            },
+          },
+        },
+        {
+          scope: "attr.financial.*",
+          payload: {
+            financial: {
+              portfolio: [{ ticker: "UAT", value: "test only" }],
+            },
+          },
+        },
+      ],
+    });
+
+    expect(draft.body).toContain("full name: Ada Lovelace");
+    expect(draft.body).toContain("portfolio: ticker: UAT; value: test only");
+    expect(draft.body).toContain("approved export did not contain");
+    expect(draft.body).toContain("financial profile");
+    expect(draft.body).not.toContain("User requested adjustment");
+    expect(draft.scopeSummaries).toHaveLength(2);
+  });
+
   it("rejects consent exports wrapped to a different connector before decrypting", async () => {
     await expect(
       OneKycClientZkService.decryptScopedExport({
