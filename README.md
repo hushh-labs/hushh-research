@@ -139,6 +139,16 @@ Prefer the devcontainer if you want a reproducible setup with Node 20, Python 3.
 Dev Containers: Reopen in Container
 ```
 
+If you specifically need a Docker-backed local backend helper, keep it inside the
+root CLI:
+
+```bash
+./bin/hushh compose up dev
+```
+
+This starts the backend support stack only. The frontend still uses the
+canonical `./bin/hushh web` path.
+
 ## Documentation
 
 - [Getting Started](./docs/guides/getting-started.md)
