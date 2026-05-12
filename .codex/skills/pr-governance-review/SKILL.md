@@ -204,7 +204,7 @@ Default blockers include:
 5. Post before merge only for `block`, `changes_requested`, `comment_only`, or when contributor action is required.
 6. If a PR can be corrected safely by maintainers without changing product intent, prefer `patch_then_merge` over contributor round trips. Use a `## Changes Requested` record when the change needs contributor clarity, split/rebase, proof, or direction correction.
 7. Public duplicate language is allowed only for exact or manually confirmed semantic duplicates. Shared files alone mean sequencing/rebase, not duplicate.
-8. Maintainer patches must be explained in the post-merge note: who patched, what changed, why this was the smallest safe path, and what happened to related PRs.
+8. Maintainer patches must be explained in the post-merge note: who patched, what changed, what original PR value was kept, what was converted into existing canonical docs/scripts/runtime surfaces, what was dropped or deferred, why this was the smallest safe path, and what happened to related PRs.
 9. Do not include a separate successful-merge evidence section such as `### Merge Confidence`, `### Proof`, or `### Verification`; GitHub already shows checks. Use `### Why It Matters` in post-merge comments.
 10. Do not publish maintainer-only sequencing, CI dumps, or report bookkeeping in GitHub comments.
 11. Final handoffs for state-changing PR work must include direct links to affected PRs and any maintainer-authored merge/patch/closure comment links.

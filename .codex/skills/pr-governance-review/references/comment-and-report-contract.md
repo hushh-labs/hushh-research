@@ -51,6 +51,14 @@ Use this reference for GitHub write actions, post-merge closeouts, live report u
 
 Add `### Documentation Updated` only when durable docs changed.
 
+For `### Maintainer Patch`, do not write only that maintainers "normalized" or "patched" the PR. Explain the conversion:
+
+1. what useful original capability was kept
+2. what moved into existing canonical docs, scripts, routes, packages, or runtime owners
+3. what was dropped or deferred because it would create a parallel root, duplicate runtime, or unrelated product decision
+4. why the maintainer patch was lower-friction than asking the contributor to redo the branch
+5. where the accepted usage now lives
+
 ### Changes Requested
 
 ```markdown

@@ -106,7 +106,7 @@ Execution rule:
 - if maintainers can modify the contributor branch, patch that branch directly
 - otherwise create a short-lived branch named `temp/pr-<number>-patch`, apply the fix there, and delete it after the issue is resolved
 - rerun CI on the updated merge candidate
-- then thank the author and explain what was integrated and what was corrected
+- then thank the author and explain the conversion map: what was kept, what moved into existing canonical docs/scripts/routes/packages, what was dropped or deferred, and where the accepted usage now lives
 
 ### 3. `block`
 

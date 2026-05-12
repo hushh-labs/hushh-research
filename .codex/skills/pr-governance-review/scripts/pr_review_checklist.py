@@ -4308,7 +4308,7 @@ def _communication_markdown(report: dict[str, Any]) -> str:
                 report["decision"]["rationale"],
                 "",
                 "### Maintainer Patch",
-                f"Maintainer-owned patch was explicitly chosen for: {finding_ids}.",
+                f"Maintainer-owned patch was explicitly chosen for: {finding_ids}. Explain what useful value was kept, what was converted into existing canonical docs/scripts/runtime surfaces, what was dropped or deferred, and where the accepted usage now lives.",
                 "",
                 "### Outcome",
                 "Post-merge closeout is required after Main Post-Merge Smoke is green.",
