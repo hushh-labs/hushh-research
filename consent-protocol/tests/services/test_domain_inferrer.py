@@ -1,20 +1,30 @@
-"""Behavioral tests for DomainInferrer pure methods.
+"""Behavioral contract tests for DomainInferrer rule engine.
 
 DomainInferrer auto-categorizes attribute keys into domains using a keyword +
 regex-pattern scoring engine. The class and its singleton factory are pure
 (no DB, network, or LLM required), making them ideal for hermetic unit tests.
 
+Canonical attach point:
+  hushh_mcp.services.domain_inferrer.DomainInferrer.infer
+  -> get_domain_inferrer() singleton
+  -> Owner: hushh_mcp.services.domain_inferrer (pure utility, no route dependency)
+  -> Consumed by attribute classification callers that import get_domain_inferrer()
+
 Coverage:
-- DomainInferrer.infer — keyword match, pattern match, value_hint, ambiguous,
+- DomainInferrer.infer -- keyword match, pattern match, value_hint, ambiguous,
   no-match fallback, empty/whitespace input, None-safe value_hint
-- DomainInferrer.infer_with_confidence — domain + (0.0-1.0) confidence
-- DomainInferrer.get_domain_metadata — display_name, icon, color fields
-- DomainInferrer.add_rule — new domain, keyword merge, pattern compile & match
-- DomainInferrer.list_domains — all known keys present
-- get_domain_inferrer — singleton identity
+- DomainInferrer.infer_with_confidence -- domain + (0.0-1.0) confidence
+- DomainInferrer.get_domain_metadata -- display_name, icon, color fields
+- DomainInferrer.add_rule -- new domain, keyword merge, pattern compile and match
+- DomainInferrer.list_domains -- all known keys present
+- get_domain_inferrer -- singleton identity
+- TestDomainInferrerCanonicalServiceProof -- confirms the service is importable,
+  callable, and the rule engine is active in the current owner path
 """
 
 from __future__ import annotations
+
+import inspect
 
 import pytest
 
@@ -28,7 +38,7 @@ def inferrer() -> DomainInferrer:
 
 
 # ---------------------------------------------------------------------------
-# infer — domain classification
+# infer -- domain classification
 # ---------------------------------------------------------------------------
 
 
@@ -93,7 +103,7 @@ class TestInfer:
         assert inferrer.infer("my_portfolio_snapshot") == "financial"
 
     def test_hyphenated_key_normalized_before_scoring(self, inferrer):
-        # hyphens → spaces before keyword matching
+        # hyphens -> spaces before keyword matching
         assert inferrer.infer("stock-ticker") == "financial"
 
 
@@ -116,7 +126,7 @@ class TestInferWithConfidence:
         assert 0.0 <= confidence <= 1.0
 
     def test_strong_match_has_higher_confidence_than_weak(self, inferrer):
-        # "portfolio_investment_stock_ticker_shares" — many financial keywords
+        # "portfolio_investment_stock_ticker_shares" -- many financial keywords
         _, strong_conf = inferrer.infer_with_confidence("portfolio_investment_stock_ticker")
         _, weak_conf = inferrer.infer_with_confidence("asset")  # single keyword
         assert strong_conf >= weak_conf
@@ -149,7 +159,7 @@ class TestGetDomainMetadata:
 
     def test_unknown_domain_returns_defaults(self, inferrer):
         meta = inferrer.get_domain_metadata("nonexistent_domain")
-        # str.title() preserves underscores: "nonexistent_domain" → "Nonexistent_Domain"
+        # str.title() preserves underscores: "nonexistent_domain" -> "Nonexistent_Domain"
         assert meta["display_name"] == "Nonexistent_Domain"
         assert meta["icon"] == "folder"
         assert meta["color"] == "#6B7280"
@@ -233,7 +243,7 @@ class TestListDomains:
 
 
 # ---------------------------------------------------------------------------
-# get_domain_inferrer — singleton
+# get_domain_inferrer -- singleton
 # ---------------------------------------------------------------------------
 
 
@@ -245,3 +255,82 @@ class TestGetDomainInferrer:
         a = get_domain_inferrer()
         b = get_domain_inferrer()
         assert a is b
+
+
+# ---------------------------------------------------------------------------
+# Canonical service proof
+# ---------------------------------------------------------------------------
+
+
+class TestDomainInferrerCanonicalServiceProof:
+    """
+    Prove the DomainInferrer rule engine is reachable through the current
+    owner path.
+
+    Canonical attach point:
+      hushh_mcp.services.domain_inferrer.DomainInferrer.infer
+      -> get_domain_inferrer() singleton factory
+      -> Owner: hushh_mcp.services.domain_inferrer (pure, no external deps)
+      -> Consumed by attribute classification callers via get_domain_inferrer()
+
+    Note: the architecture compliance suite (test_architecture_compliance.py)
+    explicitly enforces that PersonalKnowledgeModelService does NOT import
+    domain_inferrer (legacy guard). The canonical entry point is therefore
+    get_domain_inferrer() itself, callable from any attribute classification
+    surface that needs rule-based domain labeling.
+    """
+
+    def test_get_domain_inferrer_is_importable(self):
+        """The singleton factory must be importable without any external deps."""
+        from hushh_mcp.services.domain_inferrer import get_domain_inferrer as gdi
+
+        assert callable(gdi)
+
+    def test_singleton_exercises_rule_engine(self):
+        """get_domain_inferrer() must return a live DomainInferrer whose infer() works."""
+        di = get_domain_inferrer()
+        result = di.infer("portfolio_value")
+        assert result == "financial", (
+            "Rule engine not active in singleton -- get_domain_inferrer() is broken"
+        )
+
+    def test_singleton_infer_with_confidence_works(self):
+        """infer_with_confidence on the singleton must return a valid (domain, float) pair."""
+        di = get_domain_inferrer()
+        domain, confidence = di.infer_with_confidence("stock_ticker")
+        assert domain == "financial"
+        assert 0.0 < confidence <= 1.0
+
+    def test_singleton_list_domains_non_empty(self):
+        """Singleton must expose at least the core domain set."""
+        di = get_domain_inferrer()
+        domains = di.list_domains()
+        assert len(domains) >= 10, "Core domain set must have at least 10 entries"
+        assert "financial" in domains
+
+    def test_singleton_add_rule_extends_live_engine(self):
+        """add_rule on the singleton must extend the live rule engine."""
+        di = get_domain_inferrer()
+        # Use a unique domain name so state from other tests does not interfere
+        di.add_rule("_test_canonical_proof", keywords=["canonical_proof_kw"])
+        assert "_test_canonical_proof" in di.list_domains()
+        assert di.infer("canonical_proof_kw_attr") == "_test_canonical_proof"
+
+    def test_domain_inferrer_module_is_self_contained(self):
+        """domain_inferrer.py must not import from routes or external services."""
+        import hushh_mcp.services.domain_inferrer as mod
+
+        src = inspect.getsource(mod)
+        assert "from api.routes" not in src, (
+            "DomainInferrer must not import from api.routes"
+        )
+        assert "import fastapi" not in src.lower(), (
+            "DomainInferrer must remain a pure utility without FastAPI dependency"
+        )
+
+    def test_infer_returns_string_for_any_input(self):
+        """infer() must never raise - it must always return a domain string."""
+        di = get_domain_inferrer()
+        for key in ("", "   ", "abc", "portfolio", "xyzzy_unknown_9999"):
+            result = di.infer(key)
+            assert isinstance(result, str), f"infer({key!r}) did not return a string"
