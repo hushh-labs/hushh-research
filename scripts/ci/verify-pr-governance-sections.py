@@ -17,7 +17,6 @@ REQUIRED_OPERATOR_CONTRACT_SECTIONS = [
     "## Required Chat Shape",
     "`Research Basis`",
     "`Input`",
-    "`Per-PR Role`",
     "`Output`",
     "`Execution`",
     "`Decision Questions`",
@@ -29,13 +28,20 @@ REQUIRED_OPERATOR_CONTRACT_SECTIONS = [
     "recommended option first",
 ]
 
+REQUIRED_OPERATOR_CONTRACT_ALTERNATIVES = [
+    ("`Per-PR Role`", "`Per-PR Assessment`"),
+]
+
 REQUIRED_OPERATOR_GENERATOR_SECTIONS = [
     "- Research Basis:",
     "_operator_batch_research_basis(batch)",
-    "- PR roles:",
     "- Solution:",
     "- Decision Questions:",
     "_operator_batch_decision_questions(batch)",
+]
+
+REQUIRED_OPERATOR_GENERATOR_ALTERNATIVES = [
+    ("- PR roles:", "- Per-PR Assessment:"),
 ]
 
 REQUIRED_COMMENT_SECTIONS = {
@@ -68,9 +74,25 @@ REQUIRED_COMMENT_SECTIONS = {
     ],
 }
 
+REQUIRED_COMMENT_POLICY_PHRASES = [
+    "Every PR merged through PR governance gets one post-merge record",
+    "Do not post noisy approval comments",
+]
+
+REQUIRED_COMMENT_POLICY_ALTERNATIVES = [
+    (
+        "Post before merge only for `block`, `changes_requested`, `comment_only`, or when contributor action is required.",
+        "Before posting, inspect existing maintainer-authored comments and reviews.",
+    ),
+]
+
 
 def _missing(text: str, required: list[str]) -> list[str]:
     return [item for item in required if item not in text]
+
+
+def _missing_alternatives(text: str, alternatives: list[tuple[str, ...]]) -> list[str]:
+    return [" or ".join(items) for items in alternatives if not any(item in text for item in items)]
 
 
 def _function_body(text: str, function_name: str) -> str:
@@ -95,6 +117,10 @@ def main() -> int:
             errors.append(
                 f"{OPERATOR_CONTRACT.relative_to(REPO_ROOT)}: missing required PR governance section `{item}`"
             )
+        for item in _missing_alternatives(contract_text, REQUIRED_OPERATOR_CONTRACT_ALTERNATIVES):
+            errors.append(
+                f"{OPERATOR_CONTRACT.relative_to(REPO_ROOT)}: missing one required PR governance section from `{item}`"
+            )
 
     if not PR_REVIEW_SCRIPT.exists():
         errors.append(f"missing PR review checklist script: {PR_REVIEW_SCRIPT.relative_to(REPO_ROOT)}")
@@ -110,6 +136,10 @@ def main() -> int:
                 errors.append(
                     f"{PR_REVIEW_SCRIPT.relative_to(REPO_ROOT)}: operator batch output missing `{item}`"
                 )
+            for item in _missing_alternatives(operator_body, REQUIRED_OPERATOR_GENERATOR_ALTERNATIVES):
+                errors.append(
+                    f"{PR_REVIEW_SCRIPT.relative_to(REPO_ROOT)}: operator batch output missing one of `{item}`"
+                )
 
         comment_body = _function_body(script_text, "_communication_markdown")
         if not comment_body:
@@ -122,6 +152,25 @@ def main() -> int:
                     errors.append(
                         f"{PR_REVIEW_SCRIPT.relative_to(REPO_ROOT)}: `{lane}` PR note missing `{item}`"
                     )
+
+        comment_contract = REPO_ROOT / ".codex/skills/pr-governance-review/references/comment-and-report-contract.md"
+        if not comment_contract.exists():
+            errors.append(
+                f"missing PR comment/report contract: {comment_contract.relative_to(REPO_ROOT)}"
+            )
+        else:
+            comment_contract_text = comment_contract.read_text(encoding="utf-8")
+            for item in _missing(comment_contract_text, REQUIRED_COMMENT_POLICY_PHRASES):
+                errors.append(
+                    f"{comment_contract.relative_to(REPO_ROOT)}: missing required PR comment policy `{item}`"
+                )
+            for item in _missing_alternatives(
+                comment_contract_text,
+                REQUIRED_COMMENT_POLICY_ALTERNATIVES,
+            ):
+                errors.append(
+                    f"{comment_contract.relative_to(REPO_ROOT)}: missing one required PR comment policy from `{item}`"
+                )
 
     if errors:
         print("ERROR: PR governance section check failed.")
