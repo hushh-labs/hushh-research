@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
  *
  * A thin progress bar at the top of the viewport that shows real progress
  * based on completed loading steps.
- * * Optimized for Antigravity with smooth transitions and safety guards.
+ * Uses sequenced fade-out timing so completed progress does not jump during reset.
  */
 export function StepProgressBar() {
   const { progress, isLoading } = useStepProgress();
@@ -70,7 +70,7 @@ export function StepProgressBar() {
       )}
       style={{
         // Resolves the top position using the CSS variable or a default
-        top: "var(--top-inset, 0px)"
+        top: "var(--top-inset, 0px)",
       }}
     >
       <Progress
