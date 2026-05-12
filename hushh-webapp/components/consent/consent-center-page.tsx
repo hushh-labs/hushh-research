@@ -22,6 +22,7 @@ import {
   SettingsRow,
   SettingsSegmentedTabs,
 } from "@/components/profile/settings-ui";
+import { AccessibilityStatusAnnouncer } from "@/components/system/accessibility-status-announcer";
 import { ApiRetryState } from "@/components/system/api-retry-state";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -725,6 +726,10 @@ export function ConsentCenterPage() {
   );
   const activeListError =
     tab === "relationships" ? centerResource.error : listResource.error;
+  const activeListLoading =
+    tab === "relationships" ? centerResource.loading : listResource.loading;
+  const activeListRefreshing =
+    tab === "relationships" ? centerResource.refreshing : listResource.refreshing;
   const consentLoadError = activeListError || summaryResource.error;
   const hasVisibleConsentListData =
     items.length > 0 ||
@@ -732,6 +737,13 @@ export function ConsentCenterPage() {
   const showCompactRetryState = Boolean(consentLoadError && hasVisibleConsentListData);
   const showFullRetryState = Boolean(consentLoadError && !hasVisibleConsentListData);
   const visibleSnapshot = tab === "relationships" ? centerResource.snapshot : listResource.snapshot;
+  const accessibilityStatusMessage = activeListLoading
+    ? "Consent entries are loading."
+    : activeListRefreshing
+      ? "Consent entries are refreshing."
+      : consentLoadError
+        ? "Consent entries failed to refresh."
+        : "";
   const selectedEntry = useMemo(() => {
     if (!items.length) return null;
     if (selectedId) {
@@ -1032,6 +1044,8 @@ export function ConsentCenterPage() {
             <section data-testid="consent-manager-list">
               <SettingsGroup embedded>
                 <div className="space-y-2 px-2 py-2">
+                  <AccessibilityStatusAnnouncer message={accessibilityStatusMessage} />
+
                   {showCompactRetryState ? (
                     <ApiRetryState
                       variant="compact"
