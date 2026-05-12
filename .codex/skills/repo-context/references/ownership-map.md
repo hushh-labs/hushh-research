@@ -27,6 +27,7 @@ Use this reference after the initial scan to choose the correct owner skill firs
 1. `frontend-design-system`
 2. `frontend-architecture`
 3. `frontend-surface-placement`
+4. `frontend-native-surface-mapper`
 
 ### `mobile-native`
 
@@ -73,3 +74,4 @@ Use this reference after the initial scan to choose the correct owner skill firs
 18. `subtree-upstream-governance`
 19. `github-contribution-governance`
 20. `data-model-audit`
+21. `frontend-native-surface-map`
