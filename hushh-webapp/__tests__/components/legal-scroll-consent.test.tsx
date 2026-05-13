@@ -57,7 +57,9 @@ describe("LegalScrollConsent Component - Compliance & A11y", () => {
     Object.defineProperty(container, "scrollHeight", { configurable: true, value: 200 });
     Object.defineProperty(container, "clientHeight", { configurable: true, value: 400 });
     
-    // The initial useEffect should evaluate this and auto-complete
+    // Trigger a re-calculation since JSDOM initial mount had 0 height
+    fireEvent.scroll(container);
+
     expect(onReadCompleteMock).toHaveBeenCalledOnce();
   });
 });

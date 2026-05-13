@@ -32,6 +32,9 @@ export function LegalScrollConsent({
 
     const { scrollTop, scrollHeight, clientHeight } = element;
     
+    // Security Fix: Prevent auto-completion if the browser hasn't painted dimensions yet (or JSDOM)
+    if (clientHeight === 0) return;
+
     // Calculate how far down the user has scrolled as a percentage
     const totalScrollableDistance = scrollHeight - clientHeight;
     
