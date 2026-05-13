@@ -101,7 +101,7 @@ SCENARIOS: tuple[dict[str, Any], ...] = (
         "prompt": "verify One Gmail push notifications and encrypted draft storage caveats",
         "paths": [
             "consent-protocol/hushh_mcp/services/one_email_kyc_service.py",
-            "docs/future/one-email-intake-roadmap.md",
+            "docs/reference/architecture/one-email-kyc.md",
         ],
         "required_agents": {
             "backend_architect",
