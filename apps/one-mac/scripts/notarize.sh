@@ -48,6 +48,21 @@ if [ ! -d "$APP_PATH" ]; then
     exit 1
 fi
 
+if [ "$DRY_RUN" = "true" ]; then
+    # Dry-run on PRs exercises the script path against unsigned ad-hoc bundles
+    # produced by CODE_SIGNING_ALLOWED=NO. Skip codesign/runtime/zip checks —
+    # those only make sense on Developer-ID-signed bundles (real cert on a
+    # main-merge build). Verify the bundle structure and announce success.
+    log "DRY_RUN=true: verifying bundle structure only"
+    if [ ! -f "$APP_PATH/Contents/Info.plist" ]; then
+        echo "Error: $APP_PATH/Contents/Info.plist missing" >&2
+        exit 1
+    fi
+    log "Bundle layout OK. Skipping codesign verify, hardened-runtime probe,"
+    log "and notarytool submit. Real signing + notarization runs on tagged releases."
+    exit 0
+fi
+
 log "Verifying codesign on $APP_PATH"
 codesign --verify --strict --deep --verbose=4 "$APP_PATH" || exit 1
 
@@ -64,13 +79,6 @@ codesign -d --verbose "$APP_PATH" 2>&1 | grep -q 'flags=.*runtime' || {
 ZIP_PATH="$(mktemp -d)/OneMac.zip"
 log "Compressing for notarytool: $ZIP_PATH"
 ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
-
-if [ "$DRY_RUN" = "true" ]; then
-    log "DRY_RUN=true: skipping notarytool submit"
-    log "Probe done. Cleaning up."
-    rm -rf "$(dirname "$ZIP_PATH")"
-    exit 0
-fi
 
 log "Submitting to Apple notarytool (this can take 1-5 minutes)"
 xcrun notarytool submit "$ZIP_PATH" \
