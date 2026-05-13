@@ -1,5 +1,6 @@
 "use client";
 
+import { SessionExpiryRecovery } from "@/components/system/session-expiry-recovery";
 import { StaleCacheTimestamp } from "@/components/system/stale-cache-timestamp";
 import Link from "next/link";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
@@ -555,7 +556,7 @@ export function ConsentCenterPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { activePersona } = usePersonaState();
   const {
     activeControlId: activeVoiceControlId,
@@ -735,6 +736,7 @@ export function ConsentCenterPage() {
     (tab === "relationships" ? Boolean(centerResource.data) : Boolean(listData));
   const showCompactRetryState = Boolean(consentLoadError && hasVisibleConsentListData);
   const showFullRetryState = Boolean(consentLoadError && !hasVisibleConsentListData);
+  const showSessionRecovery = Boolean(!authLoading && !user && showFullRetryState);
   const visibleSnapshot = tab === "relationships" ? centerResource.snapshot : listResource.snapshot;
   const accessibilityStatusMessage = activeListLoading
     ? "Consent entries are loading."
@@ -1045,6 +1047,8 @@ export function ConsentCenterPage() {
                 <div className="space-y-2 px-2 py-2">
                   <AccessibilityStatusAnnouncer message={accessibilityStatusMessage} />
 
+                  {showSessionRecovery ? <SessionExpiryRecovery /> : null}
+
                   {showCompactRetryState ? (
                     <ApiRetryState
                       variant="compact"
@@ -1054,7 +1058,7 @@ export function ConsentCenterPage() {
                     />
                   ) : null}
 
-                  {showFullRetryState ? (
+                  {showFullRetryState && !showSessionRecovery ? (
                     <ApiRetryState
                       title="Unable to refresh consent data"
                       description="Consent data could not be loaded right now. Retry to fetch the latest consent state."
