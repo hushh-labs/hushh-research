@@ -3,9 +3,9 @@
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
-import { ConsentCenterPage } from "@/components/consent/consent-center-page";
-import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { ConsentCenterPage } from "@/components/consent/consent-center-page";
+import { RouteSuspenseFallback } from "@/components/system/route-suspense-fallback";
 
 function ConsentsContent() {
   // Access search params to ensure this client component is correctly 
