@@ -21,4 +21,9 @@ regexes = [
   '''onAlpacaOauthReturnRoute''',
   # HCT golden-vector deterministic test key; never used in production.
   '''golden_vector_signing_key_for_hct_parity_only_32\+''',
+  # OneConsent Keychain item account names — public, version-stable identifiers
+  # for the SE-bound wrapping key + wrapped data-key envelope. Documented in
+  # apps/one-mac/docs/threat-model.md.
+  '''ai\.hushh\.one\.consent\.wrapping\.v1''',
+  '''ai\.hushh\.one\.consent\.data-key\.v1''',
 ]
