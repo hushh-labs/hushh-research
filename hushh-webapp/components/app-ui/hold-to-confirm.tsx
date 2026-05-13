@@ -26,29 +26,51 @@ export function HoldToConfirm({
 }: HoldToConfirmProps) {
   const [progress, setProgress] = React.useState(0);
   const [isHolding, setIsHolding] = React.useState(false);
+  
+  // We use refs for the interval loop to prevent React StrictMode double-invocation bugs
   const intervalRef = React.useRef<NodeJS.Timeout | null>(null);
+  const progressRef = React.useRef(0);
 
   const startHold = React.useCallback(() => {
+    // Guard against multiple intervals spawning from OS key-repeat
+    if (intervalRef.current) return;
+
     setIsHolding(true);
+    progressRef.current = 0;
+    setProgress(0);
+
     const updateInterval = 50;
     const increment = (updateInterval / holdDurationMs) * 100;
 
     intervalRef.current = setInterval(() => {
-      setProgress((prev) => {
-        if (prev + increment >= 100) {
-          if (intervalRef.current) clearInterval(intervalRef.current);
-          setIsHolding(false);
-          onConfirm();
-          return 100;
+      progressRef.current += increment;
+      
+      if (progressRef.current >= 100) {
+        // Target reached
+        progressRef.current = 100;
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
         }
-        return prev + increment;
-      });
+        setIsHolding(false);
+        setProgress(100);
+        
+        // Execute callback safely outside of the React state updater loop
+        onConfirm(); 
+      } else {
+        // Update visual progress
+        setProgress(progressRef.current);
+      }
     }, updateInterval);
   }, [holdDurationMs, onConfirm]);
 
   const stopHold = React.useCallback(() => {
-    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
     setIsHolding(false);
+    progressRef.current = 0;
     setProgress(0);
   }, []);
 
@@ -61,7 +83,8 @@ export function HoldToConfirm({
 
   // Keyboard accessibility support (Space or Enter)
   const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (!isHolding && (e.key === "Enter" || e.key === " ")) {
+    if (e.repeat) return; // Prevent OS key-repeat from spamming triggers
+    if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       startHold();
     }
