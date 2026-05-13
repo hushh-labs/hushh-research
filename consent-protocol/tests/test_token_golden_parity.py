@@ -32,17 +32,19 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EMITTER_PATH = REPO_ROOT / "scripts" / "emit_hct_golden_vectors.py"
 GOLDEN_JSON_PATH = REPO_ROOT / "tests" / "fixtures" / "hct_golden_vectors.json"
-CONSENT_TOKEN_PREFIX = "HCT"
+CONSENT_TOKEN_PREFIX = "HCT"  # noqa: S105 - Hushh Consent Token prefix, not a credential
 
 
-def _load_golden_payload() -> dict:
-    return json.loads(GOLDEN_JSON_PATH.read_text(encoding="utf-8"))
+def _load_golden_payload() -> dict[str, Any]:
+    payload: dict[str, Any] = json.loads(GOLDEN_JSON_PATH.read_text(encoding="utf-8"))
+    return payload
 
 
 def _rebuild_token(spec: dict) -> str:
@@ -71,7 +73,7 @@ def _rebuild_token(spec: dict) -> str:
 
 def test_emitter_check_mode_against_committed_json() -> None:
     """Re-run the deterministic emitter and ensure no drift vs. committed JSON."""
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603 - inputs are constants, not user-controlled
         [sys.executable, str(EMITTER_PATH), "--check"],
         capture_output=True,
         text=True,

@@ -40,7 +40,7 @@ GOLDEN_ISSUED_AT_MS: int = 1_767_225_600_000
 # Pinned default expiry: 7 days after issued_at. Matches DEFAULT_CONSENT_TOKEN_EXPIRY_MS.
 GOLDEN_DEFAULT_TTL_MS: int = 1000 * 60 * 60 * 24 * 7
 
-CONSENT_TOKEN_PREFIX: str = "HCT"
+CONSENT_TOKEN_PREFIX: str = "HCT"  # noqa: S105 - Hushh Consent Token prefix, not a credential
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 OUTPUT_PATH: Path = REPO_ROOT / "tests" / "fixtures" / "hct_golden_vectors.json"

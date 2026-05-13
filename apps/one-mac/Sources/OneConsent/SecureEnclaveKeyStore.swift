@@ -66,7 +66,7 @@ public final class SecureEnclaveKeyStore: @unchecked Sendable {
         if backend == .real {
             let status = SecItemDelete([
                 kSecClass as String: kSecClassGenericPassword,
-                kSecAttrAccount as String: Self.wrappedKeyTag,
+                kSecAttrAccount as String: Self.wrappedKeyTag
             ] as CFDictionary)
             // errSecItemNotFound is acceptable (nothing to wipe).
             if status != errSecSuccess && status != errSecItemNotFound {
@@ -129,11 +129,11 @@ public final class SecureEnclaveKeyStore: @unchecked Sendable {
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrAccount as String: Self.wrappedKeyTag,
                 kSecValueData as String: envelope,
-                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             ]
             let deleteStatus = SecItemDelete([
                 kSecClass as String: kSecClassGenericPassword,
-                kSecAttrAccount as String: Self.wrappedKeyTag,
+                kSecAttrAccount as String: Self.wrappedKeyTag
             ] as CFDictionary)
             if deleteStatus != errSecSuccess && deleteStatus != errSecItemNotFound {
                 throw StoreError.keychainStoreFailed(deleteStatus)
@@ -157,7 +157,7 @@ public final class SecureEnclaveKeyStore: @unchecked Sendable {
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrAccount as String: Self.wrappedKeyTag,
                 kSecReturnData as String: true,
-                kSecMatchLimit as String: kSecMatchLimitOne,
+                kSecMatchLimit as String: kSecMatchLimitOne
             ]
             var item: CFTypeRef?
             let status = SecItemCopyMatching(query as CFDictionary, &item)
