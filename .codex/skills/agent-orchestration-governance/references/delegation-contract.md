@@ -106,13 +106,15 @@ Common high-signal lanes:
 4. `security-consent-audit`: security consent auditor first, with backend/frontend lanes when caller or route contracts are implicated.
 5. `kai-voice-governance`: voice systems architect plus reviewer when generated contracts, planner/executor flow, or UI action parity changes.
 6. `pr-governance-review`: data model architect when migrations, schema contracts, UAT parity, cache coherence, or local-first/cloud projection authority is implicated.
-7. Product/docs/founder-language tasks: product docs architect when founder language, roadmap claims, One/Kai/Nav role clarity, durable docs placement, or community copy is implicated.
+7. Product/docs/founder-language tasks: product docs architect when founder language, founder wiki north-star review, roadmap claims, One/Kai/Nav role clarity, durable docs placement, or community copy is implicated.
 8. Analytics/observability tasks: analytics observability architect when GA4, Firebase Analytics, BigQuery, event taxonomy, route ids, or dashboard contracts are implicated.
 9. Mobile/native tasks: mobile native architect when iOS, Android, Capacitor, native bridge, plugin registration, or device parity is implicated.
 
 Automatic here means the parent may spawn the lane without asking the user again. It does not mean child agents can approve, merge, deploy, push, or mutate branches.
 
 The router is advisory, not authority. If it recommends a lane that the runtime does not expose in the current session, record that runtime availability gap and continue locally or with the closest available read-only agent.
+
+Founder wiki evidence lanes use the Founder Wiki North-Star Probe and are read-only by default. They may use product/architecture/non-negotiable pages for north-star alignment, but private wiki evidence must stay local-only and public GitHub comments must not cite private wiki pages. When repo truth and wiki canon disagree, classify the gap as `current_state_vs_north_star_drift`.
 
 ## Authority rules
 
