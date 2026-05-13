@@ -18,7 +18,8 @@ describe("PrivacyScreenGuard Component - Security & Obfuscation", () => {
   });
 
   it("aggressively blurs the content and renders the security shield on window blur", () => {
-    const { container, getByText } = render(
+    // Removed unused 'container'
+    const { getByText } = render(
       <PrivacyScreenGuard label="Vault locked">
         <p>Secret Portfolio Data</p>
       </PrivacyScreenGuard>
@@ -43,7 +44,8 @@ describe("PrivacyScreenGuard Component - Security & Obfuscation", () => {
   });
 
   it("restores visibility when the user returns to the tab", () => {
-    const { getByText, queryByText } = render(
+    // Removed unused 'getByText'
+    const { queryByText } = render(
       <PrivacyScreenGuard>
         <p>Data</p>
       </PrivacyScreenGuard>
