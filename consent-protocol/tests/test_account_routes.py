@@ -50,8 +50,8 @@ def test_claim_account_phone_requires_firebase_auth():
 
 
 def test_claim_account_phone_persists_verified_phone(monkeypatch):
-    async def _mock_verify(raw_token: str):
-        assert raw_token == "phone-claim-sample"
+    async def _mock_verify(raw_claim: str):
+        assert raw_claim == "phone-claim-sample"
         return "+16505550101", "phone-session-uid"
 
     async def _mock_claim(self, *, user_id: str, phone_number: str):
@@ -80,7 +80,7 @@ def test_claim_account_phone_persists_verified_phone(monkeypatch):
 
 
 def test_claim_account_phone_rejects_invalid_phone_token(monkeypatch):
-    async def _mock_verify(raw_token: str):
+    async def _mock_verify(raw_claim: str):
         raise HTTPException(
             status_code=401,
             detail={
@@ -101,7 +101,7 @@ def test_claim_account_phone_rejects_invalid_phone_token(monkeypatch):
 
 
 def test_claim_account_phone_rejects_phone_token_without_phone_number(monkeypatch):
-    async def _mock_verify(raw_token: str):
+    async def _mock_verify(raw_claim: str):
         raise HTTPException(
             status_code=422,
             detail={
@@ -122,7 +122,7 @@ def test_claim_account_phone_rejects_phone_token_without_phone_number(monkeypatc
 
 
 def test_claim_account_phone_maps_persistence_failure(monkeypatch):
-    async def _mock_verify(raw_token: str):
+    async def _mock_verify(raw_claim: str):
         return "+16505550101", "phone-session-uid"
 
     async def _mock_claim(self, *, user_id: str, phone_number: str):
