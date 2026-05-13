@@ -8,6 +8,16 @@ export interface PasswordStrengthMeterProps extends React.HTMLAttributes<HTMLDiv
   password?: string;
 }
 
+// Extracted outside the main render function to prevent React from remounting it on every keystroke
+function RequirementItem({ met, text }: { met: boolean; text: string }) {
+  return (
+    <div className={cn("flex items-center gap-2 text-xs transition-colors duration-300", met ? "text-emerald-500" : "text-muted-foreground")}>
+      {met ? <Check className="size-3.5" aria-hidden="true" /> : <X className="size-3.5" aria-hidden="true" />}
+      <span>{text}</span>
+    </div>
+  );
+}
+
 /**
  * Accessible Password Strength Meter
  * Provides real-time visual and screen-reader feedback for password complexity.
@@ -37,13 +47,6 @@ export function PasswordStrengthMeter({
     "bg-amber-500", // 3
     "bg-emerald-500", // 4
   ];
-
-  const RequirementItem = ({ met, text }: { met: boolean; text: string }) => (
-    <div className={cn("flex items-center gap-2 text-xs transition-colors duration-300", met ? "text-emerald-500" : "text-muted-foreground")}>
-      {met ? <Check className="size-3.5" aria-hidden="true" /> : <X className="size-3.5" aria-hidden="true" />}
-      <span>{text}</span>
-    </div>
-  );
 
   return (
     <div className={cn("flex flex-col gap-3 w-full", className)} {...props}>
