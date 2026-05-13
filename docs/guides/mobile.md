@@ -642,7 +642,7 @@ const DEV_MODE = false; // Must be false for production builds
 
 const config: CapacitorConfig = {
   appId: "com.hushh.app",
-  appName: "Hushh",
+  appName: "Kai",
   webDir: "out",
   server: {
     cleartext: true,
