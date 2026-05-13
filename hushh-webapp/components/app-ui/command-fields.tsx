@@ -23,16 +23,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
 
-// 1. Defined standard class names at the top for better maintainability
-const FIELD_TRIGGER_CLASSNAME =
-  "flex min-h-10 w-full items-center justify-between gap-3 rounded-[16px] border px-3 py-2 text-left text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring/70";
-
-const COMMAND_ITEM_CLASSNAME =
-  "rounded-[18px] border border-transparent px-3 py-3 transition-colors duration-300 hover:bg-primary/10 hover:text-foreground aria-selected:border-primary/25 aria-selected:bg-primary/15 aria-selected:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
-
-const COMMAND_SHELL_CLASSNAME =
-  "chrome-glass-surface top-[calc(var(--top-shell-reserved-height,0px)+0.75rem)] max-h-[min(70dvh,32rem)] w-[calc(100%-1rem)] translate-y-0 rounded-[28px] border border-white/55 p-0 shadow-2xl sm:top-1/2 sm:w-full sm:max-w-[52rem] sm:max-h-[min(76dvh,38rem)] sm:-translate-y-1/2 lg:max-w-[58rem] dark:border-white/12";
-
 export type CommandPickerOption<T = unknown> = {
   value: string;
   label: string;
@@ -42,27 +32,69 @@ export type CommandPickerOption<T = unknown> = {
   data?: T;
 };
 
-// 2. Extracted the haystack generator logic outside the filter to avoid recreating the array in memory
-function buildHaystack<T>(option: CommandPickerOption<T>): string {
-  return [
-    option.value,
-    option.label,
-    option.description,
-    option.supportingLabel,
-    ...(option.keywords || []),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-}
+const fieldTriggerClassName =
+  "flex min-h-10 w-full items-center justify-between gap-3 rounded-[16px] border px-3 py-2 text-left text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring/70";
+
+const commandItemClassName =
+  "rounded-[18px] border border-transparent px-3 py-3 transition-colors duration-300 hover:bg-primary/10 hover:text-foreground data-[selected=true]:border-primary/25 data-[selected=true]:bg-primary/15 data-[selected=true]:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
+
+const commandSurfaceShellClassName =
+  "chrome-glass-surface top-[calc(var(--top-shell-reserved-height,0px)+0.75rem)] max-h-[min(70dvh,32rem)] w-[calc(100%-1rem)] translate-y-0 rounded-[28px] border border-white/55 p-0 shadow-[0_26px_80px_-42px_rgba(15,23,42,0.34)] sm:top-1/2 sm:w-full sm:max-w-[52rem] sm:max-h-[min(76dvh,38rem)] sm:-translate-y-1/2 lg:max-w-[58rem] dark:border-white/12 dark:shadow-[0_32px_90px_-48px_rgba(0,0,0,0.54)]";
 
 function filterCommandOptions<T>(options: CommandPickerOption<T>[], query: string) {
   const normalizedQuery = query.trim().toLowerCase();
   if (!normalizedQuery) return options;
-  return options.filter((option) => buildHaystack(option).includes(normalizedQuery));
+  return options.filter((option) => {
+    const haystack = [
+      option.value,
+      option.label,
+      option.description,
+      option.supportingLabel,
+      ...(option.keywords || []),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(normalizedQuery);
+  });
 }
 
-// 3. Removed PopupEditorPanel as an internal component and moved it directly into PopupTextEditorField to avoid unnecessary prop drilling and re-renders.
+function PopupEditorPanel({
+  open,
+  onOpenChange,
+  title,
+  description,
+  footer,
+  children,
+  contentClassName,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: ReactNode;
+  description?: ReactNode;
+  footer?: ReactNode;
+  children: ReactNode;
+  contentClassName?: string;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange} modal>
+      <DialogContent className={cn(commandSurfaceShellClassName, "bg-[rgba(245,245,247,0.92)] backdrop-blur-xl dark:bg-[rgba(29,29,31,0.92)]")}>
+        <DialogHeader className="border-b border-black/10 px-5 py-4 dark:border-white/10">
+          <DialogTitle className="text-base font-semibold tracking-tight">{title}</DialogTitle>
+          {description ? (
+            <DialogDescription className="text-sm leading-6">{description}</DialogDescription>
+          ) : null}
+        </DialogHeader>
+        <div className={cn("overflow-y-auto px-4 py-4 sm:px-5", contentClassName)}>{children}</div>
+        {footer ? (
+          <DialogFooter className="border-t border-black/10 px-5 py-4 dark:border-white/10">
+            {footer}
+          </DialogFooter>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export function CommandPickerField<T = unknown>({
   title,
@@ -101,32 +133,24 @@ export function CommandPickerField<T = unknown>({
   const [loading, setLoading] = useState(false);
   const deferredQuery = useDeferredValue(query);
 
-  // 4. Fixed race conditions in loadOptions by utilizing an AbortController pattern (cleaner than manual `cancelled` boolean)
   useEffect(() => {
     if (!open || !loadOptions) return;
-
-    const abortController = new AbortController();
-
-    const fetchOptions = async () => {
+    let cancelled = false;
+    void (async () => {
       setLoading(true);
       try {
         const nextOptions = await loadOptions(deferredQuery);
-        if (!abortController.signal.aborted) {
+        if (!cancelled) {
           setDynamicOptions(nextOptions);
         }
-      } catch (error) {
-        console.error("Failed to load options:", error);
       } finally {
-        if (!abortController.signal.aborted) {
+        if (!cancelled) {
           setLoading(false);
         }
       }
-    };
-
-    void fetchOptions();
-
+    })();
     return () => {
-      abortController.abort();
+      cancelled = true;
     };
   }, [deferredQuery, loadOptions, open]);
 
@@ -137,10 +161,12 @@ export function CommandPickerField<T = unknown>({
 
   const selectedOption = useMemo(() => {
     const normalizedValue = value.trim().toLowerCase();
-    // 5. Consolidated the search array to prevent redundant loops
-    const allOptions = loadOptions ? dynamicOptions : options;
-    return allOptions.find((option) => option.value.trim().toLowerCase() === normalizedValue) || null;
-  }, [dynamicOptions, loadOptions, options, value]);
+    return (
+      options.find((option) => option.value.trim().toLowerCase() === normalizedValue) ||
+      dynamicOptions.find((option) => option.value.trim().toLowerCase() === normalizedValue) ||
+      null
+    );
+  }, [dynamicOptions, options, value]);
 
   const triggerValue = displayValue || selectedOption?.label || value;
 
@@ -149,21 +175,19 @@ export function CommandPickerField<T = unknown>({
       <div className="flex items-center gap-2">
         <button
           type="button"
-          aria-haspopup="dialog"
-          aria-expanded={open}
           onClick={() => {
             setQuery("");
             setOpen(true);
           }}
           className={cn(
-            FIELD_TRIGGER_CLASSNAME,
+            fieldTriggerClassName,
             invalid ? "border-rose-300 dark:border-rose-500/50" : "border-border/80",
             triggerValue ? "bg-background text-foreground" : "bg-background text-muted-foreground",
             triggerClassName
           )}
         >
           <span className="truncate font-medium tracking-tight">{triggerValue || placeholder}</span>
-          <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground/80" aria-hidden="true" />
+          <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground/80" />
         </button>
         {allowClear && value ? (
           <Button
@@ -172,7 +196,6 @@ export function CommandPickerField<T = unknown>({
             size="sm"
             onClick={() => onSelect(null)}
             className="h-10 rounded-[14px] px-3"
-            aria-label="Clear selection"
           >
             <X className="h-4 w-4" />
           </Button>
@@ -183,11 +206,13 @@ export function CommandPickerField<T = unknown>({
         open={open}
         onOpenChange={(nextOpen) => {
           setOpen(nextOpen);
-          if (!nextOpen) setQuery("");
+          if (!nextOpen) {
+            setQuery("");
+          }
         }}
         title={typeof title === "string" ? title : "Select option"}
         description={typeof description === "string" ? description : "Search and select an option."}
-        className={COMMAND_SHELL_CLASSNAME}
+        className={commandSurfaceShellClassName}
       >
         <CommandInput
           value={query}
@@ -205,13 +230,20 @@ export function CommandPickerField<T = unknown>({
               return (
                 <CommandItem
                   key={option.value}
-                  value={buildHaystack(option)}
+                  value={[
+                    option.value,
+                    option.label,
+                    option.description,
+                    option.supportingLabel,
+                    ...(option.keywords || []),
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                   onSelect={() => {
                     onSelect(option);
                     setOpen(false);
                   }}
-                  className={COMMAND_ITEM_CLASSNAME}
-                  aria-selected={selected}
+                  className={commandItemClassName}
                 >
                   {renderOption ? (
                     renderOption(option, selected)
@@ -225,7 +257,7 @@ export function CommandPickerField<T = unknown>({
                           </p>
                         ) : null}
                       </div>
-                      {selected ? <Check className="h-4 w-4 text-primary" aria-hidden="true" /> : null}
+                      {selected ? <Check className="h-4 w-4 text-primary" /> : null}
                     </>
                   )}
                 </CommandItem>
@@ -267,8 +299,8 @@ export function PopupTextEditorField({
   const [draft, setDraft] = useState(value);
 
   useEffect(() => {
-    if (open) {
-      setDraft(value); // Only sync draft when opening the dialog to avoid overriding user edits
+    if (!open) {
+      setDraft(value);
     }
   }, [open, value]);
 
@@ -278,12 +310,11 @@ export function PopupTextEditorField({
     <>
       <button
         type="button"
-        aria-haspopup="dialog"
-        aria-expanded={open}
         onClick={() => setOpen(true)}
         className={cn(
           "group flex min-h-[76px] w-full items-start justify-between gap-3 rounded-[16px] border px-3 py-3 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-ring/70",
-          invalid ? "border-rose-300 dark:border-rose-500/50" : "border-border/80 bg-background hover:border-border",
+          invalid ? "border-rose-300 dark:border-rose-500/50" : "border-border/80",
+          "bg-background hover:border-border",
           triggerClassName
         )}
       >
@@ -298,41 +329,23 @@ export function PopupTextEditorField({
             {preview || previewPlaceholder || placeholder}
           </p>
         </div>
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted/70 text-muted-foreground transition group-hover:bg-muted" aria-hidden="true">
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted/70 text-muted-foreground transition group-hover:bg-muted">
           <FilePenLine className="h-4 w-4" />
         </span>
       </button>
 
-      <Dialog
+      <PopupEditorPanel
         open={open}
         onOpenChange={(nextOpen) => {
           setOpen(nextOpen);
-          if (!nextOpen) setDraft(value); // Revert draft on explicit cancel/close
+          if (!nextOpen) {
+            setDraft(value);
+          }
         }}
-        modal
-      >
-        <DialogContent className={cn(COMMAND_SHELL_CLASSNAME, "bg-[rgba(245,245,247,0.92)] backdrop-blur-xl dark:bg-[rgba(29,29,31,0.92)]")}>
-          <DialogHeader className="border-b border-black/10 px-5 py-4 dark:border-white/10">
-            <DialogTitle className="text-base font-semibold tracking-tight">{title}</DialogTitle>
-            {description ? (
-              <DialogDescription className="text-sm leading-6">{description}</DialogDescription>
-            ) : null}
-          </DialogHeader>
-
-          <div className="overflow-y-auto px-4 py-4 sm:px-5">
-            <Textarea
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder={placeholder}
-              className={cn(
-                "min-h-[220px] resize-none rounded-[22px] border-border/80 bg-background/90 px-4 py-3 text-sm leading-6 sm:min-h-[260px]",
-                invalid ? "border-rose-300 dark:border-rose-500/50" : "",
-                textareaClassName
-              )}
-            />
-          </div>
-
-          <DialogFooter className="border-t border-black/10 px-5 py-4 dark:border-white/10">
+        title={title}
+        description={description}
+        footer={
+          <>
             <Button
               variant="none"
               effect="fade"
@@ -357,9 +370,20 @@ export function PopupTextEditorField({
             >
               {saveLabel}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      >
+        <Textarea
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder={placeholder}
+          className={cn(
+            "min-h-[220px] resize-none rounded-[22px] border-border/80 bg-background/90 px-4 py-3 text-sm leading-6 sm:min-h-[260px]",
+            invalid ? "border-rose-300 dark:border-rose-500/50" : "",
+            textareaClassName
+          )}
+        />
+      </PopupEditorPanel>
     </>
   );
 }

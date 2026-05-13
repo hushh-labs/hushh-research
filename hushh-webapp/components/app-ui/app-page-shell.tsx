@@ -1,6 +1,7 @@
-// 1. Removed "use client" so this becomes a React Server Component (RSC)
+"use client";
 
-import type { ComponentPropsWithoutRef, ElementType, CSSProperties } from "react";
+import type { ComponentPropsWithoutRef, ElementType } from "react";
+import type { CSSProperties } from "react";
 
 import {
   NativeTestBeacon,
@@ -17,32 +18,29 @@ export type AppPageShellWidth =
   | "content"
   | "wide"
   | "profile";
-
 export type AppPageDensity = "compact" | "comfortable";
 
-// 2. Mapped directly to Tailwind classes instead of raw string values
 export const APP_SHELL_MAX_WIDTHS: Record<AppPageShellWidth, string> = {
-  reading: "max-w-[54rem]",
-  narrow: "max-w-[54rem]",
-  profile: "max-w-[54rem]",
-  standard: "max-w-[90rem]",
-  content: "max-w-[90rem]",
-  expanded: "max-w-[96rem]",
-  wide: "max-w-[96rem]",
+  reading: "54rem",
+  standard: "90rem",
+  expanded: "96rem",
+  narrow: "54rem",
+  content: "90rem",
+  wide: "96rem",
+  profile: "54rem",
 };
 
 export const APP_SHELL_FRAME_CLASSNAME =
   "mx-auto w-full px-[var(--page-inline-gutter-standard)]";
 
-// Kept for backward compatibility if imported in other files
 export const APP_SHELL_FRAME_STYLE: CSSProperties = {
-  maxWidth: "90rem",
+  maxWidth: APP_SHELL_MAX_WIDTHS.standard,
 };
 
 export const APP_MEASURE_STYLES: Record<"reading" | "standard" | "expanded", CSSProperties> = {
-  reading: { maxWidth: "54rem" },
-  standard: { maxWidth: "90rem" },
-  expanded: { maxWidth: "96rem" },
+  reading: { maxWidth: APP_SHELL_MAX_WIDTHS.reading },
+  standard: { maxWidth: APP_SHELL_MAX_WIDTHS.standard },
+  expanded: { maxWidth: APP_SHELL_MAX_WIDTHS.expanded },
 } as const;
 
 type AppPageShellProps<T extends ElementType> = {
@@ -69,6 +67,7 @@ export function AppPageShell<T extends ElementType = "main">({
   density = "compact",
   nativeTest,
   className,
+  style,
   children,
   ...props
 }: AppPageShellProps<T>) {
@@ -77,11 +76,10 @@ export function AppPageShell<T extends ElementType = "main">({
   return (
     <Component
       className={cn(
-        "app-page-shell",
-        APP_SHELL_FRAME_CLASSNAME, // 3. Added the missing framing class
-        APP_SHELL_MAX_WIDTHS[width], // 4. Utilizing Tailwind utility classes over inline styles
+        "app-page-shell mx-auto w-full",
         className
       )}
+      style={{ maxWidth: APP_SHELL_MAX_WIDTHS[width], ...style }}
       data-app-density={density}
       data-app-shell-width={width}
       data-top-content-anchor="true"
