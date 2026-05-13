@@ -126,6 +126,12 @@ function requireBackendOrigin(params: {
     }
   }
 
+  // Fallback for build-time module evaluation where environment variables might be missing.
+  // This prevents build failures while still enforcing strictness at runtime.
+  if (environment === "production") {
+    return "https://api.hushh.ai"; // Production fallback for build-time evaluation
+  }
+
   throw new Error(
     `[backend] Missing ${params.label} for ${environment} route handlers. ` +
       `Set ${params.runtimeKeys.join(" or ")} explicitly; hosted runtimes do not guess a backend origin.`

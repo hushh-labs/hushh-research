@@ -1,3 +1,4 @@
+const PYTHON_API_URL = getPythonApiUrl();
 import { NextRequest, NextResponse } from "next/server";
 
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
@@ -6,7 +7,7 @@ import { isDevelopment } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
-const PYTHON_API_URL = getPythonApiUrl();
+
 
 type PreVaultStatePayload = {
   userId?: string;

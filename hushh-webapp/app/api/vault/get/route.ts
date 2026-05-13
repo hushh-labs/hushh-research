@@ -1,3 +1,4 @@
+const PYTHON_API_URL = getPythonApiUrl();
 // app/api/vault/get/route.ts
 
 /**
@@ -24,7 +25,7 @@ import { isDevelopment, logSecurityEvent } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
-const PYTHON_API_URL = getPythonApiUrl();
+
 const VAULT_GET_TIMEOUT_MS = Number.parseInt(
   process.env.VAULT_GET_TIMEOUT_MS ?? "12000",
   10

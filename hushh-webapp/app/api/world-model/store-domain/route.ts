@@ -1,3 +1,4 @@
+import { getPythonApiUrl } from "@/app/api/_utils/backend";
 // app/api/world-model/store-domain/route.ts
 /**
  * World Model Store Domain Endpoint
@@ -7,6 +8,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+
+const BACKEND_URL = getPythonApiUrl();
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

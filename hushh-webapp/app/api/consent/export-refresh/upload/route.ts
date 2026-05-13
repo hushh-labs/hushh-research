@@ -1,10 +1,11 @@
+export const dynamic = "force-dynamic";
+
 import { NextRequest, NextResponse } from "next/server";
 
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
 
-const BACKEND_URL = getPythonApiUrl();
-
 export async function POST(request: NextRequest) {
+  const BACKEND_URL = getPythonApiUrl();
   try {
     const authHeader = request.headers.get("Authorization");
     if (!authHeader) {

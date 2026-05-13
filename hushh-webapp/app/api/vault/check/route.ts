@@ -1,3 +1,4 @@
+const PYTHON_API_URL = getPythonApiUrl();
 // app/api/vault/check/route.ts
 
 /**
@@ -24,7 +25,7 @@ import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 export const dynamic = "force-dynamic";
 
-const PYTHON_API_URL = getPythonApiUrl();
+
 const ROUTE_CACHE_TTL_MS = 60 * 1000;
 const UPSTREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(20_000);
 const vaultCheckCache = new Map<
