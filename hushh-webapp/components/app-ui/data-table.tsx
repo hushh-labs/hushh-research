@@ -106,7 +106,7 @@ export function DataTable<TData, TValue>({
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-  const [searchTerm, setSearchTerm] = React.useState("");
+  const [searchTerm] = React.useState("");
   const [globalFilter, setGlobalFilter] = React.useState("");
 const [, startGlobalFilterTransition] = React.useTransition();
   const swipeStartRef = React.useRef<{ x: number; y: number } | null>(null);
