@@ -7,7 +7,32 @@ Use this when answering "next batch", "plan this batch", or any high-volume PR w
 1. `Batch`: one sentence naming the product/runtime purpose.
 2. `Research Basis`: concise current truth, recommended path, and risk if accepted blindly.
 3. `Input`: every PR with a direct Markdown link and current lane.
-4. `Per-PR Assessment`: one compact but complete block per PR:
+4. `Train Simulation`: execution-grade simulation based on the current PR heads:
+   - branch evidence: current head SHA, mergeability, CI gate, changed files, exact overlaps, and local dirty-worktree overlap
+   - delta summary: files added, edited, deleted, generated, moved, dependencies changed, and routes/contracts touched
+   - behavior claim: what the PR claims and whether that behavior is reachable in the current app/backend/package
+   - canonical fit: existing surface the change should extend, or `standalone` when no reachable use exists
+   - simulated maintainer patch: what Codex expects to keep, normalize, drop, defer, or request from the contributor
+   - action outcome: exact operation per PR if approved
+   - comment simulation: expected GitHub comment/edit posture and heading
+   - verification timeline: local checks, Playwright for UI-visible changes, GitHub gates, smoke, reports
+5. `Expected Actions`: table or bullets mapping each PR to one of:
+   - `review_only`
+   - `hold`
+   - `request_changes`
+   - `close`
+   - `maintainer_harvest`
+   - `maintainer_patch_then_merge`
+   - `merge_now`
+   - `post_merge_monitor`
+6. `Comment Plan`: table or bullets mapping each PR to one of:
+   - `none_before_merge_then_post_merge_closeout`
+   - `edit_existing_maintainer_comment`
+   - `new_changes_requested_comment`
+   - `new_closed_superseded_comment`
+   - `no_comment_review_only`
+   Include the intended headline, for example `## Merged: Consent Center State UX`.
+7. `Per-PR Assessment`: one compact but complete block per PR:
    - direct link
    - lane
    - lean/core risk
@@ -16,13 +41,14 @@ Use this when answering "next batch", "plan this batch", or any high-volume PR w
    - why it is in the batch
    - `Blind-merge risk`: likely failure mode if accepted blindly
    - planned action: merge, patch/rebase, harvest/close, request changes, or hold
+   - comment action: expected public comment/edit behavior
    - `Smallest proof`: smallest authoritative check before that action
-5. `Output`: intended end state if the batch is legitimate.
-6. `Execution`: exact order, split by merge train, patch train, closure/request-changes wave, and hold/deep-review items.
-7. `Decision Questions`: only unresolved user-owned choices, each with current truth, recommended path, risk if accepted blindly, and recommended option first.
-8. `Stop Conditions`: what pauses, splits, or blocks the batch.
-9. `Verification`: smallest authoritative local and GitHub checks.
-10. `After-Merge Kickoff`: how the next independent train will be discovered after report refresh.
+8. `Output`: intended end state if the batch is legitimate.
+9. `Execution`: exact order, split by merge train, patch train, closure/request-changes wave, and hold/deep-review items.
+10. `Decision Questions`: only unresolved user-owned choices, each with current truth, recommended path, risk if accepted blindly, and recommended option first.
+11. `Stop Conditions`: what pauses, splits, or blocks the batch.
+12. `Verification`: smallest authoritative local and GitHub checks.
+13. `After-Merge Kickoff`: how the next independent train will be discovered after report refresh.
 
 ## Batch Selection Rules
 
@@ -47,10 +73,15 @@ The operator should understand:
 6. what would make Codex stop
 7. how the live report and contributor-impact dashboard will be updated
 8. which next-train review can start while queue/smoke is running
+9. exactly what Codex will do on GitHub for each PR
+10. what public comment or edited maintainer record will exist after the action
 
 Avoid generic phrasing such as "review these together" without per-PR roles.
 Avoid one-line PR summaries that hide the actual review path.
 Do not ask the operator to choose before showing the researched solution path.
+Do not say "patch then merge" without naming the expected patch and the post-merge comment headline.
+Do not claim UI behavior is verified unless Codex inspected the exact PR branch/diff and ran the relevant unit/Playwright evidence. Use `needs_playwright_verification` when the plan is based on code review but not browser proof.
+Do not call a new helper/component/package "product value" unless it is wired into a reachable current route, runtime, package, generated contract, test contract, or documented devex entrypoint.
 
 ## Train Throughput Standard
 
@@ -64,3 +95,30 @@ Use this rhythm for scale:
 6. Select the next independent `Recommended Operator Batches` item and produce a fresh `Per-PR Assessment`.
 
 Never let throughput hide dependency order. Shared files, shared runtime contracts, generated contracts, schema/migration surfaces, auth/consent/vault/PKM/voice, and deploy paths require sequential handling.
+
+## Frontend Evidence Standard
+
+For UI-visible PRs, include one of these in the train simulation:
+
+1. `Playwright-ready`: list the exact route and command to run, such as `cd hushh-webapp && npx playwright test e2e/navigation.spec.ts --project=chromium`.
+2. `Playwright-run`: include the route/spec actually run and the result.
+3. `needs_playwright_verification`: planning used branch diff/static tests only; do not merge until browser evidence is collected.
+
+Use existing Playwright config at `hushh-webapp/playwright.config.ts` and existing specs under `hushh-webapp/e2e/` before creating new proof.
+
+## Comment Simulation Standard
+
+Before GitHub writes, inspect existing maintainer-authored comments and reviews. The train plan must state:
+
+1. Whether Codex expects to edit an existing maintainer comment or post a new one.
+2. Which heading contract applies:
+   - `## Merged: <contract or outcome>`
+   - `## Changes Requested: <blocker>`
+   - `## Closed: <reason>`
+3. For maintainer patches, what the public closeout will explain:
+   - useful original value kept
+   - conversion into existing canonical surface
+   - dropped/deferred pieces
+   - why maintainer patch was lower friction
+   - final accepted location
+4. For holds/review-only, why no public comment is posted yet.

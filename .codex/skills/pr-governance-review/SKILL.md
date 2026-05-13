@@ -138,17 +138,55 @@ Every next-batch answer must include:
 2. Direct PR hyperlinks for every PR.
 3. `Research Basis` with current repo/GitHub truth, recommended path, and risk if accepted blindly.
 4. `Input` with each PR and current lane.
-5. `Per-PR Assessment` with a compact block per PR explaining what changed, touched surface, why it belongs in the batch, blind-merge risk, planned action, and smallest proof.
-6. `Output` with the intended end state.
-7. `Execution` with exact order and merge/patch/close/request-changes/hold split.
-8. `Decision Questions` only when user-owned choices remain; each question must include current truth, recommended path, risk if accepted blindly, and recommended option first.
-9. `Stop Conditions`.
-10. `Verification`.
+5. `Expected Actions` with each PR's exact operational outcome: `review_only`, `hold`, `request_changes`, `close`, `maintainer_harvest`, `maintainer_patch_then_merge`, `merge_now`, or `post_merge_monitor`.
+6. `Comment Plan` with the expected GitHub write for each PR:
+   - `none_before_merge_then_post_merge_closeout`
+   - `edit_existing_maintainer_comment`
+   - `new_changes_requested_comment`
+   - `new_closed_superseded_comment`
+   - `no_comment_review_only`
+   Include the heading that will be used, such as `## Merged: Consent Center State UX` or `## Changes Requested: Reachability`.
+7. `Per-PR Assessment` with a compact block per PR explaining what changed, touched surface, why it belongs in the batch, blind-merge risk, planned action, comment action, and smallest proof.
+8. `Output` with the intended end state.
+9. `Execution` with exact order and merge/patch/close/request-changes/hold split.
+10. `Decision Questions` only when user-owned choices remain; each question must include current truth, recommended path, risk if accepted blindly, and recommended option first.
+11. `Stop Conditions`.
+12. `Verification`.
 
 Do not reduce individual PR handling to a lane JSON blob or one-line purpose. The operator must be able to understand how each PR will be tackled from the chat/report without searching GitHub.
 Do not ask "what should we do?" before stating the researched solution path.
 
 Detailed batch output requirements live in `references/operator-batch-output-contract.md`.
+
+### Train Simulation Standard
+
+Before asking the operator to approve a PR train, simulate the train as an execution plan grounded in the current PR heads. The simulation is not a promise to merge; it is the review pathway that Codex would execute if approved.
+
+Each train simulation must include:
+
+1. `Branch Evidence`: PR head SHA, mergeability, CI Status Gate, changed files, exact shared-file overlaps, and local dirty-worktree overlap.
+2. `Delta Summary`: files added, edited, deleted, generated, or moved for every PR. Call out new exports, new routes, new package/runtime dependencies, and checked-in artifacts.
+3. `Behavior Claim`: what behavior the PR claims to change and whether that behavior is reachable from a current app, backend, package, route, generated contract, test, or documented devex entrypoint.
+4. `Canonical Fit`: the existing repo surface the change should extend. If none exists, classify as standalone utility/devex/test-only, not product/runtime value.
+5. `Simulated Maintainer Patch`: the exact normalization Codex expects to make, including what original PR value is kept, converted into existing surfaces, dropped, deferred, or sent back.
+6. `Action Outcome`: the exact operation that should happen to each PR if the train is approved, including branch update, maintainer patch, merge, hold, request-changes, close, report refresh, or impact update.
+7. `Comment Simulation`: whether Codex will edit an existing maintainer comment or post a new comment, which heading contract applies, and the short public text intent. Do not wait until execution to decide comment posture.
+8. `Execution Timeline`: one PR at a time, with the expected rebase/patch/merge/comment/report sequence and the stop condition after each step.
+9. `Verification Timeline`: smallest local checks, GitHub checks, Queue Validation, Main Post-Merge Smoke, report refresh, and contributor-impact refresh.
+10. `Operator Questions`: only unresolved choices that cannot be derived from repo truth. The recommended answer comes first.
+
+For frontend or UI-visible PRs:
+
+1. Inspect the exact branch/diff before claiming UI behavior.
+2. Use `hushh-webapp/playwright.config.ts` for route-level behavior when the PR changes reachable pages, shell chrome, layout, navigation, consent center, marketplace, Kai, profile, KYC, or route APIs that affect UI.
+3. Prefer existing Playwright specs under `hushh-webapp/e2e/`; add or run the smallest route-specific Playwright check only when the branch changes visible behavior that unit tests cannot prove.
+4. If Playwright cannot be run during planning, mark UI behavior as `needs_playwright_verification` and do not present it as visually verified.
+
+For backend or trust-runtime PRs:
+
+1. Simulate the request/runtime path through the canonical route, middleware, service, schema, generated contract, or tests.
+2. Name the trust boundary that would fail if the PR is accepted blindly.
+3. Do not treat a helper or test addition as runtime value unless a reachable path or authoritative contract uses it.
 
 ### Merge Train Capacity Model
 
