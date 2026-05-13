@@ -18,8 +18,10 @@ public enum OneSignpost {
     /// Consent + token signposter.
     public static let consent = OSSignposter(subsystem: OneLog.subsystem, category: "consent.signpost")
 
-    /// Documented signpost names. Tests assert these strings stay stable
-    /// across releases so external profiling tooling does not break.
+    /// Documented signpost names.
+    ///
+    /// Tests assert these strings stay stable across releases so external
+    /// profiling tooling does not break.
     public enum Name {
         public static let indexerIngest: StaticString = "indexer.ingest"
         public static let indexerQueryBM25: StaticString = "indexer.query.bm25"
