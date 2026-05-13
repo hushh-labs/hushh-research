@@ -3,7 +3,7 @@
 > **Hussh = `[hu]man [s]ecure [s]ocket [h]ost`.**
 > One for macOS is the **host**: the user's latest Apple-silicon Mac runs the daemon, the on-device index, and the secure socket (local MCP server) that exposes user-owned knowledge — under PCHP consent — to BYOA agents and trusted people.
 
-Status: **Phase 0 skeleton.** Connectors, MCP server logic, and consent-protocol writeback land in Phases 1+. See [`docs/future/one-mac-knowledge-base-app.md`](../../docs/future/one-mac-knowledge-base-app.md) for the planning-only roadmap and promotion criteria.
+Status: **Phase 1 in progress.** PR-1 (this branch) lands the infra root: Xcode project (via XcodeGen), entitlements + Info.plist + PrivacyInfo.xcprivacy + LaunchAgent plist, OSLog scaffold, SwiftLint + swift-format + .swift-version, notarization runbook, threat model + observability + distribution docs, CODEOWNERS, dependabot, and expanded CI. See [`docs/future/one-mac-knowledge-base-app.md`](../../docs/future/one-mac-knowledge-base-app.md) for the full Phase 1 plan and exit criteria.
 
 ## What this package will become
 
@@ -19,32 +19,57 @@ A native SwiftUI Mac app + LaunchAgent daemon that:
 
 ```
 apps/one-mac/
-  Package.swift
+  project.yml                 XcodeGen spec; CI regenerates OneMac.xcodeproj
+  Package.swift               SwiftPM build engine
+  .swiftlint.yml              Strict; force-unwrap is an error
+  .swift-format               Apple swift-format config
+  .swift-version              Swift 5.10
+  scripts/
+    notarize.sh               codesign + notarytool + stapler runbook
+  docs/
+    threat-model.md           STRIDE, trust boundary, hardened-runtime matrix
+    observability.md          OSLog subsystems + signpost catalog
+    distribution.md           Developer-ID v1 + MAS v2 channels
+  Resources/
+    OneMac/{Info.plist, OneMac.entitlements, OneMac.MAS.entitlements,
+            PrivacyInfo.xcprivacy}
+    OneDaemon/{Info.plist, OneDaemon.entitlements}
+    ai.hushh.one.daemon.plist  SMAppService LaunchAgent plist
   Sources/
-    OneShared/          KnowledgeItem, protocols, errors
-    OneIndexer/         SQLite + MLX embedder (stubbed in Phase 0)
-    OneMCPServer/       OpenClaw DataSourceBinding host (stubbed in Phase 0)
-    OneDaemon/          LaunchAgent (SMAppService) — stubbed in Phase 0
-    OneMac/             SwiftUI app shell
+    OneShared/   KnowledgeItem, Logging, Signposts
+    OneIndexer/  SQLite + MLX embedder (stubbed; lands in PR-3)
+    OneMCPServer/ OpenClaw DataSourceBinding host (stubbed; lands in PR-5)
+    OneDaemon/   LaunchAgent entrypoint (full lifecycle lands in PR-7)
+    OneMac/      SwiftUI app shell (Nav UI + handshake + AppIntents land in PR-6)
   Tests/
     OneSharedTests/
-  Resources/            entitlements, Info.plist, LaunchAgent plist
 ```
 
 ## Build
 
 ```bash
+# Local SwiftPM build/test (works without Xcode):
 ./bin/hushh native mac build
-./bin/hushh native mac run
-```
+./bin/hushh native mac test
 
-Or directly:
-
-```bash
+# Xcode archive (requires Xcode 16 + xcodegen):
+brew install xcodegen
 cd apps/one-mac
-swift build
-swift test
+xcodegen generate
+xcodebuild -scheme OneMac -configuration Release archive
 ```
+
+## Phase 1 PR sequence
+
+| PR | Title | Status |
+|---|---|---|
+| **PR-1** | Infra root: Xcode project, entitlements, PrivacyInfo, OSLog, lint, CODEOWNERS, dependabot | **in progress** |
+| PR-2 | OneConsent: Swift HCT port + golden-vector parity + SE keystore | pending |
+| PR-3 | OneIndexer: SQLite + MLX + hybrid ranker + perf budgets | pending |
+| PR-4 | OneConnectors: LocalFS + Spotlight + bookmark sandbox tests | pending |
+| PR-5 | OneMCPServer: Hummingbird + 3 tools + OpenClaw conformance | pending |
+| PR-6 | OneMac UI: Nav 5-tab + handshake + AppIntents + design tokens + xcstrings | pending |
+| PR-7 | OneDaemon: SMAppService lifecycle + idle RSS budget + notarize dry-run | pending |
 
 ## License
 

@@ -1,6 +1,6 @@
 # One for macOS — Knowledge-Base App Plan
 
-Status: **planning-only roadmap.** This is not a current-state implementation contract. Code lives at [`apps/one-mac/`](../../apps/one-mac/); it currently contains only a Phase 0 skeleton.
+Status: **planning-only roadmap.** This is not a current-state implementation contract. Code lives at [`apps/one-mac/`](../../apps/one-mac/). Phase 0 skeleton merged via PR #818; Phase 1 (Apple-tier hardening across 7 PRs) is in progress on `claude/one-mac-phase-1-*` branches. Promotion to current-state docs is deferred to Phase 2.
 
 ## Framing
 
