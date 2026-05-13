@@ -26,13 +26,22 @@ const formatCardNumber = (value: string, brand: CardBrand): string => {
     // Amex format: 4-6-5 (e.g., 34xx xxxxxx xxxxx)
     const match = digits.match(/^(\d{0,4})(\d{0,6})(\d{0,5})$/);
     if (match) {
-      return !match[2] ? match[1] : `${match[1]} ${match[2]}${match[3] ? ` ${match[3]}` : ""}`;
+      // TypeScript Fix: Guarantee string fallbacks for regex capture groups
+      const m1 = match[1] || "";
+      const m2 = match[2] || "";
+      const m3 = match[3] || "";
+      return !m2 ? m1 : `${m1} ${m2}${m3 ? ` ${m3}` : ""}`;
     }
   } else {
     // Standard format: 4-4-4-4
     const match = digits.match(/^(\d{0,4})(\d{0,4})(\d{0,4})(\d{0,4})$/);
     if (match) {
-      return !match[2] ? match[1] : `${match[1]} ${match[2]}${match[3] ? ` ${match[3]}` : ""}${match[4] ? ` ${match[4]}` : ""}`;
+      // TypeScript Fix: Guarantee string fallbacks for regex capture groups
+      const m1 = match[1] || "";
+      const m2 = match[2] || "";
+      const m3 = match[3] || "";
+      const m4 = match[4] || "";
+      return !m2 ? m1 : `${m1} ${m2}${m3 ? ` ${m3}` : ""}${m4 ? ` ${m4}` : ""}`;
     }
   }
   return digits;
