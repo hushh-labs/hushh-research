@@ -17,7 +17,7 @@ Authentication:
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
@@ -126,7 +126,7 @@ async def kai_chat(
 async def get_conversation_history(
     conversation_id: str,
     token_data: dict = Depends(require_vault_owner_token),
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=500),
 ) -> ConversationHistoryResponse:
     """
     Get conversation history for a specific conversation.
@@ -157,8 +157,8 @@ async def get_conversation_history(
 async def list_user_conversations(
     user_id: str,
     token_data: dict = Depends(require_vault_owner_token),
-    limit: int = 20,
-    offset: int = 0,
+    limit: int = Query(default=20, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> dict:
     """
     List all conversations for a user.
