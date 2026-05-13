@@ -1,0 +1,9 @@
+{
+  "required_fields": [
+    "name",
+    "version",
+    "runtime",
+    "capabilities",
+    "dependencies"
+  ]
+}
