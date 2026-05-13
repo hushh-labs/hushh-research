@@ -28,6 +28,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _redact_uid(uid: str | None) -> str:
+    """Mask a Firebase UID for safe logging — keeps first 4 and last 2 chars."""
+    if not uid:
+        return "<none>"
+    if len(uid) <= 8:
+        return "<short>"
+    return f"{uid[:4]}…{uid[-2:]}"
+
+
 class KaiChatRequest(BaseModel):
     """Request body for Kai chat endpoint."""
 
@@ -98,7 +107,9 @@ async def kai_chat(
     # Verify user_id matches token (consent-first: token contains user_id)
     if token_data["user_id"] != request.user_id:
         logger.warning(
-            f"User ID mismatch: token={token_data['user_id']}, request={request.user_id}"
+            "kai.chat.auth_mismatch token_uid=%s request_uid=%s",
+            _redact_uid(token_data["user_id"]),
+            _redact_uid(request.user_id),
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="User ID does not match token"
@@ -327,7 +338,9 @@ async def analyze_portfolio_loser(
     # Verify user_id matches token (consent-first: token contains user_id)
     if token_data["user_id"] != request.user_id:
         logger.warning(
-            f"User ID mismatch: token={token_data['user_id']}, request={request.user_id}"
+            "kai.chat.analyze_loser.auth_mismatch token_uid=%s request_uid=%s",
+            _redact_uid(token_data["user_id"]),
+            _redact_uid(request.user_id),
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="User ID does not match token"
