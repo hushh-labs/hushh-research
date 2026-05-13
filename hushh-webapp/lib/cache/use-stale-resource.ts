@@ -40,6 +40,7 @@ export function useStaleResource<T>({
 }: UseStaleResourceOptions<T>): UseStaleResourceResult<T> {
   const cache = useMemo(() => CacheService.getInstance(), []);
   const loadRef = useRef(load);
+  const activeRequestKeyRef = useRef<string | null>(null);
   const label = resourceLabel ? `${resourceLabel}:hook` : cacheKey;
   const initialSnapshot = useMemo(() => cache.peek<T>(cacheKey), [cache, cacheKey]);
   const [data, setData] = useState<T | null>(initialSnapshot?.data ?? null);
@@ -92,6 +93,8 @@ export function useStaleResource<T>({
   const refresh = useCallback(
     async (options?: { force?: boolean }) => {
       if (!enabled) return null;
+      const requestKey = refreshKey ? `${cacheKey}:${refreshKey}` : cacheKey;
+      activeRequestKeyRef.current = requestKey;
 
       const cachedSnapshot = cache.peek<T>(cacheKey);
       if (cachedSnapshot) {
@@ -115,10 +118,11 @@ export function useStaleResource<T>({
         return cachedSnapshot.data;
       }
 
-      const existingRequest = inflightRequests.get(cacheKey) as Promise<T> | undefined;
+      const existingRequest = inflightRequests.get(requestKey) as Promise<T> | undefined;
       if (existingRequest) {
         logRequestAudit(label, "inflight_dedupe_hit", {
           cacheKey,
+          requestKey,
           force: Boolean(options?.force),
         });
         if (cachedSnapshot) {
@@ -128,6 +132,9 @@ export function useStaleResource<T>({
         }
         try {
           const sharedResult = await existingRequest;
+          if (activeRequestKeyRef.current !== requestKey) {
+            return null;
+          }
           const nextSnapshot = cache.peek<T>(cacheKey);
           setSnapshot(nextSnapshot);
           startTransition(() => {
@@ -153,11 +160,15 @@ export function useStaleResource<T>({
       try {
         logRequestAudit(label, "network_fetch", {
           cacheKey,
+          requestKey,
           force: Boolean(options?.force),
         });
         const request = Promise.resolve(loadRef.current(options));
-        inflightRequests.set(cacheKey, request);
+        inflightRequests.set(requestKey, request);
         const next = await request;
+        if (activeRequestKeyRef.current !== requestKey) {
+          return null;
+        }
         const nextSnapshot = cache.peek<T>(cacheKey);
         setSnapshot(nextSnapshot);
         startTransition(() => {
@@ -169,15 +180,15 @@ export function useStaleResource<T>({
         setError(loadError instanceof Error ? loadError.message : "Failed to load resource");
         return cachedSnapshot?.data ?? null;
       } finally {
-        const existing = inflightRequests.get(cacheKey);
+        const existing = inflightRequests.get(requestKey);
         if (existing) {
-          inflightRequests.delete(cacheKey);
+          inflightRequests.delete(requestKey);
         }
         setLoading(false);
         setRefreshing(false);
       }
     },
-    [cache, cacheKey, enabled, label]
+    [cache, cacheKey, enabled, label, refreshKey]
   );
 
   useEffect(() => {

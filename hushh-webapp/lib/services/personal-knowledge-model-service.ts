@@ -254,6 +254,20 @@ export class PersonalKnowledgeModelService {
     return keyParts.map((part) => (part ?? "null").toString()).join(":");
   }
 
+  private static authTokenSignature(vaultOwnerToken?: string): string {
+    const input = String(vaultOwnerToken || "");
+    if (!input) {
+      return "anonymous";
+    }
+
+    let hash = 2166136261;
+    for (let index = 0; index < input.length; index += 1) {
+      hash ^= input.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `vault_owner:${input.length}:${(hash >>> 0).toString(36)}`;
+  }
+
   private static cloneRecord<T extends Record<string, unknown>>(value: T): T {
     if (typeof globalThis.structuredClone === "function") {
       try {
@@ -1090,7 +1104,7 @@ export class PersonalKnowledgeModelService {
       "metadata",
       userId,
       Capacitor.isNativePlatform() ? "native" : "web",
-      vaultOwnerToken ? "vault_owner" : "anonymous",
+      this.authTokenSignature(vaultOwnerToken),
       forceRefresh ? "refresh" : "cached",
     ]);
     const existingRequest = this.metadataInflight.get(dedupeKey);
@@ -1747,7 +1761,7 @@ export class PersonalKnowledgeModelService {
       "encrypted_blob",
       userId,
       Capacitor.isNativePlatform() ? "native" : "web",
-      vaultOwnerToken ? "vault_owner" : "anonymous",
+      this.authTokenSignature(vaultOwnerToken),
     ]);
     const existingRequest = this.encryptedDataInflight.get(dedupeKey);
     if (existingRequest) {
@@ -2657,7 +2671,7 @@ export class PersonalKnowledgeModelService {
       domain,
       normalizedSegmentIds.join(",") || "all_segments",
       Capacitor.isNativePlatform() ? "native" : "web",
-      vaultOwnerToken ? "vault_owner" : "anonymous",
+      this.authTokenSignature(vaultOwnerToken),
     ]);
     const existingRequest = this.domainDataInflight.get(dedupeKey);
     if (existingRequest) {

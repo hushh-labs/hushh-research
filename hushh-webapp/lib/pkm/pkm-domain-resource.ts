@@ -11,6 +11,7 @@ import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache
 
 const DEVICE_TTL_MS = 24 * 60 * 60 * 1000;
 const inflightRefreshes = new Map<string, Promise<PkmDomainResourceSnapshot | null>>();
+const latestReadIdentityByScope = new Map<string, string>();
 
 type DomainResourceCacheTier = "memory" | "device" | "network";
 type DomainResourceSource = "cache" | "secure_cache" | "network";
@@ -55,6 +56,46 @@ function normalizeSegmentIds(segmentIds?: string[]): string[] {
 function segmentSignature(segmentIds?: string[]): string {
   const normalized = normalizeSegmentIds(segmentIds);
   return normalized.length > 0 ? normalized.join(",") : "all";
+}
+
+function secretSignature(value?: string | null): string {
+  const input = String(value || "");
+  if (!input) {
+    return "none";
+  }
+
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${input.length}:${(hash >>> 0).toString(36)}`;
+}
+
+function readScopeKey(params: {
+  userId: string;
+  domain: string;
+  segmentIds?: string[];
+}): string {
+  return `${params.userId}:${params.domain}:${segmentSignature(params.segmentIds)}`;
+}
+
+function readIdentitySignature(params: PkmDomainResourceParams): string {
+  return [
+    readScopeKey(params),
+    `key=${secretSignature(params.vaultKey)}`,
+    `token=${secretSignature(params.vaultOwnerToken)}`,
+  ].join(":");
+}
+
+function rememberReadIdentity(params: PkmDomainResourceParams): string {
+  const identity = readIdentitySignature(params);
+  latestReadIdentityByScope.set(readScopeKey(params), identity);
+  return identity;
+}
+
+function isCurrentReadIdentity(params: PkmDomainResourceParams, identity: string): boolean {
+  return latestReadIdentityByScope.get(readScopeKey(params)) === identity;
 }
 
 function toCacheKey(params: { userId: string; domain: string; segmentIds?: string[] }): string {
@@ -150,12 +191,22 @@ export class PkmDomainResourceService {
     if (!params.vaultKey) {
       return null;
     }
+    const requestIdentity = rememberReadIdentity(params);
     const resourceKey = toDeviceResourceKey(params);
     const snapshot = await SecureResourceCacheService.read<PkmDomainResourceSnapshot>({
       userId: params.userId,
       resourceKey,
       vaultKey: params.vaultKey,
     });
+    if (!isCurrentReadIdentity(params, requestIdentity)) {
+      logRequest("identity_changed_skip", {
+        tier: "device",
+        userId: params.userId,
+        domain: params.domain,
+        segmentSignature: segmentSignature(params.segmentIds),
+      });
+      return null;
+    }
     if (!snapshot) {
       logRequest("cache_miss", {
         tier: "device",
@@ -306,7 +357,8 @@ export class PkmDomainResourceService {
       return null;
     }
 
-    const inflightKey = `${params.userId}:${params.domain}:${segmentSignature(params.segmentIds)}`;
+    const requestIdentity = rememberReadIdentity(params);
+    const inflightKey = requestIdentity;
     const existing = inflightRefreshes.get(inflightKey);
     if (existing) {
       logRequest("inflight_dedupe_hit", {
@@ -330,6 +382,14 @@ export class PkmDomainResourceService {
       segmentIds: params.segmentIds,
     })
       .then(async ({ data, blob }) => {
+        if (!isCurrentReadIdentity(params, requestIdentity)) {
+          logRequest("identity_changed_skip", {
+            userId: params.userId,
+            domain: params.domain,
+            segmentSignature: segmentSignature(params.segmentIds),
+          });
+          return null;
+        }
         if (!data) {
           CacheService.getInstance().invalidate(toCacheKey(params));
           return null;
@@ -403,7 +463,8 @@ export function usePkmDomainResource(
     params.domain || "no-domain",
     params.segmentIds?.join(",") || "all",
     params.vaultKey ? "vault-key" : "no-vault-key",
-    params.vaultOwnerToken ? "vault-owner-token" : "no-vault-owner-token",
+    `vault-key:${secretSignature(params.vaultKey)}`,
+    `vault-owner-token:${secretSignature(params.vaultOwnerToken)}`,
     params.backgroundRefresh === false ? "no-background-refresh" : "background-refresh",
   ].join(":");
 
