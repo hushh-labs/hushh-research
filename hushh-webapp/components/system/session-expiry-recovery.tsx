@@ -1,6 +1,7 @@
 "use client";
 
 import { LogIn, ShieldAlert } from "lucide-react";
+import Link from "next/link";
 
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -34,10 +35,10 @@ export function SessionExpiryRecovery({
           </div>
 
           <Button asChild variant="none" effect="fade" size="sm">
-            <a href={ROUTES.LOGIN}>
+            <Link href={ROUTES.LOGIN}>
               <LogIn className="mr-2 h-4 w-4" />
               Sign in again
-            </a>
+            </Link>
           </Button>
         </div>
       </div>
