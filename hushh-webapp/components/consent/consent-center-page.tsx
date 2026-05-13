@@ -715,9 +715,6 @@ export function ConsentCenterPage() {
   const listData =
     listResource.data ?? (retainedList?.key === listCacheKey ? retainedList.data : null);
 
-  const consentListUpdatedAt =
-  retainedList?.key === listCacheKey ? Date.now() : null;
-  
   const relationshipItems = useMemo(
     () => filterRelationshipEntries(buildRelationshipEntries(centerResource.data || null), deferredQuery),
     [centerResource.data, deferredQuery]
@@ -734,6 +731,7 @@ export function ConsentCenterPage() {
     (tab === "relationships" ? Boolean(centerResource.data) : Boolean(listData));
   const showCompactRetryState = Boolean(consentLoadError && hasVisibleConsentListData);
   const showFullRetryState = Boolean(consentLoadError && !hasVisibleConsentListData);
+  const visibleSnapshot = tab === "relationships" ? centerResource.snapshot : listResource.snapshot;
   const selectedEntry = useMemo(() => {
     if (!items.length) return null;
     if (selectedId) {
@@ -1015,12 +1013,14 @@ export function ConsentCenterPage() {
                     data-voice-control-id="consent_search"
                   />
                 </div>
-                <div className="mt-3">
-  <StaleCacheTimestamp
-    updatedAt={consentListUpdatedAt}
-    stale={Boolean(listResource.error && listData?.items?.length)}
-  />
-</div>
+                {visibleSnapshot ? (
+                  <div className="mt-3">
+                    <StaleCacheTimestamp
+                      updatedAt={visibleSnapshot.timestamp}
+                      stale={Boolean(activeListError && items.length > 0)}
+                    />
+                  </div>
+                ) : null}
                 {((tab === "relationships" ? centerResource.loading || centerResource.refreshing : listResource.loading || listResource.refreshing) && items.length > 0) ? (
                   <div className="mt-3 text-xs text-muted-foreground">
                     Refreshing from the latest consent state…
