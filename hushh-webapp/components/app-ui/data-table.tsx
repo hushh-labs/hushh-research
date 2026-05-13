@@ -116,6 +116,7 @@ export function DataTable<TData, TValue>({
     []
   );
   const [globalFilter, setGlobalFilter] = React.useState("");
+  const [, startGlobalFilterTransition] = React.useTransition();
   const swipeStartRef = React.useRef<{ x: number; y: number } | null>(null);
   const normalizedSearchKeys = React.useMemo(
     () =>
@@ -252,7 +253,13 @@ export function DataTable<TData, TValue>({
               <Input
                 placeholder={searchPlaceholder}
                 value={globalFilter ?? ""}
-                onChange={(e) => setGlobalFilter(e.target.value)}
+                onChange={(event) => {
+  const nextValue = event.target.value;
+
+  startGlobalFilterTransition(() => {
+    setGlobalFilter(nextValue);
+  });
+}}
                 className="pl-9 cursor-text"
               />
             </div>
