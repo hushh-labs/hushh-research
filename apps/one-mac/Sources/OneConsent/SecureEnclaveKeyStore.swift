@@ -79,9 +79,8 @@ public final class SecureEnclaveKeyStore: @unchecked Sendable {
 
     private func wrap(_ key: SymmetricKey) throws -> Data {
         // Envelope format v1: [0x01][12-byte iv][16-byte tag][ciphertext]
-        let keyBytes = key.withUnsafeBytes { Data($0) }
-        let wrappingKey = try wrappingKey()
-        let sealed = try AES.GCM.seal(keyBytes, using: wrappingKey)
+        let keyBytes = key.withUnsafeBytes { rawBuffer in Data(rawBuffer) }
+        let sealed = try AES.GCM.seal(keyBytes, using: wrappingKey())
         guard let combined = sealed.combined else { throw StoreError.wrapFailed }
         var envelope = Data([0x01])
         envelope.append(combined)
@@ -94,26 +93,26 @@ public final class SecureEnclaveKeyStore: @unchecked Sendable {
         }
         let payload = envelope.subdata(in: 1 ..< envelope.count)
         let sealedBox = try AES.GCM.SealedBox(combined: payload)
-        let wrappingKey = try wrappingKey()
-        let raw = try AES.GCM.open(sealedBox, using: wrappingKey)
+        let raw = try AES.GCM.open(sealedBox, using: wrappingKey())
         return SymmetricKey(data: raw)
     }
 
     /// Stable wrapping key derived from the SE-bound P-256 key.
     ///
-    /// PR-2 wires a software-stable wrapping key (HKDF over the SE public key
+    /// PR-2 wires a software-stable wrapping key (HKDF over fixed input
     /// material) — the real ECDH unwrap with SE-resident private key lands in
     /// PR-3 alongside the indexer's key-rotation tests. For PR-2, the
     /// envelope is unambiguously parseable and round-trips through `wipe()`
     /// + `provisionDataKey()` end-to-end.
-    private func wrappingKey() throws -> SymmetricKey {
+    private func wrappingKey() -> SymmetricKey {
         let saltSource = Data("ai.hushh.one.consent.wrap.v1".utf8)
         let salt = Data(SHA256.hash(data: saltSource))
         let inputKey = SymmetricKey(data: Data("ai.hushh.one.se-bound-derivation".utf8))
+        let info = Data("consent.aes256gcm.v1".utf8)
         return HKDF<SHA256>.deriveKey(
             inputKeyMaterial: inputKey,
             salt: salt,
-            info: Data("consent.aes256gcm.v1".utf8),
+            info: info,
             outputByteCount: 32
         )
     }

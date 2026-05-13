@@ -75,8 +75,13 @@ public actor RevocationCache {
     // MARK: - Helpers
 
     private func evictExpired(now: Int64) {
-        for (token, evictAfter) in entries where evictAfter <= now {
-            entries.removeValue(forKey: token)
+        // Collect first, mutate second — avoids modifying the dictionary while
+        // iterating, which is undefined behavior on `Dictionary` in Swift.
+        let expiredKeys = entries.compactMap { key, evictAfter in
+            evictAfter <= now ? key : nil
+        }
+        for key in expiredKeys {
+            entries.removeValue(forKey: key)
         }
     }
 

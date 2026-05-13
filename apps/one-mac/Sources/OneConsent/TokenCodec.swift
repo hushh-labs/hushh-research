@@ -16,6 +16,44 @@ public enum TokenCodec {
     /// Canonical token prefix used by every HCT.
     public static let prefix = "HCT"
 
+    /// Parsed Hushh Consent Token returned by a successful ``validate(_:...)`` call.
+    public struct HCT: Equatable, Sendable {
+        public let token: String
+        public let userId: String
+        public let agentId: String
+        public let scope: String
+        public let issuedAt: Int64
+        public let expiresAt: Int64
+        public let signature: String
+        public let commercial: Bool
+
+        public init(
+            token: String,
+            userId: String,
+            agentId: String,
+            scope: String,
+            issuedAt: Int64,
+            expiresAt: Int64,
+            signature: String,
+            commercial: Bool
+        ) {
+            self.token = token
+            self.userId = userId
+            self.agentId = agentId
+            self.scope = scope
+            self.issuedAt = issuedAt
+            self.expiresAt = expiresAt
+            self.signature = signature
+            self.commercial = commercial
+        }
+    }
+
+    /// Outcome of ``validate(_:expectedScope:requireCommercial:signingKey:nowMs:)``.
+    public enum ValidationResult: Equatable, Sendable {
+        case valid(HCT)
+        case invalid(reason: String)
+    }
+
     /// Issue a new consent token.
     ///
     /// Inputs are encoded as canonical payload bytes and HMAC-SHA256-signed
@@ -55,16 +93,18 @@ public enum TokenCodec {
     ///
     /// Mirrors ``hushh_mcp.consent.token.validate_token`` (without the
     /// in-memory revocation check, which is the caller's responsibility via
-    /// ``RevocationCache``). Returns ``.valid(HCT)`` or
-    /// ``.invalid(reason:)`` with a reason string that matches the Python
-    /// canonical messages so downstream UI rendering is portable.
+    /// ``RevocationCache``). Returns ``.valid(HCT)`` or ``.invalid(reason:)``
+    /// with a reason string that matches the Python canonical messages so
+    /// downstream UI rendering is portable.
     public static func validate(
         _ token: String,
         expectedScope: String? = nil,
         requireCommercial: Bool? = nil,
         signingKey: String,
-        nowMs: Int64 = Self.nowMs()
+        nowMs: Int64? = nil
     ) -> ValidationResult {
+        let currentMs = nowMs ?? Int64(Date().timeIntervalSince1970 * 1000)
+
         guard let parts = parseTokenString(token) else {
             return .invalid(reason: "Malformed token")
         }
@@ -101,7 +141,7 @@ public enum TokenCodec {
             )
         }
 
-        if nowMs >= parsed.expiresAt {
+        if currentMs >= parsed.expiresAt {
             return .invalid(reason: "Token expired")
         }
 
@@ -126,61 +166,9 @@ public enum TokenCodec {
         )
     }
 
-    /// Current wall-clock time in milliseconds since the Unix epoch.
-    ///
-    /// Exposed as a static so tests can pass a fixed ``nowMs`` to
-    /// ``validate(_:expectedScope:requireCommercial:signingKey:nowMs:)``.
-    public static func nowMs() -> Int64 {
-        Int64(Date().timeIntervalSince1970 * 1000)
-    }
-}
+    // MARK: - Internal helpers
 
-// MARK: - Result + parsed token
-
-extension TokenCodec {
-    /// Outcome of ``validate(_:expectedScope:requireCommercial:signingKey:nowMs:)``.
-    public enum ValidationResult: Equatable, Sendable {
-        case valid(HCT)
-        case invalid(reason: String)
-    }
-
-    /// Parsed Hushh Consent Token returned by a successful ``validate(_:...)`` call.
-    public struct HCT: Equatable, Sendable {
-        public let token: String
-        public let userId: String
-        public let agentId: String
-        public let scope: String
-        public let issuedAt: Int64
-        public let expiresAt: Int64
-        public let signature: String
-        public let commercial: Bool
-
-        public init(
-            token: String,
-            userId: String,
-            agentId: String,
-            scope: String,
-            issuedAt: Int64,
-            expiresAt: Int64,
-            signature: String,
-            commercial: Bool
-        ) {
-            self.token = token
-            self.userId = userId
-            self.agentId = agentId
-            self.scope = scope
-            self.issuedAt = issuedAt
-            self.expiresAt = expiresAt
-            self.signature = signature
-            self.commercial = commercial
-        }
-    }
-}
-
-// MARK: - Internal helpers (file-private)
-
-extension TokenCodec {
-    private struct ParsedPayload: Sendable {
+    struct ParsedPayload: Sendable {
         let userId: String
         let agentId: String
         let scope: String
@@ -189,13 +177,13 @@ extension TokenCodec {
         let commercial: Bool
     }
 
-    private struct ParsedTokenParts: Sendable {
+    struct ParsedTokenParts: Sendable {
         let prefix: String
         let encoded: String
         let signature: String
     }
 
-    private static func canonicalPayload(
+    static func canonicalPayload(
         userId: String,
         agentId: String,
         scope: String,
@@ -207,20 +195,20 @@ extension TokenCodec {
         return commercial ? "\(head)|commercial" : head
     }
 
-    private static func sign(_ input: String, signingKey: String) -> String {
+    static func sign(_ input: String, signingKey: String) -> String {
         let key = SymmetricKey(data: Data(signingKey.utf8))
         let mac = HMAC<SHA256>.authenticationCode(for: Data(input.utf8), using: key)
-        return Data(mac).map { String(format: "%02x", $0) }.joined()
+        return mac.map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func urlSafeBase64Encode(_ input: String) -> String {
+    static func urlSafeBase64Encode(_ input: String) -> String {
         Data(input.utf8)
             .base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
     }
 
-    private static func urlSafeBase64Decode(_ input: String) -> String? {
+    static func urlSafeBase64Decode(_ input: String) -> String? {
         var standard = input
             .replacingOccurrences(of: "-", with: "+")
             .replacingOccurrences(of: "_", with: "/")
@@ -232,25 +220,29 @@ extension TokenCodec {
         return String(data: data, encoding: .utf8)
     }
 
-    private static func parseTokenString(_ token: String) -> ParsedTokenParts? {
+    static func parseTokenString(_ token: String) -> ParsedTokenParts? {
         guard let colonRange = token.range(of: ":") else { return nil }
-        let prefix = String(token[token.startIndex ..< colonRange.lowerBound])
-        let signedPart = String(token[colonRange.upperBound ..< token.endIndex])
+        let prefixSubstring = token[token.startIndex ..< colonRange.lowerBound]
+        let signedPart = token[colonRange.upperBound ..< token.endIndex]
         guard let dotRange = signedPart.range(of: ".") else { return nil }
-        let encoded = String(signedPart[signedPart.startIndex ..< dotRange.lowerBound])
-        let signature = String(signedPart[dotRange.upperBound ..< signedPart.endIndex])
+        let encoded = signedPart[signedPart.startIndex ..< dotRange.lowerBound]
+        let signature = signedPart[dotRange.upperBound ..< signedPart.endIndex]
         if encoded.isEmpty || signature.isEmpty { return nil }
-        return ParsedTokenParts(prefix: prefix, encoded: encoded, signature: signature)
+        return ParsedTokenParts(
+            prefix: String(prefixSubstring),
+            encoded: String(encoded),
+            signature: String(signature)
+        )
     }
 
-    private static func parseCanonicalPayload(_ raw: String) -> ParsedPayload? {
+    static func parseCanonicalPayload(_ raw: String) -> ParsedPayload? {
         let parts = raw.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
-        let commercial: Bool
-        let issuedAtStr: String
-        let expiresAtStr: String
         let userId: String
         let agentId: String
         let scope: String
+        let issuedAtStr: String
+        let expiresAtStr: String
+        let commercial: Bool
         if parts.count == 5 {
             userId = parts[0]
             agentId = parts[1]
@@ -282,7 +274,7 @@ extension TokenCodec {
     }
 
     /// Constant-time string comparison to prevent signature-timing attacks.
-    private static func constantTimeEqual(_ left: String, _ right: String) -> Bool {
+    static func constantTimeEqual(_ left: String, _ right: String) -> Bool {
         let leftBytes = Array(left.utf8)
         let rightBytes = Array(right.utf8)
         if leftBytes.count != rightBytes.count { return false }
@@ -298,7 +290,7 @@ extension TokenCodec {
     /// Mirrors the helper at ``consent-protocol/hushh_mcp/consent/scope_helpers.py``
     /// for the Mac-relevant subset (Phase 1 PR-5 ports the full helper alongside
     /// the MCP server).
-    private static func scopeMatches(granted: String, expected: String) -> Bool {
+    static func scopeMatches(granted: String, expected: String) -> Bool {
         if granted == expected { return true }
         if granted.hasSuffix(".*") {
             let stem = String(granted.dropLast(2))
