@@ -1,10 +1,13 @@
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, act } from "@testing-library/react";
 import { PrivacyScreenGuard } from "@/components/app-ui/privacy-screen-guard";
 
 describe("PrivacyScreenGuard Component - Security & Obfuscation", () => {
   it("renders the sensitive content clearly when the window is active", () => {
+    // Mock document.hasFocus to return true, as JSDOM defaults this to false in headless CI environments
+    const hasFocusSpy = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+
     const { getByText } = render(
       <PrivacyScreenGuard>
         <p>SSN: 000-00-0000</p>
@@ -15,10 +18,12 @@ describe("PrivacyScreenGuard Component - Security & Obfuscation", () => {
     // Content is visible and not hidden from screen readers
     expect(content).toBeDefined();
     expect(content.closest("div")?.getAttribute("aria-hidden")).toBe("false");
+
+    // Clean up the spy so we don't pollute other tests
+    hasFocusSpy.mockRestore();
   });
 
   it("aggressively blurs the content and renders the security shield on window blur", () => {
-    // Removed unused 'container'
     const { getByText } = render(
       <PrivacyScreenGuard label="Vault locked">
         <p>Secret Portfolio Data</p>
@@ -44,7 +49,6 @@ describe("PrivacyScreenGuard Component - Security & Obfuscation", () => {
   });
 
   it("restores visibility when the user returns to the tab", () => {
-    // Removed unused 'getByText'
     const { queryByText } = render(
       <PrivacyScreenGuard>
         <p>Data</p>
