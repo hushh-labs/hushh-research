@@ -2,8 +2,8 @@
 
 Verifies that the in-memory revocation cache:
 - Rejects revoked tokens (membership semantics preserved)
-- Evicts entries whose TTL has expired (memory bounded)
-- Enforces the size cap when TTL eviction is insufficient
+- Evicts entries after the revoked token's expiry grace window
+- Does not evict unexpired revocations only to satisfy a size cap
 - Is thread-safe under concurrent add/contains access
 - Exposes clear() for test-fixture cleanup (conftest.py compatibility)
 - Does not raise on non-str __contains__ probes
@@ -85,9 +85,9 @@ def test_entry_evicted_after_ttl_expires():
     c = _cache()
     # Back-date the inserted entry so its TTL has already elapsed.
     c.add("old_tok")
-    old_entry_time = int(time.time() * 1000) - c._TTL_MS - 1
+    expired_evict_after = int(time.time() * 1000) - 1
     with c._lock:
-        c._entries["old_tok"] = old_entry_time
+        c._entries["old_tok"] = expired_evict_after
 
     assert "old_tok" not in c
     # Eviction should also remove it from _entries
@@ -98,10 +98,10 @@ def test_entry_evicted_after_ttl_expires():
 def test_entry_within_ttl_is_still_present():
     c = _cache()
     c.add("live_tok")
-    # Back-date to just inside the TTL window (1 ms before cutoff).
-    recent_entry_time = int(time.time() * 1000) - c._TTL_MS + 1_000
+    # Keep the revocation inside its expiry grace window.
+    future_evict_after = int(time.time() * 1000) + 1_000
     with c._lock:
-        c._entries["live_tok"] = recent_entry_time
+        c._entries["live_tok"] = future_evict_after
 
     assert "live_tok" in c
 
@@ -110,9 +110,9 @@ def test_evict_expired_locked_returns_count_of_removed_entries():
     c = _cache()
     now_ms = int(time.time() * 1000)
     with c._lock:
-        c._entries["expired1"] = now_ms - c._TTL_MS - 1
-        c._entries["expired2"] = now_ms - c._TTL_MS - 2
-        c._entries["live"] = now_ms
+        c._entries["expired1"] = now_ms - 1
+        c._entries["expired2"] = now_ms - 2
+        c._entries["live"] = now_ms + 1_000
         removed = c._evict_expired_locked(now_ms)
 
     assert removed == 2
@@ -122,44 +122,26 @@ def test_evict_expired_locked_returns_count_of_removed_entries():
 
 
 # ---------------------------------------------------------------------------
-# Size cap
+# Size cap guardrail
 # ---------------------------------------------------------------------------
 
 
-def test_size_cap_enforced_when_ttl_eviction_insufficient():
+def test_size_cap_does_not_evict_unexpired_revocations():
     c = _BoundedRevocationCache()
-    c._MAX_SIZE = 5
+    c._MAX_SIZE = 1
 
-    for i in range(10):
-        c.add(f"tok_{i}")
+    c.add("tok_1")
+    c.add("tok_2")
 
-    assert len(c) <= 5
-
-
-def test_most_recently_added_entry_survives_cap_eviction():
-    c = _BoundedRevocationCache()
-    c._MAX_SIZE = 3
-
-    # Add entries with artificially old timestamps so they are "older".
-    now_ms = int(time.time() * 1000)
-    with c._lock:
-        c._entries["old_1"] = now_ms - 3000
-        c._entries["old_2"] = now_ms - 2000
-        c._entries["old_3"] = now_ms - 1000
-
-    # Adding one more should evict the oldest (old_1).
-    c.add("new_tok")
-
-    with c._lock:
-        assert "old_1" not in c._entries
-        assert "new_tok" in c._entries
+    assert "tok_1" in c
+    assert "tok_2" in c
 
 
-def test_size_cap_zero_means_no_entry_survives():
+def test_size_cap_zero_still_preserves_revocation():
     c = _BoundedRevocationCache()
     c._MAX_SIZE = 0
     c.add("tok")
-    assert len(c) == 0
+    assert "tok" in c
 
 
 # ---------------------------------------------------------------------------

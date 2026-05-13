@@ -19,25 +19,21 @@ logger = logging.getLogger(__name__)
 
 
 class _BoundedRevocationCache:
-    """Thread-safe in-memory revocation cache with TTL eviction and size cap.
+    """Thread-safe in-memory revocation cache with expiry-based eviction.
 
-    Entries are evicted 25 h after insertion — one hour past the maximum token
-    lifetime of 24 h.  Because validate_token() already rejects tokens whose
-    embedded expiry has passed, dropping a revoked-but-expired entry from this
-    cache introduces no security regression; the DB remains the authoritative
-    revocation store for cross-instance consistency.
-
-    Size cap (100 000 entries × ≈400 B ≈ 40 MB) prevents unbounded memory
-    growth in long-running Cloud Run instances where scope upgrades, session
-    rollovers, and logout continuously add entries that the original bare set
-    never evicted.
+    Entries are kept until one hour after the token's embedded expiry. Because
+    validate_token() rejects expired tokens, dropping expired revocation markers
+    does not make an expired token usable again. Unexpired revocations are not
+    evicted for size pressure: local revocation must stay strict even if the DB
+    is temporarily unavailable.
     """
 
-    _TTL_MS: int = 25 * 60 * 60 * 1000  # 25 h in milliseconds
+    _EXPIRED_TOKEN_GRACE_MS: int = 60 * 60 * 1000
+    _MALFORMED_TOKEN_TTL_MS: int = DEFAULT_CONSENT_TOKEN_EXPIRY_MS + _EXPIRED_TOKEN_GRACE_MS
     _MAX_SIZE: int = 100_000
 
     def __init__(self) -> None:
-        self._entries: dict[str, int] = {}  # token_str -> added_at_ms
+        self._entries: dict[str, int] = {}  # token_str -> evict_after_ms
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------------
@@ -49,24 +45,23 @@ class _BoundedRevocationCache:
         with self._lock:
             self._evict_expired_locked(now_ms)
             if len(self._entries) >= self._MAX_SIZE:
-                if not self._entries:
-                    return
-                # Eviction insufficient — drop the single oldest entry so we
-                # always stay within the cap without a full scan.
-                oldest = min(self._entries, key=self._entries.__getitem__)
-                del self._entries[oldest]
-            self._entries[token_str] = now_ms
+                logger.warning(
+                    "revocation_cache.size_cap_exceeded size=%s max_size=%s",
+                    len(self._entries),
+                    self._MAX_SIZE,
+                )
+            self._entries[token_str] = self._evict_after_ms(token_str, now_ms)
 
     def __contains__(self, token_str: object) -> bool:
         if not isinstance(token_str, str):
             return False
         now_ms = int(time.time() * 1000)
         with self._lock:
-            added_at = self._entries.get(token_str)
-            if added_at is None:
+            evict_after_ms = self._entries.get(token_str)
+            if evict_after_ms is None:
                 return False
-            if now_ms - added_at >= self._TTL_MS:
-                # Safe to evict: the token's own expiry has long since passed.
+            if now_ms >= evict_after_ms:
+                # Safe to evict: the token's own expiry has passed with grace.
                 del self._entries[token_str]
                 return False
             return True
@@ -85,11 +80,22 @@ class _BoundedRevocationCache:
 
     def _evict_expired_locked(self, now_ms: int) -> int:
         """Remove TTL-expired entries.  Caller must hold self._lock."""
-        cutoff = now_ms - self._TTL_MS
-        expired = [k for k, added_at in self._entries.items() if added_at <= cutoff]
+        expired = [k for k, evict_after_ms in self._entries.items() if evict_after_ms <= now_ms]
         for k in expired:
             del self._entries[k]
         return len(expired)
+
+    def _evict_after_ms(self, token_str: str, now_ms: int) -> int:
+        try:
+            _prefix, signed_part = token_str.split(":", 1)
+            encoded, _signature = signed_part.split(".", 1)
+            decoded = base64.urlsafe_b64decode(encoded.encode()).decode()
+            parts = decoded.split("|")
+            if len(parts) in {5, 6}:
+                return int(parts[4]) + self._EXPIRED_TOKEN_GRACE_MS
+        except Exception:
+            logger.debug("revocation_cache.expiry_parse_failed", exc_info=True)
+        return now_ms + self._MALFORMED_TOKEN_TTL_MS
 
 
 # In-memory cache for fast revocation checks (immediate effect).
