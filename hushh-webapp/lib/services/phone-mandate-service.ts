@@ -23,11 +23,12 @@ export function shouldBypassPhoneMandateForLocalhost(hostname?: string | null): 
 
 export function shouldRequirePhoneMandate(params: {
   phoneNumber?: string | null;
+  phoneVerified?: boolean | null;
   hasVault: boolean;
   exemptVaultUsers?: boolean;
   hostname?: string | null;
 }): boolean {
-  if (hasVerifiedPhoneNumber(params.phoneNumber)) {
+  if (params.phoneVerified === true || hasVerifiedPhoneNumber(params.phoneNumber)) {
     return false;
   }
 
