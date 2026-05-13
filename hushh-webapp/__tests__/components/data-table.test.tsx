@@ -40,6 +40,7 @@ describe("DataTable", () => {
     fireEvent.click(screen.getByRole("link", { name: "2" }));
     expect(screen.getByText("Row 9")).toBeTruthy();
     expect(screen.queryByText("Row 1")).toBeNull();
+
   });
 
   it("hides pagination chrome for a single page", () => {
@@ -55,5 +56,21 @@ describe("DataTable", () => {
 
     expect(screen.queryByRole("navigation", { name: "pagination" })).toBeNull();
     expect(screen.queryByText(/showing/i)).toBeNull();
+  });
+
+
+  it("preserves accessible search input behavior", () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={makeRows(3)}
+        searchPlaceholder="Search records"
+      />
+    );
+
+    const searchInput = screen.getByPlaceholderText("Search records");
+
+    expect(searchInput).toBeTruthy();
+    expect(searchInput.getAttribute("aria-hidden")).toBeNull();
   });
 });
