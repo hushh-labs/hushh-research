@@ -60,7 +60,6 @@
     "embla-carousel-react": "^8.6.0",
     "firebase": "^12.12.1",
     "firebase-admin": "^13.8.0",
-    "framer-motion": "^12.38.0",
     "gsap": "^3.15.0",
     "jose": "^6.2.3",
     "jspdf": "^4.2.1",

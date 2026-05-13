@@ -22,8 +22,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 1. Read raw text to avoid unnecessary JSON parse/stringify cycle
-    const bodyText = await request.text().catch(() => "");
+    const body = await request.json();
     const backendUrl = getPythonApiUrl();
 
     const response = await fetch(`${backendUrl}/api/notifications/register`, {
@@ -32,26 +31,16 @@ export async function POST(request: NextRequest) {
         "Content-Type": "application/json",
         Authorization: authHeader,
       },
-      body: bodyText || undefined,
-      cache: "no-store", // Ensure Next.js doesn't cache this proxy call
+      body: JSON.stringify(body),
     });
 
-    // 2. Safely parse the upstream response (handles 204 No Content or text errors)
-    const responseText = await response.text();
-    let data;
-    try {
-      data = responseText ? JSON.parse(responseText) : {};
-    } catch {
-      data = { detail: responseText };
-    }
-
+    const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       return NextResponse.json(
         data?.detail ? { error: data.detail } : { error: "Failed to register token" },
         { status: response.status }
       );
     }
-
     return NextResponse.json(data);
   } catch (error) {
     console.error("[API] Notifications register error:", error);
