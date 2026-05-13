@@ -1,5 +1,6 @@
 "use client";
 
+import { AsyncActionStatus } from "@/components/system/async-action-status";
 import { SessionExpiryRecovery } from "@/components/system/session-expiry-recovery";
 import { StaleCacheTimestamp } from "@/components/system/stale-cache-timestamp";
 import Link from "next/link";
@@ -738,6 +739,8 @@ export function ConsentCenterPage() {
   const showFullRetryState = Boolean(consentLoadError && !hasVisibleConsentListData);
   const showSessionRecovery = Boolean(!authLoading && !user && showFullRetryState);
   const visibleSnapshot = tab === "relationships" ? centerResource.snapshot : listResource.snapshot;
+  const isConsentActionRefreshing =
+    summaryResource.refreshing || listResource.refreshing || centerResource.refreshing;
   const accessibilityStatusMessage = activeListLoading
     ? "Consent entries are loading."
     : activeListRefreshing
@@ -1048,6 +1051,14 @@ export function ConsentCenterPage() {
                   <AccessibilityStatusAnnouncer message={accessibilityStatusMessage} />
 
                   {showSessionRecovery ? <SessionExpiryRecovery /> : null}
+
+                  {isConsentActionRefreshing && items.length > 0 ? (
+                    <AsyncActionStatus
+                      state="loading"
+                      label="Refreshing consent state..."
+                      compact
+                    />
+                  ) : null}
 
                   {showCompactRetryState ? (
                     <ApiRetryState
