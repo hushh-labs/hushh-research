@@ -15,6 +15,7 @@
  * Caching: uses CacheService for in-memory caching with TTL to reduce API calls.
  */
 
+import { validateI18nResource } from "@/lib/i18n/i18n-schema-validator";
 import { Capacitor } from "@capacitor/core";
 import { HushhPersonalKnowledgeModel } from "@/lib/capacitor";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -1258,6 +1259,16 @@ export class PersonalKnowledgeModelService {
           result = fallbackMetadata ?? this.emptyMetadata(userId);
         } else {
           const data = await response.json();
+          const validationResult = validateI18nResource(
+  data as Parameters<typeof validateI18nResource>[0]
+);
+
+if (!validationResult.valid) {
+  console.warn(
+    "[semantic-config] validation failed",
+    validationResult.errors
+  );
+}
 
           result = {
             userId: data.user_id,
