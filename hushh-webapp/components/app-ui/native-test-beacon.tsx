@@ -18,7 +18,8 @@ export type NativeTestDataState =
   | "redirect-valid"
   | "error";
 
-type NativeTestBeaconProps = {
+// 1. Exported the Props type for better reusability
+export type NativeTestBeaconProps = {
   routeId: string;
   marker: string;
   authState: NativeTestAuthState;
@@ -49,15 +50,15 @@ export function NativeTestBeacon({
 
   return (
     <div
-      style={{ display: "none" }}
+      className="hidden" // 2. Replaced inline style with Tailwind utility class
       aria-hidden="true"
       data-testid={marker}
       data-native-test-beacon="true"
       data-native-route-id={routeId}
       data-native-auth-state={authState}
       data-native-data-state={dataState}
-      data-native-error-code={errorCode || ""}
-      data-native-error-message={errorMessage || ""}
+      data-native-error-code={errorCode || undefined} // 3. Fallback to undefined instead of ""
+      data-native-error-message={errorMessage || undefined}
     />
   );
 }
