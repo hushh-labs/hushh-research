@@ -63,8 +63,10 @@ jobs:
 
       - name: swift-format lint (strict)
         run: |
-          # swift-format ships with the macOS-15 Xcode toolchain.
-          xcrun swift-format lint --strict --recursive Sources Tests
+          # Apple swift-format is the `swift format` subcommand on Swift 6.0
+          # (which ships with Xcode 16). The standalone `swift-format` binary
+          # is not always on PATH; the subcommand always is.
+          swift format lint --strict --recursive Sources Tests
 
       - name: plutil — validate Info.plist (OneMac)
         run: plutil -lint Resources/OneMac/Info.plist

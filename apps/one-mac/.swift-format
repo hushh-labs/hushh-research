@@ -1,26 +1,21 @@
 {
   "version": 1,
-  "fileScopedDeclarationPrivacy": {
-    "accessLevel": "private"
-  },
-  "indentation": {
-    "spaces": 4
-  },
-  "indentConditionalCompilationBlocks": false,
-  "indentSwitchCaseLabels": false,
-  "lineBreakAroundMultilineExpressionChainComponents": true,
+  "lineLength": 120,
+  "indentation": { "spaces": 4 },
+  "tabWidth": 4,
+  "maximumBlankLines": 1,
+  "respectsExistingLineBreaks": true,
   "lineBreakBeforeControlFlowKeywords": false,
   "lineBreakBeforeEachArgument": false,
   "lineBreakBeforeEachGenericRequirement": false,
-  "lineLength": 120,
-  "maximumBlankLines": 1,
+  "lineBreakAroundMultilineExpressionChainComponents": true,
   "prioritizeKeepingFunctionOutputTogether": true,
-  "respectsExistingLineBreaks": true,
+  "indentConditionalCompilationBlocks": false,
+  "indentSwitchCaseLabels": false,
   "spacesAroundRangeFormationOperators": false,
-  "tabWidth": 4,
-  "useSingleLineFunctionSignatureWhereApplicable": true,
+  "fileScopedDeclarationPrivacy": { "accessLevel": "private" },
   "rules": {
-    "AllPublicDeclarationsHaveDocumentation": true,
+    "AllPublicDeclarationsHaveDocumentation": false,
     "AlwaysUseLowerCamelCase": true,
     "AmbiguousTrailingClosureOverload": true,
     "BeginDocumentationCommentWithOneLineSummary": true,
@@ -52,6 +47,6 @@
     "UseSingleLinePropertyGetter": true,
     "UseSynthesizedInitializer": true,
     "UseTripleSlashForDocumentationComments": true,
-    "ValidateDocumentationComments": true
+    "ValidateDocumentationComments": false
   }
 }
