@@ -7,7 +7,7 @@ import { SurfaceCard, type SurfaceAccent, type SurfaceTone } from "@/components/
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 
-type SectionAccent =
+export type SectionAccent =
   | "neutral"
   | "kai"
   | "ria"
@@ -24,15 +24,17 @@ type SectionAccent =
   | "rose"
   | "violet";
 
-const ACCENT_STYLES: Record<SectionAccent, {
-  eyebrow: string;
-  icon: string;
-  divider: string;
-}> = {
+const ACCENT_STYLES: Record<
+  SectionAccent,
+  {
+    eyebrow: string;
+    icon: string;
+    divider: string;
+  }
+> = {
   neutral: {
     eyebrow: "text-muted-foreground",
-    icon:
-      "border border-black/10 bg-white text-black shadow-[0_10px_28px_-18px_rgba(0,0,0,0.28)] dark:border-white/10 dark:bg-white/8 dark:text-white dark:shadow-none",
+    icon: "border border-black/10 bg-white text-black shadow-[0_10px_28px_-18px_rgba(0,0,0,0.28)] dark:border-white/10 dark:bg-white/8 dark:text-white dark:shadow-none",
     divider: "bg-border/50",
   },
   kai: {
@@ -77,8 +79,7 @@ const ACCENT_STYLES: Record<SectionAccent, {
   },
   default: {
     eyebrow: "text-muted-foreground",
-    icon:
-      "border border-black/10 bg-white text-black shadow-[0_10px_28px_-18px_rgba(0,0,0,0.28)] dark:border-white/10 dark:bg-white/8 dark:text-white dark:shadow-none",
+    icon: "border border-black/10 bg-white text-black shadow-[0_10px_28px_-18px_rgba(0,0,0,0.28)] dark:border-white/10 dark:bg-white/8 dark:text-white dark:shadow-none",
     divider: "bg-border/50",
   },
   sky: {
@@ -108,30 +109,38 @@ const ACCENT_STYLES: Record<SectionAccent, {
   },
 };
 
-function HeaderLeading({
-  icon,
-  leading,
-  iconClassName,
-  iconSize,
-}: {
+interface HeaderLeadingProps {
   icon?: LucideIcon;
   leading?: ReactNode;
   iconClassName: string;
   iconSize: "md" | "lg";
-}) {
+}
+
+function HeaderLeading({ icon, leading, iconClassName, iconSize }: HeaderLeadingProps) {
   if (leading) {
     return <div className="shrink-0 self-start">{leading}</div>;
   }
 
-  if (!icon) {
-    return null;
-  }
+  if (!icon) return null;
 
   return (
-    <div className={cn("self-stretch", iconClassName)}>
+    <div className={cn("self-stretch", iconClassName)} aria-hidden="true">
       <Icon icon={icon} size={iconSize} />
     </div>
   );
+}
+
+export interface PageHeaderProps {
+  eyebrow?: string;
+  title: ReactNode;
+  description?: ReactNode;
+  actions?: ReactNode;
+  actionsInlineMobile?: boolean;
+  descriptionFullWidth?: boolean;
+  icon?: LucideIcon;
+  leading?: ReactNode;
+  accent?: SectionAccent;
+  className?: string;
 }
 
 export function PageHeader({
@@ -145,19 +154,9 @@ export function PageHeader({
   leading,
   accent = "default",
   className,
-}: {
-  eyebrow?: string;
-  title: ReactNode;
-  description?: ReactNode;
-  actions?: ReactNode;
-  actionsInlineMobile?: boolean;
-  descriptionFullWidth?: boolean;
-  icon?: LucideIcon;
-  leading?: ReactNode;
-  accent?: SectionAccent;
-  className?: string;
-}) {
+}: PageHeaderProps) {
   const styles = ACCENT_STYLES[accent];
+
   return (
     <header
       className={cn("space-y-[var(--page-header-stack-gap)]", className)}
@@ -165,7 +164,7 @@ export function PageHeader({
       data-page-primary="true"
     >
       <div className="flex items-stretch gap-3 sm:gap-4">
-        {icon || leading ? (
+        {(icon || leading) && (
           <HeaderLeading
             icon={icon}
             leading={leading}
@@ -175,7 +174,7 @@ export function PageHeader({
               styles.icon
             )}
           />
-        ) : null}
+        )}
         <div className="min-w-0 flex-1">
           <div
             className={cn(
@@ -185,29 +184,24 @@ export function PageHeader({
             data-slot="page-header-row"
           >
             <div className="min-w-0 flex-1 space-y-[var(--page-header-copy-gap)]">
-              {eyebrow ? (
-                <p
-                  className={cn(
-                    "text-xs font-semibold uppercase tracking-[0.24em]",
-                    styles.eyebrow
-                  )}
-                >
+              {eyebrow && (
+                <p className={cn("text-xs font-semibold uppercase tracking-[0.24em]", styles.eyebrow)}>
                   {eyebrow}
                 </p>
-              ) : null}
-              <h1 className="text-[clamp(1.28rem,3vw,1.75rem)] font-semibold tracking-tight leading-[1.1] text-foreground">
+              )}
+              <h1 className="text-[clamp(1.28rem,3vw,1.75rem)] font-semibold leading-[1.1] tracking-tight text-foreground">
                 {title}
               </h1>
-              {description && !descriptionFullWidth ? (
+              {description && !descriptionFullWidth && (
                 <div
                   className="max-w-2xl line-clamp-2 text-sm leading-6 text-muted-foreground sm:line-clamp-none"
                   data-slot="page-header-description"
                 >
                   {description}
                 </div>
-              ) : null}
+              )}
             </div>
-            {actions ? (
+            {actions && (
               <div
                 className={cn(
                   "flex flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center",
@@ -217,21 +211,29 @@ export function PageHeader({
               >
                 {actions}
               </div>
-            ) : null}
+            )}
           </div>
         </div>
       </div>
-      {description && descriptionFullWidth ? (
-        <div
-          className="text-sm leading-6 text-muted-foreground"
-          data-slot="page-header-description"
-        >
+      {description && descriptionFullWidth && (
+        <div className="text-sm leading-6 text-muted-foreground" data-slot="page-header-description">
           {description}
         </div>
-      ) : null}
+      )}
       <div className={cn("h-px w-full", styles.divider)} />
     </header>
   );
+}
+
+export interface SectionHeaderProps {
+  eyebrow?: string;
+  title: ReactNode;
+  description?: ReactNode;
+  actions?: ReactNode;
+  icon?: LucideIcon;
+  leading?: ReactNode;
+  accent?: SectionAccent;
+  className?: string;
 }
 
 export function SectionHeader({
@@ -243,21 +245,13 @@ export function SectionHeader({
   leading,
   accent = "default",
   className,
-}: {
-  eyebrow?: string;
-  title: ReactNode;
-  description?: ReactNode;
-  actions?: ReactNode;
-  icon?: LucideIcon;
-  leading?: ReactNode;
-  accent?: SectionAccent;
-  className?: string;
-}) {
+}: SectionHeaderProps) {
   const styles = ACCENT_STYLES[accent];
+
   return (
-    <div className={cn("space-y-[var(--section-header-stack-gap)]", className)}>
+    <header className={cn("space-y-[var(--section-header-stack-gap)]", className)}>
       <div className="flex items-stretch gap-3">
-        {icon || leading ? (
+        {(icon || leading) && (
           <HeaderLeading
             icon={icon}
             leading={leading}
@@ -267,44 +261,51 @@ export function SectionHeader({
               styles.icon
             )}
           />
-        ) : null}
+        )}
         <div className="min-w-0 flex-1">
           <div
             className="flex flex-col gap-[var(--section-header-stack-gap)] sm:flex-row sm:items-center sm:justify-between"
             data-slot="section-header-row"
           >
             <div className="min-w-0 flex-1 space-y-[var(--section-header-copy-gap)]">
-              {eyebrow ? (
+              {eyebrow && (
                 <p className={cn("text-xs font-semibold uppercase tracking-[0.2em]", styles.eyebrow)}>
                   {eyebrow}
                 </p>
-              ) : null}
+              )}
               <h2 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">
                 {title}
               </h2>
-              {description ? (
+              {description && (
                 <div
                   className="line-clamp-2 text-sm leading-6 text-muted-foreground sm:line-clamp-none"
                   data-slot="section-header-description"
                 >
                   {description}
                 </div>
-              ) : null}
+              )}
             </div>
-            {actions ? (
+            {actions && (
               <div
                 className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center"
                 data-slot="section-header-actions"
               >
                 {actions}
               </div>
-            ) : null}
+            )}
           </div>
         </div>
       </div>
       <div className={cn("h-px w-full", styles.divider)} />
-    </div>
+    </header>
   );
+}
+
+export interface ContentSurfaceProps {
+  children: ReactNode;
+  className?: string;
+  accent?: SurfaceAccent;
+  tone?: SurfaceTone;
 }
 
 export function ContentSurface({
@@ -312,12 +313,7 @@ export function ContentSurface({
   className,
   accent = "none",
   tone = "default",
-}: {
-  children: ReactNode;
-  className?: string;
-  accent?: SurfaceAccent;
-  tone?: SurfaceTone;
-}) {
+}: ContentSurfaceProps) {
   return (
     <SurfaceCard tone={tone} accent={accent} className={className}>
       {children}

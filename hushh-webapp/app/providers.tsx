@@ -248,9 +248,11 @@ export function Providers({ children }: ProvidersProps) {
           <CacheProvider>
             <PersonaProvider>
               <VaultProvider>
-                <NativeTestRouter />
-                <NativeTestBootstrap />
-                <PersonaBootstrapRedirect />
+                <Suspense fallback={null}>
+                  <NativeTestRouter />
+                  <NativeTestBootstrap />
+                  <PersonaBootstrapRedirect />
+                </Suspense>
                 <Suspense
                   fallback={
                     <>

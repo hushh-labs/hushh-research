@@ -1,21 +1,34 @@
+"use client";
+
 import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { ConsentCenterPage } from "@/components/consent/consent-center-page";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 
+function ConsentsContent() {
+  // Access search params to ensure this client component is correctly 
+  // associated with the Suspense boundary in static builds.
+  const searchParams = useSearchParams();
+
+  return (
+    <>
+      <NativeTestBeacon
+        routeId="/consents"
+        marker="native-route-consents"
+        authState="authenticated"
+        dataState="loaded"
+      />
+      <ConsentCenterPage />
+    </>
+  );
+}
+
 export default function ConsentsPage() {
   return (
     <Suspense fallback={<HushhLoader variant="inline" label="Loading consents…" />}>
-      <>
-        <NativeTestBeacon
-          routeId="/consents"
-          marker="native-route-consents"
-          authState="authenticated"
-          dataState="loaded"
-        />
-        <ConsentCenterPage />
-      </>
+      <ConsentsContent />
     </Suspense>
   );
 }
