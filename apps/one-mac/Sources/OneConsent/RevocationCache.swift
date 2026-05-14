@@ -25,7 +25,11 @@ public actor RevocationCache {
     /// TTL applied when the token string cannot be parsed (e.g. revoke called
     /// before issue). Mirrors Python's ``_MALFORMED_TOKEN_TTL_MS`` of
     /// 7 days + 1 hour grace.
-    public static let malformedTokenTtlMs: Int64 = (1000 * 60 * 60 * 24 * 7) + Self.expiredTokenGraceMs
+    ///
+    /// Uses the explicit type name instead of `Self` because covariant `Self`
+    /// is not allowed in stored property initializers (Swift 6 diagnostic).
+    public static let malformedTokenTtlMs: Int64 =
+        (1000 * 60 * 60 * 24 * 7) + RevocationCache.expiredTokenGraceMs
 
     private var entries: [String: Int64] = [:]
     private let clock: @Sendable () -> Int64
