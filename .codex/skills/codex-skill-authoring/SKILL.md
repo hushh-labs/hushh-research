@@ -57,6 +57,9 @@ Non-owned surfaces:
 9. Keep recurring SOPs short in skills and route durable detail to canonical docs or workflow packs. Skills should point to `runtime-db-fact-sheet.md`, the data-plane contract, or a workflow playbook rather than duplicating long table inventories.
 10. Treat context-size findings from `./bin/hushh codex audit` as review-required advisories: extract durable detail before adding more SOP, but do not split a skill just because it crosses a line-count threshold.
 11. Enforce the truth-first operating kernel through deterministic smoke fixtures so skills, workflows, and agents do not slide back into blind premise acceptance.
+12. For industry-grade skills, prefer a compact operating kernel in `SKILL.md` plus focused `references/` files for detailed gates, templates, and calibration rules. Do not let incident-specific fixes accumulate as repeated inline SOP unless they belong in deterministic scripts or a focused reference.
+13. When retrofitting a skill, scan the full skill body for duplicated rules, stale historical examples, and oversized decision trees. Keep the main skill procedural; move reusable detail into references and executable logic into scripts.
+14. When a skill asks planning or operator questions, require research-backed question shape from the truth-first kernel: current truth, recommended path, risk if accepted blindly, decision needed, and recommended option first.
 
 ## Handoff Rules
 
