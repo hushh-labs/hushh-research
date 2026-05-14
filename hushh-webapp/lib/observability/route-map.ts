@@ -1,6 +1,10 @@
 import { ROUTES } from "@/lib/navigation/routes";
 
 export const ROUTE_ID_VALUES = [
+  "developer_settings",
+  "billing_payment_methods",
+  "one_kyc", // <-- Add this
+  "unknown",
   "landing",
   "developers",
   "login",
@@ -31,6 +35,7 @@ export const ROUTE_ID_VALUES = [
 export type RouteId = (typeof ROUTE_ID_VALUES)[number];
 
 export function resolveRouteId(pathname: string): RouteId {
+  if (pathname === "/one/kyc") return "one_kyc";
   if (pathname === ROUTES.HOME) return "landing";
   if (pathname === ROUTES.DEVELOPERS) return "developers";
   if (pathname === ROUTES.LOGIN) return "login";
