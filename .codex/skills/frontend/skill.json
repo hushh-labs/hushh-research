@@ -19,7 +19,8 @@
   "task_types": [
     "new-feature-tri-flow",
     "bug-triage",
-    "docs-sync"
+    "docs-sync",
+    "frontend-native-surface-map"
   ],
   "required_reads": [
     "docs/reference/quality/frontend-ui-architecture-map.md",

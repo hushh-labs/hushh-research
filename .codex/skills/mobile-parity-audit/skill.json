@@ -25,6 +25,7 @@
     "docs/reference/mobile/capacitor-parity-audit-report.md"
   ],
   "required_commands": [
+    "cd hushh-webapp && npm run verify:capacitor:static",
     "cd hushh-webapp && npm run cap:build",
     "cd hushh-webapp && npm run ios:test"
   ],
@@ -32,6 +33,7 @@
     {
       "id": "mobile-parity-audit",
       "commands": [
+        "cd hushh-webapp && npm run verify:capacitor:static",
         "cd hushh-webapp && npm run cap:build",
         "cd hushh-webapp && npm run ios:test"
       ],
