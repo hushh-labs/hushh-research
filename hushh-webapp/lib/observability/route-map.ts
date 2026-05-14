@@ -25,6 +25,7 @@ export const ROUTE_ID_VALUES = [
   "kai_analysis",
   "kai_optimize",
   "kai_dashboard_legacy_redirect",
+  "developer_settings",
   "unknown",
 ] as const;
 
@@ -65,6 +66,9 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.KAI_FUNDING_TRADE) return "kai_funding_trade";
   if (pathname === ROUTES.KAI_ANALYSIS) return "kai_analysis";
   if (pathname === ROUTES.KAI_OPTIMIZE) return "kai_optimize";
+  
+  if (pathname === "/developer-settings") return "developer_settings";
+  
   if (pathname === "/kai/dashboard") return "kai_dashboard_legacy_redirect";
 
   if (pathname.startsWith(`${ROUTES.KAI_DASHBOARD}/`)) {
