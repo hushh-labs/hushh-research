@@ -14,22 +14,19 @@ vi.mock("@/lib/firebase/config", () => ({
 // Replace the Vaul-based Drawer with simple passthroughs so the modal
 // renders its children inline in jsdom (Vaul defers content rendering
 // behind animation flags that never fire in a headless test environment).
-import * as React from "react";
-vi.mock("@/components/ui/drawer", () => {
-  const Pass: React.FC<{ children?: React.ReactNode }> = ({ children }) => (
-    <div>{children}</div>
-  );
-  return {
-    Drawer: ({ open, children }: { open?: boolean; children?: React.ReactNode }) =>
-      open ? <Pass>{children}</Pass> : null,
-    DrawerClose: Pass,
-    DrawerContent: Pass,
-    DrawerDescription: Pass,
-    DrawerFooter: Pass,
-    DrawerHeader: Pass,
-    DrawerTitle: Pass,
-  };
-});
+// Using `children` returns directly — valid React component output — keeps
+// the factory free of React/JSX references that vi.mock hoisting can lose.
+import type { ReactNode } from "react";
+vi.mock("@/components/ui/drawer", () => ({
+  Drawer: ({ open, children }: { open?: boolean; children?: ReactNode }) =>
+    open ? children : null,
+  DrawerClose: ({ children }: { children?: ReactNode }) => children,
+  DrawerContent: ({ children }: { children?: ReactNode }) => children,
+  DrawerDescription: ({ children }: { children?: ReactNode }) => children,
+  DrawerFooter: ({ children }: { children?: ReactNode }) => children,
+  DrawerHeader: ({ children }: { children?: ReactNode }) => children,
+  DrawerTitle: ({ children }: { children?: ReactNode }) => children,
+}));
 
 import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
 
@@ -69,8 +66,7 @@ function renderModal(overrides: Partial<typeof baseHolding> = {}, onSave = vi.fn
   );
 }
 
-// The Drawer renders into a Radix portal at document.body, so the inputs
-// live outside the testing-library `container`. Query the document.
+// The Drawer mock renders inline, so the inputs live in the document.
 function priceInput(): HTMLInputElement {
   const node = document.querySelector<HTMLInputElement>("#edit-holding-price");
   if (!node) throw new Error("price CurrencyInput not found");
@@ -88,7 +84,6 @@ function findLabelFor(id: string): HTMLLabelElement | null {
 }
 
 function clickSaveButton(): void {
-  // Drawer renders save button into a portal too.
   const buttons = Array.from(document.querySelectorAll("button"));
   const save = buttons.find((b) => /save/i.test(b.textContent ?? ""));
   if (!save) throw new Error("Save button not found");
