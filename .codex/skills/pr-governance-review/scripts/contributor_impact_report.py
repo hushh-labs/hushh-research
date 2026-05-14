@@ -1192,7 +1192,9 @@ def _harvest_attribution_lines(records: list[dict[str, Any]]) -> list[str]:
             "- No maintainer-harvest source credits detected in this window.",
         ]
     lines = [
-        "These are internal Hussh impact credits for contributor PRs whose useful value was harvested into a maintainer patch. They do not change GitHub's official contributor graph for already-merged commits.",
+        "These are Hussh impact credits for contributor PRs whose useful value was harvested into a maintainer patch. Internal impact credit stays on the source PRs. External GitHub credit requires valid co-author trailers on a real commit.",
+        "",
+        "For [PR #1013](https://github.com/hushh-labs/hushh-research/pull/1013), the original merge commit was not co-authored. GitHub-visible co-author credit is provided by the transparent co-authored harvest replay follow-up once that commit lands; it does not change #1013's original merge authorship or original additions/deletions.",
         "",
         "| Source PR | Contributor | Landing PR | Accepted Value | Official GitHub Commit Credit |",
         "| --- | --- | --- | --- | --- |",
@@ -1205,7 +1207,7 @@ def _harvest_attribution_lines(records: list[dict[str, Any]]) -> list[str]:
         lines.append(
             f"| {_link(item)} | `{_cell(item['author'])}` | {_pr_link(landing) if landing else 'n/a'} | "
             f"{_cell(item.get('harvestAcceptedValue') or item['reason'])} | "
-            "No, because the landed commit was not co-authored. |"
+            "Contributor is co-authored on the harvest replay follow-up once it lands; original landing merge authorship is unchanged. |"
         )
     return lines
 
@@ -1276,7 +1278,7 @@ def _report_text(
         f"- Harvested source PRs credited internally: `{kpis['harvested_source_prs']}`.",
         f"- Governance intervention load: `{kpis['governance_intervention_load']}` across duplicate, drift, and revert/correction work.",
         "- KPI model: combines DORA-style throughput/stability, SPACE-style multidimensional productivity, Hussh north-star impact, and internal maintainer-harvest source credit. Raw PR count is never the winner by itself.",
-        "- GitHub official contributor credit still follows Git commit authorship and valid `Co-authored-by` trailers; comments and PR references are internal/public acknowledgement only.",
+        "- GitHub official contributor credit still follows Git commit authorship and valid `Co-authored-by` trailers; comments and PR references are internal/public acknowledgement only. For already-merged harvests, external credit requires a transparent non-empty harvest replay or supplemental harvest commit and does not rewrite original merge authorship.",
         "",
         "## GitHub Coverage Audit",
         "",
