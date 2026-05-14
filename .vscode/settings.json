@@ -1,4 +1,8 @@
 {
     "CodeGPT.apiKey": "LM Studio",
-    "git.ignoreLimitWarning": true
+    "git.ignoreLimitWarning": true,
+    "python.defaultInterpreterPath": "${workspaceFolder}/consent-protocol/.venv/bin/python",
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/consent-protocol"
+    ]
 }
