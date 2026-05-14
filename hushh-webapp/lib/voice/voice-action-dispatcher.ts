@@ -169,6 +169,9 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
   }
 
   if (toolCall.tool_name === "execute_kai_command") {
+// Execution remains owned by the generated Kai action gateway/backend voice
+// contract. The frontend dispatcher only resolves and forwards the canonical
+// execute_kai_command payload into the existing command executor.
     const result = executeKaiCommand(toolCall);
     console.info("[VOICE_UI] dispatch_result=execute_kai_command", result);
     if (result.status === "invalid") {
