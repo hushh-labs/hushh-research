@@ -7,7 +7,6 @@ from pydantic import BaseModel
 
 from api.middleware import require_firebase_auth
 
-
 router = APIRouter()
 
 
