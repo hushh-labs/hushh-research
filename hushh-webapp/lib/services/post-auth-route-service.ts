@@ -23,6 +23,7 @@ export class PostAuthRouteService {
     redirectPath?: string;
     idToken?: string;
     phoneNumber?: string | null;
+    phoneVerified?: boolean | null;
     hostname?: string | null;
   }): Promise<string> {
     const fallbackRoute = normalizeRedirectPath(params.redirectPath);
@@ -94,6 +95,7 @@ export class PostAuthRouteService {
     if (
       shouldRequirePhoneMandate({
         phoneNumber: params.phoneNumber,
+        phoneVerified: params.phoneVerified,
         hasVault: false,
         hostname:
           params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
