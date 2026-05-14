@@ -261,21 +261,28 @@ GitHub write posture, and post-state-change report refreshes.
    operations, and decision-wave communications. Add a sixth lane only for a
    real independent surface such as mobile/native parity or founder/north-star
    direction. Do not create one subagent per PR.
-2. Default live-report scan mode is `hybrid`: cheap all-open inventory, then deep review of the latest `100` PRs plus up to `40` older high-signal candidates. Use `active` for fastest latest-window reviews and `full` only for audits.
-3. Use four work lanes at the same time:
+2. Map every async train to a dedicated read-only subagent lane by default.
+   The train, not the individual PR, is the delegation unit. Independent trains
+   run in parallel through separate lanes; same-file or same-runtime PRs remain
+   sequential inside their train. If two proposed trains need the same
+   subagent because they share a hard edge, merge them into one collision train
+   instead of pretending they are parallel.
+3. Default live-report scan mode is `hybrid`: cheap all-open inventory, then deep review of the latest `100` PRs plus up to `40` older high-signal candidates. Use `active` for fastest latest-window reviews and `full` only for audits.
+4. Use four work lanes at the same time:
    - `Queue Cohort`: up to `4` independent `merge_now` PRs with exact head SHA match, green `CI Status Gate`, `MERGEABLE` state, no hard collision edges, and no local dirty-file overlap.
    - `Sequential Collision Train`: PRs with hard edges from exact files, lockfiles, schema/migrations, generated contracts, sensitive runtime families, or local dirty-file overlap. Only one PR from the group moves at a time.
    - `Parallel Patch Trains`: maintainer patches with disjoint write sets and disjoint runtime families. Default maximum is `3`.
    - `Decision Waves`: changes-requested or closure records for clearly blocked PRs. These can run while queue validation is pending.
-4. Do not wait for one independent PR to complete before preparing or queueing unrelated PRs. Wait only when a PR depends on the base/result of another PR or shares a hard edge.
-5. Treat CI/Queue Validation/Main Post-Merge Smoke as an asynchronous monitor lane. Do not idle the whole operator loop while checks run.
-6. Do not start merging a dependent train until the previous train has passed Main Post-Merge Smoke and the live report has been refreshed.
-7. Treat "automatic next train" as automatic next-train discovery and review preparation, not blind approval or merge.
-8. A PR can enter a merge train only after current head, current required gate, mergeability, lane, overlap, collision group, and smallest proof are rechecked.
-9. Reports must state scan scope and completeness. If inventory, GitHub, or per-PR scanning fails, name the exact reviewed subset and failed PRs.
-10. Large-scale rhythm:
+5. Do not wait for one independent PR to complete before preparing or queueing unrelated PRs. Wait only when a PR depends on the base/result of another PR or shares a hard edge.
+6. Treat CI/Queue Validation/Main Post-Merge Smoke as an asynchronous monitor lane. Do not idle the whole operator loop while checks run.
+7. Do not start merging a dependent train until the previous train has passed Main Post-Merge Smoke and the live report has been refreshed.
+8. Treat "automatic next train" as automatic next-train discovery and review preparation, not blind approval or merge.
+9. A PR can enter a merge train only after current head, current required gate, mergeability, lane, overlap, collision group, and smallest proof are rechecked.
+10. Reports must state scan scope and completeness. If inventory, GitHub, or per-PR scanning fails, name the exact reviewed subset and failed PRs.
+11. Large-scale rhythm:
    - mass classify open PRs
-   - start specialist read-only evidence lanes for each independent evidence family
+   - build an async train map
+   - start specialist read-only evidence lanes for each independent train
    - close/request changes for clear drifts in waves
    - queue independent proven cohorts
    - sequence only hard collision groups
