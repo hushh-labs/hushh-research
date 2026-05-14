@@ -382,6 +382,76 @@ describe("PKM cache behavior", () => {
     ).toEqual(result.manifest);
   });
 
+  it("updates scope exposure through the PKM service and invalidates active consent access", async () => {
+    const cache = CacheService.getInstance();
+    const userId = "user-1";
+    const domain = "financial";
+    const staleMetadata = PersonalKnowledgeModelService.emptyMetadata(userId);
+
+    cache.set(CACHE_KEYS.PKM_METADATA(userId), staleMetadata);
+    cache.set(CACHE_KEYS.ACTIVE_CONSENTS(userId), [{ consentId: "grant-1" }]);
+    cache.set(CACHE_KEYS.VAULT_STATUS(userId), { domains: [{ key: domain }] });
+
+    apiFetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          manifest_version: 10,
+          revoked_grant_count: 1,
+          revoked_grant_ids: ["grant-1"],
+          manifest: {
+            domain,
+            manifest_version: 10,
+            summary_projection: {},
+            top_level_scope_paths: ["portfolio"],
+            externalizable_paths: [],
+            paths: [],
+            scope_registry: [
+              {
+                scope_handle: "financial.portfolio",
+                scope_label: "Portfolio",
+                segment_ids: ["portfolio"],
+                exposure_enabled: false,
+                summary_projection: {
+                  top_level_scope_path: "portfolio",
+                },
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const result = await PersonalKnowledgeModelService.updateScopeExposure({
+      userId,
+      domain,
+      vaultOwnerToken: "vault-owner-token",
+      expectedManifestVersion: 9,
+      changes: [
+        {
+          scopeHandle: "financial.portfolio",
+          topLevelScopePath: "portfolio",
+          exposureEnabled: false,
+        },
+      ],
+    });
+
+    expect(result.revokedGrantCount).toBe(1);
+    expect(result.revokedGrantIds).toEqual(["grant-1"]);
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/pkm/domains/financial/scope-exposure"),
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"revoke_matching_active_grants":true'),
+      })
+    );
+    expect(cache.get(CACHE_KEYS.PKM_METADATA(userId))).toBeNull();
+    expect(cache.get(CACHE_KEYS.ACTIVE_CONSENTS(userId))).toBeNull();
+    expect(cache.get(CACHE_KEYS.VAULT_STATUS(userId))).toBeNull();
+    expect(cache.get(CACHE_KEYS.DOMAIN_MANIFEST(userId, domain))).toEqual(result.manifest);
+  });
+
   it("throws a typed conflict error for manifest version mismatches", async () => {
     apiFetchMock.mockResolvedValue(
       new Response(
