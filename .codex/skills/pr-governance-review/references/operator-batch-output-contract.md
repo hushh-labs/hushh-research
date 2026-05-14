@@ -16,9 +16,10 @@ sequence in the sections below.
 1. `Batch`: one sentence naming the product/runtime purpose.
 2. `Research Basis`: concise current truth, recommended path, and risk if accepted blindly.
 3. `Delegation Evidence`: router decision, subagent/taskforce lanes used,
-   direct lane handoff summaries, skipped/unavailable rationale, and explicit
-   parent-only authority for branch switching, commits, GitHub writes,
-   approvals, merges, deploys, and final decisions.
+   async train-to-subagent map, direct lane handoff summaries,
+   skipped/unavailable rationale, and explicit parent-only authority for branch
+   switching, commits, GitHub writes, approvals, merges, deploys, and final
+   decisions.
 4. `Input`: every PR with a direct Markdown link and current lane.
 5. `Train Simulation`: execution-grade simulation based on the current PR heads:
    - branch evidence: current head SHA, mergeability, CI gate, changed files, exact overlaps, and local dirty-worktree overlap
@@ -79,7 +80,9 @@ deterministic sections, even if some are empty:
    freshness, hard collisions, canonical attach points, unresolved risks, and
    whether subagents were used, unavailable, or blocked. For high-volume train
    work, this section is mandatory and cannot be replaced by a parent-only
-   summary unless the runtime cannot spawn subagents.
+   summary unless the runtime cannot spawn subagents. The dossier must map each
+   async train to exactly one read-only subagent lane unless that train is a
+   low-volume single-surface exception or the runtime cannot spawn subagents.
 3. `Queue Cohort`: independent `merge_now` PRs that can be queued together,
    capped at the configured cohort size.
 4. `Collision Groups`: hard-edge groups and the required sequence.
@@ -130,6 +133,11 @@ even when the report already exists on disk:
    devex/repo operations, and decision-wave communications. If a lane was not
    spawned, state the concrete blocker; "not needed" is valid only for
    single-surface or low-volume work.
+9. Train-to-subagent map: every async train must name its subagent evidence
+   lane, the PRs included in that train, which PRs are parallel outside the
+   train, which PRs are sequential inside the train, and which hard edge forces
+   the sequence. If two trains need the same files/runtime family, they are not
+   independent trains.
 
 If the evidence is incomplete, say exactly what is incomplete and present only
 the train subset that is safe from the verified evidence. Do not imply the whole
@@ -177,8 +185,11 @@ Use this rhythm for scale:
 1. Mass classify open PRs through the live report. Default to hybrid scan:
    cheap all-open inventory plus the latest `100` deep reviews and up to `40`
    older high-signal deep reviews.
-2. Start read-only subagent lanes for the independent evidence families before
-   train selection. Use broad lanes, not one subagent per PR.
+2. Build an async train map, then start one read-only subagent lane per
+   independent train before final train selection. Use broad lanes, not one
+   subagent per PR. If the train has same-file or same-runtime collisions, the
+   subagent analyzes the full collision group and returns the required internal
+   sequence.
 3. Convert clear drifts into closure or changes-requested waves.
 4. Queue independent `merge_now` PRs as a cohort, capped at `4`.
 5. While PR Validation, Queue Validation, or Main Post-Merge Smoke runs, review the next independent operator batch.

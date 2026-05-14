@@ -73,6 +73,21 @@ Add a sixth lane only when the batch has a real independent surface not covered
 above, such as mobile/native parity or founder/north-star product direction.
 Avoid one subagent per PR; the unit is an evidence family, not a ticket.
 
+Default mapping: every async train gets its own read-only subagent lane. A
+train can contain multiple PRs when they share the same product/runtime family.
+Independent trains run at the same time; PRs inside a train are sequenced when
+they share files, generated contracts, schema, lockfiles, sensitive runtime, or
+queue/main dependencies. Do not collapse multiple independent trains into one
+subagent if doing so would hide collisions, comment posture, or proof gaps.
+
+Examples:
+
+1. frontend/UI hold or patch train -> one frontend/UI reachability subagent
+2. backend trust/cache train -> one backend/runtime trust subagent
+3. observability redaction train -> one observability/security subagent
+4. devex hook or dependency train -> one devex/repo-operations subagent
+5. changes-requested/closure wave -> one decision-wave communications subagent
+
 Each lane must return:
 
 1. direct PR hyperlinks
@@ -191,21 +206,22 @@ Denied patch candidates become `changes_requested`, `hold`, or
 Use this loop for every review session:
 
 1. Refresh or generate the live report.
-2. Start the required read-only subagent taskforce for high-volume train work,
-   or record why it is unavailable.
-3. Read `Queue Cohort`, `Collision Groups`, `Parallel Patch Trains`, and
+2. Convert the candidate batches into an async train map.
+3. Start one read-only subagent lane per async train/evidence family for
+   high-volume train work, or record why a lane is unavailable.
+4. Read `Queue Cohort`, `Collision Groups`, `Parallel Patch Trains`, and
    `Decision Waves`.
-4. If the report found no executable batches, manually inspect the top blocked
+5. If the report found no executable batches, manually inspect the top blocked
    PRs for possible maintainer-patch attach points.
-5. Pick the next executable train with the highest value and lowest collision.
-6. Produce the operator dossier from `operator-batch-output-contract.md`.
-7. Ask only decision questions that cannot be answered from repo or GitHub
+6. Pick the next executable train with the highest value and lowest collision.
+7. Produce the operator dossier from `operator-batch-output-contract.md`.
+8. Ask only decision questions that cannot be answered from repo or GitHub
    truth.
-8. Execute approved GitHub writes by editing existing maintainer records first.
-9. For merges, enqueue with exact head SHA and monitor queue validation.
-10. After merge, monitor Main Post-Merge Smoke.
-11. Refresh the live report and contributor-impact dashboard.
-12. Start the next independent train while checks for unrelated work are still
+9. Execute approved GitHub writes by editing existing maintainer records first.
+10. For merges, enqueue with exact head SHA and monitor queue validation.
+11. After merge, monitor Main Post-Merge Smoke.
+12. Refresh the live report and contributor-impact dashboard.
+13. Start the next independent train while checks for unrelated work are still
     running.
 
 ## Required Dossier For Chat Handoffs
@@ -213,9 +229,9 @@ Use this loop for every review session:
 Every developer-facing train recommendation must include:
 
 1. scan scope and completeness
-2. delegation router result, subagent taskforce lanes used/skipped/unavailable,
-   lane handoff summaries, fallback evidence if a lane was unavailable, and
-   the parent-only authority statement
+2. delegation router result, async train-to-subagent map, taskforce lanes
+   used/skipped/unavailable, lane handoff summaries, fallback evidence if a
+   lane was unavailable, and the parent-only authority statement
 3. queue cohort, even if empty
 4. collision groups and sequence
 5. parallel patch trains and exact write sets
