@@ -6,16 +6,16 @@ Status: **planning-only roadmap.** This is not a current-state implementation co
 
 > **Hussh = `[hu]man [s]ecure [s]ocket [h]ost`.**
 >
-> One for macOS is the **host** in that mnemonic: the user's latest Apple-silicon Mac runs the daemon, the encrypted on-device index, and the **secure socket** (local MCP HTTP/SSE server) that exposes user-owned knowledge — under PCHP consent — to BYOA agents (Claude / ChatGPT / Cursor / local MLX) and to trusted people.
+> One for macOS is the planned **host** in that mnemonic: the user's latest Apple-silicon Mac will run the daemon, the encrypted on-device index, and the **secure socket** (local MCP HTTP/SSE server) that exposes user-owned knowledge under PCHP consent to BYOA agents (Claude / ChatGPT / Cursor / local MLX) and to trusted people.
 
 ## Visual Map
 
 ```mermaid
 flowchart TB
   user["Mac owner<br/>BYOA + BYO infra"]
-  one_mac["apps/one-mac/<br/>SwiftUI shell + LaunchAgent daemon"]
-  index["Local index<br/>SQLite + MLX vectors<br/>AES-256-GCM, SE-wrapped keys"]
-  mcp["OneMCPServer<br/>127.0.0.1:31070<br/>first OpenClaw reference impl"]
+  one_mac["apps/one-mac/<br/>Phase 0 Swift skeleton"]
+  index["Planned local index<br/>SQLite + MLX vectors<br/>AES-256-GCM, SE-wrapped keys"]
+  mcp["Planned OneMCPServer<br/>127.0.0.1:31070<br/>OpenClaw reference target"]
   cloud["Hussh cloud<br/>ciphertext + manifests only<br/>pkm_routes_shared.py"]
   agents["BYOA agents<br/>Claude / ChatGPT / Cursor / MLX"]
   iphone["iPhone One<br/>existing Capacitor app"]
@@ -54,11 +54,11 @@ Before One-mac becomes current-state runtime, the repo needs these primitives:
 
 ## ZK Posture
 
-One-mac matches Hussh's **shipped** zero-knowledge definition: client-side AES-256-GCM with Secure-Enclave-wrapped keys + HMAC-signed bearer tokens. Plaintext exists only in the daemon's process memory during a consented read. Cloud holds ciphertext + manifests; the server cannot decrypt vault contents. Cryptographic ZK proofs (Merkle-sealed transparency log, Pedersen commitments, Sigstore-style cosignatures) are deferred to Phase 6+.
+The planned One-mac runtime must match Hussh's current zero-knowledge posture: client-side AES-256-GCM with Secure-Enclave-wrapped keys plus HMAC-signed bearer tokens. When implemented, plaintext should exist only in the daemon's process memory during a consented read. Cloud should hold ciphertext and manifests; the server must not decrypt vault contents. Cryptographic ZK proofs (Merkle-sealed transparency log, Pedersen commitments, Sigstore-style cosignatures) remain future-state and are deferred to Phase 6+.
 
 ## OpenClaw Alignment
 
-`apps/one-mac/Sources/OneMCPServer/` is the first concrete reference implementation of the planned open-source OpenClaw consent-MCP host. Promotion criteria for the planned `wiki/concepts/openclaw.md` page from private to public are:
+`apps/one-mac/Sources/OneMCPServer/` is currently a Phase 0 stub and the intended target for the first concrete reference implementation of the planned open-source OpenClaw consent-MCP host. Promotion criteria for the planned `wiki/concepts/openclaw.md` page from private to public are:
 
 1. `apps/one-mac/Sources/OneMCPServer/` is open-sourceable in isolation: Apache-2.0, no Hussh-only dependencies, and a stable `DataSourceBinding` protocol.
 2. `apps/one-mac/Tests/OneMCPServerTests/openclaw-conformance/` passes against both a stub `DataSourceBinding` and the real One-mac binding with identical assertions.
@@ -68,7 +68,7 @@ One-mac matches Hussh's **shipped** zero-knowledge definition: client-side AES-2
 
 ## Mobile Bridge
 
-The iPhone and the Mac do **not** sync over LAN in v1. The Mac is the **canonical writer** of PKM ciphertext; the iPhone reads via the existing hosted Consent MCP at `https://api.uat.hushh.ai/mcp/` using the already-shipped `PersonalKnowledgeModelPlugin`. The bridge path is:
+In the planned v1, the iPhone and the Mac do **not** sync over LAN. The Mac would be the canonical writer of Mac-origin PKM ciphertext; the iPhone would read via the existing hosted Consent MCP at `https://api.uat.hushh.ai/mcp/` using the already-shipped `PersonalKnowledgeModelPlugin`. The planned bridge path is:
 
 1. **Pair** — Mac mints a `device_pairing` CRT, surfaces a QR; iPhone scans, Face-ID-confirms; pairing rows land in both local `device_pairings` and cloud `desktop` registry.
 2. **Write** — Mac daemon POSTs `{ciphertext, iv, tag, manifest_entry}` to `/pkm/blobs` + `/pkm/manifests`.

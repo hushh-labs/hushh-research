@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import signal
 import subprocess
 import sys
 import time
@@ -18,6 +19,71 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
+DEFAULT_ACTIVE_LIMIT = 100
+DEFAULT_CANDIDATE_LIMIT = 40
+DEFAULT_QUEUE_COHORT_SIZE = 4
+DEFAULT_PER_PR_TIMEOUT_SECONDS = 25
+DEFAULT_MAX_PARALLEL_PATCH_TRAINS = 3
+SCAN_MODES = {"active", "hybrid", "full"}
+PATCH_ATTACHMENT_BLOCKER_FINDINGS = {
+    "frontend_component_without_reachable_caller",
+    "new_agent_without_runtime_wiring",
+    "new_export_without_app_or_backend_caller",
+    "pkm_agent_llm_boundary_without_runtime_contract",
+    "standalone_unreachable_runtime_root",
+}
+SENSITIVE_RUNTIME_CONTRACTS = {
+    "account-export",
+    "db-release-contract",
+    "voice",
+    "pkm-privacy",
+    "kai-route",
+    "frontend-error-safety",
+}
+SENSITIVE_RUNTIME_FINDING_CAPABILITIES = {
+    "auth-token-session-runtime",
+    "backend-api-contract-runtime",
+    "consent-iam-runtime",
+    "db-release-contract",
+    "kai-finance-runtime",
+    "pkm-vault-runtime",
+    "route-shell-onboarding-runtime",
+    "streaming-runtime",
+    "voice-action-runtime",
+    "voice-runtime",
+}
+HARD_COLLISION_PATH_MARKERS = (
+    "/migrations/",
+    "/contracts/",
+    "/generated/",
+)
+HARD_COLLISION_FILENAMES = {
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "requirements.txt",
+    "poetry.lock",
+    "release_migration_manifest.json",
+    "uat_integrated_schema.json",
+    "prod_integrated_schema.json",
+}
+HIGH_SIGNAL_INVENTORY_KEYWORDS = (
+    "auth",
+    "ci",
+    "consent",
+    "contract",
+    "finance",
+    "fix",
+    "iam",
+    "kai",
+    "migration",
+    "pkm",
+    "security",
+    "schema",
+    "test",
+    "vault",
+    "voice",
+)
 SALVAGEABLE_HIGH_FINDINGS = {
     "account_export_schema_contract_mismatch",
     "backend_contract_without_caller_change",
@@ -47,7 +113,6 @@ SALVAGEABLE_MEDIUM_FINDINGS = {
     "ignore_surface_changed",
     "sensitive_runtime_change_without_supporting_proof",
     "marketplace_flow_overlap_on_main",
-    "new_export_without_app_or_backend_caller",
 }
 CANONICAL_VOICE_RUNTIME_PATHS = (
     "hushh-webapp/components/kai/kai-search-bar.tsx",
@@ -701,11 +766,24 @@ PATH_SUMMARIES: dict[str, str] = {
 }
 
 
-def _run(cmd: list[str]) -> str:
+def _run(cmd: list[str], timeout: int | None = None) -> str:
     attempts = 3 if cmd and cmd[0] == "gh" else 1
     last_message = ""
     for attempt in range(attempts):
-        completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        try:
+            completed = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            last_message = f"command timed out after {timeout}s"
+            if attempt == attempts - 1:
+                raise RuntimeError(f"{' '.join(cmd)}: {last_message}") from exc
+            time.sleep(1.5 * (attempt + 1))
+            continue
         if completed.returncode == 0:
             return completed.stdout
         last_message = completed.stderr.strip() or completed.stdout.strip() or "command failed"
@@ -2928,6 +3006,133 @@ def _patch_then_merge_reason(findings: list[dict[str, Any]], lane: str) -> str:
     return ", ".join(finding["id"] for finding in findings)
 
 
+def _finding_ids(report: dict[str, Any]) -> set[str]:
+    return {str(finding.get("id") or "") for finding in report.get("findings", [])}
+
+
+def _canonical_patch_attach_point(report: dict[str, Any]) -> str:
+    finding_ids = _finding_ids(report)
+    if finding_ids & PATCH_ATTACHMENT_BLOCKER_FINDINGS:
+        return ""
+
+    related = report.get("related_surfaces") or {}
+    for entry in related.get("files", []):
+        path = str(entry.get("path") or "")
+        if path and not _is_test_path(path) and not _is_doc_path(path):
+            return path
+
+    for path in report.get("changed_files", []):
+        if not _is_test_path(path) and not _is_doc_path(path):
+            return path
+    return ""
+
+
+def _smallest_patch_proof(report: dict[str, Any], attach_point: str) -> str:
+    contract_set = report.get("contract_set")
+    if contract_set == "db-release-contract":
+        return "./bin/hushh db verify-release-contract"
+    if contract_set == "voice":
+        return "run the smallest voice/action contract test covering the changed gateway or intent path"
+    if contract_set == "pkm-privacy":
+        return "run the smallest PKM/vault/cache test covering the accepted attach point"
+    if contract_set == "account-export":
+        return "run the smallest account export service or route test covering the patched response contract"
+    if attach_point.startswith("hushh-webapp/"):
+        return "run the smallest frontend unit/type or route proof covering the patched surface"
+    if attach_point.startswith("consent-protocol/"):
+        return "run the smallest backend unit or route proof covering the patched surface"
+    return "rerun the current PR gate plus the smallest surface-specific proof"
+
+
+def _patch_attachment_plan(report: dict[str, Any]) -> OrderedDict[str, Any]:
+    finding_ids = _finding_ids(report)
+    blockers = sorted(finding_ids & PATCH_ATTACHMENT_BLOCKER_FINDINGS)
+    attach_point = _canonical_patch_attach_point(report)
+    patch_files = [
+        path
+        for path in report.get("changed_files", [])
+        if not _is_doc_path(path) and not path.startswith("tmp/")
+    ][:8]
+
+    if blockers:
+        denied = (
+            "Maintainer patch is denied because the PR contains standalone helper, "
+            "component, export, agent, or runtime code without a proven canonical caller. "
+            f"Blocking findings: {', '.join(blockers)}."
+        )
+    elif not attach_point:
+        denied = (
+            "Maintainer patch is denied because no canonical app, backend, package, "
+            "route, generated contract, test contract, or documented devex attach point was identified."
+        )
+    else:
+        denied = ""
+
+    if denied:
+        return OrderedDict(
+            accepted_value="none accepted until reachability is proven",
+            canonical_attach_point="",
+            files_codex_will_patch=[],
+            dropped_or_deferred=(
+                "standalone exports/helpers/components and any future-state wiring that is not "
+                "reachable from the current repo"
+            ),
+            smallest_proof_command="contributor must provide reachable caller or narrow the PR to test/devex hygiene",
+            patch_allowed_reason="",
+            patch_denied_reason=denied,
+        )
+
+    return OrderedDict(
+        accepted_value=(
+            "bounded integration or proof value that can be attached to the existing "
+            f"`{report.get('contract_set')}` surface without changing product intent"
+        ),
+        canonical_attach_point=attach_point,
+        files_codex_will_patch=patch_files,
+        dropped_or_deferred=(
+            "any unrelated, future-state, duplicate, or unreachable pieces outside the attach point"
+        ),
+        smallest_proof_command=_smallest_patch_proof(report, attach_point),
+        patch_allowed_reason=(
+            f"Patch allowed because the accepted value has a canonical attach point at `{attach_point}` "
+            "and no standalone reachability blocker was detected."
+        ),
+        patch_denied_reason="",
+    )
+
+
+def _apply_patch_attachment_policy(report: dict[str, Any]) -> None:
+    plan = _patch_attachment_plan(report)
+    if report.get("lane") != "patch_then_merge":
+        plan["patch_allowed_reason"] = ""
+        if not (_finding_ids(report) & PATCH_ATTACHMENT_BLOCKER_FINDINGS):
+            plan["patch_denied_reason"] = ""
+    report["canonical_attach_point"] = plan["canonical_attach_point"]
+    report["patch_allowed_reason"] = plan["patch_allowed_reason"]
+    report["patch_denied_reason"] = plan["patch_denied_reason"]
+    report["patch_attachment_plan"] = plan
+    report["north_star_probe_required"] = bool(
+        (report.get("founder_wiki_probe") or {}).get("required")
+    )
+
+    if report.get("lane") != "patch_then_merge" or not plan["patch_denied_reason"]:
+        return
+
+    report["decision"] = OrderedDict(
+        lane="block",
+        rationale=(
+            "Maintainer patch is not permitted without a concrete attachment plan. "
+            + plan["patch_denied_reason"]
+        ),
+        next_steps=[
+            "Request changes that name the reachable app/backend/package route or current canonical surface.",
+            "Do not invent product intent to save standalone code.",
+            "Reclassify only after the PR proves reachability or narrows itself to test/devex hygiene.",
+        ],
+    )
+    report["lane"] = "block"
+
+
 def _public_comment_policy(lane: str) -> str:
     if lane == "merge_now":
         return "no_pre_merge_comment; required_post_merge_closeout_after_smoke"
@@ -3035,7 +3240,9 @@ def _single_pr_live_assessment(report: dict[str, Any]) -> list[str]:
         f"- Summary: {pr.get('summary') or 'No PR summary extracted.'}",
         f"- Findings: {_findings_summary(report)}",
         f"- Overlap: {_overlap_summary(report)}",
+        f"- Train graph: collision `{report.get('collision_group_id') or 'none'}`; can queue with `{report.get('can_queue_with') or []}`; must wait for `{report.get('must_wait_for') or []}`; queue cohort `{report.get('queue_cohort_id') or 'none'}`; patch train `{report.get('parallel_patch_train_id') or 'none'}`",
         f"- Related surfaces: {_related_surface_summary(report)}",
+        f"- Patch gate: attach `{report.get('canonical_attach_point') or 'none'}`; allowed `{report.get('patch_allowed_reason') or 'no'}`; denied `{report.get('patch_denied_reason') or 'no'}`",
         (
             f"- Founder Wiki North-Star Probe: `{report['founder_wiki_probe']['status']}`; "
             f"policy `{report['founder_wiki_probe']['public_comment_policy']}`"
@@ -3671,6 +3878,22 @@ def _text_report(report: dict[str, Any]) -> str:
     lines.append(f"Author group: {report['author_group']}")
     lines.append(f"Recommended lane: {report['decision']['lane']}")
     lines.append(f"Decision rationale: {report['decision']['rationale']}")
+    lines.append(f"Collision group: {report.get('collision_group_id') or 'none'}")
+    if report.get("collision_reasons"):
+        lines.append(f"Collision reasons: {'; '.join(report['collision_reasons'])}")
+    if report.get("can_queue_with"):
+        lines.append(f"Can queue with: {', '.join('#' + str(item) for item in report['can_queue_with'])}")
+    if report.get("must_wait_for"):
+        lines.append(f"Must wait for: {', '.join('#' + str(item) for item in report['must_wait_for'])}")
+    if report.get("queue_cohort_id"):
+        lines.append(f"Queue cohort: {report['queue_cohort_id']}")
+    if report.get("parallel_patch_train_id"):
+        lines.append(f"Parallel patch train: {report['parallel_patch_train_id']}")
+    lines.append(f"Canonical attach point: {report.get('canonical_attach_point') or 'none'}")
+    if report.get("patch_allowed_reason"):
+        lines.append(f"Patch allowed reason: {report['patch_allowed_reason']}")
+    if report.get("patch_denied_reason"):
+        lines.append(f"Patch denied reason: {report['patch_denied_reason']}")
     if report.get("patch_then_merge_reason"):
         lines.append(f"Patch/close reason: {report['patch_then_merge_reason']}")
     lines.append(f"Public comment policy: {report['public_comment_policy']}")
@@ -3865,9 +4088,12 @@ def _refresh_report_decision(report: dict[str, Any]) -> None:
         changed_files=report["changed_files"],
     )
     report["lane"] = report["decision"]["lane"]
+    _apply_patch_attachment_policy(report)
     report["patch_then_merge_reason"] = _patch_then_merge_reason(
         report["findings"], report["lane"]
     )
+    if report.get("patch_denied_reason"):
+        report["patch_then_merge_reason"] = report["patch_denied_reason"]
     report["public_comment_policy"] = _public_comment_policy(report["lane"])
     report["live_report_action"] = _live_report_action(report["lane"])
     report["communication_markdown"] = _communication_markdown(report)
@@ -3996,8 +4222,444 @@ def _apply_batch_context(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(by_number.values())
 
 
-def build_batch_report(repo: str, prs: list[int]) -> dict[str, Any]:
-    reports = _apply_batch_context([build_report(repo, pr) for pr in prs])
+def _hard_collision_categories(files: list[str]) -> set[str]:
+    categories: set[str] = set()
+    for path in files:
+        name = path.rsplit("/", 1)[-1]
+        if name in {"package-lock.json", "pnpm-lock.yaml", "yarn.lock"}:
+            categories.add("lockfile")
+        if name in {"requirements.txt", "poetry.lock"}:
+            categories.add("dependency-manifest")
+        if path.startswith("consent-protocol/db/") or path in DB_CONTRACT_FILES:
+            categories.add("schema-or-migration")
+        if path.startswith("contracts/") or "/generated/" in path:
+            categories.add("generated-contract")
+    return categories
+
+
+def _runtime_collision_families(report: dict[str, Any]) -> set[str]:
+    families: set[str] = set()
+    contract_set = str(report.get("contract_set") or "")
+    if contract_set in SENSITIVE_RUNTIME_CONTRACTS:
+        families.add(contract_set)
+
+    for finding in report.get("findings", []):
+        details = finding.get("details")
+        if isinstance(details, dict):
+            capability = str(details.get("capability") or "")
+            if capability in SENSITIVE_RUNTIME_FINDING_CAPABILITIES:
+                families.add(capability)
+
+    lowered_paths = "\n".join(report.get("changed_files", [])).lower()
+    if "consent" in lowered_paths or "/iam" in lowered_paths or "scope" in lowered_paths:
+        families.add("consent-iam-runtime")
+    if "vault" in lowered_paths or "pkm" in lowered_paths or "personal-knowledge-model" in lowered_paths:
+        families.add("pkm-vault-runtime")
+    if "voice" in lowered_paths or "action-gateway" in lowered_paths:
+        families.add("voice-action-runtime")
+    if "market" in lowered_paths or "finance" in lowered_paths or "portfolio" in lowered_paths:
+        families.add("kai-finance-runtime")
+    if "stream" in lowered_paths or "sse" in lowered_paths:
+        families.add("streaming-runtime")
+    if "auth" in lowered_paths or "session" in lowered_paths or "token" in lowered_paths:
+        families.add("auth-token-session-runtime")
+    if any(path.startswith("consent-protocol/db/") for path in report.get("changed_files", [])):
+        families.add("db-release-contract")
+    return families
+
+
+def _hard_collision_reasons(left: dict[str, Any], right: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    left_files = set(left.get("changed_files", []))
+    right_files = set(right.get("changed_files", []))
+    shared_files = sorted(left_files & right_files)
+    if shared_files:
+        reasons.append(f"exact_file_overlap:{', '.join(shared_files[:6])}")
+
+    left_categories = _hard_collision_categories(list(left_files))
+    right_categories = _hard_collision_categories(list(right_files))
+    shared_categories = sorted(left_categories & right_categories)
+    if shared_categories:
+        reasons.append(f"shared_hard_surface:{', '.join(shared_categories)}")
+
+    left_runtime = _runtime_collision_families(left)
+    right_runtime = _runtime_collision_families(right)
+    shared_runtime = sorted(left_runtime & right_runtime)
+    if shared_runtime:
+        reasons.append(f"sensitive_runtime_overlap:{', '.join(shared_runtime)}")
+
+    return reasons
+
+
+def _has_local_dirty_overlap(report: dict[str, Any]) -> bool:
+    return any(finding.get("id") == "local_worktree_overlap" for finding in report.get("findings", []))
+
+
+def _queue_eligible(report: dict[str, Any], hard_edges: dict[int, dict[int, list[str]]]) -> bool:
+    pr = report["pr"]
+    number = pr["number"]
+    return (
+        report.get("lane") == "merge_now"
+        and report.get("current_ci_status_gate") == "SUCCESS"
+        and pr.get("mergeable") == "MERGEABLE"
+        and not pr.get("is_draft")
+        and not hard_edges.get(number)
+        and not _has_local_dirty_overlap(report)
+    )
+
+
+def _initialize_train_fields(report: dict[str, Any]) -> None:
+    report["collision_group_id"] = ""
+    report["collision_reasons"] = []
+    report["can_queue_with"] = []
+    report["must_wait_for"] = []
+    report["queue_cohort_id"] = ""
+    report["parallel_patch_train_id"] = ""
+    report["north_star_probe_required"] = bool(
+        (report.get("founder_wiki_probe") or {}).get("required")
+    )
+
+
+def _component_numbers(start: int, graph: dict[int, dict[int, list[str]]]) -> set[int]:
+    stack = [start]
+    component: set[int] = set()
+    while stack:
+        current = stack.pop()
+        if current in component:
+            continue
+        component.add(current)
+        stack.extend(sorted(set(graph.get(current, {})) - component))
+    return component
+
+
+def _build_train_graph(
+    reports: list[dict[str, Any]],
+    *,
+    queue_cohort_size: int,
+    max_parallel_patch_trains: int,
+) -> OrderedDict[str, Any]:
+    by_number = {report["pr"]["number"]: report for report in reports}
+    hard_edges: dict[int, dict[int, list[str]]] = {
+        number: {} for number in by_number
+    }
+    for report in reports:
+        _initialize_train_fields(report)
+
+    for left, right in combinations(reports, 2):
+        reasons = _hard_collision_reasons(left, right)
+        if not reasons:
+            continue
+        left_number = left["pr"]["number"]
+        right_number = right["pr"]["number"]
+        hard_edges[left_number][right_number] = reasons
+        hard_edges[right_number][left_number] = reasons
+
+    seen: set[int] = set()
+    collision_groups: list[OrderedDict[str, Any]] = []
+    for number in sorted(by_number):
+        if number in seen:
+            continue
+        component = _component_numbers(number, hard_edges)
+        seen |= component
+        component_reports = sorted(
+            (by_number[item] for item in component),
+            key=_operator_component_sort_key,
+        )
+        group_id = f"collision-group-{len(collision_groups) + 1}" if len(component) > 1 else f"independent-{number}"
+        group_reasons = sorted(
+            {
+                reason
+                for left, right in combinations(sorted(component), 2)
+                for reason in hard_edges.get(left, {}).get(right, [])
+            }
+        )
+        if len(component) > 1:
+            collision_groups.append(
+                OrderedDict(
+                    id=group_id,
+                    prs=sorted(component),
+                    reasons=group_reasons,
+                    sequence=[
+                        report["pr"]["number"]
+                        for report in component_reports
+                    ],
+                )
+            )
+        for index, report in enumerate(component_reports):
+            report["collision_group_id"] = group_id
+            report["collision_reasons"] = list(group_reasons)
+            if _has_local_dirty_overlap(report):
+                report["collision_reasons"].append("local_dirty_worktree_overlap")
+            if len(component) > 1:
+                report["must_wait_for"] = [
+                    previous["pr"]["number"]
+                    for previous in component_reports[:index]
+                ]
+
+    queue_candidates = [
+        report
+        for report in sorted(reports, key=_report_sort_key)
+        if _queue_eligible(report, hard_edges)
+    ]
+    queue_cohorts: list[OrderedDict[str, Any]] = []
+    if queue_candidates:
+        cohort_reports = queue_candidates[: max(0, queue_cohort_size)]
+        cohort_id = "queue-cohort-1"
+        cohort_numbers = [report["pr"]["number"] for report in cohort_reports]
+        for report in cohort_reports:
+            report["queue_cohort_id"] = cohort_id
+        queue_cohorts.append(
+            OrderedDict(
+                id=cohort_id,
+                prs=cohort_numbers,
+                rule=(
+                    "independent merge_now PRs with exact head SHA, green CI Status Gate, "
+                    "MERGEABLE state, and no hard collision edges"
+                ),
+            )
+        )
+
+    queue_number_set = {report["pr"]["number"] for report in queue_candidates}
+    for report in reports:
+        number = report["pr"]["number"]
+        if report.get("lane") != "merge_now":
+            continue
+        report["can_queue_with"] = sorted(
+            other
+            for other in queue_number_set
+            if other != number and other not in hard_edges.get(number, {})
+        )
+
+    patch_trains: list[OrderedDict[str, Any]] = []
+    claimed_patch_files: set[str] = set()
+    claimed_patch_families: set[str] = set()
+    for report in sorted(reports, key=_report_sort_key):
+        if len(patch_trains) >= max_parallel_patch_trains:
+            break
+        if report.get("lane") != "patch_then_merge":
+            continue
+        if report.get("patch_denied_reason"):
+            continue
+        files = set(report.get("patch_attachment_plan", {}).get("files_codex_will_patch", []))
+        families = _runtime_collision_families(report)
+        if files & claimed_patch_files or families & claimed_patch_families:
+            continue
+        train_id = f"patch-train-{len(patch_trains) + 1}"
+        report["parallel_patch_train_id"] = train_id
+        claimed_patch_files |= files
+        claimed_patch_families |= families
+        patch_trains.append(
+            OrderedDict(
+                id=train_id,
+                prs=[report["pr"]["number"]],
+                canonical_attach_point=report.get("canonical_attach_point") or "",
+                files=sorted(files),
+                runtime_families=sorted(families),
+                proof=report.get("patch_attachment_plan", {}).get("smallest_proof_command", ""),
+            )
+        )
+
+    decision_waves: list[OrderedDict[str, Any]] = []
+    closure = [
+        report["pr"]["number"]
+        for report in sorted(reports, key=_report_sort_key)
+        if report.get("lane") in {"harvest_then_close", "close_duplicate"}
+    ]
+    changes_requested = [
+        report["pr"]["number"]
+        for report in sorted(reports, key=_report_sort_key)
+        if report.get("lane") == "block"
+    ]
+    if closure:
+        decision_waves.append(
+            OrderedDict(
+                id="closure-wave-1",
+                action="close_or_harvest_then_close",
+                prs=closure,
+                rule="can run while queue validation is pending after duplicate/closure proof is confirmed",
+            )
+        )
+    if changes_requested:
+        decision_waves.append(
+            OrderedDict(
+                id="changes-requested-wave-1",
+                action="request_changes_or_hold",
+                prs=changes_requested,
+                rule="can run while queue validation is pending; no branch mutation required",
+            )
+        )
+
+    return OrderedDict(
+        hard_edges=OrderedDict(
+            (
+                str(number),
+                OrderedDict((str(other), reasons) for other, reasons in sorted(edges.items()))
+            )
+            for number, edges in sorted(hard_edges.items())
+            if edges
+        ),
+        queue_cohorts=queue_cohorts,
+        collision_groups=collision_groups,
+        parallel_patch_trains=patch_trains,
+        decision_waves=decision_waves,
+    )
+
+
+def _scan_failure_report(repo: str, pr: int, error_kind: str, message: str) -> OrderedDict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    report = OrderedDict(
+        generated_at=now,
+        repo=repo,
+        schematics=_schematics_summary(),
+        pr=OrderedDict(
+            number=pr,
+            title=f"PR #{pr} scan incomplete",
+            url=f"https://github.com/{repo}/pull/{pr}",
+            author=None,
+            summary="",
+            closed_issues=[],
+            head_sha="",
+            head_ref="",
+            base_ref="",
+            is_draft=False,
+            additions=0,
+            deletions=0,
+            changed_files_count=0,
+            mergeable="UNKNOWN",
+            merge_state_status="UNKNOWN",
+            review_decision="",
+        ),
+        changed_files=[],
+        contract_set="unknown",
+        what_this_is_about="PR scan did not complete; do not classify or queue from this incomplete record.",
+        duplicate_group=None,
+        duplicate_selection_factors=None,
+        canonical_selection_rationale=None,
+        author_group="author:unknown",
+        exact_file_overlap=[],
+        concept_overlap=[],
+        surface_tags=[],
+        current_ci_status_gate="UNKNOWN",
+        current_checks=[],
+        findings=[
+            _finding(
+                f"review_scan_{error_kind}",
+                "high",
+                "The PR governance scanner could not complete this PR. Treat it as blocked until refreshed.",
+                [],
+                details={"message": message},
+            )
+        ],
+        related_surfaces=OrderedDict(files=[], docs=[]),
+        founder_wiki_probe=OrderedDict(
+            required=False,
+            status="not_evaluated_scan_incomplete",
+            reason=message,
+            product_canon=[],
+            north_star_alignment="needs_verification",
+            drift_classification="needs_verification",
+            public_comment_policy="no_private_wiki_evidence_needed",
+        ),
+        scan_error=OrderedDict(kind=error_kind, message=message),
+    )
+    _refresh_report_decision(report)
+    return report
+
+
+class _PRReviewTimeout(RuntimeError):
+    pass
+
+
+def _timeout_handler(signum: int, frame: Any) -> None:
+    raise _PRReviewTimeout("per-PR review timed out")
+
+
+def _build_report_guarded(repo: str, pr: int, per_pr_timeout_seconds: int) -> dict[str, Any]:
+    if per_pr_timeout_seconds <= 0:
+        return build_report(repo, pr)
+    previous_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+    signal.setitimer(signal.ITIMER_REAL, per_pr_timeout_seconds)
+    try:
+        return build_report(repo, pr)
+    except _PRReviewTimeout as exc:
+        return _scan_failure_report(repo, pr, "timeout", str(exc))
+    except Exception as exc:
+        return _scan_failure_report(repo, pr, "github_or_scan_error", str(exc))
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+
+
+def _scan_completeness(
+    scan_scope: dict[str, Any] | None,
+    reports: list[dict[str, Any]],
+) -> OrderedDict[str, Any]:
+    scope = scan_scope or {}
+    failed = [
+        report["pr"]["number"]
+        for report in reports
+        if report.get("scan_error")
+    ]
+    reviewed = [report["pr"]["number"] for report in reports]
+    inventory_error = str(scope.get("inventory_error") or "")
+    mode = str(scope.get("mode") or "explicit")
+    inventory_open_count = scope.get("inventory_open_count")
+    full_inventory_complete = not inventory_error and inventory_open_count is not None
+    if mode == "full" and isinstance(inventory_open_count, int):
+        complete = not failed and len(reviewed) >= inventory_open_count
+    else:
+        complete = not failed
+
+    if failed:
+        status = "partial_review_scan_failed"
+    elif mode == "active":
+        status = "complete_for_reviewed_subset"
+    elif mode == "hybrid" and isinstance(inventory_open_count, int) and len(reviewed) < inventory_open_count:
+        status = "complete_for_reviewed_subset"
+    elif complete:
+        status = "complete"
+    else:
+        status = "partial_inventory_unknown"
+
+    message = (
+        f"Reviewed {len(reviewed)} PRs"
+        + (f" out of {inventory_open_count} open PRs" if isinstance(inventory_open_count, int) else "")
+        + (f"; failed PRs: {failed}" if failed else "")
+        + (f"; inventory error: {inventory_error}" if inventory_error else "")
+        + "."
+    )
+    return OrderedDict(
+        status=status,
+        complete=complete,
+        reviewed_count=len(reviewed),
+        reviewed_prs=reviewed,
+        failed_prs=failed,
+        inventory_open_count=inventory_open_count,
+        full_inventory_complete=full_inventory_complete,
+        subset_description=scope.get("subset_description") or "explicit PR subset",
+        message=message,
+    )
+
+
+def build_batch_report(
+    repo: str,
+    prs: list[int],
+    *,
+    scan_scope: dict[str, Any] | None = None,
+    per_pr_timeout_seconds: int = DEFAULT_PER_PR_TIMEOUT_SECONDS,
+    queue_cohort_size: int = DEFAULT_QUEUE_COHORT_SIZE,
+    max_parallel_patch_trains: int = DEFAULT_MAX_PARALLEL_PATCH_TRAINS,
+) -> dict[str, Any]:
+    raw_reports = [
+        _build_report_guarded(repo, pr, per_pr_timeout_seconds)
+        for pr in prs
+    ]
+    reports = _apply_batch_context(raw_reports)
+    train_graph = _build_train_graph(
+        reports,
+        queue_cohort_size=queue_cohort_size,
+        max_parallel_patch_trains=max_parallel_patch_trains,
+    )
     overlaps: list[dict[str, Any]] = []
     for left, right in combinations(reports, 2):
         shared = sorted(set(left["changed_files"]) & set(right["changed_files"]))
@@ -4025,10 +4687,25 @@ def build_batch_report(repo: str, prs: list[int]) -> dict[str, Any]:
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         repo=repo,
         prs=prs,
+        scan_scope=scan_scope or OrderedDict(
+            mode="explicit",
+            reviewed_prs=prs,
+            reviewed_count=len(prs),
+            inventory_open_count=None,
+            active_limit=None,
+            candidate_limit=None,
+            per_pr_timeout_seconds=per_pr_timeout_seconds,
+        ),
+        scan_completeness=_scan_completeness(scan_scope, reports),
         lane_counts=lane_counts,
         surface_counts=OrderedDict(sorted(surface_counts.items())),
         root_counts=OrderedDict(sorted(root_counts.items())),
         overlaps=overlaps,
+        train_graph=train_graph,
+        queue_cohorts=train_graph["queue_cohorts"],
+        collision_groups=train_graph["collision_groups"],
+        parallel_patch_trains=train_graph["parallel_patch_trains"],
+        decision_waves=train_graph["decision_waves"],
         reports=reports,
         operator_batches=_operator_batches(reports, overlaps),
     )
@@ -4086,12 +4763,227 @@ def _open_live_pr_numbers(repo: str, limit: int) -> list[int]:
     return [int(row["number"]) for row in rows]
 
 
+def _open_pr_inventory(repo: str) -> list[OrderedDict[str, Any]]:
+    rows: list[OrderedDict[str, Any]] = []
+    page = 1
+    while True:
+        output = _run(
+            [
+                "gh",
+                "api",
+                f"/repos/{repo}/pulls?state=open&per_page=100&page={page}",
+            ]
+        )
+        page_rows = json.loads(output)
+        if not page_rows:
+            break
+        for row in page_rows:
+            rows.append(
+                OrderedDict(
+                    number=int(row["number"]),
+                    title=row.get("title") or "",
+                    author=(row.get("user") or {}).get("login"),
+                    is_draft=bool(row.get("draft")),
+                    created_at=row.get("created_at") or "",
+                    updated_at=row.get("updated_at") or "",
+                    head_sha=((row.get("head") or {}).get("sha") or ""),
+                    base_ref=((row.get("base") or {}).get("ref") or ""),
+                    url=row.get("html_url") or f"https://github.com/{repo}/pull/{row['number']}",
+                )
+            )
+        if len(page_rows) < 100:
+            break
+        page += 1
+    rows.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+    return rows
+
+
+def _high_signal_inventory_numbers(
+    inventory: list[OrderedDict[str, Any]],
+    active_numbers: set[int],
+    candidate_limit: int,
+) -> list[int]:
+    candidates: list[int] = []
+    for row in inventory:
+        number = int(row["number"])
+        if number in active_numbers:
+            continue
+        text = _normal_text(row.get("title"), row.get("author"), row.get("base_ref"))
+        if any(keyword in text for keyword in HIGH_SIGNAL_INVENTORY_KEYWORDS):
+            candidates.append(number)
+        if len(candidates) >= candidate_limit:
+            break
+    return candidates
+
+
+def _select_live_scan_prs(
+    repo: str,
+    *,
+    scan_mode: str,
+    active_limit: int,
+    candidate_limit: int,
+    per_pr_timeout_seconds: int,
+) -> tuple[list[int], OrderedDict[str, Any]]:
+    active_limit = max(1, active_limit)
+    candidate_limit = max(0, candidate_limit)
+    scope = OrderedDict(
+        mode=scan_mode,
+        active_limit=active_limit,
+        candidate_limit=candidate_limit,
+        per_pr_timeout_seconds=per_pr_timeout_seconds,
+        inventory_open_count=None,
+        active_window_prs=[],
+        older_candidate_prs=[],
+        reviewed_prs=[],
+        reviewed_count=0,
+        inventory_error="",
+        subset_description="",
+    )
+
+    if scan_mode == "active":
+        prs = _open_live_pr_numbers(repo, active_limit)
+        scope["active_window_prs"] = prs
+        scope["reviewed_prs"] = prs
+        scope["reviewed_count"] = len(prs)
+        scope["subset_description"] = (
+            f"active mode deep-reviewed the latest {len(prs)} open PRs; "
+            "all-open inventory was intentionally skipped for speed"
+        )
+        return prs, scope
+
+    try:
+        inventory = _open_pr_inventory(repo)
+    except Exception as exc:
+        prs = _open_live_pr_numbers(repo, active_limit)
+        scope["active_window_prs"] = prs
+        scope["reviewed_prs"] = prs
+        scope["reviewed_count"] = len(prs)
+        scope["inventory_error"] = str(exc)
+        scope["subset_description"] = (
+            f"inventory failed; fallback deep-reviewed latest {len(prs)} open PRs only"
+        )
+        return prs, scope
+
+    active = [int(row["number"]) for row in inventory[:active_limit]]
+    if scan_mode == "full":
+        prs = [int(row["number"]) for row in inventory]
+        candidates: list[int] = []
+        subset = "full mode deep-reviewed every open PR from cheap inventory"
+    else:
+        candidates = _high_signal_inventory_numbers(
+            inventory,
+            set(active),
+            candidate_limit,
+        )
+        prs = list(dict.fromkeys(active + candidates))
+        subset = (
+            f"hybrid mode inventoried all {len(inventory)} open PRs, deep-reviewed "
+            f"latest {len(active)} plus {len(candidates)} older high-signal candidates"
+        )
+
+    scope["inventory_open_count"] = len(inventory)
+    scope["active_window_prs"] = active
+    scope["older_candidate_prs"] = candidates
+    scope["reviewed_prs"] = prs
+    scope["reviewed_count"] = len(prs)
+    scope["subset_description"] = subset
+    return prs, scope
+
+
 def _report_gate_counts(reports: list[dict[str, Any]]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for report in reports:
         status = str(report.get("current_ci_status_gate") or "UNKNOWN")
         counts[status] = counts.get(status, 0) + 1
     return dict(sorted(counts.items()))
+
+
+def _batch_report_by_number(batch: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    return {report["pr"]["number"]: report for report in batch.get("reports", [])}
+
+
+def _linked_prs(batch: dict[str, Any], numbers: list[int]) -> str:
+    by_number = _batch_report_by_number(batch)
+    parts: list[str] = []
+    for number in numbers:
+        report = by_number.get(number)
+        url = report["pr"]["url"] if report else f"https://github.com/{batch['repo']}/pull/{number}"
+        parts.append(f"[#{number}]({url})")
+    return ", ".join(parts) if parts else "none"
+
+
+def _scan_scope_lines(batch: dict[str, Any]) -> list[str]:
+    scope = batch.get("scan_scope") or {}
+    completeness = batch.get("scan_completeness") or {}
+    lines = [
+        "## Scan Scope",
+        "",
+        f"- Mode: `{scope.get('mode', 'explicit')}`.",
+        f"- Reviewed subset: {scope.get('subset_description') or completeness.get('subset_description') or 'explicit PR subset'}.",
+        f"- Reviewed PRs: {_linked_prs(batch, [int(item) for item in scope.get('reviewed_prs', batch.get('prs', []))])}.",
+        f"- Open PR inventory count: `{scope.get('inventory_open_count') if scope.get('inventory_open_count') is not None else 'not inventoried'}`.",
+        f"- Per-PR timeout: `{scope.get('per_pr_timeout_seconds', DEFAULT_PER_PR_TIMEOUT_SECONDS)}s`.",
+        f"- Completeness: `{completeness.get('status', 'unknown')}` - {completeness.get('message', 'no completeness record')}",
+    ]
+    if scope.get("older_candidate_prs"):
+        lines.append(f"- Older high-signal candidates included: {_linked_prs(batch, [int(item) for item in scope['older_candidate_prs']])}.")
+    if scope.get("inventory_error"):
+        lines.append(f"- Inventory error: `{scope['inventory_error']}`.")
+    return lines
+
+
+def _queue_cohort_lines(batch: dict[str, Any]) -> list[str]:
+    lines = ["", "## Queue Cohort", ""]
+    cohorts = batch.get("queue_cohorts") or []
+    if not cohorts:
+        lines.append("- No independent `merge_now` cohort is currently queueable from the reviewed subset.")
+        return lines
+    for cohort in cohorts:
+        lines.append(
+            f"- `{cohort['id']}`: {_linked_prs(batch, [int(item) for item in cohort['prs']])}. Rule: {cohort['rule']}."
+        )
+    return lines
+
+
+def _collision_group_lines(batch: dict[str, Any]) -> list[str]:
+    lines = ["", "## Collision Groups", ""]
+    groups = batch.get("collision_groups") or []
+    if not groups:
+        lines.append("- No hard collision groups detected in the reviewed subset.")
+        return lines
+    for group in groups:
+        lines.append(
+            f"- `{group['id']}`: {_linked_prs(batch, [int(item) for item in group['prs']])}; "
+            f"sequence `{group['sequence']}`; reasons `{'; '.join(group['reasons'])}`."
+        )
+    return lines
+
+
+def _parallel_patch_train_lines(batch: dict[str, Any]) -> list[str]:
+    lines = ["", "## Parallel Patch Trains", ""]
+    trains = batch.get("parallel_patch_trains") or []
+    if not trains:
+        lines.append("- No maintainer patch train is currently eligible. Standalone/unreachable helpers stay in changes-requested until an attach point is proven.")
+        return lines
+    for train in trains:
+        lines.append(
+            f"- `{train['id']}`: {_linked_prs(batch, [int(item) for item in train['prs']])}; "
+            f"attach `{train.get('canonical_attach_point') or 'none'}`; files {_compact_file_list(train.get('files', []), limit=6)}; proof `{train.get('proof') or 'surface proof required'}`."
+        )
+    return lines
+
+
+def _decision_wave_lines(batch: dict[str, Any]) -> list[str]:
+    lines = ["", "## Decision Waves", ""]
+    waves = batch.get("decision_waves") or []
+    if not waves:
+        lines.append("- No closure or changes-requested wave detected in the reviewed subset.")
+        return lines
+    for wave in waves:
+        lines.append(
+            f"- `{wave['id']}` / `{wave['action']}`: {_linked_prs(batch, [int(item) for item in wave['prs']])}. {wave['rule']}."
+        )
+    return lines
 
 
 def _live_report_text(batch: dict[str, Any]) -> str:
@@ -4109,14 +5001,19 @@ def _live_report_text(batch: dict[str, Any]) -> str:
         "Status: live operational record",
         f"Last refreshed: {generated_at}",
         f"Repo: https://github.com/{batch['repo']}",
-        "Scope: all open PRs at refresh time, including drafts",
+        f"Scope: {(batch.get('scan_scope') or {}).get('subset_description') or 'explicit reviewed PR subset'}",
         "",
         "This file is live-only. Merged and closed PRs belong in GitHub comments, final handoff notes, or a separate audit ledger.",
         "",
         "## Index",
         "",
+        "- [Scan Scope](#scan-scope)",
         "- [Live Summary](#live-summary)",
         "- [Live Risk Matrix](#live-risk-matrix)",
+        "- [Queue Cohort](#queue-cohort)",
+        "- [Collision Groups](#collision-groups)",
+        "- [Parallel Patch Trains](#parallel-patch-trains)",
+        "- [Decision Waves](#decision-waves)",
         "- [Actionable Next Queue](#actionable-next-queue)",
         "- [Blocked / Waiting Register](#blocked--waiting-register)",
         "- [Contract Intake Sets](#contract-intake-sets)",
@@ -4140,9 +5037,12 @@ def _live_report_text(batch: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            *_scan_scope_lines(batch),
+            "",
             "## Live Summary",
             "",
-            f"- Current open PRs: {len(batch['prs'])}.",
+            f"- Current open PRs: {(batch.get('scan_scope') or {}).get('inventory_open_count') if (batch.get('scan_scope') or {}).get('inventory_open_count') is not None else 'not inventoried'}.",
+            f"- Reviewed PRs: {len(batch['prs'])}.",
             f"- Required gate counts: `{json.dumps(_report_gate_counts(batch['reports']), sort_keys=True)}`.",
             f"- Actionable fresh-batch candidates: {len(actionable_reports)}.",
             f"- Lane counts: `{json.dumps(batch['lane_counts'], sort_keys=True)}`.",
@@ -4162,6 +5062,11 @@ def _live_report_text(batch: dict[str, Any]) -> str:
             f"`{_markdown_cell(report['contract_set'])}` | `{_markdown_cell(report['lane'])}` | "
             f"`{_markdown_cell(_lean_core_risk(report))}` | {_markdown_cell(reason)} |"
         )
+    lines.extend([""])
+    lines.extend(_queue_cohort_lines(batch))
+    lines.extend(_collision_group_lines(batch))
+    lines.extend(_parallel_patch_train_lines(batch))
+    lines.extend(_decision_wave_lines(batch))
     lines.extend([""])
     lines.extend(_live_actionable_queue_lines(batch["reports"]))
     lines.extend(_blocked_live_register_lines(batch["reports"]))
@@ -4297,6 +5202,7 @@ def _communication_markdown(report: dict[str, Any]) -> str:
         )
 
     elif lane == "patch_then_merge":
+        plan = report.get("patch_attachment_plan") or {}
         return "\n".join(
             [
                 f"## Merged: {contract_title}",
@@ -4308,7 +5214,12 @@ def _communication_markdown(report: dict[str, Any]) -> str:
                 report["decision"]["rationale"],
                 "",
                 "### Maintainer Patch",
-                f"Maintainer-owned patch was explicitly chosen for: {finding_ids}. Explain what useful value was kept, what was converted into existing canonical docs/scripts/runtime surfaces, what was dropped or deferred, and where the accepted usage now lives.",
+                f"Maintainer-owned patch was explicitly chosen for: {finding_ids}.",
+                f"Accepted value: {plan.get('accepted_value') or 'bounded integration value only'}.",
+                f"Attach point: `{plan.get('canonical_attach_point') or 'not set'}`.",
+                f"Files to patch: `{', '.join(plan.get('files_codex_will_patch') or []) or 'not set'}`.",
+                f"Dropped/deferred: {plan.get('dropped_or_deferred') or 'unreachable or unrelated pieces'}",
+                f"Proof: `{plan.get('smallest_proof_command') or 'surface proof required'}`.",
                 "",
                 "### Outcome",
                 "Post-merge closeout is required after Main Post-Merge Smoke is green.",
@@ -4543,12 +5454,16 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
         changed_files=files,
     )
     report["lane"] = report["decision"]["lane"]
+    _apply_patch_attachment_policy(report)
     report["patch_then_merge_reason"] = _patch_then_merge_reason(
         report["findings"], report["lane"]
     )
+    if report.get("patch_denied_reason"):
+        report["patch_then_merge_reason"] = report["patch_denied_reason"]
     report["public_comment_policy"] = _public_comment_policy(report["lane"])
     report["live_report_action"] = _live_report_action(report["lane"])
     report["communication_markdown"] = _communication_markdown(report)
+    _initialize_train_fields(report)
     return report
 
 
@@ -4558,7 +5473,12 @@ def main() -> int:
     parser.add_argument("--pr", type=int)
     parser.add_argument("--prs", help="Comma-separated PR numbers for batch review.")
     parser.add_argument("--live-report", action="store_true", help="Build a live-only report from current open PRs, including drafts.")
-    parser.add_argument("--limit", type=int, default=100, help="Open PR query limit for --live-report.")
+    parser.add_argument("--limit", type=int, default=DEFAULT_ACTIVE_LIMIT, help="Active-window PR limit for --live-report.")
+    parser.add_argument("--scan-mode", choices=sorted(SCAN_MODES), default="hybrid", help="Live-report scan mode: active, hybrid, or full.")
+    parser.add_argument("--candidate-limit", type=int, default=DEFAULT_CANDIDATE_LIMIT, help="Older high-signal PR candidate limit for hybrid live reports.")
+    parser.add_argument("--queue-cohort-size", type=int, default=DEFAULT_QUEUE_COHORT_SIZE, help="Maximum independent merge_now PRs in the first queue cohort.")
+    parser.add_argument("--per-pr-timeout-seconds", type=int, default=DEFAULT_PER_PR_TIMEOUT_SECONDS, help="Maximum seconds to spend deep-scanning one PR before marking it incomplete.")
+    parser.add_argument("--max-parallel-patch-trains", type=int, default=DEFAULT_MAX_PARALLEL_PATCH_TRAINS, help="Maximum disjoint maintainer patch trains to surface.")
     parser.add_argument("--output", help="Write output atomically to this path instead of stdout.")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--text", action="store_true")
@@ -4570,22 +5490,32 @@ def main() -> int:
 
     try:
         if args.live_report:
-            prs = _open_live_pr_numbers(args.repo, args.limit)
-            report = build_batch_report(args.repo, prs) if prs else OrderedDict(
-                generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-                repo=args.repo,
-                prs=[],
-                lane_counts={},
-                surface_counts={},
-                root_counts={},
-                overlaps=[],
-                reports=[],
+            prs, scan_scope = _select_live_scan_prs(
+                args.repo,
+                scan_mode=args.scan_mode,
+                active_limit=args.limit,
+                candidate_limit=args.candidate_limit,
+                per_pr_timeout_seconds=args.per_pr_timeout_seconds,
+            )
+            report = build_batch_report(
+                args.repo,
+                prs,
+                scan_scope=scan_scope,
+                per_pr_timeout_seconds=args.per_pr_timeout_seconds,
+                queue_cohort_size=args.queue_cohort_size,
+                max_parallel_patch_trains=args.max_parallel_patch_trains,
             )
             is_batch = True
             is_live_report = True
         elif args.prs:
             prs = [int(item.strip()) for item in args.prs.split(",") if item.strip()]
-            report = build_batch_report(args.repo, prs)
+            report = build_batch_report(
+                args.repo,
+                prs,
+                per_pr_timeout_seconds=args.per_pr_timeout_seconds,
+                queue_cohort_size=args.queue_cohort_size,
+                max_parallel_patch_trains=args.max_parallel_patch_trains,
+            )
             is_batch = True
             is_live_report = False
         else:
