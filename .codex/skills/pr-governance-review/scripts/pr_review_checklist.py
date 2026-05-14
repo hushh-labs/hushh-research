@@ -8,6 +8,7 @@ import json
 import subprocess
 import sys
 import time
+import tempfile
 from collections import OrderedDict
 from itertools import combinations
 from datetime import datetime, timezone
@@ -46,6 +47,7 @@ SALVAGEABLE_MEDIUM_FINDINGS = {
     "ignore_surface_changed",
     "sensitive_runtime_change_without_supporting_proof",
     "marketplace_flow_overlap_on_main",
+    "new_export_without_app_or_backend_caller",
 }
 CANONICAL_VOICE_RUNTIME_PATHS = (
     "hushh-webapp/components/kai/kai-search-bar.tsx",
@@ -71,6 +73,104 @@ DB_RELEASE_MANIFEST_FILE = "consent-protocol/db/release_migration_manifest.json"
 SCHEMA_CONTRACT_PATH = REPO_ROOT / "consent-protocol/db/contracts/uat_integrated_schema.json"
 SCHEMATICS_SCRIPT_PATH = Path(__file__).with_name("build_runtime_schematics.py")
 PROJECT_SCHEMATICS: dict[str, Any] | None = None
+GENERATED_OR_RUNTIME_ARTIFACT_SUFFIXES = (
+    ".bin",
+    ".db",
+    ".sqlite",
+    ".sqlite3",
+)
+GENERATED_OR_RUNTIME_ARTIFACT_NAMES = {
+    "audit_logs.json",
+}
+ROOT_SETUP_FILES = {
+    ".env.example",
+    "package-lock.json",
+    "requirements.txt",
+}
+CANONICAL_TOP_LEVEL_ROOTS = {
+    ".codex",
+    ".devcontainer",
+    ".github",
+    "android",
+    "bin",
+    "consent-protocol",
+    "contracts",
+    "docs",
+    "hushh-webapp",
+    "ios",
+    "scripts",
+    "tests",
+    "tmp",
+}
+FOUNDER_WIKI_PRODUCT_CANON = (
+    "hussh://docs/non-negotiables",
+    "hussh://wiki/index",
+    "wiki/products/one.md",
+    "wiki/products/kai.md",
+    "wiki/products/nav.md",
+    "wiki/products/pchp.md",
+    "wiki/concepts/personal-operating-layer.md",
+    "wiki/concepts/byoa.md",
+    "wiki/concepts/world-model.md",
+    "wiki/concepts/aha-moment.md",
+    "wiki/concepts/mlx-on-one-surfaces.md",
+    "wiki/concepts/app-intents-conformance.md",
+    "wiki/concepts/llm-wiki-pattern.md",
+    "wiki/concepts/openclaw.md",
+    "wiki/concepts/hu-ssh.md",
+    "wiki/concepts/signature-vault.md",
+    "wiki/concepts/north-star-user-persona.md",
+    "wiki/concepts/one-lens.md",
+    "wiki/concepts/pchp-brand-side-endpoint.md",
+    "wiki/products/ibrokerage.md",
+    "wiki/projects/one-email-kyc-wiki-integration.md",
+)
+FOUNDER_WIKI_PROBE_KEYWORDS = (
+    "one",
+    "kai",
+    "nav",
+    "pchp",
+    "byoa",
+    "byok",
+    "mlx",
+    "on-device",
+    "on device",
+    "app intents",
+    "world model",
+    "pkm",
+    "vault",
+    "consent",
+    "privacy",
+    "personal agent",
+    "personal operating layer",
+    "aha moment",
+    "ibrokerage",
+    "openclaw",
+    "open claw",
+    "hu-ssh",
+    "human secure socket",
+    "one lens",
+    "north-star user",
+    "north star user",
+    "one email kyc",
+    "email kyc",
+    "pchp brand-side",
+    "brand-side endpoint",
+    "signature vault",
+    "founder",
+    "north-star",
+    "north star",
+)
+PARALLEL_RUNTIME_ROOTS = {
+    "agents",
+    "audit_logging",
+    "consentgrid_agent",
+    "policy_engine",
+    "privacy_engine",
+    "recommendation_engine",
+    "semantic_search",
+    "trust_scoring",
+}
 CANONICAL_CAPABILITY_BASELINES: tuple[dict[str, Any], ...] = (
     {
         "id": "voice-runtime",
@@ -172,6 +272,37 @@ CANONICAL_CAPABILITY_BASELINES: tuple[dict[str, Any], ...] = (
             "Auth, token, or session changes overlap Firebase sign-in, phone verification, "
             "bearer/session handling, and DB-backed revocation checks. Review against the "
             "canonical auth runtime instead of accepting an isolated route fix."
+        ),
+    },
+    {
+        "id": "streaming-runtime",
+        "severity": "medium",
+        "keywords": (
+            "sse",
+            "stream",
+            "streaming",
+            "backoff",
+            "envelope",
+            "parser",
+            "parseSSEBlocks",
+        ),
+        "path_markers": (
+            "streaming",
+            "sse-parser",
+            "kai-stream-client",
+        ),
+        "canonical_paths": (
+            "hushh-webapp/lib/streaming/sse-parser.ts",
+            "hushh-webapp/lib/streaming/kai-stream-client.ts",
+            "hushh-webapp/components/kai/kai-flow.tsx",
+            "hushh-webapp/components/consent/notification-provider.tsx",
+            "hushh-webapp/app/kai/optimize/page.tsx",
+            "hushh-webapp/ios/App/App/Plugins/KaiPlugin.swift",
+            "hushh-webapp/__tests__/streaming/sse-parser.test.ts",
+        ),
+        "summary": (
+            "Streaming parser/client changes overlap Kai and consent live event consumers. "
+            "Review against canonical event-name, id, multiline data, remainder, and native parity semantics."
         ),
     },
     {
@@ -481,7 +612,7 @@ RELATED_SURFACE_RULES: tuple[dict[str, Any], ...] = (
             "consent-protocol/api/routes/kai/support.py",
         ),
         "docs": (
-            "docs/future/kai/email-kyc-pkm-assistant.md",
+            "docs/reference/architecture/one-email-kyc.md",
             "docs/reference/architecture/api-contracts.md",
         ),
     },
@@ -559,7 +690,7 @@ PATH_SUMMARIES: dict[str, str] = {
     "docs/reference/architecture/cache-coherence.md": "Frontend cache coherence contract for local write-through, encrypted device cache, and mutation invalidation.",
     "docs/reference/kai/kai-interconnection-map.md": "High-level Kai subsystem map including the canonical decision-card surface.",
     "docs/reference/kai/kai-change-impact-matrix.md": "Kai change-governance matrix describing decision-card and stream-contract impacts.",
-    "docs/future/kai/email-kyc-pkm-assistant.md": "Superseded planning history for One-led KYC workflow and consent-scoped rollout.",
+    "docs/reference/architecture/one-email-kyc.md": "Current One-led KYC mailbox, consent, draft, send, and PKM writeback contract.",
     "hushh-webapp/lib/voice/voice-turn-orchestrator.ts": "Current frontend voice turn coordinator for realtime voice flow and action execution.",
     "hushh-webapp/lib/voice/voice-action-dispatcher.ts": "Current action dispatcher that maps generated voice actions to UI/runtime handlers.",
     "hushh-webapp/lib/voice/kai-action-gateway.ts": "Generated frontend action gateway used as the semantic authority for Kai voice actions.",
@@ -583,6 +714,25 @@ def _run(cmd: list[str]) -> str:
             break
         time.sleep(1.5 * (attempt + 1))
     raise RuntimeError(f"{' '.join(cmd)}: {last_message}")
+
+
+def _local_worktree_changed_paths() -> set[str]:
+    """Return repo-relative paths with local, uncommitted changes."""
+    output = _run(["git", "status", "--porcelain", "--untracked-files=all"])
+    paths: set[str] = set()
+    for raw_line in output.splitlines():
+        if not raw_line:
+            continue
+        entry = raw_line[3:].strip()
+        if not entry:
+            continue
+        if " -> " in entry:
+            old_path, new_path = entry.split(" -> ", 1)
+            paths.add(old_path.strip())
+            paths.add(new_path.strip())
+        else:
+            paths.add(entry)
+    return paths
 
 
 def _project_schematics() -> dict[str, Any]:
@@ -724,6 +874,56 @@ def _contract_set(files: list[str], patch_map: dict[str, str]) -> str:
     if any(path.startswith("docs/") for path in files):
         return "content"
     return "general"
+
+
+def _founder_wiki_probe(
+    *,
+    title: str,
+    summary: str | None,
+    files: list[str],
+    patch_map: dict[str, str],
+    contract_set: str,
+) -> OrderedDict[str, Any]:
+    patch_text = "\n".join(patch_map.values())
+    normalized = _normal_text(title, summary, patch_text, " ".join(files))
+    path_trigger = any(
+        path.startswith("docs/vision/")
+        or path.startswith("docs/future/")
+        or path.startswith("docs/reference/architecture/")
+        or path.startswith("hushh-webapp/components/kai/")
+        or path.startswith("hushh-webapp/app/kai/")
+        or path.startswith("hushh-webapp/lib/voice/")
+        or path.startswith("contracts/kai/")
+        or path.startswith("consent-protocol/hushh_mcp/agents/")
+        or "voice" in path.lower()
+        or "pkm" in path.lower()
+        or "vault" in path.lower()
+        or "consent" in path.lower()
+        for path in files
+    )
+    keyword_trigger = any(keyword in normalized for keyword in FOUNDER_WIKI_PROBE_KEYWORDS)
+    contract_trigger = contract_set in {"voice", "pkm-privacy", "content"}
+    required = path_trigger or keyword_trigger or contract_trigger
+    reasons: list[str] = []
+    if path_trigger:
+        reasons.append("changed paths touch product, trust, voice, PKM, or founder-language surfaces")
+    if keyword_trigger:
+        reasons.append("title, body, or diff uses Product Canon terms")
+    if contract_trigger:
+        reasons.append(f"contract set `{contract_set}` is material to north-star alignment")
+    return OrderedDict(
+        required=required,
+        status="needs_founder_wiki_probe" if required else "not_required_for_mechanical_review",
+        reason="; ".join(reasons) if reasons else "no material product-direction trigger detected",
+        product_canon=list(FOUNDER_WIKI_PRODUCT_CANON if required else []),
+        north_star_alignment="needs_verification" if required else "not_applicable",
+        drift_classification="current_state_vs_north_star_drift" if required else "none",
+        public_comment_policy=(
+            "private_wiki_evidence_local_only"
+            if required
+            else "no_private_wiki_evidence_needed"
+        ),
+    )
 
 
 def _duplicate_group(contract_set: str, files: list[str]) -> str | None:
@@ -1131,6 +1331,20 @@ def _current_checks(status_check_rollup: list[dict[str, Any]]) -> list[dict[str,
     return sorted(latest_by_name.values(), key=lambda item: item.get("name") or "")
 
 
+def _failed_non_required_checks(
+    current_checks: list[dict[str, Any]],
+    required_status_check: str,
+) -> list[dict[str, Any]]:
+    failed_states = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED"}
+    failed: list[dict[str, Any]] = []
+    for check in current_checks:
+        name = str(check.get("name") or "")
+        conclusion = str(check.get("conclusion") or "UNKNOWN").upper()
+        if name != required_status_check and conclusion in failed_states:
+            failed.append(check)
+    return failed
+
+
 def _surface_tags(files: list[str]) -> list[str]:
     tags: list[str] = []
     if any(path.startswith("consent-protocol/api/") for path in files):
@@ -1255,6 +1469,23 @@ def _has_test_or_doc_change(files: list[str]) -> bool:
     )
 
 
+def _is_test_path(path: str) -> bool:
+    return (
+        "/tests/" in path
+        or path.startswith("consent-protocol/tests/")
+        or path.startswith("hushh-webapp/__tests__/")
+        or path.endswith((".test.ts", ".test.tsx", ".test.py"))
+    )
+
+
+def _is_doc_path(path: str) -> bool:
+    return (
+        path.startswith("docs/")
+        or path.startswith("consent-protocol/docs/")
+        or path.startswith("hushh-webapp/docs/")
+    )
+
+
 def _pascal_from_component_path(path: str) -> str:
     stem = Path(path).stem
     return "".join(part[:1].upper() + part[1:] for part in re.split(r"[-_]+", stem) if part)
@@ -1321,6 +1552,216 @@ def _frontend_component_reachability_findings(
             }
         )
     return findings
+
+
+def _new_export_reachability_findings(
+    files: list[str],
+    patch_map: dict[str, str],
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for path in files:
+        if _is_test_path(path) or _is_doc_path(path):
+            continue
+        if not path.startswith(("hushh-webapp/", "consent-protocol/", "packages/")):
+            continue
+        section = patch_map.get(path, "")
+        exported_symbols = sorted(
+            set(
+                re.findall(
+                    r"^\+export\s+(?:async\s+)?(?:function|const|class|interface|type)\s+([A-Za-z_][A-Za-z0-9_]*)",
+                    section,
+                    flags=re.MULTILINE,
+                )
+            )
+        )
+        if not exported_symbols:
+            continue
+
+        unreachable: list[str] = []
+        for symbol in exported_symbols:
+            changed_non_test_refs = [
+                changed_path
+                for changed_path, changed_section in patch_map.items()
+                if changed_path != path
+                and not _is_test_path(changed_path)
+                and not _is_doc_path(changed_path)
+                and symbol in changed_section
+            ]
+            origin_refs = [
+                line
+                for line in _git_grep_origin_main(symbol)
+                if f":{path}:" not in line
+                and "/__tests__/" not in line
+                and "/tests/" not in line
+            ]
+            if not changed_non_test_refs and not origin_refs:
+                unreachable.append(symbol)
+
+        if unreachable:
+            findings.append(
+                {
+                    "id": "new_export_without_app_or_backend_caller",
+                    "severity": "medium",
+                    "summary": (
+                        "A new exported helper/API is only proven by tests or local code, not by a "
+                        "reachable app, backend, package, or existing caller. Treat the PR as "
+                        "standalone utility work until it links to a canonical use case or narrows "
+                        "the claim to internal test coverage."
+                    ),
+                    "files": [path],
+                    "details": {"symbols": unreachable},
+                }
+            )
+    return findings
+
+
+CLAIM_SURFACE_RULES: tuple[dict[str, Any], ...] = (
+    {
+        "id": "vault",
+        "keywords": (
+            "vault",
+            "encrypt",
+            "decrypt",
+            "zero key",
+            "zero-key",
+            "all-zero",
+            "zero-salt",
+            "salt coercion",
+            "recovery key",
+        ),
+        "path_markers": (
+            "/vault/",
+            "vault-web",
+            "encrypt.ts",
+            "prf-auth",
+            "recovery-key",
+            "lib/capacitor/plugins/vault",
+        ),
+    },
+    {
+        "id": "streaming",
+        "keywords": (
+            "sse",
+            "stream",
+            "streaming",
+            "parser",
+            "backoff",
+            "envelope",
+            "oom",
+        ),
+        "path_markers": (
+            "/streaming/",
+            "sse-parser",
+            "kai-stream",
+        ),
+    },
+    {
+        "id": "consent",
+        "keywords": (
+            "consent",
+            "scope",
+            "session",
+            "token",
+            "logout",
+            "revoke",
+        ),
+        "path_markers": (
+            "/consent",
+            "/session",
+            "consent/",
+            "token.py",
+        ),
+    },
+)
+
+
+def _claim_surface_mismatch_findings(
+    title: str,
+    summary: str | None,
+    files: list[str],
+) -> list[dict[str, Any]]:
+    text = _normal_text(title, summary)
+    touched = "\n".join(files).lower()
+    claimed = [
+        rule
+        for rule in CLAIM_SURFACE_RULES
+        if any(keyword in text for keyword in rule["keywords"])
+    ]
+    if len(claimed) < 1:
+        return []
+
+    findings: list[dict[str, Any]] = []
+    for rule in claimed:
+        touches_claimed_surface = any(marker in touched for marker in rule["path_markers"])
+        if touches_claimed_surface:
+            continue
+        findings.append(
+            {
+                "id": "pr_claim_changed_surface_mismatch",
+                "severity": "high",
+                "summary": (
+                    f"The PR title/body claims `{rule['id']}` behavior, but the changed files do "
+                    "not touch that canonical surface. Do not merge on the stated premise until "
+                    "the contributor retitles/rescopes the PR or the diff is replaced with the "
+                    "claimed implementation."
+                ),
+                "files": files,
+                "details": {"claimed_surface": rule["id"]},
+            }
+        )
+    return findings
+
+
+def _stacked_branch_findings(
+    title: str,
+    summary: str | None,
+    files: list[str],
+) -> list[dict[str, Any]]:
+    text = _normal_text(title, summary)
+    stack_markers = (
+        "stacked pr",
+        "stacked branch",
+        "created from the previous",
+        "created from previous",
+        "once earlier pr",
+        "once earlier prs",
+        "after earlier pr",
+        "after earlier prs",
+        "diff against main will collapse",
+        "extends pr",
+        "previous fix",
+        "relies on",
+    )
+    if not any(marker in text for marker in stack_markers):
+        return []
+
+    non_test_doc_files = [
+        path for path in files if not _is_test_path(path) and not _is_doc_path(path)
+    ]
+    top_dirs = sorted(
+        {
+            "/".join(path.split("/")[:3])
+            for path in non_test_doc_files
+            if "/" in path
+        }
+    )
+    broad_or_unstable = len(non_test_doc_files) > 2 or len(top_dirs) > 1
+    if not broad_or_unstable and "diff against main will collapse" not in text:
+        return []
+
+    return [
+        {
+            "id": "stacked_branch_diff_not_reviewable",
+            "severity": "high",
+            "summary": (
+                "The PR describes itself as stacked or dependent on earlier work, and the current "
+                "diff against main includes prior/unrelated surfaces. Do not merge or judge it as "
+                "the stated feature until it is rebased/split so the diff is reviewable."
+            ),
+            "files": files,
+            "details": {"top_dirs": top_dirs},
+        }
+    ]
 
 
 def _kai_finance_action_language_findings(
@@ -1734,6 +2175,150 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
         )
     )
 
+    new_roots = _new_top_level_roots(files)
+    if new_roots:
+        findings.append(
+            {
+                "id": "new_top_level_parallel_root",
+                "severity": "high",
+                "summary": (
+                    "PR creates a new top-level root that is not present on `origin/main`. "
+                    "New root subsystems require explicit canonical ownership, route/service "
+                    "reachability, and north-star fit before merge."
+                ),
+                "files": [
+                    path
+                    for path in files
+                    if path.split("/", 1)[0] in new_roots
+                ],
+                "details": {"new_roots": new_roots},
+            }
+        )
+
+    setup_files = _root_setup_files(files)
+    if setup_files:
+        findings.append(
+            {
+                "id": "root_setup_surface_added",
+                "severity": "high",
+                "summary": (
+                    "PR adds generic root setup files such as `.env.example`, root "
+                    "`requirements.txt`, or root `package-lock.json`. Hussh setup and "
+                    "dependencies must stay in canonical package/runtime surfaces."
+                ),
+                "files": setup_files,
+            }
+        )
+
+    generated_artifacts = _generated_or_runtime_artifact_files(files)
+    if generated_artifacts:
+        findings.append(
+            {
+                "id": "checked_in_generated_runtime_artifact",
+                "severity": "high",
+                "summary": (
+                    "PR checks in generated/runtime data such as vector-store binaries, "
+                    "SQLite databases, or logs. These artifacts do not belong in source review."
+                ),
+                "files": generated_artifacts,
+            }
+        )
+
+    parallel_runtime_files = _parallel_runtime_root_files(files)
+    if parallel_runtime_files:
+        findings.append(
+            {
+                "id": "standalone_unreachable_runtime_root",
+                "severity": "high",
+                "summary": (
+                    "PR introduces a standalone runtime subsystem outside the canonical app, "
+                    "protocol, vault, consent, or Kai surfaces. Green tests for the new path "
+                    "alone are not proof that the current product calls or owns it."
+                ),
+                "files": parallel_runtime_files,
+                "details": {
+                    "roots": sorted(
+                        {path.split("/", 1)[0] for path in parallel_runtime_files}
+                    )
+                },
+            }
+        )
+
+    personal_memory_files = [
+        path for path in files if path.startswith("agents/personal-memory-agent/")
+    ]
+    if personal_memory_files:
+        findings.append(
+            {
+                "id": "pkm_memory_outside_vault_consent_boundaries",
+                "severity": "high",
+                "summary": (
+                    "PR adds personal-memory/PKM behavior outside the canonical vault, cache, "
+                    "consent, and PKM projection contracts. Memory intelligence must extend "
+                    "the existing encrypted/vault-gated PKM path, not create a parallel agent root."
+                ),
+                "files": personal_memory_files,
+            }
+        )
+
+    cot_paths = _chain_of_thought_persistence_paths(patch_map)
+    if cot_paths:
+        findings.append(
+            {
+                "id": "direct_chain_of_thought_persistence",
+                "severity": "high",
+                "summary": (
+                    "PR appears to persist reasoning traces or chain-of-thought-like data. "
+                    "Persist durable receipts, evidence, decisions, and evaluation metadata, "
+                    "not hidden reasoning traces."
+                ),
+                "files": cot_paths,
+            }
+        )
+
+    empty_files = _empty_new_files(patch_map)
+    if empty_files:
+        findings.append(
+            {
+                "id": "empty_new_file_without_behavior",
+                "severity": "high",
+                "summary": (
+                    "PR adds an empty new file. Green CI only proves there is no executable "
+                    "behavior to validate; this should not be merged as a functional contribution."
+                ),
+                "files": empty_files,
+            }
+        )
+
+    language_mismatches = _script_language_mismatch_files(patch_map)
+    if language_mismatches:
+        findings.append(
+            {
+                "id": "script_language_extension_mismatch",
+                "severity": "high",
+                "summary": (
+                    "PR writes content in the wrong script language for the file extension or "
+                    "replaces an existing script with a different language. This can silently "
+                    "break developer tooling even when lightweight CI passes."
+                ),
+                "files": language_mismatches,
+            }
+        )
+
+    if _devex_env_validation_unwired(files):
+        findings.append(
+            {
+                "id": "devex_validation_script_unwired",
+                "severity": "medium",
+                "summary": (
+                    "PR adds environment-validation scripts without wiring them to the canonical "
+                    "`./bin/hushh` onboarding/doctor path or updating contributor docs. Devex checks "
+                    "should extend the existing operator entrypoint instead of adding isolated scripts."
+                ),
+                "files": [path for path in files if path.startswith("scripts/validate-env")],
+            }
+        )
+
     if _route_files_without_caller_changes(files):
         findings.append(
             {
@@ -1745,6 +2330,7 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
         )
 
     findings.extend(_frontend_component_reachability_findings(files, patch_map))
+    findings.extend(_new_export_reachability_findings(files, patch_map))
     findings.extend(_kai_finance_action_language_findings(files, patch_map))
     findings.extend(_kai_finance_runtime_llm_findings(files, patch_map))
     findings.extend(_new_agent_runtime_boundary_findings(files, patch_map))
@@ -2307,12 +2893,13 @@ def _recommend_merge_lane(
             lane="patch_then_merge",
             rationale=(
                 "The direction appears useful, but the current head is not merge-safe. "
-                "The remaining findings are bounded integration or reproducibility issues "
-                "that should be corrected by a small maintainer patch before merge."
+                "The remaining findings are bounded integration or reproducibility issues. "
+                "Prefer a small maintainer patch over contributor round trips when maintainers "
+                "can safely fix it without changing product intent."
             ),
             next_steps=[
                 "Do not merge the contributor head directly.",
-                "Apply the smallest maintainer integration patch on the contributor branch when maintainers can modify it.",
+                "Apply the smallest maintainer integration patch on the contributor branch when maintainers can modify it without changing product intent.",
                 "If direct patching is not possible, use a short-lived `temp/pr-<number>-patch` branch and delete it after the merge path is resolved.",
                 "Rerun PR Validation on the updated merge candidate and re-review the new head SHA.",
                 "Then thank the author and explain the integration fix that was needed.",
@@ -2343,12 +2930,12 @@ def _patch_then_merge_reason(findings: list[dict[str, Any]], lane: str) -> str:
 
 def _public_comment_policy(lane: str) -> str:
     if lane == "merge_now":
-        return "no_pre_merge_comment; post_merge_only_if_useful"
+        return "no_pre_merge_comment; required_post_merge_closeout_after_smoke"
     if lane == "patch_then_merge":
-        return "no_approval_comment; post_merge_comment_only_if_maintainer_patch_lands"
+        return "operator_explicit_maintainer_patch_only; required_post_merge_closeout_after_smoke"
     if lane in {"harvest_then_close", "close_duplicate"}:
-        return "post_close_superseded_comment"
-    return "comment_before_merge_only_if_contributor_action_required"
+        return "standard_closed_or_superseded_comment"
+    return "standard_changes_requested_comment_before_merge"
 
 
 def _live_report_action(lane: str) -> str:
@@ -2449,6 +3036,12 @@ def _single_pr_live_assessment(report: dict[str, Any]) -> list[str]:
         f"- Findings: {_findings_summary(report)}",
         f"- Overlap: {_overlap_summary(report)}",
         f"- Related surfaces: {_related_surface_summary(report)}",
+        (
+            f"- Founder Wiki North-Star Probe: `{report['founder_wiki_probe']['status']}`; "
+            f"policy `{report['founder_wiki_probe']['public_comment_policy']}`"
+            if report.get("founder_wiki_probe")
+            else "- Founder Wiki North-Star Probe: `not_evaluated`"
+        ),
         f"- Decision rationale: {report['decision']['rationale']}",
         f"- SOP action: `{report['live_report_action']}`; public comment policy `{report['public_comment_policy']}`",
         f"- Next proof: {' '.join(report['decision']['next_steps'][:2])}",
@@ -2559,13 +3152,13 @@ def _operator_batch_intent(reports: list[dict[str, Any]], shared_files: list[str
             "Kai chat service evolution: coordinate startup latency, response latency, "
             "and answer-safety changes that share one service file but affect different runtime behaviors."
         )
+    if any("package.json" in path or "package-lock.json" in path for path in shared):
+        return "Dependency/test surface alignment: sequence package-lock changes before dependent test infrastructure."
     if {
         "hushh-webapp/components/navbar.tsx",
         "hushh-webapp/components/theme-toggle.tsx",
     } <= shared:
         return "Theme toggle shell placement: choose one compact top-right UI implementation."
-    if any("package.json" in path or "package-lock.json" in path for path in shared):
-        return "Dependency/test surface alignment: sequence package-lock changes before dependent test infrastructure."
     if any(_report_has_duplicate_finding(report) for report in reports):
         return "Shared contract cleanup: select the canonical implementation and harvest only unique proof."
     return "Shared-file sequencing: same files require ordered merge or rebase, but are not automatically duplicate work."
@@ -2608,6 +3201,157 @@ def _operator_batch_action(reports: list[dict[str, Any]], preferred: dict[str, A
     if any(_report_has_duplicate_finding(report) for report in reports):
         return f"Review `#{preferred_number}` as canonical first; harvest only unique proof from {rest_label} before closing duplicates."
     return "Review these PRs together because they touch the same files; merge one at a time with the shared checks rerun after each merge."
+
+
+def _operator_batch_solution(batch: dict[str, Any]) -> list[str]:
+    lane_items = list(batch.get("lanes", {}).items())
+    merge_now = [pr for pr, lane in lane_items if lane == "merge_now"]
+    patch_then_merge = [pr for pr, lane in lane_items if lane == "patch_then_merge"]
+    closure = [pr for pr, lane in lane_items if lane in {"harvest_then_close", "close_duplicate"}]
+    blocked = [pr for pr, lane in lane_items if lane == "block"]
+    ordered = merge_now + patch_then_merge + closure + blocked
+    ordered_label = ", ".join(ordered) if ordered else "manual review order required"
+
+    lines = [
+        f"  - Input: {', '.join(_operator_batch_links(batch))}.",
+        f"  - Output target: {batch['action']}",
+        f"  - Execution order: {ordered_label}.",
+    ]
+    if merge_now:
+        lines.append(
+            f"  - Merge train: approve and queue {', '.join(merge_now)} one at a time after locking the current head SHA and required gate."
+        )
+    if patch_then_merge:
+        lines.append(
+            f"  - Patch train: rebase/patch {', '.join(patch_then_merge)} only after earlier merge-train items land, then rerun the shared checks before queueing."
+        )
+    if closure:
+        lines.append(
+            f"  - Closure wave: harvest unique tests or evidence from {', '.join(closure)}, then close with the standard maintainer decision record."
+        )
+    if blocked:
+        lines.append(
+            f"  - Hold: keep {', '.join(blocked)} out of the merge train until the blocker changes or a maintainer patch is explicitly approved."
+        )
+    lines.extend(
+        [
+            "  - Stop condition: if any PR changes head SHA, loses CI Status Gate, gains conflicts, or reveals a trust/runtime regression, pause that PR and continue only with independent safe items.",
+            "  - Reporting: refresh `tmp/pr-governance-live-report.md` and `tmp/contributor-impact-dashboard.md` after each merge, close, or requested-changes action.",
+        ]
+    )
+    return lines
+
+
+def _operator_batch_after_merge_kickoff(batch: dict[str, Any]) -> list[str]:
+    return [
+        "  - After each merge, monitor Queue Validation and Main Post-Merge Smoke before treating dependent PRs as unblocked.",
+        "  - While queue/smoke runs, start review preparation for the next independent `Recommended Operator Batches` item that does not share this train's files or runtime contract.",
+        "  - After smoke passes, refresh `tmp/pr-governance-live-report.md` and `tmp/contributor-impact-dashboard.md`, then rerun the checklist for the next train before any GitHub write.",
+        "  - Automatic next train means automatic discovery and review preparation; approval, merge, close, deploy, and maintainer patch actions still require explicit operator intent.",
+    ]
+
+
+def _operator_batch_research_basis(batch: dict[str, Any]) -> list[str]:
+    prs = ", ".join(_operator_batch_links(batch))
+    shared_files = _compact_file_list(batch.get("shared_files", []), limit=6)
+    lanes = json.dumps(batch.get("lanes", {}))
+    risks = json.dumps(batch.get("risks", {}))
+    return [
+        f"  - Current truth: {prs} are grouped because {batch['reason']} Lanes: `{lanes}`. Risk: `{risks}`. Shared files: {shared_files}.",
+        f"  - Recommended path: {batch['action']}",
+        "  - Risk if accepted blindly: green or previously green CI does not override conflicts, stale heads, duplicate runtime paths, trust-boundary regressions, or schema/runtime contract drift.",
+    ]
+
+
+def _operator_batch_decision_questions(batch: dict[str, Any]) -> list[str]:
+    return [
+        "  - Decision needed: accept the recommended operator path or override it with a product/runtime reason not visible in repo evidence.",
+        f"  - Recommended option: follow the researched path for {', '.join(_operator_batch_links(batch))}; expected output is `{batch['action']}`",
+        "  - Alternative option: hold or split the batch; expected output is no merge until the new product/runtime constraint is recorded.",
+    ]
+
+
+def _operator_batch_pr_assessment_lines(batch: dict[str, Any]) -> list[str]:
+    roles = batch.get("pr_roles") or []
+    if not roles:
+        return ["  - Per-PR assessment unavailable; rerun the batch report with current PR metadata."]
+    lines: list[str] = []
+    for role in roles:
+        number = role["number"]
+        lines.extend(
+            [
+                f"  - [#{number}]({role['url']}) `{role['lane']}` / risk `{role['risk']}` / head `{role['head_sha'][:8]}` / mergeable `{role['mergeable']}` / gate `{role['ci_status_gate']}`",
+                f"    - What changed: {role['change_summary']}",
+                f"    - Why in batch: {role['batch_reason']}",
+                f"    - Blind-merge risk: {role['blind_merge_risk']}",
+                f"    - Planned action: {role['planned_action']}",
+                f"    - Smallest proof: {role['smallest_proof']}",
+            ]
+        )
+    return lines
+
+
+def _operator_batch_pr_roles(reports: list[dict[str, Any]]) -> list[OrderedDict[str, Any]]:
+    roles: list[OrderedDict[str, Any]] = []
+    for report in reports:
+        pr = report["pr"]
+        lane = report["lane"]
+        changed_files = report.get("changed_files") or []
+        related_files = _compact_file_list(changed_files, limit=4)
+        findings = [finding["id"] for finding in report["findings"][:2]]
+        if lane == "merge_now":
+            planned_action = "lock current head, verify green required gate, queue one at a time, then post closeout after smoke"
+            smallest_proof = "current GitHub required checks plus shared-file targeted check when overlap exists"
+        elif lane == "patch_then_merge":
+            planned_action = "rebase or maintainer-patch only the bounded defect, then rerun contract-specific checks before queue"
+            smallest_proof = "targeted test proving the patched boundary, not just green stale CI"
+        elif lane in {"harvest_then_close", "close_duplicate"}:
+            planned_action = "harvest unique useful proof or small code only if canonical, then close with decision record"
+            smallest_proof = "manual duplicate/harvest comparison against canonical surface"
+        elif lane == "block":
+            planned_action = "request changes or hold until blocker evidence changes"
+            smallest_proof = "contributor-side rewrite, split, or missing contract proof"
+        else:
+            planned_action = "manual review required before operator action"
+            smallest_proof = "fresh checklist plus maintainer review"
+
+        finding_label = ", ".join(findings) if findings else "none detected by checklist"
+        batch_reason = (
+            f"contract `{report['contract_set']}`, risk `{_lean_core_risk(report)}`, "
+            f"overlap/related files `{related_files or 'none'}`"
+        )
+        blind_merge_risk = (
+            f"checklist findings `{finding_label}`; exact overlap can still create merge-order drift even when CI is green"
+        )
+        roles.append(
+            OrderedDict(
+                number=pr["number"],
+                url=pr["url"],
+                title=pr["title"],
+                lane=lane,
+                risk=_lean_core_risk(report),
+                head_sha=pr["head_sha"],
+                mergeable=pr.get("mergeable") or "UNKNOWN",
+                ci_status_gate=report.get("current_ci_status_gate") or "UNKNOWN",
+                change_summary=(
+                    f"{pr['title']} (+{pr['additions']}/-{pr['deletions']} across "
+                    f"{pr['changed_files_count']} files; related `{related_files or 'none'}`)"
+                ),
+                batch_reason=batch_reason,
+                blind_merge_risk=blind_merge_risk,
+                planned_action=planned_action,
+                smallest_proof=smallest_proof,
+            )
+        )
+    return roles
+
+
+def _operator_batch_links(batch: dict[str, Any]) -> list[str]:
+    links = batch.get("pr_links", {})
+    return [
+        f"[#{number}]({links.get(str(number)) or links.get(number) or '#'})"
+        for number in batch["prs"]
+    ]
 
 
 def _operator_batches(
@@ -2653,6 +3397,11 @@ def _operator_batches(
             OrderedDict(
                 title=_operator_batch_title(component_reports, preferred),
                 prs=[report["pr"]["number"] for report in component_reports],
+                pr_links=OrderedDict(
+                    (report["pr"]["number"], report["pr"]["url"])
+                    for report in component_reports
+                ),
+                pr_roles=_operator_batch_pr_roles(component_reports),
                 preferred_pr=preferred["pr"]["number"],
                 contract_sets=sorted({report["contract_set"] for report in component_reports}),
                 lanes=OrderedDict(
@@ -2682,6 +3431,8 @@ def _operator_batches(
             OrderedDict(
                 title=f"Single-PR Closure: #{pr_number}",
                 prs=[pr_number],
+                pr_links=OrderedDict([(pr_number, report["pr"]["url"])]),
+                pr_roles=_operator_batch_pr_roles([report]),
                 preferred_pr=pr_number,
                 contract_sets=[report["contract_set"]],
                 lanes=OrderedDict([(f"#{pr_number}", report["lane"])]),
@@ -2695,7 +3446,11 @@ def _operator_batches(
         )
         batched_numbers.add(pr_number)
 
-    narrow_contracts = {"pkm-privacy", "voice"}
+    narrow_contracts = {
+        "docs/devex",
+        "tests/CI/devex",
+        "frontend/UI",
+    }
     contract_groups: dict[str, list[dict[str, Any]]] = {}
     for report in reports:
         if report["pr"]["number"] in batched_numbers:
@@ -2708,19 +3463,24 @@ def _operator_batches(
         grouped = sorted(grouped, key=_report_sort_key)
         lane_set = {report["lane"] for report in grouped}
         risk_set = {_lean_core_risk(report) for report in grouped}
-        if contract_set in narrow_contracts and lane_set <= {"merge_now"} and risk_set <= {"low", "non-runtime"}:
+        if contract_set in narrow_contracts and lane_set <= {"merge_now"} and risk_set <= {"low", "low-medium", "non-runtime"}:
             batches.append(
                 OrderedDict(
                     title=f"Adjacent {contract_set} Review Pair",
                     prs=[report["pr"]["number"] for report in grouped],
+                    pr_links=OrderedDict(
+                        (report["pr"]["number"], report["pr"]["url"])
+                        for report in grouped
+                    ),
+                    pr_roles=_operator_batch_pr_roles(grouped),
                     preferred_pr=grouped[0]["pr"]["number"],
                     contract_sets=[contract_set],
                     lanes=OrderedDict((f"#{report['pr']['number']}", report["lane"]) for report in grouped),
                     risks=OrderedDict((f"#{report['pr']['number']}", _lean_core_risk(report)) for report in grouped),
                     intent=f"Adjacent {contract_set} review: same narrow contract, separate files, low current risk.",
                     shared_files=[],
-                    action="Review together for product/context coherence, but merge separately unless manual review finds a shared proof surface.",
-                    reason="Same narrow contract, green gate, low/non-runtime risk, and no exact file overlap.",
+                    action="Review together for product/context coherence, then split into merge, patch, request-changes, or close outcomes per PR. Merge separately unless manual review proves a shared proof surface.",
+                    reason="Same narrow contract, green gate, low/low-medium risk, and no exact file overlap; this is a review batch, not an automatic merge batch.",
                     confidence="medium",
                 )
             )
@@ -2729,6 +3489,11 @@ def _operator_batches(
                 OrderedDict(
                     title=f"Do Not Batch Yet: {contract_set}",
                     prs=[report["pr"]["number"] for report in grouped],
+                    pr_links=OrderedDict(
+                        (report["pr"]["number"], report["pr"]["url"])
+                        for report in grouped
+                    ),
+                    pr_roles=_operator_batch_pr_roles(grouped),
                     preferred_pr=None,
                     contract_sets=[contract_set],
                     lanes=OrderedDict((f"#{report['pr']['number']}", report["lane"]) for report in grouped),
@@ -2749,7 +3514,7 @@ def _operator_batch_lines(batches: list[OrderedDict[str, Any]]) -> list[str]:
         return ["- No actionable operator batches detected from current live overlap and narrow-contract rules."]
     lines: list[str] = []
     for index, batch in enumerate(batches, start=1):
-        prs = ", ".join(f"#{number}" for number in batch["prs"])
+        prs = ", ".join(_operator_batch_links(batch))
         lines.extend(
             [
                 f"### Batch {index}: {batch['title']}",
@@ -2762,9 +3527,112 @@ def _operator_batch_lines(batches: list[OrderedDict[str, Any]]) -> list[str]:
                 f"- What this is about: {batch.get('intent', 'Shared PR sequencing.')}",
                 f"- Why together: {batch['reason']}",
                 f"- Operator action: {batch['action']}",
+                "- Research Basis:",
+                *_operator_batch_research_basis(batch),
+                "- Per-PR Assessment:",
+                *_operator_batch_pr_assessment_lines(batch),
+                "- Solution:",
+                *_operator_batch_solution(batch),
+                "- After-Merge Kickoff:",
+                *_operator_batch_after_merge_kickoff(batch),
+                "- Decision Questions:",
+                *_operator_batch_decision_questions(batch),
                 f"- Shared files: {_compact_file_list(batch['shared_files'], limit=8)}",
                 "",
             ]
+        )
+    return lines
+
+
+MASS_CLOSURE_FINDINGS = {
+    "checked_in_generated_runtime_artifact",
+    "direct_chain_of_thought_persistence",
+    "new_top_level_parallel_root",
+    "pkm_memory_outside_vault_consent_boundaries",
+    "root_setup_surface_added",
+    "standalone_unreachable_runtime_root",
+}
+
+
+def _mass_operator_lane(report: dict[str, Any]) -> str:
+    finding_ids = {finding["id"] for finding in report["findings"]}
+    if finding_ids & MASS_CLOSURE_FINDINGS:
+        return "mass_closure"
+    if report["lane"] == "merge_now" and _lean_core_risk(report) in {"low", "low-medium", "non-runtime"}:
+        return "merge_train"
+    if report["lane"] == "patch_then_merge":
+        return "patch_train"
+    if report["lane"] == "block":
+        return "changes_requested"
+    return "do_not_batch_yet"
+
+
+def _mass_operator_section_lines(
+    title: str,
+    reports: list[dict[str, Any]],
+    empty: str,
+) -> list[str]:
+    lines = ["", f"## {title}", ""]
+    if not reports:
+        lines.append(f"- {empty}")
+        return lines
+    for report in sorted(reports, key=_report_sort_key):
+        pr = report["pr"]
+        finding_ids = ", ".join(finding["id"] for finding in report["findings"][:4]) or "none"
+        reason = report.get("patch_then_merge_reason") or report["decision"]["rationale"]
+        lines.append(
+            f"- [#{pr['number']}]({pr['url']}) - `{report['contract_set']}`, "
+            f"lane `{report['lane']}`, risk `{_lean_core_risk(report)}`; "
+            f"flags `{finding_ids}`; {reason}"
+        )
+    return lines
+
+
+def _review_research_basis_lines(report: dict[str, Any]) -> list[str]:
+    pr = report["pr"]
+    related_files = ", ".join(entry["path"] for entry in report["related_surfaces"]["files"][:4])
+    finding_ids = ", ".join(finding["id"] for finding in report["findings"][:4]) or "none"
+    overlap = report.get("exact_file_overlap") or []
+    overlap_label = (
+        "; ".join(
+            f"#{item['other_pr']} shares {', '.join(item['shared_files'][:3])}"
+            for item in overlap[:3]
+        )
+        if overlap
+        else "none"
+    )
+    founder_probe = report.get("founder_wiki_probe") or {}
+    founder_probe_line = (
+        f"- Founder Wiki North-Star Probe: `{founder_probe.get('status')}`; "
+        f"reason `{founder_probe.get('reason')}`; public policy `{founder_probe.get('public_comment_policy')}`."
+        if founder_probe
+        else "- Founder Wiki North-Star Probe: `not_evaluated`."
+    )
+    return [
+        "Research Basis:",
+        f"- Current truth: head `{pr['head_sha'][:8]}`, mergeable `{pr['mergeable']}` / `{pr['merge_state_status']}`, CI Status Gate `{report['current_ci_status_gate']}`.",
+        f"- Surfaces checked: contract `{report['contract_set']}`, changed surfaces `{', '.join(report['surface_tags']) or 'none'}`, related files `{related_files or 'none'}`.",
+        f"- Overlap/duplicate evidence: duplicate group `{report['duplicate_group'] or 'none'}`, exact overlap `{overlap_label}`.",
+        founder_probe_line,
+        f"- Risk if accepted blindly: flags `{finding_ids}`; green CI does not override duplicate, trust-boundary, schema/runtime, or reachability findings.",
+    ]
+
+
+def _reasoned_review_steps_lines(report: dict[str, Any]) -> list[str]:
+    decision = report["decision"]
+    lines = [
+        "Reasoned Review Steps:",
+        f"- Locked the reviewed head SHA and current CI gate before using any PR claim.",
+        f"- Classified the runtime contract as `{report['contract_set']}` and checked related canonical surfaces before selecting a lane.",
+        f"- Applied blocker order: north-star drift, duplicate/parallel architecture, trust boundary, contract mismatch, reachability/use-case proof, stacked-branch contamination, deploy/schema reproducibility, then proof gaps.",
+        f"- Derived lane `{decision['lane']}` because: {decision['rationale']}",
+    ]
+    founder_probe = report.get("founder_wiki_probe") or {}
+    if founder_probe.get("required"):
+        lines.insert(
+            3,
+            "- Marked founder wiki pages for local-only north-star review and "
+            "`current_state_vs_north_star_drift` classification before public comment or merge action.",
         )
     return lines
 
@@ -2793,6 +3661,8 @@ def _text_report(report: dict[str, Any]) -> str:
     if pr.get("summary"):
         lines.append(f"Summary: {pr['summary']}")
     lines.append(f"What this is about: {report['what_this_is_about']}")
+    lines.extend(_review_research_basis_lines(report))
+    lines.extend(_reasoned_review_steps_lines(report))
     lines.append(f"Current CI Status Gate: {report['current_ci_status_gate']}")
     lines.append(f"Contract set: {report['contract_set']}")
     lines.append(f"Duplicate group: {report['duplicate_group'] or 'none'}")
@@ -2806,6 +3676,13 @@ def _text_report(report: dict[str, Any]) -> str:
     lines.append(f"Public comment policy: {report['public_comment_policy']}")
     lines.append(f"Live report action: {report['live_report_action']}")
     lines.append(f"Changed surfaces: {', '.join(report['surface_tags']) or 'none'}")
+    if report.get("founder_wiki_probe"):
+        probe = report["founder_wiki_probe"]
+        lines.append(
+            "Founder Wiki North-Star Probe: "
+            f"{probe['status']} ({probe['public_comment_policy']}); "
+            f"alignment `{probe['north_star_alignment']}`; drift `{probe['drift_classification']}`"
+        )
     if report.get("exact_file_overlap"):
         lines.append("Exact file overlap:")
         for overlap in report["exact_file_overlap"]:
@@ -2852,6 +3729,107 @@ def _top_roots(files: list[str]) -> list[str]:
         if root not in roots:
             roots.append(root)
     return roots
+
+
+def _path_exists_on_origin_main(path: str) -> bool:
+    completed = subprocess.run(
+        ["git", "cat-file", "-e", f"origin/main:{path}"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPO_ROOT,
+    )
+    return completed.returncode == 0
+
+
+def _generated_or_runtime_artifact_files(files: list[str]) -> list[str]:
+    result: list[str] = []
+    for path in files:
+        name = path.rsplit("/", 1)[-1]
+        if name in GENERATED_OR_RUNTIME_ARTIFACT_NAMES or path.endswith(
+            GENERATED_OR_RUNTIME_ARTIFACT_SUFFIXES
+        ):
+            result.append(path)
+        elif "/logs/" in path and path.endswith((".json", ".log", ".txt")):
+            result.append(path)
+    return result
+
+
+def _new_top_level_roots(files: list[str]) -> list[str]:
+    roots: list[str] = []
+    for root in _top_roots(files):
+        if root in CANONICAL_TOP_LEVEL_ROOTS:
+            continue
+        if _path_exists_on_origin_main(root):
+            continue
+        roots.append(root)
+    return roots
+
+
+def _parallel_runtime_root_files(files: list[str]) -> list[str]:
+    return [
+        path
+        for path in files
+        if path.split("/", 1)[0] in PARALLEL_RUNTIME_ROOTS
+    ]
+
+
+def _root_setup_files(files: list[str]) -> list[str]:
+    return [path for path in files if "/" not in path and path in ROOT_SETUP_FILES]
+
+
+def _chain_of_thought_persistence_paths(patch_map: dict[str, str]) -> list[str]:
+    risky_paths: list[str] = []
+    for path, section in patch_map.items():
+        lowered = section.lower()
+        if (
+            "chain-of-thought" in lowered
+            or "chain of thought" in lowered
+            or "reasoningstep" in section
+            or "log_reasoning_to_pkm" in section
+            or (
+                ("reasoning" in lowered or "trace" in lowered)
+                and ("pkm" in lowered or "personal knowledge" in lowered)
+            )
+        ):
+            risky_paths.append(path)
+    return risky_paths
+
+
+def _empty_new_files(patch_map: dict[str, str]) -> list[str]:
+    return [
+        path
+        for path, section in patch_map.items()
+        if "new file mode" in section and "index 000000000..e69de29bb" in section
+    ]
+
+
+def _script_language_mismatch_files(patch_map: dict[str, str]) -> list[str]:
+    mismatches: list[str] = []
+    for path, section in patch_map.items():
+        if path.endswith(".ps1") and (
+            re.search(r"^\+#!\s*/bin/(?:ba)?sh", section, re.MULTILINE)
+            or re.search(r"^\+if \[\[", section, re.MULTILINE)
+            or re.search(r"^\+OS=\"\\$\\(uname\\)\"", section, re.MULTILINE)
+        ):
+            mismatches.append(path)
+        if path.endswith(".py") and "-#!/usr/bin/env python3" in section and "+#!/bin/bash" in section:
+            mismatches.append(path)
+    return mismatches
+
+
+def _devex_env_validation_unwired(files: list[str]) -> bool:
+    touches_env_validation = any(path.startswith("scripts/validate-env") for path in files)
+    touches_canonical_entrypoint = any(
+        path in files
+        for path in (
+            "bin/hushh",
+            "docs/guides/getting-started.md",
+            "docs/reference/operations/README.md",
+            "docs/reference/operations/env-and-secrets.md",
+        )
+    )
+    return touches_env_validation and not touches_canonical_entrypoint
 
 
 def _finding(
@@ -3066,6 +4044,9 @@ def _batch_text_report(batch: dict[str, Any]) -> str:
             "What this batch is about: "
             + str(batch["operator_batches"][0].get("intent", "Shared PR sequencing."))
         )
+        lines.append("")
+        lines.append("Recommended operator solution:")
+        lines.extend(_operator_batch_lines(batch["operator_batches"]))
     lines.append(f"Lane counts: {json.dumps(batch['lane_counts'], sort_keys=True)}")
     lines.append(f"Surface counts: {json.dumps(batch['surface_counts'], sort_keys=True)}")
     lines.append(f"Root counts: {json.dumps(batch['root_counts'], sort_keys=True)}")
@@ -3138,8 +4119,13 @@ def _live_report_text(batch: dict[str, Any]) -> str:
         "- [Live Risk Matrix](#live-risk-matrix)",
         "- [Actionable Next Queue](#actionable-next-queue)",
         "- [Blocked / Waiting Register](#blocked--waiting-register)",
-        "- [Recommended PR Sets](#recommended-pr-sets)",
-        "- [Operator Batches](#operator-batches)",
+        "- [Contract Intake Sets](#contract-intake-sets)",
+        "- [Recommended Operator Batches](#recommended-operator-batches)",
+        "- [Mass Closure Candidates](#mass-closure-candidates)",
+        "- [Mass Changes Requested Candidates](#mass-changes-requested-candidates)",
+        "- [Merge Train Candidates](#merge-train-candidates)",
+        "- [Patch Train Candidates](#patch-train-candidates)",
+        "- [Do Not Batch Yet](#do-not-batch-yet)",
         "- [Individual PR Assessments](#individual-pr-assessments)",
         "- [Cross-PR File Overlaps](#cross-pr-file-overlaps)",
         "",
@@ -3182,9 +4168,9 @@ def _live_report_text(batch: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "## Recommended PR Sets",
+            "## Contract Intake Sets",
             "",
-            "Recommended sets are grouped from the Actionable Next Queue first, then by product/runtime contract. Blocked PRs stay in the waiting register and are not recommended as fresh batches.",
+            "These are broad intake buckets grouped from the Actionable Next Queue by product/runtime contract. They are not merge batches by themselves. Use them to choose which domain to inspect next, then use Recommended Operator Batches for actual merge/close execution.",
             "",
         ]
     )
@@ -3202,9 +4188,9 @@ def _live_report_text(batch: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "## Operator Batches",
+            "## Recommended Operator Batches",
             "",
-            "Operator batches are the smaller execution groups derived from exact overlap, duplicate groups, or narrow adjacent contracts among actionable candidates. Blocked PRs are excluded until their review state or branch state changes.",
+            "These are the execution groups to take at once. They are derived from exact file overlap, duplicate/superseded outcomes, shared implementation dependencies, or narrow adjacent contracts with the same proof surface. Broad contract labels alone are not enough.",
             "",
         ]
     )
@@ -3215,6 +4201,51 @@ def _live_report_text(batch: dict[str, Any]) -> str:
         if set(overlap.get("pair", [])) <= actionable_numbers
     ]
     lines.extend(_operator_batch_lines(_operator_batches(actionable_reports, actionable_overlaps)))
+    mass_groups: dict[str, list[dict[str, Any]]] = {
+        "mass_closure": [],
+        "changes_requested": [],
+        "merge_train": [],
+        "patch_train": [],
+        "do_not_batch_yet": [],
+    }
+    for report in actionable_reports:
+        lane = _mass_operator_lane(report)
+        mass_groups.setdefault(lane, []).append(report)
+    lines.extend(
+        _mass_operator_section_lines(
+            "Mass Closure Candidates",
+            mass_groups["mass_closure"],
+            "none detected from current actionable PRs.",
+        )
+    )
+    lines.extend(
+        _mass_operator_section_lines(
+            "Mass Changes Requested Candidates",
+            mass_groups["changes_requested"],
+            "none detected from current actionable PRs.",
+        )
+    )
+    lines.extend(
+        _mass_operator_section_lines(
+            "Merge Train Candidates",
+            mass_groups["merge_train"],
+            "none detected from current actionable PRs.",
+        )
+    )
+    lines.extend(
+        _mass_operator_section_lines(
+            "Patch Train Candidates",
+            mass_groups["patch_train"],
+            "none detected from current actionable PRs.",
+        )
+    )
+    lines.extend(
+        _mass_operator_section_lines(
+            "Do Not Batch Yet",
+            mass_groups["do_not_batch_yet"],
+            "none detected from current actionable PRs.",
+        )
+    )
     lines.extend(
         [
             "## Individual PR Assessments",
@@ -3252,35 +4283,35 @@ def _communication_markdown(report: dict[str, Any]) -> str:
     if lane == "merge_now":
         return "\n".join(
             [
-                f"## Approved: {contract_title}",
+                f"## Merged: {contract_title}",
                 "",
                 "### What Landed",
                 "The current head is aligned with the existing caller, runtime, and trust-boundary contracts.",
                 "",
-                "### Why This Is Safe",
-                "The required gate is green and the review did not find contract or governance regressions.",
+                "### Why It Matters",
+                "This keeps the merged surface aligned with Hussh runtime and trust-boundary expectations.",
                 "",
                 "### Outcome",
-                "This keeps the merged surface aligned with Hussh runtime and trust-boundary expectations.",
+                "Post-merge closeout is required after Main Post-Merge Smoke is green.",
             ]
         )
 
     elif lane == "patch_then_merge":
         return "\n".join(
             [
-                f"## Approved With Maintainer Patch: {contract_title}",
+                f"## Merged: {contract_title}",
                 "",
                 "### What Landed",
                 "The direction is useful, but the current head should not be merged unchanged.",
                 "",
-                "### Maintainer Patch",
-                f"Patch required for: {finding_ids}.",
-                "",
-                "### Why This Path",
+                "### Why It Matters",
                 report["decision"]["rationale"],
                 "",
+                "### Maintainer Patch",
+                f"Maintainer-owned patch was explicitly chosen for: {finding_ids}. Explain what useful value was kept, what was converted into existing canonical docs/scripts/runtime surfaces, what was dropped or deferred, and where the accepted usage now lives.",
+                "",
                 "### Outcome",
-                "The maintainer path keeps the useful direction while avoiding a broader contract regression.",
+                "Post-merge closeout is required after Main Post-Merge Smoke is green.",
             ]
         )
 
@@ -3333,6 +4364,23 @@ def _communication_markdown(report: dict[str, Any]) -> str:
     )
 
 
+def _write_text_atomic(path: str, text: str) -> None:
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        delete=False,
+        dir=str(output_path.parent),
+        prefix=f".{output_path.name}.",
+        suffix=".tmp",
+    ) as handle:
+        handle.write(text)
+        handle.write("\n")
+        temp_name = handle.name
+    Path(temp_name).replace(output_path)
+
+
 def build_report(repo: str, pr: int) -> dict[str, Any]:
     schematics = _schematics_summary()
     pr_view = _gh_json(
@@ -3367,6 +4415,7 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
         (item.get("conclusion", "UNKNOWN") for item in current_checks if item.get("name") == required_status_check),
         "MISSING",
     )
+    failed_non_required_checks = _failed_non_required_checks(current_checks, required_status_check)
     report = OrderedDict(
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         repo=repo,
@@ -3417,7 +4466,64 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
         ],
         findings=_build_findings(files, patch_map),
         related_surfaces=_related_surfaces(files),
+        founder_wiki_probe=_founder_wiki_probe(
+            title=pr_view["title"],
+            summary=_extract_summary(pr_view.get("body")),
+            files=files,
+            patch_map=patch_map,
+            contract_set=contract_set,
+        ),
     )
+    local_overlap = sorted(set(files) & _local_worktree_changed_paths())
+    if local_overlap:
+        _append_finding(
+            report,
+            _finding(
+                "local_worktree_overlap",
+                "high",
+                (
+                    "PR touches files with uncommitted local maintainer changes. "
+                    "Do not merge the PR head until the local branch is committed, "
+                    "stashed, rebased, or the useful PR content is explicitly harvested."
+                ),
+                local_overlap,
+                details={"local_changed_paths": local_overlap},
+            ),
+        )
+    if ci_status_gate == "SUCCESS" and failed_non_required_checks:
+        _append_finding(
+            report,
+            _finding(
+                "auxiliary_check_failing",
+                "high",
+                (
+                    "A non-required current check is failing while the aggregate required gate is green. "
+                    "Do not treat this PR as merge-ready until the failing check is fixed, removed, or "
+                    "explicitly classified as intentionally advisory."
+                ),
+                files,
+                details=[
+                    {
+                        "name": item.get("name"),
+                        "conclusion": item.get("conclusion"),
+                        "details_url": item.get("detailsUrl"),
+                    }
+                    for item in failed_non_required_checks
+                ],
+            ),
+        )
+    for finding in _claim_surface_mismatch_findings(
+        pr_view["title"],
+        pr_view.get("body"),
+        files,
+    ):
+        _append_finding(report, finding)
+    for finding in _stacked_branch_findings(
+        pr_view["title"],
+        pr_view.get("body"),
+        files,
+    ):
+        _append_finding(report, finding)
     if report["pr"]["review_decision"] == "CHANGES_REQUESTED":
         _append_finding(
             report,
@@ -3453,6 +4559,7 @@ def main() -> int:
     parser.add_argument("--prs", help="Comma-separated PR numbers for batch review.")
     parser.add_argument("--live-report", action="store_true", help="Build a live-only report from current open PRs, including drafts.")
     parser.add_argument("--limit", type=int, default=100, help="Open PR query limit for --live-report.")
+    parser.add_argument("--output", help="Write output atomically to this path instead of stdout.")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--text", action="store_true")
     args = parser.parse_args()
@@ -3490,11 +4597,15 @@ def main() -> int:
         return 1
 
     if args.json:
-        print(json.dumps(report, indent=2))
+        rendered = json.dumps(report, indent=2)
     elif is_live_report:
-        print(_live_report_text(report))
+        rendered = _live_report_text(report)
     else:
-        print(_batch_text_report(report) if is_batch else _text_report(report))
+        rendered = _batch_text_report(report) if is_batch else _text_report(report)
+    if args.output:
+        _write_text_atomic(args.output, rendered)
+    else:
+        print(rendered)
     return 0
 
 
