@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:ci": "vitest run",
     "build:voice-gateway": "node ./scripts/voice/generate-kai-action-gateway.mjs",
+    "verify:i18n-integrity": "npx tsx scripts/verify-i18n-integrity.ts",
     "verify:voice-gateway": "node ./scripts/voice/generate-kai-action-gateway.mjs --check",
     "verify:analytics": "vitest run __tests__/services/observability-schema.test.ts __tests__/services/observability-route-map.test.ts __tests__/services/observability-growth.test.ts __tests__/services/observability-native-firebase.test.ts __tests__/services/observability-web-transport.test.ts",
     "verify:analytics:governed": "npm run verify:analytics && npm run audit:analytics-sandbox && npm run smoke:analytics:uat && cd .. && python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py health && ./bin/hushh docs verify",
