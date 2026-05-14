@@ -1,6 +1,5 @@
 "use client";
 
-import { PaginationFooter } from "@/components/app-ui/pagination-footer";
 import { ChevronRight, Loader2, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo } from "react";
@@ -31,7 +30,7 @@ import {
   type RiaClientListResponse,
 } from "@/lib/services/ria-service";
 import { cn } from "@/lib/utils";
-import { RiaCompatibilityState, RiaVerificationGate } from "@/components/ria/ria-page-shell";
+import { RiaCompatibilityState } from "@/components/ria/ria-page-shell";
 
 type ClientListItem = RiaClientAccess & {
   isTestProfile?: boolean;
@@ -154,95 +153,73 @@ export default function RiaClientsPage() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        <RiaVerificationGate>
-          <div className="flex flex-col gap-8">
-            <SettingsGroup
-              embedded
-              title="Connected investors"
-              description="Open a client once and keep relationship state, access, Kai parity, and the explorer in the same workspace."
-            >
-              {clientsResource.loading ? (
-                <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading clients...
-                </div>
-              ) : clientItems.length === 0 ? (
-                <div className="space-y-3 px-4 py-8 text-center">
-                  <p className="text-sm text-muted-foreground">No connected investors yet.</p>
-                  <Button 
-                    variant="none" 
-                    effect="fade" 
-                    size="sm" 
-                    data-voice-control-id="ria_clients_browse_marketplace"
-                    onClick={() => router.push(ROUTES.MARKETPLACE)}
-                  >
-                    Browse the marketplace
-                  </Button>
-                </div>
-              ) : (
-                <>
-                  {clientItems.map((client, index) => (
-                    <button
-                      key={client.id}
-                      type="button"
-                      data-voice-control-id={`ria_clients_client_row_${index + 1}`}
-                      data-testid={client.isTestProfile ? "ria-client-test-profile" : undefined}
-                      onClick={() =>
-                        router.push(
-                          buildRiaClientWorkspaceRoute(client.investor_user_id || "", {
-                            tab: "overview",
-                            testProfile: client.isTestProfile,
-                          })
-                        )
-                      }
-                      className={cn(
-                        "relative w-full overflow-hidden px-4 py-3 text-left transition-colors hover:bg-muted/35"
-                      )}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
-                          <UserRound className="h-4 w-4" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <p className="truncate text-sm font-semibold text-foreground">
-                              {client.investor_display_name || client.investor_user_id || "Investor"}
-                            </p>
-                            {client.isTestProfile ? (
-                              <span className="shrink-0 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">
-                                Test
-                              </span>
-                            ) : null}
-                          </div>
-                          <p className="truncate text-xs text-muted-foreground">
-                            {client.investor_email || client.investor_secondary_label || "Connected"}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                          <Badge className={cn("text-[10px]", statusBadgeClass(client.status))}>
-                            {formatStatus(client.status)}
-                          </Badge>
-                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                        </div>
+        <div className="flex flex-col gap-8">
+          <SettingsGroup
+            embedded
+            title="Connected investors"
+            description="Open a client once and keep relationship state, access, Kai parity, and the explorer in the same workspace."
+          >
+            {clientsResource.loading ? (
+              <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading clients...
+              </div>
+            ) : clientItems.length === 0 ? (
+              <div className="space-y-3 px-4 py-8 text-center">
+                <p className="text-sm text-muted-foreground">No connected investors yet.</p>
+                <Button variant="none" effect="fade" size="sm" onClick={() => router.push(ROUTES.MARKETPLACE)}>
+                  Browse the marketplace
+                </Button>
+              </div>
+            ) : (
+              clientItems.map((client) => (
+                <button
+                  key={client.id}
+                  type="button"
+                  onClick={() =>
+                    router.push(
+                      buildRiaClientWorkspaceRoute(client.investor_user_id || "", {
+                        tab: "overview",
+                        testProfile: client.isTestProfile,
+                      })
+                    )
+                  }
+                  className={cn(
+                    "relative w-full overflow-hidden px-4 py-3 text-left transition-colors hover:bg-muted/35"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+                      <UserRound className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <p className="truncate text-sm font-semibold text-foreground">
+                          {client.investor_display_name || client.investor_user_id || "Investor"}
+                        </p>
+                        {client.isTestProfile ? (
+                          <span className="shrink-0 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">
+                            Test
+                          </span>
+                        ) : null}
                       </div>
-                      <MaterialRipple variant="none" effect="fade" className="z-0" />
-                    </button>
-                  ))}
-
-                  {/* --- PROOF OF REACHABILITY --- */}
-                  <div className="mt-2 border-t border-border/40 bg-muted/5 px-4 py-3">
-                    <PaginationFooter
-                      currentPage={1}
-                      totalPages={Math.ceil(clientItems.length / 10) || 1}
-                      onPageChange={(page) => console.log(`Navigating to client page ${page}`)}
-                      disabled={clientsResource.loading}
-                    />
+                      <p className="truncate text-xs text-muted-foreground">
+                        {client.investor_email || client.investor_secondary_label || "Connected"}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Badge className={cn("text-[10px]", statusBadgeClass(client.status))}>
+                        {formatStatus(client.status)}
+                      </Badge>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </div>
                   </div>
-                </>
-              )}
-            </SettingsGroup>
-          </div>
-        </RiaVerificationGate>
+                  <MaterialRipple variant="none" effect="fade" className="z-0" />
+                </button>
+              ))
+            )}
+          </SettingsGroup>
+        </div>
       </AppPageContentRegion>
     </AppPageShell>
   );
