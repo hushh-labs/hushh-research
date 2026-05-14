@@ -16,6 +16,7 @@ This matrix tracks the target design-system contract for the current application
 | `/kai/investments` | `PageHeader`, `SettingsGroup`, `SettingsRow`, Plaid grouped sections | In scope for shared header + settings language |
 | `/kai/analysis` | `PageHeader`, tabs, debate/history surfaces | In scope for heading and icon normalization |
 | Consent center | `PageHeader`, grouped rows, detail panels | In scope for investor-facing consistency |
+| `/one/kyc` | `PageHeader`, `SettingsGroup`, `SettingsRow`, `SettingsDetailPanel`, `HushhLoader` | Mobile-first KYC workflow surface aligned to Profile mechanics |
 | Profile | canonical settings reference | Already the baseline |
 | Top/bottom chrome | shared shell contract | Canonical layout authority |
 
