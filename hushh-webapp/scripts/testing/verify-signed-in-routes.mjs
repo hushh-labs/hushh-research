@@ -559,7 +559,7 @@ async function navigateViaShell(page, spec) {
     case "/one/kyc":
       await clickBottomNav(page, "Profile");
       await waitForRouteBeacon(page, ["/profile"]);
-      await page.getByRole("button", { name: /one kyc|kyc agent/i }).click();
+      await page.getByRole("button", { name: /^email\b|one kyc|kyc agent/i }).click();
       return true;
     case "/consents":
       await clickBottomNav(page, "Profile");
@@ -666,7 +666,8 @@ function collectPageIssues(page) {
     if (failureText.includes("ERR_ABORTED")) return;
     if (
       failureText.includes("ERR_BLOCKED_BY_ORB") &&
-      url.startsWith("https://www.googletagmanager.com/")
+      (url.startsWith("https://www.googletagmanager.com/") ||
+        url.startsWith("https://lh3.googleusercontent.com/"))
     ) {
       return;
     }

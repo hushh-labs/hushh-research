@@ -300,13 +300,18 @@ Vault setup/get now use a multi-wrapper `VaultState` contract:
   - `iv`
   - `passkeyCredentialId` (nullable)
   - `passkeyPrfSalt` (nullable)
+  - `passkeyRpId` (nullable)
+  - `passkeyProvider` (nullable)
+  - `passkeyDeviceLabel` (nullable, friendly label captured at enrollment when available)
+  - `passkeyLastUsedAt` (nullable)
 
 Method-management semantics:
 - Passphrase wrapper is mandatory for every vault.
 - Recovery wrapper is mandatory for every vault.
 - Optional quick methods (native biometric/web PRF passkey) add wrappers for the same DEK.
 - Primary method only controls default unlock UX; fallback wrappers remain valid.
-- Additional endpoints: `POST /db/vault/wrapper/upsert`, `POST /db/vault/primary/set`.
+- Wrapper deletion is a vault-key-verified mutation: `POST /db/vault/wrapper/delete` requires `vaultKeyHash`, refuses passphrase removal, and moves primary unlock to an enrolled fallback when the removed wrapper was primary.
+- Additional endpoints: `POST /db/vault/wrapper/upsert`, `POST /db/vault/wrapper/delete`, `POST /db/vault/primary/set`.
 
 Security invariant:
 - No plaintext-at-rest path is allowed.
