@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
@@ -40,6 +40,104 @@ def test_refresh_account_identity_returns_synced_identity(monkeypatch):
     assert payload["success"] is True
     assert payload["user_id"] == "firebase_uid_123"
     assert payload["identity"]["last_active_persona"] == "investor"
+
+
+def test_claim_account_phone_requires_firebase_auth():
+    client = TestClient(_build_app())
+    response = client.post("/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"})
+
+    assert response.status_code == 401
+
+
+def test_claim_account_phone_persists_verified_phone(monkeypatch):
+    async def _mock_verify(raw_claim: str):
+        assert raw_claim == "phone-claim-sample"
+        return "+16505550101", "phone-session-uid"
+
+    async def _mock_claim(self, *, user_id: str, phone_number: str):
+        assert user_id == "firebase_uid_123"
+        assert phone_number == "+16505550101"
+        return {
+            "user_id": user_id,
+            "phone_number": phone_number,
+            "phone_verified": True,
+            "source": "firebase_phone_claim",
+        }
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+    monkeypatch.setattr(account, "_verify_phone_claim_id_token", _mock_verify)
+    monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", _mock_claim)
+
+    client = TestClient(app)
+    response = client.post("/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["phone_verified"] is True
+    assert payload["identity"]["phone_number"] == "+16505550101"
+
+
+def test_claim_account_phone_rejects_invalid_phone_token(monkeypatch):
+    async def _mock_verify(raw_claim: str):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "INVALID_PHONE_ID_TOKEN",
+                "message": "The phone verification token is invalid or expired.",
+            },
+        )
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+    monkeypatch.setattr(account, "_verify_phone_claim_id_token", _mock_verify)
+
+    client = TestClient(app)
+    response = client.post("/api/account/phone/claim", json={"phone_id_token": "bad-phone-claim"})
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "INVALID_PHONE_ID_TOKEN"
+
+
+def test_claim_account_phone_rejects_phone_token_without_phone_number(monkeypatch):
+    async def _mock_verify(raw_claim: str):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "PHONE_ID_TOKEN_MISSING_PHONE_NUMBER",
+                "message": "The phone verification token does not contain a phone number.",
+            },
+        )
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+    monkeypatch.setattr(account, "_verify_phone_claim_id_token", _mock_verify)
+
+    client = TestClient(app)
+    response = client.post("/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"})
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "PHONE_ID_TOKEN_MISSING_PHONE_NUMBER"
+
+
+def test_claim_account_phone_maps_persistence_failure(monkeypatch):
+    async def _mock_verify(raw_claim: str):
+        return "+16505550101", "phone-session-uid"
+
+    async def _mock_claim(self, *, user_id: str, phone_number: str):
+        return None
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+    monkeypatch.setattr(account, "_verify_phone_claim_id_token", _mock_verify)
+    monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", _mock_claim)
+
+    client = TestClient(app)
+    response = client.post("/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "PHONE_CLAIM_PERSISTENCE_UNAVAILABLE"
 
 
 def test_list_email_aliases_requires_vault_owner_token():
