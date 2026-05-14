@@ -20,8 +20,12 @@ sequence in the sections below.
    skipped/unavailable rationale, and explicit parent-only authority for branch
    switching, commits, GitHub writes, approvals, merges, deploys, and final
    decisions.
-4. `Input`: every PR with a direct Markdown link and current lane.
-5. `Train Simulation`: execution-grade simulation based on the current PR heads:
+4. `Check Failure Holds`: every reviewed PR excluded because the required gate
+   is not green, the required gate is missing, or a current auxiliary check is
+   failing. These PRs are not train candidates unless the user explicitly asks
+   for CI repair.
+5. `Input`: every PR with a direct Markdown link and current lane.
+6. `Train Simulation`: execution-grade simulation based on the current PR heads:
    - branch evidence: current head SHA, mergeability, CI gate, changed files, exact overlaps, and local dirty-worktree overlap
    - delta summary: files added, edited, deleted, generated, moved, dependencies changed, and routes/contracts touched
    - behavior claim: what the PR claims and whether that behavior is reachable in the current app/backend/package
@@ -30,7 +34,7 @@ sequence in the sections below.
    - action outcome: exact operation per PR if approved
    - comment simulation: expected GitHub comment/edit posture and heading
    - verification timeline: local checks, Playwright for UI-visible changes, GitHub gates, smoke, reports
-6. `Expected Actions`: table or bullets mapping each PR to one of:
+7. `Expected Actions`: table or bullets mapping each PR to one of:
    - `review_only`
    - `hold`
    - `request_changes`
@@ -39,14 +43,14 @@ sequence in the sections below.
    - `maintainer_patch_then_merge`
    - `merge_now`
    - `post_merge_monitor`
-7. `Comment Plan`: table or bullets mapping each PR to one of:
+8. `Comment Plan`: table or bullets mapping each PR to one of:
    - `none_before_merge_then_post_merge_closeout`
    - `edit_existing_maintainer_comment`
    - `new_changes_requested_comment`
    - `new_closed_superseded_comment`
    - `no_comment_review_only`
    Include the intended headline, for example `## Merged: Consent Center State UX`.
-8. `Per-PR Assessment`: one compact but complete block per PR:
+9. `Per-PR Assessment`: one compact but complete block per PR:
    - direct link
    - lane
    - lean/core risk
@@ -57,12 +61,12 @@ sequence in the sections below.
    - planned action: merge, patch/rebase, harvest/close, request changes, or hold
    - comment action: expected public comment/edit behavior
    - `Smallest proof`: smallest authoritative check before that action
-9. `Output`: intended end state if the batch is legitimate.
-10. `Execution`: exact order, split by merge train, patch train, closure/request-changes wave, and hold/deep-review items.
-11. `Decision Questions`: only unresolved user-owned choices, each with current truth, recommended path, risk if accepted blindly, and recommended option first.
-12. `Stop Conditions`: what pauses, splits, or blocks the batch.
-13. `Verification`: smallest authoritative local and GitHub checks.
-14. `After-Merge Kickoff`: how the next independent train will be discovered after report refresh.
+10. `Output`: intended end state if the batch is legitimate.
+11. `Execution`: exact order, split by merge train, patch train, closure/request-changes wave, and hold/deep-review items.
+12. `Decision Questions`: only unresolved user-owned choices, each with current truth, recommended path, risk if accepted blindly, and recommended option first.
+13. `Stop Conditions`: what pauses, splits, or blocks the batch.
+14. `Verification`: smallest authoritative local and GitHub checks.
+15. `After-Merge Kickoff`: how the next independent train will be discovered after report refresh.
 
 Hyperlink rule: any chat answer, execution update, or final handoff generated
 from this contract must hyperlink every PR it mentions. Counts-only summaries
@@ -83,12 +87,14 @@ deterministic sections, even if some are empty:
    summary unless the runtime cannot spawn subagents. The dossier must map each
    async train to exactly one read-only subagent lane unless that train is a
    low-volume single-surface exception or the runtime cannot spawn subagents.
-3. `Queue Cohort`: independent `merge_now` PRs that can be queued together,
+3. `Check Failure Holds`: PRs removed from train consideration because current
+   required or auxiliary checks are not clean.
+4. `Queue Cohort`: independent `merge_now` PRs that can be queued together,
    capped at the configured cohort size.
-4. `Collision Groups`: hard-edge groups and the required sequence.
-5. `Parallel Patch Trains`: disjoint maintainer patch trains with attachment
+5. `Collision Groups`: hard-edge groups and the required sequence.
+6. `Parallel Patch Trains`: disjoint maintainer patch trains with attachment
    point, patch files, dropped/deferred pieces, and proof.
-6. `Decision Waves`: PRs ready for changes-requested or closure records while
+7. `Decision Waves`: PRs ready for changes-requested or closure records while
    queue validation runs.
 
 Decision waves must list the exact linked PRs in the wave and the exact public
@@ -120,20 +126,23 @@ even when the report already exists on disk:
    Repass/correction waves must prefer edited maintainer records over new
    comments. If a new comment is needed, state why the previous maintainer
    record could not be edited.
-6. Stop conditions: stale head, lost CI Status Gate, conflict, exact-file
+6. Check-failure intake filter: PRs with non-green/missing required gates or
+   current failing auxiliary checks are excluded from train planning and should
+   appear only under `Check Failure Holds` unless this is a CI repair pass.
+7. Stop conditions: stale head, lost CI Status Gate, conflict, exact-file
    overlap, new trust-boundary finding, missing caller/reachability proof,
    Playwright gap for UI-visible changes, or north-star drift.
-7. Train graph: every PR must expose `collision_group_id`,
+8. Train graph: every PR must expose `collision_group_id`,
    `collision_reasons`, `can_queue_with`, `must_wait_for`,
    `queue_cohort_id`, `parallel_patch_train_id`, patch attachment fields, and
    whether a north-star probe is required.
-8. Subagent taskforce: for high-volume train work, every dossier must state the
+9. Subagent taskforce: for high-volume train work, every dossier must state the
    read-only evidence lanes used before the recommendation. The default lanes
    are frontend/UI reachability, backend/runtime trust, observability/security,
    devex/repo operations, and decision-wave communications. If a lane was not
    spawned, state the concrete blocker; "not needed" is valid only for
    single-surface or low-volume work.
-9. Train-to-subagent map: every async train must name its subagent evidence
+10. Train-to-subagent map: every async train must name its subagent evidence
    lane, the PRs included in that train, which PRs are parallel outside the
    train, which PRs are sequential inside the train, and which hard edge forces
    the sequence. If two trains need the same files/runtime family, they are not
@@ -148,13 +157,16 @@ report exists on disk; the chat handoff must remain reviewable on its own.
 ## Batch Selection Rules
 
 1. Use `Recommended Operator Batches` before `Contract Intake Sets`.
-2. Exact file overlap creates sequencing, not duplicate closure.
-3. Same broad contract label is not enough to batch.
-4. Same author is a convenience only after product/runtime contract grouping.
-5. Batch can mean merge train, patch train, close wave, request-changes wave, or deep-review wave.
-6. Do not mix independent high-risk runtime decisions just to increase throughput.
-7. A merge train can proceed while the next independent batch is reviewed, but two dependent trains must not merge concurrently.
-8. "Automatic next train" means automatic next-train discovery and review preparation; approval, merge, deploy, and close decisions remain explicit operator actions.
+2. Exclude PRs with non-green/missing required gates or current failing
+   auxiliary checks before building batches. Do not let them shape collision
+   groups or recommended operator batches unless the task is CI repair.
+3. Exact file overlap creates sequencing, not duplicate closure.
+4. Same broad contract label is not enough to batch.
+5. Same author is a convenience only after product/runtime contract grouping.
+6. Batch can mean merge train, patch train, close wave, request-changes wave, or deep-review wave.
+7. Do not mix independent high-risk runtime decisions just to increase throughput.
+8. A merge train can proceed while the next independent batch is reviewed, but two dependent trains must not merge concurrently.
+9. "Automatic next train" means automatic next-train discovery and review preparation; approval, merge, deploy, and close decisions remain explicit operator actions.
 
 ## Good Output Standard
 
@@ -185,16 +197,19 @@ Use this rhythm for scale:
 1. Mass classify open PRs through the live report. Default to hybrid scan:
    cheap all-open inventory plus the latest `100` deep reviews and up to `40`
    older high-signal deep reviews.
-2. Build an async train map, then start one read-only subagent lane per
+2. Move current check failures into `Check Failure Holds`; do not spend
+   train-planning or subagent time on them unless the operator asks for CI
+   repair.
+3. Build an async train map, then start one read-only subagent lane per
    independent train before final train selection. Use broad lanes, not one
    subagent per PR. If the train has same-file or same-runtime collisions, the
    subagent analyzes the full collision group and returns the required internal
    sequence.
-3. Convert clear drifts into closure or changes-requested waves.
-4. Queue independent `merge_now` PRs as a cohort, capped at `4`.
-5. While PR Validation, Queue Validation, or Main Post-Merge Smoke runs, review the next independent operator batch.
-6. After smoke passes, refresh the live report and contributor-impact dashboard.
-7. Select the next independent `Recommended Operator Batches` item and produce a fresh `Per-PR Assessment`.
+4. Convert clear drifts into closure or changes-requested waves.
+5. Queue independent `merge_now` PRs as a cohort, capped at `4`.
+6. While PR Validation, Queue Validation, or Main Post-Merge Smoke runs, review the next independent operator batch.
+7. After smoke passes, refresh the live report and contributor-impact dashboard.
+8. Select the next independent `Recommended Operator Batches` item and produce a fresh `Per-PR Assessment`.
 
 Never let throughput hide dependency order. Shared files, lockfiles, shared
 runtime contracts, generated contracts, schema/migration surfaces,

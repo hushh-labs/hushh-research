@@ -89,18 +89,23 @@ Load these only when the decision needs them:
    - `block`
    - `harvest_then_close`
    - `close_duplicate`
-6. Green CI never overrides exact file overlap, duplicate product contracts, schema-contract drift, raw-error leakage findings, or current auxiliary check failures introduced by the PR.
-7. The checklist fields `contract_set`, `duplicate_group`, `public_comment_policy`, `lane`, and `live_report_action` are decision records, not decoration.
-8. Treat app/backend reachability as a merge-readiness input. A PR that adds standalone code, tests, helpers, components, or scripts must prove it is used by a canonical app/backend/package path, or it must be classified as test/devex hygiene rather than product/runtime value.
-9. If a PR title/body claims one contract but the changed files touch another, stop the merge path until the PR is retitled/rescoped, patched to the claimed contract, or closed/requested-changes.
-10. If a PR says it is stacked, depends on a prior PR, or will have a different diff after another PR lands, do not review it as a merge candidate until it is rebased to `main` or explicitly scoped as a harvest/reference PR.
-11. Treat local worktree overlap as a merge blocker. If an open PR touches files with uncommitted maintainer changes, resolve local ownership first: commit/stash/rebase the maintainer branch, harvest only unique PR value, or request a contributor rebase. Do not merge a GitHub-green head over active local governance/product work.
-12. Run the Founder Wiki North-Star Probe for material PRs that touch product direction, One/Kai/Nav, PCHP, BYOA/BYOK, MLX/on-device posture, consent/vault/PKM, World Model, voice/action, Aha Moment, user-facing workflows, or founder-language claims. Use `.codex/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md` as the contract:
+6. A non-green required `CI Status Gate`, missing required gate, or current
+   failing auxiliary check is an intake stop, not a train candidate. Exclude
+   that PR from queue cohorts, patch trains, collision trains, decision waves,
+   and recommended operator batches unless the explicit task is to fix CI.
+   Record it only in the check-failure hold register.
+7. Green CI never overrides exact file overlap, duplicate product contracts, schema-contract drift, raw-error leakage findings, or current auxiliary check failures introduced by the PR.
+8. The checklist fields `contract_set`, `duplicate_group`, `public_comment_policy`, `lane`, and `live_report_action` are decision records, not decoration.
+9. Treat app/backend reachability as a merge-readiness input. A PR that adds standalone code, tests, helpers, components, or scripts must prove it is used by a canonical app/backend/package path, or it must be classified as test/devex hygiene rather than product/runtime value.
+10. If a PR title/body claims one contract but the changed files touch another, stop the merge path until the PR is retitled/rescoped, patched to the claimed contract, or closed/requested-changes.
+11. If a PR says it is stacked, depends on a prior PR, or will have a different diff after another PR lands, do not review it as a merge candidate until it is rebased to `main` or explicitly scoped as a harvest/reference PR.
+12. Treat local worktree overlap as a merge blocker. If an open PR touches files with uncommitted maintainer changes, resolve local ownership first: commit/stash/rebase the maintainer branch, harvest only unique PR value, or request a contributor rebase. Do not merge a GitHub-green head over active local governance/product work.
+13. Run the Founder Wiki North-Star Probe for material PRs that touch product direction, One/Kai/Nav, PCHP, BYOA/BYOK, MLX/on-device posture, consent/vault/PKM, World Model, voice/action, Aha Moment, user-facing workflows, or founder-language claims. Use `.codex/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md` as the contract:
    - repo code/contracts/tests/CI remain current-state truth
    - founder wiki pages define north-star and future-state alignment
    - conflicts are `current_state_vs_north_star_drift`
    - private wiki evidence stays local-only and must not be cited in public GitHub comments
-13. For high-volume PR train work, spawn/read from the required read-only
+14. For high-volume PR train work, spawn/read from the required read-only
     subagent taskforce before producing the operator dossier. High-volume means
     more than `20` PRs scanned or discussed, more than `5` PRs acted on in one
     session, any mixed frontend/backend/security/devex/observability train, any
@@ -109,11 +114,11 @@ Load these only when the decision needs them:
     Use the delegation router to choose lanes and record whether evidence lanes
     were used:
    `python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt "<request>" --paths "<paths>" --text`
-14. If subagents are unavailable, record `Subagent taskforce: unavailable` and
+15. If subagents are unavailable, record `Subagent taskforce: unavailable` and
     manually cover the same evidence lanes. If they are available, skipping
     them for high-volume train work is a process violation unless a concrete
     runtime blocker is recorded.
-15. Keep final authority local to the parent/governor. Do not delegate branch switching, approval, merge, deploy, credential handling, or final decision.
+16. Keep final authority local to the parent/governor. Do not delegate branch switching, approval, merge, deploy, credential handling, or final decision.
 
 ### Decision Order
 
@@ -278,8 +283,9 @@ GitHub write posture, and post-state-change report refreshes.
 7. Do not start merging a dependent train until the previous train has passed Main Post-Merge Smoke and the live report has been refreshed.
 8. Treat "automatic next train" as automatic next-train discovery and review preparation, not blind approval or merge.
 9. A PR can enter a merge train only after current head, current required gate, mergeability, lane, overlap, collision group, and smallest proof are rechecked.
-10. Reports must state scan scope and completeness. If inventory, GitHub, or per-PR scanning fails, name the exact reviewed subset and failed PRs.
-11. Large-scale rhythm:
+10. A PR with non-green required gate, missing required gate, or current failing auxiliary check cannot enter any executable train. Do not spend train-planning time on it; list it under check-failure holds and revisit only after checks are clean or the operator explicitly asks to repair CI.
+11. Reports must state scan scope and completeness. If inventory, GitHub, or per-PR scanning fails, name the exact reviewed subset and failed PRs.
+12. Large-scale rhythm:
    - mass classify open PRs
    - build an async train map
    - start specialist read-only evidence lanes for each independent train

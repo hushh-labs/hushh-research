@@ -25,6 +25,7 @@ DEFAULT_QUEUE_COHORT_SIZE = 4
 DEFAULT_PER_PR_TIMEOUT_SECONDS = 25
 DEFAULT_MAX_PARALLEL_PATCH_TRAINS = 3
 SCAN_MODES = {"active", "hybrid", "full"}
+FAILED_CHECK_CONCLUSIONS = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED"}
 PATCH_ATTACHMENT_BLOCKER_FINDINGS = {
     "frontend_component_without_reachable_caller",
     "new_agent_without_runtime_wiring",
@@ -1413,12 +1414,11 @@ def _failed_non_required_checks(
     current_checks: list[dict[str, Any]],
     required_status_check: str,
 ) -> list[dict[str, Any]]:
-    failed_states = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED"}
     failed: list[dict[str, Any]] = []
     for check in current_checks:
         name = str(check.get("name") or "")
         conclusion = str(check.get("conclusion") or "UNKNOWN").upper()
-        if name != required_status_check and conclusion in failed_states:
+        if name != required_status_check and conclusion in FAILED_CHECK_CONCLUSIONS:
             failed.append(check)
     return failed
 
@@ -3260,6 +3260,8 @@ def _single_pr_live_assessment(report: dict[str, Any]) -> list[str]:
 
 def _is_actionable_live_candidate(report: dict[str, Any]) -> bool:
     pr = report["pr"]
+    if _has_current_check_failure(report):
+        return False
     if report["lane"] in {"harvest_then_close", "close_duplicate"}:
         return True
     if pr.get("is_draft"):
@@ -3307,6 +3309,9 @@ def _blocked_live_register_lines(reports: list[dict[str, Any]]) -> list[str]:
     for report in blocked:
         pr = report["pr"]
         reason = report.get("patch_then_merge_reason") or report["decision"]["rationale"]
+        check_failure_reason = _current_check_failure_reason(report)
+        if check_failure_reason:
+            reason = f"check_failure_hold: {check_failure_reason}. Excluded from executable trains until checks are clean."
         review = pr.get("review_decision") or "none"
         lines.append(
             f"- [#{pr['number']}]({pr['url']}) - review `{review}`, mergeable `{pr.get('mergeable')}`, lane `{report['lane']}`: {reason}"
@@ -4295,12 +4300,32 @@ def _has_local_dirty_overlap(report: dict[str, Any]) -> bool:
     return any(finding.get("id") == "local_worktree_overlap" for finding in report.get("findings", []))
 
 
+def _current_check_failure_reason(report: dict[str, Any]) -> str:
+    required_gate = str(report.get("current_ci_status_gate") or "UNKNOWN").upper()
+    if required_gate != "SUCCESS":
+        return f"required CI Status Gate is `{required_gate}`"
+
+    failed_checks = [
+        str(check.get("name") or "unknown")
+        for check in report.get("current_checks", [])
+        if str(check.get("conclusion") or "UNKNOWN").upper() in FAILED_CHECK_CONCLUSIONS
+    ]
+    if failed_checks:
+        return f"current auxiliary check failure: {', '.join(sorted(failed_checks))}"
+    return ""
+
+
+def _has_current_check_failure(report: dict[str, Any]) -> bool:
+    return bool(_current_check_failure_reason(report))
+
+
 def _queue_eligible(report: dict[str, Any], hard_edges: dict[int, dict[int, list[str]]]) -> bool:
     pr = report["pr"]
     number = pr["number"]
     return (
         report.get("lane") == "merge_now"
         and report.get("current_ci_status_gate") == "SUCCESS"
+        and not _has_current_check_failure(report)
         and pr.get("mergeable") == "MERGEABLE"
         and not pr.get("is_draft")
         and not hard_edges.get(number)
@@ -4338,14 +4363,27 @@ def _build_train_graph(
     queue_cohort_size: int,
     max_parallel_patch_trains: int,
 ) -> OrderedDict[str, Any]:
-    by_number = {report["pr"]["number"]: report for report in reports}
-    hard_edges: dict[int, dict[int, list[str]]] = {
-        number: {} for number in by_number
-    }
     for report in reports:
         _initialize_train_fields(report)
 
-    for left, right in combinations(reports, 2):
+    train_reports = [
+        report for report in reports if not _has_current_check_failure(report)
+    ]
+    check_failure_holds = [
+        OrderedDict(
+            pr=report["pr"]["number"],
+            reason=_current_check_failure_reason(report),
+        )
+        for report in sorted(reports, key=lambda item: item["pr"]["number"])
+        if _has_current_check_failure(report)
+    ]
+
+    by_number = {report["pr"]["number"]: report for report in train_reports}
+    hard_edges: dict[int, dict[int, list[str]]] = {
+        number: {} for number in by_number
+    }
+
+    for left, right in combinations(train_reports, 2):
         reasons = _hard_collision_reasons(left, right)
         if not reasons:
             continue
@@ -4398,7 +4436,7 @@ def _build_train_graph(
 
     queue_candidates = [
         report
-        for report in sorted(reports, key=_report_sort_key)
+        for report in sorted(train_reports, key=_report_sort_key)
         if _queue_eligible(report, hard_edges)
     ]
     queue_cohorts: list[OrderedDict[str, Any]] = []
@@ -4420,7 +4458,7 @@ def _build_train_graph(
         )
 
     queue_number_set = {report["pr"]["number"] for report in queue_candidates}
-    for report in reports:
+    for report in train_reports:
         number = report["pr"]["number"]
         if report.get("lane") != "merge_now":
             continue
@@ -4433,7 +4471,7 @@ def _build_train_graph(
     patch_trains: list[OrderedDict[str, Any]] = []
     claimed_patch_files: set[str] = set()
     claimed_patch_families: set[str] = set()
-    for report in sorted(reports, key=_report_sort_key):
+    for report in sorted(train_reports, key=_report_sort_key):
         if len(patch_trains) >= max_parallel_patch_trains:
             break
         if report.get("lane") != "patch_then_merge":
@@ -4462,12 +4500,12 @@ def _build_train_graph(
     decision_waves: list[OrderedDict[str, Any]] = []
     closure = [
         report["pr"]["number"]
-        for report in sorted(reports, key=_report_sort_key)
+        for report in sorted(train_reports, key=_report_sort_key)
         if report.get("lane") in {"harvest_then_close", "close_duplicate"}
     ]
     changes_requested = [
         report["pr"]["number"]
-        for report in sorted(reports, key=_report_sort_key)
+        for report in sorted(train_reports, key=_report_sort_key)
         if report.get("lane") == "block"
     ]
     if closure:
@@ -4502,6 +4540,7 @@ def _build_train_graph(
         collision_groups=collision_groups,
         parallel_patch_trains=patch_trains,
         decision_waves=decision_waves,
+        check_failure_holds=check_failure_holds,
     )
 
 
@@ -4671,6 +4710,15 @@ def build_batch_report(
                 shared_files=shared,
             )
         )
+    actionable_reports = [
+        report for report in reports if _is_actionable_live_candidate(report)
+    ]
+    actionable_numbers = {report["pr"]["number"] for report in actionable_reports}
+    actionable_overlaps = [
+        overlap
+        for overlap in overlaps
+        if set(overlap.get("pair", [])) <= actionable_numbers
+    ]
 
     surface_counts: dict[str, int] = {}
     root_counts: dict[str, int] = {}
@@ -4706,8 +4754,9 @@ def build_batch_report(
         collision_groups=train_graph["collision_groups"],
         parallel_patch_trains=train_graph["parallel_patch_trains"],
         decision_waves=train_graph["decision_waves"],
+        check_failure_holds=train_graph["check_failure_holds"],
         reports=reports,
-        operator_batches=_operator_batches(reports, overlaps),
+        operator_batches=_operator_batches(actionable_reports, actionable_overlaps),
     )
 
 
@@ -4736,6 +4785,10 @@ def _batch_text_report(batch: dict[str, Any]) -> str:
             )
     else:
         lines.append("Cross-PR file overlaps: none")
+    if batch.get("check_failure_holds"):
+        lines.append("Check failure holds:")
+        for hold in batch["check_failure_holds"]:
+            lines.append(f"- #{hold['pr']}: {hold['reason']}")
     lines.append("")
     for report in batch["reports"]:
         lines.append(_text_report(report))
@@ -4986,6 +5039,21 @@ def _decision_wave_lines(batch: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _check_failure_hold_lines(batch: dict[str, Any]) -> list[str]:
+    lines = ["", "## Check Failure Holds", ""]
+    holds = batch.get("check_failure_holds") or []
+    if not holds:
+        lines.append("- none")
+        return lines
+    lines.append(
+        "- These PRs are excluded from queue cohorts, patch trains, collision trains, decision waves, and recommended operator batches until their current checks are clean."
+    )
+    for hold in holds:
+        number = int(hold["pr"])
+        lines.append(f"- {_linked_prs(batch, [number])}: {hold['reason']}.")
+    return lines
+
+
 def _live_report_text(batch: dict[str, Any]) -> str:
     generated_at = batch["generated_at"]
     actionable_reports = [
@@ -5014,6 +5082,7 @@ def _live_report_text(batch: dict[str, Any]) -> str:
         "- [Collision Groups](#collision-groups)",
         "- [Parallel Patch Trains](#parallel-patch-trains)",
         "- [Decision Waves](#decision-waves)",
+        "- [Check Failure Holds](#check-failure-holds)",
         "- [Actionable Next Queue](#actionable-next-queue)",
         "- [Blocked / Waiting Register](#blocked--waiting-register)",
         "- [Contract Intake Sets](#contract-intake-sets)",
@@ -5067,6 +5136,7 @@ def _live_report_text(batch: dict[str, Any]) -> str:
     lines.extend(_collision_group_lines(batch))
     lines.extend(_parallel_patch_train_lines(batch))
     lines.extend(_decision_wave_lines(batch))
+    lines.extend(_check_failure_hold_lines(batch))
     lines.extend([""])
     lines.extend(_live_actionable_queue_lines(batch["reports"]))
     lines.extend(_blocked_live_register_lines(batch["reports"]))

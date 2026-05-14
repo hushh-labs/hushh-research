@@ -126,6 +126,24 @@ If GitHub or a per-PR scan fails, the report must say:
 
 Do not imply the whole backlog was audited when only a subset was reviewed.
 
+## Check Failure Intake Filter
+
+Do not spend train-construction time on PRs whose current checks are not clean.
+This is the first filter before queue, patch, collision, or decision-wave
+planning.
+
+A PR is excluded from executable trains when any of these are true:
+
+1. required `CI Status Gate` is missing, pending, skipped, cancelled, failing, or unknown
+2. required `CI Status Gate` is green but a current auxiliary check is failing
+3. the PR is behind with failing checks and needs contributor rebase/regeneration
+4. the only actionable work is to repair CI, and the operator did not ask for a CI-fix train
+
+Excluded PRs go into `Check Failure Holds` or the blocked/waiting register. They
+do not appear in `Queue Cohort`, `Sequential Collision Train`, `Parallel Patch
+Trains`, `Decision Waves`, or `Recommended Operator Batches`. Revisit them only
+after checks are clean or after the operator explicitly asks to debug/fix CI.
+
 ## Train Graph
 
 Build trains from hard dependency edges, not vibes.
@@ -159,6 +177,7 @@ Classify every reviewed PR into exactly one lane.
 | Parallel Patch Train | maintainer patches with disjoint write sets and proven attach points | yes, up to 3 by default |
 | Decision Wave | changes-requested or closure comments for blocked PRs | yes, while queue validation runs |
 | Hold/Rebase | conflicts, stale branches, unclear product intent, or missing proof | no merge action |
+| Check Failure Hold | non-green required gate or failing current auxiliary check | no train action |
 
 ## Queue Cohort Rules
 
@@ -166,12 +185,13 @@ A PR can enter a queue cohort only when all are true:
 
 1. exact head SHA is locked
 2. required `CI Status Gate` is green on that head
-3. PR is non-draft
-4. mergeability is clean
-5. no hard collision edge with another cohort PR
-6. no local dirty-file overlap
-7. no active requested-changes state that still matters
-8. no trust-boundary, generated-contract, schema, or reachability blocker
+3. no current auxiliary check is failing
+4. PR is non-draft
+5. mergeability is clean
+6. no hard collision edge with another cohort PR
+7. no local dirty-file overlap
+8. no active requested-changes state that still matters
+9. no trust-boundary, generated-contract, schema, or reachability blocker
 
 Queue cohorts are capped at 4. Do not wait for unrelated PRs just because one
 cohort member is in queue validation. While queue checks run, prepare the next
@@ -209,19 +229,21 @@ Use this loop for every review session:
 2. Convert the candidate batches into an async train map.
 3. Start one read-only subagent lane per async train/evidence family for
    high-volume train work, or record why a lane is unavailable.
-4. Read `Queue Cohort`, `Collision Groups`, `Parallel Patch Trains`, and
+4. Read `Check Failure Holds` first, then ignore those PRs for train planning
+   unless the session is explicitly a CI repair pass.
+5. Read `Queue Cohort`, `Collision Groups`, `Parallel Patch Trains`, and
    `Decision Waves`.
-5. If the report found no executable batches, manually inspect the top blocked
+6. If the report found no executable batches, manually inspect the top blocked
    PRs for possible maintainer-patch attach points.
-6. Pick the next executable train with the highest value and lowest collision.
-7. Produce the operator dossier from `operator-batch-output-contract.md`.
-8. Ask only decision questions that cannot be answered from repo or GitHub
+7. Pick the next executable train with the highest value and lowest collision.
+8. Produce the operator dossier from `operator-batch-output-contract.md`.
+9. Ask only decision questions that cannot be answered from repo or GitHub
    truth.
-9. Execute approved GitHub writes by editing existing maintainer records first.
-10. For merges, enqueue with exact head SHA and monitor queue validation.
-11. After merge, monitor Main Post-Merge Smoke.
-12. Refresh the live report and contributor-impact dashboard.
-13. Start the next independent train while checks for unrelated work are still
+10. Execute approved GitHub writes by editing existing maintainer records first.
+11. For merges, enqueue with exact head SHA and monitor queue validation.
+12. After merge, monitor Main Post-Merge Smoke.
+13. Refresh the live report and contributor-impact dashboard.
+14. Start the next independent train while checks for unrelated work are still
     running.
 
 ## Required Dossier For Chat Handoffs
@@ -236,12 +258,13 @@ Every developer-facing train recommendation must include:
 4. collision groups and sequence
 5. parallel patch trains and exact write sets
 6. decision waves and comment posture
-7. direct PR links for every PR mentioned
-8. per-PR head SHA, mergeability, CI gate, changed files, and lane
-9. accepted value, attach point, dropped/deferred pieces, and proof for every
+7. check-failure holds that were excluded from train planning
+8. direct PR links for every PR mentioned
+9. per-PR head SHA, mergeability, CI gate, changed files, and lane
+10. accepted value, attach point, dropped/deferred pieces, and proof for every
    maintainer patch
-10. stop conditions
-11. report refresh commands
+11. stop conditions
+12. report refresh commands
 
 Do not give a train recommendation as only a list of PR numbers.
 
