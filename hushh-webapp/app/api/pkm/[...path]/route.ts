@@ -6,18 +6,77 @@ import {
   resolveRequestId,
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
-import { createHotGetJsonCache } from "@/app/api/_utils/hot-get-json-cache";
 
 export const dynamic = "force-dynamic";
-const metadataHotGet = createHotGetJsonCache({
-  freshTtlMs: 5 * 60 * 1000,
-  staleTtlMs: 30 * 60 * 1000,
-});
+const METADATA_HOT_GET_FRESH_TTL_MS = 5 * 60 * 1000;
+const METADATA_HOT_GET_STALE_TTL_MS = 30 * 60 * 1000;
 const PKM_PROXY_TIMEOUT_MS = Number.parseInt(process.env.PKM_PROXY_TIMEOUT_MS ?? "45000", 10);
 const PKM_PROXY_WRITE_TIMEOUT_MS = Number.parseInt(
   process.env.PKM_PROXY_WRITE_TIMEOUT_MS ?? "180000",
   10
 );
+
+type PkmProxyResult = {
+  status: number;
+  payload: unknown;
+  correlationId?: string | null;
+  traceId?: string | null;
+};
+
+type PkmMetadataCacheEntry = PkmProxyResult & {
+  cachedAt: number;
+};
+
+const metadataHotGet = new Map<string, PkmMetadataCacheEntry>();
+const metadataHotGetInflight = new Map<string, Promise<PkmProxyResult>>();
+
+function traceHeadersForResult(result: PkmProxyResult): Record<string, string> {
+  const responseHeaders: Record<string, string> = {};
+  if (result.correlationId) {
+    responseHeaders["x-correlation-id"] = result.correlationId;
+  }
+  if (result.traceId) {
+    responseHeaders["x-cloud-trace-context"] = result.traceId;
+  }
+  return responseHeaders;
+}
+
+function readMetadataHotGet(
+  key: string,
+  options?: { allowStale?: boolean }
+): PkmProxyResult | null {
+  const cached = metadataHotGet.get(key);
+  if (!cached) return null;
+  const ageMs = Date.now() - cached.cachedAt;
+  const ttlMs = options?.allowStale
+    ? METADATA_HOT_GET_STALE_TTL_MS
+    : METADATA_HOT_GET_FRESH_TTL_MS;
+  if (ageMs > ttlMs) {
+    if (options?.allowStale || ageMs > METADATA_HOT_GET_STALE_TTL_MS) {
+      metadataHotGet.delete(key);
+    }
+    return null;
+  }
+  const { cachedAt: _cachedAt, ...result } = cached;
+  return result;
+}
+
+function writeMetadataHotGet(key: string, result: PkmProxyResult): void {
+  metadataHotGet.set(key, {
+    status: result.status,
+    payload: result.payload,
+    correlationId: result.correlationId,
+    traceId: result.traceId,
+    cachedAt: Date.now(),
+  });
+}
+
+function withPkmProxyResult(requestId: string, result: PkmProxyResult) {
+  return withRequestIdJson(requestId, result.payload, {
+    status: result.status,
+    headers: traceHeadersForResult(result),
+  });
+}
 
 async function proxyPkmRequest(
   request: NextRequest,
@@ -49,19 +108,15 @@ async function proxyPkmRequest(
         : undefined;
 
     if (hotCacheKey) {
-      const cached = metadataHotGet.read(hotCacheKey);
+      const cached = readMetadataHotGet(hotCacheKey);
       if (cached) {
-        return withRequestIdJson(requestId, cached.payload, {
-          status: cached.status,
-        });
+        return withPkmProxyResult(requestId, cached);
       }
 
-      const existing = metadataHotGet.getInflight(hotCacheKey);
+      const existing = metadataHotGetInflight.get(hotCacheKey);
       if (existing) {
         const deduped = await existing;
-        return withRequestIdJson(requestId, deduped.payload, {
-          status: deduped.status,
-        });
+        return withPkmProxyResult(requestId, deduped);
       }
     }
 
@@ -92,40 +147,26 @@ async function proxyPkmRequest(
     })();
 
     if (hotCacheKey) {
-      metadataHotGet.setInflight(hotCacheKey, load);
+      metadataHotGetInflight.set(hotCacheKey, load);
     }
 
     const result = await load;
     if (hotCacheKey && result.status < 500) {
-      metadataHotGet.write(hotCacheKey, result);
+      writeMetadataHotGet(hotCacheKey, result);
     } else if (hotCacheKey && result.status >= 500) {
-      const stale = metadataHotGet.read(hotCacheKey, { allowStale: true });
+      const stale = readMetadataHotGet(hotCacheKey, { allowStale: true });
       if (stale) {
-        return withRequestIdJson(requestId, stale.payload, {
-          status: stale.status,
-        });
+        return withPkmProxyResult(requestId, stale);
       }
     }
 
-    const responseHeaders: Record<string, string> = {};
-    if (result.correlationId) {
-      responseHeaders["x-correlation-id"] = result.correlationId;
-    }
-    if (result.traceId) {
-      responseHeaders["x-cloud-trace-context"] = result.traceId;
-    }
-    return withRequestIdJson(requestId, result.payload, {
-      status: result.status,
-      headers: responseHeaders,
-    });
+    return withPkmProxyResult(requestId, result);
   } catch (error) {
     console.error(`[PKM API] request_id=${requestId} method=${method} proxy_error`, error);
     if (hotCacheKey) {
-      const stale = metadataHotGet.read(hotCacheKey, { allowStale: true });
+      const stale = readMetadataHotGet(hotCacheKey, { allowStale: true });
       if (stale) {
-        return withRequestIdJson(requestId, stale.payload, {
-          status: stale.status,
-        });
+        return withPkmProxyResult(requestId, stale);
       }
     }
     return withRequestIdJson(
@@ -135,7 +176,7 @@ async function proxyPkmRequest(
     );
   } finally {
     if (hotCacheKey) {
-      metadataHotGet.clearInflight(hotCacheKey);
+      metadataHotGetInflight.delete(hotCacheKey);
     }
   }
 }
