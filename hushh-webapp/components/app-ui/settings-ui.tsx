@@ -117,15 +117,19 @@ export function SettingsGroup({
     <section className={cn("w-full space-y-[var(--settings-group-stack-gap)]", className)}>
       {eyebrow || title || description ? (
         <div className="space-y-[var(--settings-heading-stack-gap)] px-0.5 sm:px-1">
-          {eyebrow ? (
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-              {eyebrow}
-            </p>
-          ) : null}
-          {title ? (
-            <h2 className="text-pretty text-[13px] font-semibold tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[14px]">
-              {title}
-            </h2>
+          {eyebrow || title ? (
+            <div
+              role="heading"
+              aria-level={embedded ? 3 : 2}
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty text-[15px] font-semibold leading-tight tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[16px]"
+            >
+              {eyebrow ? (
+                <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground sm:text-[11px]">
+                  {eyebrow}
+                </span>
+              ) : null}
+              {title ? <span>{title}</span> : null}
+            </div>
           ) : null}
           {description ? (
             <p className="max-w-2xl text-[11px] leading-[1.45] text-muted-foreground [overflow-wrap:anywhere] sm:text-[12px]">
@@ -390,7 +394,7 @@ export function SettingsDetailPanel({
               </DrawerDescription>
             ) : null}
           </DrawerHeader>
-          <div className="flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-3 sm:px-4 sm:pt-4">
+          <div className="flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+2rem)] pt-3 sm:px-4 sm:pt-4">
             {children}
           </div>
         </DrawerContent>

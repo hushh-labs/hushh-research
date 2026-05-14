@@ -426,14 +426,15 @@
     },
     {
       "id": "route.one_kyc",
-      "label": "Open KYC Workflows",
-      "meaning": "Navigates to One KYC workflow review.",
+      "label": "Open One KYC",
+      "meaning": "Navigates to One broker request review.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "kyc",
       "aliases": [
         "open kyc",
         "open one kyc",
-        "show kyc workflows"
+        "show kyc workflows",
+        "show broker requests"
       ],
       "scope": {
         "routes": [
@@ -456,6 +457,44 @@
         "status": "wired",
         "path": "route",
         "target": "/one/kyc"
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
+      ]
+    },
+    {
+      "id": "kyc.aliases.manage",
+      "label": "Manage Verified Emails",
+      "meaning": "Opens the verified email address panel used to match broker KYC requests.",
+      "speaker_persona": "kyc",
+      "delegate_agent_id": "kyc",
+      "aliases": [
+        "manage verified emails",
+        "add broker email",
+        "show matching emails"
+      ],
+      "scope": {
+        "routes": [
+          "/one/kyc"
+        ],
+        "screens": [
+          "one_kyc"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "user must be signed in"
+        ]
+      },
+      "guard_ids": [
+        "auth_required"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Requires opening the local verified email panel in /one/kyc."
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",

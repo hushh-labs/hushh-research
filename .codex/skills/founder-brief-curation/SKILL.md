@@ -64,7 +64,7 @@ Non-owned surfaces:
 12. If the document is built around a layered platform model, add the cross-layer pointers or governing laws explicitly after the layer definition.
 13. Keep heading treatment consistent across sections unless the user explicitly asks for a different chapter system.
 13. For HTML-sourced PDFs, use measured page math when necessary to avoid oversized gaps, orphan headings, or brittle one-off page-start hacks.
-14. Render the actual PDF and inspect rendered pages, not just source HTML. If needed, export the PDF pages to images and verify the diagram pages and chapter transitions directly.
+14. Render the actual PDF and inspect rendered pages, not just source HTML. For every PDF deliverable, export page images or screenshots and verify page-to-page fit, diagram labels, table width, margins, and chapter transitions before calling the artifact shareable.
 15. Keep references hyperlinked and useful, but move source-detail inventory to the references section rather than the narrative body.
 16. State what is not implemented only in a dedicated honesty section; do not open with defensive caveats.
 17. Preserve founder cadence while normalizing the Hussh / One / Kai / Nav ontology:

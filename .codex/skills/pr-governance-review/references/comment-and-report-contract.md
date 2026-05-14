@@ -13,6 +13,17 @@ Use this reference for GitHub write actions, post-merge closeouts, live report u
 7. Prefer low-friction maintainer patching when the PR is aligned, bounded, and maintainers can safely resolve it without changing product intent.
 8. Use changes-requested when the PR needs contributor clarity, split/rebase, proof the maintainer cannot supply, or direction correction.
 9. A maintainer harvest is not a merge approval. If the exact PR head should not land, use the `Changes Requested` or `Closed / Superseded` shape and say what was harvested or what should be resubmitted.
+10. In a repass or correction wave, edit the existing maintainer-authored
+    review/comment instead of posting a new record, unless the existing record
+    is not editable or a distinct review-state action is required.
+
+## Maintainer Patch Preference
+
+Before using the `Changes Requested` heading, Codex must check whether the
+change can be resolved as a maintainer patch. If Codex can name the accepted
+value, canonical attach point, patch files, dropped/deferred pieces, and
+smallest proof command, prefer `maintainer_patch_then_merge` or
+`maintainer_harvest` over asking the contributor to redo the branch.
 
 ## Required Headings
 
@@ -115,12 +126,23 @@ GitHub already shows merge checks. Public comments should explain what landed, w
 4. Include per-PR assessments: head SHA, required gate, review decision, mergeability, contract set, lane, lean/core risk, findings, overlap, related surfaces, decision rationale, live-report action, public-comment policy, and next proof.
 5. Keep terminal queue/smoke evidence out of the live report.
 
+## Handoff Link Rules
+
+1. Every final handoff after merge, close, requested-changes, maintainer patch,
+   or revert must hyperlink every affected PR.
+2. Every posted or edited maintainer record must be linked when available.
+3. Counts are useful only after the linked list is present. Do not replace a
+   linked list with a count such as `49 reviews posted`.
+4. For large waves, group links by action and keep each row compact; do not
+   omit links for brevity.
+
 ## Contributor Impact Dashboard
 
 Refresh after merge, close, requested-changes, maintainer patch, or revert:
 
 ```bash
-python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 7 --text > tmp/contributor-impact-dashboard.md
+python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 14 --text > tmp/contributor-impact-dashboard.md
 ```
 
 Use north-star weighted impact, not raw PR count. Keep the dashboard historical and rolling; it may include merged, closed, reverted, and patched PRs.
+The primary leaderboard is a 14-day rolling window, the weekly top 10 remains visible, and the overall leaderboard covers all resolved PR history available from GitHub with an explicit coverage audit.
