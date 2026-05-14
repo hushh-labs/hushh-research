@@ -13,7 +13,7 @@ npm --version
 # The integration lane only owns cross-surface checks.
 # Frontend typecheck/test/build stay in the dedicated Web job.
 if [ ! -d node_modules/vitest ] || [ ! -x node_modules/.bin/vitest ]; then
-  npm ci --prefer-offline --no-audit --progress=false
+  npm ci --omit=optional --prefer-offline --no-audit --progress=false
 fi
 
 cd "$REPO_ROOT"
