@@ -101,6 +101,7 @@ from api.routes import (  # noqa: E402
     debug_firebase,
     developer,
     health,
+    heartbeat,
     notifications,
     session,
     sse,
@@ -229,6 +230,9 @@ app.include_router(db_proxy.router)
 
 # SSE routes for real-time consent notifications (/api/consent/events/...)
 app.include_router(sse.router)
+
+# WebSocket heartbeat for aggregate consent pulse events (/ws/heartbeat)
+app.include_router(heartbeat.router)
 
 # Push notification token registration (/api/notifications/register)
 app.include_router(notifications.router)
