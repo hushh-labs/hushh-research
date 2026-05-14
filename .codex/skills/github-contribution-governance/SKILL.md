@@ -80,6 +80,12 @@ Non-owned surfaces:
    - if only the idea/direction is used, record public acknowledgement and
      internal dashboard harvest credit instead of co-authoring
    - never rewrite `main` to retrofit co-author credit after merge
+11. If a maintainer harvest already merged without co-author trailers and the
+    operator explicitly wants external GitHub credit, use a transparent
+    non-empty follow-up attribution commit with valid `Co-authored-by:`
+    trailers and a repo ledger entry. Make clear that this credits the
+    follow-up commit; it does not change the original merge commit, line blame,
+    or additions/deletions.
 
 ## Handoff Rules
 
