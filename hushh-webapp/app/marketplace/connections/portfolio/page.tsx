@@ -1,18 +1,24 @@
-import { redirect } from "next/navigation";
+"use client";
 
+import { Suspense } from "react";
+import { useSearchParams, redirect } from "next/navigation";
 import { buildMarketplaceConnectionPortfolioRoute } from "@/lib/navigation/routes";
 
-type SearchParamsInput = Record<string, string | string[] | undefined>;
-
-function firstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] || "" : value || "";
+function PortfolioContent() {
+  const searchParams = useSearchParams();
+  const connectionId = (searchParams.get("connectionId") || "").trim();
+  
+  if (connectionId) {
+    redirect(buildMarketplaceConnectionPortfolioRoute(connectionId));
+  }
+  
+  return null;
 }
 
-export default function ConnectionPortfolioCompatibilityPage({
-  searchParams,
-}: {
-  searchParams?: SearchParamsInput;
-}) {
-  const connectionId = firstParam(searchParams?.connectionId).trim();
-  redirect(buildMarketplaceConnectionPortfolioRoute(connectionId));
+export default function PortfolioPage() {
+  return (
+    <Suspense fallback={<div>Loading portfolio...</div>}>
+      <PortfolioContent />
+    </Suspense>
+  );
 }

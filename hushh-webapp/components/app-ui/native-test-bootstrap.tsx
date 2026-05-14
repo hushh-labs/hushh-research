@@ -10,36 +10,37 @@ import { resolveLocalReviewerCredentials } from "@/lib/testing/local-reviewer-au
 import { useNativeTestConfig } from "@/lib/testing/native-test";
 import { useVault } from "@/lib/vault/vault-context";
 
+// 1. Extracted STAGE_RANK outside the function to prevent object recreation on every render/call
+const BOOTSTRAP_STAGE_RANK: Record<string, number> = {
+  waiting_auth: 10,
+  authenticating: 20,
+  authenticated: 30,
+  loading_vault_state: 40,
+  unlocking_vault: 50,
+  vault_unlocked: 60,
+  auth_error: 70,
+  uid_mismatch: 70,
+  vault_error: 70,
+};
+
 function updateBootstrapStatus(
   stage: string,
   options?: { userId?: string | null; error?: string | null }
 ) {
-  if (typeof window === "undefined") {
-    return;
-  }
+  if (typeof window === "undefined") return;
+
   const bridge = window.__HUSHH_NATIVE_TEST__;
-  if (!bridge?.enabled) {
-    return;
-  }
-  const stageRank: Record<string, number> = {
-    waiting_auth: 10,
-    authenticating: 20,
-    authenticated: 30,
-    loading_vault_state: 40,
-    unlocking_vault: 50,
-    vault_unlocked: 60,
-    auth_error: 70,
-    uid_mismatch: 70,
-    vault_error: 70,
-  };
-  const currentRank = stageRank[bridge.bootstrapState || ""] ?? 0;
-  const nextRank = stageRank[stage] ?? 0;
-  if (nextRank < currentRank) {
-    return;
-  }
+  if (!bridge?.enabled) return;
+
+  const currentRank = BOOTSTRAP_STAGE_RANK[bridge.bootstrapState || ""] ?? 0;
+  const nextRank = BOOTSTRAP_STAGE_RANK[stage] ?? 0;
+
+  if (nextRank < currentRank) return;
+
   bridge.bootstrapState = stage;
-  bridge.bootstrapUserId = options?.userId ?? bridge.bootstrapUserId ?? "";
-  bridge.bootstrapError = options?.error ?? "";
+  // 2. Cleaned up assignment logic to be more explicit
+  if (options?.userId !== undefined) bridge.bootstrapUserId = options.userId || "";
+  if (options?.error !== undefined) bridge.bootstrapError = options.error || "";
 }
 
 let nativeTestReviewerBootstrapInflight: Promise<void> | null = null;
@@ -49,33 +50,25 @@ export function NativeTestBootstrap() {
   const config = useNativeTestConfig();
   const { loading: authLoading, user, setNativeUser } = useAuth();
   const { isVaultUnlocked, unlockVault } = useVault();
+
   const authAttemptedRef = useRef(false);
   const unlockedForUidRef = useRef<string | null>(null);
 
+  // --- 1. Auth Bootstrap Effect ---
   useEffect(() => {
-    if (!config.enabled || !config.autoReviewerLogin) {
-      return;
-    }
+    if (!config.enabled || !config.autoReviewerLogin) return;
 
     if (authLoading) {
-      updateBootstrapStatus("waiting_auth", {
-        userId: user?.uid ?? null,
-      });
+      updateBootstrapStatus("waiting_auth", { userId: user?.uid ?? null });
       return;
     }
 
     if (user) {
-      updateBootstrapStatus("authenticated", {
-        userId: user.uid,
-      });
+      updateBootstrapStatus("authenticated", { userId: user.uid });
       return;
     }
 
-    if (authAttemptedRef.current) {
-      return;
-    }
-
-    if (Date.now() < nativeTestReviewerBootstrapCooldownUntil) {
+    if (authAttemptedRef.current || Date.now() < nativeTestReviewerBootstrapCooldownUntil) {
       return;
     }
 
@@ -87,42 +80,35 @@ export function NativeTestBootstrap() {
         const localReviewerCredentials = resolveLocalReviewerCredentials(
           typeof window !== "undefined" ? window.location.hostname : null
         );
+
         const authResult = localReviewerCredentials
           ? await AuthService.signInWithEmailAndPassword(
-              localReviewerCredentials.email,
-              localReviewerCredentials.password
-            )
+            localReviewerCredentials.email,
+            localReviewerCredentials.password
+          )
           : await (async () => {
-              const { token } = await ApiService.createAppReviewModeSession("reviewer", {
-                smokePassphrase: config.vaultPassphrase,
-              });
-              return AuthService.signInWithCustomToken(token);
-            })();
+            const { token } = await ApiService.createAppReviewModeSession("reviewer", {
+              smokePassphrase: config.vaultPassphrase,
+            });
+            return AuthService.signInWithCustomToken(token);
+          })();
+
         const authenticatedUser = authResult.user;
 
         if (!authenticatedUser) {
           throw new Error("Native test bootstrap returned no authenticated user");
         }
 
-        if (
-          config.expectedUserId &&
-          authenticatedUser.uid !== config.expectedUserId
-        ) {
-          throw new Error(
-            `Native test bootstrap signed in unexpected uid ${authenticatedUser.uid}`
-          );
+        if (config.expectedUserId && authenticatedUser.uid !== config.expectedUserId) {
+          throw new Error(`Native test bootstrap signed in unexpected uid ${authenticatedUser.uid}`);
         }
 
         setNativeUser(authenticatedUser);
-        updateBootstrapStatus("authenticated", {
-          userId: authenticatedUser.uid,
-        });
+        updateBootstrapStatus("authenticated", { userId: authenticatedUser.uid });
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Native test auth bootstrap failed";
-        updateBootstrapStatus("auth_error", {
-          error: message,
-        });
+        const message = error instanceof Error ? error.message : "Native test auth bootstrap failed";
+        updateBootstrapStatus("auth_error", { error: message });
+
         if (/rate limit exceeded/i.test(message)) {
           nativeTestReviewerBootstrapCooldownUntil = Date.now() + 60_000;
         }
@@ -141,12 +127,9 @@ export function NativeTestBootstrap() {
     user,
   ]);
 
+  // --- 2. Vault Unlock Bootstrap Effect ---
   useEffect(() => {
-    if (!config.enabled || !config.autoReviewerLogin || !config.vaultPassphrase) {
-      return;
-    }
-
-    if (!user) {
+    if (!config.enabled || !config.autoReviewerLogin || !config.vaultPassphrase || !user) {
       return;
     }
 
@@ -160,9 +143,7 @@ export function NativeTestBootstrap() {
 
     if (isVaultUnlocked) {
       unlockedForUidRef.current = user.uid;
-      updateBootstrapStatus("vault_unlocked", {
-        userId: user.uid,
-      });
+      updateBootstrapStatus("vault_unlocked", { userId: user.uid });
       return;
     }
 
@@ -171,16 +152,14 @@ export function NativeTestBootstrap() {
     }
 
     unlockedForUidRef.current = user.uid;
-    updateBootstrapStatus("loading_vault_state", {
-      userId: user.uid,
-    });
+    updateBootstrapStatus("loading_vault_state", { userId: user.uid });
 
-    void (async () => {
+    // 3. Extracted to a named async function instead of void IIFE for cleaner stack traces
+    const processVaultUnlock = async () => {
       try {
         const vaultState = await VaultService.getVaultState(user.uid);
-        updateBootstrapStatus("unlocking_vault", {
-          userId: user.uid,
-        });
+        updateBootstrapStatus("unlocking_vault", { userId: user.uid });
+
         const decryptedKey = await VaultService.unlockWithMethod({
           state: vaultState,
           method: "passphrase",
@@ -191,24 +170,20 @@ export function NativeTestBootstrap() {
           throw new Error("Vault unlock returned no decrypted key");
         }
 
-        const { token, expiresAt } = await VaultService.getOrIssueVaultOwnerToken(
-          user.uid
-        );
+        const { token, expiresAt } = await VaultService.getOrIssueVaultOwnerToken(user.uid);
         unlockVault(decryptedKey, token, expiresAt);
-        updateBootstrapStatus("vault_unlocked", {
-          userId: user.uid,
-        });
+
+        updateBootstrapStatus("vault_unlocked", { userId: user.uid });
       } catch (error) {
         unlockedForUidRef.current = null;
-        const message =
-          error instanceof Error ? error.message : "Native test vault bootstrap failed";
-        updateBootstrapStatus("vault_error", {
-          userId: user.uid,
-          error: message,
-        });
+        const message = error instanceof Error ? error.message : "Native test vault bootstrap failed";
+        updateBootstrapStatus("vault_error", { userId: user.uid, error: message });
         console.error("[NativeTestBootstrap] Vault bootstrap failed:", error);
       }
-    })();
+    };
+
+    void processVaultUnlock();
+
   }, [
     config.autoReviewerLogin,
     config.enabled,

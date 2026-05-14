@@ -1,20 +1,20 @@
+"use client";
+
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import MarketplaceRiaProfilePageClient from "./page-client";
 
-type SearchParamsInput = Record<string, string | string[] | undefined>;
-
-function firstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] || "" : value || "";
+function RiaProfileContent() {
+  const searchParams = useSearchParams();
+  const riaId = (searchParams.get("riaId") || "").trim();
+  
+  return <MarketplaceRiaProfilePageClient riaId={riaId} />;
 }
 
-export default function MarketplaceRiaProfilePage({
-  searchParams,
-}: {
-  searchParams?: SearchParamsInput;
-}) {
-  const resolvedSearchParams = searchParams || {};
+export default function MarketplaceRiaProfilePage() {
   return (
-    <MarketplaceRiaProfilePageClient
-      riaId={firstParam(resolvedSearchParams.riaId).trim()}
-    />
+    <Suspense fallback={<div>Loading RIA profile...</div>}>
+      <RiaProfileContent />
+    </Suspense>
   );
 }
