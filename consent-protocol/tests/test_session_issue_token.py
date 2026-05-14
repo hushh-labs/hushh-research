@@ -23,6 +23,7 @@ def test_issue_session_token_invalid_firebase_token_returns_401(monkeypatch):
     monkeypatch.setattr(session, "verify_firebase_bearer", _raise_invalid_token)
 
     client = TestClient(_build_app())
+
     response = client.post(
         "/api/consent/issue-token",
         json=_issue_token_payload(),
@@ -34,9 +35,14 @@ def test_issue_session_token_invalid_firebase_token_returns_401(monkeypatch):
 
 
 def test_issue_session_token_user_mismatch_returns_403(monkeypatch):
-    monkeypatch.setattr(session, "verify_firebase_bearer", lambda _authorization: "other_user")
+    monkeypatch.setattr(
+        session,
+        "verify_firebase_bearer",
+        lambda _authorization: "other_user",
+    )
 
     client = TestClient(_build_app())
+
     response = client.post(
         "/api/consent/issue-token",
         json=_issue_token_payload("user_123"),
@@ -54,6 +60,7 @@ def test_issue_session_token_unexpected_verifier_failure_returns_500(monkeypatch
     monkeypatch.setattr(session, "verify_firebase_bearer", _raise_unexpected)
 
     client = TestClient(_build_app())
+
     response = client.post(
         "/api/consent/issue-token",
         json=_issue_token_payload(),
@@ -64,11 +71,77 @@ def test_issue_session_token_unexpected_verifier_failure_returns_500(monkeypatch
     assert response.json()["detail"] == "Internal server error"
 
 
+def test_issue_session_token_rejects_vault_owner_scope(monkeypatch):
+    monkeypatch.setattr(
+        session,
+        "verify_firebase_bearer",
+        lambda _authorization: "user_123",
+    )
+
+    client = TestClient(_build_app())
+
+    response = client.post(
+        "/api/consent/issue-token",
+        json={
+            "userId": "user_123",
+            "scope": "vault.owner",
+        },
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "INVALID_SCOPE"
+
+
+def test_issue_session_token_rejects_arbitrary_scope(monkeypatch):
+    monkeypatch.setattr(
+        session,
+        "verify_firebase_bearer",
+        lambda _authorization: "user_123",
+    )
+
+    client = TestClient(_build_app())
+
+    response = client.post(
+        "/api/consent/issue-token",
+        json={
+            "userId": "user_123",
+            "scope": "pkm.write",
+        },
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "INVALID_SCOPE"
+
+
+def test_issue_session_token_accepts_session_scope(monkeypatch):
+    monkeypatch.setattr(
+        session,
+        "verify_firebase_bearer",
+        lambda _authorization: "user_123",
+    )
+
+    client = TestClient(_build_app())
+
+    response = client.post(
+        "/api/consent/issue-token",
+        json={
+            "userId": "user_123",
+            "scope": "session",
+        },
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 200
+
+
 class _FakeConsentDBService:
     async def get_audit_log(self, user_id: str, page: int, limit: int):
         assert user_id == "user_123"
         assert page == 2
         assert limit == 10
+
         return {
             "page": page,
             "limit": limit,
@@ -78,6 +151,7 @@ class _FakeConsentDBService:
 
     async def get_active_tokens(self, user_id: str):
         assert user_id == "user_123"
+
         return [
             {
                 "developer": "developer:test_app",
@@ -92,26 +166,56 @@ class _FakeConsentDBService:
 
 def test_consent_history_uses_vault_owner_dependency(monkeypatch):
     app = _build_app()
-    app.dependency_overrides[session.require_vault_owner_token] = lambda: {"user_id": "user_123"}
-    monkeypatch.setattr(session, "ConsentDBService", _FakeConsentDBService)
+
+    app.dependency_overrides[session.require_vault_owner_token] = (
+        lambda: {"user_id": "user_123"}
+    )
+
+    monkeypatch.setattr(
+        session,
+        "ConsentDBService",
+        _FakeConsentDBService,
+    )
 
     client = TestClient(app)
+
     response = client.get(
-        "/api/consent/history", params={"userId": "user_123", "page": 2, "limit": 10}
+        "/api/consent/history",
+        params={
+            "userId": "user_123",
+            "page": 2,
+            "limit": 10,
+        },
     )
 
     assert response.status_code == 200
+
     payload = response.json()
-    assert payload["items"] == [{"agent_id": "agent_a", "action": "GRANTED"}]
-    assert payload["grouped"] == {"agent_a": [{"agent_id": "agent_a", "action": "GRANTED"}]}
+
+    assert payload["items"] == [
+        {"agent_id": "agent_a", "action": "GRANTED"}
+    ]
+
+    assert payload["grouped"] == {
+        "agent_a": [
+            {"agent_id": "agent_a", "action": "GRANTED"}
+        ]
+    }
 
 
 def test_consent_history_rejects_token_user_mismatch():
     app = _build_app()
-    app.dependency_overrides[session.require_vault_owner_token] = lambda: {"user_id": "other_user"}
+
+    app.dependency_overrides[session.require_vault_owner_token] = (
+        lambda: {"user_id": "other_user"}
+    )
 
     client = TestClient(app)
-    response = client.get("/api/consent/history", params={"userId": "user_123"})
+
+    response = client.get(
+        "/api/consent/history",
+        params={"userId": "user_123"},
+    )
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Token user mismatch"
@@ -119,24 +223,155 @@ def test_consent_history_rejects_token_user_mismatch():
 
 def test_active_consents_uses_vault_owner_dependency(monkeypatch):
     app = _build_app()
-    app.dependency_overrides[session.require_vault_owner_token] = lambda: {"user_id": "user_123"}
-    monkeypatch.setattr(session, "ConsentDBService", _FakeConsentDBService)
+
+    app.dependency_overrides[session.require_vault_owner_token] = (
+        lambda: {"user_id": "user_123"}
+    )
+
+    monkeypatch.setattr(
+        session,
+        "ConsentDBService",
+        _FakeConsentDBService,
+    )
 
     client = TestClient(app)
-    response = client.get("/api/consent/active", params={"userId": "user_123"})
+
+    response = client.get(
+        "/api/consent/active",
+        params={"userId": "user_123"},
+    )
 
     assert response.status_code == 200
+
     payload = response.json()
+
     assert payload["active"][0]["id"] == "tok_123"
-    assert payload["grouped"]["developer:test_app"]["appName"] == "test_app"
+
+    assert (
+        payload["grouped"]["developer:test_app"]["appName"]
+        == "test_app"
+    )
 
 
 def test_active_consents_rejects_token_user_mismatch():
     app = _build_app()
-    app.dependency_overrides[session.require_vault_owner_token] = lambda: {"user_id": "other_user"}
+
+    app.dependency_overrides[session.require_vault_owner_token] = (
+        lambda: {"user_id": "other_user"}
+    )
 
     client = TestClient(app)
-    response = client.get("/api/consent/active", params={"userId": "user_123"})
+
+    response = client.get(
+        "/api/consent/active",
+        params={"userId": "user_123"},
+    )
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Token user mismatch"
+
+
+def test_consent_history_rejects_negative_page():
+    app = _build_app()
+
+    app.dependency_overrides[session.require_vault_owner_token] = (
+        lambda: {"user_id": "user_123"}
+    )
+
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/consent/history",
+        params={
+            "userId": "user_123",
+            "page": -1,
+            "limit": 50,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_consent_history_rejects_oversized_limit():
+    app = _build_app()
+
+    app.dependency_overrides[session.require_vault_owner_token] = (
+        lambda: {"user_id": "user_123"}
+    )
+
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/consent/history",
+        params={
+            "userId": "user_123",
+            "page": 1,
+            "limit": 100000,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_logout_invalid_firebase_token_returns_401(monkeypatch):
+    def _raise_invalid_token(_authorization: str | None) -> str:
+        raise ValueError("malformed firebase token")
+
+    monkeypatch.setattr(
+        session,
+        "verify_firebase_bearer",
+        _raise_invalid_token,
+    )
+
+    client = TestClient(_build_app())
+
+    response = client.post(
+        "/api/consent/logout",
+        json={"userId": "user_123"},
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid token"
+
+
+def test_logout_user_mismatch_returns_403(monkeypatch):
+    monkeypatch.setattr(
+        session,
+        "verify_firebase_bearer",
+        lambda _authorization: "other_user",
+    )
+
+    client = TestClient(_build_app())
+
+    response = client.post(
+        "/api/consent/logout",
+        json={"userId": "user_123"},
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "userId mismatch"
+
+
+def test_logout_valid_request_returns_success(monkeypatch):
+    monkeypatch.setattr(
+        session,
+        "verify_firebase_bearer",
+        lambda _authorization: "user_123",
+    )
+
+    client = TestClient(_build_app())
+
+    response = client.post(
+        "/api/consent/logout",
+        json={"userId": "user_123"},
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 200
+
+    payload = response.json()
+
+    assert payload["status"] == "success"
+    assert payload["message"] == "Session tokens marked for revocation"

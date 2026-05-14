@@ -1,0 +1,164 @@
+# Query: response.json().catch
+# ContextLines: 1
+
+34 results - 24 files
+
+hushh-webapp\app\api\account\[...path]\route.ts:
+  55      });
+  56:     const data = await response.json().catch(() => ({}));
+  57      return withRequestIdJson(requestId, data, { status: response.status });
+
+hushh-webapp\app\api\app-config\review-mode\session\route.ts:
+  25  
+  26:     const payload = await response.json().catch(() => ({}));
+  27      return NextResponse.json(payload, {
+
+hushh-webapp\app\api\notifications\register\route.ts:
+  36  
+  37:     const data = await response.json().catch(() => ({}));
+  38      if (!response.ok) {
+
+hushh-webapp\app\api\notifications\unregister\route.ts:
+  36  
+  37:     const data = await response.json().catch(() => ({}));
+  38      if (!response.ok) {
+
+hushh-webapp\app\api\one\[...path]\route.ts:
+  59      });
+  60:     const data = await response.json().catch(() => ({}));
+  61      return withRequestIdJson(requestId, data, { status: response.status });
+
+hushh-webapp\app\api\tickers\all\route.ts:
+  39  
+  40:     const data: unknown = await response.json().catch(() => []);
+  41  
+
+hushh-webapp\app\api\tickers\search\route.ts:
+  44  
+  45:     const data: unknown = await response.json().catch(() => []);
+  46  
+
+hushh-webapp\app\api\tickers\sync-holdings\[userId]\route.ts:
+  39  
+  40:     const data: unknown = await response.json().catch(() => ({}));
+  41      if (!response.ok) {
+
+hushh-webapp\app\api\vault\bootstrap-state\route.ts:
+  76  
+  77:       const payload = await response.json().catch(() => ({}));
+  78        return {
+
+hushh-webapp\app\api\vault\pre-vault-state\route.ts:
+  50  
+  51:     const payload = await response.json().catch(() => ({}));
+  52      if (!response.ok) {
+
+hushh-webapp\app\kai\optimize\page.tsx:
+  376          if (!response.ok) {
+  377:           const errorData = await response.json().catch(() => ({}));
+  378            const errorRecord =
+
+hushh-webapp\components\consent\notification-provider.tsx:
+  132      if (!response.ok) return [];
+  133:     const json = await response.json().catch(() => ({}));
+  134      const pending = Array.isArray(json.pending) ? (json.pending as PendingConsent[]) : [];
+
+hushh-webapp\components\kai\kai-flow.tsx:
+  1920            if (activeRunResponse.ok) {
+  1921:             const activePayload = (await activeRunResponse.json().catch(() => null)) as
+  1922                | { run?: { run_id?: unknown; status?: unknown } }
+
+  2002            if (startResponse.status === 409) {
+  2003:             const conflict = (await startResponse.json().catch(() => null)) as
+  2004                | {
+
+hushh-webapp\lib\capacitor\plugins\kai-web.ts:
+  239      if (!response.ok) {
+  240:       const errorData = await response.json().catch(() => ({}));
+  241        throw new Error(
+
+hushh-webapp\lib\capacitor\plugins\personal-knowledge-model-web.ts:
+  291        if (response.status === 409) {
+  292:         const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  293          const detail =
+
+hushh-webapp\lib\notifications\fcm-service.ts:
+  181  
+  182:   const payload = await response.json().catch(() => ({}));
+  183    if (!response.ok || !payload?.authToken?.token) {
+
+hushh-webapp\lib\portfolio-share\client.ts:
+  587      const response = await ApiService.createPortfolioShareLink({ payload });
+  588:     const body = (await response.json().catch(() => null)) as
+  589        | {
+
+hushh-webapp\lib\services\api-service.ts:
+   216      if (contentType.includes("application/json")) {
+   217:       const payload = (await response.json().catch(() => null)) as
+   218          | { error?: unknown; detail?: unknown; details?: unknown }
+
+  1221      const response = await ApiService.getKaiVoiceCapability(data);
+  1222:     const payload = (await response.json().catch(() => ({}))) as Partial<VoiceCapabilityResponse>;
+  1223      if (!response.ok) {
+
+  1265  
+  1266:       const data = (await response.json().catch(() => ({}))) as {
+  1267          enabled?: unknown;
+
+  1304  
+  1305:       const payload = (await response.json().catch(() => ({}))) as Record<
+  1306          string,
+
+hushh-webapp\lib\services\consent-center-service.ts:
+  243  
+  244:     const payload = (await response.json().catch(() => ({}))) as ConsentCenterResponse & {
+  245        detail?: string;
+
+  272      });
+  273:     const payload = (await response.json().catch(() => ({ items: [] }))) as {
+  274        items?: ConsentCenterEntry[];
+
+  305      });
+  306:     const payload = (await response.json().catch(() => ({}))) as ConsentCenterPageSummary & ErrorPayload;
+  307      if (!response.ok) {
+
+  369      });
+  370:     const payload = (await response.json().catch(() => ({}))) as ConsentCenterPageListResponse &
+  371        ErrorPayload;
+
+  395  
+  396:     const body = (await response.json().catch(() => ({}))) as {
+  397        detail?: string;
+
+  432  
+  433:     const payload = (await response.json().catch(() => ({}))) as HandshakeHistoryResponse &
+  434        ErrorPayload;
+
+  454  
+  455:     const body = (await response.json().catch(() => ({}))) as {
+  456        detail?: string;
+
+hushh-webapp\lib\services\demo-mode-template-service.ts:
+  21  
+  22:   return response.json().catch(() => ({}));
+  23  }
+
+hushh-webapp\lib\services\personal-knowledge-model-service.ts:
+  980  
+  981:         const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  982          const changeCount =
+
+hushh-webapp\lib\services\ria-service.ts:
+  729  async function toJsonOrThrow<T>(response: Response): Promise<T> {
+  730:   const payload = (await response.json().catch(() => ({}))) as T & ErrorPayload;
+  731    if (!response.ok) {
+
+hushh-webapp\lib\services\support-service.ts:
+  50  
+  51:     const payload = (await response.json().catch(() => ({}))) as
+  52        | SubmitSupportMessageResponse
+
+hushh-webapp\lib\services\vault-service.ts:
+  821            if (!response.ok) {
+  822:             const payload = await response.json().catch(() => undefined);
+  823              const message =

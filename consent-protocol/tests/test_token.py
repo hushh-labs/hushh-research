@@ -1,6 +1,11 @@
 # tests/test_token.py
 
-from hushh_mcp.consent.token import is_token_revoked, issue_token, revoke_token, validate_token
+from hushh_mcp.consent.token import (
+    is_token_revoked,
+    issue_token,
+    revoke_token,
+    validate_token,
+)
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.types import HushhConsentToken
 
@@ -24,7 +29,10 @@ def test_issue_and_validate_token():
 
 def test_issue_and_validate_agent_kai_execute_token():
     token_obj = issue_token(USER_ID, AGENT_ID, ConsentScope.AGENT_KAI_EXECUTE)
-    valid, reason, parsed = validate_token(token_obj.token, ConsentScope.AGENT_KAI_EXECUTE)
+    valid, reason, parsed = validate_token(
+        token_obj.token,
+        ConsentScope.AGENT_KAI_EXECUTE,
+    )
 
     assert valid is True
     assert reason is None
@@ -35,7 +43,12 @@ def test_issue_and_validate_agent_kai_execute_token():
 
 def test_token_scope_mismatch():
     token_obj = issue_token(USER_ID, AGENT_ID, VALID_SCOPE)
-    valid, reason, _ = validate_token(token_obj.token, ConsentScope.PKM_WRITE)
+
+    valid, reason, _ = validate_token(
+        token_obj.token,
+        ConsentScope.PKM_WRITE,
+    )
+
     assert valid is False
     # Reason includes expected vs actual scope for debuggability
     assert reason is not None
@@ -43,8 +56,15 @@ def test_token_scope_mismatch():
 
 
 def test_token_expiry():
-    token_obj = issue_token(USER_ID, AGENT_ID, VALID_SCOPE, expires_in_ms=-1000)
+    token_obj = issue_token(
+        USER_ID,
+        AGENT_ID,
+        VALID_SCOPE,
+        expires_in_ms=-1000,
+    )
+
     valid, reason, _ = validate_token(token_obj.token, VALID_SCOPE)
+
     assert valid is False
     assert reason == "Token expired"
 
@@ -87,17 +107,49 @@ def test_token_extra_signature_separator_fails_without_crashing():
 
 def test_token_revocation():
     token_obj = issue_token(USER_ID, AGENT_ID, VALID_SCOPE)
+
     revoke_token(token_obj.token)
+
     assert is_token_revoked(token_obj.token) is True
 
     valid, reason, _ = validate_token(token_obj.token, VALID_SCOPE)
+
     assert valid is False
     assert reason == "Token has been revoked"
 
 
 def test_signature_tampering():
     token_obj = issue_token(USER_ID, AGENT_ID, VALID_SCOPE)
+
     tampered = token_obj.token.replace("HCT:", "HCT_TAMPERED:")
+
     valid, reason, _ = validate_token(tampered, VALID_SCOPE)
+
     assert valid is False
     assert "Malformed token" in reason or "Invalid token prefix" in reason
+
+
+def test_oversized_token_is_rejected():
+    huge_token = "HCT:" + ("A" * 5000)
+
+    valid, reason, token = validate_token(huge_token)
+
+    assert valid is False
+    assert reason == "Malformed token"
+    assert token is None
+
+
+def test_empty_token_is_rejected():
+    valid, reason, token = validate_token("")
+
+    assert valid is False
+    assert reason == "Malformed token"
+    assert token is None
+
+
+def test_whitespace_token_is_rejected():
+    valid, reason, token = validate_token("   ")
+
+    assert valid is False
+    assert reason == "Malformed token"
+    assert token is None
