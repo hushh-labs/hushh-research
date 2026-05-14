@@ -63,7 +63,8 @@
       "surface_title": "One KYC Workflows",
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ],
       "contract_file": "hushh-webapp/app/one/kyc/page.voice-action-contract.json",
       "defaults": {
@@ -1170,7 +1171,8 @@
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -1238,7 +1240,8 @@
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -1306,7 +1309,8 @@
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -1375,7 +1379,8 @@
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -1445,7 +1450,8 @@
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -1513,7 +1519,8 @@
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ],
       "workflow": null,
       "expected_effects": {

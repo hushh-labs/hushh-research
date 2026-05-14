@@ -302,8 +302,77 @@ logger.info(
 
 
 # ============================================================================
-# CONSENT NOTIFY LISTENER (event-driven SSE + push)
+# STARTUP HOOKS
+# Order matters: pool + IAM cache must run BEFORE required_schema_guard so
+# that the guard reuses the already-warm pool instead of paying cold-start
+# connection cost a second time.
 # ============================================================================
+
+
+@app.on_event("startup")
+async def startup_pool_and_iam_cache() -> None:
+    """Eagerly create the asyncpg pool and pre-populate the IAM schema cache.
+
+    Why this exists
+    ---------------
+    Without this hook the asyncpg pool is created lazily on the very first
+    in-flight API request.  That means the first real user request after a
+    worker restart pays:
+
+      • ~2-3 s  pool creation + TLS handshake to Cloud SQL / Supabase pooler
+      • ~1 300 ms  _ensure_iam_schema_ready() cold path (13 table-existence
+                   checks, each ~50-80 ms over the Cloud SQL proxy)
+
+    By forcing pool creation and running _batch_tables_exist() here we move
+    that cost to process startup, so the first user request hits both the
+    warm pool fast path and the cached IAM schema fast path.
+
+    Failure behaviour
+    -----------------
+    Non-fatal: if the DB is unreachable at startup (e.g. local dev without
+    the Cloud SQL proxy running), we log a warning and continue.  The
+    per-request fallback in _ensure_iam_schema_ready() still works — it will
+    just pay the cold-start cost on the first request as before.
+    startup_required_schema_guard (below) will enforce hard failure in
+    production if the DB is truly missing.
+    """
+    from db.connection import get_pool
+    from hushh_mcp.services.ria_iam_service import (
+        _IAM_REQUIRED_TABLES,
+        RIAIAMService,
+    )
+
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            present = await RIAIAMService._batch_tables_exist(conn, _IAM_REQUIRED_TABLES)
+            if present >= set(_IAM_REQUIRED_TABLES):
+                # Also flip the process-level boolean so the very first
+                # _ensure_iam_schema_ready() call takes the one-line fast path.
+                import hushh_mcp.services.ria_iam_service as _iam_mod
+
+                _iam_mod._IAM_SCHEMA_READY_CACHE = True
+                logger.info(
+                    "startup.pool_and_iam_cache_seeded tables_confirmed=%d pool_min=%d pool_max=%d",
+                    len(present),
+                    pool.get_min_size(),
+                    pool.get_max_size(),
+                )
+            else:
+                missing = set(_IAM_REQUIRED_TABLES) - present
+                logger.warning(
+                    "startup.iam_schema_incomplete missing_tables=%s  "
+                    "(startup_required_schema_guard will enforce hard failure if needed)",
+                    sorted(missing),
+                )
+    except Exception as exc:
+        # Non-fatal at this stage — startup_required_schema_guard handles
+        # production enforcement below.
+        logger.warning(
+            "startup.pool_and_iam_cache_seed_failed reason=%s  "
+            "(first request will pay cold-start cost)",
+            exc,
+        )
 
 
 @app.on_event("startup")
@@ -352,7 +421,12 @@ async def startup_regulated_runtime_guards():
 
 @app.on_event("startup")
 async def startup_required_schema_guard():
-    """Fail fast when the runtime database is missing core contract tables."""
+    """Fail fast when the runtime database is missing core contract tables.
+
+    Note: startup_pool_and_iam_cache (above) already acquired and released a
+    pool connection, so get_pool() here returns the already-warm singleton —
+    no second TLS handshake is paid.
+    """
     from db.connection import get_pool
 
     try:
@@ -404,6 +478,28 @@ async def startup_remote_mcp_transport():
 async def shutdown_remote_mcp_transport():
     """Stop the hosted remote MCP session manager."""
     await shutdown_remote_mcp()
+
+
+@app.on_event("startup")
+async def startup_market_cache_store_table():
+    """Ensure the L2 market cache table exists before any request hits it."""
+    from hushh_mcp.services.market_cache_store import get_market_cache_store_service
+
+    try:
+        await get_market_cache_store_service().ensure_table()
+    except Exception as exc:
+        if _require_database_on_startup():
+            logger.critical(
+                "startup.market_cache_store_table_failed environment=%s reason=%s",
+                _environment(),
+                exc,
+            )
+            raise
+        logger.warning(
+            "startup.market_cache_store_table_skipped environment=%s reason=%s",
+            _environment(),
+            exc,
+        )
 
 
 @app.on_event("startup")
