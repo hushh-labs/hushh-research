@@ -13,7 +13,7 @@ npm --version
 # The integration lane only owns cross-surface checks.
 # Frontend typecheck/test/build stay in the dedicated Web job.
 if [ ! -d node_modules/vitest ] || [ ! -x node_modules/.bin/vitest ]; then
-  npm install --ignore-scripts --no-audit
+  npm install --no-audit
 fi
 
 cd "$REPO_ROOT"
