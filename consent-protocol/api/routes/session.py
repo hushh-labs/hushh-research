@@ -7,7 +7,7 @@ import logging
 import os
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
 from api.middleware import require_vault_owner_token
 from api.models import LogoutRequest, SessionTokenRequest, SessionTokenResponse
@@ -59,12 +59,23 @@ async def issue_session_token(
         raise HTTPException(status_code=500, detail="Internal server error")
 
     try:
-        # Issue token with session scope
-        # Issue token with session scope
-        # If request asks for "session", grant VAULT_OWNER (Master Scope)
-        scope_to_grant = (
-            ConsentScope.VAULT_OWNER if request.scope == "session" else ConsentScope(request.scope)
-        )
+        # SECURITY:
+        # Only the "session" scope is allowed for self-issued tokens.
+        # Prevent arbitrary ConsentScope construction from user-controlled input.
+        _ALLOWED_SESSION_SCOPES = {"session"}
+
+        if request.scope not in _ALLOWED_SESSION_SCOPES:
+            logger.warning("session_token.invalid_scope scope=%s", request.scope)
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error_code": "INVALID_SCOPE",
+                    "message": "Only 'session' scope is supported.",
+                },
+            )
+
+        # "session" maps to VAULT_OWNER master scope
+        scope_to_grant = ConsentScope.VAULT_OWNER
 
         token_obj = issue_token(
             user_id=request.userId,
@@ -81,19 +92,47 @@ async def issue_session_token(
             expiresAt=token_obj.expires_at,
             scope=request.scope,
         )
+
+    except HTTPException:
+        raise
+
     except Exception as e:
         logger.error("session_token.issue_failed: %s", e)
         raise HTTPException(status_code=500, detail="Failed to issue session token")
 
 
 @router.post("/consent/logout")
-async def logout_session(request: LogoutRequest):
+async def logout_session(
+    request: LogoutRequest,
+    authorization: Optional[str] = Header(None),
+):
     """
     Destroy all session tokens for a user.
 
     Called when user logs out. Invalidates all active session tokens.
     External API tokens are NOT affected.
     """
+
+    try:
+        verified_uid = verify_firebase_bearer(authorization)
+
+        # Ensure request userId matches verified token
+        if request.userId != verified_uid:
+            logger.warning("session_logout.user_mismatch")
+            raise HTTPException(status_code=403, detail="userId mismatch")
+
+        logger.info("session_logout.firebase_verified")
+
+    except HTTPException:
+        raise
+
+    except ValueError as e:
+        logger.warning("session_logout.invalid_token: %s", e)
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    except Exception as e:
+        logger.error("session_logout.internal_error: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
     logger.info("session.logout")
 
@@ -109,9 +148,9 @@ async def logout_session(request: LogoutRequest):
 
 @router.get("/consent/history")
 async def get_consent_history(
-    userId: str,
-    page: int = 1,
-    limit: int = 50,
+    userId: str = Query(..., min_length=1, max_length=256),
+    page: int = Query(default=1, ge=1, le=10_000),
+    limit: int = Query(default=50, ge=1, le=200),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -133,10 +172,13 @@ async def get_consent_history(
 
         # Group by agent_id for frontend display
         grouped: dict[str, list[dict[str, Any]]] = {}
+
         for item in result.get("items", []):
             agent = item.get("agent_id", "Unknown")
+
             if agent not in grouped:
                 grouped[agent] = []
+
             grouped[agent].append(item)
 
         return {
@@ -147,9 +189,11 @@ async def get_consent_history(
             "items": result.get("items", []),
             "grouped": grouped,
         }
+
     except Exception as e:
         # SECURITY: Log error details server-side, return generic message (CodeQL fix)
         logger.error("consent_history.fetch_failed: %s", e)
+
         return {
             "userId": userId,
             "page": page,
@@ -163,7 +207,7 @@ async def get_consent_history(
 
 @router.get("/consent/active")
 async def get_active_consents(
-    userId: str,
+    userId: str = Query(..., min_length=1, max_length=256),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -185,10 +229,16 @@ async def get_active_consents(
 
         # Group by developer/app
         grouped = {}
+
         for token in active_tokens:
             app = token.get("developer", "Unknown App")
+
             if app not in grouped:
-                grouped[app] = {"appName": app.replace("developer:", ""), "scopes": []}
+                grouped[app] = {
+                    "appName": app.replace("developer:", ""),
+                    "scopes": [],
+                }
+
             grouped[app]["scopes"].append(
                 {
                     "scope": token.get("scope"),
@@ -199,11 +249,20 @@ async def get_active_consents(
                 }
             )
 
-        return {"grouped": grouped, "active": active_tokens}
+        return {
+            "grouped": grouped,
+            "active": active_tokens,
+        }
+
     except Exception as e:
         # SECURITY: Log error details server-side, return generic message (CodeQL fix)
         logger.error("consent_active.fetch_failed: %s", e)
-        return {"grouped": {}, "active": [], "error": "Failed to fetch active consents"}
+
+        return {
+            "grouped": {},
+            "active": [],
+            "error": "Failed to fetch active consents",
+        }
 
 
 @router.get("/user/lookup")
@@ -213,7 +272,10 @@ async def lookup_user(
     phone_number: Optional[str] = None,
     country_iso2: Optional[str] = None,
     country: Optional[str] = None,
-    x_mcp_developer_token: Optional[str] = Header(None, alias="X-MCP-Developer-Token"),
+    x_mcp_developer_token: Optional[str] = Header(
+        None,
+        alias="X-MCP-Developer-Token",
+    ),
 ):
     """
     Look up a user by Firebase UID, email, or phone number and return their Firebase UID.
@@ -231,14 +293,22 @@ async def lookup_user(
 
     Or for non-existent users:
     - exists: False
-     - message: Friendly error message
+    - message: Friendly error message
     """
     from firebase_admin import auth
 
     required_token = str(os.getenv("HUSHH_DEVELOPER_TOKEN", "")).strip()
+
     if not required_token:
-        raise HTTPException(status_code=503, detail="Lookup endpoint not configured")
-    if not x_mcp_developer_token or x_mcp_developer_token != required_token:
+        raise HTTPException(
+            status_code=503,
+            detail="Lookup endpoint not configured",
+        )
+
+    if (
+        not x_mcp_developer_token
+        or x_mcp_developer_token != required_token
+    ):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     try:
@@ -249,6 +319,7 @@ async def lookup_user(
             country_iso2=country_iso2,
             country=country,
         )
+
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -256,18 +327,37 @@ async def lookup_user(
 
     try:
         firebase_app = get_firebase_auth_app()
+
         if firebase_app is None:
-            raise HTTPException(status_code=503, detail="Firebase Admin not configured")
+            raise HTTPException(
+                status_code=503,
+                detail="Firebase Admin not configured",
+            )
 
         if lookup_kind == "email":
-            user_record = auth.get_user_by_email(lookup_value, app=firebase_app)
+            user_record = auth.get_user_by_email(
+                lookup_value,
+                app=firebase_app,
+            )
+
         elif lookup_kind == "phone":
-            user_record = auth.get_user_by_phone_number(lookup_value, app=firebase_app)
+            user_record = auth.get_user_by_phone_number(
+                lookup_value,
+                app=firebase_app,
+            )
+
         else:
-            user_record = auth.get_user(lookup_value, app=firebase_app)
+            user_record = auth.get_user(
+                lookup_value,
+                app=firebase_app,
+            )
 
         try:
-            ActorIdentityService().schedule_sync_from_firebase(user_record.uid, force=False)
+            ActorIdentityService().schedule_sync_from_firebase(
+                user_record.uid,
+                force=False,
+            )
+
         except Exception as identity_error:
             logger.debug(
                 "user_lookup.identity_warmup_skipped uid=%s error=%s",
@@ -282,26 +372,48 @@ async def lookup_user(
             "user_id": user_record.uid,
             "email": user_record.email,
             "phone_number": getattr(user_record, "phone_number", None),
-            "phone_verified": bool(getattr(user_record, "phone_number", None)),
-            "display_name": user_record.display_name
-            or user_record.email
-            or getattr(user_record, "phone_number", None)
-            or user_record.uid,
+            "phone_verified": bool(
+                getattr(user_record, "phone_number", None)
+            ),
+            "display_name": (
+                user_record.display_name
+                or user_record.email
+                or getattr(user_record, "phone_number", None)
+                or user_record.uid
+            ),
             "photo_url": user_record.photo_url,
             "email_verified": user_record.email_verified,
         }
 
     except auth.UserNotFoundError:
         logger.info("user_lookup.not_found")
+
         return {
             "exists": False,
             "identifier": lookup_value,
-            **({"email": lookup_value} if lookup_kind == "email" else {}),
-            **({"phone_number": lookup_value} if lookup_kind == "phone" else {}),
-            "message": f"No Hussh account found for {lookup_value}. The user needs to sign up first.",
-            "suggestion": "Ask the user to create a Hussh account at the login page.",
+            **(
+                {"email": lookup_value}
+                if lookup_kind == "email"
+                else {}
+            ),
+            **(
+                {"phone_number": lookup_value}
+                if lookup_kind == "phone"
+                else {}
+            ),
+            "message": (
+                f"No Hussh account found for {lookup_value}. "
+                "The user needs to sign up first."
+            ),
+            "suggestion": (
+                "Ask the user to create a Hussh account at the login page."
+            ),
         }
 
     except Exception as e:
         logger.error("user_lookup.error: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to look up user")
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to look up user",
+        )
