@@ -1,111 +1,123 @@
-import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono, Inter } from "next/font/google";
-import Script from "next/script";
-import "./globals.css";
-import { RootLayoutClient } from "./layout-client";
-import {
-  resolveAnalyticsMeasurementId,
-  resolveGtmContainerId,
-} from "@/lib/observability/env";
+"use client";
 
-const geistSans = Geist({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-app-body",
-});
+import React, { useMemo } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { 
+  ChevronRight, 
+  Home, 
+  Database, 
+  ShieldCheck, 
+  User,
+  LayoutDashboard
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
-const geistMono = Geist_Mono({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-app-mono",
-});
-
-const headingSans = Inter({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-app-heading",
-});
-
-const gtmContainerId = resolveGtmContainerId();
-const analyticsMeasurementId = resolveAnalyticsMeasurementId();
-
-export const metadata: Metadata = {
-  title: "Kai: Your Personal Agent",
-  description:
-    "Personal AI agents with consent at the core. Your data, your control.",
-  keywords: ["AI agents", "personal AI", "Kai", "consent-first", "privacy"],
-  authors: [{ name: "Hussh Labs" }],
-  openGraph: {
-    title: "Kai: Your Personal Agent",
-    description: "Personal AI agents with consent at the core.",
-    type: "website",
-  },
-};
-
-export const viewport: Viewport = {
-  width: "device-width",
-  initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  viewportFit: "cover",
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#1c1c1e" },
-  ],
-};
-
+/**
+ * RootLayout for hussh-webapp
+ * Provides a persistent navigation shell and dynamic breadcrumbs
+ * to handle deep nesting like /profile/my-data/gmail.
+ */
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
+
+  // Efficiently parse breadcrumbs from the URL segments
+  const breadcrumbs = useMemo(() => {
+    const segments = pathname.split("/").filter((v) => v.length > 0);
+    return segments.map((segment, index) => {
+      const path = `/${segments.slice(0, index + 1).join("/")}`;
+      return {
+        // Formats segment: "my-data" -> "My Data"
+        label: segment.charAt(0).toUpperCase() + segment.slice(1).replace(/-/g, " "),
+        path,
+        isLast: index === segments.length - 1,
+      };
+    });
+  }, [pathname]);
+
   return (
-    <html lang="en" suppressHydrationWarning className="h-full">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
-        <style>{`
-          html.dark body,
-          html.dark .morphy-app-bg {
-            background-color: rgb(28 28 30) !important;
-            background-image: none !important;
-          }
-        `}</style>
-        {analyticsMeasurementId ? (
-          <>
-            <Script
-              id="ga-base"
-              strategy="afterInteractive"
-              dangerouslySetInnerHTML={{
-                __html: `window.dataLayer = window.dataLayer || []; window.gtag = window.gtag || function(){window.dataLayer.push(arguments);}; window.gtag('js', new Date()); window.gtag('config', '${analyticsMeasurementId}', { send_page_view: false });`,
-              }}
-            />
-            <Script
-              id="ga-loader"
-              strategy="afterInteractive"
-              src={`https://www.googletagmanager.com/gtag/js?id=${analyticsMeasurementId}`}
-            />
-          </>
-        ) : null}
-        {gtmContainerId ? (
-          <Script
-            id="gtm-base"
-            strategy="afterInteractive"
-            dangerouslySetInnerHTML={{
-              __html: `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':Date.now(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode&&f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${gtmContainerId}');`,
-            }}
-          />
-        ) : null}
-      </head>
-      <RootLayoutClient
-        fontClasses={`${geistSans.variable} ${geistMono.variable} ${headingSans.variable}`}
-      >
+    <div className="flex min-h-screen w-full flex-col bg-background">
+      {/* 
+          Sticky Navigation Header 
+          Designed to be simple and efficient, reducing layout shifts.
+      */}
+      <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="container flex h-14 items-center gap-4 px-4">
+          <div className="flex items-center gap-2">
+            <Link 
+              href="/" 
+              className="flex items-center gap-2 font-semibold transition-colors hover:text-primary"
+            >
+              <div className="rounded-md bg-primary p-1">
+                <LayoutDashboard className="h-4 w-4 text-primary-foreground" />
+              </div>
+              <span className="hidden md:inline-block">hussh-labs</span>
+            </Link>
+          </div>
+
+          <nav className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
+            <ChevronRight className="h-4 w-4 shrink-0" />
+            <Link 
+              href="/" 
+              className="flex items-center gap-1 hover:text-foreground transition-colors"
+            >
+              <Home className="h-3.5 w-3.5" />
+            </Link>
+
+            {breadcrumbs.map((crumb) => (
+              <React.Fragment key={crumb.path}>
+                <ChevronRight className="h-4 w-4 shrink-0" />
+                <Link
+                  href={crumb.path}
+                  className={cn(
+                    "transition-colors hover:text-foreground",
+                    crumb.isLast ? "pointer-events-none font-bold text-foreground" : ""
+                  )}
+                >
+                  {crumb.label}
+                </Link>
+              </React.Fragment>
+            ))}
+          </nav>
+        </div>
+      </header>
+
+      {/* 
+          Main Content Shell 
+          The padding-bottom ensures content isn't cut off by floating elements.
+      */}
+      <main className="flex-1 overflow-y-auto pb-10">
         {children}
-      </RootLayoutClient>
-    </html>
+      </main>
+
+      {/* 
+          Optional Bottom Nav for Mobile Efficiency 
+          Targets high-usage areas in the hussh structure.
+      */}
+      <footer className="fixed bottom-0 z-40 w-full border-t bg-background md:hidden">
+        <div className="grid h-16 grid-cols-4 items-center justify-items-center">
+          <Link href="/kai/dashboard" className="flex flex-col items-center gap-1 text-[10px]">
+            <LayoutDashboard className="h-5 w-5" />
+            <span>Dashboard</span>
+          </Link>
+          <Link href="/profile/my-data" className="flex flex-col items-center gap-1 text-[10px]">
+            <Database className="h-5 w-5" />
+            <span>Data</span>
+          </Link>
+          <Link href="/profile/security" className="flex flex-col items-center gap-1 text-[10px]">
+            <ShieldCheck className="h-5 w-5" />
+            <span>Security</span>
+          </Link>
+          <Link href="/profile" className="flex flex-col items-center gap-1 text-[10px]">
+            <User className="h-5 w-5" />
+            <span>Profile</span>
+          </Link>
+        </div>
+      </footer>
+    </div>
   );
 }

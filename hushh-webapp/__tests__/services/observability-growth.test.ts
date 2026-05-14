@@ -22,13 +22,45 @@ declare global {
 describe("growth observability contract", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
+
     vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_ENABLED", "true");
     vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE", "1");
     vi.stubEnv("NEXT_PUBLIC_CLIENT_VERSION", "2.1.0");
+
+    Object.defineProperty(window, "localStorage", {
+      writable: true,
+      value: {
+        getItem: vi.fn(),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+        clear: vi.fn(),
+        key: vi.fn(),
+        length: 0,
+      },
+    });
+
+    Object.defineProperty(window, "sessionStorage", {
+      writable: true,
+      value: {
+        getItem: vi.fn(),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+        clear: vi.fn(),
+        key: vi.fn(),
+        length: 0,
+      },
+    });
+
     window.dataLayer = [];
+
     window.localStorage.clear();
     window.sessionStorage.clear();
-    window.history.replaceState({}, "", "/login?redirect=%2Fkai&utm_source=growth");
+
+    window.history.replaceState(
+      {},
+      "",
+      "/login?redirect=%2Fkai&utm_source=growth"
+    );
   });
 
   it("preserves entry context and emits growth events in order through dataLayer", () => {
@@ -57,22 +89,24 @@ describe("growth observability contract", () => {
     });
 
     expect(window.dataLayer).toHaveLength(3);
+
     expect(window.dataLayer?.map((entry) => entry.event)).toEqual([
       "growth_funnel_step_completed",
       "growth_funnel_step_completed",
       "investor_activation_completed",
     ]);
 
-    const [entered, authed, activated] = window.dataLayer as Array<
-      Record<string, unknown>
-    >;
+    const [entered, authed, activated] =
+      window.dataLayer as Array<Record<string, unknown>>;
 
     expect(entered.event_source).toBe("observability_v2");
     expect(entered.event_category).toBe("funnel");
     expect(entered.entry_surface).toBe("login");
+
     expect(authed.event_category).toBe("funnel");
     expect(authed.auth_method).toBe("google");
     expect(authed.entry_surface).toBe("login");
+
     expect(activated.event_category).toBe("funnel");
     expect(activated.journey).toBe("investor");
     expect(activated.portfolio_source).toBe("statement");

@@ -1,6 +1,5 @@
 "use client";
 
-import styles from "./page.module.css";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ReadonlyURLSearchParams } from "next/navigation";
@@ -2875,7 +2874,7 @@ function ProfilePageContent() {
   const profileRootContent = (
     <>
       <AppPageHeaderRegion
-        className={styles.profilePageHeaderRegion}
+        className="profilePageHeaderRegion"
       >
         <header
           className="flex w-full min-w-0 flex-col items-center gap-2.5 px-4 text-center sm:px-6"
