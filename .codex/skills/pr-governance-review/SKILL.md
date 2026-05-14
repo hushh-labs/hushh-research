@@ -64,6 +64,7 @@ Load these only when the decision needs them:
 2. `.codex/skills/pr-governance-review/references/operator-question-fixtures.json`
 3. `.codex/skills/pr-governance-review/references/blocker-gates.md`
 4. `.codex/skills/pr-governance-review/references/comment-and-report-contract.md`
+5. `.codex/skills/pr-governance-review/references/pr-train-review-sop.md`
 
 ## Workflow
 
@@ -99,9 +100,20 @@ Load these only when the decision needs them:
    - founder wiki pages define north-star and future-state alignment
    - conflicts are `current_state_vs_north_star_drift`
    - private wiki evidence stays local-only and must not be cited in public GitHub comments
-13. For high-risk or mixed-domain batches, run the delegation router and record whether evidence lanes were used:
+13. For high-volume PR train work, spawn/read from the required read-only
+    subagent taskforce before producing the operator dossier. High-volume means
+    more than `20` PRs scanned or discussed, more than `5` PRs acted on in one
+    session, any mixed frontend/backend/security/devex/observability train, any
+    repass of previous `changes_requested`/close/harvest decisions, or any
+    request to maximize throughput, scan the backlog, or run async trains.
+    Use the delegation router to choose lanes and record whether evidence lanes
+    were used:
    `python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt "<request>" --paths "<paths>" --text`
-14. Keep final authority local to the parent/governor. Do not delegate branch switching, approval, merge, deploy, credential handling, or final decision.
+14. If subagents are unavailable, record `Subagent taskforce: unavailable` and
+    manually cover the same evidence lanes. If they are available, skipping
+    them for high-volume train work is a process violation unless a concrete
+    runtime blocker is recorded.
+15. Keep final authority local to the parent/governor. Do not delegate branch switching, approval, merge, deploy, credential handling, or final decision.
 
 ### Decision Order
 
@@ -208,9 +220,9 @@ For backend or trust-runtime PRs:
 ### Changes-Requested Repass Taskforce
 
 For a high-volume repass of previous `changes_requested` decisions, use
-read-only evidence lanes when delegation is available and the batch has
-independent surfaces. The parent session keeps final authority and performs any
-GitHub writes.
+read-only evidence lanes when delegation is available. This is mandatory for
+mass repasses, async PR trains, and backlog-scale train construction; the
+parent session keeps final authority and performs any GitHub writes.
 
 Default lanes:
 
@@ -221,6 +233,11 @@ Default lanes:
 3. `root/tooling governance`: new roots, CI/workflow changes, contributor
    setup paths, repo-governance scripts, checked-in reports, and devex attach
    points.
+4. `observability/security`: diagnostic logging, analytics payload boundaries,
+   secret-scan risk, data minimization, and public-comment safety.
+5. `decision-wave communications`: existing maintainer records, edit-vs-new
+   comment posture, closure/request-changes headings, and public hyperlink
+   completeness.
 
 Each lane must return direct PR links, current head SHA, changed files,
 reachability evidence, canonical attach point if any, accepted value,
@@ -233,20 +250,32 @@ approve, merge, or post/edit comments.
 
 Use trains to maximize throughput without lowering the merge bar:
 
-1. Default live-report scan mode is `hybrid`: cheap all-open inventory, then deep review of the latest `100` PRs plus up to `40` older high-signal candidates. Use `active` for fastest latest-window reviews and `full` only for audits.
-2. Use four work lanes at the same time:
+For developer-facing train review, follow the standard operating procedure in
+`references/pr-train-review-sop.md`. That SOP is the reusable review loop for
+mass scanning, train graph construction, async queue/patch/decision lanes,
+GitHub write posture, and post-state-change report refreshes.
+
+1. For high-volume train work, start the required read-only subagent taskforce
+   before selecting trains. The default taskforce covers frontend/UI
+   reachability, backend/runtime trust, observability/security, devex/repo
+   operations, and decision-wave communications. Add a sixth lane only for a
+   real independent surface such as mobile/native parity or founder/north-star
+   direction. Do not create one subagent per PR.
+2. Default live-report scan mode is `hybrid`: cheap all-open inventory, then deep review of the latest `100` PRs plus up to `40` older high-signal candidates. Use `active` for fastest latest-window reviews and `full` only for audits.
+3. Use four work lanes at the same time:
    - `Queue Cohort`: up to `4` independent `merge_now` PRs with exact head SHA match, green `CI Status Gate`, `MERGEABLE` state, no hard collision edges, and no local dirty-file overlap.
    - `Sequential Collision Train`: PRs with hard edges from exact files, lockfiles, schema/migrations, generated contracts, sensitive runtime families, or local dirty-file overlap. Only one PR from the group moves at a time.
    - `Parallel Patch Trains`: maintainer patches with disjoint write sets and disjoint runtime families. Default maximum is `3`.
    - `Decision Waves`: changes-requested or closure records for clearly blocked PRs. These can run while queue validation is pending.
-3. Do not wait for one independent PR to complete before preparing or queueing unrelated PRs. Wait only when a PR depends on the base/result of another PR or shares a hard edge.
-4. Treat CI/Queue Validation/Main Post-Merge Smoke as an asynchronous monitor lane. Do not idle the whole operator loop while checks run.
-5. Do not start merging a dependent train until the previous train has passed Main Post-Merge Smoke and the live report has been refreshed.
-6. Treat "automatic next train" as automatic next-train discovery and review preparation, not blind approval or merge.
-7. A PR can enter a merge train only after current head, current required gate, mergeability, lane, overlap, collision group, and smallest proof are rechecked.
-8. Reports must state scan scope and completeness. If inventory, GitHub, or per-PR scanning fails, name the exact reviewed subset and failed PRs.
-9. Large-scale rhythm:
+4. Do not wait for one independent PR to complete before preparing or queueing unrelated PRs. Wait only when a PR depends on the base/result of another PR or shares a hard edge.
+5. Treat CI/Queue Validation/Main Post-Merge Smoke as an asynchronous monitor lane. Do not idle the whole operator loop while checks run.
+6. Do not start merging a dependent train until the previous train has passed Main Post-Merge Smoke and the live report has been refreshed.
+7. Treat "automatic next train" as automatic next-train discovery and review preparation, not blind approval or merge.
+8. A PR can enter a merge train only after current head, current required gate, mergeability, lane, overlap, collision group, and smallest proof are rechecked.
+9. Reports must state scan scope and completeness. If inventory, GitHub, or per-PR scanning fails, name the exact reviewed subset and failed PRs.
+10. Large-scale rhythm:
    - mass classify open PRs
+   - start specialist read-only evidence lanes for each independent evidence family
    - close/request changes for clear drifts in waves
    - queue independent proven cohorts
    - sequence only hard collision groups
