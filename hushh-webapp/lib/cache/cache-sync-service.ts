@@ -419,6 +419,8 @@ export class CacheSyncService {
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER(userId, "all"));
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "investor"));
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "ria"));
+    cache.invalidatePattern(`consent_center_${userId}_`);
+    cache.invalidatePattern(`consent_center_summary_${userId}_`);
     cache.invalidatePattern(`consent_center_preview_${userId}_`);
     cache.invalidate(CACHE_KEYS.RIA_HOME(userId));
     cache.invalidate(CACHE_KEYS.RIA_ROSTER_SUMMARY(userId));
@@ -444,6 +446,8 @@ export class CacheSyncService {
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER(userId, "all"));
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "investor"));
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "ria"));
+    cache.invalidatePattern(`consent_center_${userId}_`);
+    cache.invalidatePattern(`consent_center_summary_${userId}_`);
     cache.invalidatePattern(`consent_center_preview_${userId}_`);
     cache.invalidate(CACHE_KEYS.RIA_HOME(userId));
     cache.invalidate(CACHE_KEYS.RIA_ROSTER_SUMMARY(userId));

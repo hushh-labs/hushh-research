@@ -224,9 +224,24 @@ interface ErrorPayload {
 }
 
 export class ConsentCenterService {
+  private static tokenCachePartition(token: string): string {
+    const input = String(token || "");
+    if (!input) {
+      return "token:none";
+    }
+
+    let hash = 2166136261;
+    for (let index = 0; index < input.length; index += 1) {
+      hash ^= input.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `token:${input.length}:${(hash >>> 0).toString(36)}`;
+  }
+
   static async getCenter(options: FetchCenterOptions): Promise<ConsentCenterResponse> {
     const { idToken, userId, actor = "investor", view = "incoming", force = false } = options;
-    const cacheKey = CACHE_KEYS.CONSENT_CENTER(userId, `${actor}:${view}`);
+    const tokenPartition = this.tokenCachePartition(idToken);
+    const cacheKey = CACHE_KEYS.CONSENT_CENTER(userId, `${actor}:${view}:${tokenPartition}`);
     const cache = CacheService.getInstance();
 
     if (!force) {
@@ -260,7 +275,7 @@ export class ConsentCenterService {
     payload.self_activity_summary = payload.self_activity_summary || null;
 
     cache.set(cacheKey, payload, CACHE_TTL.SHORT);
-    cache.set(CACHE_KEYS.CONSENT_CENTER(userId, "all"), payload, CACHE_TTL.SHORT);
+    cache.set(CACHE_KEYS.CONSENT_CENTER(userId, `all:${tokenPartition}`), payload, CACHE_TTL.SHORT);
     return payload;
   }
 
@@ -291,7 +306,11 @@ export class ConsentCenterService {
   }): Promise<ConsentCenterPageSummary> {
     const actor = options.actor || "investor";
     const mode = options.mode || "consents";
-    const cacheKey = CACHE_KEYS.CONSENT_CENTER_SUMMARY(options.userId, `${actor}:${mode}`);
+    const tokenPartition = this.tokenCachePartition(options.idToken);
+    const cacheKey = CACHE_KEYS.CONSENT_CENTER_SUMMARY(
+      options.userId,
+      `${actor}:${mode}:${tokenPartition}`
+    );
     const cache = CacheService.getInstance();
     if (!options.force) {
       const cached = cache.get<ConsentCenterPageSummary>(cacheKey);
@@ -330,16 +349,17 @@ export class ConsentCenterService {
     const previewTop = typeof options.top === "number" ? Math.max(1, Math.min(options.top, 10)) : null;
     const page = previewTop ? 1 : options.page || 1;
     const limit = previewTop ?? (options.limit || CONSENT_CENTER_PAGE_SIZE);
+    const tokenPartition = this.tokenCachePartition(options.idToken);
     const cacheKey = previewTop
       ? CACHE_KEYS.CONSENT_CENTER_PREVIEW(
           options.userId,
-          `${actor}:${mode}`,
+          `${actor}:${mode}:${tokenPartition}`,
           options.surface,
           previewTop
         )
       : CACHE_KEYS.CONSENT_CENTER_LIST(
           options.userId,
-          `${actor}:${mode}`,
+          `${actor}:${mode}:${tokenPartition}`,
           options.surface,
           q,
           page,
