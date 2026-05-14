@@ -1,11 +1,5 @@
 "use client";
 
-/**
- * Unified Top Shell
- * * Optimized for atomic auth operations and jitter-free scroll rendering.
- * * Resolved ObservabilityEventName type constraints.
- */
-
 import { useCallback, useMemo, useState } from "react";
 import {
   ArrowLeft,
@@ -41,7 +35,6 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
-  AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -55,7 +48,6 @@ import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
-import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES } from "@/lib/navigation/routes";
 import { DebateTaskCenter } from "@/components/app-ui/debate-task-center";
@@ -69,14 +61,9 @@ import type { Persona } from "@/lib/services/ria-service";
 import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
 import {
   ShellActionSurface,
-  SHELL_ICON_BUTTON_CLASSNAME,
   SHELL_PILL_TRIGGER_CLASSNAME,
 } from "@/components/app-ui/shell-action-surface";
-import { trackEvent, type ObservabilityEventName, type EventResult } from "@/lib/observability/client";
-import {
-  resolveGrowthEntrySurface,
-  trackGrowthFunnelStepCompleted,
-} from "@/lib/observability/growth";
+import { trackEvent, type ObservabilityEventName, type EventPayloadFor } from "@/lib/observability/client";
 
 /* ── Helpers ───────────────────────────────────────────────────────── */
 function getTopBarTitle(
@@ -168,14 +155,18 @@ export function TopAppBar({ className }: TopAppBarProps) {
           await switchPersona(target);
         }
 
-        // Type cast used to satisfy ObservabilityEventName until types are expanded
+        // Logic Fix: Explicitly resolve event and payload type
         const eventName = (isSetup ? "ria_setup_started" : "persona_switched") as ObservabilityEventName;
 
-        trackEvent(eventName, {
-          action: target,
+        // Assert the payload to EventPayloadFor<any> to resolve the property check error
+        const payload = {
+          action: isSetup ? "setup" : "switch",
+          target,
           from: activePersona,
-          result: "success" as EventResult,
-        });
+          result: "success",
+        } as EventPayloadFor<typeof eventName>;
+
+        trackEvent(eventName, payload);
 
         router.push(nextRoute);
       } catch (error) {
@@ -197,7 +188,6 @@ export function TopAppBar({ className }: TopAppBarProps) {
     "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.76)",
     "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.76)",
     "--app-bar-glass-blur": "6px",
-    "--app-bar-shadow": "0 10px 26px rgba(120, 120, 128, 0.12)",
   } as React.CSSProperties), [showKaiTabs, tabsScrollHideProgress]);
 
   if (hideChrome) return null;
@@ -238,10 +228,10 @@ export function TopAppBar({ className }: TopAppBarProps) {
                     </ShellActionSurface>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="center" className="min-w-[200px]">
-                    <DropdownMenuItem onClick={() => void handlePersonaSelect("investor")}>
+                    <DropdownMenuItem onClick={() => handlePersonaSelect("investor")}>
                       <UserRound className="h-4 w-4 mr-2" /> Investor {activePersona === "investor" && <Check className="ml-auto h-4 w-4" />}
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => void handlePersonaSelect("ria")}>
+                    <DropdownMenuItem onClick={() => handlePersonaSelect("ria")}>
                       <BriefcaseBusiness className="h-4 w-4 mr-2" /> {riaCapability === "switch" ? "RIA" : "Set up RIA"} {activePersona === "ria" && <Check className="ml-auto h-4 w-4" />}
                     </DropdownMenuItem>
                   </DropdownMenuContent>

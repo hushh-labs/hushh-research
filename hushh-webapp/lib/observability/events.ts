@@ -267,12 +267,12 @@ export interface EventPayloadMap {
     result: EventResult;
   };
   persona_switched: {
-    action: GrowthJourney;
+    action: GrowthJourney | "switch" | "persona";
     from: GrowthJourney;
     result: EventResult;
   };
   ria_setup_started: {
-    action: "ria";
+    action: "ria" | "setup";
     from: "investor";
     result: EventResult;
   };
