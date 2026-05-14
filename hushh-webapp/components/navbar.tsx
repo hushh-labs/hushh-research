@@ -4,6 +4,7 @@
 "use client";
 
 import React, { useEffect, useMemo, type CSSProperties } from "react";
+import { ToastDemo } from "@/components/toast-demo";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BriefcaseBusiness,
@@ -178,9 +179,10 @@ export const Navbar = () => {
           top: "calc(max(var(--app-safe-area-top-effective), 0.5rem))",
         }}
       >
-        <div ref={pillRef} className="pointer-events-auto">
-          <ThemeToggleCompact />
-        </div>
+        <div className="flex items-center gap-2 pointer-events-auto">
+  <ThemeToggleCompact />
+  <ToastDemo />
+</div>
       </nav>
     );
   }
