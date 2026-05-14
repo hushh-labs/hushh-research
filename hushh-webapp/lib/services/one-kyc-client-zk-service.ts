@@ -221,6 +221,20 @@ function extractApprovedValues(params: {
       "destinations",
     ],
     locations: ["locations", "places", "destinations", "favorite_locations"],
+    seat_preferences: [
+      "seat_preferences",
+      "seatPreferences",
+      "seat_preference",
+      "seatPreference",
+      "preferred_seat",
+      "preferredSeat",
+      "preferred_seats",
+      "preferredSeats",
+      "travel_preference_seat",
+      "travelPreferenceSeat",
+      "summary",
+      "observations",
+    ],
     preferences: ["preferences", "favorites", "favourites"],
   };
   const domain = scopeDomain(params.scope);

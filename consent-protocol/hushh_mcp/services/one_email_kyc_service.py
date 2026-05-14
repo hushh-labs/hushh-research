@@ -150,6 +150,39 @@ _DYNAMIC_SCOPE_TERMS: dict[str, tuple[str, ...]] = {
     "work": ("work", "job", "career", "employment", "company"),
     "education": ("education", "school", "university", "degree"),
 }
+_SCOPE_MATCH_STOPWORDS = frozenset(
+    {
+        "and",
+        "are",
+        "can",
+        "create",
+        "data",
+        "draft",
+        "entities",
+        "entity",
+        "for",
+        "from",
+        "get",
+        "has",
+        "here",
+        "id",
+        "information",
+        "into",
+        "items",
+        "kind",
+        "observations",
+        "one",
+        "preference",
+        "preferences",
+        "that",
+        "the",
+        "this",
+        "updated",
+        "with",
+        "you",
+        "your",
+    }
+)
 
 
 def _runtime_environment() -> str:
@@ -512,6 +545,22 @@ def _message_text(message: dict[str, Any]) -> str:
     return "\n".join(plain or html_parts)
 
 
+def _strip_quoted_reply_text(body: str) -> str:
+    lines = str(body or "").splitlines()
+    kept: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith(">"):
+            break
+        if re.match(r"^On .+ wrote:$", stripped):
+            break
+        if stripped in {"--", "-----Original Message-----"}:
+            break
+        kept.append(line)
+    text = "\n".join(kept).strip()
+    return text or str(body or "")
+
+
 def _has_attachments(message: dict[str, Any]) -> bool:
     payload = message.get("payload") if isinstance(message.get("payload"), dict) else {}
     for part in _iter_payload_parts(payload):
@@ -568,11 +617,19 @@ def _scope_terms_from_entry(entry: dict[str, Any]) -> set[str]:
     path = _clean_text(entry.get("path")).lower()
     label = _clean_text(entry.get("label")).lower()
     for item in (domain, path, label, scope.removeprefix("attr.")):
+        normalized_item = item.replace("_", " ").replace(".", " ").strip()
+        tokens = [token for token in re.split(r"[^a-z0-9]+", normalized_item) if len(token) >= 3]
+        for size in (3, 2):
+            for index in range(0, max(len(tokens) - size + 1, 0)):
+                phrase_tokens = tokens[index : index + size]
+                if all(token in _SCOPE_MATCH_STOPWORDS for token in phrase_tokens):
+                    continue
+                terms.add(" ".join(phrase_tokens))
         for token in re.split(r"[^a-z0-9_]+", item.replace(".", " ")):
-            if len(token) >= 3:
+            if len(token) >= 3 and token not in _SCOPE_MATCH_STOPWORDS:
                 terms.add(token.replace("_", " "))
-        compact = item.replace("_", " ").replace(".", " ").strip()
-        if len(compact) >= 3:
+        compact = normalized_item
+        if len(compact) >= 3 and compact not in _SCOPE_MATCH_STOPWORDS:
             terms.add(compact)
     for term in _DYNAMIC_SCOPE_TERMS.get(domain, ()):
         terms.add(term)
@@ -1170,9 +1227,14 @@ class OneEmailKycService:
             ]
             if not matched_terms:
                 continue
+            domain_terms = {_clean_text(domain).lower(), *_DYNAMIC_SCOPE_TERMS.get(domain, ())}
             score = max(len(term.split()) for term in matched_terms)
-            if _clean_text(entry.get("path")):
-                score += 1
+            if any(term in domain_terms for term in matched_terms):
+                score += 8
+            if scope == get_scope_generator().generate_domain_wildcard(domain):
+                score += 4
+            elif entry.get("wildcard") is True:
+                score += 2
             candidates.append(
                 (
                     score,
@@ -1189,8 +1251,12 @@ class OneEmailKycService:
                     ),
                 )
             )
+        ranked = sorted(candidates, key=lambda item: -item[0])
+        if not ranked:
+            return []
+        top_score = ranked[0][0]
         return _dedupe_scope_candidates(
-            [candidate for _score, candidate in sorted(candidates, key=lambda item: -item[0])]
+            [candidate for score, candidate in ranked if score == top_score][:6]
         )
 
     async def _process_message(
@@ -1207,8 +1273,14 @@ class OneEmailKycService:
         gmail_message_id = _clean_text(message.get("id"))
         gmail_thread_id = _clean_text(message.get("threadId"))
         rfc_message_id = _clean_text(headers.get("message-id")) or None
-        body_text = _message_text(message)
-        body_hash = hashlib.sha256(body_text.encode("utf-8")).hexdigest() if body_text else None
+        raw_body_text = _message_text(message)
+        body_text = _strip_quoted_reply_text(raw_body_text)
+        body_hash = (
+            hashlib.sha256(raw_body_text.encode("utf-8")).hexdigest() if raw_body_text else None
+        )
+        request_body_hash = (
+            hashlib.sha256(body_text.encode("utf-8")).hexdigest() if body_text else None
+        )
         snippet = None
         mailbox = self.config.mailbox_email
         participants = [
@@ -1268,6 +1340,8 @@ class OneEmailKycService:
             "metadata": {
                 "source": _KYC_REQUEST_SOURCE,
                 "body_sha256": body_hash,
+                "request_body_sha256": request_body_hash,
+                "quoted_reply_text_stripped": body_text != raw_body_text,
                 "classification": (
                     "kyc_financial"
                     if is_kyc and is_financial
@@ -1541,6 +1615,12 @@ class OneEmailKycService:
             "financial_profile": ("financial profile", "financial information", "net worth"),
             "portfolio": ("portfolio", "holdings", "investment holdings"),
             "financial_documents": ("statement", "statements", "financial documents"),
+            "seat_preferences": (
+                "seat preference",
+                "seat preferences",
+                "preferred seat",
+                "preferred seats",
+            ),
             "favorite_locations": (
                 "favorite location",
                 "favorite locations",
@@ -1559,6 +1639,8 @@ class OneEmailKycService:
         ]
         if "favorite_locations" in fields and "locations" in fields:
             fields.remove("locations")
+        if "seat_preferences" in fields and "preferences" in fields:
+            fields.remove("preferences")
         if not fields:
             fields.append("identity_profile")
         return fields
