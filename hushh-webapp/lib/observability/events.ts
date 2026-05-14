@@ -79,7 +79,14 @@ export type ObservabilityEventName =
   | "investor_activation_completed"
   | "ria_activation_completed"
   | "api_request_completed"
-  | "startup_readiness_warmup_completed";
+  | "startup_readiness_warmup_completed"
+  | "model_pack_download_started"
+  | "model_pack_download_completed"
+  | "model_pack_download_failed"
+  | "local_inference_started"
+  | "local_inference_completed"
+  | "local_inference_failed"
+  | "cloud_fallback_triggered";
 
 export type StatusBucket =
   | "2xx"
@@ -161,6 +168,13 @@ const EVENT_CATEGORY_BY_NAME: Record<
   ria_activation_completed: "funnel",
   api_request_completed: "system",
   startup_readiness_warmup_completed: "system",
+  model_pack_download_started: "system",
+  model_pack_download_completed: "system",
+  model_pack_download_failed: "system",
+  local_inference_started: "system",
+  local_inference_completed: "system",
+  local_inference_failed: "system",
+  cloud_fallback_triggered: "system",
 };
 
 export function resolveObservabilityEventCategory(
@@ -372,6 +386,45 @@ export interface EventPayloadMap {
     consents_warmed: boolean;
     vault_status_warmed: boolean;
   };
+  model_pack_download_started: LocalRuntimeEventPayload;
+  model_pack_download_completed: LocalRuntimeEventPayload;
+  model_pack_download_failed: LocalRuntimeEventPayload;
+  local_inference_started: LocalRuntimeEventPayload;
+  local_inference_completed: LocalRuntimeEventPayload;
+  local_inference_failed: LocalRuntimeEventPayload;
+  cloud_fallback_triggered: LocalRuntimeEventPayload;
+}
+
+export interface LocalRuntimeEventPayload {
+  task?: "ocr" | "stt" | "tts" | "slm";
+  processing_mode?: "cloud" | "hybrid" | "on_device";
+  fallback_mode?: "cloud" | "hybrid";
+  result?: EventResult;
+  reason_code?:
+    | "checksum_mismatch"
+    | "download_error"
+    | "low_storage"
+    | "network_policy"
+    | "battery_policy"
+    | "local_exception"
+    | "locale_mismatch"
+    | "pack_missing"
+    | "unsupported_task"
+    | "unknown";
+  pack_id?: "hussh-b-pack-v1";
+  pack_version?: string;
+  size_bytes?: number;
+  offset_bytes?: number;
+  progress_pct?: number;
+  min_ram_gb?: number;
+  detected_ram_gb?: number;
+  min_storage_mb?: number;
+  available_storage_mb?: number;
+  battery_level_pct?: number;
+  is_charging?: boolean;
+  network_type?: "wifi" | "cellular" | "none" | "unknown";
+  offline_ready?: boolean;
+  local_success?: boolean;
 }
 
 export type EventPayloadFor<T extends ObservabilityEventName> = EventPayloadMap[T];

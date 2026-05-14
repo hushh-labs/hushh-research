@@ -243,7 +243,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       });
     }
 
-    if (path === "voice/tts") {
+    if (path === "voice/tts" || path.startsWith("local-runtime/packs/")) {
       console.log(`[Kai API] request_id=${requestId} binary_pass_through=true path=${path}`);
       return withRequestIdResponse(requestId, response);
     }

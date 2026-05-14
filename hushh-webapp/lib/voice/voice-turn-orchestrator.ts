@@ -1,6 +1,8 @@
 "use client";
 
 import { ApiService } from "@/lib/services/api-service";
+import { localRuntimeService, type ProcessingMode } from "@/lib/ai/local-runtime-service";
+import { runLocalSLM, runLocalSTT, runLocalTTS } from "@/lib/ai/on-device-inference";
 import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
 import { normalizeClarifyToolCall, validateVoicePlanPayload } from "@/lib/voice/voice-json-validator";
 import { createVoiceTurnId, logVoiceMetric } from "@/lib/voice/voice-telemetry";
@@ -42,6 +44,8 @@ export type VoiceTurnOrchestratorSpeakInput = {
 export type VoiceTurnOrchestratorInput = {
   transcript: string;
   source: VoiceOrchestratorSource;
+  audioBlob?: Blob;
+  contextStale?: boolean;
 };
 
 type VoicePlannerV2Envelope = {
@@ -117,6 +121,21 @@ function createNoopGroundedPlan(): GroundedVoicePlan {
   };
 }
 
+function buildLocalVoicePrompt(input: {
+  transcript: string;
+  structuredContext: StructuredScreenContext;
+  contextStale?: boolean;
+}): string {
+  return [
+    "You are Kai. Answer the user's voice turn concisely using only consented, cached app context.",
+    input.contextStale ? "Warn that cached context may be outdated." : "",
+    `Screen context: ${JSON.stringify(input.structuredContext)}`,
+    `User: ${input.transcript}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export type VoiceTurnOrchestratorConfig = {
   userId: string;
   vaultOwnerToken: string;
@@ -135,6 +154,7 @@ export type VoiceTurnOrchestratorConfig = {
     needsConfirmation?: boolean;
   }) => Promise<unknown> | unknown;
   speak: (input: VoiceTurnOrchestratorSpeakInput) => Promise<void>;
+  playLocalAudio?: (blob: Blob, input: VoiceTurnOrchestratorSpeakInput) => Promise<void>;
   onStageChange?: (stage: "planning" | "dispatch" | "speaking_ack" | "speaking_final" | "idle") => void;
   onDebug?: (event: string, payload?: Record<string, unknown>) => void;
   onAssistantText?: (payload: {
@@ -278,7 +298,17 @@ export class VoiceTurnOrchestrator {
   }
 
   async processTranscript(input: VoiceTurnOrchestratorInput): Promise<VoiceTurnOrchestratorResult | null> {
-    const cleanTranscript = String(input.transcript || "").trim();
+    let cleanTranscript = String(input.transcript || "").trim();
+    let processingMode: ProcessingMode = "cloud";
+    try {
+      processingMode = await localRuntimeService.getProcessingMode();
+    } catch {
+      processingMode = "cloud";
+    }
+    if (!cleanTranscript && input.audioBlob && processingMode !== "cloud") {
+      const localTranscript = await runLocalSTT(input.audioBlob);
+      cleanTranscript = String(localTranscript || "").trim();
+    }
     if (!cleanTranscript) return null;
 
     this.cancelActiveTurn("new_turn_started");
@@ -306,12 +336,102 @@ export class VoiceTurnOrchestrator {
     this.config.onDebug?.("orchestrator_turn_started", {
       turn_id: turnId,
       source: input.source,
+      processing_mode: processingMode,
       transcript_chars: cleanTranscript.length,
       memory_short_count: memoryShort.length,
       memory_retrieved_count: memoryRetrieved.length,
     });
 
     try {
+      if (processingMode !== "cloud") {
+        const localResponseText = await runLocalSLM(
+          buildLocalVoicePrompt({
+            transcript: cleanTranscript,
+            structuredContext,
+            contextStale: input.contextStale,
+          }),
+          128
+        );
+        if (localResponseText) {
+          const responseId = makeResponseId(turnId);
+          const response: VoiceResponse = {
+            kind: "speak_only",
+            message: localResponseText,
+            speak: true,
+          };
+          const plan: VoicePlanPayload = {
+            mode: "answer_now",
+            reply_strategy: "template",
+            response,
+            memory: { allow_durable_write: false },
+            execution_allowed: true,
+            needs_confirmation: false,
+            model: "local_gemma_3_1b_it_q4",
+          };
+          const groundedPlan = createNoopGroundedPlan();
+          this.config.onDebug?.("local_voice_branch_used", {
+            turn_id: turnId,
+            processing_mode: processingMode,
+          });
+          this.config.onStageChange?.("dispatch");
+          const dispatchOutcome = await Promise.resolve(
+            this.config.onVoiceResponse({
+              turnId,
+              responseId,
+              transcript: cleanTranscript,
+              response,
+              plan,
+              groundedPlan,
+              memory: plan.memory,
+              executionAllowed: true,
+              needsConfirmation: false,
+            })
+          );
+          if (!this.isTokenActive(token)) return null;
+
+          this.config.onStageChange?.("speaking_final");
+          this.config.onAssistantText?.({
+            text: localResponseText,
+            kind: response.kind,
+            turnId,
+            responseId,
+            segmentType: "final",
+          });
+          const speakInput = {
+            text: localResponseText,
+            turnId,
+            responseId,
+            segmentType: "final" as const,
+          };
+          const localAudio = await runLocalTTS(localResponseText);
+          if (localAudio && this.config.playLocalAudio) {
+            await this.config.playLocalAudio(localAudio, speakInput);
+          } else {
+            await this.config.speak(speakInput);
+          }
+
+          if (shouldWriteMemoryFromDispatch(dispatchOutcome)) {
+            voiceMemoryStore.appendShortTerm(this.config.userId, {
+              turn_id: turnId,
+              transcript_final: cleanTranscript,
+              response_text: localResponseText,
+              response_kind: response.kind,
+              created_at_ms: Date.now(),
+            });
+          }
+
+          return {
+            turnId,
+            responseId,
+            response,
+            plan,
+            groundedPlan,
+            actionResult: null,
+            spokenText: localResponseText,
+            source: input.source,
+          };
+        }
+      }
       this.config.onStageChange?.("planning");
       const planningResponse = await ApiService.planKaiVoiceIntent({
         userId: this.config.userId,
