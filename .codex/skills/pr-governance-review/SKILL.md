@@ -75,7 +75,7 @@ Load these only when the decision needs them:
 3. Run the checklist:
    - Single PR: `python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo <repo> --pr <number> --text`
    - Batch: `python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo <repo> --prs <n1,n2,...> --text`
-   - Live report: `python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text --output tmp/pr-governance-live-report.md`
+   - Live report: `python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md`
 4. Classify the flow mode before any GitHub write:
    - `review_only`
    - `comment_only`
@@ -119,6 +119,13 @@ Review findings in this order:
 
 Prefer low-friction maintainer ownership when the direction is aligned, the fix is bounded, and maintainers can safely patch without inventing product intent. Use `patch_then_merge` for that case because it reduces contributor round trips. Use `changes_requested` when the PR needs contributor clarity, a split/rebase, proof the maintainer cannot supply, or a correction that would change the contributor's product intent. Use `block` when the PR needs product decision, rewrite, missing proof, or new architecture approval.
 
+Before issuing or reaffirming `changes_requested`, explicitly evaluate the
+maintainer-patch path. A PR should move to `changes_requested` only after Codex
+cannot name a safe accepted value, canonical attach point, maintainer write set,
+dropped/deferred pieces, and smallest proof command. If those can be named, the
+operator answer must classify it as `maintainer_patch_then_merge` or
+`maintainer_harvest`, not a generic contributor round trip.
+
 Every review answer must be research driven. Before recommending a lane, include a compact `Research Basis` and `Reasoned Review Steps`:
 
 1. `Research Basis`: current PR head, CI freshness, mergeability, touched surfaces, canonical repo contracts checked, overlap/duplicate evidence, and trust/runtime risks.
@@ -155,6 +162,16 @@ Every next-batch answer must include:
 
 Do not reduce individual PR handling to a lane JSON blob or one-line purpose. The operator must be able to understand how each PR will be tackled from the chat/report without searching GitHub.
 Do not ask "what should we do?" before stating the researched solution path.
+Do not give counts-only PR wave summaries. If a response mentions a PR, it must
+use a direct Markdown hyperlink. If a wave has more than ten PRs, group them by
+action and still list every PR as a hyperlink in compact rows. Bare `#123`
+references are allowed only inside code/log excerpts, never in operator
+recommendations, action summaries, or final handoffs.
+When revisiting a previous maintainer decision, edit the existing
+maintainer-authored review or comment whenever GitHub allows it. Post a new
+record only when no existing maintainer record exists, the old record cannot be
+edited, or the new record is required to resolve a distinct review state. The
+handoff must link both the PR and the edited record.
 
 Detailed batch output requirements live in `references/operator-batch-output-contract.md`.
 
@@ -188,21 +205,52 @@ For backend or trust-runtime PRs:
 2. Name the trust boundary that would fail if the PR is accepted blindly.
 3. Do not treat a helper or test addition as runtime value unless a reachable path or authoritative contract uses it.
 
+### Changes-Requested Repass Taskforce
+
+For a high-volume repass of previous `changes_requested` decisions, use
+read-only evidence lanes when delegation is available and the batch has
+independent surfaces. The parent session keeps final authority and performs any
+GitHub writes.
+
+Default lanes:
+
+1. `frontend/UI reachability`: route/component callers, app-ui ownership,
+   Playwright-needed cases, exact-file collisions, and harvest candidates.
+2. `runtime/helper reachability`: frontend/backend helpers, service callers,
+   generated contracts, trust/runtime boundaries, and canonical attach points.
+3. `root/tooling governance`: new roots, CI/workflow changes, contributor
+   setup paths, repo-governance scripts, checked-in reports, and devex attach
+   points.
+
+Each lane must return direct PR links, current head SHA, changed files,
+reachability evidence, canonical attach point if any, accepted value,
+dropped/deferred pieces, smallest proof, async train placement, and whether the
+existing maintainer review should be edited as maintainer-patch candidate,
+maintainer-harvest, or still blocked. Lanes do not switch branches, push,
+approve, merge, or post/edit comments.
+
 ### Merge Train Capacity Model
 
 Use trains to maximize throughput without lowering the merge bar:
 
-1. Keep at most one shared-file or runtime-sensitive merge train actively merging.
-2. Treat CI/Queue Validation/Main Post-Merge Smoke as an asynchronous monitor lane. Do not idle the whole operator loop while checks run.
-3. While that train is in PR Validation, Queue Validation, or Main Post-Merge Smoke, immediately review the next independent operator batch.
-4. Closure waves and changes-requested waves can run in parallel with queue monitoring when they do not touch the active train's files or runtime contract.
+1. Default live-report scan mode is `hybrid`: cheap all-open inventory, then deep review of the latest `100` PRs plus up to `40` older high-signal candidates. Use `active` for fastest latest-window reviews and `full` only for audits.
+2. Use four work lanes at the same time:
+   - `Queue Cohort`: up to `4` independent `merge_now` PRs with exact head SHA match, green `CI Status Gate`, `MERGEABLE` state, no hard collision edges, and no local dirty-file overlap.
+   - `Sequential Collision Train`: PRs with hard edges from exact files, lockfiles, schema/migrations, generated contracts, sensitive runtime families, or local dirty-file overlap. Only one PR from the group moves at a time.
+   - `Parallel Patch Trains`: maintainer patches with disjoint write sets and disjoint runtime families. Default maximum is `3`.
+   - `Decision Waves`: changes-requested or closure records for clearly blocked PRs. These can run while queue validation is pending.
+3. Do not wait for one independent PR to complete before preparing or queueing unrelated PRs. Wait only when a PR depends on the base/result of another PR or shares a hard edge.
+4. Treat CI/Queue Validation/Main Post-Merge Smoke as an asynchronous monitor lane. Do not idle the whole operator loop while checks run.
 5. Do not start merging a dependent train until the previous train has passed Main Post-Merge Smoke and the live report has been refreshed.
 6. Treat "automatic next train" as automatic next-train discovery and review preparation, not blind approval or merge.
-7. A PR can enter a merge train only after current head, current required gate, mergeability, lane, overlap, and smallest proof are rechecked.
-8. Large-scale rhythm:
+7. A PR can enter a merge train only after current head, current required gate, mergeability, lane, overlap, collision group, and smallest proof are rechecked.
+8. Reports must state scan scope and completeness. If inventory, GitHub, or per-PR scanning fails, name the exact reviewed subset and failed PRs.
+9. Large-scale rhythm:
    - mass classify open PRs
    - close/request changes for clear drifts in waves
-   - queue small proven merge trains
+   - queue independent proven cohorts
+   - sequence only hard collision groups
+   - run disjoint patch trains when attachment plans exist
    - monitor PR Validation/queue/smoke asynchronously
    - review the next independent batch while the queue runs
    - refresh reports and contributor impact after every state change
@@ -211,8 +259,8 @@ After every successful merge/smoke cycle, run the next-train kickoff:
 
 ```bash
 git fetch origin main
-python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text --output tmp/pr-governance-live-report.md
-python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 7 --text > tmp/contributor-impact-dashboard.md
+python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md
+python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 14 --text > tmp/contributor-impact-dashboard.md
 ```
 
 Then select the first independent `Recommended Operator Batches` item that does not depend on the train that just landed. Present the researched path with `Per-PR Assessment` before asking for approval to act.
@@ -238,16 +286,28 @@ Default blockers include:
 1. No noisy approval comments. Every PR merged through this governance workflow must get one post-merge closeout after `Main Post-Merge Smoke` is green.
 2. There is no simple-merge exception. Direct `merge_now` PRs still require the closeout record after smoke passes.
 3. Every GitHub write must use the lane-specific heading contract from `references/comment-and-report-contract.md`.
-4. Before posting a new GitHub comment, inspect existing maintainer-authored comments/reviews on that PR. Edit the existing current-lane record when possible; do not create duplicate or contradictory maintainer records.
+4. Before posting a new GitHub comment, inspect existing maintainer-authored comments/reviews on that PR. Edit the existing current-lane record when possible; do not create duplicate or contradictory maintainer records. Repass or correction waves must use `edit_existing_maintainer_comment` unless that is impossible.
 5. Post before merge only for `block`, `changes_requested`, `comment_only`, or when contributor action is required.
 6. If a PR can be corrected safely by maintainers without changing product intent, prefer `patch_then_merge` over contributor round trips. Use a `## Changes Requested` record when the change needs contributor clarity, split/rebase, proof, or direction correction.
 7. Public duplicate language is allowed only for exact or manually confirmed semantic duplicates. Shared files alone mean sequencing/rebase, not duplicate.
 8. Maintainer patches must be explained in the post-merge note: who patched, what changed, what original PR value was kept, what was converted into existing canonical docs/scripts/runtime surfaces, what was dropped or deferred, why this was the smallest safe path, and what happened to related PRs.
 9. Do not include a separate successful-merge evidence section such as `### Merge Confidence`, `### Proof`, or `### Verification`; GitHub already shows checks. Use `### Why It Matters` in post-merge comments.
 10. Do not publish maintainer-only sequencing, CI dumps, or report bookkeeping in GitHub comments.
-11. Final handoffs for state-changing PR work must include direct links to affected PRs and any maintainer-authored merge/patch/closure comment links.
+11. Final handoffs for state-changing PR work must include direct links to every affected PR and any maintainer-authored merge/patch/closure/comment links. Counts are allowed only after the linked PR list; never replace the list with a count.
 
 Detailed comment/report format lives in `references/comment-and-report-contract.md`.
+
+### Maintainer Patch Gate
+
+`patch_then_merge` is allowed only when Codex can name an attachment plan:
+
+1. Accepted value.
+2. Canonical app/backend/package/generated-contract/test-contract/devex surface to attach to.
+3. Files Codex will patch.
+4. Pieces Codex will drop or defer.
+5. Smallest proof command.
+
+Standalone helpers, exports, components, agents, or runtime roots that are only used by their own tests default to changes requested. Do not invent product intent or wire code into a future-state path just to save a PR.
 
 ### Report Hygiene
 
@@ -255,7 +315,7 @@ After any merge, close, requested-changes, maintainer patch, or revert:
 
 1. Refresh `tmp/pr-governance-live-report.md`.
 2. Refresh `tmp/contributor-impact-dashboard.md`:
-   `python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 7 --text > tmp/contributor-impact-dashboard.md`
+   `python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 14 --text > tmp/contributor-impact-dashboard.md`
 3. Keep live reports live-only. Merged/closed evidence belongs in GitHub comments, final handoff, or separate audit artifacts.
 4. Include contributor-impact delta when the PR materially affects trust/security, consent/vault, One/Kai/Nav direction, PKM/memory, user utility, runtime quality, or proof/test posture.
 
@@ -273,6 +333,8 @@ Use the adjacent owner only to deepen proof:
 
 ```bash
 python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py
+python3 -m py_compile .codex/skills/pr-governance-review/scripts/test_pr_review_checklist.py
+python3 .codex/skills/pr-governance-review/scripts/test_pr_review_checklist.py
 python3 -m py_compile .codex/skills/pr-governance-review/scripts/build_runtime_schematics.py
 python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/delegation_router.py
 python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt "review a PR touching voice, vault, and CI" --paths "hushh-webapp/lib/voice/foo.ts,hushh-webapp/lib/vault/foo.ts,.github/workflows/ci.yml" --text
@@ -280,9 +342,9 @@ python3 .codex/skills/pr-governance-review/scripts/build_runtime_schematics.py -
 python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 498,505,444 --text
 python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 531,529,435 --text
 python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text
-python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text --output tmp/pr-governance-live-report.md
+python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md
 python3 -m py_compile .codex/skills/pr-governance-review/scripts/contributor_impact_report.py
-python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 7 --text
+python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 14 --text
 ./bin/hushh codex audit --text
 ./bin/hushh docs verify
 ```

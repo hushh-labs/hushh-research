@@ -4,6 +4,12 @@ Use this when answering "next batch", "plan this batch", or any high-volume PR w
 
 ## Required Chat Shape
 
+Train recommendations must be presented as a deterministic operator dossier, not
+as an executive summary. Do not collapse the answer into a short list after
+doing the scan. If the user asks for PR trains, the chat answer itself must
+show the research, solution flow, actions, comment posture, proof, and landing
+sequence in the sections below.
+
 1. `Batch`: one sentence naming the product/runtime purpose.
 2. `Research Basis`: concise current truth, recommended path, and risk if accepted blindly.
 3. `Input`: every PR with a direct Markdown link and current lane.
@@ -50,6 +56,68 @@ Use this when answering "next batch", "plan this batch", or any high-volume PR w
 12. `Verification`: smallest authoritative local and GitHub checks.
 13. `After-Merge Kickoff`: how the next independent train will be discovered after report refresh.
 
+Hyperlink rule: any chat answer, execution update, or final handoff generated
+from this contract must hyperlink every PR it mentions. Counts-only summaries
+are invalid. For large waves, use compact grouped rows such as
+`request_changes: [#1](...), [#2](...)`. Bare `#123` references are allowed only
+inside copied command output or code blocks.
+
+For live-report-driven train planning, the answer must also include these
+deterministic sections, even if some are empty:
+
+1. `Scan Scope`: scan mode, active limit, candidate limit, all-open inventory
+   count when known, reviewed PRs, failed PRs, and completeness.
+2. `Queue Cohort`: independent `merge_now` PRs that can be queued together,
+   capped at the configured cohort size.
+3. `Collision Groups`: hard-edge groups and the required sequence.
+4. `Parallel Patch Trains`: disjoint maintainer patch trains with attachment
+   point, patch files, dropped/deferred pieces, and proof.
+5. `Decision Waves`: PRs ready for changes-requested or closure records while
+   queue validation runs.
+
+Decision waves must list the exact linked PRs in the wave and the exact public
+comment/review link after execution. Do not summarize a completed wave as only
+`N reviews posted`.
+
+## Deterministic Dossier Rules
+
+Every PR train recommendation must include these details in the chat response,
+even when the report already exists on disk:
+
+1. Scan scope: exact report or command used, open PR count if known, limit/cap
+   caveat, and whether any scanner timeout or GitHub API failure affected
+   completeness.
+2. North-star audit: repo-current truth first, then founder/north-star
+   alignment classification when the PR touches One, Kai, Nav, PCHP, consent,
+   vault, PKM, voice/action, finance, KYC, signatures, or a new product root.
+   Private wiki evidence remains local-only and must not be cited in public PR
+   comments.
+3. Solution flow: why this train is the next executable train, what can land
+   unchanged, what must be patched, what is held, and what is converted into a
+   changes-requested or closure wave.
+4. Landing mechanics: exact merge order, whether branches are merged directly
+   or maintainer-patched, which checks run before and after merge, and when the
+   live report plus contributor-impact dashboard are refreshed.
+5. Public communication: for every PR, state whether there is no pre-merge
+   comment, a post-merge closeout, a changes-requested comment, a closed
+   superseded comment, or an edited maintainer record.
+   Repass/correction waves must prefer edited maintainer records over new
+   comments. If a new comment is needed, state why the previous maintainer
+   record could not be edited.
+6. Stop conditions: stale head, lost CI Status Gate, conflict, exact-file
+   overlap, new trust-boundary finding, missing caller/reachability proof,
+   Playwright gap for UI-visible changes, or north-star drift.
+7. Train graph: every PR must expose `collision_group_id`,
+   `collision_reasons`, `can_queue_with`, `must_wait_for`,
+   `queue_cohort_id`, `parallel_patch_train_id`, patch attachment fields, and
+   whether a north-star probe is required.
+
+If the evidence is incomplete, say exactly what is incomplete and present only
+the train subset that is safe from the verified evidence. Do not imply the whole
+open PR queue was audited when a scanner limit or timeout prevented that.
+Do not omit PR hyperlinks in the final synthesis just because the detailed
+report exists on disk; the chat handoff must remain reviewable on its own.
+
 ## Batch Selection Rules
 
 1. Use `Recommended Operator Batches` before `Contract Intake Sets`.
@@ -87,14 +155,20 @@ Do not call a new helper/component/package "product value" unless it is wired in
 
 Use this rhythm for scale:
 
-1. Mass classify open PRs through the live report.
+1. Mass classify open PRs through the live report. Default to hybrid scan:
+   cheap all-open inventory plus the latest `100` deep reviews and up to `40`
+   older high-signal deep reviews.
 2. Convert clear drifts into closure or changes-requested waves.
-3. Queue only small proven merge trains.
+3. Queue independent `merge_now` PRs as a cohort, capped at `4`.
 4. While PR Validation, Queue Validation, or Main Post-Merge Smoke runs, review the next independent operator batch.
 5. After smoke passes, refresh the live report and contributor-impact dashboard.
 6. Select the next independent `Recommended Operator Batches` item and produce a fresh `Per-PR Assessment`.
 
-Never let throughput hide dependency order. Shared files, shared runtime contracts, generated contracts, schema/migration surfaces, auth/consent/vault/PKM/voice, and deploy paths require sequential handling.
+Never let throughput hide dependency order. Shared files, lockfiles, shared
+runtime contracts, generated contracts, schema/migration surfaces,
+auth/consent/vault/PKM/voice/finance, deploy paths, and local dirty-file
+overlap require sequential handling. Same author, broad theme, or nearby title
+does not create a hard edge by itself.
 
 ## Frontend Evidence Standard
 
@@ -122,3 +196,7 @@ Before GitHub writes, inspect existing maintainer-authored comments and reviews.
    - why maintainer patch was lower friction
    - final accepted location
 4. For holds/review-only, why no public comment is posted yet.
+
+For a repass of a prior wave, update the existing maintainer-authored review or
+comment whenever GitHub allows it. Do not stack a second `Changes Requested`
+record just to correct wording, patchability, hyperlinks, or train placement.

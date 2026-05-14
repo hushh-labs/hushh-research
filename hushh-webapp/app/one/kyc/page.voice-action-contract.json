@@ -54,7 +54,7 @@
       ],
       "search_keywords": ["kyc", "email", "broker"],
       "guard_ids": ["auth_required"],
-      "risk_level": "low",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",

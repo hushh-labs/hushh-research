@@ -112,10 +112,12 @@ a VAULT_OWNER token plus a matching `user_id`; mailbox maintenance routes use
 Pub/Sub OIDC or the One maintenance token, not user Firebase auth. Strict
 client-side ZK means the backend never decrypts consent exports, never builds
 review drafts, and never persists review draft plaintext. Dev/UAT One Email now
-uses text-only multi-scope disclosure intake: the backend stores detected
-domains, candidate scopes, thread metadata, hashes, and consent/writeback/send
-metadata only; the vault-unlocked client confirms scopes and builds the final
-draft from approved encrypted exports.
+uses text-only multi-scope disclosure intake: after resolving the vault owner,
+the backend matches email intent against that user's consumer-visible dynamic
+scope inventory, stores detected domains, candidate scopes, thread metadata,
+hashes, and consent/writeback/send metadata only; the vault-unlocked client
+confirms scopes and builds the final draft from approved encrypted exports. The
+maintained architecture reference is [One Email KYC](./one-email-kyc.md).
 
 Inbound user resolution uses exact verified email evidence. The resolver checks
 verified `To`, `Cc`, and `Reply-To` recipients before falling back to all
@@ -318,7 +320,7 @@ Security invariant:
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/consent/data` | Retrieve encrypted export for a valid consent token carried as `Authorization: Bearer <consent-token>`; legacy `consent_token` query transport remains backend-supported for non-browser callers |
+| GET | `/api/consent/data` | Legacy consent-token encrypted export path; Developer API and MCP integrations should prefer `/api/v1/scoped-export` or `get_encrypted_scoped_export`, which return ciphertext plus `wrapped_key_bundle` for connector-local decryption |
 
 ### SSE (Server-Sent Events)
 
@@ -331,8 +333,8 @@ Security invariant:
 
 | Method | Path | Replacement |
 | ------ | ---- | ----------- |
-| POST | `/api/v1/food-data` | `GET /api/pkm/domain-data/{uid}/{discovered_domain}` after runtime domain discovery, or the publishable flow `/api/v1/user-scopes/{uid}` → `/api/v1/request-consent` → `/api/consent/data` |
-| POST | `/api/v1/professional-data` | `GET /api/pkm/domain-data/{uid}/{discovered_domain}` after runtime domain discovery, or the publishable flow `/api/v1/user-scopes/{uid}` → `/api/v1/request-consent` → `/api/consent/data` |
+| POST | `/api/v1/food-data` | `GET /api/pkm/domain-data/{uid}/{discovered_domain}` after runtime domain discovery, or the publishable flow `/api/v1/user-scopes/{uid}` → `/api/v1/request-consent` → `/api/v1/scoped-export` |
+| POST | `/api/v1/professional-data` | `GET /api/pkm/domain-data/{uid}/{discovered_domain}` after runtime domain discovery, or the publishable flow `/api/v1/user-scopes/{uid}` → `/api/v1/request-consent` → `/api/v1/scoped-export` |
 | DELETE | `/api/pkm/attributes/{uid}/{domain}/{key}` | Client-side BYOK operation |
 | POST | `/api/kai/decision/store` | `POST /api/pkm/store-domain` with domain=`financial`; first-party flows now attach `write_projections[]` instead of relying on legacy summary inference |
 | GET | `/api/kai/decision/{id}` | `GET /api/kai/decisions/{user_id}` |
@@ -453,14 +455,15 @@ External developers (MCP agents, third-party apps) use the `/api/v1` endpoints:
    Body: { token: "<consent-token>" }
    → Returns: { valid, user_id, scope, expires_at }
 
-5. GET /api/consent/data with Authorization: Bearer <consent-token>
-   → Returns: { ciphertext, iv, tag, export_key }
-   → Developer decrypts with export_key
+5. POST /api/v1/scoped-export?token=<developer-token>
+   Body: { consent_token, expected_scope, connector_id, connector_public_key, connector_key_id }
+   → Returns: { encrypted_data, iv, tag, wrapped_key_bundle, export_revision, export_refresh_status }
+   → Connector unwraps and decrypts locally, then narrows to the approved workflow payload before any partner handoff
 ```
 
 For MCP hosts, the recommended consumption surface is:
 
-`discover_user_domains` → `request_consent` → `check_consent_status` → `get_scoped_data(expected_scope=original_scope)`
+`discover_user_domains` → `request_consent` → `check_consent_status` → `get_encrypted_scoped_export(expected_scope=original_scope)`
 
 Coverage rules:
 
@@ -468,6 +471,7 @@ Coverage rules:
 - narrower active grant → broader ask: requires fresh approval
 - exact duplicate pending request → reuse the existing request_id
 - broader-token reuse must still return the narrower requested slice when `expected_scope` is supplied
+- partner persistence is not implied by export access; partner CRMs may store consent/audit metadata and narrow approved workflow fields only under explicit purpose, consent, retention, masking/encryption, deletion, and audit policy
 
 Production policy:
 - All `/api/v1/*` endpoints return `410` with:
