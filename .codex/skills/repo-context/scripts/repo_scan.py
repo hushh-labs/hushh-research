@@ -497,7 +497,12 @@ def build_frontend_section() -> dict[str, Any]:
         ],
         recommended_entrypoint="frontend",
         next_owner_skills=["frontend", "mobile-native"],
-        spoke_skills=["frontend-design-system", "frontend-architecture", "frontend-surface-placement"],
+        spoke_skills=[
+            "frontend-design-system",
+            "frontend-architecture",
+            "frontend-surface-placement",
+            "frontend-native-surface-mapper",
+        ],
     )
 
 
