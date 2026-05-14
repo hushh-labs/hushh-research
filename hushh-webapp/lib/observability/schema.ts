@@ -100,6 +100,20 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "duration_ms_bucket",
     "retry_count",
   ],
+  startup_readiness_warmup_completed: [
+    ...BASE_ALLOWED_KEYS,
+    "result",
+    "warm_priority",
+    "duration_ms",
+    "duration_ms_bucket",
+    "onboarding_synced",
+    "metadata_warmed",
+    "financial_warmed",
+    "kai_market_warmed",
+    "dashboard_picks_warmed",
+    "consents_warmed",
+    "vault_status_warmed",
+  ],
 };
 
 const DENYLIST_KEY_REGEX =
