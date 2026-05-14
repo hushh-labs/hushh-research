@@ -324,7 +324,10 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
             completed_requirements: workflow.required_fields.filter(
               (field) => !localDraft.missingFields.includes(field)
             ),
+            last_updated: new Date().toISOString(),
+            schema_version: "1.0",
           };
+          
           const artifactHash = await sha256Hex(JSON.stringify(artifact));
           next = await OneKycService.sendApprovedReply({
             ...input,
