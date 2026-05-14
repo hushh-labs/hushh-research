@@ -1,85 +1,57 @@
 import { ROUTES } from "@/lib/navigation/routes";
 
 export const ROUTE_ID_VALUES = [
-  "developer_settings",
-  "billing_payment_methods",
-  "one_kyc", // <-- Add this
-  "unknown",
   "landing",
   "developers",
   "login",
   "logout",
-  "phone_mandate",
   "labs_profile_appearance",
   "profile",
-  "profile_pkm",
-  "profile_pkm_agent_lab",
-  "profile_receipts",
-  "profile_gmail_oauth_return",
   "consents",
   "marketplace",
-  "marketplace_connections",
-  "marketplace_connection_portfolio",
   "marketplace_ria_profile",
-  "one_kyc",
-  "portfolio_shared",
   "ria_home",
   "ria_onboarding",
   "ria_clients",
   "ria_requests",
-  "ria_picks",
   "ria_settings",
   "ria_workspace",
   "kai_home",
   "kai_onboarding",
   "kai_import",
-  "kai_plaid_oauth_return",
-  "kai_alpaca_oauth_return",
   "kai_dashboard",
   "kai_investments",
   "kai_funding_trade",
   "kai_analysis",
   "kai_optimize",
   "kai_dashboard_legacy_redirect",
+  "developer_settings",
+  "billing_payment_methods",
+  "one_kyc",
   "unknown",
 ] as const;
 
 export type RouteId = (typeof ROUTE_ID_VALUES)[number];
 
 export function resolveRouteId(pathname: string): RouteId {
-  if (pathname === "/one/kyc") return "one_kyc";
   if (pathname === ROUTES.HOME) return "landing";
   if (pathname === ROUTES.DEVELOPERS) return "developers";
   if (pathname === ROUTES.LOGIN) return "login";
   if (pathname === ROUTES.LOGOUT) return "logout";
-  if (pathname === ROUTES.PHONE_MANDATE) return "phone_mandate";
   if (pathname === ROUTES.LABS_PROFILE_APPEARANCE) return "labs_profile_appearance";
   if (pathname === ROUTES.PROFILE) return "profile";
-  if (pathname === ROUTES.PROFILE_PKM) return "profile_pkm";
-  if (pathname === ROUTES.PROFILE_PKM_AGENT_LAB) return "profile_pkm_agent_lab";
-  if (pathname === ROUTES.PROFILE_RECEIPTS) return "profile_receipts";
-  if (pathname === ROUTES.PROFILE_GMAIL_OAUTH_RETURN) {
-    return "profile_gmail_oauth_return";
-  }
   if (pathname === ROUTES.CONSENTS) return "consents";
   if (pathname === ROUTES.MARKETPLACE) return "marketplace";
-  if (pathname === ROUTES.MARKETPLACE_CONNECTIONS) return "marketplace_connections";
-  if (pathname === `${ROUTES.MARKETPLACE_CONNECTIONS}/portfolio`) {
-    return "marketplace_connection_portfolio";
-  }
   if (
     pathname === ROUTES.MARKETPLACE_RIA_PROFILE ||
     pathname.startsWith(`${ROUTES.MARKETPLACE_RIA_PROFILE}/`)
   ) {
     return "marketplace_ria_profile";
   }
-  if (pathname === ROUTES.ONE_KYC) return "one_kyc";
-  if (pathname === "/portfolio/shared") return "portfolio_shared";
   if (pathname === ROUTES.RIA_HOME) return "ria_home";
   if (pathname === ROUTES.RIA_ONBOARDING) return "ria_onboarding";
   if (pathname === ROUTES.RIA_CLIENTS) return "ria_clients";
   if (pathname === ROUTES.RIA_REQUESTS) return "ria_requests";
-  if (pathname === ROUTES.RIA_PICKS) return "ria_picks";
   if (pathname === ROUTES.RIA_SETTINGS) return "ria_settings";
   if (
     pathname === ROUTES.RIA_WORKSPACE ||
@@ -91,13 +63,16 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.KAI_HOME) return "kai_home";
   if (pathname === ROUTES.KAI_ONBOARDING) return "kai_onboarding";
   if (pathname === ROUTES.KAI_IMPORT) return "kai_import";
-  if (pathname === ROUTES.KAI_PLAID_OAUTH_RETURN) return "kai_plaid_oauth_return";
-  if (pathname === ROUTES.KAI_ALPACA_OAUTH_RETURN) return "kai_alpaca_oauth_return";
   if (pathname === ROUTES.KAI_DASHBOARD) return "kai_dashboard";
   if (pathname === ROUTES.KAI_INVESTMENTS) return "kai_investments";
   if (pathname === ROUTES.KAI_FUNDING_TRADE) return "kai_funding_trade";
   if (pathname === ROUTES.KAI_ANALYSIS) return "kai_analysis";
   if (pathname === ROUTES.KAI_OPTIMIZE) return "kai_optimize";
+  
+  if (pathname === "/developer-settings") return "developer_settings";
+  if (pathname === "/billing/payment-methods") return "billing_payment_methods";
+  if (pathname === "/one/kyc") return "one_kyc";
+  
   if (pathname === "/kai/dashboard") return "kai_dashboard_legacy_redirect";
 
   if (pathname.startsWith(`${ROUTES.KAI_DASHBOARD}/`)) {
@@ -330,30 +305,6 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/kai/portfolio/import/run/{run_id}/cancel",
   },
   {
-    regex: /^\/api\/one\/kyc\/workflows(?:\?.*)?$/i,
-    template: "/api/one/kyc/workflows",
-  },
-  {
-    regex: /^\/api\/one\/kyc\/workflows\/[^/?]+(?:\?.*)?$/i,
-    template: "/api/one/kyc/workflows/{workflow_id}",
-  },
-  {
-    regex: /^\/api\/one\/kyc\/workflows\/[^/?]+\/refresh(?:\?.*)?$/i,
-    template: "/api/one/kyc/workflows/{workflow_id}/refresh",
-  },
-  {
-    regex: /^\/api\/one\/kyc\/workflows\/[^/?]+\/approve-draft(?:\?.*)?$/i,
-    template: "/api/one/kyc/workflows/{workflow_id}/approve-draft",
-  },
-  {
-    regex: /^\/api\/one\/kyc\/workflows\/[^/?]+\/reject-draft(?:\?.*)?$/i,
-    template: "/api/one/kyc/workflows/{workflow_id}/reject-draft",
-  },
-  {
-    regex: /^\/api\/one\/kyc\/workflows\/[^/?]+\/redraft(?:\?.*)?$/i,
-    template: "/api/one/kyc/workflows/{workflow_id}/redraft",
-  },
-  {
     regex: /^\/api\/consent\/pending(?:\?.*)?$/i,
     template: "/api/consent/pending",
   },
@@ -384,10 +335,6 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
   {
     regex: /^\/api\/account\/delete(?:\?.*)?$/i,
     template: "/api/account/delete",
-  },
-  {
-    regex: /^\/api\/account\/export(?:\?.*)?$/i,
-    template: "/api/account/export",
   },
   {
     regex: /^\/api\/developer\/access(?:\?.*)?$/i,
