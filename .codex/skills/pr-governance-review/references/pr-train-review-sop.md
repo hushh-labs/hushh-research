@@ -263,6 +263,10 @@ credit. The fair retroactive path is:
 2. keep source PR closeouts contributor-enabling
 3. update the contributor-impact dashboard with `harvested_source` internal
    credit for source PRs whose value landed through a maintainer patch
+4. if the operator explicitly requests external GitHub credit, add a
+   transparent follow-up PR with a real, non-empty co-authored harvest replay or
+   supplemental harvest patch plus an auditable ledger entry; do not claim this
+   changes the original merge commit's authorship or additions/deletions
 
 ## Developer Operating Loop
 

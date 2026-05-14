@@ -52,6 +52,23 @@ def test_harvested_source_gets_internal_credit() -> None:
     _assert(leaderboard[0]["harvested"] == 1, "leaderboard must count harvest credits")
 
 
+def test_harvest_attribution_names_external_ledger_boundary() -> None:
+    records = report._analysis(
+        [_fake_pr(808, "imsharukhan", "fix: improve TopAppBar back button touch target")]
+    )
+
+    lines = "\n".join(report._harvest_attribution_lines(records))
+    _assert(
+        "co-authored on the harvest replay follow-up once it lands" in lines,
+        "harvest report must name the external GitHub attribution path",
+    )
+    _assert(
+        "does not change #1013's original merge authorship or original additions/deletions" in lines,
+        "harvest report must not imply original merge history changed",
+    )
+
+
 if __name__ == "__main__":
     test_harvested_source_gets_internal_credit()
+    test_harvest_attribution_names_external_ledger_boundary()
     print("contributor impact tests passed")

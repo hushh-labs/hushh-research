@@ -65,6 +65,7 @@ Load these only when the decision needs them:
 3. `.codex/skills/pr-governance-review/references/blocker-gates.md`
 4. `.codex/skills/pr-governance-review/references/comment-and-report-contract.md`
 5. `.codex/skills/pr-governance-review/references/pr-train-review-sop.md`
+6. `.codex/skills/pr-governance-review/references/maintainer-harvest-attribution-ledger.md`
 
 ## Workflow
 
@@ -106,7 +107,11 @@ Load these only when the decision needs them:
     `Co-authored-by:` trailers to the actual landing commit using public
     GitHub no-reply identities when verified. If only the idea or direction is
     used, do not add a co-author trailer; include a contributor
-    acknowledgement in the PR body and source-PR closeout instead.
+    acknowledgement in the PR body and source-PR closeout instead. For an
+    already-merged maintainer harvest, a transparent follow-up PR with a real,
+    non-empty co-authored harvest replay or supplemental harvest patch can add
+    external GitHub co-author credit only for that follow-up commit; it must not
+    claim to rewrite landing-commit authorship or original additions/deletions.
 14. Run the Founder Wiki North-Star Probe for material PRs that touch product direction, One/Kai/Nav, PCHP, BYOA/BYOK, MLX/on-device posture, consent/vault/PKM, World Model, voice/action, Aha Moment, user-facing workflows, or founder-language claims. Use `.codex/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md` as the contract:
    - repo code/contracts/tests/CI remain current-state truth
    - founder wiki pages define north-star and future-state alignment
