@@ -45,6 +45,23 @@ import {
 } from "@/lib/runtime/settings";
 import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
 
+export interface ConsentSSEEvent {
+  type:
+    | "consent_granted"
+    | "consent_denied"
+    | "consent_revoked"
+    | "heartbeat"
+    | "connected";
+  ts: number;
+  scope?: string;
+  developer?: string;
+  agent_id?: string;
+  requestId?: string;
+  grantedScope?: string;
+  reused?: boolean;
+  userId?: string;
+}
+
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
 const AUTH_SESSION_INVALIDATED_EVENT = "auth-session-invalidated";
 const VAULT_LOCK_REQUESTED_EVENT = "vault-lock-requested";
@@ -3686,6 +3703,77 @@ export class ApiService {
       },
       signal: data.signal,
     });
+  }
+
+  // ==================== Consent Live Stream ====================
+
+  static async subscribeConsentEvents(
+    userId: string,
+    vaultOwnerToken: string,
+    handlers: {
+      onEvent: (event: ConsentSSEEvent) => void;
+      onConnected?: () => void;
+    },
+    signal?: AbortSignal
+  ): Promise<void> {
+    const response = await apiFetch(
+      `/api/consent/events/stream?userId=${encodeURIComponent(userId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${vaultOwnerToken}`,
+          Accept: "text/event-stream",
+        },
+        signal,
+      }
+    );
+
+    if (!response.ok || !response.body) {
+      throw new Error(`Consent SSE connection failed: ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        if (signal?.aborted) break;
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() ?? "";
+
+        for (const chunk of chunks) {
+          if (!chunk.trim()) continue;
+          const lines = chunk.split("\n");
+          let eventType = "message";
+          let data = "";
+
+          for (const line of lines) {
+            if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+            if (line.startsWith("data: ")) data = line.slice(6).trim();
+          }
+
+          if (!data) continue;
+          if (eventType === "heartbeat") continue;
+
+          try {
+            const parsed = JSON.parse(data) as ConsentSSEEvent;
+            if (eventType === "connected") {
+              handlers.onConnected?.();
+            } else {
+              handlers.onEvent({ ...parsed, type: eventType as ConsentSSEEvent["type"] });
+            }
+          } catch {
+            // Ignore malformed SSE frame
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
   }
 }
 
