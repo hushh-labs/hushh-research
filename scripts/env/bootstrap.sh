@@ -15,20 +15,21 @@ Description:
   - verifies required local tools
   - installs/refreshes frontend and backend dependencies
   - hydrates the three canonical frontend runtime modes plus the local backend env
-  - hydrates native secret values into the frontend profile files when available
-  - activates the selected frontend profile and materializes .env.local.d
+  - activates the selected frontend profile
   - runs the environment doctor for the selected profile
 
 Notes:
-  - Default mode is uat so a first-time contributor can get the app
-    running against deployed UAT without local backend/proxy setup.
+  - Default mode is local so contributor bootstrap aligns with the
+    local-first runtime contract.
+  - Use --mode uat when you intentionally want the fastest frontend-only
+    path against the deployed UAT backend.
   - If gcloud is unavailable, runtime files are created from templates and
     cached local values where possible.
   - This command does not print secrets.
 USAGE
 }
 
-PROFILE="uat"
+PROFILE="local"
 while [ "$#" -gt 0 ]; do
   case "${1:-}" in
     --mode)
@@ -129,6 +130,7 @@ require_cmd node
 require_cmd npm
 require_cmd python3
 require_cmd jq
+require_cmd uv
 
 NODE_VERSION="$(node -v | sed 's/^v//')"
 NPM_VERSION="$(npm -v)"
@@ -147,6 +149,7 @@ echo "  - node >= 20 (found ${NODE_VERSION})"
 echo "  - npm >= 10 (found ${NPM_VERSION})"
 echo "  - python3 >= 3.13 (found ${PYTHON_VERSION})"
 echo "  - jq"
+echo "  - uv"
 echo "Optional but recommended:"
 optional_tool_note gcloud "needed to hydrate profiles from GCP and run live parity checks"
 optional_tool_note cloud-sql-proxy "needed only for local backend work"
@@ -165,14 +168,11 @@ echo "Installing frontend dependencies..."
 echo ""
 
 echo "Preparing backend virtual environment..."
-if [ ! -d "$REPO_ROOT/consent-protocol/.venv" ]; then
-  python3 -m venv "$REPO_ROOT/consent-protocol/.venv"
-fi
-"$REPO_ROOT/consent-protocol/.venv/bin/pip" install --disable-pip-version-check -r "$REPO_ROOT/consent-protocol/requirements.txt" -r "$REPO_ROOT/consent-protocol/requirements-dev.txt"
+(cd "$REPO_ROOT/consent-protocol" && uv sync --frozen --group dev && bash scripts/sync_runtime_requirements.sh --check)
 echo ""
 
 echo "Hydrating canonical frontend modes and the local backend runtime..."
-bash "$REPO_ROOT/scripts/env/bootstrap_profiles.sh"
+BOOTSTRAP_FOCUS_PROFILE="$PROFILE" bash "$REPO_ROOT/scripts/env/bootstrap_profiles.sh"
 echo ""
 
 echo "Activating selected runtime mode..."
@@ -185,6 +185,7 @@ echo ""
 
 echo "Bootstrap complete."
 echo "Next steps:"
-echo "  ./bin/hushh web --mode uat"
+echo "  ./bin/hushh terminal backend --mode local --reload"
+echo "  ./bin/hushh web               # defaults to local"
+echo "  ./bin/hushh web --mode uat    # explicit hosted-backend frontend path"
 echo "  ./bin/hushh doctor --mode local"
-echo "  ./bin/hushh backend   # when you need local backend work"

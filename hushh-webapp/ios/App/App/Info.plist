@@ -42,6 +42,8 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Kai uses the microphone only when you start a voice command.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

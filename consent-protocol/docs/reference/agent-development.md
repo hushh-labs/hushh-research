@@ -1,17 +1,23 @@
 # Agent Development
 
-> The community contribution bible. Everything you need to build, test, and ship a new Hushh agent or operon.
+> The community contribution bible. Everything you need to build, test, and ship a new Hussh agent or operon.
 
 
 ## Visual Context
 
 Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
+Founder-language mapping:
+
+- `TrustLink / A2A delegation` means delegated authority must inherit the same consent boundary this doc enforces
+- `Capability Tokens` remain explicit here because agent entry points, tools, and operons validate concrete token scopes
+- `Separation of Duties` is implemented through the DNA model: agents orchestrate, tools expose callable surfaces, operons hold business logic, and services touch persistence
+
 ---
 
 ## The DNA Model
 
-Hushh agents are built from four composable layers. Each layer has a single responsibility and strict dependency rules.
+Hussh agents are built from four composable layers. Each layer has a single responsibility and strict dependency rules.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -284,7 +290,7 @@ version: "1.0.0"
 description: Analyzes user data for the my_domain domain.
 model: gemini-3-flash-preview
 system_instruction: |
-  You are a Hushh agent specializing in [domain].
+  You are a Hussh agent specializing in [domain].
   Always respect user consent and privacy.
   Provide structured, actionable insights.
 required_scopes:
@@ -384,7 +390,7 @@ app.include_router(my_agent_router)
 
 ```python
 # hushh_mcp/agents/orchestrator/tools.py
-@hushh_tool(scope="vault.owner", name="delegate_to_my_agent")
+@hushh_tool(scope="agent.one.orchestrate", name="delegate_to_my_agent")
 async def delegate_to_my_agent(query: str) -> dict:
     """Delegate to MyDomain agent."""
     # ... forward to MyDomainAgent
@@ -396,9 +402,28 @@ async def delegate_to_my_agent(query: str) -> dict:
 
 | Agent               | Directory                    | Scopes                          | Tools                            |
 | ------------------- | ---------------------------- | ------------------------------- | -------------------------------- |
-| OrchestratorAgent   | `agents/orchestrator/`       | `vault.owner`                   | `delegate_to_kai`                |
-| KaiAgent            | `agents/kai/`                | `attr.financial.*`              | `perform_fundamental_analysis`, `perform_sentiment_analysis`, `perform_valuation_analysis` |
+| OneAgent            | `agents/one/` and legacy `agents/orchestrator/` | `agent.one.orchestrate` | delegate to Kai, Nav, and KYC |
+| KaiAgent            | `agents/kai/`                | `agent.kai.analyze`             | `perform_fundamental_analysis`, `perform_sentiment_analysis`, `perform_valuation_analysis` |
+| NavAgent            | `agents/nav/`                | `agent.nav.review`              | scope review, vault/deletion/revocation guidance |
+| KycAgent            | `agents/kyc/`                | `agent.kyc.process`             | identity workflow state, approval-gated drafts, structured PKM writeback contract |
 | PortfolioImportAgent| (inline in `kai/portfolio.py`)| `vault.owner`                  | File parsing + LLM fallback      |
+
+### One Email KYC Intake
+
+The broker/KYC email lane is One-led, not Kai-owned:
+
+- `one@hushh.ai` is the Workspace user mailbox.
+- Current implementation contract: `docs/reference/architecture/one-email-kyc.md`.
+- `POST /api/one/email/webhook` receives Gmail Pub/Sub notifications.
+- `POST /api/one/email/watch/renew` renews the mailbox watch.
+- workflow state lives in `one_kyc_workflows` and stores metadata, hashes, send status, Gmail thread verification, and encrypted PKM writeback receipts; `draft_body` is legacy and must stay null/redacted in strict client-side ZK mode.
+- One performs text-only request detection for identity/KYC and financial disclosure signals, stores candidate scopes only, and waits for the vault owner to confirm or narrow scopes in `/one/kyc`.
+- One creates one `agent_kyc` consent request per selected scope with a shared bundle id and the user's registered public client connector metadata.
+- `/one/kyc` requires vault unlock so the frontend can own the connector private key, decrypt approved exports locally, build deterministic review drafts locally, approve send, or reject.
+- outbound Gmail send is blocked until every selected scope is granted/current, `draft_status=ready`, `status=waiting_on_user`, and the vault owner approves the final body; the backend handles that body transiently only for Gmail reply-all send in the original Gmail thread.
+- if a selected scope is denied, One does not send an external counterparty reply and surfaces an internal-only explanation to the user.
+
+Do not store raw email bodies, raw vault contents, broad decrypted PKM, tokens, or chain-of-thought in this lane.
 
 ---
 
@@ -433,13 +458,14 @@ icon: string                  # Optional UI icon
 
 ## A2A Communication
 
-Agent-to-agent communication uses the `KaiA2AServer` pattern:
+Agent-to-agent communication uses the shared A2A delegation pattern:
 
 - Consent tokens are passed in HTTP headers
 - Agent cards describe capabilities (manifest-based)
 - Delegation uses `@hushh_tool` wrappers
+- Specialist entry points validate the least-privilege specialist scope instead of defaulting to `vault.owner`
 
-See the Kai agent for the reference implementation.
+See `hushh_mcp/adk_bridge/delegation.py` and the Kai agent for the reference implementation.
 
 ### ADK/A2A Compliance Verification
 
@@ -451,7 +477,7 @@ python scripts/verify_adk_a2a_compliance.py
 
 The verifier checks:
 - `X-Consent-Token` enforcement in A2A entry points.
-- Token validation using `ConsentScope.VAULT_OWNER`.
+- Token validation using the specialist scope map, for example `agent.kai.analyze` for Kai A2A.
 - Google A2A compatibility flag and route wiring.
 - Required agent -> operon data-source calls for fundamental/sentiment/valuation paths.
 

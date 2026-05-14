@@ -1,0 +1,264 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "kai_analysis",
+  "surface_title": "Kai Analysis Workspace",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "investor"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.kai_analysis",
+      "label": "Open Analysis Surface",
+      "meaning": "Navigates directly to the Kai analysis workspace and history route.",
+      "aliases": [
+        "open analysis",
+        "go to analysis"
+      ],
+      "search_keywords": [
+        "analysis",
+        "research"
+      ],
+      "reachability": {
+        "routes": [
+          "/kai/analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/kai/analysis"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/kai/analysis/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "route.analysis_history",
+      "label": "Open Analysis History",
+      "meaning": "Navigates to analysis page history context.",
+      "aliases": [
+        "open analysis history",
+        "show past analysis"
+      ],
+      "search_keywords": [
+        "analysis history",
+        "history"
+      ],
+      "reachability": {
+        "routes": [
+          "/kai/analysis",
+          "/kai/analysis?tab=history"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "history"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "analysis.start",
+      "label": "Start Stock Analysis",
+      "meaning": "Creates fresh analysis intent and opens the debate workspace.",
+      "aliases": [
+        "analyze stock",
+        "start stock analysis",
+        "research stock"
+      ],
+      "search_keywords": [
+        "analyze",
+        "analysis",
+        "stock"
+      ],
+      "reachability": {
+        "routes": [
+          "/kai/analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "analysis_idle_required"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "analyze",
+        "params": {
+          "requires_symbol": true
+        }
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "analysis.resume_active",
+      "label": "Resume Active Analysis Run",
+      "meaning": "Attaches to currently running debate task and opens focused analysis route.",
+      "aliases": [
+        "resume analysis",
+        "open active analysis"
+      ],
+      "search_keywords": [
+        "resume",
+        "active analysis"
+      ],
+      "reachability": {
+        "routes": [
+          "/kai/analysis",
+          "/kai/analysis?focus=active"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "active debate run must exist for this user"
+        ]
+      },
+      "guard_ids": [
+        "active_analysis_required",
+        "vault_unlocked"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "resume_active_analysis"
+      },
+      "control_ids": [
+        "analysis_open_active"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "analysis.cancel_active",
+      "label": "Cancel Active Analysis Run",
+      "meaning": "Cancels running debate task and returns to history view.",
+      "aliases": [
+        "cancel analysis",
+        "stop analysis"
+      ],
+      "search_keywords": [
+        "cancel",
+        "stop analysis"
+      ],
+      "reachability": {
+        "routes": [
+          "/kai/analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "active debate run must exist for this user"
+        ]
+      },
+      "guard_ids": [
+        "active_analysis_required",
+        "explicit_user_confirmation",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "cancel_active_analysis"
+      },
+      "control_ids": [
+        "analysis_cancel"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "analysis.open_transcript_tab_legacy",
+      "label": "Legacy Transcript Tab Route",
+      "meaning": "Legacy tab token accepted by parser but no transcript tab is rendered in current analysis UI.",
+      "aliases": [
+        "open transcript tab",
+        "show transcript tab"
+      ],
+      "search_keywords": [
+        "analysis transcript"
+      ],
+      "reachability": {
+        "routes": [
+          "/kai/analysis?tab=transcript"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "analysis route must be loaded"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "dead",
+        "reason": "No transcript tab trigger/content exists in app/kai/analysis/page.tsx."
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "lib/voice/voice-json-validator.ts",
+        "app/kai/analysis/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    }
+  ]
+}

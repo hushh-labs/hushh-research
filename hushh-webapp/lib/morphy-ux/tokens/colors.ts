@@ -1,5 +1,5 @@
 /**
- * Hushh Brand Color Tokens
+ * Hussh brand color tokens
  *
  * Single source of truth for all morphy-ux colors.
  * Based on Apple-inspired blue palette (hushh.ai rebrand).

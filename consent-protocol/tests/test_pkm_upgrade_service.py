@@ -128,8 +128,8 @@ async def test_build_status_prefers_manifest_versions_over_stale_summary_version
     assert status["upgrade_status"] == "current"
     assert status["upgradable_domains"] == []
     assert status["stored_model_version"] == 2
-    assert status["effective_model_version"] == 3
-    assert status["model_version"] == 3
+    assert status["effective_model_version"] == 4
+    assert status["model_version"] == 4
 
 
 @pytest.mark.asyncio
@@ -162,10 +162,10 @@ async def test_start_or_resume_run_silently_reconciles_stale_top_level_index():
 
     assert status["upgrade_status"] == "current"
     assert status["upgradable_domains"] == []
-    assert status["stored_model_version"] == 3
-    assert status["effective_model_version"] == 3
-    assert status["model_version"] == 3
+    assert status["stored_model_version"] == 4
+    assert status["effective_model_version"] == 4
+    assert status["model_version"] == 4
     assert len(fake_pkm_service.upserted_indexes) == 1
     repaired_index = fake_pkm_service.upserted_indexes[0]
-    assert repaired_index.model_version == 3
+    assert repaired_index.model_version == 4
     assert repaired_index.last_upgraded_at == datetime(2026, 3, 29, 12, 0, tzinfo=UTC)

@@ -10,6 +10,8 @@ const ORIGINAL_ENV = {
     process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_POLICY_ENFORCEMENT_ENABLED,
   NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_EXECUTION_ENABLED:
     process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_EXECUTION_ENABLED,
+  NEXT_PUBLIC_VOICE_V2_CLIENT_VAD_FALLBACK_ENABLED:
+    process.env.NEXT_PUBLIC_VOICE_V2_CLIENT_VAD_FALLBACK_ENABLED,
 };
 
 function restoreEnv() {
@@ -30,7 +32,8 @@ describe("voice-feature-flags", () => {
   it("defaults grounded action flags from v2 enabled state", () => {
     process.env.NEXT_PUBLIC_VOICE_V2_ENABLED = "1";
     delete process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_RESOLUTION_ENABLED;
-    delete process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_POLICY_ENFORCEMENT_ENABLED;
+    delete process.env
+      .NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_POLICY_ENFORCEMENT_ENABLED;
     delete process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_EXECUTION_ENABLED;
 
     const flags = getVoiceV2Flags();
@@ -38,12 +41,14 @@ describe("voice-feature-flags", () => {
     expect(flags.groundedActionResolutionEnabled).toBe(true);
     expect(flags.groundedActionPolicyEnforcementEnabled).toBe(true);
     expect(flags.groundedActionExecutionEnabled).toBe(true);
+    expect(flags.clientVadFallbackEnabled).toBe(true);
   });
 
   it("allows disabling grounded execution independently for gradual rollout", () => {
     process.env.NEXT_PUBLIC_VOICE_V2_ENABLED = "1";
     process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_RESOLUTION_ENABLED = "1";
-    process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_POLICY_ENFORCEMENT_ENABLED = "1";
+    process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_POLICY_ENFORCEMENT_ENABLED =
+      "1";
     process.env.NEXT_PUBLIC_VOICE_V2_GROUNDED_ACTION_EXECUTION_ENABLED = "0";
 
     const flags = getVoiceV2Flags();

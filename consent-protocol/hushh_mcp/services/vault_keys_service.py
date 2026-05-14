@@ -431,7 +431,9 @@ class VaultKeysService:
 
         # If explicit RP IDs are not configured, derive from frontend/CORS settings
         # so domain migrations (run.app <-> custom domain) remain functional.
-        allowed.update(collect_from_csv(os.getenv("FRONTEND_URL")))
+        from hushh_mcp.runtime_settings import get_app_runtime_settings
+
+        allowed.update(collect_from_csv(get_app_runtime_settings().app_frontend_origin))
         allowed.update(collect_from_csv(os.getenv("CORS_ALLOWED_ORIGINS")))
 
         # Keep legacy production fallback for older deployments that only use defaults.

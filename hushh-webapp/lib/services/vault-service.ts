@@ -819,7 +819,23 @@ export class VaultService {
             signal: AbortSignal.timeout(resolveSlowRequestTimeoutMs(20_000)),
           });
           if (!response.ok) {
-            throw new Error(`Vault check failed: ${response.status}`);
+            const payload = await response.json().catch(() => undefined);
+            const message =
+              typeof (payload as { error?: unknown } | undefined)?.error === "string"
+                ? (payload as { error: string }).error
+                : `Vault check failed: ${response.status}`;
+            const error = Object.assign(new Error(message), {
+              status: response.status,
+              code:
+                typeof (payload as { code?: unknown } | undefined)?.code === "string"
+                  ? (payload as { code: string }).code
+                  : undefined,
+              hint:
+                typeof (payload as { hint?: unknown } | undefined)?.hint === "string"
+                  ? (payload as { hint: string }).hint
+                  : undefined,
+            });
+            throw error;
           }
           const data = await response.json();
           hasVault = data.hasVault;
@@ -923,7 +939,15 @@ export class VaultService {
 
       const response = await fetch(url, { headers });
       if (!response.ok) {
-        throw new Error("Failed to get vault");
+        const errorPayload = (await response
+          .json()
+          .catch(async () => ({ error: await response.text().catch(() => "") }))) as {
+          error?: string;
+          message?: string;
+        };
+        throw new Error(
+          errorPayload.error || errorPayload.message || "Failed to get vault"
+        );
       }
       const payload = (await response.json()) as Partial<VaultState>;
       const wrapperProbe = (payload as { wrappers?: unknown }).wrappers;

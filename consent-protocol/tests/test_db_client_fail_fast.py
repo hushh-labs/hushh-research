@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 from psycopg2.extras import Json as PsycopgJson
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from db.db_client import DatabaseClient, DatabaseExecutionError, TableQuery
 
@@ -40,6 +41,70 @@ def test_execute_raises_database_execution_error_for_sql_failures(sqlite_engine)
 
     with pytest.raises(DatabaseExecutionError, match="missing_table.select"):
         query.execute()
+
+
+def test_table_query_retries_once_after_transient_connection_error(sqlite_engine):
+    class _FlakyEngine:
+        def __init__(self, wrapped_engine):
+            self._wrapped_engine = wrapped_engine
+            self.dialect = wrapped_engine.dialect
+            self.connect_calls = 0
+            self.dispose_calls = 0
+
+        def connect(self):
+            self.connect_calls += 1
+            if self.connect_calls == 1:
+                raise SqlalchemyOperationalError(
+                    "SELECT 1",
+                    {},
+                    Exception("server closed the connection unexpectedly"),
+                )
+            return self._wrapped_engine.connect()
+
+        def dispose(self):
+            self.dispose_calls += 1
+            return None
+
+    engine = _FlakyEngine(sqlite_engine)
+    query = TableQuery("vault_key_wrappers", engine)
+    result = query.select("*").execute()
+
+    assert result.data == []
+    assert result.count == 0
+    assert engine.connect_calls == 2
+    assert engine.dispose_calls == 1
+
+
+def test_execute_raw_retries_once_after_transient_connection_error(sqlite_engine):
+    class _FlakyEngine:
+        def __init__(self, wrapped_engine):
+            self._wrapped_engine = wrapped_engine
+            self.dialect = wrapped_engine.dialect
+            self.connect_calls = 0
+            self.dispose_calls = 0
+
+        def connect(self):
+            self.connect_calls += 1
+            if self.connect_calls == 1:
+                raise SqlalchemyOperationalError(
+                    "SELECT 1",
+                    {},
+                    Exception("connection refused"),
+                )
+            return self._wrapped_engine.connect()
+
+        def dispose(self):
+            self.dispose_calls += 1
+            return None
+
+    engine = _FlakyEngine(sqlite_engine)
+    db = DatabaseClient(engine=engine)
+
+    result = db.execute_raw("SELECT 1 AS value")
+
+    assert result.data == [{"value": 1}]
+    assert engine.connect_calls == 2
+    assert engine.dispose_calls == 1
 
 
 def test_upsert_supports_composite_conflict_columns(sqlite_engine):
@@ -173,6 +238,63 @@ def test_execute_raw_commits_before_returning_rows():
 
     assert connection.committed is True
     assert result.data == [{"token_prefix": "hdk_demo"}]
+
+
+def test_rpc_adapts_json_params_and_commits_for_postgres():
+    class _FakeRow:
+        _mapping = {"merge_pkm_domain_summary": None}
+
+    class _FakeResult:
+        def __iter__(self):
+            return iter((_FakeRow(),))
+
+    class _FakeConnection:
+        def __init__(self):
+            self.params = None
+            self.committed = False
+
+        def execute(self, _statement, params):
+            self.params = params
+            return _FakeResult()
+
+        def commit(self):
+            self.committed = True
+
+    class _FakeContext:
+        def __init__(self, connection):
+            self._connection = connection
+
+        def __enter__(self):
+            return self._connection
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeEngine:
+        def __init__(self, connection):
+            self._connection = connection
+            self.dialect = SimpleNamespace(name="postgresql")
+
+        def connect(self):
+            return _FakeContext(self._connection)
+
+    connection = _FakeConnection()
+    db = DatabaseClient(engine=_FakeEngine(connection))
+
+    result = db.rpc(
+        "merge_pkm_domain_summary",
+        {
+            "p_user_id": "user_demo",
+            "p_domain": "identity",
+            "p_patch": {"has_full_name": True},
+            "p_domains_list": ["identity"],
+        },
+    )
+
+    assert result.count == 1
+    assert connection.committed is True
+    assert isinstance(connection.params["p_patch"], PsycopgJson)
+    assert connection.params["p_domains_list"] == ["identity"]
 
 
 def test_upsert_adapts_json_like_params_for_postgres():

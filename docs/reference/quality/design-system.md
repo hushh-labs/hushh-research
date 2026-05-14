@@ -1,4 +1,4 @@
-# Hushh Frontend Design System
+# Hussh Frontend Design System
 
 
 ## Visual Context
@@ -12,9 +12,9 @@ This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the st
 | Layer | Location | Ownership | Rules |
 |---|---|---|---|
 | Stock primitives | `hushh-webapp/components/ui/*` | shadcn registry | Registry-backed only. Treat as vendor code. |
-| Morphy UX | `hushh-webapp/lib/morphy-ux/*` and `hushh-webapp/lib/morphy-ux/ui/*` | Hushh | Own reusable design-system primitives, motion, tokens, and surface shells. Must compose stock primitives; do not fork primitive internals. |
-| App reusable components | `hushh-webapp/components/app-ui/*` | Hushh | App-specific semantic composition belongs here, never in `components/ui`. |
-| Feature composition | `hushh-webapp/components/<feature>/*`, `hushh-webapp/app/**` | Hushh | Compose Morphy and app-ui layers; do not create parallel primitives. |
+| Morphy UX | `hushh-webapp/lib/morphy-ux/*` and `hushh-webapp/lib/morphy-ux/ui/*` | Hussh | Own reusable design-system primitives, motion, tokens, and surface shells. Must compose stock primitives; do not fork primitive internals. |
+| App reusable components | `hushh-webapp/components/app-ui/*` | Hussh | App-specific semantic composition belongs here, never in `components/ui`. |
+| Feature composition | `hushh-webapp/components/<feature>/*`, `hushh-webapp/app/**` | Hussh | Compose Morphy and app-ui layers; do not create parallel primitives. |
 
 ## Canonical Policies
 1. Default to stock shadcn imports for baseline controls.
@@ -122,6 +122,7 @@ Project-local UI skills live in `.codex/skills/`:
 2. `frontend-design-system`
 3. `frontend-architecture`
 4. `frontend-surface-placement`
+5. `frontend-native-surface-mapper`
 
 These skills must stay aligned with this document, `frontend-ui-architecture-map.md`, and the runtime verification commands.
 
@@ -130,7 +131,7 @@ The Profile page is the canonical settings implementation for the app.
 
 Reference:
 
-1. `hushh-webapp/components/profile/settings-ui.tsx`
+1. `hushh-webapp/components/app-ui/settings-ui.tsx`
 2. `hushh-webapp/app/profile/page.tsx`
 3. [Profile Settings Design System](./profile-settings-design-system.md)
 4. [App Surface Design System](./app-surface-design-system.md)

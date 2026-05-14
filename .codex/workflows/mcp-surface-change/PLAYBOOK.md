@@ -4,7 +4,7 @@ Use this workflow pack when the task matches `mcp-surface-change`.
 
 ## Goal
 
-Change the Hushh MCP package, server surface, or developer onboarding contract without breaking docs or setup parity.
+Change the Hussh MCP package, server surface, or developer onboarding contract without breaking docs or setup parity.
 
 ## Steps
 

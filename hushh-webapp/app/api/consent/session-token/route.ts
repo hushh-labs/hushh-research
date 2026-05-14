@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`[API] Issuing session token for user: ${userId}`);
+    console.log("[API] Issuing session token");
 
     const response = await fetch(`${BACKEND_URL}/api/consent/issue-token`, {
       method: "POST",

@@ -2,8 +2,9 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 const STOCK_UI_FILES = new Set([
   "accordion.tsx",
@@ -75,6 +76,10 @@ const deprecatedImports = [
   "@/lib/morphy-ux/ui/tabs",
 ];
 
+const requiredDocs = [
+  "docs/profile-management-design-rules.md",
+];
+
 function listFiles(dir, matcher = () => true) {
   const result = [];
   const visit = (current) => {
@@ -105,6 +110,13 @@ function toRepoPath(filePath) {
 }
 
 const failures = [];
+
+for (const requiredDoc of requiredDocs) {
+  const fullPath = path.join(repoRoot, requiredDoc);
+  if (!fs.existsSync(fullPath)) {
+    failures.push(`missing required design-system policy doc: ${requiredDoc}`);
+  }
+}
 
 const uiDir = path.join(repoRoot, "components/ui");
 const actualUiFiles = fs
@@ -151,6 +163,18 @@ for (const filePath of appSources) {
       failures.push(`${toRepoPath(filePath)} references deprecated path ${deprecatedImport}`);
     }
   }
+}
+
+const profilePagePath = path.join(repoRoot, "app/profile/page.tsx");
+const profilePageSource = read(profilePagePath);
+if (profilePageSource.includes("PageSectionSwitcher")) {
+  failures.push("app/profile/page.tsx must not use PageSectionSwitcher for primary profile navigation");
+}
+
+const pkmManagerPath = path.join(repoRoot, "components/profile/pkm-data-manager.tsx");
+const pkmManagerSource = read(pkmManagerPath);
+if (pkmManagerSource.includes("SummaryTile")) {
+  failures.push("components/profile/pkm-data-manager.tsx must not define or use SummaryTile KPI strips");
 }
 
 if (failures.length > 0) {

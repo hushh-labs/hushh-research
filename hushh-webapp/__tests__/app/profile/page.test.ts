@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   resolveGmailConnectionPresentation,
+  resolveGmailLastUpdatedLabel,
+  resolveGmailStatusSummary,
   resolveGmailSyncFeedback,
+  sanitizeGmailUserMessage,
 } from "@/lib/profile/mail-flow";
 
 describe("resolveGmailSyncFeedback", () => {
@@ -31,7 +34,7 @@ describe("resolveGmailSyncFeedback", () => {
       })
     ).toEqual({
       kind: "message",
-      message: "Gmail sync is still running in the background.",
+      message: "We're still syncing your receipts.",
     });
   });
 
@@ -66,7 +69,7 @@ describe("resolveGmailSyncFeedback", () => {
       })
     ).toEqual({
       kind: "success",
-      message: "Gmail receipts synced.",
+      message: "Receipts updated.",
     });
   });
 });
@@ -103,7 +106,7 @@ describe("resolveGmailConnectionPresentation", () => {
       })
     ).toMatchObject({
       state: "sync_failed",
-      badgeLabel: "Needs attention",
+      badgeLabel: "Try again",
       isConnected: true,
     });
   });
@@ -117,8 +120,104 @@ describe("resolveGmailConnectionPresentation", () => {
       })
     ).toMatchObject({
       state: "sync_failed",
-      badgeLabel: "Needs attention",
+      badgeLabel: "Try again",
       isConnected: false,
     });
+  });
+
+  it("keeps passive backfill in the connected background state instead of blocking sync", () => {
+    expect(
+      resolveGmailConnectionPresentation({
+        status: {
+          configured: true,
+          connected: true,
+          status: "connected",
+          google_email: "dev@hushh.ai",
+          scope_csv: "gmail.readonly",
+          last_sync_status: "running",
+          auto_sync_enabled: true,
+          revoked: false,
+          sync_state: "backfill_running",
+          latest_run: {
+            run_id: "run-backfill",
+            user_id: "user-1",
+            trigger_source: "backfill",
+            sync_mode: "backfill",
+            status: "running",
+            listed_count: 1,
+            filtered_count: 1,
+            synced_count: 1,
+            extracted_count: 1,
+            duplicates_dropped: 0,
+            extraction_success_rate: 1,
+          },
+        },
+      })
+    ).toMatchObject({
+      state: "connected_backfill_running",
+      badgeLabel: "Connected",
+      isConnected: true,
+    });
+  });
+});
+
+describe("sanitizeGmailUserMessage", () => {
+  it("hides raw backend error details", () => {
+    expect(
+      sanitizeGmailUserMessage(
+        "DB operation failed [<raw_sql>.execute_raw]: (psycopg2.OperationalError) server closed the connection unexpectedly",
+        {
+          fallback: "Something went wrong while syncing your emails. Please try again in a moment.",
+        }
+      )
+    ).toBe("Something went wrong while syncing your emails. Please try again in a moment.");
+  });
+
+  it("hides proxy timeout and connection errors", () => {
+    expect(
+      sanitizeGmailUserMessage("fetch failed: connection refused", {
+        fallback: "Something went wrong while syncing your emails. Please try again in a moment.",
+      })
+    ).toBe("Something went wrong while syncing your emails. Please try again in a moment.");
+  });
+});
+
+describe("resolveGmailStatusSummary", () => {
+  it("returns a calm success summary for connected Gmail", () => {
+    expect(
+      resolveGmailStatusSummary({
+        status: {
+          configured: true,
+          connected: true,
+          status: "connected",
+          google_email: "dev@hushh.ai",
+          scope_csv: "gmail.readonly",
+          last_sync_status: "completed",
+          last_sync_at: "2026-04-03T10:00:00.000Z",
+          auto_sync_enabled: true,
+          revoked: false,
+        },
+      })
+    ).toMatchObject({
+      tone: "success",
+      title: "Your receipts are up to date",
+      detail: "Connected to dev@hushh.ai",
+    });
+  });
+
+  it("formats last updated labels directly from raw timestamps", () => {
+    const label = resolveGmailLastUpdatedLabel({
+      configured: true,
+      connected: true,
+      status: "connected",
+      google_email: "dev@hushh.ai",
+      scope_csv: "gmail.readonly",
+      last_sync_status: "completed",
+      last_sync_at: new Date(Date.now() - 60_000).toISOString(),
+      auto_sync_enabled: true,
+      revoked: false,
+    });
+
+    expect(label).toMatch(/^Last updated /);
   });
 });

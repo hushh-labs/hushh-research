@@ -7,6 +7,8 @@ Canonical visual owner: [Kai Index](README.md). Use that map for the top-down sy
 
 Route-level and feature-level parity contract for Kai on Web, iOS, and Android.
 
+Founder-language note: this map documents the mobile side of `Separation of Duties`. The same Kai contract ships across web, iOS, and Android, while the transport boundary changes between Next.js proxies and Capacitor plugins.
+
 ## Route-Level Parity
 
 | Route | Web | iOS (Capacitor) | Android (Capacitor) | Verification |

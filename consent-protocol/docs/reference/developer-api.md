@@ -18,7 +18,7 @@ This page is the API and wire-contract reference, not the primary onboarding sur
 
 ## Overview
 
-The Hushh developer contract is versioned under `/api/v1` and built around one scalable rule:
+The Hussh developer contract is versioned under `/api/v1` and built around one scalable rule:
 
 1. Discover the user's scopes at runtime.
 2. Request consent for one discovered scope.
@@ -26,6 +26,19 @@ The Hushh developer contract is versioned under `/api/v1` and built around one s
 4. Read the encrypted export with `POST /api/v1/scoped-export` or `get_encrypted_scoped_export(...)`.
 
 Do not hardcode domain keys. Dynamic scopes are derived from the indexed PKM and domain registry.
+
+Identifier note:
+
+- Raw `/api/v1` HTTP calls still use the canonical Firebase UID as `user_id`.
+- Hosted MCP tool calls may accept the Firebase UID directly, the user's registered email, or the user's phone number.
+- MCP resolves email and phone identifiers to the canonical Firebase UID before calling `/api/v1`.
+- For national phone numbers, MCP requires an explicit `country_iso2` or `country` hint. It does not assume a default country.
+
+Founder-language framing:
+
+- `PCHP` is implemented today through this `/api/v1` contract plus the hosted MCP transport
+- `Capability Tokens` remain explicit in this doc as `developer token` and `consent_token` because the wire contract requires those exact labels
+- `Cryptographic Primitives` show up here as connector-held private keys, wrapped export keys, and ciphertext-only responses
 
 ---
 
@@ -117,7 +130,7 @@ Content-Type: application/json
 }
 ```
 
-For the raw HTTP developer API, the connector fields are required. They tell Hushh which public key to use when wrapping the export key for later client-side decryption. MCP callers also provide the same connector bundle fields. Hushh never manages the connector private key.
+For the raw HTTP developer API, the connector fields are required. They tell Hussh which public key to use when wrapping the export key for later client-side decryption. MCP callers also provide the same connector bundle fields. Hussh never manages the connector private key.
 
 ### 3. Poll status
 
@@ -128,7 +141,7 @@ GET /api/v1/consent-status?user_id=user_123&scope=attr.financial.*
 
 ### 4. Wait for approval in Kai
 
-The user approves in the Kai app. Approval is separate from developer auth and remains app-scoped plus scope-scoped.
+The user approves in the Kai app. In founder language this is the user-facing PCHP moment. Approval is separate from developer auth and remains app-scoped plus scope-scoped.
 
 ### 5. Fetch encrypted export
 
@@ -170,17 +183,17 @@ The response contains ciphertext only:
 }
 ```
 
-Hushh does not return plaintext user data to developer callers. The external connector unwraps the export key locally, decrypts the payload locally, and narrows the export locally when `granted_scope` is broader than `expected_scope`.
+Hussh does not return plaintext user data to developer callers. The external connector unwraps the export key locally, decrypts the payload locally, and narrows the export locally when `granted_scope` is broader than `expected_scope`. That is the current implementation shape behind the founder-language `Cryptographic Primitives` claim.
 
 ## Coverage And Upgrade Rules
 
-- If an app already has a broader active grant and asks for a narrower scope, Hushh reuses the existing broader token immediately.
+- If an app already has a broader active grant and asks for a narrower scope, Hussh reuses the existing broader token immediately.
 - In that reused-token case, the response includes:
   - `requested_scope`
   - `granted_scope`
   - `coverage_kind`
   - `covered_by_existing_grant`
-- When reading with a reused broader token, pass the narrower `expected_scope`. Hushh still returns the canonical broader encrypted export, and your connector narrows it after local decryption.
+- When reading with a reused broader token, pass the narrower `expected_scope`. Hussh still returns the canonical broader encrypted export, and your connector narrows it after local decryption.
 - If an app already has a narrower active grant and asks for a broader parent scope, that is a real privilege increase and still requires fresh user approval.
 - After approval of a broader parent scope, the broader token becomes canonical and the older narrower token is superseded in the audit trail.
 - Exact duplicate pending requests for the same app + scope are reused instead of creating a second pending row.
@@ -190,11 +203,11 @@ Hushh does not return plaintext user data to developer callers. The external con
 - Consent permissions stay active until expiry, revocation, or supersession.
 - The encrypted export is refreshed separately from the permission when the user updates PKM data under an active granted scope.
 - Refresh is generated on the unlocked first-party app after local decryption of the latest PKM and then uploaded back as new ciphertext plus a new wrapped export key.
-- Hushh infrastructure stores ciphertext only and never performs server-side decrypt for developer data refreshes.
+- Hussh infrastructure stores ciphertext only and never performs server-side decrypt for developer data refreshes.
 
 ## Client-Side Connector Example
 
-Generate the connector keypair locally and keep the private key off Hushh infrastructure:
+Generate the connector keypair locally and keep the private key off Hussh infrastructure:
 
 ```js
 const keyPair = await crypto.subtle.generateKey(

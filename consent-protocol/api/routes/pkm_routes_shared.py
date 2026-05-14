@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/pkm", tags=["pkm"])
 
+_COMPACT_SCOPE_SOURCE_KINDS = {"pkm_index", "pkm_manifests.top_level_scope_paths"}
+
 
 def _isoformat_or_none(value):
     if value is None:
@@ -913,7 +915,7 @@ class PersonalKnowledgeModelMetadataResponse(BaseModel):
 @router.get("/metadata/{user_id}", response_model=PersonalKnowledgeModelMetadataResponse)
 async def get_metadata(
     user_id: str,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict,
 ):
     """
     Get user's PKM metadata for UI display.
@@ -925,8 +927,8 @@ async def get_metadata(
 
     Returns 404 if user has no PKM data (new user).
 
-    **Authentication**: Requires valid VAULT_OWNER token.
-    Domain names, counts, and summaries are user-private metadata.
+    **Authentication**: Requires first-party authenticated access for the same user.
+    This reads privacy-safe discovery metadata from `pkm_index`, not decrypted PKM payload.
     """
     # Verify token matches user_id
     if token_data.get("user_id") != user_id:
@@ -938,14 +940,14 @@ async def get_metadata(
     upgrade_service = get_pkm_upgrade_service()
 
     try:
-        # Read PKM index metadata.
-        index = await pkm_service.get_index_v2(user_id)
+        metadata = await pkm_service.get_user_metadata(user_id)
+        resolved_index = await pkm_service.resolve_metadata_index(user_id, schedule_self_heal=False)
         upgrade_status_payload = await upgrade_service.build_status(user_id)
         upgrade_status_payload = await _maybe_reconcile_upgrade_status(
             upgrade_service, user_id, upgrade_status_payload
         )
 
-        if index is None:
+        if resolved_index is None:
             encrypted_data = await pkm_service.get_encrypted_data(user_id)
             domain_rows = (
                 pkm_service.supabase.table("pkm_blobs")
@@ -1031,61 +1033,35 @@ async def get_metadata(
                 last_updated=(encrypted_data or {}).get("updated_at"),
             )
 
-        # Build domain metadata from index
         domains: List[DomainMetadata] = []
-        user_scopes = await pkm_service.scope_generator.get_available_scopes(user_id)
-
-        for domain_key in index.available_domains:
-            summary = index.domain_summaries.get(domain_key, {})
-
-            # Lookup domain display info from registry
-            try:
-                domain_info = await pkm_service.domain_registry.get_domain(domain_key)
-            except Exception as e:
-                logger.warning(f"Failed to get domain info for {domain_key}: {e}")
-                domain_info = None
-
-            # Calculate attribute count from summary
-            # Different domains store counts differently
-            attr_count = _summary_attribute_count(summary)
-
+        for domain in metadata.domains:
             domains.append(
                 DomainMetadata(
-                    key=domain_key,
-                    display_name=domain_info.display_name
-                    if domain_info
-                    else domain_key.replace("_", " ").title(),
-                    icon=domain_info.icon_name if domain_info else "folder",
-                    color=domain_info.color_hex if domain_info else "#6366F1",
-                    attribute_count=attr_count,
-                    summary=summary,
-                    available_scopes=[
-                        scope
-                        for scope in user_scopes
-                        if scope == f"attr.{domain_key}.*"
-                        or scope.startswith(f"attr.{domain_key}.")
-                    ],
-                    last_updated=index.last_active_at.isoformat() if index.last_active_at else None,
-                    readable_summary=_summary_text(summary, "readable_summary"),
-                    readable_highlights=_summary_string_list(summary, "readable_highlights"),
-                    readable_updated_at=_summary_text(summary, "readable_updated_at"),
-                    readable_source_label=_summary_text(summary, "readable_source_label"),
-                    domain_contract_version=int(summary.get("domain_contract_version") or 1),
-                    readable_summary_version=int(summary.get("readable_summary_version") or 0),
-                    upgraded_at=_summary_text(summary, "upgraded_at"),
+                    key=domain.domain_key,
+                    display_name=domain.display_name,
+                    icon=domain.icon,
+                    color=domain.color,
+                    attribute_count=domain.attribute_count,
+                    summary=domain.summary,
+                    available_scopes=domain.available_scopes,
+                    last_updated=_isoformat_or_none(domain.last_updated),
+                    readable_summary=domain.readable_summary,
+                    readable_highlights=domain.readable_highlights,
+                    readable_updated_at=domain.readable_updated_at,
+                    readable_source_label=domain.readable_source_label,
+                    domain_contract_version=domain.domain_contract_version,
+                    readable_summary_version=domain.readable_summary_version,
+                    upgraded_at=_isoformat_or_none(domain.upgraded_at),
                 )
             )
 
-        # Calculate total attributes
-        total_attrs = index.total_attributes or sum(d.attribute_count for d in domains)
+        total_attrs = metadata.total_attributes or sum(d.attribute_count for d in domains)
 
-        # Calculate model completeness (based on common domains)
         common_domains = {"financial", "health", "travel", "subscriptions", "food"}
-        user_domain_keys = set(index.available_domains)
+        user_domain_keys = {domain.key for domain in domains}
         filled_common = len(user_domain_keys & common_domains)
         completeness = min(100, int((filled_common / len(common_domains)) * 100))
 
-        # Suggest missing common domains
         suggested = list(common_domains - user_domain_keys)[:3]
 
         return PersonalKnowledgeModelMetadataResponse(
@@ -1101,7 +1077,7 @@ async def get_metadata(
             upgradable_domains=upgrade_status_payload.get("upgradable_domains") or [],
             last_upgraded_at=_isoformat_or_none(upgrade_status_payload.get("last_upgraded_at")),
             suggested_domains=suggested,
-            last_updated=index.last_active_at.isoformat() if index.last_active_at else None,
+            last_updated=_isoformat_or_none(metadata.last_updated),
         )
 
     except HTTPException:
@@ -1500,7 +1476,18 @@ async def get_user_scopes(
     pkm_service = get_pkm_service()
     scopes = await pkm_service.scope_generator.get_available_scopes(user_id)
     scope_entries_getter = getattr(pkm_service.scope_generator, "get_available_scope_entries", None)
-    scope_entries = await scope_entries_getter(user_id) if callable(scope_entries_getter) else []
+    raw_scope_entries = (
+        await scope_entries_getter(user_id) if callable(scope_entries_getter) else []
+    )
+    scope_entries = [
+        entry
+        for entry in raw_scope_entries
+        if isinstance(entry, dict)
+        and entry.get("consumer_visible") is not False
+        and entry.get("internal_only") is not True
+        and entry.get("wildcard") is True
+        and str(entry.get("source_kind") or "").strip() in _COMPACT_SCOPE_SOURCE_KINDS
+    ]
     return UserScopesResponse(user_id=user_id, scopes=sorted(scopes), scope_entries=scope_entries)
 
 
