@@ -112,6 +112,10 @@ Rules:
    - actions
    - full-width description
 15. `actionsInlineMobile` is reserved for short utility headers; do not use it on primary route headers with full-width descriptive copy.
+16. The three-part eyebrow/title/description composition belongs to the primary page header only. Body sections must not recreate page-header hierarchy.
+17. Body section subheaders must use the shared compact section scale through `SectionHeader` or `SettingsGroup`: larger than row/body text, smaller than the page title, and independent of global `h1`/`h2` element rules.
+18. Shared body section primitives must expose accessible compact headings with `role="heading"` and `aria-level`; they must not render raw `h2` elements that can inherit page-scale global heading rules.
+19. Settings-style body sections may show a short eyebrow inline with the section title and one optional supporting line. They must not stack eyebrow, title, and description as three separate lines.
 
 ## Row and Card Interaction Contract
 
