@@ -47,11 +47,11 @@ Residual compatibility shims intentionally still present:
 
 This document was the implementation-ready architecture spec for the Kai in-app voice assistant. It is now retained as the migration/audit record behind the implemented runtime.
 
-Product correction applied throughout this spec:
+Historical product correction captured by this spec:
 
-- Kai is the app.
-- The voice assistant lives inside Kai.
-- The assistant must speak as Kai's in-app voice interface, not as a generic external chatbot.
+- This spec originally corrected the app from a generic assistant into a Kai-first in-app runtime.
+- The newer durable ontology is One as the top personal agent, with Kai as the finance specialist, Nav as the guardian, and KYC as the identity workflow specialist.
+- Treat this document as a migration/audit record when it conflicts with [../../vision/agent-ontology.md](../../vision/agent-ontology.md).
 
 ## Historical Pre-Phase-4 Audit Snapshot
 
@@ -67,7 +67,7 @@ The table below records the audit state that motivated the migration. It is not 
 | Backend response contract | Backend responses are normalized into `kind`, `message`, `speak`, `execution_allowed`, optional `tool_call`, and legacy hints. | [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py), [voice.py](../../../consent-protocol/api/routes/kai/voice.py) | The new canonical contract must dual-write during migration without breaking existing clients. |
 | Deterministic fast paths | The backend resolves many intents without the LLM: screen explain, knowledge, status, some surface navigation, import/resume/cancel, and keyword navigation. | [voice_intent_service.py](../../../consent-protocol/hushh_mcp/services/voice_intent_service.py) | The target design should preserve deterministic fast paths for latency-sensitive turns. |
 | Existing app knowledge | Backend knowledge entries already define PKM, Gmail connector, receipt memory, consent center, and several surface concepts. | [voice_app_knowledge.py](../../../consent-protocol/hushh_mcp/services/voice_app_knowledge.py) | Extend this module for Kai app identity and assistant role instead of embedding one giant prompt string. |
-| Backend identity mismatch | A compat global concept still describes Kai as an in-app investor agent, which conflicts with the corrected product model that Kai is the app and the assistant lives inside it. | [voice_app_knowledge.py](../../../consent-protocol/hushh_mcp/services/voice_app_knowledge.py) | The identity layer must correct this language before broader prompt reuse. |
+| Backend identity mismatch | A compat global concept can drift from the One/Kai/Nav/KYC ontology. | [voice_app_knowledge.py](../../../consent-protocol/hushh_mcp/services/voice_app_knowledge.py) | The identity layer must keep One as the app-level relationship layer while preserving Kai as the finance specialist. |
 | Final speech timing | The frontend determines `finalText` before dispatch, then executes the action, then speaks the already chosen text. | [voice-turn-orchestrator.ts](../../../hushh-webapp/lib/voice/voice-turn-orchestrator.ts) | This is the primary reason speech can drift from real execution outcome. |
 | Grounded execution path | The frontend can execute grounded actions for both `execute` and `speak_only` planner responses. | [voice-response-executor.ts](../../../hushh-webapp/lib/voice/voice-response-executor.ts) | `speak_only` must stop being implicitly executable on the normal path. |
 | Transcript heuristics | The frontend can infer `actionId` directly from transcript patterns and prefer planner-grounded response actions only when available. | [voice-grounding.ts](../../../hushh-webapp/lib/voice/voice-grounding.ts) | Transcript heuristics should be demoted to explicit fallback mode only. |

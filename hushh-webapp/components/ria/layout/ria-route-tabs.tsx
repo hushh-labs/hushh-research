@@ -38,6 +38,7 @@ export function RiaRouteTabs({ embedded = false }: { embedded?: boolean }) {
             <button
               key={tab.id}
               type="button"
+              data-voice-control-id={`ria_route_tab_${tab.id}`}
               onClick={() => router.push(tab.href)}
               className={cn(
                 "min-h-11 rounded-[18px] px-2 text-[12px] font-semibold tracking-tight transition-all",

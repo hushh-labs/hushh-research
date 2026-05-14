@@ -23,7 +23,8 @@
   "task_types": [
     "repo-orientation",
     "bug-triage",
-    "skill-authoring"
+    "skill-authoring",
+    "data-model-audit"
   ],
   "required_reads": [
     ".codex/skills/repo-context/references/index-contract.md",
@@ -35,6 +36,7 @@
     "./bin/hushh codex list-workflows",
     "./bin/hushh codex route-task repo-orientation",
     "./bin/hushh codex impact repo-orientation",
+    "./bin/hushh codex data-model-audit",
     "./bin/hushh codex audit",
     "python3 .codex/skills/repo-context/scripts/repo_scan.py validate"
   ],
@@ -46,11 +48,13 @@
         "./bin/hushh codex list-workflows",
         "./bin/hushh codex route-task repo-orientation",
         "./bin/hushh codex impact repo-orientation",
+        "./bin/hushh codex data-model-audit",
         "./bin/hushh codex audit",
         "python3 .codex/skills/repo-context/scripts/repo_scan.py validate"
       ],
       "tests": [
         "./bin/hushh codex audit",
+        "./bin/hushh codex data-model-audit",
         "python3 .codex/skills/repo-context/scripts/repo_scan.py validate"
       ]
     }

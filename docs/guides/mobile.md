@@ -120,6 +120,7 @@ Before calling iOS/Android parity complete, run:
 
 That release gate includes:
 
+- native microphone permission metadata verification
 - full route-contract verification
 - native plugin parity verification
 - Capacitor route classification verification
@@ -192,7 +193,7 @@ All 10 plugins exist on both platforms with matching methods:
 
 Visible page routes are governed through `hushh-webapp/lib/navigation/routes.ts` together with the architecture/mobile parity docs. That coverage includes:
 
-- product routes (`/kai`, `/consents`, `/profile`, `/marketplace`, `/ria`)
+- product routes (`/kai`, `/consents`, `/profile`, `/one/kyc`, `/marketplace`, `/ria`)
 - `/developers`
 - public/auth content pages (`/`, `/login`, `/logout`)
 - visible lab routes
@@ -641,7 +642,7 @@ const DEV_MODE = false; // Must be false for production builds
 
 const config: CapacitorConfig = {
   appId: "com.hushh.app",
-  appName: "Hushh",
+  appName: "Kai",
   webDir: "out",
   server: {
     cleartext: true,

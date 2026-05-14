@@ -31,6 +31,12 @@ async def list_resources() -> list[Resource]:
             description="What the Hussh connector does, tool list, recommended flow, and supported scopes",
             mimeType="application/json",
         ),
+        Resource(
+            uri="hushh://info/developer-api",
+            name="Developer API Contract",
+            description="Developer API base path, authentication transport, MCP setup, and resource summary",
+            mimeType="application/json",
+        ),
     ]
 
 
@@ -154,6 +160,35 @@ async def read_resource(uri: str) -> str:
             "consent_ui_required": "When request_consent returns 'pending', the user must approve in the Hussh app (consents/dashboard). Delivery is FCM-first in production; consent SSE/polling is disabled for this flow.",
         }
         return json.dumps(connector_info, indent=2)
+
+    elif uri_str == "hushh://info/developer-api":
+        developer_api_info = {
+            "base_path": "/api/v1",
+            "auth": {
+                "developer_token_transport": "query",
+                "developer_token_query_param": "token",
+                "remote_mcp_url_template": "/mcp/?token=<developer-token>",
+                "header_transport": "Authorization: Bearer <developer-token>",
+            },
+            "mcp_resources": [
+                "hushh://info/server",
+                "hushh://info/protocol",
+                "hushh://info/connector",
+                "hushh://info/developer-api",
+            ],
+            "developer_endpoints": [
+                "/api/v1/list-scopes",
+                "/api/v1/user-scopes/{user_id}",
+                "/api/v1/request-consent",
+                "/api/v1/check-consent-status",
+                "/api/v1/validate-token",
+            ],
+            "notes": [
+                "Remote MCP clients should use /mcp/ with the developer token carried in the query string when headers are unavailable.",
+                "Scopes are dynamic. Call user-scopes before requesting attr.{domain}.* access.",
+            ],
+        }
+        return json.dumps(developer_api_info, indent=2)
 
     else:
         logger.warning(f"❌ Unknown resource URI: {uri_str}")

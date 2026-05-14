@@ -18,6 +18,7 @@ APP_SIGNING_KEY_ENV = "APP_SIGNING_KEY"
 VAULT_DATA_KEY_ENV = "VAULT_DATA_KEY"
 APP_FRONTEND_ORIGIN_ENV = "APP_FRONTEND_ORIGIN"
 FIREBASE_ADMIN_CREDENTIALS_JSON_ENV = "FIREBASE_ADMIN_CREDENTIALS_JSON"
+FIREBASE_SERVICE_ACCOUNT_JSON_ENV = "FIREBASE_SERVICE_ACCOUNT_JSON"
 GMAIL_OAUTH_TOKEN_KEY_ENV = "GMAIL_OAUTH_TOKEN_KEY"  # noqa: S105
 PLAID_ACCESS_TOKEN_KEY_ENV = "PLAID_ACCESS_TOKEN_KEY"  # noqa: S105
 BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
@@ -161,7 +162,6 @@ class VoiceRuntimeSettings:
     tts_default_voice: str
     tts_format: str
     tts_prefer_quality: bool
-    upload_max_bytes: int
 
 
 def get_optional_gmail_oauth_token_key() -> str:
@@ -204,7 +204,9 @@ def get_core_security_settings() -> CoreSecuritySettings:
 
 @lru_cache(maxsize=1)
 def get_firebase_credential_settings() -> FirebaseCredentialSettings:
-    admin_credentials_json = _clean_env(FIREBASE_ADMIN_CREDENTIALS_JSON_ENV)
+    admin_credentials_json = _clean_env(FIREBASE_ADMIN_CREDENTIALS_JSON_ENV) or _clean_env(
+        FIREBASE_SERVICE_ACCOUNT_JSON_ENV
+    )
     return FirebaseCredentialSettings(
         admin_credentials_json=admin_credentials_json,
     )
@@ -252,17 +254,13 @@ def get_voice_runtime_settings() -> VoiceRuntimeSettings:
         disable_fallbacks=disable_fallbacks,
         realtime_model=str(config.get("realtime_model") or "gpt-realtime").strip()
         or "gpt-realtime",
-        stt_models=_csv_list(config.get("stt_models")) or ("gpt-4o-mini-transcribe", "whisper-1"),
+        stt_models=_csv_list(config.get("stt_models")) or ("gpt-4o-mini-transcribe",),
         intent_models=_csv_list(config.get("intent_models"))
         or ("gpt-4.1-nano", "gpt-4o-mini", "gpt-4.1-mini"),
         tts_models=tuple(tts_models) or ("gpt-4o-mini-tts",),
         tts_default_voice=str(config.get("tts_default_voice") or "alloy").strip() or "alloy",
         tts_format=str(config.get("tts_format") or "mp3").strip() or "mp3",
         tts_prefer_quality=_bool_from_value(config.get("tts_prefer_quality"), default=False),
-        upload_max_bytes=max(
-            1024 * 1024,
-            _int_from_value(config.get("upload_max_bytes"), 25 * 1024 * 1024),
-        ),
     )
 
 

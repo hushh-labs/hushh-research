@@ -27,6 +27,7 @@ Use this reference after the initial scan to choose the correct owner skill firs
 1. `frontend-design-system`
 2. `frontend-architecture`
 3. `frontend-surface-placement`
+4. `frontend-native-surface-mapper`
 
 ### `mobile-native`
 
@@ -46,6 +47,10 @@ Use this reference after the initial scan to choose the correct owner skill firs
 2. `vault-pkm-governance`
 3. `quality-contracts`
 4. `streaming-contracts`
+
+### `repo-operations`
+
+1. `github-contribution-governance`
 
 ## Canonical workflow packs
 
@@ -67,3 +72,6 @@ Use this reference after the initial scan to choose the correct owner skill firs
 16. `oss-license-governance`
 17. `contributor-onboarding`
 18. `subtree-upstream-governance`
+19. `github-contribution-governance`
+20. `data-model-audit`
+21. `frontend-native-surface-map`

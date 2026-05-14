@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token, verify_user_id_match
-from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.gmail_receipts_service import GmailApiError, get_gmail_receipts_service
 from hushh_mcp.services.receipt_memory_service import get_receipt_memory_preview_service
 
@@ -82,7 +81,9 @@ def _iter_exception_chain(exc: BaseException):
 
 def _is_dependency_unavailable_error(exc: Exception) -> bool:
     for current in _iter_exception_chain(exc):
-        if isinstance(current, (DatabaseExecutionError, SqlalchemyOperationalError)):
+        if current.__class__.__name__ == "DatabaseExecutionError":
+            return True
+        if isinstance(current, SqlalchemyOperationalError):
             return True
         if isinstance(current, (ConnectionError, OSError, TimeoutError)):
             return True

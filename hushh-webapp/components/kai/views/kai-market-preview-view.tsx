@@ -32,6 +32,7 @@ import {
   surfaceInteractiveShellClassName,
 } from "@/components/app-ui/surfaces";
 import { ConnectPortfolioCta } from "@/components/kai/cards/connect-portfolio-cta";
+import { PermissionGate } from "@/components/privacy/permission-gate/permission-gate";
 import {
   MarketOverviewGrid,
   type MarketOverviewDetailPanel,
@@ -2210,7 +2211,9 @@ export function KaiMarketPreviewView() {
                 title="Bring your own positions"
                 description="Connecting a portfolio makes the market page and downstream debate surfaces more personal."
               />
-              <ConnectPortfolioCta />
+              <PermissionGate permission="portfolio_valuation">
+                <ConnectPortfolioCta />
+              </PermissionGate>
             </section>
           ) : null}
         </div>

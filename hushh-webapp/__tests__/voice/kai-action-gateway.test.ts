@@ -70,7 +70,14 @@ describe("kai-action-gateway", () => {
     expect(ids.every((id) => !id.startsWith(reservedNavPrefix))).toBe(true);
     expect(
       KAI_ACTION_GATEWAY.actions.every((action) =>
-        ["one", "kai", "nav"].includes(action.speaker_persona)
+        ["one", "kai", "nav", "kyc"].includes(action.speaker_persona)
+      )
+    ).toBe(true);
+    expect(
+      KAI_ACTION_GATEWAY.actions.every(
+        (action) =>
+          action.delegate_agent_id === null ||
+          ["one", "kai", "nav", "kyc"].includes(action.delegate_agent_id)
       )
     ).toBe(true);
     expect(getKaiActionById("route.kai_dashboard")?.speaker_persona).toBe("kai");
@@ -96,6 +103,95 @@ describe("kai-action-gateway", () => {
         href: "/ria",
       }),
     ]);
+  });
+
+  it("maps the RIA flow with direct navigation and guarded manual actions", () => {
+    const riaActions = KAI_ACTION_GATEWAY.actions.filter(
+      (action) => action.surface_id.startsWith("ria_") || action.action_id.includes(".ria.")
+    );
+    expect(riaActions.map((action) => action.action_id)).toEqual(
+      expect.arrayContaining([
+        "route.ria_home",
+        "route.ria_onboarding",
+        "route.ria_clients",
+        "route.ria_picks",
+        "route.ria_marketplace_connect",
+        "ria.picks.open_source_kai",
+        "ria.picks.open_source_my",
+        "ria.picks.save_package",
+        "ria.client_workspace.open_access_tab",
+        "ria.client_workspace.request_access",
+        "marketplace.ria.request_advisory",
+      ])
+    );
+
+    const riaHome = getKaiActionById("route.ria_home");
+    expect(riaHome).toEqual(
+      expect.objectContaining({
+        action_id: "route.ria_home",
+        surface_id: "ria_home",
+        speaker_persona: "one",
+        risk_level: "medium",
+        execution_policy: "allow_direct",
+        guard_ids: ["auth_signed_in", "ria_persona_available"],
+        execution_target: {
+          status: "wired",
+          path: "route",
+          target: "/ria",
+        },
+      })
+    );
+    expect(riaHome?.reachability).toEqual(
+      expect.objectContaining({
+        routes: ["/ria"],
+        screens: ["ria_home"],
+        hidden_navigable: true,
+        active_personas: ["ria"],
+        requires_persona_switch_confirmation: true,
+      })
+    );
+    expect(riaHome?.workflow).toEqual(
+      expect.objectContaining({
+        workflow_id: "route.ria_home.entry",
+        confirmation_required: true,
+        blocked_guidance: "Complete or unlock RIA setup before entering the RIA workspace.",
+      })
+    );
+
+    expect(getKaiActionById("route.ria_clients")).toEqual(
+      expect.objectContaining({
+        action_id: "route.ria_clients",
+        execution_policy: "allow_direct",
+        execution_target: {
+          status: "wired",
+          path: "route",
+          target: "/ria/clients",
+        },
+      })
+    );
+    expect(getKaiActionById("ria.picks.open_source_kai")?.execution_target).toEqual({
+      status: "wired",
+      path: "route",
+      target: "/ria/picks?source=kai",
+    });
+    expect(getKaiActionById("ria.picks.save_package")).toEqual(
+      expect.objectContaining({
+        risk_level: "high",
+        execution_policy: "manual_only",
+        execution_target: expect.objectContaining({
+          status: "unwired",
+        }),
+      })
+    );
+    expect(getKaiActionById("marketplace.ria.request_advisory")).toEqual(
+      expect.objectContaining({
+        risk_level: "high",
+        execution_policy: "manual_only",
+        execution_target: expect.objectContaining({
+          status: "unwired",
+        }),
+      })
+    );
   });
 
   it("requires an explicit persona switch for earned RIA actions", () => {
@@ -144,6 +240,87 @@ describe("kai-action-gateway", () => {
       target_persona: "ria",
       blocked_guidance: "Complete or unlock RIA setup before entering the RIA workspace.",
     });
+  });
+
+  it("treats auth_required as a signed-in guard for One KYC actions", () => {
+    const action = getKaiActionById("route.one_kyc");
+    const availability = evaluateKaiActionAvailability({
+      action: action!,
+      appRuntimeState: makeRuntimeState({
+        auth: {
+          signed_in: false,
+          user_id: null,
+        },
+      }),
+    });
+
+    expect(action?.guard_ids).toContain("auth_required");
+    expect(availability).toEqual({
+      status: "blocked",
+      reason: "Sign in to use this action.",
+      target_persona: null,
+      blocked_guidance: null,
+    });
+  });
+
+  it("projects One KYC route and draft actions with explicit safety policies", () => {
+    const kycActions = KAI_ACTION_GATEWAY.actions.filter(
+      (action) => action.surface_id === "one_kyc"
+    );
+
+    expect(kycActions.map((action) => action.action_id)).toEqual([
+      "route.one_kyc",
+      "kyc.workflow.sync_status",
+      "kyc.draft.review",
+      "kyc.draft.request_redraft",
+      "kyc.draft.approve_send",
+      "kyc.draft.reject",
+    ]);
+    expect(
+      kycActions.every(
+        (action) => action.speaker_persona === "kyc" && action.delegate_agent_id === "kyc"
+      )
+    ).toBe(true);
+
+    expect(getKaiActionById("route.one_kyc")).toEqual(
+      expect.objectContaining({
+        action_id: "route.one_kyc",
+        risk_level: "low",
+        execution_policy: "allow_direct",
+        execution_target: {
+          status: "wired",
+          path: "route",
+          target: "/one/kyc",
+        },
+        guard_ids: ["auth_required"],
+      })
+    );
+    expect(getKaiActionById("kyc.draft.approve_send")).toEqual(
+      expect.objectContaining({
+        risk_level: "high",
+        execution_policy: "manual_only",
+        guard_ids: ["auth_required", "explicit_confirmation_required"],
+        execution_target: expect.objectContaining({
+          status: "unwired",
+        }),
+      })
+    );
+    expect(getKaiActionById("kyc.draft.request_redraft")).toEqual(
+      expect.objectContaining({
+        execution_policy: "confirm_required",
+        execution_target: expect.objectContaining({
+          status: "unwired",
+        }),
+      })
+    );
+    expect(getKaiActionById("kyc.draft.reject")).toEqual(
+      expect.objectContaining({
+        execution_policy: "confirm_required",
+        execution_target: expect.objectContaining({
+          status: "unwired",
+        }),
+      })
+    );
   });
 
   it("keeps typed search on the same action plane as voice and guard filtering", () => {

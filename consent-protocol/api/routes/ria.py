@@ -53,6 +53,8 @@ class RIAOnboardingSubmitRequest(BaseModel):
 
 class RIAOnboardingVerifyNameRequest(BaseModel):
     query: str = Field(..., min_length=1)
+    crd_number: str | None = None
+    force_live_verification: bool = False
 
 
 class RIAConsentRequestCreate(BaseModel):
@@ -206,35 +208,11 @@ async def verify_onboarding_name(
     service = RIAIAMService()
     try:
         _ = firebase_uid
-        return await service.verify_ria_name(payload.query)
-    except RIAIAMPolicyError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-
-
-@router.post("/onboarding/dev-activate")
-async def dev_activate_onboarding(
-    payload: RIAOnboardingSubmitRequest,
-    firebase_uid: str = Depends(require_firebase_auth),
-):
-    service = RIAIAMService()
-    try:
-        return await service.activate_ria_dev_onboarding(
-            firebase_uid,
-            display_name=payload.display_name,
-            requested_capabilities=payload.requested_capabilities,
-            individual_legal_name=payload.individual_legal_name or payload.legal_name,
-            individual_crd=payload.individual_crd or payload.finra_crd,
-            advisory_firm_legal_name=payload.advisory_firm_legal_name or payload.primary_firm_name,
-            advisory_firm_iapd_number=payload.advisory_firm_iapd_number or payload.sec_iard,
-            broker_firm_legal_name=payload.broker_firm_legal_name,
-            broker_firm_crd=payload.broker_firm_crd,
-            bio=payload.bio,
-            strategy=payload.strategy,
-            disclosures_url=payload.disclosures_url,
-            primary_firm_role=payload.primary_firm_role,
+        return await service.verify_ria_name(
+            payload.query,
+            crd_number=payload.crd_number,
+            use_cache=not payload.force_live_verification,
         )
-    except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 

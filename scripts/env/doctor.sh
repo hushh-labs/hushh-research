@@ -186,6 +186,14 @@ BACKEND_GMAIL_CLIENT_ID="$(read_env_value "$BACKEND_SOURCE" "GMAIL_OAUTH_CLIENT_
 BACKEND_GMAIL_CLIENT_SECRET="$(read_env_value "$BACKEND_SOURCE" "GMAIL_OAUTH_CLIENT_SECRET")"
 BACKEND_GMAIL_REDIRECT_URI="$(read_env_value "$BACKEND_SOURCE" "GMAIL_OAUTH_REDIRECT_URI")"
 BACKEND_GMAIL_TOKEN_KEY="$(read_env_value "$BACKEND_SOURCE" "GMAIL_OAUTH_TOKEN_KEY")"
+BACKEND_ONE_EMAIL_ADDRESS="$(read_env_value "$BACKEND_SOURCE" "ONE_EMAIL_ADDRESS")"
+BACKEND_ONE_EMAIL_DELEGATED_USER="$(read_env_value "$BACKEND_SOURCE" "ONE_EMAIL_DELEGATED_USER")"
+BACKEND_ONE_EMAIL_PUBSUB_TOPIC="$(read_env_value "$BACKEND_SOURCE" "ONE_EMAIL_PUBSUB_TOPIC")"
+BACKEND_ONE_EMAIL_WEBHOOK_AUDIENCE="$(read_env_value "$BACKEND_SOURCE" "ONE_EMAIL_WEBHOOK_AUDIENCE")"
+BACKEND_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL="$(read_env_value "$BACKEND_SOURCE" "ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL")"
+BACKEND_ONE_EMAIL_WATCH_RENEW_TOKEN="$(read_env_value "$BACKEND_SOURCE" "ONE_EMAIL_WATCH_RENEW_TOKEN")"
+BACKEND_ONE_EMAIL_KYC_DEFAULT_SCOPE="$(read_env_value "$BACKEND_SOURCE" "ONE_EMAIL_KYC_DEFAULT_SCOPE")"
+BACKEND_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED="$(read_env_value "$BACKEND_SOURCE" "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED")"
 BACKEND_OPENAI_API_KEY="$(read_env_value "$BACKEND_SOURCE" "OPENAI_API_KEY")"
 BACKEND_VOICE_REALTIME_ENABLED="$(read_json_env_field "$BACKEND_SOURCE" "VOICE_RUNTIME_CONFIG_JSON" "realtime_enabled")"
 BACKEND_VOICE_V1_ENABLED="$(read_json_env_field "$BACKEND_SOURCE" "VOICE_RUNTIME_CONFIG_JSON" "hosted_voice_enabled")"
@@ -306,6 +314,21 @@ case "$PROFILE" in
       add_check "gmail_runtime_readiness" "pass" "Gmail backend runtime keys are present"
     else
       add_check "gmail_runtime_readiness" "warn" "Missing Gmail backend keys: ${missing_gmail_keys[*]}. Run: bash scripts/env/bootstrap_profiles.sh"
+    fi
+
+    missing_one_email_keys=()
+    if is_placeholder "$BACKEND_ONE_EMAIL_ADDRESS"; then missing_one_email_keys+=("ONE_EMAIL_ADDRESS"); fi
+    if is_placeholder "$BACKEND_ONE_EMAIL_DELEGATED_USER"; then missing_one_email_keys+=("ONE_EMAIL_DELEGATED_USER"); fi
+    if is_placeholder "$BACKEND_ONE_EMAIL_PUBSUB_TOPIC"; then missing_one_email_keys+=("ONE_EMAIL_PUBSUB_TOPIC"); fi
+    if is_placeholder "$BACKEND_ONE_EMAIL_WEBHOOK_AUDIENCE"; then missing_one_email_keys+=("ONE_EMAIL_WEBHOOK_AUDIENCE"); fi
+    if is_placeholder "$BACKEND_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL"; then missing_one_email_keys+=("ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL"); fi
+    if is_placeholder "$BACKEND_ONE_EMAIL_WATCH_RENEW_TOKEN"; then missing_one_email_keys+=("ONE_EMAIL_WATCH_RENEW_TOKEN"); fi
+    if is_placeholder "$BACKEND_ONE_EMAIL_KYC_DEFAULT_SCOPE"; then missing_one_email_keys+=("ONE_EMAIL_KYC_DEFAULT_SCOPE"); fi
+    if [ "$BACKEND_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED" != "true" ]; then missing_one_email_keys+=("ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true"); fi
+    if [ "${#missing_one_email_keys[@]}" -eq 0 ]; then
+      add_check "one_email_kyc_readiness" "pass" "One Email KYC strict client-side ZK runtime keys are present"
+    else
+      add_check "one_email_kyc_readiness" "warn" "Missing One Email KYC runtime keys: ${missing_one_email_keys[*]}"
     fi
 
     missing_voice_keys=()

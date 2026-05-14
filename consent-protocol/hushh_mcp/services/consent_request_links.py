@@ -18,17 +18,19 @@ def build_consent_request_path(
     request_id: str | None = None,
     bundle_id: str | None = None,
     view: str = "pending",
+    actor: str | None = None,
+    manager_view: str | None = None,
 ) -> str:
-    params: dict[str, str] = {
-        "tab": "privacy",
-        "sheet": "consents",
-        "consentView": view or "pending",
-    }
+    params: dict[str, str] = {"tab": view or "pending"}
     if request_id:
         params["requestId"] = request_id
     if bundle_id:
         params["bundleId"] = bundle_id
-    return f"/profile?{urlencode(params)}"
+    if actor in {"investor", "ria"}:
+        params["actor"] = actor
+    if manager_view in {"incoming", "outgoing"}:
+        params["view"] = manager_view
+    return f"/consents?{urlencode(params)}"
 
 
 def build_consent_request_url(
@@ -36,8 +38,10 @@ def build_consent_request_url(
     request_id: str | None = None,
     bundle_id: str | None = None,
     view: str = "pending",
+    actor: str | None = None,
+    manager_view: str | None = None,
 ) -> str:
-    return f"{frontend_origin()}{build_consent_request_path(request_id=request_id, bundle_id=bundle_id, view=view)}"
+    return f"{frontend_origin()}{build_consent_request_path(request_id=request_id, bundle_id=bundle_id, view=view, actor=actor, manager_view=manager_view)}"
 
 
 def build_connection_request_path(

@@ -23,6 +23,7 @@
   ],
   "required_commands": [
     "./bin/hushh codex route-task new-feature-tri-flow",
+    "cd hushh-webapp && npm run verify:service-boundary",
     "cd hushh-webapp && npm run typecheck",
     "./bin/hushh docs verify"
   ],
@@ -30,6 +31,7 @@
     "id": "new-feature-tri-flow",
     "commands": [
       "cd hushh-webapp && npm run typecheck",
+      "cd hushh-webapp && npm run verify:service-boundary",
       "cd hushh-webapp && npm run verify:routes",
       "./bin/hushh protocol test-ci",
       "./bin/hushh native ios --mode uat",
@@ -38,6 +40,7 @@
     ],
     "tests": [
       "cd hushh-webapp && npm run typecheck",
+      "cd hushh-webapp && npm run verify:service-boundary",
       "cd hushh-webapp && npm run verify:routes",
       "./bin/hushh protocol test-ci"
     ]

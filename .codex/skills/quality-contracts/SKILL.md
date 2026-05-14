@@ -33,6 +33,7 @@ Non-owned surfaces:
 1. Test selection and contract-test placement decisions.
 2. Cross-surface verification policy and quality-gate ownership.
 3. Reviewing whether a code change is missing authoritative checks.
+4. Migration/data-contract verification when a change adds tables, cache lanes, workflow state, or long-lived provider data.
 
 ## Do Not Use
 
@@ -68,18 +69,22 @@ Non-owned surfaces:
    - vault unlock using `REVIEWER_VAULT_PASSPHRASE` from a maintainer-only env or secret overlay
    - Next client navigation for same-session proof
 8. Treat raw `page.goto(...)` to a protected route as cold-entry proof only, not same-session proof.
-9. For PKM work, verify the same user across all truth surfaces that matter:
+9. Treat "it ran in Playwright" as insufficient for route-memory claims unless the test also proves the navigation mechanism. For Next.js client navigation, run protected routes as a sequential same-session UI lane: unlock once, move through shell controls, and include a browser JS-context probe that fails on hard reloads, `window.location` hops, direct route jumps, or other full-document navigations.
+10. When a browser route test can be affected by the dev server origin, keep the Playwright `baseURL`, `webServer.url`, and dev-server port aligned. A test that starts one origin and waits on another is invalid route evidence.
+11. For PKM work, verify the same user across all truth surfaces that matter:
    - manifest-backed backend metadata
    - helper/service metadata path
    - MCP discovery payload
    - user-visible profile PKM rendering
-10. Treat a locked summary that renders as empty PKM as a regression unless the stored PKM is actually empty.
-11. Treat CI pipeline ownership as `repo-operations` work unless the task is primarily about what should be verified.
-12. Keep required verification lean:
+12. Treat a locked summary that renders as empty PKM as a regression unless the stored PKM is actually empty.
+13. Treat CI pipeline ownership as `repo-operations` work unless the task is primarily about what should be verified.
+14. Keep required verification lean:
    - prefer changed-surface checks over broad suites
    - protect contributor setup, route/API contracts, and release-critical behavior first
-13. When changing a required test set or gate policy, rerun the selected authoritative checks once after the edit and once again from the canonical repo entrypoint before closing the work.
-14. Treat helper-only skill/docs drift as advisory by default. It becomes blocking only when it hides or weakens a core runtime/deploy/test authority surface that the RCA loop depends on.
+15. If a change creates or repurposes database tables, include `./bin/hushh codex data-model-audit` in the verification bundle.
+16. When changing a required test set or gate policy, rerun the selected authoritative checks once after the edit and once again from the canonical repo entrypoint before closing the work.
+17. Treat helper-only skill/docs drift as advisory by default. It becomes blocking only when it hides or weakens a core runtime/deploy/test authority surface that the RCA loop depends on.
+18. Treat modularity findings as test-selection prompts. Large files are not failures by themselves; require targeted tests only for the behavior being changed or extracted.
 
 ## Handoff Rules
 
@@ -92,7 +97,9 @@ Non-owned surfaces:
 
 ```bash
 cd hushh-webapp && npm run test:ci
+cd hushh-webapp && npm run verify:service-boundary
 cd consent-protocol && python3 -m pytest tests/quality -q
+./bin/hushh codex data-model-audit
 ```
 
 When route/browser verification changes, require the test output to state which contract was proven: in-app navigation, cold deep link, or both.

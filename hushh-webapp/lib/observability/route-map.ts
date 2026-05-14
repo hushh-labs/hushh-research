@@ -17,6 +17,7 @@ export const ROUTE_ID_VALUES = [
   "marketplace_connections",
   "marketplace_connection_portfolio",
   "marketplace_ria_profile",
+  "one_kyc",
   "portfolio_shared",
   "ria_home",
   "ria_onboarding",
@@ -67,6 +68,7 @@ export function resolveRouteId(pathname: string): RouteId {
   ) {
     return "marketplace_ria_profile";
   }
+  if (pathname === ROUTES.ONE_KYC) return "one_kyc";
   if (pathname === "/portfolio/shared") return "portfolio_shared";
   if (pathname === ROUTES.RIA_HOME) return "ria_home";
   if (pathname === ROUTES.RIA_ONBOARDING) return "ria_onboarding";
@@ -323,6 +325,30 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/kai/portfolio/import/run/{run_id}/cancel",
   },
   {
+    regex: /^\/api\/one\/kyc\/workflows(?:\?.*)?$/i,
+    template: "/api/one/kyc/workflows",
+  },
+  {
+    regex: /^\/api\/one\/kyc\/workflows\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/one/kyc/workflows/{workflow_id}",
+  },
+  {
+    regex: /^\/api\/one\/kyc\/workflows\/[^/?]+\/refresh(?:\?.*)?$/i,
+    template: "/api/one/kyc/workflows/{workflow_id}/refresh",
+  },
+  {
+    regex: /^\/api\/one\/kyc\/workflows\/[^/?]+\/approve-draft(?:\?.*)?$/i,
+    template: "/api/one/kyc/workflows/{workflow_id}/approve-draft",
+  },
+  {
+    regex: /^\/api\/one\/kyc\/workflows\/[^/?]+\/reject-draft(?:\?.*)?$/i,
+    template: "/api/one/kyc/workflows/{workflow_id}/reject-draft",
+  },
+  {
+    regex: /^\/api\/one\/kyc\/workflows\/[^/?]+\/redraft(?:\?.*)?$/i,
+    template: "/api/one/kyc/workflows/{workflow_id}/redraft",
+  },
+  {
     regex: /^\/api\/consent\/pending(?:\?.*)?$/i,
     template: "/api/consent/pending",
   },
@@ -353,6 +379,10 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
   {
     regex: /^\/api\/account\/delete(?:\?.*)?$/i,
     template: "/api/account/delete",
+  },
+  {
+    regex: /^\/api\/account\/export(?:\?.*)?$/i,
+    template: "/api/account/export",
   },
   {
     regex: /^\/api\/developer\/access(?:\?.*)?$/i,

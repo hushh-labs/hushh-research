@@ -12,6 +12,7 @@
   ],
   "required_reads": [
     ".codex/skills/comms-community/references/reply-rules.md",
+    ".codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md",
     "docs/reference/iam/README.md",
     "consent-protocol/docs/reference/developer-api.md"
   ],
@@ -26,15 +27,17 @@
     "tests": []
   },
   "deliverables": [
-    "default reply variant",
-    "detailed reply variant",
+    "Brief reply",
+    "Detailed reply",
     "optional firmer reply variant when correction is needed",
     "shipped-vs-future distinction",
+    "claim classification for material premise corrections",
     "repo-backed GitHub doc citations"
   ],
   "impact_fields": [
     "Docs updated",
     "GitHub doc links used",
+    "Claim classification used",
     "Reply variants provided"
   ],
   "handoff_chain": [
@@ -46,6 +49,7 @@
     "overstating shipped functionality",
     "mixing roadmap with runtime truth",
     "repo-relative paths instead of canonical GitHub doc links",
-    "missing required drafted-reply variants"
+    "accepting contributor wording as repo truth",
+    "bloated drafted-reply variants beyond Brief/Detailed without need"
   ]
 }

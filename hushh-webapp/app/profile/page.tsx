@@ -9,6 +9,7 @@ import {
   Bug,
   Cloud,
   Code2,
+  ClipboardCheck,
   ExternalLink,
   Fingerprint,
   Folder,
@@ -3008,6 +3009,22 @@ function ProfilePageContent() {
                 stackTrailingOnMobile
                 onClick={openGmailPanel}
               />
+              <SettingsRow
+                icon={ClipboardCheck}
+                title="KYC agent"
+                description={
+                  vaultAccess.needsVaultCreation
+                    ? "Create your vault first."
+                    : vaultAccess.needsUnlock
+                      ? "Unlock to review KYC requests."
+                      : "Broker requests and draft replies."
+                }
+                trailing={<Badge variant="secondary">Preview</Badge>}
+                chevron={!vaultAccess.needsVaultCreation}
+                disabled={vaultAccess.needsVaultCreation}
+                stackTrailingOnMobile
+                onClick={() => router.push(ROUTES.ONE_KYC)}
+              />
             </SettingsGroup>
 
             <SettingsGroup title="Settings">
@@ -3060,6 +3077,17 @@ function ProfilePageContent() {
                 tone="destructive"
                 chevron
                 onClick={() => void handleSignOut()}
+              />
+            </SettingsGroup>
+
+            <SettingsGroup>
+              <SettingsRow
+                icon={Trash2}
+                title="Delete account"
+                description="Permanently delete your account and all data."
+                tone="destructive"
+                chevron
+                onClick={() => void handleDeleteClick()}
               />
             </SettingsGroup>
           </div>

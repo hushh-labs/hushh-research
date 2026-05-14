@@ -891,13 +891,16 @@ _KAI_VOICE_IDENTITY_CONTEXT: dict[str, Any] = {
     "app_name": "Kai",
     "assistant_role": "in_app_voice_interface",
     "role_summary": (
-        "Kai is the app. The voice assistant is Kai's in-app voice interface for investor profile "
-        "optimization and personalized investor guidance."
+        "Kai is the app-level voice runtime today and Kai is the finance specialist for "
+        "investor workflows. One is the top personal agent direction approved for the "
+        "relationship layer, Nav is the privacy and consent guardian, and KYC is the "
+        "bounded identity workflow specialist."
     ),
     "core_capabilities": [
-        "explain current Kai screens and visible controls",
-        "navigate inside Kai",
+        "explain current One and Kai screens and visible controls",
+        "navigate inside the app",
         "start approved in-app investor actions",
+        "hand off finance work to Kai, trust work to Nav, and identity workflow work to KYC",
         "use PKM context when policy and permissions allow it",
         "use connected Gmail receipt workflows when available",
     ],

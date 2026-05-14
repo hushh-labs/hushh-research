@@ -8,10 +8,12 @@
 flowchart TD
   root["docs/future/<br/>planning-only roadmap home"]
   kai["kai/<br/>assistant and workflow concepts"]
-  oneNav["one-nav-runtime-plan.md<br/>One/Nav runtime migration"]
+  oneSurface["one-product-surface-evolution-plan.md<br/>One product surface scaling"]
+  oneNav["one-nav-runtime-plan.md<br/>One/Kai/Nav/KYC runtime migration"]
   execution["promotion to execution docs<br/>only after approval"]
 
   root --> kai
+  root --> oneSurface
   root --> oneNav
   root --> execution
 ```
@@ -56,8 +58,9 @@ Promotion targets:
 
 ## Current Domains
 
-- [kai/README.md](./kai/README.md): Kai future-state concepts and delegated workflow planning
-- [one-nav-runtime-plan.md](./one-nav-runtime-plan.md): planning-only migration path from the current Kai-first runtime to the One/Kai/Nav ontology
+- [kai/README.md](./kai/README.md): Kai future-state concepts and superseded planning history that has not yet moved
+- [one-product-surface-evolution-plan.md](./one-product-surface-evolution-plan.md): planning-only product-surface evolution path for One, Kai, Nav, KYC, PCHP, PKM, OpenClaw/LLM Wiki-style projections, signature, brokerage, and brand-side access
+- [one-nav-runtime-plan.md](./one-nav-runtime-plan.md): planning-only migration path from the current Kai-first runtime to the One/Kai/Nav/KYC ontology
 
 ## References
 

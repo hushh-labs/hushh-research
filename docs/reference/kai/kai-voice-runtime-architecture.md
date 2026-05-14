@@ -13,7 +13,7 @@ sequenceDiagram
   participant TTS as TTS path
 
   User->>FE: Speak English
-  FE->>RT: WebRTC realtime session or STT fallback
+  FE->>RT: WebRTC realtime session
   RT-->>FE: English transcript
   FE->>FE: Build structured screen context
   FE->>Plan: transcript + runtime state + context
@@ -105,7 +105,7 @@ The maintained runtime now depends on these canonical surfaces:
 The current runtime is a closed-loop hybrid flow:
 
 1. Speech enters the frontend voice runtime.
-2. Realtime transcription produces the normal final transcript. `/voice/stt` remains the non-realtime fallback, and `/voice/understand` remains a legacy combined STT+plan surface.
+2. OpenAI Realtime transcription produces the final transcript. Batch audio upload routes are intentionally removed; voice input is realtime-only.
 3. The frontend builds live route, screen, runtime, auth, vault, and surface metadata context.
 4. The frontend calls `/voice/plan`.
 5. The backend planner returns both:
@@ -128,7 +128,7 @@ The canonical plan modes are:
 
 Kai voice is English-only in the current runtime.
 
-- Realtime transcription and batch STT both pin OpenAI transcription to language `en` and use an English-only transcription prompt.
+- Realtime transcription pins OpenAI transcription to language `en` and uses an English-only transcription prompt.
 - Non-English or unusable transcripts fail closed into a clarification response; the response remains English and keeps the compatibility reason `stt_unusable`.
 - Planner and composer prompts include an explicit language policy: accept English-language transcripts only, and produce English-only tool arguments, clarification text, and spoken replies.
 - TTS receives only composed English text plus an OpenAI speech instruction to speak English only; the legacy browser speech fallback is also pinned to `en-US`.
@@ -183,9 +183,7 @@ Important current behavior:
 - `/voice/plan`
 - `/voice/compose`
 - `/voice/tts`
-- `/voice/stt`
 - `/voice/realtime/session`
-- `/voice/understand` (legacy combined STT+plan compatibility surface)
 - `/voice/capability` (`POST`)
 
 `/voice/plan` is the main planning transport and still preserves rollout, canary, and kill-switch behavior.
@@ -214,7 +212,7 @@ Voice rollout is controlled by `VOICE_RUNTIME_CONFIG_JSON`:
 - tool-execution kill switch
 - model and timeout defaults
 
-`/voice/capability` reports both rollout and realtime availability. `voice_enabled` means the user is inside voice rollout. `enabled` means the realtime voice path is available for that user/runtime. When rollout is disabled, `/voice/plan` returns HTTP 200 with a non-executable `speak_only` response, while realtime session creation, STT, and TTS return HTTP 403.
+`/voice/capability` reports both rollout and realtime availability. `voice_enabled` means the user is inside voice rollout. `enabled` means the realtime voice path is available for that user/runtime. When rollout is disabled, `/voice/plan` returns HTTP 200 with a non-executable `speak_only` response, while realtime session creation and TTS return HTTP 403.
 
 ### Speech, realtime, and TTS boundaries
 
@@ -227,8 +225,6 @@ Voice rollout is controlled by `VOICE_RUNTIME_CONFIG_JSON`:
 - English-only transcription prompt
 
 The frontend preserves those transcription settings when it sends its post-handshake `session.update` for VAD and output voice. Realtime model auto-response is disabled on the normal path; the app requests speech explicitly with English-only output instructions after planning/execution/composition.
-
-`/voice/stt` sends batch audio to OpenAI transcriptions with `language: "en"` and the same English-only transcription prompt.
 
 Normal frontend post-dispatch speech prefers realtime-stream TTS through the active realtime client. `/voice/tts` remains the backend streaming speech endpoint for explicit backend synthesized playback, with binary audio headers and English-only speech instructions. The frontend backend-batch fallback path is currently disabled by feature flag. The backend runtime accepts a `tts_models` list in config, then chooses one prioritized active TTS model at service initialization. The legacy browser speech synthesis fallback is pinned to `en-US`.
 
@@ -297,11 +293,12 @@ Runtime consumption:
 
 The older [voice-action-manifest.v1.json](../../../contracts/kai/voice-action-manifest.v1.json) still exists, but it is now a generated compatibility artifact rather than the primary authored source.
 
-Generated actions include `speaker_persona`:
+Generated actions include `speaker_persona` and may include `delegate_agent_id`:
 
 - `one`: general, route, shell, memory, and handoff framing
 - `kai`: finance and analysis actions
 - `nav`: privacy, consent, vault, deletion, revocation, and scope-review actions
+- `kyc`: explicit identity/KYC workflow status, missing-document review, approval-gated draft, and structured writeback actions
 
 Navigation action ids use `route.*`. The `nav.*` namespace is reserved for true Nav guardian actions and must not be used for ordinary route changes.
 
@@ -369,6 +366,29 @@ Rules:
 - persona and workspace are hard preconditions
 - unavailable workspaces block or require explicit switch instead of pretending the action is flat-global
 
+### RIA workspace support
+
+RIA support in the current voice runtime covers the workspace entry, onboarding, client roster, client workspace tabs, account/request detail fallbacks, stock picks, compatibility routes, and marketplace RIA profile surfaces.
+
+The frontend can ground a canonical `route.ria_home` planner action into this authored workflow:
+
+1. ask for confirmation before switching to the `ria` persona
+2. dispatch `switch_persona` only after confirmation
+3. wait for persona settlement when metadata is available
+4. route to `/ria`
+5. wait for `/ria` / `ria_home` settlement when metadata is available
+
+If the account has not unlocked RIA, grounding returns an unavailable plan with setup guidance. If the user is already in the RIA persona and already on `/ria`, the executor returns a no-op instead of creating a fake mutation.
+
+Other RIA actions follow these rules:
+
+- safe route navigation can execute directly, for example `route.ria_clients`, `route.ria_picks`, and `route.ria_onboarding`
+- RIA picks source/category switches are route-state actions such as `/ria/picks?source=kai` and `/ria/picks?category=top-picks`
+- client workspace tab actions use dynamic routes like `/ria/clients/[userId]?tab=access`; grounding replaces `[userId]` from the current RIA client route and fails closed when the selected client is missing
+- client/account/request row actions that require a specific clicked id stay manual-only unless that id is already safely present in the current route
+- consent-request, disconnect, marketplace advisory, onboarding verification, and advisor-package save actions are manual-only or confirmation-required and currently unwired
+- Kai must not claim it completed manual-only RIA mutations
+
 ## Voice Navigation And Analysis Surfaces
 
 The primary navigation and analysis actions are authored in local contracts and consumed through:
@@ -388,7 +408,7 @@ Important current voice surfaces include:
 - Gmail receipts
 - PKM / PKM Agent Lab
 - consent center
-- RIA workspace entry
+- RIA workspace entry, onboarding, clients, picks, client workspace, and marketplace RIA profile
 
 Important analysis actions include:
 
@@ -416,7 +436,6 @@ Current voice debugging spans both frontend and backend.
 Backend:
 
 - `/voice/realtime/session` session creation and transcription metadata
-- `/voice/stt` tracing and audio/transcript metrics
 - `/voice/plan` tracing and latency metrics
 - `/voice/compose` tracing and latency metrics
 - `/voice/tts` streaming lifecycle and client-disconnect handling
@@ -449,7 +468,6 @@ These are compatibility measures, not the main architecture.
 The main documentation/code drift found during this refresh:
 
 - the older migration/audit doc still described several pre-implementation problems as if they were current state
-- `/voice/understand` remains a legacy combined surface and does not expose the richest canonical route contract
 - screen identifiers still drift across route derivation, command execution, surface publishers, and manifest expectations, which can cause settlement to fall back to timeout on otherwise successful navigations
 - not every Kai surface is yet covered by a colocated local action contract, so discoverability coverage is still incomplete outside the current seeded surfaces
 - the current screen/button/action coverage audit lives in [kai-voice-action-coverage-audit.md](./kai-voice-action-coverage-audit.md)

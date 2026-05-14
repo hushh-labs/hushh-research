@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
+import sys
 from collections import OrderedDict, defaultdict
 from pathlib import Path
 from typing import Any
@@ -74,6 +76,8 @@ REQUIRED_WORKFLOWS = [
     "analytics-observability-review",
     "bug-triage",
     "ci-watch-and-heal",
+    "data-model-audit",
+    "github-contribution-governance",
     "pre-pr-readiness",
     "security-consent-audit",
     "mobile-parity-check",
@@ -104,6 +108,17 @@ PATH_PREFIXES = (
     "consent-protocol/",
     "packages/",
 )
+SKILL_CONTEXT_LINE_LIMIT = 180
+DOC_CONTEXT_LINE_LIMIT = 700
+CODE_MODULARITY_LINE_LIMIT = 3000
+CODE_REVIEW_EXTENSIONS = (".py", ".ts", ".tsx", ".mjs", ".js", ".sh")
+CODE_REVIEW_EXCLUDED_PARTS = {
+    ".next",
+    ".venv",
+    "__pycache__",
+    "DerivedData",
+    "node_modules",
+}
 COMMAND_PATTERNS = [
     r"^\./bin/hushh\s+",
     r"^\./scripts/ci/",
@@ -115,8 +130,63 @@ COMMAND_PATTERNS = [
     r"^cd packages/hushh-mcp && npm run ",
     r"^python3 \.codex/",
     r"^python3 -m py_compile ",
+    r"^gh auth status$",
+    r"^gh api user --jq ",
+    r"^git config --get user\.(name|email)$",
     r"^# TODO$",
 ]
+
+
+def _delegation_router_payload(
+    *,
+    workflow_id: str,
+    prompt: str,
+    paths: list[str],
+    phase: str = "start",
+) -> OrderedDict[str, Any]:
+    router = REPO_ROOT / ".codex/skills/agent-orchestration-governance/scripts/delegation_router.py"
+    if not router.exists():
+        return OrderedDict(
+            available=False,
+            error="delegation_router.py is missing",
+            should_delegate=False,
+            lanes=[],
+        )
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(router),
+            "--workflow",
+            workflow_id,
+            "--phase",
+            phase,
+            "--prompt",
+            prompt,
+            "--paths",
+            ",".join(paths),
+            "--json",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return OrderedDict(
+            available=False,
+            error=result.stderr.strip() or result.stdout.strip() or "delegation router failed",
+            should_delegate=False,
+            lanes=[],
+        )
+    payload = json.loads(result.stdout)
+    return OrderedDict(
+        available=True,
+        auto_spawn_authorized=payload.get("auto_spawn_authorized", False),
+        auto_spawn_source=payload.get("auto_spawn_source", ""),
+        should_delegate=payload.get("should_delegate", False),
+        parent_authority=payload.get("parent_authority", ""),
+        reasons=payload.get("reasons", []),
+        lanes=payload.get("lanes", []),
+    )
 
 
 def _load_text(path: Path) -> str:
@@ -200,6 +270,80 @@ def _uniq(values: list[str]) -> list[str]:
             seen.add(value)
             ordered.append(value)
     return ordered
+
+
+def _git_paths(*args: str) -> list[Path]:
+    result = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return [
+        REPO_ROOT / line
+        for line in result.stdout.splitlines()
+        if line.strip()
+    ]
+
+
+def _tracked_and_untracked_paths() -> list[Path]:
+    return _git_paths("ls-files") + _git_paths("ls-files", "--others", "--exclude-standard")
+
+
+def _line_count(path: Path) -> int:
+    return len(_load_text(path).splitlines())
+
+
+def _is_reviewable_code_path(path: Path) -> bool:
+    if path.suffix not in CODE_REVIEW_EXTENSIONS:
+        return False
+    try:
+        rel_parts = path.relative_to(REPO_ROOT).parts
+    except ValueError:
+        return False
+    return not any(part in CODE_REVIEW_EXCLUDED_PARTS for part in rel_parts)
+
+
+def _modularity_review_findings() -> list[str]:
+    findings: list[str] = []
+
+    oversized_skills = [
+        (str(path.relative_to(REPO_ROOT)), _line_count(path))
+        for path in sorted(SKILLS_ROOT.glob("*/SKILL.md"))
+        if _line_count(path) > SKILL_CONTEXT_LINE_LIMIT
+    ]
+    for rel, lines in sorted(oversized_skills, key=lambda item: item[1], reverse=True)[:5]:
+        findings.append(
+            f"Context-size review required for skill {rel}: {lines} lines; keep SKILL.md procedural and move durable detail to references/playbooks before adding more SOP."
+        )
+
+    docs_roots = [REPO_ROOT / "docs", REPO_ROOT / "consent-protocol/docs", REPO_ROOT / "hushh-webapp/docs"]
+    oversized_docs: list[tuple[str, int]] = []
+    for root in docs_roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*.md")):
+            lines = _line_count(path)
+            if lines > DOC_CONTEXT_LINE_LIMIT:
+                oversized_docs.append((str(path.relative_to(REPO_ROOT)), lines))
+    for rel, lines in sorted(oversized_docs, key=lambda item: item[1], reverse=True)[:5]:
+        findings.append(
+            f"Context-size review required for doc {rel}: {lines} lines; split only when a bounded subtopic needs its own canonical home."
+        )
+
+    oversized_code: list[tuple[str, int]] = []
+    for path in _tracked_and_untracked_paths():
+        if not path.exists() or not _is_reviewable_code_path(path):
+            continue
+        lines = _line_count(path)
+        if lines > CODE_MODULARITY_LINE_LIMIT:
+            oversized_code.append((str(path.relative_to(REPO_ROOT)), lines))
+    for rel, lines in sorted(oversized_code, key=lambda item: item[1], reverse=True)[:8]:
+        findings.append(
+            f"Modularity review required for code {rel}: {lines} lines; future edits should extract new bounded behavior instead of growing the file by default."
+        )
+
+    return findings
 
 
 def _doc_like(value: str) -> bool:
@@ -337,7 +481,14 @@ def build_frontend_section() -> dict[str, Any]:
         ],
         verification_commands=_load_package_scripts(
             REPO_ROOT / "hushh-webapp/package.json",
-            ["verify:design-system", "verify:docs", "verify:routes", "verify:cache", "typecheck"],
+            [
+                "verify:service-boundary",
+                "verify:design-system",
+                "verify:docs",
+                "verify:routes",
+                "verify:cache",
+                "typecheck",
+            ],
         ),
         next_reads=[
             "docs/reference/quality/design-system.md",
@@ -346,7 +497,12 @@ def build_frontend_section() -> dict[str, Any]:
         ],
         recommended_entrypoint="frontend",
         next_owner_skills=["frontend", "mobile-native"],
-        spoke_skills=["frontend-design-system", "frontend-architecture", "frontend-surface-placement"],
+        spoke_skills=[
+            "frontend-design-system",
+            "frontend-architecture",
+            "frontend-surface-placement",
+            "frontend-native-surface-mapper",
+        ],
     )
 
 
@@ -434,12 +590,22 @@ def build_commands_section() -> dict[str, Any]:
             "./bin/hushh codex onboard",
             "./bin/hushh codex route-task <workflow-id>",
             "./bin/hushh codex impact <workflow-id> [--path <repo-path>]",
+            "./bin/hushh codex data-model-audit",
             "./bin/hushh codex audit",
         ],
         package_commands=OrderedDict(
             hushh_webapp=_load_package_scripts(
                 REPO_ROOT / "hushh-webapp/package.json",
-                ["dev", "lint", "typecheck", "verify:design-system", "verify:docs", "verify:routes", "verify:cache"],
+                [
+                    "dev",
+                    "lint",
+                    "typecheck",
+                    "verify:service-boundary",
+                    "verify:design-system",
+                    "verify:docs",
+                    "verify:routes",
+                    "verify:cache",
+                ],
             ),
             hushh_mcp=_load_package_scripts(
                 REPO_ROOT / "packages/hushh-mcp/package.json",
@@ -524,6 +690,11 @@ def build_route_task(workflow_id: str, verbose: bool = False) -> dict[str, Any]:
         required_deliverables=workflow["deliverables"],
         handoff_chain=workflow["handoff_chain"],
         playbook=workflow["playbook"],
+        delegation_policy=_delegation_router_payload(
+            workflow_id=workflow_id,
+            prompt=f"{workflow['title']} {workflow['goal']}",
+            paths=workflow["affected_surfaces"],
+        ),
     )
     if verbose:
         payload["workflow"] = workflow
@@ -573,6 +744,11 @@ def build_impact(workflow_id: str, paths: list[str] | None = None, verbose: bool
         likely_tests=likely_tests,
         risk_areas=risk_areas,
         handoff_chain=workflow["handoff_chain"],
+        delegation_policy=_delegation_router_payload(
+            workflow_id=workflow_id,
+            prompt=f"{workflow['title']} {workflow['goal']}",
+            paths=likely_paths,
+        ),
     )
     if verbose:
         payload["requested_paths"] = requested_paths
@@ -690,6 +866,7 @@ def build_audit() -> dict[str, Any]:
     workflow_task_types = {workflow["task_type"] for workflow in workflows}
     orphaned_task_types = sorted(set(all_task_types) - workflow_task_types)
     findings["medium"].extend(f"Task type has no workflow pack: {task_type}" for task_type in orphaned_task_types)
+    findings["low"].extend(_modularity_review_findings())
 
     coverage_score = max(0, 100 - (len(uncovered) * 10) - (len(findings["high"]) * 2))
     routing_issues = [
@@ -876,6 +1053,7 @@ def _render_workflows_text(payload: dict[str, Any]) -> str:
 
 def _render_route_task_text(payload: dict[str, Any]) -> str:
     data = payload["data"]
+    delegation = data.get("delegation_policy", {})
     lines = [
         f"Workflow: {data['workflow_id']}",
         f"Owner skill: {_skill_label(data['selected_owner_skill'])}",
@@ -885,12 +1063,26 @@ def _render_route_task_text(payload: dict[str, Any]) -> str:
         f"Commands: {', '.join(data['exact_commands_to_run'])}",
         f"Verification bundle: {data['exact_verification_bundle']['id']}",
         f"Deliverables: {', '.join(data['required_deliverables'])}",
+        f"Delegation: should_delegate={delegation.get('should_delegate', False)} auto_spawn={delegation.get('auto_spawn_authorized', False)} source={delegation.get('auto_spawn_source', 'n/a')}",
     ]
+    lanes = delegation.get("lanes") or []
+    lines.append(
+        "Delegation lanes: "
+        + (
+            ", ".join(
+                f"{lane['agent']}[{lane['reasoning_effort']}/{lane['sandbox_mode']}]"
+                for lane in lanes
+            )
+            if lanes
+            else "none"
+        )
+    )
     return "\n".join(lines)
 
 
 def _render_impact_text(payload: dict[str, Any]) -> str:
     data = payload["data"]
+    delegation = data.get("delegation_policy", {})
     lines = [
         f"Impact: {data['workflow_id']}",
         f"Likely paths: {', '.join(data['likely_paths'])}",
@@ -899,7 +1091,20 @@ def _render_impact_text(payload: dict[str, Any]) -> str:
         f"Likely tests: {', '.join(data['likely_tests']) if data['likely_tests'] else 'none'}",
         f"Risk areas: {', '.join(data['risk_areas'])}",
         f"Handoff chain: {', '.join(data['handoff_chain'])}",
+        f"Delegation: should_delegate={delegation.get('should_delegate', False)} auto_spawn={delegation.get('auto_spawn_authorized', False)} source={delegation.get('auto_spawn_source', 'n/a')}",
     ]
+    lanes = delegation.get("lanes") or []
+    lines.append(
+        "Delegation lanes: "
+        + (
+            ", ".join(
+                f"{lane['agent']}[{lane['reasoning_effort']}/{lane['sandbox_mode']}]"
+                for lane in lanes
+            )
+            if lanes
+            else "none"
+        )
+    )
     return "\n".join(lines)
 
 
@@ -939,6 +1144,8 @@ def _render_audit_text(payload: dict[str, Any]) -> str:
 
 
 def main() -> int:
+    workflow_choices = sorted(_workflows_by_id(_collect_workflows()).keys())
+
     parser = argparse.ArgumentParser(description="Scan Hussh repo context for Codex.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -962,13 +1169,13 @@ def main() -> int:
     workflows_parser.add_argument("--verbose", action="store_true", help="emit deeper detail")
 
     route_parser = subparsers.add_parser("route-task", help="route a workflow pack to owner and spoke skills")
-    route_parser.add_argument("workflow_id", choices=REQUIRED_WORKFLOWS, help="workflow id")
+    route_parser.add_argument("workflow_id", choices=workflow_choices, help="workflow id")
     route_parser.add_argument("--json", action="store_true", help="emit JSON")
     route_parser.add_argument("--text", action="store_true", help="emit concise text")
     route_parser.add_argument("--verbose", action="store_true", help="emit deeper detail")
 
     impact_parser = subparsers.add_parser("impact", help="compute impact for a workflow pack")
-    impact_parser.add_argument("workflow_id", choices=REQUIRED_WORKFLOWS, help="workflow id")
+    impact_parser.add_argument("workflow_id", choices=workflow_choices, help="workflow id")
     impact_parser.add_argument("--path", action="append", default=[], help="repo path to narrow impact output")
     impact_parser.add_argument("--json", action="store_true", help="emit JSON")
     impact_parser.add_argument("--text", action="store_true", help="emit concise text")

@@ -1,6 +1,6 @@
 # Hussh Agent Ontology
 
-Status: canonical durable ontology for Hussh, One, Kai, Nav, and future specialists.
+Status: canonical durable ontology for Hussh, One, Kai, Nav, KYC, and future specialists.
 
 ## Visual Map
 
@@ -10,11 +10,13 @@ flowchart TB
   one["One<br/>top personal agent"]
   kai["Kai<br/>finance specialist"]
   nav["Nav<br/>privacy and consent guardian"]
+  kyc["KYC<br/>identity workflow specialist"]
   future["Future specialists<br/>below One"]
 
   hussh --> one
   one --> kai
   one --> nav
+  one --> kyc
   one --> future
 ```
 
@@ -26,8 +28,23 @@ flowchart TB
 | One | Relationship layer, greeting, memory framing, shell notifications, cross-domain help, specialist handoffs | Deep finance judgment, privacy-policy enforcement, or pretending to be every specialist |
 | Kai | Finance analysis, portfolio context, market intelligence, investment debate, RIA/investor finance workflows | Consent-policy authority, vault/deletion decisions, platform identity |
 | Nav | Consent review, scope grants, vault friction, deletion, suspicious access, privacy and trust explanations | Finance analysis, market judgment, general relationship memory |
+| KYC | Identity/KYC workflow requirements, missing-document state, approval-gated drafts, structured PKM writeback | Broad email autonomy, platform identity, finance judgment, consent-policy authority |
 
 Future specialists slot below One. Do not add a second top-level personal agent unless the product ontology itself changes.
+
+## Scaling Rule
+
+The ontology scales by adding reachable specialist capabilities below One, not by creating parallel top-level agents or standalone product roots.
+
+Use this rule for new product surfaces:
+
+- signature and document flows belong under consented One/Nav/KYC-style trust workflows
+- brokerage and investing flows belong under Kai unless the work is pure identity, consent, or vault policy
+- email/KYC flows belong under the KYC specialist and structured PKM writeback, not a broad autonomous email agent
+- OpenClaw-style, LLM Wiki, and portable-brain ideas belong only when they preserve Hussh's encrypted PKM and consented runtime authority
+- brand-side or developer-facing access belongs under PCHP, Developer API, MCP, and scoped consent, not a separate trust plane
+
+If a proposed surface cannot name the One handoff, specialist owner, consent scope, vault boundary, and action route, it is not ready to become part of the product ontology.
 
 ## One Motions
 
@@ -48,7 +65,7 @@ The current checked-in runtime is still Kai-first. Kai voice, action grounding, 
 
 One and Nav are approved direction, not a claim that the current app already runs a full One/Nav runtime. Current-state docs must say this plainly when discussing implementation.
 
-Current memory wording must be equally precise: PKM is the checked-in encrypted memory architecture, and today it is described through Kai-first implementation docs. The durable direction is One-owned relationship memory with Kai finance memory as a specialist slice and Nav consent/privacy memory as a guardian slice.
+Current memory wording must be equally precise: PKM is the checked-in encrypted memory architecture, and today it is described through Kai-first implementation docs. The durable direction is One-owned relationship memory with Kai finance memory as a specialist slice, Nav consent/privacy memory as a guardian slice, and KYC workflow artifacts as structured identity-workflow writebacks.
 
 ## Tone And Copy Ownership
 
@@ -77,6 +94,13 @@ Nav speaks for:
 - deletion and revocation
 - suspicious access or trust-state warnings
 
+KYC speaks only on explicit KYC workflow surfaces for:
+
+- KYC requirements and missing-document state
+- approval-gated drafts
+- workflow status
+- structured PKM writeback summaries
+
 ## Trust Invariants
 
 The ontology changes no trust boundary:
@@ -84,7 +108,7 @@ The ontology changes no trust boundary:
 - BYOK remains the key boundary.
 - Zero-knowledge and ciphertext-at-rest claims must stay repo-backed.
 - Capability tokens, consent tokens, `VAULT_OWNER`, and scoped exports remain literal implementation labels where precision matters.
-- One, Kai, and Nav must operate inside consent, vault, persona, workspace, and route guards.
+- One, Kai, Nav, and KYC must operate inside consent, vault, persona, workspace, and route guards.
 
 If a copy or personality decision conflicts with a trust invariant, the trust invariant wins.
 
@@ -96,10 +120,10 @@ Approved pattern:
 
 1. One identifies the specialist need.
 2. One says the handoff plainly.
-3. Kai or Nav speaks only inside its owned domain.
+3. Kai, Nav, or KYC speaks only inside its owned domain.
 4. One returns only when the cross-domain or relationship layer needs closure.
 
-Do not blur ownership by letting Kai explain vault policy, letting Nav make finance recommendations, or making Hussh speak as a personal assistant.
+Do not blur ownership by letting Kai explain vault policy, letting Nav make finance recommendations, letting KYC become a broad email agent, or making Hussh speak as a personal assistant.
 
 ## Founder Copy Rules
 
@@ -109,6 +133,7 @@ Approved founder-facing rewrites:
 - `One listens, remembers, decides, and acts under consent.`
 - `Kai is the finance specialist One summons.`
 - `Nav is the privacy and consent guardian One summons.`
+- `KYC is the identity workflow specialist One summons.`
 - `Your agents. Yours to own.`
 
 Retired or stale wording:
@@ -132,6 +157,14 @@ Local `.voice-action-contract.json` actions declare `speaker_persona`:
 - `one` for general and route/navigation actions
 - `kai` for finance analysis actions
 - `nav` for privacy, consent, vault, deletion, and scope-review actions
+- `kyc` for explicit KYC workflow status, missing-document review, approval-gated draft, and structured writeback actions
+
+Delegated actions may also declare `delegate_agent_id` with one of:
+
+- `one`
+- `kai`
+- `nav`
+- `kyc`
 
 ## Public Voice Descriptor Rule
 
@@ -140,5 +173,6 @@ Canonical docs use neutral voice descriptors:
 - One: calm, present, attentive, quietly competent
 - Kai: warm, sourced, finance-specific
 - Nav: precise, protective, calm under pressure
+- KYC: crisp, process-aware, approval-conscious
 
 Do not encode celebrity references or personal numeric preferences into canonical docs.

@@ -1,7 +1,7 @@
 # Kai Voice Action Coverage Audit
 
 Status: current coverage audit.
-Snapshot date: 2026-04-24.
+Snapshot date: 2026-04-27.
 
 ## Visual Map
 
@@ -29,9 +29,9 @@ flowchart TD
 
 ## Verdict
 
-The current voice mapper does not map every UI screen and every button.
+The current voice mapper still does not map every UI screen and every button across the whole app.
 
-It maps the seeded voice/search action plane: 9 local action-contract surfaces, 31 generated actions, and a smaller set of backend/frontend executable tools. Several UI controls publish voice metadata or `data-voice-control-id` values that do not exist in the generated gateway. Several app routes are known to route-screen derivation but have no local action contract or explicit voice-ignore contract.
+It now maps the expanded voice/search action plane: 19 local action-contract surfaces, 73 generated actions, and a smaller set of backend/frontend executable tools. RIA coverage is now first-class for workspace entry, onboarding, clients, picks, client workspace tabs, account/request fallbacks, compatibility routes, and marketplace RIA profile. Some non-RIA controls still publish voice metadata or `data-voice-control-id` values that do not exist in the generated gateway, and several app routes still have no local action contract or explicit voice-ignore contract.
 
 Treat the current mapper as capability coverage, not full UI coverage.
 
@@ -106,12 +106,12 @@ The frontend dispatcher supports the backend tools above plus `switch_persona`.
 
 Generated gateway coverage:
 
-- 9 source contracts
-- 31 generated actions
-- 19 wired actions
-- 11 unwired actions
+- 19 source contracts
+- 73 generated actions
+- 43 wired actions
+- 29 unwired actions
 - 1 dead legacy action
-- execution policy split: 20 `allow_direct`, 8 `manual_only`, 3 `confirm_required`
+- execution policy split: 44 `allow_direct`, 25 `manual_only`, 4 `confirm_required`
 
 Action inventory:
 
@@ -141,6 +141,16 @@ Action inventory:
 | `profile.receipts_memory.save` | unwired | Local receipts page save only; manual-only. |
 | `profile.gmail.disconnect` | unwired | No global voice/action adapter; manual-only. |
 | `route.ria_home` | wired route `/ria` plus workflow | Can ask to switch to RIA persona, then route to `/ria`. |
+| `route.ria_onboarding` | wired route `/ria/onboarding` | Can navigate to RIA setup. |
+| `route.ria_clients` | wired route `/ria/clients` | Can navigate to the RIA client roster. |
+| `route.ria_picks` | wired route `/ria/picks` | Can navigate to the RIA picks surface. |
+| `ria.picks.open_source_kai`, `ria.picks.open_source_my` | wired route-state switches | Can switch visible picks source via route query. |
+| `ria.picks.open_category_top_picks`, `ria.picks.open_category_avoid`, `ria.picks.open_category_screening` | wired route-state switches | Can switch visible picks category via route query. |
+| `ria.picks.save_package` and picks edit/import/copy/discard actions | unwired | Manual-only because they mutate advisor package or file state. |
+| `route.ria_client_workspace` and workspace tab actions | wired dynamic routes | Can navigate within the selected client workspace when `[userId]` exists in the current route. |
+| `ria.client_workspace.request_access` | unwired | Confirmation-required; must remain user-triggered because it creates a client consent request. |
+| `ria.client_workspace.disconnect_relationship` | unwired | Manual-only relationship mutation. |
+| `marketplace.ria.request_advisory` | unwired | Manual-only investor-to-RIA consent request creation. |
 | `route.consents` | wired Kai command `consent` | Can open consent center. |
 | `route.back` | wired voice tool `navigate_back` | Can call the app back handler. |
 | `route.kai_dashboard` | wired Kai command `dashboard` | Can open `/kai/portfolio`. |
@@ -153,7 +163,7 @@ Action inventory:
 
 ### 1. UI routes exceed action-contract coverage
 
-The app currently has 39 `page.tsx`/`page.ts` routes under `hushh-webapp/app`, while the generated action gateway covers 9 contracted surfaces.
+The app currently has 39 `page.tsx`/`page.ts` routes under `hushh-webapp/app`, while the generated action gateway covers 19 contracted surfaces.
 
 Examples without matching action-contract coverage or explicit voice-ignore contracts:
 
@@ -163,11 +173,6 @@ Examples without matching action-contract coverage or explicit voice-ignore cont
 - `/kai/dashboard/analysis`
 - `/kai/plaid/oauth/return`
 - `/kai/alpaca/oauth/return`
-- `/ria/clients`
-- `/ria/workspace`
-- `/ria/requests`
-- `/ria/picks`
-- `/ria/settings`
 - marketplace routes
 - login/register/logout routes
 
@@ -178,16 +183,11 @@ Some of these may intentionally be non-voice surfaces, but the repo does not cur
 [route-screen-derivation.ts](../../../hushh-webapp/lib/voice/route-screen-derivation.ts) derives screens such as:
 
 - `kai_funding_trade`
-- `ria_clients`
-- `ria_workspace`
-- `ria_requests`
-- `ria_picks`
-- `ria_settings`
 - fallback `kai`
 - fallback `profile`
 - fallback `app`
 
-Those screens are not all represented as generated gateway surfaces/actions.
+Those screens are not all represented as generated gateway surfaces/actions. RIA route derivation is now represented for the main RIA surfaces and dynamic client detail routes.
 
 ### 3. Published screen ids drift from contract screen ids
 
@@ -216,19 +216,7 @@ These ids can appear in structured screen context, but they are not shared actio
 
 ### 5. DOM voice control ids are not all in the generated gateway
 
-The generated gateway currently declares these control ids:
-
-- `analysis_cancel`
-- `analysis_open_active`
-- `edit_receipts_summary`
-- `generate_pkm_preview`
-- `import_portfolio`
-- `open_gmail_connector`
-- `optimize_portfolio`
-- `save_pkm_capture`
-- `save_receipts_memory`
-- `sync_gmail_receipts`
-- `view_investments`
+The generated gateway currently declares control ids across the contracted Kai, profile, consent, and RIA surfaces. RIA declarations now include route tabs, onboarding buttons, picks source/category controls, client roster rows, workspace tabs, account/request fallbacks, access-manager controls, and marketplace RIA profile controls.
 
 Observed DOM voice controls that are not currently declared by the generated gateway:
 
@@ -248,9 +236,11 @@ Observed DOM voice controls that are not currently declared by the generated gat
 
 `sync_gmail_receipts` is declared in the contract and appears dynamically in the receipts page when Gmail is connected.
 
-### 6. RIA has an action contract but no live surface publisher on the home page
+### 6. RIA publishes live surface metadata for mapped surfaces
 
-`hushh-webapp/app/ria/page.voice-action-contract.json` defines `route.ria_home`, but `app/ria/page.tsx` does not publish `usePublishVoiceSurfaceMetadata(...)`. The action can still work through route/workflow grounding, but live screen metadata is not symmetrical with the contracted surface.
+RIA pages and detail components now publish `usePublishVoiceSurfaceMetadata(...)` for the mapped screens, including `ria_home`, `ria_onboarding`, `ria_clients`, `ria_picks`, `ria_client_workspace`, `ria_client_account_detail`, `ria_client_request_detail`, and `marketplace_ria_profile`.
+
+The remaining RIA limitation is deliberate: actions that need a clicked row id, file picker state, account selection, selected scopes, or consent-request payload remain manual-only or confirmation-required unless those inputs are already safely present in route/context state.
 
 ### 7. Existing verification does not prove full UI coverage
 
@@ -281,4 +271,4 @@ They do not currently fail when:
 
 ## Bottom Line
 
-The voice agent can execute a real but bounded set of functions today: the backend tool schema, the frontend `switch_persona` workflow path, route navigation steps, and the 8 Kai commands. It does not currently map every UI screen and every button into the generated action gateway.
+The voice agent can execute a real but bounded set of functions today: the backend tool schema, the frontend `switch_persona` workflow path, route navigation steps, RIA route-state navigation, dynamic RIA client workspace tab routing when the current client id is known, and the 8 Kai commands. It still does not map every UI screen and every button across the whole app into the generated action gateway.

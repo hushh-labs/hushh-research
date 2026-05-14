@@ -15,19 +15,34 @@ describe("Top app bar responsive contract", () => {
 
     expect(source).toContain("TOP_SHELL_TITLE_PILL_CLASSNAME");
     expect(source).not.toContain("hidden shrink-0 text-current sm:inline-flex");
-    expect(source).not.toContain("hidden h-1.5 w-1.5 shrink-0 rounded-full sm:inline-block");
-    expect(source).not.toContain("hidden h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current sm:inline-block");
+    expect(source).not.toContain(
+      "hidden h-1.5 w-1.5 shrink-0 rounded-full sm:inline-block",
+    );
+    expect(source).not.toContain(
+      "hidden h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current sm:inline-block",
+    );
     expect(source).toContain('className="shrink-0 text-current"');
-    expect(source).toContain('className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current"');
+    expect(source).toContain(
+      'className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current"',
+    );
   });
 
   it("keeps RIA onboarding persona switching interactive", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
+    expect(source).toContain('label: "Set up RIA"');
+    expect(source).toContain("icon: BriefcaseBusiness");
+    expect(source).toContain("interactive: true as const");
     expect(source).toContain(
-      'return { label: "Set up RIA", icon: BriefcaseBusiness, interactive: true as const };'
+      'pathname === ROUTES.RIA_ONBOARDING && target === "investor"',
     );
-    expect(source).toContain('pathname === ROUTES.RIA_ONBOARDING && target === "investor"');
     expect(source).toContain("router.push(nextRoute);");
+  });
+
+  it("uses deterministic breadcrumb parents instead of browser history for top-bar back", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    expect(source).toContain("router.push(topShellBreadcrumb.backHref);");
+    expect(source).not.toContain("router.back();");
   });
 });

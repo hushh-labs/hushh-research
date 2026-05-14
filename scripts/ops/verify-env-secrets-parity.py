@@ -39,6 +39,23 @@ BACKEND_GMAIL_REQUIRED = (
     "GMAIL_OAUTH_TOKEN_KEY",
 )
 
+BACKEND_ONE_EMAIL_SECRET_REQUIRED = (
+    "ONE_EMAIL_WATCH_RENEW_TOKEN",
+)
+
+BACKEND_ONE_EMAIL_RUNTIME_REQUIRED = (
+    "ONE_EMAIL_ADDRESS",
+    "ONE_EMAIL_DELEGATED_USER",
+    "ONE_EMAIL_PUBSUB_TOPIC",
+    "ONE_EMAIL_WEBHOOK_AUDIENCE",
+    "ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL",
+    "ONE_EMAIL_WEBHOOK_AUTH_ENABLED",
+    "ONE_EMAIL_WATCH_RENEW_TOKEN",
+    "ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED",
+    "ONE_EMAIL_KYC_DEFAULT_SCOPE",
+    "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED",
+)
+
 BACKEND_VOICE_REQUIRED = (
     "OPENAI_API_KEY",
     "VOICE_RUNTIME_CONFIG_JSON",
@@ -187,6 +204,44 @@ def _describe_run_service(project: str, region: str, service: str) -> dict[str, 
         return None
 
 
+def _describe_run_revision(project: str, region: str, revision: str) -> dict[str, Any] | None:
+    cmd = [
+        "gcloud",
+        "run",
+        "revisions",
+        "describe",
+        revision,
+        "--project",
+        project,
+        "--region",
+        region,
+        "--format=json",
+    ]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if result.returncode != 0:
+        return None
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+def _active_revision_names(service_json: dict[str, Any] | None) -> list[str]:
+    if not isinstance(service_json, dict):
+        return []
+    names: list[str] = []
+    for item in service_json.get("status", {}).get("traffic", []) or []:
+        if not isinstance(item, dict) or int(item.get("percent") or 0) <= 0:
+            continue
+        revision_name = str(item.get("revisionName") or "").strip()
+        if revision_name and revision_name not in names:
+            names.append(revision_name)
+    if names:
+        return names
+    latest = str(service_json.get("status", {}).get("latestReadyRevisionName") or "").strip()
+    return [latest] if latest else []
+
+
 def _container_env_map(service_json: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     if not isinstance(service_json, dict):
         return {}
@@ -206,6 +261,34 @@ def _container_env_map(service_json: dict[str, Any] | None) -> dict[str, dict[st
         if isinstance(entry, dict) and entry.get("name"):
             out[str(entry["name"])] = entry
     return out
+
+
+def _serving_container_env_map(
+    project: str, region: str, service_json: dict[str, Any] | None
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    revisions = _active_revision_names(service_json)
+    env_maps = [
+        _container_env_map(_describe_run_revision(project, region, revision))
+        for revision in revisions
+    ]
+    env_maps = [env_map for env_map in env_maps if env_map]
+    if not env_maps:
+        return _container_env_map(service_json), revisions
+    if len(env_maps) == 1:
+        return env_maps[0], revisions
+
+    # Multiple live revisions are acceptable only when every serving revision
+    # exposes the same required source. Keep the common subset so missing keys
+    # on any traffic-bearing revision fail the runtime contract.
+    common_keys = set(env_maps[0])
+    for env_map in env_maps[1:]:
+        common_keys &= set(env_map)
+    common: dict[str, dict[str, Any]] = {}
+    for key in common_keys:
+        labels = {_runtime_source_label(env_map[key]) for env_map in env_maps}
+        if len(labels) == 1:
+            common[key] = env_maps[0][key]
+    return common, revisions
 
 
 def _runtime_source_label(entry: dict[str, Any]) -> str:
@@ -338,6 +421,11 @@ def main() -> int:
         help="Also require backend Gmail sync secrets for Gmail parity.",
     )
     parser.add_argument(
+        "--require-one-email",
+        action="store_true",
+        help="Also require One mailbox/KYC runtime env and secrets.",
+    )
+    parser.add_argument(
         "--require-voice",
         action="store_true",
         help="Also require backend voice runtime secrets for voice parity.",
@@ -369,6 +457,8 @@ def main() -> int:
         required.extend(BACKEND_MARKET_REQUIRED)
     if args.require_gmail:
         required.extend(BACKEND_GMAIL_REQUIRED)
+    if args.require_one_email:
+        required.extend(BACKEND_ONE_EMAIL_SECRET_REQUIRED)
     if args.require_voice:
         required.extend(BACKEND_VOICE_REQUIRED)
     if args.require_reviewer_smoke:
@@ -387,6 +477,9 @@ def main() -> int:
             "backend": list(BACKEND_REQUIRED),
             "frontend": list(FRONTEND_REQUIRED),
             "gmail": list(BACKEND_GMAIL_REQUIRED) if args.require_gmail else [],
+            "one_email": list(BACKEND_ONE_EMAIL_SECRET_REQUIRED)
+            if args.require_one_email
+            else [],
             "voice": list(BACKEND_VOICE_REQUIRED) if args.require_voice else [],
             "reviewer_smoke": list(BACKEND_REVIEWER_SMOKE_REQUIRED)
             if args.require_reviewer_smoke
@@ -401,6 +494,7 @@ def main() -> int:
             "frontend": [],
             "backend": [],
             "backend_gmail": [],
+            "backend_one_email": [],
             "backend_voice": [],
             "backend_reviewer_smoke": [],
         },
@@ -422,6 +516,11 @@ def main() -> int:
         print(
             "Required Gmail backend secrets "
             f"({len(BACKEND_GMAIL_REQUIRED)}): {_format_names(BACKEND_GMAIL_REQUIRED)}"
+        )
+    if args.require_one_email:
+        print(
+            "Required One email backend keys "
+            f"({len(BACKEND_ONE_EMAIL_SECRET_REQUIRED)}): {_format_names(BACKEND_ONE_EMAIL_SECRET_REQUIRED)}"
         )
     if args.require_voice:
         print(
@@ -447,8 +546,12 @@ def main() -> int:
     if args.assert_runtime_env_contract:
         frontend_json = _describe_run_service(args.project, args.region, args.frontend_service)
         backend_json = _describe_run_service(args.project, args.region, args.backend_service)
-        frontend_env = _container_env_map(frontend_json)
-        backend_env = _container_env_map(backend_json)
+        frontend_env, frontend_revisions = _serving_container_env_map(
+            args.project, args.region, frontend_json
+        )
+        backend_env, backend_revisions = _serving_container_env_map(
+            args.project, args.region, backend_json
+        )
 
         frontend_entries = [
             _classify_runtime_key(
@@ -479,6 +582,12 @@ def main() -> int:
                 )
                 for key in BACKEND_GMAIL_REQUIRED
             ]
+        backend_one_email_entries = []
+        if args.require_one_email:
+            backend_one_email_entries = [
+                _classify_runtime_key(backend_env, key)
+                for key in BACKEND_ONE_EMAIL_RUNTIME_REQUIRED
+            ]
         backend_voice_entries = []
         if args.require_voice:
             backend_voice_entries = [
@@ -501,13 +610,19 @@ def main() -> int:
         report["runtime_contract"]["frontend"] = frontend_entries
         report["runtime_contract"]["backend"] = backend_entries
         report["runtime_contract"]["backend_gmail"] = backend_gmail_entries
+        report["runtime_contract"]["backend_one_email"] = backend_one_email_entries
         report["runtime_contract"]["backend_voice"] = backend_voice_entries
         report["runtime_contract"]["backend_reviewer_smoke"] = backend_reviewer_smoke_entries
+        report["runtime_contract"]["frontend_serving_revisions"] = frontend_revisions
+        report["runtime_contract"]["backend_serving_revisions"] = backend_revisions
 
         runtime_classifications = []
         runtime_classifications.extend(_classifications_from_runtime_entries(frontend_entries))
         runtime_classifications.extend(_classifications_from_runtime_entries(backend_entries))
         runtime_classifications.extend(_classifications_from_runtime_entries(backend_gmail_entries))
+        runtime_classifications.extend(
+            _classifications_from_runtime_entries(backend_one_email_entries)
+        )
         runtime_classifications.extend(_classifications_from_runtime_entries(backend_voice_entries))
         runtime_classifications.extend(
             _classifications_from_runtime_entries(backend_reviewer_smoke_entries)
@@ -518,6 +633,13 @@ def main() -> int:
         print(_render_runtime_summary("Backend runtime env contract", backend_entries))
         if args.require_gmail:
             print(_render_runtime_summary("Backend Gmail runtime env contract", backend_gmail_entries))
+        if args.require_one_email:
+            print(
+                _render_runtime_summary(
+                    "Backend One email runtime env contract",
+                    backend_one_email_entries,
+                )
+            )
         if args.require_voice:
             print(_render_runtime_summary("Backend voice runtime env contract", backend_voice_entries))
         if args.require_reviewer_smoke:
@@ -534,6 +656,7 @@ def main() -> int:
                 frontend_entries
                 + backend_entries
                 + backend_gmail_entries
+                + backend_one_email_entries
                 + backend_voice_entries
                 + backend_reviewer_smoke_entries
             )

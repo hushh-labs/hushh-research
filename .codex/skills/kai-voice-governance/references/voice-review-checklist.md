@@ -6,7 +6,8 @@ Use this when reviewing Kai voice or typed-search changes.
 
 - Does each new discoverable capability have a local `.voice-action-contract.json` entry?
 - Is the `action_id` stable and reused across voice, search, and UI actionables?
-- Does every action declare `speaker_persona` as `one`, `kai`, or `nav`?
+- Does every action declare `speaker_persona` as `one`, `kai`, `nav`, or `kyc`?
+- Does every One-framed action executed by a specialist declare `delegate_agent_id` as `kai`, `nav`, or `kyc`?
 - Are ordinary navigation actions under `route.*`, with `nav.*` reserved for true Nav guardian actions?
 - Are `control_ids` present for UI affordances that should map back to the action?
 
@@ -21,9 +22,12 @@ Use this when reviewing Kai voice or typed-search changes.
 
 ## Runtime Boundary
 
+- Which existing voice runtime surfaces does this PR extend: generated gateway, manifest, realtime client, turn orchestrator, shared dispatcher, console sheet, backend voice intent, or voice tests?
+- Is this a new input adapter over the current runtime, or is it creating a parallel voice system?
 - Does runtime surface metadata describe current state rather than invent capabilities?
 - Does the generated gateway remain the shared semantic authority?
 - Is transcript fallback still only a compatibility path rather than the primary discoverability mechanism?
+- If the PR uses browser SpeechRecognition or MCP tools, does it still preserve action gateway parity, settlement, gating, and telemetry?
 
 ## Memory Boundary
 

@@ -114,4 +114,90 @@ describe("AccountService", () => {
       expect(result.remaining_personas).toEqual(["ria"]);
     });
   });
+
+  describe("exportData", () => {
+    it("throws when no vault owner token is provided", async () => {
+      await expect(AccountService.exportData("")).rejects.toThrow("VAULT_OWNER token required");
+    });
+
+    it("calls export route with VAULT_OWNER authorization header", async () => {
+      mockApiJson.mockResolvedValue({
+        success: true,
+        exported_at: "2026-04-24T00:00:00Z",
+        requested_target: "account",
+      });
+
+      const result = await AccountService.exportData("vault-token-abc");
+
+      expect(mockApiJson).toHaveBeenCalledWith(
+        "/api/account/export",
+        expect.objectContaining({
+          method: "GET",
+          headers: {
+            Authorization: "Bearer vault-token-abc",
+          },
+        })
+      );
+      expect(result.success).toBe(true);
+      expect(result.requested_target).toBe("account");
+    });
+  });
+
+  describe("email aliases", () => {
+    it("lists aliases with VAULT_OWNER authorization", async () => {
+      mockApiJson.mockResolvedValue({
+        success: true,
+        user_id: "user_1",
+        aliases: [],
+      });
+
+      await AccountService.listEmailAliases("vault-token-abc");
+
+      expect(mockApiJson).toHaveBeenCalledWith(
+        "/api/account/email-aliases",
+        expect.objectContaining({
+          method: "GET",
+          headers: { Authorization: "Bearer vault-token-abc" },
+        })
+      );
+    });
+
+    it("starts and confirms alias verification without Firebase-only auth", async () => {
+      mockApiJson.mockResolvedValue({ success: true });
+
+      await AccountService.startEmailAliasVerification(
+        "vault-token-abc",
+        "Original@Example.com"
+      );
+      await AccountService.confirmEmailAliasVerification(
+        "vault-token-abc",
+        "original@example.com",
+        "123456"
+      );
+
+      expect(mockApiJson).toHaveBeenNthCalledWith(
+        1,
+        "/api/account/email-aliases/verification/start",
+        expect.objectContaining({
+          method: "POST",
+          headers: {
+            Authorization: "Bearer vault-token-abc",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ email: "Original@Example.com" }),
+        })
+      );
+      expect(mockApiJson).toHaveBeenNthCalledWith(
+        2,
+        "/api/account/email-aliases/verification/confirm",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            email: "original@example.com",
+            verification_code: "123456",
+          }),
+        })
+      );
+    });
+  });
 });

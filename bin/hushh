@@ -21,7 +21,9 @@ Core commands:
   terminal <stack|web|backend> [...]
   web [--mode <local|uat|prod>] [-- <next-dev args>]
   backend [--mode local] [--reload|--no-reload]
+  compose <init|up|down|nuke|logs|ps|config|health>
   native <ios|android> [--mode <local|uat|prod>] [--fresh]
+  native mac <build|run|test>
   lint
   test
   ci [--include-advisory]
@@ -36,10 +38,12 @@ Operational commands:
   db verify-release-contract
   db verify-uat-schema
   db report-prod-posture [--json]
+  compose <subcommand>
   protocol <subcommand>
   sync <main|check-main>
 
 Run:
+  ./bin/hushh compose --help
   ./bin/hushh protocol --help
   ./bin/hushh sync --help
   ./bin/hushh codex --help
@@ -85,6 +89,20 @@ Usage:
 EOF
 }
 
+compose_usage() {
+  cat <<'EOF'
+Usage:
+  ./bin/hushh compose init
+  ./bin/hushh compose up [backend|cache|mail|db|dev]
+  ./bin/hushh compose down
+  ./bin/hushh compose nuke
+  ./bin/hushh compose logs [service]
+  ./bin/hushh compose ps
+  ./bin/hushh compose config
+  ./bin/hushh compose health
+EOF
+}
+
 codex_usage() {
   cat <<'EOF'
 Usage:
@@ -96,6 +114,7 @@ Usage:
   ./bin/hushh codex list-workflows [--json|--text] [--verbose]
   ./bin/hushh codex pre-pr [--include-advisory] [--report-path <path>] [--json|--text]
   ./bin/hushh codex ci-status [--pr <number>|--branch <name>] [--watch] [--interval <seconds>] [--timeout <seconds>] [--json|--text]
+  ./bin/hushh codex data-model-audit [--database-url <postgres-url>] [--json|--text]
   ./bin/hushh codex audit [--json|--text]
   ./bin/hushh codex rca --surface <uat|runtime|ci> [--project <gcp-project>] [--region <region>] [--backend-service <name>] [--frontend-service <name>] [--backend-url <url>] [--frontend-url <url>] [--report-path <path>] [--json|--text]
 EOF
@@ -268,10 +287,45 @@ EOF
     -- "${command_args[@]}"
 }
 
+run_native_mac() {
+  local action="${1:-build}"
+  shift || true
+
+  case "$action" in
+    -h|--help)
+      cat <<'EOF'
+Usage:
+  ./bin/hushh native mac <build|run|test>
+
+Subcommands:
+  build   swift build inside apps/one-mac/ (default)
+  run     swift run OneMac inside apps/one-mac/
+  test    swift test inside apps/one-mac/
+EOF
+      exit 0
+      ;;
+    build|run|test) ;;
+    *)
+      die "native mac subcommand must be build, run, or test"
+      ;;
+  esac
+
+  cd "$REPO_ROOT/apps/one-mac"
+  case "$action" in
+    build) exec swift build ;;
+    run)   exec swift run OneMac ;;
+    test)  exec swift test ;;
+  esac
+}
+
 run_native() {
-  [ "$#" -ge 1 ] || die "native requires <ios|android>"
+  [ "$#" -ge 1 ] || die "native requires <ios|android|mac>"
   local platform="$1"
   shift
+  if [ "$platform" = "mac" ]; then
+    run_native_mac "$@"
+    return
+  fi
   local mode="uat"
   local fresh="false"
 
@@ -289,6 +343,7 @@ run_native() {
         cat <<'EOF'
 Usage:
   ./bin/hushh native <ios|android> [--mode <local|uat|prod>] [--fresh]
+  ./bin/hushh native mac <build|run|test>
 EOF
         exit 0
         ;;
@@ -301,7 +356,7 @@ EOF
   case "$platform" in
     ios|android) ;;
     *)
-      die "native platform must be ios or android"
+      die "native platform must be ios, android, or mac"
       ;;
   esac
 
@@ -409,6 +464,14 @@ run_docs() {
   esac
 }
 
+run_compose() {
+  [ "$#" -ge 1 ] || {
+    compose_usage
+    exit 1
+  }
+  exec bash "$REPO_ROOT/scripts/runtime/compose_stack.sh" "$@"
+}
+
 run_codex() {
   [ "$#" -ge 1 ] || {
     codex_usage
@@ -489,6 +552,12 @@ run_codex() {
         exec python3 "$REPO_ROOT/.codex/skills/repo-operations/scripts/ci_monitor.py" "${args[@]}" "$format_flag"
       fi
       exec python3 "$REPO_ROOT/.codex/skills/repo-operations/scripts/ci_monitor.py" "$format_flag"
+      ;;
+    data-model-audit)
+      if [ "${#args[@]}" -gt 0 ]; then
+        exec python3 "$REPO_ROOT/scripts/ops/data_model_audit.py" "${args[@]}" "$format_flag"
+      fi
+      exec python3 "$REPO_ROOT/scripts/ops/data_model_audit.py" "$format_flag"
       ;;
     audit)
       if [ "${#args[@]}" -gt 0 ]; then
@@ -794,6 +863,9 @@ EOF
     ;;
   docs)
     run_docs "$@"
+    ;;
+  compose)
+    run_compose "$@"
     ;;
   env)
     run_env "$@"

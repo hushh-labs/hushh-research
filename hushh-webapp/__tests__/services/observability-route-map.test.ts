@@ -100,6 +100,9 @@ describe("observability route map", () => {
     expect(normalizeApiPathToTemplate("/api/consent/center?actor=ria&view=outgoing")).toBe(
       "/api/consent/center"
     );
+    expect(normalizeApiPathToTemplate("/api/one/kyc/workflows/wf_123/redraft")).toBe(
+      "/api/one/kyc/workflows/{workflow_id}/redraft"
+    );
   });
 
   it("redacts opaque IDs for unknown endpoints", () => {
