@@ -53,9 +53,27 @@ const UNLOCK_WARM_TASK_KIND = "unlock_warm";
 const PASSIVE_TASK_VISIBLE_AFTER_MS = 750;
 const PASSIVE_TASK_AUTO_CLEAR_AFTER_MS = 10_000;
 
+type UnlockWarmCacheKeys = {
+  vaultStatus: string;
+  activeConsents: string;
+  pendingConsents: string;
+  consentAuditLog: string;
+  kaiProfile: string;
+};
+
 function toSymbolsKey(symbols: string[]): string {
   if (!Array.isArray(symbols) || symbols.length === 0) return "default";
   return [...symbols].sort((a, b) => a.localeCompare(b)).join("-");
+}
+
+function buildUnlockWarmCacheKeys(userId: string): UnlockWarmCacheKeys {
+  return {
+    vaultStatus: CACHE_KEYS.VAULT_STATUS(userId),
+    activeConsents: CACHE_KEYS.ACTIVE_CONSENTS(userId),
+    pendingConsents: CACHE_KEYS.PENDING_CONSENTS(userId),
+    consentAuditLog: CACHE_KEYS.CONSENT_AUDIT_LOG(userId),
+    kaiProfile: CACHE_KEYS.KAI_PROFILE(userId),
+  };
 }
 
 function resolveWarmPriority(routePath?: string | null): WarmPriority {
@@ -241,6 +259,7 @@ export class UnlockWarmOrchestrator {
   }): Promise<UnlockWarmResult> {
     const startedAtMs = nowMs();
     const cache = CacheService.getInstance();
+    const cacheKeys = buildUnlockWarmCacheKeys(params.userId);
     const warmPriority = resolveWarmPriority(params.routePath);
     const activePickSource = getKaiActivePickSource(params.userId);
     const shouldHydrateFinancialCacheOnly = warmPriority === "market";
@@ -335,6 +354,7 @@ export class UnlockWarmOrchestrator {
         });
         const hydrated = this.hydrateFinancialCaches({
           cache,
+          cacheKeys,
           userId: params.userId,
           financialDomain: prewarmedFinancialDomain,
         });
@@ -398,7 +418,7 @@ export class UnlockWarmOrchestrator {
       vaultStatusResult.value.ok
     ) {
       const statusData = await vaultStatusResult.value.json();
-      cache.set(CACHE_KEYS.VAULT_STATUS(params.userId), statusData, WARM_CACHE_TTL_MS);
+      cache.set(cacheKeys.vaultStatus, statusData, WARM_CACHE_TTL_MS);
       result.vaultStatusWarmed = true;
     }
 
@@ -410,7 +430,7 @@ export class UnlockWarmOrchestrator {
       consentsResult.value.ok
     ) {
       const consentsData = await consentsResult.value.json();
-      cache.set(CACHE_KEYS.ACTIVE_CONSENTS(params.userId), consentsData.active || [], WARM_CACHE_TTL_MS);
+      cache.set(cacheKeys.activeConsents, consentsData.active || [], WARM_CACHE_TTL_MS);
       result.consentsWarmed = true;
     }
 
@@ -422,7 +442,7 @@ export class UnlockWarmOrchestrator {
       pendingResult.value.ok
     ) {
       const pendingData = (await pendingResult.value.json()).pending || [];
-      cache.set(CACHE_KEYS.PENDING_CONSENTS(params.userId), pendingData, WARM_CACHE_TTL_MS);
+      cache.set(cacheKeys.pendingConsents, pendingData, WARM_CACHE_TTL_MS);
       result.consentsWarmed = true;
     }
 
@@ -435,7 +455,7 @@ export class UnlockWarmOrchestrator {
     ) {
       const data = await auditResult.value.json();
       const auditData = Array.isArray(data) ? data : data?.items ?? data?.history ?? [];
-      cache.set(CACHE_KEYS.CONSENT_AUDIT_LOG(params.userId), auditData, WARM_CACHE_TTL_MS);
+      cache.set(cacheKeys.consentAuditLog, auditData, WARM_CACHE_TTL_MS);
       result.consentsWarmed = true;
     }
 
@@ -447,6 +467,7 @@ export class UnlockWarmOrchestrator {
     ) {
       const hydrated = this.hydrateFinancialCaches({
         cache,
+        cacheKeys,
         userId: params.userId,
         financialDomain: financialDomainResult.value,
       });
@@ -545,6 +566,7 @@ export class UnlockWarmOrchestrator {
 
   private static hydrateFinancialCaches(params: {
     cache: CacheService;
+    cacheKeys: UnlockWarmCacheKeys;
     userId: string;
     financialDomain: Record<string, unknown> | null;
   }): { financialWarmed: boolean; symbols: string[] } {
@@ -571,7 +593,7 @@ export class UnlockWarmOrchestrator {
       typeof profileCandidate === "object" &&
       !Array.isArray(profileCandidate)
     ) {
-      params.cache.set(CACHE_KEYS.KAI_PROFILE(params.userId), profileCandidate, WARM_CACHE_TTL_MS);
+      params.cache.set(params.cacheKeys.kaiProfile, profileCandidate, WARM_CACHE_TTL_MS);
     }
 
     return {
