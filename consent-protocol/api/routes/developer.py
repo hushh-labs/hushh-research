@@ -753,7 +753,18 @@ async def get_user_scopes(
         token=token,
         authorization=authorization,
     )
-
+    consent_service = ConsentDBService()
+    active_grants = await consent_service.get_active_tokens(
+        user_id, agent_id=principal.agent_id
+    )
+    if not active_grants:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "CONSENT_REQUIRED",
+                "message": "No active consent grant exists for this user and developer app.",
+            },
+    )
     available_domains, scopes, scope_entries = await _get_user_scope_snapshot(
         user_id,
         detail=detail,
@@ -781,6 +792,18 @@ async def get_consent_status(
         request=request,
         token=token,
         authorization=authorization,
+    )
+    consent_service = ConsentDBService()
+    active_grants = await consent_service.get_active_tokens(
+        user_id, agent_id=principal.agent_id
+    )
+    if not active_grants:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "CONSENT_REQUIRED",
+                "message": "No active consent grant exists for this user and developer app.",
+            },
     )
     normalized_scope = normalize_scope(scope) if scope else None
 
