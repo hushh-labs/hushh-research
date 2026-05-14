@@ -27,6 +27,88 @@ GH_FIELDS = (
 )
 
 
+HARVEST_CREDITS: dict[int, list[dict[str, str | int]]] = {
+    1013: [
+        {
+            "source_pr": 808,
+            "author": "imsharukhan",
+            "accepted_value": "Top app bar back affordance touch target.",
+        },
+        {
+            "source_pr": 810,
+            "author": "imsharukhan",
+            "accepted_value": "Settings drawer safe-area bottom padding.",
+        },
+        {
+            "source_pr": 809,
+            "author": "imsharukhan",
+            "accepted_value": "RIA status panel responsive grid.",
+        },
+        {
+            "source_pr": 811,
+            "author": "imsharukhan",
+            "accepted_value": "Onboarding carousel accessible labels.",
+        },
+        {
+            "source_pr": 942,
+            "author": "smirthi-dharma",
+            "accepted_value": "Shared UI accessibility regression coverage.",
+        },
+        {
+            "source_pr": 967,
+            "author": "smirthi-dharma",
+            "accepted_value": "Diagnostic observability log redaction helper.",
+        },
+        {
+            "source_pr": 1001,
+            "author": "smirthi-dharma",
+            "accepted_value": "Reachable observability client redaction attach point.",
+        },
+        {
+            "source_pr": 931,
+            "author": "anshul23102",
+            "accepted_value": "Bounded Kai market-data cache growth control.",
+        },
+        {
+            "source_pr": 924,
+            "author": "anshul23102",
+            "accepted_value": "Bounded Kai market-data lock growth control.",
+        },
+        {
+            "source_pr": 1002,
+            "author": "anshul23102",
+            "accepted_value": "Bounded Kai provider cooldown growth control.",
+        },
+        {
+            "source_pr": 943,
+            "author": "suyashkumar102",
+            "accepted_value": "UID-safe Kai chat auth-mismatch logging.",
+        },
+        {
+            "source_pr": 913,
+            "author": "anshul23102",
+            "accepted_value": "Kai chat pagination query bounds.",
+        },
+        {
+            "source_pr": 934,
+            "author": "anshul23102",
+            "accepted_value": "Marketplace public query filter bounds.",
+        },
+        {
+            "source_pr": 926,
+            "author": "anshul23102",
+            "accepted_value": "RIA client query filter bounds.",
+        },
+    ],
+}
+
+HARVEST_SOURCE_INDEX: dict[int, dict[str, str | int]] = {
+    int(source["source_pr"]): {"landing_pr": landing_pr, **source}
+    for landing_pr, sources in HARVEST_CREDITS.items()
+    for source in sources
+}
+
+
 @dataclass(frozen=True)
 class Window:
     label: str
@@ -365,6 +447,18 @@ def _author(pr: dict[str, Any]) -> str:
     return author.get("login") or "unknown"
 
 
+def _harvest_credit(pr_number: int) -> dict[str, str | int] | None:
+    return HARVEST_SOURCE_INDEX.get(pr_number)
+
+
+def _pr_url(number: int) -> str:
+    return f"https://github.com/{DEFAULT_REPO}/pull/{number}"
+
+
+def _pr_link(number: int) -> str:
+    return f"[#{number}]({_pr_url(number)})"
+
+
 def _label_names(pr: dict[str, Any]) -> list[str]:
     return [label.get("name", "") for label in pr.get("labels") or [] if isinstance(label, dict)]
 
@@ -446,6 +540,8 @@ def _lifecycle(pr: dict[str, Any]) -> str:
     curated = CURATED_NOTES.get(int(pr["number"]), {})
     if curated.get("lifecycle"):
         return str(curated["lifecycle"])
+    if _harvest_credit(int(pr["number"])) and not pr.get("mergedAt"):
+        return "harvested_source"
     title = pr.get("title", "").lower()
     comments = _comments_text(pr).lower()
     if pr.get("mergedAt"):
@@ -467,6 +563,12 @@ def _impact_reason(pr: dict[str, Any], vectors: list[str], lifecycle: str) -> st
     curated = CURATED_NOTES.get(int(pr["number"]), {})
     if curated.get("note"):
         return str(curated["note"])
+    harvest = _harvest_credit(int(pr["number"]))
+    if lifecycle == "harvested_source" and harvest:
+        return (
+            f"Harvested into #{harvest['landing_pr']}: "
+            f"{harvest['accepted_value']}"
+        )
     if lifecycle == "revert_correction":
         return "Corrected a prior surface that was no longer aligned with the current architecture."
     if "trust/security" in vectors:
@@ -492,6 +594,7 @@ def _impact_score(pr: dict[str, Any]) -> int:
         "patched_then_merged": 14,
         "revert_correction": 18,
         "merged_then_reverted": -8,
+        "harvested_source": 12,
         "closed_duplicate": 8,
         "closed_drift": 5,
         "changes_requested": 3,
@@ -510,7 +613,7 @@ def _impact_score(pr: dict[str, Any]) -> int:
         score -= 5
     if "buy" in haystack or "not-buy" in haystack or "sell" in haystack:
         score -= 14
-    if "duplicate" in haystack or "superseded" in haystack:
+    if lifecycle != "harvested_source" and ("duplicate" in haystack or "superseded" in haystack):
         score -= 6
     if "ipl" in haystack or "arena" in haystack:
         score -= 18
@@ -524,11 +627,12 @@ def _analysis(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for pr in records:
         vectors = _vectors(pr)
         lifecycle = _lifecycle(pr)
+        harvest = _harvest_credit(int(pr["number"]))
         analyzed.append(
             {
                 "number": int(pr["number"]),
                 "title": pr.get("title", ""),
-                "author": _author(pr),
+                "author": str(harvest["author"]) if harvest else _author(pr),
                 "url": pr.get("url", ""),
                 "createdAt": pr.get("createdAt"),
                 "mergedAt": pr.get("mergedAt"),
@@ -541,6 +645,9 @@ def _analysis(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "additions": int(pr.get("additions") or 0),
                 "deletions": int(pr.get("deletions") or 0),
                 "changedFiles": int(pr.get("changedFiles") or 0),
+                "harvestedInto": int(harvest["landing_pr"]) if harvest else None,
+                "harvestAcceptedValue": str(harvest["accepted_value"]) if harvest else "",
+                "officialGitHubContributorCredit": bool(pr.get("mergedAt")),
             }
         )
     return analyzed
@@ -557,6 +664,7 @@ def _leaderboard(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "resolved": 0,
                 "merged": 0,
                 "patched": 0,
+                "harvested": 0,
                 "closed": 0,
                 "reverted": 0,
                 "top": [],
@@ -566,6 +674,7 @@ def _leaderboard(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         row["resolved"] += 1
         row["merged"] += 1 if item["mergedAt"] else 0
         row["patched"] += 1 if item["lifecycle"] == "patched_then_merged" else 0
+        row["harvested"] += 1 if item["lifecycle"] == "harvested_source" else 0
         row["closed"] += 1 if not item["mergedAt"] else 0
         row["reverted"] += 1 if item["lifecycle"] in {"revert_correction", "merged_then_reverted"} else 0
         row["top"].append(item)
@@ -710,6 +819,7 @@ def _kpis(records: list[dict[str, Any]]) -> dict[str, Any]:
         "median_resolution_days": round(_median(resolution_days), 1),
         "contributors_represented": len({item["author"] for item in records}),
         "patched_then_merged_prs": lifecycle_counts["patched_then_merged"],
+        "harvested_source_prs": lifecycle_counts["harvested_source"],
         "closed_duplicate_or_drift_prs": lifecycle_counts["closed_duplicate"] + lifecycle_counts["closed_drift"],
         "reverted_or_corrected_prs": corrected,
         "governance_intervention_load": _percent(governance_interventions, resolved),
@@ -739,13 +849,13 @@ def _topper_lines(records: list[dict[str, Any]], window: Window, limit: int = 10
     lines = [
         f"- Window: {_window_display(window)}",
         "",
-        "| Rank | Contributor | Impact Score | Resolved | Merged | Patched | Closed | Corrected | Top PRs |",
-        "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Rank | Contributor | Impact Score | Resolved | Merged | Patched | Harvested | Closed | Corrected | Top PRs |",
+        "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for idx, row in enumerate(rows, start=1):
         lines.append(
             f"| {idx} | `{_cell(row['author'])}` | {row['score']} | {row['resolved']} | "
-            f"{row['merged']} | {row['patched']} | {row['closed']} | {row['reverted']} | "
+            f"{row['merged']} | {row['patched']} | {row['harvested']} | {row['closed']} | {row['reverted']} | "
             f"{', '.join(_link(item) for item in row['top'])} |"
         )
     return lines
@@ -796,8 +906,8 @@ def _scoreboard_lines(
         f"- Primary: {_window_display(primary_window)}",
         f"- Overall: {_window_display(overall_window)}",
         "",
-        "| Rank | Contributor | Weekly Score | Primary Score | Overall Score | Primary PRs | Primary Merged | Overall PRs | Overall Merged |",
-        "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Rank | Contributor | Weekly Score | Primary Score | Overall Score | Primary PRs | Primary Merged | Primary Harvested | Overall PRs | Overall Merged | Overall Harvested |",
+        "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for idx, author in enumerate(ranked, start=1):
         lines.append(
@@ -807,8 +917,10 @@ def _scoreboard_lines(
             f"{value(overall, author, 'score')} | "
             f"{value(primary, author, 'resolved')} | "
             f"{value(primary, author, 'merged')} | "
+            f"{value(primary, author, 'harvested')} | "
             f"{value(overall, author, 'resolved')} | "
-            f"{value(overall, author, 'merged')} |"
+            f"{value(overall, author, 'merged')} | "
+            f"{value(overall, author, 'harvested')} |"
         )
     return lines
 
@@ -851,6 +963,7 @@ def _kpi_lines(kpis: dict[str, Any]) -> list[str]:
         "median_resolution_days": "Median PR resolution time (days)",
         "contributors_represented": "Contributors represented",
         "patched_then_merged_prs": "Patched-then-merged PRs",
+        "harvested_source_prs": "Harvested source PRs",
         "closed_duplicate_or_drift_prs": "Closed duplicate/drift PRs",
         "reverted_or_corrected_prs": "Reverted/corrected PRs",
         "governance_intervention_load": "Governance intervention load",
@@ -877,6 +990,7 @@ def _kpi_comparison_lines(primary_kpis: dict[str, Any], overall_kpis: dict[str, 
         ("merge_rate", "Merge rate"),
         ("median_resolution_days", "Median PR resolution time"),
         ("contributors_represented", "Contributors represented"),
+        ("harvested_source_prs", "Harvested source PRs"),
         ("trust_security_prs", "Trust/security PRs"),
         ("consent_vault_prs", "Consent/vault PRs"),
         ("one_kai_nav_alignment_prs", "One/Kai/Nav alignment PRs"),
@@ -993,6 +1107,7 @@ def _lifecycle_mix_lines(records: list[dict[str, Any]]) -> list[str]:
     lifecycle_labels = {
         "merged": "Merged",
         "patched_then_merged": "Patched then merged",
+        "harvested_source": "Harvested source",
         "revert_correction": "Revert correction",
         "merged_then_reverted": "Merged then reverted",
         "closed_duplicate": "Closed duplicate",
@@ -1068,6 +1183,33 @@ def _most_impactful(records: list[dict[str, Any]], limit: int = 10) -> list[str]
     return lines or ["- No resolved PRs in this window."]
 
 
+def _harvest_attribution_lines(records: list[dict[str, Any]]) -> list[str]:
+    harvested = [
+        item for item in records if item.get("lifecycle") == "harvested_source"
+    ]
+    if not harvested:
+        return [
+            "- No maintainer-harvest source credits detected in this window.",
+        ]
+    lines = [
+        "These are internal Hussh impact credits for contributor PRs whose useful value was harvested into a maintainer patch. They do not change GitHub's official contributor graph for already-merged commits.",
+        "",
+        "| Source PR | Contributor | Landing PR | Accepted Value | Official GitHub Commit Credit |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for item in sorted(
+        harvested,
+        key=lambda row: (int(row.get("harvestedInto") or 0), int(row["number"])),
+    ):
+        landing = int(item.get("harvestedInto") or 0)
+        lines.append(
+            f"| {_link(item)} | `{_cell(item['author'])}` | {_pr_link(landing) if landing else 'n/a'} | "
+            f"{_cell(item.get('harvestAcceptedValue') or item['reason'])} | "
+            "No, because the landed commit was not co-authored. |"
+        )
+    return lines
+
+
 def _corrections(records: list[dict[str, Any]], limit: int = 10) -> list[str]:
     corrections = [
         item
@@ -1111,6 +1253,7 @@ def _report_text(
         "",
         "- [Executive Summary](#executive-summary)",
         "- [GitHub Coverage Audit](#github-coverage-audit)",
+        "- [Harvest Attribution](#harvest-attribution)",
         "- [KPI Board](#kpi-board)",
         "- [Visual Insights](#visual-insights)",
         "- [Primary And Overall Scoreboard](#primary-and-overall-scoreboard)",
@@ -1130,12 +1273,18 @@ def _report_text(
         f"- Merged PRs: `{kpis['merged_prs']}`.",
         f"- Merge rate: `{kpis['merge_rate']}` with median PR resolution time `{kpis['median_resolution_days']}` days.",
         f"- Contributors represented: `{kpis['contributors_represented']}`.",
+        f"- Harvested source PRs credited internally: `{kpis['harvested_source_prs']}`.",
         f"- Governance intervention load: `{kpis['governance_intervention_load']}` across duplicate, drift, and revert/correction work.",
-        "- KPI model: combines DORA-style throughput/stability, SPACE-style multidimensional productivity, and Hussh north-star impact. Raw PR count is never the winner by itself.",
+        "- KPI model: combines DORA-style throughput/stability, SPACE-style multidimensional productivity, Hussh north-star impact, and internal maintainer-harvest source credit. Raw PR count is never the winner by itself.",
+        "- GitHub official contributor credit still follows Git commit authorship and valid `Co-authored-by` trailers; comments and PR references are internal/public acknowledgement only.",
         "",
         "## GitHub Coverage Audit",
         "",
         *_github_audit_lines(github_insights, overall_window),
+        "",
+        "## Harvest Attribution",
+        "",
+        *_harvest_attribution_lines(records),
         "",
         "## KPI Board",
         "",
@@ -1218,6 +1367,7 @@ def _json_payload(
         "github_insights": github_insights,
         "kpis": _kpis(records),
         "overall_kpis": _kpis(overall_records),
+        "harvest_credits": HARVEST_CREDITS,
         "leaderboard": _leaderboard(records),
         "weekly_top_10": {
             "window": {
