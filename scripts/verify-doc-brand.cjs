@@ -31,7 +31,7 @@ const targets = [
   "packages/hushh-mcp/bin/hushh-mcp.js",
   "consent-protocol/README.md",
   "consent-protocol/mcp_server.py",
-  "consent-protocol/setup_mcp.py",
+  "setup_mcp.py",
   "consent-protocol/api/routes/developer.py",
   "consent-protocol/api/routes/session.py",
   "consent-protocol/mcp_modules/resources.py",

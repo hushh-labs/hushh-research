@@ -1,15 +1,14 @@
-import urllib.request
-import urllib.parse
 import json
-import time
 import subprocess
 import sys
-import os
+import time
+import urllib.parse
+import urllib.request
 
 CLIENT_ID = "178c6fc778ccc68e1d6a"
 DEVICE_CODE = "3b47a2c51ae5960a3d3d808cb4b1cf5731659ff6"
 
-token_url = "https://github.com/login/oauth/access_token"
+token_url = "https://github.com/login/oauth/access_token"  # noqa: S105
 token_data = urllib.parse.urlencode({
     "client_id": CLIENT_ID,
     "device_code": DEVICE_CODE,
@@ -21,8 +20,8 @@ token = None
 
 for _ in range(60):  # poll for 5 minutes
     try:
-        req = urllib.request.Request(token_url, data=token_data, headers={"Accept": "application/json"})
-        with urllib.request.urlopen(req) as response:
+        req = urllib.request.Request(token_url, data=token_data, headers={"Accept": "application/json"})  # noqa: S310
+        with urllib.request.urlopen(req) as response:  # noqa: S310
             result = json.loads(response.read())
             
         if "access_token" in result:

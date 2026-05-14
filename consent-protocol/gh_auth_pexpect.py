@@ -1,7 +1,8 @@
-import pexpect
-import sys
-import re
 import subprocess
+import sys
+
+import pexpect
+
 
 def main():
     print("Starting GitHub Auth...")

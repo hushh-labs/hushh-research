@@ -1,9 +1,19 @@
-import asyncio
-import re
 import logging
-from datetime import datetime
-from typing import AsyncGenerator, Dict, List, Optional, Any, Set
+import re
 from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, AsyncGenerator, Dict, List, Set
+
+from ...operons.kai.llm import stream_gemini_response
+
+# Restore missing imports
+from .config import AGENT_WEIGHTS, CONSENSUS_THRESHOLD, DEBATE_ROUNDS, DecisionType, RiskProfile
+
+# Specialist types for type hinting
+from .fundamental_agent import FundamentalInsight
+from .sentiment_agent import SentimentInsight
+from .valuation_agent import ValuationInsight
+
 
 # Use a specific exception for orchestration failures
 class DebateError(Exception):
@@ -17,6 +27,24 @@ class AgentInsight:
     agent: str
     round: int
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class DebateRound:
+    """A single round of debate with agent statements."""
+    round_number: int
+    agent_statements: Dict[str, str]
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+
+@dataclass
+class DebateResult:
+    """The final result of a multi-agent debate."""
+    decision: DecisionType
+    confidence: float
+    consensus_reached: bool
+    rounds: List[DebateRound]
+    agent_votes: Dict[str, DecisionType]
+    dissenting_opinions: List[str]
+    final_statement: str
 
 class DebateEngine:
     """
@@ -38,6 +66,139 @@ class DebateEngine:
         self.user_context = kwargs.get("user_context", {})
         self.renaissance_context = kwargs.get("renaissance_context", {})
         self._emitted_tags: Set[str] = set() # Track unique tag IDs to prevent duplicates
+
+    async def orchestrate_debate(
+        self,
+        fundamental_insight: FundamentalInsight,
+        sentiment_insight: SentimentInsight,
+        valuation_insight: ValuationInsight,
+    ) -> DebateResult:
+        """
+        Conduct multi-round debate between agents to reach a consensus.
+        """
+        logger = logging.getLogger(__name__)
+        logger.info(f"[Debate] Starting orchestration for profile: {self.risk_profile}")
+
+        # Round 1: Initial positions
+        round_1 = await self._conduct_round(
+            round_num=1,
+            fundamental=fundamental_insight,
+            sentiment=sentiment_insight,
+            valuation=valuation_insight,
+            context="initial_analysis",
+        )
+        self.rounds.append(round_1)
+
+        # Round 2: Rebuttal / Challenge
+        if DEBATE_ROUNDS >= 2:
+            round_2 = await self._conduct_round(
+                round_num=2,
+                fundamental=fundamental_insight,
+                sentiment=sentiment_insight,
+                valuation=valuation_insight,
+                context="challenge_positions",
+            )
+            self.rounds.append(round_2)
+
+        # Build consensus and return result
+        return await self._build_consensus(
+            fundamental_insight,
+            sentiment_insight,
+            valuation_insight,
+        )
+
+    async def _conduct_round(
+        self,
+        round_num: int,
+        fundamental: FundamentalInsight,
+        sentiment: SentimentInsight,
+        valuation: ValuationInsight,
+        context: str,
+    ) -> DebateRound:
+        """Conduct a single round of debate."""
+        statements = {
+            "fundamental": await self._generate_statement("fundamental", fundamental, round_num, context),
+            "sentiment": await self._generate_statement("sentiment", sentiment, round_num, context),
+            "valuation": await self._generate_statement("valuation", valuation, round_num, context),
+        }
+        return DebateRound(round_number=round_num, agent_statements=statements)
+
+    async def _generate_statement(self, agent: str, insight: Any, round_num: int, context: str) -> str:
+        """Generate statement (Simplified for now, would typically use LLM)."""
+        if hasattr(insight, "summary"):
+            return f"[{agent.upper()} Round {round_num}] {insight.summary}"
+        return f"[{agent.upper()} Round {round_num}] Analysis support: {insight.recommendation}"
+
+    async def _build_consensus(
+        self,
+        fundamental: FundamentalInsight,
+        sentiment: SentimentInsight,
+        valuation: ValuationInsight,
+    ) -> DebateResult:
+        """Aggregate insights and calculate final weighted decision."""
+        agent_votes = {
+            "fundamental": self._recommendation_to_decision(fundamental.recommendation),
+            "sentiment": self._recommendation_to_decision(sentiment.recommendation),
+            "valuation": self._recommendation_to_decision(valuation.recommendation),
+        }
+
+        decision, confidence = self._calculate_weighted_decision(fundamental, sentiment, valuation)
+        
+        unique_votes = set(agent_votes.values())
+        consensus_reached = len(unique_votes) == 1 or confidence >= CONSENSUS_THRESHOLD
+        
+        dissenting_opinions = [
+            f"{k.capitalize()} prefers {v}" for k, v in agent_votes.items() if v != decision
+        ]
+
+        final_statement = f"The committee has reached a {decision.upper()} decision with {confidence:.0%} confidence."
+        if consensus_reached and len(unique_votes) == 1:
+            final_statement = f"The committee reached a UNANIMOUS {decision.upper()} decision."
+
+        return DebateResult(
+            decision=decision,
+            confidence=confidence,
+            consensus_reached=consensus_reached,
+            rounds=self.rounds,
+            agent_votes=agent_votes,
+            dissenting_opinions=dissenting_opinions,
+            final_statement=final_statement,
+        )
+
+    def _recommendation_to_decision(self, rec: str) -> DecisionType:
+        rec = rec.lower()
+        if rec in ["buy", "bullish", "undervalued"]:
+            return "buy"
+        if rec in ["reduce", "bearish", "overvalued"]:
+            return "reduce"
+        return "hold"
+
+    def _calculate_weighted_decision(
+        self, fund: FundamentalInsight, sent: SentimentInsight, val: ValuationInsight
+    ) -> tuple[DecisionType, float]:
+        scores = {
+            "fundamental": self._rec_to_score(fund.recommendation),
+            "sentiment": self._rec_to_score(sent.recommendation),
+            "valuation": self._rec_to_score(val.recommendation),
+        }
+        
+        weighted_score = sum(scores[k] * self.agent_weights[k] for k in scores)
+        weighted_conf = sum(getattr(i, "confidence", 0.7) * self.agent_weights[k] for k, i in 
+                            {"fundamental": fund, "sentiment": sent, "valuation": val}.items())
+
+        if weighted_score > 0.3:
+            return "buy", weighted_conf
+        if weighted_score < -0.3:
+            return "reduce", weighted_conf
+        return "hold", weighted_conf
+
+    def _rec_to_score(self, rec: str) -> float:
+        rec = rec.lower()
+        if rec in ["buy", "bullish", "undervalued"]:
+            return 1.0
+        if rec in ["reduce", "bearish", "overvalued"]:
+            return -1.0
+        return 0.0
 
     async def _stream_agent_turn(self, round_num: int, agent_name: str, prompt: str) -> AsyncGenerator[Dict[str, Any], None]:
         """
@@ -77,8 +238,6 @@ class DebateEngine:
     def _calculate_bayesian_confidence(self, insights: List[Any]) -> float:
         """
         Implements a confidence penalty for high variance between agents.
-        If Valuation says BUY (90%) and Fundamental says SELL (90%), 
-        global confidence should collapse, not average to 90%.
         """
         scores = [self._rec_to_score(i.recommendation) for i in insights]
         avg_conf = sum(i.confidence for i in insights) / len(insights)
@@ -99,8 +258,7 @@ class DebateEngine:
 
     def _context_score_shift(self, scores: Dict[str, float]) -> float:
         """
-        Advanced overlay logic using the 'Kelly Criterion' mindset:
-        Adjust sizing/conviction based on Renaissance mathematical tiering.
+        Advanced overlay logic using the 'Kelly Criterion' mindset.
         """
         shift = 0.0
         ren = self.renaissance_context or {}

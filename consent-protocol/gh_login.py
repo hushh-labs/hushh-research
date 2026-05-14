@@ -1,9 +1,9 @@
-import urllib.request
-import urllib.parse
 import json
-import time
 import subprocess
 import sys
+import time
+import urllib.parse
+import urllib.request
 
 CLIENT_ID = "178c6fc778ccc68e1d6a"  # GitHub CLI client ID
 
@@ -15,7 +15,7 @@ def main():
         headers={"Accept": "application/json", "User-Agent": "Hushh-Consent-Protocol/1.0"}
     )
     
-    with urllib.request.urlopen(req) as response:
+    with urllib.request.urlopen(req) as response:  # noqa: S310
         data = json.loads(response.read())
         
     device_code = data["device_code"]
@@ -27,7 +27,7 @@ def main():
     print(f"Please open {verification_uri} and enter the code.")
     
     # 2. Poll for token
-    token_url = "https://github.com/login/oauth/access_token"
+    token_url = "https://github.com/login/oauth/access_token"  # noqa: S105
     token_data = urllib.parse.urlencode({
         "client_id": CLIENT_ID,
         "device_code": device_code,
@@ -36,8 +36,8 @@ def main():
     
     token = None
     while True:
-        req = urllib.request.Request(token_url, data=token_data, headers={"Accept": "application/json", "User-Agent": "Hushh-Consent-Protocol/1.0"})
-        with urllib.request.urlopen(req) as response:
+        req = urllib.request.Request(token_url, data=token_data, headers={"Accept": "application/json", "User-Agent": "Hushh-Consent-Protocol/1.0"})  # noqa: S310
+        with urllib.request.urlopen(req) as response:  # noqa: S310
             result = json.loads(response.read())
             
         if "access_token" in result:
