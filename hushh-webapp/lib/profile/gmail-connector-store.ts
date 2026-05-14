@@ -420,23 +420,30 @@ async function fetchStatusFromNetwork(params: {
 
   const entry = getOrCreateEntry(normalizedUserId);
   if (isStatusFresh(entry, Boolean(params.force))) {
-    const activeRun = entry.syncRun || entry.status?.latest_run || null;
-    if (
-      params.pollActiveRun !== false &&
-      params.idTokenProvider &&
-      activeRun &&
-      hasActiveRun(activeRun)
-    ) {
-      void pollSyncRun({
-        userId: normalizedUserId,
-        idTokenProvider: params.idTokenProvider,
-        runId: activeRun.run_id,
-        routeHref: params.routeHref,
-        taskKind: deriveConnectorTaskKind(activeRun),
-      });
+  const activeRun = entry.syncRun || entry.status?.latest_run || null;
+
+  if (
+    entry.status &&
+    !entry.status.connected &&
+    !hasActiveRun(activeRun)
+  ) {
+    const staleAgeMs = nowMs() - (entry.statusFetchedAt || 0);
+
+    if (staleAgeMs > ACTIVE_STATUS_TTL_MS) {
+      console.warn(
+  "[gmail-connector-store] Escalating stale connector cache refresh:",
+  {
+    userId: normalizedUserId,
+    staleAgeMs,
+  }
+);
+    } else {
+      return entry.status;
     }
+  } else {
     return entry.status;
   }
+}
 
   updateEntry(normalizedUserId, {
     isRefreshing: true,
