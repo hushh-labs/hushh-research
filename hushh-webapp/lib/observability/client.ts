@@ -1,4 +1,5 @@
 import { Capacitor } from "@capacitor/core";
+import { redactObservabilityPayload } from "@/lib/observability/log-redactor";
 
 import {
   isObservabilityDebugEnabled,
@@ -101,6 +102,9 @@ export function trackEvent<T extends ObservabilityEventName>(
   };
 
   const validation = validateAndSanitizeEvent(eventName, fullPayload);
+  const sanitizedPayload = redactObservabilityPayload(
+  validation.sanitized
+);
   if (!validation.ok) {
     debugLog("payload_sanitized", eventName, validation.droppedKeys);
   }
@@ -113,7 +117,7 @@ export function trackEvent<T extends ObservabilityEventName>(
 
   void Promise.allSettled(
     activeAdapters.map((adapter) =>
-      adapter.track(eventName, validation.sanitized).catch((error) => {
+      adapter.track(eventName, sanitizedPayload).catch((error) => {
         debugLog("adapter_error", adapter.name, eventName, String(error));
       })
     )
