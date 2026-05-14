@@ -76,15 +76,26 @@ if (Test-Command "uv") {
     $MissingTools += "uv"
 }
 
-# Python 3.13
+# Python 3.13 — accept system python, python3.13, or uv-managed install
 $PythonOk = $false
-if (Test-Command "python") {
-    $pyVersion = python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
-    if ($pyVersion -eq "3.13") {
-        Write-Ok "Python $pyVersion found."
+foreach ($PyCmd in @("python", "python3.13", "python3")) {
+    if (Test-Command $PyCmd) {
+        $pyVersion = & $PyCmd -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
+        if ($pyVersion -eq "3.13") {
+            Write-Ok "Python 3.13 found ($PyCmd)."
+            $PythonOk = $true
+            break
+        }
+    }
+}
+# Also accept uv-managed Python 3.13 even if not on system PATH
+if (-not $PythonOk -and (Test-Command "uv")) {
+    $uvPy = uv run --python 3.13 python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
+    if ($uvPy -eq "3.13") {
+        Write-Ok "Python 3.13 found (uv-managed)."
         $PythonOk = $true
     } else {
-        Write-Fail "Python $pyVersion found but 3.13 is required."
+        Write-Fail "Python 3.13 not found (system or uv-managed)."
     }
 }
 if (-not $PythonOk) {
