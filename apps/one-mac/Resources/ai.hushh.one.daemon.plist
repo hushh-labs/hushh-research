@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 Hushh
+SPDX-License-Identifier: Apache-2.0
+
+LaunchAgent plist registered via SMAppService. The GUI app calls
+SMAppService.agent(plistName: "ai.hushh.one.daemon") to register and
+unregister this agent on first launch / on uninstall.
+
+No MachServices key — the daemon serves only on 127.0.0.1:31070 (loopback),
+not via Mach. The MCP server bind-fail-fast asserts loopback only.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.hushh.one.daemon</string>
+    <key>BundleProgram</key>
+    <string>Contents/MacOS/ai.hushh.one.daemon</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardErrorPath</key>
+    <string>/dev/null</string>
+    <key>StandardOutPath</key>
+    <string>/dev/null</string>
+</dict>
+</plist>
