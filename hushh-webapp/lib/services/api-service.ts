@@ -19,7 +19,7 @@
  * - ConsentService → HushhConsent plugin
  * - AuthService → HushhAuth plugin
  */
-
+import { runWithCircuitBreaker } from "@/lib/network/circuit-breaker";
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
 import { HushhVault, HushhAuth, HushhConsent, HushhNotifications } from "@/lib/capacitor";
 import { Kai, PORTFOLIO_STREAM_EVENT, KAI_STREAM_EVENT } from "@/lib/capacitor/kai";
@@ -458,11 +458,24 @@ async function apiFetch(
       return response;
     }
 
+    const response = await runWithCircuitBreaker(
+  "shared-api-service",
+  async () => {
     const response = await fetch(url, {
       ...options,
       credentials: "include",
       headers: mergedHeaders,
     });
+
+    if (!response.ok && response.status >= 500) {
+      throw new Error(
+        `External request failed with status ${response.status}`
+      );
+    }
+
+    return response;
+  }
+);
     if ((response.status === 401 || response.status === 403) && getAuthorizationBearer().startsWith("HCT:")) {
       const failure = await classifyVaultOwnerAuthFailure(response.clone());
       if (failure.shouldLockVault) {
