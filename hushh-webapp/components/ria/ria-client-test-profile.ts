@@ -173,7 +173,10 @@ function testScopeTemplate(): RiaRequestScopeTemplate {
 }
 
 export function getKaiTestUserId() {
-  return sanitizeConfiguredValue(process.env.NEXT_PUBLIC_KAI_TEST_USER_ID);
+  return sanitizeConfiguredValue(
+    process.env.NEXT_PUBLIC_REVIEWER_UID ||
+      process.env.NEXT_PUBLIC_KAI_TEST_USER_ID
+  );
 }
 
 export function canShowKaiTestProfile() {

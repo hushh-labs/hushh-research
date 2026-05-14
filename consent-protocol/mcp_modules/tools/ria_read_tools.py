@@ -8,15 +8,15 @@ from typing import Any
 
 from mcp.types import TextContent
 
-from hushh_mcp.consent.token import validate_token
+from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.ria_iam_service import RIAIAMService
 
 logger = logging.getLogger("hushh-mcp-server")
 
 
-def _authorize_user(user_id: str, consent_token: str) -> tuple[bool, str | None]:
-    valid, reason, payload = validate_token(consent_token, ConsentScope.VAULT_OWNER)
+async def _authorize_user(user_id: str, consent_token: str) -> tuple[bool, str | None]:
+    valid, reason, payload = await validate_token_with_db(consent_token, ConsentScope.VAULT_OWNER)
     if not valid or payload is None:
         return False, reason
     if payload.user_id != user_id:
@@ -66,7 +66,7 @@ async def handle_get_ria_verification_status(args: dict) -> list[TextContent]:
     if not user_id or not consent_token:
         return _ok({"status": "error", "error": "user_id and consent_token are required"})
 
-    allowed, reason = _authorize_user(user_id, consent_token)
+    allowed, reason = await _authorize_user(user_id, consent_token)
     if not allowed:
         return _ok({"status": "forbidden", "reason": reason})
 
@@ -81,7 +81,7 @@ async def handle_get_ria_client_access_summary(args: dict) -> list[TextContent]:
     if not user_id or not consent_token:
         return _ok({"status": "error", "error": "user_id and consent_token are required"})
 
-    allowed, reason = _authorize_user(user_id, consent_token)
+    allowed, reason = await _authorize_user(user_id, consent_token)
     if not allowed:
         return _ok({"status": "forbidden", "reason": reason})
 

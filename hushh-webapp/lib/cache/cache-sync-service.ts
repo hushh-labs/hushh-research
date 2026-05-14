@@ -290,6 +290,7 @@ export class CacheSyncService {
     const cache = CacheService.getInstance();
     const writeThroughMetadata = options?.writeThroughMetadata !== false;
     cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
+    cache.invalidate(CACHE_KEYS.DOMAIN_MANIFEST(userId, domain));
 
     if (domain === "financial") {
       if (options?.portfolioData) {
@@ -351,6 +352,7 @@ export class CacheSyncService {
 
   static onPkmDomainCleared(userId: string, domain: string): void {
     const cache = CacheService.getInstance();
+    cache.invalidate(CACHE_KEYS.DOMAIN_MANIFEST(userId, domain));
     cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, domain));
     cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain));
     cache.invalidate(CACHE_KEYS.PKM_BLOB(userId));

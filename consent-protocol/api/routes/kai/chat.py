@@ -133,8 +133,18 @@ async def get_conversation_history(
 
     **Authentication**: Requires valid VAULT_OWNER token.
     """
-    # Token validated by dependency - user has consent
     service = get_kai_chat_service()
+
+    # Enforce conversation ownership to prevent cross-user history access.
+    conversation = await service.chat_db.get_conversation(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    if conversation.user_id != token_data["user_id"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Conversation does not belong to authenticated user",
+        )
+
     messages = await service.get_conversation_history(conversation_id, limit=limit)
 
     return ConversationHistoryResponse(

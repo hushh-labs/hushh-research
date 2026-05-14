@@ -79,9 +79,41 @@ def test_user_scopes_requires_developer_key(monkeypatch):
     assert detail["error_code"] == "DEVELOPER_TOKEN_REQUIRED"
 
 
-def test_user_scopes_rejects_authorization_header(monkeypatch):
+class _EmptyScopeGenerator:
+    async def get_available_scopes(self, user_id: str) -> list[str]:
+        return []
+
+    async def get_available_scope_entries(self, user_id: str) -> list[dict]:
+        return []
+
+
+class _EmptyIndex:
+    available_domains: list[str] = []
+
+
+class _EmptyPkmService:
+    scope_generator = _EmptyScopeGenerator()
+
+    async def resolve_metadata_index(self, user_id: str):
+        return _EmptyIndex()
+
+
+def test_user_scopes_accepts_authorization_bearer_header(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    captured: dict[str, object] = {}
+
+    def _fake_authenticate_token(self, raw_token, *, ip_address=None, user_agent=None):
+        captured["raw_token"] = raw_token
+        return _fake_principal()
+
+    monkeypatch.setattr(
+        developer.DeveloperRegistryService,
+        "authenticate_token",
+        _fake_authenticate_token,
+    )
+    monkeypatch.setattr(developer, "get_pkm_service", lambda: _EmptyPkmService())
 
     client = TestClient(_build_app())
     response = client.get(
@@ -89,12 +121,185 @@ def test_user_scopes_rejects_authorization_header(monkeypatch):
         headers={"Authorization": "Bearer hdk_demo"},
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 200
+    assert captured["raw_token"] == "hdk_demo"  # noqa: S105
+    assert response.json()["app_id"] == "app_demo_123"
+
+
+def test_user_scopes_invalid_authorization_bearer_returns_403(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    monkeypatch.setattr(
+        developer.DeveloperRegistryService,
+        "authenticate_token",
+        lambda self, *_args, **_kwargs: None,
+    )
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/user-scopes/user_123",
+        headers={"Authorization": "Bearer not-a-real-token"},
+    )
+
+    assert response.status_code == 403
     detail = response.json()["detail"]
-    assert detail["error_code"] == "DEVELOPER_TOKEN_QUERY_REQUIRED"
+    assert detail["error_code"] == "DEVELOPER_TOKEN_INVALID"
+
+
+def test_user_scopes_authorization_bearer_takes_precedence_over_query(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    captured: dict[str, object] = {}
+
+    def _fake_authenticate_token(self, raw_token, *, ip_address=None, user_agent=None):
+        captured["raw_token"] = raw_token
+        return _fake_principal()
+
+    monkeypatch.setattr(
+        developer.DeveloperRegistryService,
+        "authenticate_token",
+        _fake_authenticate_token,
+    )
+    monkeypatch.setattr(developer, "get_pkm_service", lambda: _EmptyPkmService())
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/user-scopes/user_123?token=from_query",
+        headers={"Authorization": "Bearer from_header"},
+    )
+
+    assert response.status_code == 200
+    assert captured["raw_token"] == "from_header"  # noqa: S105
+
+
+def test_user_scopes_query_token_logs_url_leak_warning(monkeypatch, caplog):
+    import logging as _logging
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    monkeypatch.setattr(
+        developer.DeveloperRegistryService,
+        "authenticate_token",
+        lambda self, *_args, **_kwargs: _fake_principal(),
+    )
+    monkeypatch.setattr(developer, "get_pkm_service", lambda: _EmptyPkmService())
+
+    client = TestClient(_build_app())
+    with caplog.at_level(_logging.WARNING, logger="api.developer_auth"):
+        response = client.get("/api/v1/user-scopes/user_123?token=hdk_demo")
+
+    assert response.status_code == 200
+    assert any(
+        getattr(rec, "event_type", "") == "developer_token_query_param_use"
+        or "Authorization: Bearer" in rec.getMessage()
+        for rec in caplog.records
+    )
 
 
 def test_user_scopes_returns_discovered_domains(monkeypatch):
+    class _FakeScopeGenerator:
+        async def get_available_scopes(self, user_id: str) -> list[str]:
+            assert user_id == "user_123"
+            return [
+                "attr.financial.*",
+                "attr.financial.profile.*",
+                "attr.financial.profile.risk_tolerance",
+                "pkm.read",
+            ]
+
+        async def get_available_scope_entries(self, user_id: str) -> list[dict]:
+            assert user_id == "user_123"
+            return [
+                {
+                    "scope": "attr.financial.*",
+                    "domain": "financial",
+                    "path": None,
+                    "wildcard": True,
+                    "source_kind": "pkm_index",
+                    "registry_handle": None,
+                    "label": "Financial Domain",
+                    "exposure_eligibility": True,
+                    "manifest_revision": 2,
+                    "meta_reference": "domain wildcard derived from discovered PKM domains",
+                },
+                {
+                    "scope": "attr.financial.profile.*",
+                    "domain": "financial",
+                    "path": "profile",
+                    "wildcard": True,
+                    "source_kind": "pkm_manifests.top_level_scope_paths",
+                    "registry_handle": "s_financial_profile",
+                    "label": "Profile",
+                    "exposure_eligibility": True,
+                    "manifest_revision": 2,
+                    "meta_reference": "manifest top-level scope path",
+                },
+                {
+                    "scope": "attr.financial.schema_version.*",
+                    "domain": "financial",
+                    "path": "schema_version",
+                    "wildcard": True,
+                    "source_kind": "pkm_manifests.top_level_scope_paths",
+                    "registry_handle": "s_financial_schema_version",
+                    "label": "Schema Version",
+                    "exposure_eligibility": True,
+                    "manifest_revision": 2,
+                    "meta_reference": "manifest top-level scope path",
+                    "consumer_visible": False,
+                    "internal_only": True,
+                    "visibility_reason": "structural_top_level_path",
+                },
+                {
+                    "scope": "attr.financial.profile.risk_tolerance",
+                    "domain": "financial",
+                    "path": "profile.risk_tolerance",
+                    "wildcard": False,
+                    "source_kind": "pkm_manifest_paths",
+                    "registry_handle": "s_financial_profile",
+                    "label": "Risk Tolerance",
+                    "exposure_eligibility": True,
+                    "manifest_revision": 2,
+                    "meta_reference": "manifest path row marked exposure eligible",
+                },
+            ]
+
+    class _FakeIndex:
+        available_domains = ["financial"]
+
+    class _FakePkmService:
+        scope_generator = _FakeScopeGenerator()
+
+        async def resolve_metadata_index(self, user_id: str):
+            assert user_id == "user_123"
+            return _FakeIndex()
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/user-scopes/user_123?token=hdk_demo",
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["available_domains"] == ["financial"]
+    assert "attr.financial.*" in payload["scopes"]
+    assert payload["scope_entries"][0]["source_kind"] == "pkm_index"
+    assert payload["scope_entries"][1]["meta_reference"] == "manifest top-level scope path"
+    assert len(payload["scope_entries"]) == 2
+    assert all(entry["path"] != "schema_version" for entry in payload["scope_entries"])
+    assert payload["app_display_name"] == "Demo App"
+
+
+def test_user_scopes_verbose_returns_path_level_entries(monkeypatch):
     class _FakeScopeGenerator:
         async def get_available_scopes(self, user_id: str) -> list[str]:
             assert user_id == "user_123"
@@ -152,7 +357,7 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
     class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
 
-        async def get_index_v2(self, user_id: str):
+        async def resolve_metadata_index(self, user_id: str):
             assert user_id == "user_123"
             return _FakeIndex()
 
@@ -165,17 +370,14 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
 
     client = TestClient(_build_app())
     response = client.get(
-        "/api/v1/user-scopes/user_123?token=hdk_demo",
+        "/api/v1/user-scopes/user_123?token=hdk_demo&detail=verbose",
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["available_domains"] == ["financial"]
-    assert "attr.financial.*" in payload["scopes"]
-    assert payload["scope_entries"][0]["source_kind"] == "pkm_index"
-    assert payload["scope_entries"][1]["meta_reference"] == "manifest top-level scope path"
     assert payload["scope_entries"][2]["path"] == "profile.risk_tolerance"
-    assert payload["app_display_name"] == "Demo App"
+    assert "attr.financial.profile.risk_tolerance" in payload["scopes"]
 
 
 def test_tool_catalog_filters_to_public_beta_defaults(monkeypatch):
@@ -194,9 +396,15 @@ def test_tool_catalog_filters_to_public_beta_defaults(monkeypatch):
     assert "list_ria_profiles" not in tool_names
 
 
-def test_tool_catalog_rejects_authorization_header(monkeypatch):
+def test_tool_catalog_accepts_authorization_bearer_header(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    monkeypatch.setattr(
+        developer.DeveloperRegistryService,
+        "authenticate_token",
+        lambda self, *_args, **_kwargs: _fake_principal(),
+    )
 
     client = TestClient(_build_app())
     response = client.get(
@@ -204,9 +412,7 @@ def test_tool_catalog_rejects_authorization_header(monkeypatch):
         headers={"Authorization": "Bearer hdk_demo"},
     )
 
-    assert response.status_code == 400
-    detail = response.json()["detail"]
-    assert detail["error_code"] == "DEVELOPER_TOKEN_QUERY_REQUIRED"
+    assert response.status_code == 200
 
 
 def test_request_consent_creates_pending_request(monkeypatch):
@@ -223,7 +429,7 @@ def test_request_consent_creates_pending_request(monkeypatch):
     class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
 
-        async def get_index_v2(self, user_id: str):
+        async def resolve_metadata_index(self, user_id: str):
             assert user_id == "user_123"
             return _FakeIndex()
 
@@ -336,7 +542,7 @@ def test_request_consent_reuses_covering_active_token(monkeypatch):
     class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
 
-        async def get_index_v2(self, user_id: str):
+        async def resolve_metadata_index(self, user_id: str):
             assert user_id == "user_123"
             return _FakeIndex()
 
@@ -428,7 +634,7 @@ def test_request_consent_reuses_exact_pending_request(monkeypatch):
     class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
 
-        async def get_index_v2(self, user_id: str):
+        async def resolve_metadata_index(self, user_id: str):
             assert user_id == "user_123"
             return _FakeIndex()
 
@@ -489,7 +695,7 @@ def test_request_consent_reuses_exact_pending_request(monkeypatch):
     payload = response.json()
     assert payload["status"] == "pending"
     assert payload["request_id"] == "req_pending_existing"
-    assert payload["message"] == "Consent request already pending in the Hushh app."
+    assert payload["message"] == "Consent request already pending in the Hussh app."
 
 
 def test_request_consent_marks_scope_upgrade_metadata(monkeypatch):
@@ -510,7 +716,7 @@ def test_request_consent_marks_scope_upgrade_metadata(monkeypatch):
     class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
 
-        async def get_index_v2(self, user_id: str):
+        async def resolve_metadata_index(self, user_id: str):
             assert user_id == "user_123"
             return _FakeIndex()
 
@@ -793,7 +999,7 @@ def test_request_consent_rejects_legacy_scope_alias(monkeypatch):
     class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
 
-        async def get_index_v2(self, user_id: str):
+        async def resolve_metadata_index(self, user_id: str):
             assert user_id == "user_123"
             return _FakeIndex()
 

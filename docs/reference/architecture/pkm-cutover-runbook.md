@@ -42,7 +42,7 @@ This is the bounded runbook for cutting Kai from legacy encrypted storage to the
 
 ## Local/UAT drill user
 
-- `KAI_TEST_USER_ID=s3xmA4lNSAQFrIaOytnSGAOzXlL2`
+- `REVIEWER_UID=s3xmA4lNSAQFrIaOytnSGAOzXlL2`
 - passphrase is stored only in ignored local/UAT env files and secret storage
 - never commit the real passphrase into tracked examples or production env
 

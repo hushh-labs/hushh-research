@@ -18,6 +18,11 @@ flowchart TD
   root --> fcm
 ```
 
+This backend docs home uses the same founder-language matrix as root `docs/`, while keeping implementation labels explicit for routes, tokens, tables, and package surfaces.
+
+- Terminology contract: [../../../docs/reference/architecture/founder-language-matrix.md](../../../docs/reference/architecture/founder-language-matrix.md)
+- Brand contract: [../../../docs/reference/operations/brand-and-compatibility-contract.md](../../../docs/reference/operations/brand-and-compatibility-contract.md)
+
 ## Reference Documents
 
 - [agent-development.md](./agent-development.md): agent, tool, operon, and service development model

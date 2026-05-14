@@ -27,7 +27,7 @@ describe("voice-ui-state-machine", () => {
   });
 
   it("lists available transitions", () => {
-    expect(getAllowedVoiceUiTransitions("sheet_paused")).toEqual(
+    expect(getAllowedVoiceUiTransitions("sheet_muted")).toEqual(
       expect.arrayContaining(["sheet_listening", "sheet_submitting", "idle"])
     );
   });

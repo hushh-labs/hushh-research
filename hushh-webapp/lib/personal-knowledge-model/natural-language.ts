@@ -151,11 +151,11 @@ function deriveFallbackSummary(domain: DomainSummary, sections: string[]): strin
     ).toLowerCase()}.`;
   }
   if (domain.attributeCount > 0) {
-    return `Kai has ${domain.attributeCount} saved ${domain.displayName.toLowerCase()} detail${
+    return `Your ${domain.displayName.toLowerCase()} profile has ${domain.attributeCount} saved detail${
       domain.attributeCount === 1 ? "" : "s"
     } ready for you to review.`;
   }
-  return `Kai has a saved ${domain.displayName.toLowerCase()} profile ready for you to review.`;
+  return `Your ${domain.displayName.toLowerCase()} profile is ready for you to review.`;
 }
 
 function deriveFallbackHighlights(domain: DomainSummary, sections: string[]): string[] {
@@ -164,11 +164,6 @@ function deriveFallbackHighlights(domain: DomainSummary, sections: string[]): st
       ? `${domain.attributeCount} saved detail${domain.attributeCount === 1 ? "" : "s"}`
       : null,
     sections.length > 0 ? `Organized into ${formatList(sections.slice(0, 3))}` : null,
-    typeof domain.summary?.externalizable_path_count === "number"
-      ? `${domain.summary.externalizable_path_count} consent-ready branches`
-      : typeof domain.summary?.externalizable_path_count === "string"
-        ? `${domain.summary.externalizable_path_count} consent-ready branches`
-        : null,
     clampText(
       typeof domain.summary?.message_excerpt === "string"
         ? `Latest note: ${domain.summary.message_excerpt}`
