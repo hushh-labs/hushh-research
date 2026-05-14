@@ -18,6 +18,7 @@ import type {
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { PkmUpgradeService } from "@/lib/services/pkm-upgrade-service";
+import { resolveVaultCapabilityState } from "@/lib/vault/vault-access-policy";
 
 const MAX_CONFLICT_RETRIES = 2;
 
@@ -239,10 +240,18 @@ export class PkmWriteCoordinator {
     vaultOwnerToken?: string | null;
     build: (context: BaseContext) => Promise<MergedWritePlan> | MergedWritePlan;
   }): Promise<PkmWriteCoordinatorResult> {
-    if (!params.vaultKey || !params.vaultOwnerToken) {
+    const vaultCapability = resolveVaultCapabilityState({
+      isVaultUnlocked: true,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+    });
+    if (!vaultCapability.canMutateSecureData) {
       return emptyResult("blocked_pending_unlock", "Unlock your vault before saving.");
     }
 
+    const vaultKey = typeof params.vaultKey === "string" ? params.vaultKey.trim() : "";
+    const vaultOwnerToken =
+      typeof params.vaultOwnerToken === "string" ? params.vaultOwnerToken.trim() : "";
     let upgradedInSession = false;
     let retryingAfterConflict = false;
     let upgradeContext: PkmUpgradeContext | undefined;
@@ -252,8 +261,8 @@ export class PkmWriteCoordinator {
         const upgrade = await ensureWritableVersion({
           userId: params.userId,
           domain: params.domain,
-          vaultKey: params.vaultKey,
-          vaultOwnerToken: params.vaultOwnerToken,
+          vaultKey,
+          vaultOwnerToken,
         });
         upgradedInSession = upgrade.upgraded;
         upgradeContext = upgrade.upgradeContext;
@@ -262,8 +271,8 @@ export class PkmWriteCoordinator {
       const context = await buildWriteContext({
         userId: params.userId,
         domain: params.domain,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
+        vaultKey,
+        vaultOwnerToken,
         attempt,
         upgradedInSession,
         upgradeContext,
@@ -279,8 +288,8 @@ export class PkmWriteCoordinator {
       });
       const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
         userId: params.userId,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
+        vaultKey,
+        vaultOwnerToken,
         domain: params.domain,
         domainData: plan.domainData,
         summary: plan.summary,
@@ -338,10 +347,18 @@ export class PkmWriteCoordinator {
     vaultOwnerToken?: string | null;
     build: (context: BaseContext) => Promise<PreparedWritePlan> | PreparedWritePlan;
   }): Promise<PkmWriteCoordinatorResult> {
-    if (!params.vaultKey || !params.vaultOwnerToken) {
+    const vaultCapability = resolveVaultCapabilityState({
+      isVaultUnlocked: true,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+    });
+    if (!vaultCapability.canMutateSecureData) {
       return emptyResult("blocked_pending_unlock", "Unlock your vault before saving.");
     }
 
+    const vaultKey = typeof params.vaultKey === "string" ? params.vaultKey.trim() : "";
+    const vaultOwnerToken =
+      typeof params.vaultOwnerToken === "string" ? params.vaultOwnerToken.trim() : "";
     let upgradedInSession = false;
     let retryingAfterConflict = false;
     let upgradeContext: PkmUpgradeContext | undefined;
@@ -351,8 +368,8 @@ export class PkmWriteCoordinator {
         const upgrade = await ensureWritableVersion({
           userId: params.userId,
           domain: params.domain,
-          vaultKey: params.vaultKey,
-          vaultOwnerToken: params.vaultOwnerToken,
+          vaultKey,
+          vaultOwnerToken,
         });
         upgradedInSession = upgrade.upgraded;
         upgradeContext = upgrade.upgradeContext;
@@ -361,8 +378,8 @@ export class PkmWriteCoordinator {
       const context = await buildWriteContext({
         userId: params.userId,
         domain: params.domain,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
+        vaultKey,
+        vaultOwnerToken,
         attempt,
         upgradedInSession,
         upgradeContext,
@@ -378,8 +395,8 @@ export class PkmWriteCoordinator {
       });
       const result = await PersonalKnowledgeModelService.storePreparedDomainWithPreparedBlob({
         userId: params.userId,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
+        vaultKey,
+        vaultOwnerToken,
         domain: params.domain,
         domainData: plan.domainData,
         summary: plan.summary,

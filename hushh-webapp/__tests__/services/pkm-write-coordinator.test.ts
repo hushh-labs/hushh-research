@@ -25,6 +25,7 @@ const pkmGetMetadataMock = vi.fn();
 const pkmGetDomainManifestMock = vi.fn();
 const pkmGetDomainDataMock = vi.fn();
 const pkmStoreMergedDomainWithPreparedBlobMock = vi.fn();
+const pkmStorePreparedDomainWithPreparedBlobMock = vi.fn();
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: {
     getMetadata: (...a: unknown[]) => pkmGetMetadataMock(...a),
@@ -32,6 +33,8 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
     getDomainData: (...a: unknown[]) => pkmGetDomainDataMock(...a),
     storeMergedDomainWithPreparedBlob: (...a: unknown[]) =>
       pkmStoreMergedDomainWithPreparedBlobMock(...a),
+    storePreparedDomainWithPreparedBlob: (...a: unknown[]) =>
+      pkmStorePreparedDomainWithPreparedBlobMock(...a),
     emptyMetadata: vi.fn(() => ({ domains: [], upgradableDomains: [] })),
     loadDomainData: vi.fn(),
   },
@@ -145,6 +148,36 @@ describe("PkmWriteCoordinator", () => {
 
       expect(result.saveState).toBe("blocked_pending_unlock");
       expect(result.success).toBe(false);
+    });
+
+    it("blocks merged PKM writes when partial vault initialization leaves a blank key", async () => {
+      const result = await PkmWriteCoordinator.saveMergedDomain({
+        ...BASE_PARAMS,
+        vaultKey: "   ",
+        build: BUILD_CALLBACK,
+      });
+
+      expect(result.saveState).toBe("blocked_pending_unlock");
+      expect(result.success).toBe(false);
+      expect(BUILD_CALLBACK).not.toHaveBeenCalled();
+      expect(pkmGetMetadataMock).not.toHaveBeenCalled();
+      expect(prepareDomainWriteContextMock).not.toHaveBeenCalled();
+      expect(pkmStoreMergedDomainWithPreparedBlobMock).not.toHaveBeenCalled();
+    });
+
+    it("blocks prepared PKM writes when partial vault initialization leaves a blank owner token", async () => {
+      const result = await PkmWriteCoordinator.savePreparedDomain({
+        ...BASE_PARAMS,
+        vaultOwnerToken: "   ",
+        build: BUILD_CALLBACK,
+      });
+
+      expect(result.saveState).toBe("blocked_pending_unlock");
+      expect(result.success).toBe(false);
+      expect(BUILD_CALLBACK).not.toHaveBeenCalled();
+      expect(pkmGetMetadataMock).not.toHaveBeenCalled();
+      expect(prepareDomainWriteContextMock).not.toHaveBeenCalled();
+      expect(pkmStorePreparedDomainWithPreparedBlobMock).not.toHaveBeenCalled();
     });
   });
 
