@@ -140,19 +140,28 @@ export async function exportKeyToHex(key: CryptoKey): Promise<string> {
 }
 
 /**
- * Generate recovery key (HRK-XXXX-XXXX-XXXX-XXXX format)
+ * Generate a 128-bit recovery key.
+ *
+ * Format: HRK-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX
+ *   (8 groups of 4 uppercase hex chars = 32 hex chars = 16 bytes = 128 bits)
+ *
+ * Encodes the FULL 128 bits of randomness from `crypto.getRandomValues`.
+ * Used as the PBKDF2 password input by `wrapVaultKey` / `unwrapVaultKey`,
+ * so its entropy directly bounds the offline brute-force resistance of
+ * every wrapped vault key blob.
+ *
+ * Exported so callers (e.g., a future "rotate recovery key" flow) can
+ * reuse the canonical generator instead of forking it.
  */
-function generateRecoveryKey(): string {
+export function generateRecoveryKey(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   const hex = Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-  // Format: HRK-XXXX-XXXX-XXXX-XXXX
-  return `HRK-${hex.slice(0, 4).toUpperCase()}-${hex
-    .slice(4, 8)
-    .toUpperCase()}-${hex.slice(8, 12).toUpperCase()}-${hex
-    .slice(12, 16)
-    .toUpperCase()}`;
+    .join("")
+    .toUpperCase(); // 32 hex chars = 16 bytes = 128 bits
+  // Split into 8 groups of 4 chars; HRK- prefix is the human-readable tag.
+  const groups = hex.match(/.{4}/g) ?? [];
+  return `HRK-${groups.join("-")}`;
 }
 
 /**

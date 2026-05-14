@@ -8,6 +8,7 @@
  */
 
 import { WebPlugin } from "@capacitor/core";
+import { validateVaultKeyHex } from "@/lib/vault/encrypt";
 import type {
   EncryptDataOptions,
   EncryptedPayload,
@@ -30,6 +31,44 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+const HEX_PATTERN = /^[0-9a-fA-F]*$/;
+
+/**
+ * Parse a hex string into a Uint8Array, rejecting malformed input.
+ *
+ * Closes the same all-zero-coercion bug pattern fixed in `lib/vault/encrypt.ts`:
+ * `parseInt("zz", 16)` returns NaN, and `new Uint8Array([NaN, ...])` silently
+ * coerces NaN to 0 — meaning malformed hex inputs were producing zero-byte
+ * outputs (zero PBKDF2 salts, zero AES keys) instead of throwing.
+ */
+function parseHexString(hex: unknown, contextLabel: string): Uint8Array {
+  if (typeof hex !== "string") {
+    throw new TypeError(
+      `${contextLabel} must be a string, got ${
+        hex === null ? "null" : typeof hex
+      }`
+    );
+  }
+  if (hex.length === 0) {
+    throw new RangeError(`${contextLabel} cannot be empty`);
+  }
+  if (hex.length % 2 !== 0) {
+    throw new RangeError(
+      `${contextLabel} must have an even number of hex characters; got length ${hex.length}`
+    );
+  }
+  if (!HEX_PATTERN.test(hex)) {
+    throw new RangeError(
+      `${contextLabel} must contain only hexadecimal characters (0-9, a-f, A-F)`
+    );
+  }
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
+  }
+  return bytes;
+}
+
 export class HushhVaultWeb extends WebPlugin {
   /**
    * Derive key using PBKDF2 - matches consent-protocol key derivation
@@ -46,9 +85,7 @@ export class HushhVaultWeb extends WebPlugin {
     // Generate or use provided salt
     let saltBytes: Uint8Array;
     if (options.salt) {
-      saltBytes = new Uint8Array(
-        options.salt.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
-      );
+      saltBytes = parseHexString(options.salt, "PBKDF2 salt");
     } else {
       saltBytes = crypto.getRandomValues(new Uint8Array(16));
     }
@@ -96,6 +133,7 @@ export class HushhVaultWeb extends WebPlugin {
    * Ensures parity between web and native implementations.
    */
   async encryptData(options: EncryptDataOptions): Promise<EncryptedPayload> {
+    validateVaultKeyHex(options.keyHex);
     const keyBytes = new Uint8Array(
       options.keyHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
     );
@@ -138,6 +176,7 @@ export class HushhVaultWeb extends WebPlugin {
    * This is equivalent to decryptData() in lib/vault/encrypt.ts
    */
   async decryptData(options: DecryptDataOptions): Promise<DecryptDataResult> {
+    validateVaultKeyHex(options.keyHex);
     const keyBytes = new Uint8Array(
       options.keyHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
     );
