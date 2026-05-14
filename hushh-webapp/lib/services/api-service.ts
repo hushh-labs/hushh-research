@@ -961,6 +961,27 @@ export interface KaiDashboardProfilePicksResponse {
   context?: Record<string, unknown>;
 }
 
+export interface AccountIdentity {
+  user_id?: string;
+  display_name?: string | null;
+  email?: string | null;
+  phone_number?: string | null;
+  photo_url?: string | null;
+  email_verified?: boolean;
+  phone_verified?: boolean;
+  source?: string | null;
+  last_synced_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface AccountPhoneClaimResponse {
+  success: boolean;
+  user_id: string;
+  identity: AccountIdentity | null;
+  phone_verified: boolean;
+}
+
 /**
  * API Service for platform-aware API calls
  */
@@ -1364,6 +1385,49 @@ export class ApiService {
         Authorization: `Bearer ${firebaseIdToken}`,
       },
     });
+  }
+
+  static async claimAccountPhone(
+    phoneIdToken: string,
+    idToken?: string
+  ): Promise<AccountPhoneClaimResponse> {
+    const normalizedPhoneIdToken = String(phoneIdToken || "").trim();
+    if (!normalizedPhoneIdToken) {
+      throw new Error("Missing phone verification token");
+    }
+
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      throw new Error("Missing Firebase ID token");
+    }
+
+    const response = await apiFetch("/api/account/phone/claim", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firebaseIdToken}`,
+      },
+      body: JSON.stringify({
+        phone_id_token: normalizedPhoneIdToken,
+      }),
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      const detail = payload.detail;
+      const message =
+        typeof detail === "object" &&
+        detail !== null &&
+        typeof (detail as Record<string, unknown>).message === "string"
+          ? String((detail as Record<string, unknown>).message)
+          : typeof detail === "string"
+            ? detail
+            : typeof payload.error === "string"
+              ? payload.error
+              : `Phone claim failed with HTTP ${response.status}`;
+      throw new Error(message);
+    }
+
+    return payload as unknown as AccountPhoneClaimResponse;
   }
 
   /**

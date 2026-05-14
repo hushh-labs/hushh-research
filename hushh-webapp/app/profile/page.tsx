@@ -3011,13 +3011,13 @@ function ProfilePageContent() {
               />
               <SettingsRow
                 icon={ClipboardCheck}
-                title="KYC agent"
+                title="One KYC"
                 description={
                   vaultAccess.needsVaultCreation
                     ? "Create your vault first."
                     : vaultAccess.needsUnlock
-                      ? "Unlock to review KYC requests."
-                      : "Broker requests and draft replies."
+                      ? "Unlock to review broker requests."
+                      : "Broker requests and approval drafts."
                 }
                 trailing={<Badge variant="secondary">Preview</Badge>}
                 chevron={!vaultAccess.needsVaultCreation}
