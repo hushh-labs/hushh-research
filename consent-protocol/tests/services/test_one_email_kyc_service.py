@@ -642,6 +642,54 @@ async def test_process_message_prefers_verified_recipient_identity_over_sender_i
 
 
 @pytest.mark.asyncio
+async def test_process_message_matches_dynamic_available_scope_for_email_helper_request():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+
+    async def available_entries(user_id: str):
+        assert user_id == "user_123"
+        return [
+            {
+                "scope": "attr.travel.*",
+                "domain": "travel",
+                "path": None,
+                "wildcard": True,
+                "label": "Travel Preferences",
+                "consumer_visible": True,
+                "internal_only": False,
+            }
+        ]
+
+    service._available_one_email_scope_entries = available_entries  # type: ignore[method-assign]
+
+    result = await service._process_message(
+        _message(
+            subject="Test",
+            body="Hey One, can you get my favourite locations and create a draft here.",
+        ),
+        history_id="101dynamic",
+    )
+
+    workflow = result["workflow"]
+    assert workflow["status"] == "needs_scope"
+    assert workflow["requested_scope"] == "attr.travel.*"
+    assert workflow["metadata"]["classification"] == "dynamic_disclosure"
+    assert workflow["metadata"]["dynamic_scope_detection"] is True
+    assert workflow["required_fields"] == ["favorite_locations"]
+    assert [item["scope"] for item in workflow["metadata"]["candidate_scopes"]] == ["attr.travel.*"]
+
+    selected = await service.select_scopes(
+        user_id="user_123",
+        workflow_id=workflow["workflow_id"],
+        selected_scopes=["attr.travel.*"],
+    )
+
+    assert selected["requested_scopes"] == ["attr.travel.*"]
+    assert consent_db.events[0]["scope"] == "attr.travel.*"
+
+
+@pytest.mark.asyncio
 async def test_select_scopes_creates_bundled_multi_scope_consent_requests():
     db = _FakeDb()
     consent_db = _FakeConsentDb()
