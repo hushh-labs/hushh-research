@@ -25,9 +25,25 @@ export const ROUTE_ID_VALUES = [
   "kai_analysis",
   "kai_optimize",
   "kai_dashboard_legacy_redirect",
+  
+  // -- Recently added by other devs --
+  "kai_alpaca_oauth_return",
+  "kai_plaid_oauth_return",
+  "marketplace_connections",
+  "marketplace_connection_portfolio",
+  "portfolio_shared",
+  "profile_gmail_oauth_return",
+  "profile_pkm",
+  "profile_pkm_agent_lab",
+  "profile_receipts",
+  "phone_mandate",
+  "ria_picks",
+
+  // -- Our Additions --
   "developer_settings",
   "billing_payment_methods",
   "one_kyc",
+  
   "unknown",
 ] as const;
 
@@ -69,6 +85,20 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.KAI_ANALYSIS) return "kai_analysis";
   if (pathname === ROUTES.KAI_OPTIMIZE) return "kai_optimize";
   
+  // -- Restored team routes --
+  if (pathname === "/kai/alpaca/oauth/return") return "kai_alpaca_oauth_return";
+  if (pathname === "/kai/plaid/oauth/return") return "kai_plaid_oauth_return";
+  if (pathname === "/marketplace/connections") return "marketplace_connections";
+  if (pathname === "/marketplace/connections/portfolio") return "marketplace_connection_portfolio";
+  if (pathname === "/portfolio/shared") return "portfolio_shared";
+  if (pathname === "/profile/gmail/oauth/return") return "profile_gmail_oauth_return";
+  if (pathname === "/profile/pkm") return "profile_pkm";
+  if (pathname === "/profile/pkm-agent-lab") return "profile_pkm_agent_lab";
+  if (pathname === "/profile/receipts") return "profile_receipts";
+  if (pathname === "/register-phone") return "phone_mandate";
+  if (pathname === "/ria/picks") return "ria_picks";
+
+  // -- Our route proofs --
   if (pathname === "/developer-settings") return "developer_settings";
   if (pathname === "/billing/payment-methods") return "billing_payment_methods";
   if (pathname === "/one/kyc") return "one_kyc";
@@ -86,6 +116,10 @@ export function resolveRouteId(pathname: string): RouteId {
 }
 
 const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
+  // Restored KYC API Rule
+  { regex: /^\/api\/one\/kyc\/workflows\/[^/?]+\/redraft(?:\?.*)?$/i, template: "/api/one/kyc/workflows/{workflow_id}/redraft" },
+  { regex: /^\/api\/one\/kyc\/workflows\/[^/?]+(?:\?.*)?$/i, template: "/api/one/kyc/workflows/{workflow_id}" },
+
   { regex: /^\/api\/vault\/check(?:\?.*)?$/i, template: "/db/vault/check" },
   { regex: /^\/api\/vault\/get(?:\?.*)?$/i, template: "/db/vault/get" },
   {
