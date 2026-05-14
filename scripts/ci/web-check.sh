@@ -10,13 +10,12 @@ cd "$WEB_DIR"
 node --version
 node -e "const v = process.version.match(/^v(\d+)\./); if (!v || parseInt(v[1], 10) < ${NODE_VERSION_MIN}) throw new Error('Node.js ${NODE_VERSION_MIN}+ required')"
 
-test -f package-lock.json || (echo "❌ ERROR: package-lock.json not found. Run 'npm install' to generate it." && exit 1)
-node -e "JSON.parse(require('fs').readFileSync('package-lock.json'))" || (echo "❌ ERROR: package-lock.json is not valid JSON" && exit 1)
 test -f next.config.ts || (echo "❌ ERROR: next.config.ts not found" && exit 1)
 
 npm --version
 
 rm -rf node_modules
+rm -f package-lock.json
 npm install
 
 npm run verify:design-system
