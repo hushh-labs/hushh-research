@@ -118,7 +118,7 @@ interface TopAppBarProps {
 export function TopAppBar({ className }: TopAppBarProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isVaultUnlocked, vaultOwnerToken } = useVault();
+  const { isVaultUnlocked } = useVault();
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } = usePersonaState();
   const pathname = usePathname();
 
