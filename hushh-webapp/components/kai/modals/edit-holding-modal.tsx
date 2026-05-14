@@ -33,6 +33,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 
+import { CurrencyInput } from "@/components/app-ui/currency-input";
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -555,21 +556,21 @@ export function EditHoldingModal({
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label htmlFor="edit-holding-price" className="block text-sm font-medium mb-1">
                 Price <span className="text-red-500">*</span>
               </label>
-	              <input
-                type="number"
-                value={formData.price || ""}
-                onChange={(e) => handleChange("price", parseFloat(e.target.value) || 0)}
-                placeholder="0.00"
-                min="0.01"
-                step="0.01"
+              <CurrencyInput
+                id="edit-holding-price"
+                value={formData.price || null}
+                onChange={(next) => handleChange("price", next ?? 0)}
+                min={0.01}
+                decimals={2}
+                errorMessage={errors.price}
                 className={cn(
-                  "w-full px-4 py-3 h-12 rounded-xl border bg-background outline-none transition-colors",
+                  "h-12 rounded-xl",
                   errors.price
-                    ? "border-red-500 focus:border-red-500"
-                    : "border-border focus:border-primary"
+                    ? "[&_input]:border-red-500 [&_input]:focus-visible:border-red-500"
+                    : "[&_input]:border-border [&_input]:focus-visible:border-primary"
                 )}
               />
               {errors.price && (
@@ -599,17 +600,20 @@ export function EditHoldingModal({
 
           {/* Cost Basis */}
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label htmlFor="edit-holding-cost-basis" className="block text-sm font-medium mb-1">
               Cost Basis (Total)
             </label>
-            <input
-              type="number"
-              value={formData.cost_basis || ""}
-              onChange={(e) => handleChange("cost_basis", parseFloat(e.target.value) || 0)}
-              placeholder="0.00"
-              min="0"
-              step="0.01"
-              className="w-full px-4 py-3 h-12 rounded-xl border border-border bg-background outline-none focus:border-primary transition-colors"
+            <CurrencyInput
+              id="edit-holding-cost-basis"
+              value={formData.cost_basis ?? null}
+              onChange={(next) => handleChange("cost_basis", next ?? 0)}
+              min={0}
+              decimals={2}
+              errorMessage={errors.cost_basis}
+              className={cn(
+                "h-12 rounded-xl",
+                "[&_input]:border-border [&_input]:focus-visible:border-primary"
+              )}
             />
             {errors.cost_basis && (
               <p className="text-sm text-red-500 mt-1">{errors.cost_basis}</p>
