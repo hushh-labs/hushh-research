@@ -9,9 +9,13 @@ Block or patch before merge when a PR:
 1. Adds a parallel runtime for an existing capability.
 2. Changes auth, consent, vault, PKM, voice, finance, route, generated contract, or public ingress behavior without canonical caller/contract proof.
 3. Adds a standalone agent/service/reducer/export/ingestion path that is not reachable from the current app/runtime.
-4. Ships tests that cannot fail, duplicate production logic, or prove only mocks while claiming contract coverage.
-5. Introduces broad dependencies or platform changes without install/build/runtime smoke tied to the changed surface.
-6. Has CI Status Gate green but another current check introduced by the PR is failing.
+4. Claims one product/runtime contract in the title/body while the changed files touch a different contract.
+5. Adds a helper, component, service, or export that is only used by its own tests and is not reachable from an app, backend, package, route, generated contract, or documented devex entrypoint.
+6. Ships a stacked branch whose current diff includes earlier/unrelated PR changes or says the diff will collapse only after another PR lands.
+7. Ships tests that cannot fail, duplicate production logic, or prove only mocks while claiming contract coverage.
+8. Introduces broad dependencies or platform changes without install/build/runtime smoke tied to the changed surface.
+9. Has CI Status Gate green but another current check introduced by the PR is failing.
+10. Touches files with uncommitted local maintainer work unless that work is committed, stashed, rebased, or the useful PR content is explicitly harvested.
 
 ## Domain Gates
 
@@ -34,6 +38,10 @@ Block direct buy/sell instructions, return promises, or personalized trading-act
 ### Frontend / Route Shell
 
 A changed component must be reachable from a current route, shell, service caller, or live component before it can be described as a user-visible improvement. Browser route tests that claim continuity must use sequential UI navigation and same-session probes, not only direct `page.goto(...)`.
+
+### Use-Case Reachability
+
+Do not merge standalone logic just because it is readable or green. A PR must either improve a reachable app/backend/package path, strengthen a canonical proof surface for that path, or clearly scope itself as test/devex hygiene. If the claimed use case is not present in the app/backend/runtime, request changes or close instead of trying to invent a connection.
 
 ### Backend / API / Proxy
 
