@@ -100,12 +100,19 @@ Load these only when the decision needs them:
 10. If a PR title/body claims one contract but the changed files touch another, stop the merge path until the PR is retitled/rescoped, patched to the claimed contract, or closed/requested-changes.
 11. If a PR says it is stacked, depends on a prior PR, or will have a different diff after another PR lands, do not review it as a merge candidate until it is rebased to `main` or explicitly scoped as a harvest/reference PR.
 12. Treat local worktree overlap as a merge blocker. If an open PR touches files with uncommitted maintainer changes, resolve local ownership first: commit/stash/rebase the maintainer branch, harvest only unique PR value, or request a contributor rebase. Do not merge a GitHub-green head over active local governance/product work.
-13. Run the Founder Wiki North-Star Probe for material PRs that touch product direction, One/Kai/Nav, PCHP, BYOA/BYOK, MLX/on-device posture, consent/vault/PKM, World Model, voice/action, Aha Moment, user-facing workflows, or founder-language claims. Use `.codex/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md` as the contract:
+13. Before creating a maintainer-harvest commit, run the contributor
+    attribution gate. Prefer direct contributor PR merge when the head is safe.
+    If maintainers materially reuse contributor code or tests, add valid
+    `Co-authored-by:` trailers to the actual landing commit using public
+    GitHub no-reply identities when verified. If only the idea or direction is
+    used, do not add a co-author trailer; include a contributor
+    acknowledgement in the PR body and source-PR closeout instead.
+14. Run the Founder Wiki North-Star Probe for material PRs that touch product direction, One/Kai/Nav, PCHP, BYOA/BYOK, MLX/on-device posture, consent/vault/PKM, World Model, voice/action, Aha Moment, user-facing workflows, or founder-language claims. Use `.codex/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md` as the contract:
    - repo code/contracts/tests/CI remain current-state truth
    - founder wiki pages define north-star and future-state alignment
    - conflicts are `current_state_vs_north_star_drift`
    - private wiki evidence stays local-only and must not be cited in public GitHub comments
-14. For high-volume PR train work, spawn/read from the required read-only
+15. For high-volume PR train work, spawn/read from the required read-only
     subagent taskforce before producing the operator dossier. High-volume means
     more than `20` PRs scanned or discussed, more than `5` PRs acted on in one
     session, any mixed frontend/backend/security/devex/observability train, any
@@ -114,11 +121,11 @@ Load these only when the decision needs them:
     Use the delegation router to choose lanes and record whether evidence lanes
     were used:
    `python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt "<request>" --paths "<paths>" --text`
-15. If subagents are unavailable, record `Subagent taskforce: unavailable` and
+16. If subagents are unavailable, record `Subagent taskforce: unavailable` and
     manually cover the same evidence lanes. If they are available, skipping
     them for high-volume train work is a process violation unless a concrete
     runtime blocker is recorded.
-16. Keep final authority local to the parent/governor. Do not delegate branch switching, approval, merge, deploy, credential handling, or final decision.
+17. Keep final authority local to the parent/governor. Do not delegate branch switching, approval, merge, deploy, credential handling, or final decision.
 
 ### Decision Order
 
@@ -333,9 +340,15 @@ Default blockers include:
 6. If a PR can be corrected safely by maintainers without changing product intent, prefer `patch_then_merge` over contributor round trips. Use a `## Changes Requested` record when the change needs contributor clarity, split/rebase, proof, or direction correction.
 7. Public duplicate language is allowed only for exact or manually confirmed semantic duplicates. Shared files alone mean sequencing/rebase, not duplicate.
 8. Maintainer patches must be explained in the post-merge note: who patched, what changed, what original PR value was kept, what was converted into existing canonical docs/scripts/runtime surfaces, what was dropped or deferred, why this was the smallest safe path, and what happened to related PRs.
-9. Do not include a separate successful-merge evidence section such as `### Merge Confidence`, `### Proof`, or `### Verification`; GitHub already shows checks. Use `### Why It Matters` in post-merge comments.
-10. Do not publish maintainer-only sequencing, CI dumps, or report bookkeeping in GitHub comments.
-11. Final handoffs for state-changing PR work must include direct links to every affected PR and any maintainer-authored merge/patch/closure/comment links. Counts are allowed only after the linked PR list; never replace the list with a count.
+9. Maintainer-harvest PR bodies must include `## Contributor Acknowledgements`
+   with source PR links, source authors, accepted value, dropped/deferred
+   pieces, and whether official GitHub commit credit is expected through
+   `Co-authored-by:` trailers. The source PR closeout must use contributor-
+   enabling language: "your contribution was harvested into..." rather than
+   implying discarded work.
+10. Do not include a separate successful-merge evidence section such as `### Merge Confidence`, `### Proof`, or `### Verification`; GitHub already shows checks. Use `### Why It Matters` in post-merge comments.
+11. Do not publish maintainer-only sequencing, CI dumps, or report bookkeeping in GitHub comments.
+12. Final handoffs for state-changing PR work must include direct links to every affected PR and any maintainer-authored merge/patch/closure/comment links. Counts are allowed only after the linked PR list; never replace the list with a count.
 
 Detailed comment/report format lives in `references/comment-and-report-contract.md`.
 
@@ -360,6 +373,10 @@ After any merge, close, requested-changes, maintainer patch, or revert:
    `python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 14 --text > tmp/contributor-impact-dashboard.md`
 3. Keep live reports live-only. Merged/closed evidence belongs in GitHub comments, final handoff, or separate audit artifacts.
 4. Include contributor-impact delta when the PR materially affects trust/security, consent/vault, One/Kai/Nav direction, PKM/memory, user utility, runtime quality, or proof/test posture.
+5. Past maintainer harvests must not rewrite `main` for retroactive GitHub
+   graph credit. Preserve public acknowledgement and ensure the dashboard
+   records `harvested_source` internal impact credit for every source PR whose
+   value landed through a maintainer patch.
 
 ## Handoff Rules
 
@@ -386,6 +403,7 @@ python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo
 python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text
 python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md
 python3 -m py_compile .codex/skills/pr-governance-review/scripts/contributor_impact_report.py
+python3 .codex/skills/pr-governance-review/scripts/test_contributor_impact_report.py
 python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 14 --text
 ./bin/hushh codex audit --text
 ./bin/hushh docs verify

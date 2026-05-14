@@ -46,6 +46,7 @@
     "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text",
     "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md",
     "python3 -m py_compile .codex/skills/pr-governance-review/scripts/contributor_impact_report.py",
+    "python3 .codex/skills/pr-governance-review/scripts/test_contributor_impact_report.py",
     "python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 14 --text",
     "./bin/hushh codex audit --text",
     "./bin/hushh docs verify"
@@ -66,6 +67,7 @@
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text",
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md",
         "python3 -m py_compile .codex/skills/pr-governance-review/scripts/contributor_impact_report.py",
+        "python3 .codex/skills/pr-governance-review/scripts/test_contributor_impact_report.py",
         "python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 14 --text",
         "./bin/hushh codex audit --text",
         "./bin/hushh docs verify"
@@ -83,6 +85,7 @@
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text",
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md",
         "python3 -m py_compile .codex/skills/pr-governance-review/scripts/contributor_impact_report.py",
+        "python3 .codex/skills/pr-governance-review/scripts/test_contributor_impact_report.py",
         "python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 14 --text",
         "./bin/hushh codex audit --text",
         "./bin/hushh docs verify"

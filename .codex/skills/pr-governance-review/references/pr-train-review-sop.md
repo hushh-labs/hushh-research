@@ -221,6 +221,49 @@ Patch is denied when:
 Denied patch candidates become `changes_requested`, `hold`, or
 `harvest_then_close`, depending on whether there is useful value to preserve.
 
+## Contributor Attribution Gate
+
+Maintainer harvests must enable contributors, not erase them.
+
+Before opening or committing a maintainer-harvest PR:
+
+1. Prefer direct contributor PR merge when the PR is clean, scoped, green,
+   canonical, and safe.
+2. For every harvested source PR, classify the reused material as:
+   - `code_or_test_reused`: actual contributor implementation or test logic is
+     materially copied, translated, or normalized into the landing patch
+   - `idea_or_direction_used`: the PR helped identify the right fix, but the
+     landing implementation is independently authored by the maintainer
+   - `not_used`: reviewed but not part of the landing patch
+3. For `code_or_test_reused`, add valid `Co-authored-by:` trailers to the
+   actual landing commit before merge. Use public GitHub no-reply identities
+   only after verifying the contributor's public GitHub user id; never expose
+   private emails.
+4. For `idea_or_direction_used`, do not add co-author trailers. Add the source
+   PR to `## Contributor Acknowledgements` in the PR body and source-PR
+   closeout.
+5. For `not_used`, list the PR only under dropped/deferred/held work, not as a
+   credited harvest source.
+
+Maintainer-harvest PR bodies must include:
+
+1. `## Contributor Acknowledgements`
+2. direct source PR link
+3. source author
+4. accepted value
+5. attribution class: `code_or_test_reused`, `idea_or_direction_used`, or
+   `not_used`
+6. whether official GitHub commit credit is expected
+7. dropped or deferred pieces
+
+Past maintainer harvests must not rewrite `main` to backfill GitHub graph
+credit. The fair retroactive path is:
+
+1. preserve or add public acknowledgement on the landing PR
+2. keep source PR closeouts contributor-enabling
+3. update the contributor-impact dashboard with `harvested_source` internal
+   credit for source PRs whose value landed through a maintainer patch
+
 ## Developer Operating Loop
 
 Use this loop for every review session:

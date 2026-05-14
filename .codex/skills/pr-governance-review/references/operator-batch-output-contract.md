@@ -50,7 +50,13 @@ sequence in the sections below.
    - `new_closed_superseded_comment`
    - `no_comment_review_only`
    Include the intended headline, for example `## Merged: Consent Center State UX`.
-9. `Per-PR Assessment`: one compact but complete block per PR:
+9. `Contributor Attribution`: for every maintainer-harvest source PR, state
+   whether the landing commit will use `Co-authored-by:` trailers
+   (`code_or_test_reused`), public acknowledgement only
+   (`idea_or_direction_used`), or no credit because the material is not used.
+   Include source PR link, author, accepted value, dropped/deferred pieces, and
+   whether GitHub official contributor graph credit is expected.
+10. `Per-PR Assessment`: one compact but complete block per PR:
    - direct link
    - lane
    - lean/core risk
@@ -61,12 +67,12 @@ sequence in the sections below.
    - planned action: merge, patch/rebase, harvest/close, request changes, or hold
    - comment action: expected public comment/edit behavior
    - `Smallest proof`: smallest authoritative check before that action
-10. `Output`: intended end state if the batch is legitimate.
-11. `Execution`: exact order, split by merge train, patch train, closure/request-changes wave, and hold/deep-review items.
-12. `Decision Questions`: only unresolved user-owned choices, each with current truth, recommended path, risk if accepted blindly, and recommended option first.
-13. `Stop Conditions`: what pauses, splits, or blocks the batch.
-14. `Verification`: smallest authoritative local and GitHub checks.
-15. `After-Merge Kickoff`: how the next independent train will be discovered after report refresh.
+11. `Output`: intended end state if the batch is legitimate.
+12. `Execution`: exact order, split by merge train, patch train, closure/request-changes wave, and hold/deep-review items.
+13. `Decision Questions`: only unresolved user-owned choices, each with current truth, recommended path, risk if accepted blindly, and recommended option first.
+14. `Stop Conditions`: what pauses, splits, or blocks the batch.
+15. `Verification`: smallest authoritative local and GitHub checks.
+16. `After-Merge Kickoff`: how the next independent train will be discovered after report refresh.
 
 Hyperlink rule: any chat answer, execution update, or final handoff generated
 from this contract must hyperlink every PR it mentions. Counts-only summaries
@@ -126,23 +132,27 @@ even when the report already exists on disk:
    Repass/correction waves must prefer edited maintainer records over new
    comments. If a new comment is needed, state why the previous maintainer
    record could not be edited.
-6. Check-failure intake filter: PRs with non-green/missing required gates or
+6. Contributor attribution: maintainer-harvest batches must distinguish
+   official GitHub commit credit from public acknowledgement and internal
+   dashboard credit. Do not promise GitHub contributor graph credit unless the
+   actual landing commit contains valid `Co-authored-by:` trailers.
+7. Check-failure intake filter: PRs with non-green/missing required gates or
    current failing auxiliary checks are excluded from train planning and should
    appear only under `Check Failure Holds` unless this is a CI repair pass.
-7. Stop conditions: stale head, lost CI Status Gate, conflict, exact-file
+8. Stop conditions: stale head, lost CI Status Gate, conflict, exact-file
    overlap, new trust-boundary finding, missing caller/reachability proof,
    Playwright gap for UI-visible changes, or north-star drift.
-8. Train graph: every PR must expose `collision_group_id`,
+9. Train graph: every PR must expose `collision_group_id`,
    `collision_reasons`, `can_queue_with`, `must_wait_for`,
    `queue_cohort_id`, `parallel_patch_train_id`, patch attachment fields, and
    whether a north-star probe is required.
-9. Subagent taskforce: for high-volume train work, every dossier must state the
+10. Subagent taskforce: for high-volume train work, every dossier must state the
    read-only evidence lanes used before the recommendation. The default lanes
    are frontend/UI reachability, backend/runtime trust, observability/security,
    devex/repo operations, and decision-wave communications. If a lane was not
    spawned, state the concrete blocker; "not needed" is valid only for
    single-surface or low-volume work.
-10. Train-to-subagent map: every async train must name its subagent evidence
+11. Train-to-subagent map: every async train must name its subagent evidence
    lane, the PRs included in that train, which PRs are parallel outside the
    train, which PRs are sequential inside the train, and which hard edge forces
    the sequence. If two trains need the same files/runtime family, they are not
