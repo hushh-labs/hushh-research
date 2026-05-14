@@ -325,7 +325,7 @@ User requested adjustment: ${redraftInstructions.trim()}`.slice(0, 6000);
               (field) => !localDraft.missingFields.includes(field)
             ),
             last_updated: new Date().toISOString(),
-            schema_version: "1.0",
+            schema_version: 1,
           };
           
           const artifactHash = await sha256Hex(JSON.stringify(artifact));
