@@ -358,7 +358,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                 className="pointer-events-none flex h-full shrink-0 items-center justify-start"
                 style={{ width: "var(--top-bar-side-w)" }}
               >
-                <div className="pointer-events-auto flex h-10 w-10 items-center justify-center">
+                <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
                   {topShellBreadcrumb ? (
                     <ShellActionSurface
                       variant="icon"

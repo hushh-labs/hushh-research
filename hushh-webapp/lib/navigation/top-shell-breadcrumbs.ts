@@ -206,7 +206,7 @@ export function resolveTopShellBreadcrumb(
       align: "center",
       items: [
         { label: "Profile", href: ROUTES.PROFILE },
-        { label: "KYC agent" },
+        { label: "One KYC" },
       ],
     };
   }
