@@ -30,7 +30,8 @@
     ".codex/skills/pr-governance-review/references/operator-batch-output-contract.md",
     ".codex/skills/pr-governance-review/references/operator-question-fixtures.json",
     ".codex/skills/pr-governance-review/references/blocker-gates.md",
-    ".codex/skills/pr-governance-review/references/comment-and-report-contract.md"
+    ".codex/skills/pr-governance-review/references/comment-and-report-contract.md",
+    ".codex/skills/pr-governance-review/references/pr-train-review-sop.md"
   ],
   "required_commands": [
     "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",

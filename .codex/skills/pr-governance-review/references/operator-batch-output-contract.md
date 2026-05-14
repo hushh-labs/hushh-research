@@ -1,6 +1,9 @@
 # Operator Batch Output Contract
 
 Use this when answering "next batch", "plan this batch", or any high-volume PR wave question.
+Use `pr-train-review-sop.md` as the standard operating procedure before
+producing this dossier. The SOP defines how to scan, graph, classify, execute,
+monitor, and refresh PR trains; this contract defines how to present the result.
 
 ## Required Chat Shape
 
@@ -12,8 +15,12 @@ sequence in the sections below.
 
 1. `Batch`: one sentence naming the product/runtime purpose.
 2. `Research Basis`: concise current truth, recommended path, and risk if accepted blindly.
-3. `Input`: every PR with a direct Markdown link and current lane.
-4. `Train Simulation`: execution-grade simulation based on the current PR heads:
+3. `Delegation Evidence`: router decision, subagent/taskforce lanes used,
+   direct lane handoff summaries, skipped/unavailable rationale, and explicit
+   parent-only authority for branch switching, commits, GitHub writes,
+   approvals, merges, deploys, and final decisions.
+4. `Input`: every PR with a direct Markdown link and current lane.
+5. `Train Simulation`: execution-grade simulation based on the current PR heads:
    - branch evidence: current head SHA, mergeability, CI gate, changed files, exact overlaps, and local dirty-worktree overlap
    - delta summary: files added, edited, deleted, generated, moved, dependencies changed, and routes/contracts touched
    - behavior claim: what the PR claims and whether that behavior is reachable in the current app/backend/package
@@ -22,7 +29,7 @@ sequence in the sections below.
    - action outcome: exact operation per PR if approved
    - comment simulation: expected GitHub comment/edit posture and heading
    - verification timeline: local checks, Playwright for UI-visible changes, GitHub gates, smoke, reports
-5. `Expected Actions`: table or bullets mapping each PR to one of:
+6. `Expected Actions`: table or bullets mapping each PR to one of:
    - `review_only`
    - `hold`
    - `request_changes`
@@ -31,14 +38,14 @@ sequence in the sections below.
    - `maintainer_patch_then_merge`
    - `merge_now`
    - `post_merge_monitor`
-6. `Comment Plan`: table or bullets mapping each PR to one of:
+7. `Comment Plan`: table or bullets mapping each PR to one of:
    - `none_before_merge_then_post_merge_closeout`
    - `edit_existing_maintainer_comment`
    - `new_changes_requested_comment`
    - `new_closed_superseded_comment`
    - `no_comment_review_only`
    Include the intended headline, for example `## Merged: Consent Center State UX`.
-7. `Per-PR Assessment`: one compact but complete block per PR:
+8. `Per-PR Assessment`: one compact but complete block per PR:
    - direct link
    - lane
    - lean/core risk
@@ -49,12 +56,12 @@ sequence in the sections below.
    - planned action: merge, patch/rebase, harvest/close, request changes, or hold
    - comment action: expected public comment/edit behavior
    - `Smallest proof`: smallest authoritative check before that action
-8. `Output`: intended end state if the batch is legitimate.
-9. `Execution`: exact order, split by merge train, patch train, closure/request-changes wave, and hold/deep-review items.
-10. `Decision Questions`: only unresolved user-owned choices, each with current truth, recommended path, risk if accepted blindly, and recommended option first.
-11. `Stop Conditions`: what pauses, splits, or blocks the batch.
-12. `Verification`: smallest authoritative local and GitHub checks.
-13. `After-Merge Kickoff`: how the next independent train will be discovered after report refresh.
+9. `Output`: intended end state if the batch is legitimate.
+10. `Execution`: exact order, split by merge train, patch train, closure/request-changes wave, and hold/deep-review items.
+11. `Decision Questions`: only unresolved user-owned choices, each with current truth, recommended path, risk if accepted blindly, and recommended option first.
+12. `Stop Conditions`: what pauses, splits, or blocks the batch.
+13. `Verification`: smallest authoritative local and GitHub checks.
+14. `After-Merge Kickoff`: how the next independent train will be discovered after report refresh.
 
 Hyperlink rule: any chat answer, execution update, or final handoff generated
 from this contract must hyperlink every PR it mentions. Counts-only summaries
@@ -67,12 +74,18 @@ deterministic sections, even if some are empty:
 
 1. `Scan Scope`: scan mode, active limit, candidate limit, all-open inventory
    count when known, reviewed PRs, failed PRs, and completeness.
-2. `Queue Cohort`: independent `merge_now` PRs that can be queued together,
+2. `Subagent Taskforce`: evidence lanes started before train selection,
+   including lane owner, inspected surfaces, PR links, current head SHA
+   freshness, hard collisions, canonical attach points, unresolved risks, and
+   whether subagents were used, unavailable, or blocked. For high-volume train
+   work, this section is mandatory and cannot be replaced by a parent-only
+   summary unless the runtime cannot spawn subagents.
+3. `Queue Cohort`: independent `merge_now` PRs that can be queued together,
    capped at the configured cohort size.
-3. `Collision Groups`: hard-edge groups and the required sequence.
-4. `Parallel Patch Trains`: disjoint maintainer patch trains with attachment
+4. `Collision Groups`: hard-edge groups and the required sequence.
+5. `Parallel Patch Trains`: disjoint maintainer patch trains with attachment
    point, patch files, dropped/deferred pieces, and proof.
-5. `Decision Waves`: PRs ready for changes-requested or closure records while
+6. `Decision Waves`: PRs ready for changes-requested or closure records while
    queue validation runs.
 
 Decision waves must list the exact linked PRs in the wave and the exact public
@@ -111,6 +124,12 @@ even when the report already exists on disk:
    `collision_reasons`, `can_queue_with`, `must_wait_for`,
    `queue_cohort_id`, `parallel_patch_train_id`, patch attachment fields, and
    whether a north-star probe is required.
+8. Subagent taskforce: for high-volume train work, every dossier must state the
+   read-only evidence lanes used before the recommendation. The default lanes
+   are frontend/UI reachability, backend/runtime trust, observability/security,
+   devex/repo operations, and decision-wave communications. If a lane was not
+   spawned, state the concrete blocker; "not needed" is valid only for
+   single-surface or low-volume work.
 
 If the evidence is incomplete, say exactly what is incomplete and present only
 the train subset that is safe from the verified evidence. Do not imply the whole
@@ -158,11 +177,13 @@ Use this rhythm for scale:
 1. Mass classify open PRs through the live report. Default to hybrid scan:
    cheap all-open inventory plus the latest `100` deep reviews and up to `40`
    older high-signal deep reviews.
-2. Convert clear drifts into closure or changes-requested waves.
-3. Queue independent `merge_now` PRs as a cohort, capped at `4`.
-4. While PR Validation, Queue Validation, or Main Post-Merge Smoke runs, review the next independent operator batch.
-5. After smoke passes, refresh the live report and contributor-impact dashboard.
-6. Select the next independent `Recommended Operator Batches` item and produce a fresh `Per-PR Assessment`.
+2. Start read-only subagent lanes for the independent evidence families before
+   train selection. Use broad lanes, not one subagent per PR.
+3. Convert clear drifts into closure or changes-requested waves.
+4. Queue independent `merge_now` PRs as a cohort, capped at `4`.
+5. While PR Validation, Queue Validation, or Main Post-Merge Smoke runs, review the next independent operator batch.
+6. After smoke passes, refresh the live report and contributor-impact dashboard.
+7. Select the next independent `Recommended Operator Batches` item and produce a fresh `Per-PR Assessment`.
 
 Never let throughput hide dependency order. Shared files, lockfiles, shared
 runtime contracts, generated contracts, schema/migration surfaces,
