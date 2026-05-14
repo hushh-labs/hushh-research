@@ -28,6 +28,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from api.middleware import require_firebase_auth
+from hushh_mcp.config import APP_SIGNING_KEY
 from utils.sync_engine import (
     ConsentSyncRequest,
     ConsentSyncResponse,
@@ -47,9 +48,8 @@ _LABEL = "Cross-Platform Sync Engine by Abdul Gaffar"
 # Pairing token manager (uses server signing key)
 # ---------------------------------------------------------------------------
 
-_signing_key_raw = os.getenv("APP_SIGNING_KEY", "")
 _PAIRING_MANAGER = PairingTokenManager(
-    signing_key=_signing_key_raw.encode() if _signing_key_raw else b"dev-only-key",
+    signing_key=APP_SIGNING_KEY.encode(),
     max_age_seconds=int(os.getenv("PAIRING_TOKEN_MAX_AGE_SECONDS", "86400")),
 )
 

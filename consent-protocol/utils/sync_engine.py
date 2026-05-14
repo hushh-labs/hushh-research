@@ -186,7 +186,6 @@ class PairingTokenManager:
     """
 
     _PREFIX = "PAIR"
-    _DIGEST = hashlib.sha256
 
     def __init__(self, signing_key: bytes, max_age_seconds: int = 86_400) -> None:
         """
@@ -207,7 +206,7 @@ class PairingTokenManager:
 
     def _mac(self, firebase_uid: str, device_id: str, issued_at: int) -> str:
         message = f"{firebase_uid}:{device_id}:{issued_at}".encode()
-        return hmac.new(self._key, message, self._DIGEST).hexdigest()
+        return hmac.new(self._key, message, hashlib.sha256).hexdigest()
 
     def issue_token(self, firebase_uid: str, device_id: str) -> str:
         """
