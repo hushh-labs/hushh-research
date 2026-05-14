@@ -126,6 +126,16 @@ Workflow-routing rules:
 9. When a task includes phrases such as `missing`, `not implemented`, `static`, `dynamic`, `duplicate`, `safe`, `ready`, `working before`, or `should be easy`, the owning skill must classify the claim as `already_exists`, `partially_exists`, `missing`, `future_state_only`, `wrong_direction`, or `needs_verification` before recommending a path.
 10. If a capability already exists, the skill must route the user toward extending the existing contract rather than creating a parallel path.
 11. If a capability exists transiently but is not durable, the skill should name the real gap precisely: persistence, schema, generated contract, tests, docs, UI visibility, observability, consent, vault, cache, or deployment parity.
+12. Skills that ask operator questions for non-trivial planning must use the shared planning question contract: `Current truth`, `Recommended path`, `Risk if accepted blindly`, `Decision needed`, and recommended option first.
+13. Maintain the compact-kernel pattern:
+   - `SKILL.md` contains purpose, ownership, operating sequence, handoffs, and required checks.
+   - `references/` contains detailed gates, examples, templates, and calibration notes that are loaded only when relevant.
+   - `scripts/` contains repeatable classification, reporting, linting, or generation logic.
+   - `workflow.json` and `skill.json` contain routing and machine-readable metadata.
+14. Do not patch skills by appending every newly discovered miss to the main workflow. First decide whether the fix belongs in a script, a focused reference, a workflow playbook, or a shorter operating rule.
+15. Treat a skill as bloated when the main `SKILL.md` becomes a mixed incident ledger, comment-template inventory, domain checklist, and workflow procedure in one file. The correction is extraction, not deleting the governance constraint.
+16. A scan for skill quality should report line count, owned-surface breadth, whether focused references exist, whether deterministic scripts exist, and whether the main skill still reads as an operating kernel.
+17. Skills that judge product direction, founder language, future-state plans, or PR north-star fit must use the Founder Wiki North-Star Probe from `.codex/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md` when the task is material. The wiki is a direction lens, not current-state implementation proof; private wiki evidence stays local-only; conflicts should be recorded as `current_state_vs_north_star_drift`.
 
 ## Coverage baseline
 

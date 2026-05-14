@@ -270,6 +270,7 @@ LANE_RULES: tuple[dict[str, Any], ...] = (
             "docs/future/",
             "docs/reference/kai/",
             "docs/reference/architecture/founder-language",
+            "docs/reference/architecture/one-email",
             "docs/reference/quality/app-surface-design-system",
             ".codex/skills/docs-governance/",
             ".codex/skills/founder-brief-curation/",

@@ -60,10 +60,11 @@
     {
       "schema_version": "kai.local_action_contract.v1",
       "surface_id": "one_kyc",
-      "surface_title": "One KYC Workflows",
+      "surface_title": "One KYC",
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ],
       "contract_file": "hushh-webapp/app/one/kyc/page.voice-action-contract.json",
       "defaults": {
@@ -1122,18 +1123,19 @@
     {
       "action_id": "route.one_kyc",
       "surface_id": "one_kyc",
-      "label": "Open KYC Workflows",
+      "label": "Open One KYC",
       "aliases": [
         "open kyc",
         "open one kyc",
-        "show kyc workflows"
+        "show kyc workflows",
+        "show broker requests"
       ],
       "search_keywords": [
         "kyc",
         "one",
         "broker"
       ],
-      "meaning": "Navigates to One KYC workflow review.",
+      "meaning": "Navigates to One broker request review.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "kyc",
       "reachability": {
@@ -1170,7 +1172,79 @@
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
+      ],
+      "workflow": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kyc"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      }
+    },
+    {
+      "action_id": "kyc.aliases.manage",
+      "surface_id": "one_kyc",
+      "label": "Manage Verified Emails",
+      "aliases": [
+        "manage verified emails",
+        "add broker email",
+        "show matching emails"
+      ],
+      "search_keywords": [
+        "kyc",
+        "email",
+        "broker"
+      ],
+      "meaning": "Opens the verified email address panel used to match broker KYC requests.",
+      "speaker_persona": "kyc",
+      "delegate_agent_id": "kyc",
+      "reachability": {
+        "routes": [
+          "/one/kyc"
+        ],
+        "screens": [
+          "one_kyc"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "user must be signed in"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_required"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Requires opening the local verified email panel in /one/kyc."
+      },
+      "control_ids": [
+        "one-kyc-aliases"
+      ],
+      "state_exposure": [
+        "verified email count",
+        "pending email count"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -1238,7 +1312,8 @@
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -1306,7 +1381,8 @@
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -1375,7 +1451,8 @@
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -1445,7 +1522,8 @@
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ],
       "workflow": null,
       "expected_effects": {
@@ -1513,7 +1591,8 @@
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ],
       "workflow": null,
       "expected_effects": {
