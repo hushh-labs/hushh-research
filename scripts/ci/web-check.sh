@@ -17,7 +17,7 @@ test -f next.config.ts || (echo "❌ ERROR: next.config.ts not found" && exit 1)
 npm --version
 
 rm -rf node_modules
-npm ci --omit=optional
+npm install --ignore-scripts
 
 npm run verify:design-system
 npm run verify:docs
