@@ -42,6 +42,20 @@ describe("one KYC workflow state helpers", () => {
     ]);
   });
 
+  it("does not treat every detected candidate as selected before user review", () => {
+    const current = workflow({
+      requested_scope: "attr.shopping.*",
+      metadata: {
+        candidate_scopes: [
+          { scope: "attr.shopping.*", domain: "shopping", label: "Shopping" },
+          { scope: "attr.shopping.receipts_memory.*", domain: "shopping", label: "Receipts" },
+        ],
+      },
+    });
+
+    expect(selectedScopesForWorkflow(current, {})).toEqual(["attr.shopping.*"]);
+  });
+
   it("drops local decrypted draft state once a workflow leaves ready review", () => {
     const ready = workflow({ workflow_id: "ready" });
     const sent = workflow({

@@ -372,12 +372,16 @@ export function SettingsDetailPanel({
   title,
   description,
   children,
+  desktopMaxWidthClassName,
+  desktopMaxWidth,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: ReactNode;
   description?: ReactNode;
   children: ReactNode;
+  desktopMaxWidthClassName?: string;
+  desktopMaxWidth?: string;
 }) {
   const isMobile = useIsMobile();
   if (isMobile) {
@@ -404,7 +408,14 @@ export function SettingsDetailPanel({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange} modal>
-      <DialogContent className="w-[calc(100%-1.5rem)] max-w-[720px] overflow-hidden p-0">
+      <DialogContent
+        data-settings-detail-panel="true"
+        style={desktopMaxWidth ? { maxWidth: desktopMaxWidth } : undefined}
+        className={cn(
+          "w-[calc(100%-1.5rem)] overflow-hidden p-0",
+          desktopMaxWidthClassName || "sm:!max-w-[720px]"
+        )}
+      >
         <DialogHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-6 py-4 text-left">
           <DialogTitle className="text-base font-semibold tracking-tight">
             {title}

@@ -141,12 +141,12 @@ function OneKycWorkspace() {
   const voiceSurfaceMetadata = useMemo(
     () => ({
       screenId: "one_kyc",
-      title: "One KYC",
-      purpose: "Approval-gated broker KYC request review for one@hushh.ai.",
+      title: "Email",
+      purpose: "Approval-gated email request review for one@hushh.ai.",
       sections: [
         {
           id: "one_kyc_inbox",
-          title: "One KYC",
+          title: "Requests",
         },
         {
           id: "one_kyc_detail",
@@ -160,7 +160,7 @@ function OneKycWorkspace() {
       controls: [
         {
           id: "one-kyc-open",
-          label: "Open One KYC",
+          label: "Open Email",
           type: "route",
           actionId: "route.one_kyc",
         },
@@ -255,7 +255,7 @@ function OneKycWorkspace() {
       setSelectedId((current) => current || initialId || response.workflows[0]?.workflow_id || null);
     } catch (err) {
       setConnectorReady(false);
-      setError(err instanceof Error ? err.message : "Unable to load One requests.");
+      setError(err instanceof Error ? err.message : "Unable to load email requests.");
     } finally {
       setLoading(false);
     }
@@ -523,7 +523,7 @@ function OneKycWorkspace() {
             return;
           }
         } else if (action === "reject") {
-          next = await OneKycService.rejectDraft({ ...input, reason: "Rejected from One KYC." });
+          next = await OneKycService.rejectDraft({ ...input, reason: "Rejected from Email." });
         } else {
           next = await OneKycService.refreshWorkflow(input);
         }
@@ -598,8 +598,8 @@ function OneKycWorkspace() {
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow="One"
-          title="One KYC"
-          description="Review broker KYC emails, choose what to share, and send replies only after you approve."
+          title="Email"
+          description="Review emails that ask for your data, choose what to share, and send replies only after you approve."
           icon={ShieldCheck}
           accent="neutral"
           actions={
@@ -611,7 +611,7 @@ function OneKycWorkspace() {
         />
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion className="mx-auto grid w-full max-w-5xl items-start gap-4 lg:grid-cols-2">
+      <AppPageContentRegion className="mx-auto grid w-full max-w-5xl items-start gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
         {error ? (
           <div className="lg:col-span-2 rounded-[var(--app-card-radius-standard)] border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
             {error}
@@ -620,7 +620,7 @@ function OneKycWorkspace() {
 
         <div className="space-y-4">
           <SettingsGroup
-            title="Broker requests"
+            title="Requests"
           >
             {loading ? (
               <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
@@ -630,14 +630,14 @@ function OneKycWorkspace() {
               <SettingsRow
                 icon={Inbox}
                 title="No matched requests"
-                description="New broker emails appear here after One matches them to one of your verified addresses."
+                description="New emails appear here after One matches them to one of your verified addresses."
               />
             ) : (
               workflows.map((workflow) => (
                 <SettingsRow
                   key={workflow.workflow_id}
                   icon={statusIcon(workflow.status)}
-                  title={workflow.subject || "KYC request"}
+                  title={workflow.subject || "Email request"}
                   description={[
                     workflow.counterparty_label || workflow.sender_email || "Counterparty",
                     selectedScopeLabels(workflow).join(", ") || workflow.requested_scope || "Scope pending",
@@ -661,46 +661,6 @@ function OneKycWorkspace() {
 
         <div className="space-y-4">
           <SettingsGroup
-            title="Current request"
-          >
-            {selected ? (
-              <>
-                <SettingsRow
-                  icon={statusIcon(selected.status)}
-                  title={selected.subject || "KYC request"}
-                  description={selected.counterparty_label || selected.sender_email || "Counterparty"}
-                  trailing={
-                    <Badge variant={statusVariant(selected.status)}>
-                      {STATUS_LABELS[selected.status] || selected.status}
-                    </Badge>
-                  }
-                  chevron
-                  onClick={() => setDetailOpen(true)}
-                  voiceControlId="one-kyc-open-selected"
-                />
-                <SettingsRow
-                  icon={ShieldCheck}
-                  title="Consent"
-                  description={selectedScopeLabels(selected).join(", ") || selected.requested_scope || "No scopes selected yet"}
-                  trailing={<Badge variant="outline">{detectedDomains(selected).join(", ") || "KYC"}</Badge>}
-                />
-                <SettingsRow
-                  icon={Clock3}
-                  title="Thread status"
-                  description={threadStatusLabel(selected)}
-                  trailing={selected.status === "waiting_on_counterparty" ? <CheckCircle2 className="size-4 text-emerald-600" /> : null}
-                />
-              </>
-            ) : (
-              <SettingsRow
-                icon={Inbox}
-                title="No workflow selected"
-                description="Select a broker request from the inbox."
-              />
-            )}
-          </SettingsGroup>
-
-          <SettingsGroup
             title="Matching emails"
           >
             <SettingsRow
@@ -709,7 +669,7 @@ function OneKycWorkspace() {
               description={
                 verifiedAliases.length
                   ? verifiedAliases.map((alias) => alias.email).join(", ")
-                  : "Add an address brokers already use for you."
+                  : "Add an address people already use for you."
               }
               trailing={<Badge variant="secondary">{verifiedAliases.length}</Badge>}
               chevron
@@ -724,12 +684,14 @@ function OneKycWorkspace() {
         <SettingsDetailPanel
           open={detailOpen && Boolean(selected)}
           onOpenChange={setDetailOpen}
-          title={selected?.subject || "One request"}
+          title={selected?.subject || "Email request"}
           description={selected?.counterparty_label || selected?.sender_email || "Review the selected request."}
+          desktopMaxWidthClassName="sm:!max-w-[960px]"
+          desktopMaxWidth="min(960px, calc(100vw - 3rem))"
         >
           {!selected ? null : (
             <div className="space-y-4">
-              <SettingsGroup embedded title="Workflow">
+              <SettingsGroup embedded title="Request">
                 <SettingsRow
                   icon={statusIcon(selected.status)}
                   title="Status"
@@ -748,7 +710,7 @@ function OneKycWorkspace() {
                 />
                 <SettingsRow
                   icon={ShieldCheck}
-                  title="Scopes"
+                  title="Data to share"
                   description={selectedScopeLabels(selected).join(", ") || selected.requested_scope || "-"}
                 />
                 <SettingsRow
@@ -782,8 +744,8 @@ function OneKycWorkspace() {
               {selected.status === "needs_scope" ? (
                 <SettingsGroup
                   embedded
-                  title="Recommended scopes"
-                  description="Confirm the workflow scopes before any encrypted export is prepared."
+                  title="Recommended data"
+                  description="Confirm what One should request before any encrypted export is prepared."
                 >
                   {scopeCandidates(selected).map((candidate) => {
                     const checked = selectedScopesForWorkflow(
@@ -883,7 +845,7 @@ function OneKycWorkspace() {
               ) : null}
 
               {selected.last_error_message ? (
-                <SettingsGroup embedded title="Workflow issue">
+                <SettingsGroup embedded title="Request issue">
                   <SettingsRow
                     icon={AlertTriangle}
                     title="Attention needed"
@@ -968,7 +930,7 @@ function OneKycWorkspace() {
           open={aliasPanelOpen}
           onOpenChange={setAliasPanelOpen}
           title="Verified emails"
-          description="Add addresses brokers already use so One can match requests without extra work."
+          description="Add addresses people already use so One can match requests without extra work."
         >
           <div className="space-y-4">
             <SettingsGroup embedded title="Ready to match">
@@ -987,7 +949,7 @@ function OneKycWorkspace() {
                 <SettingsRow
                   icon={MailPlus}
                   title="No verified emails yet"
-                  description="Add the email address your broker uses for KYC requests."
+                  description="Add the email address people already use for requests."
                 />
               )}
             </SettingsGroup>
@@ -1013,7 +975,7 @@ function OneKycWorkspace() {
               description={
                 aliasChallenge
                   ? `Use the code sent for ${aliasChallenge.email}.`
-                  : "Use an address where brokers may send KYC requests."
+                  : "Use an address where people may send requests."
               }
             >
               <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
