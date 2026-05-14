@@ -31,8 +31,7 @@ import {
   type RiaClientListResponse,
 } from "@/lib/services/ria-service";
 import { cn } from "@/lib/utils";
-import { RiaCompatibilityState } from "@/components/ria/ria-page-shell";
-import { RiaVerificationGate } from "@/components/ria/ria-verification-gate";
+import { RiaCompatibilityState, RiaVerificationGate } from "@/components/ria/ria-page-shell";
 
 type ClientListItem = RiaClientAccess & {
   isTestProfile?: boolean;
@@ -170,16 +169,24 @@ export default function RiaClientsPage() {
               ) : clientItems.length === 0 ? (
                 <div className="space-y-3 px-4 py-8 text-center">
                   <p className="text-sm text-muted-foreground">No connected investors yet.</p>
-                  <Button variant="none" effect="fade" size="sm" onClick={() => router.push(ROUTES.MARKETPLACE)}>
+                  <Button 
+                    variant="none" 
+                    effect="fade" 
+                    size="sm" 
+                    data-voice-control-id="ria_clients_browse_marketplace"
+                    onClick={() => router.push(ROUTES.MARKETPLACE)}
+                  >
                     Browse the marketplace
                   </Button>
                 </div>
               ) : (
                 <>
-                  {clientItems.map((client) => (
+                  {clientItems.map((client, index) => (
                     <button
                       key={client.id}
                       type="button"
+                      data-voice-control-id={`ria_clients_client_row_${index + 1}`}
+                      data-testid={client.isTestProfile ? "ria-client-test-profile" : undefined}
                       onClick={() =>
                         router.push(
                           buildRiaClientWorkspaceRoute(client.investor_user_id || "", {
@@ -222,6 +229,7 @@ export default function RiaClientsPage() {
                     </button>
                   ))}
 
+                  {/* --- YOUR PAGINATION FOOTER (The core of this PR) --- */}
                   <div className="mt-2 border-t border-border/40 bg-muted/5 px-4 py-3">
                     <PaginationFooter
                       currentPage={1}
