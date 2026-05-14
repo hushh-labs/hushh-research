@@ -2310,10 +2310,15 @@ class PKMAgentLabService:
         segment_ids = sorted({path.get("segment_id") or "root" for path in paths}) or ["root"]
         scope_registry = []
         for scope_path in top_level_scope_paths:
+            scope_description = (
+                f"{cls._titleize_path(domain)} memory scoped to "
+                f"{cls._titleize_path(scope_path).lower()}."
+            )
             scope_registry.append(
                 {
                     "scope_handle": f"s_{hashlib.sha256(f'{user_id}:{domain}:{scope_path}'.encode('utf-8')).hexdigest()[:12]}",
                     "scope_label": cls._titleize_path(scope_path),
+                    "description": scope_description,
                     "segment_ids": sorted(
                         {
                             path.get("segment_id") or "root"
@@ -2332,7 +2337,10 @@ class PKMAgentLabService:
                     else "confidential",
                     "scope_kind": "subtree",
                     "exposure_enabled": True,
-                    "summary_projection": {"top_level_scope_path": scope_path},
+                    "summary_projection": {
+                        "top_level_scope_path": scope_path,
+                        "description": scope_description,
+                    },
                 }
             )
         for entry in scope_registry:

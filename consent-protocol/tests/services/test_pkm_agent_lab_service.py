@@ -787,3 +787,40 @@ async def test_generate_structure_preview_dedupes_inflight_requests(monkeypatch)
     assert first["structure_decision"]["target_domain"] == "travel"
     assert second["structure_decision"]["target_domain"] == "travel"
     assert preview_stub.await_count == 1
+
+
+def test_manifest_scope_registry_includes_descriptions_for_memory_writes():
+    manifest = PKMAgentLabService._build_manifest_from_payload(
+        user_id="user_123",
+        domain="food",
+        payload={
+            "preferences": {
+                "entities": {
+                    "mem_food_pref": {
+                        "summary": "Prefers Cantonese menus.",
+                    }
+                }
+            }
+        },
+        structure_decision={
+            "action": "create_domain",
+            "target_domain": "food",
+            "json_paths": [
+                "preferences",
+                "preferences.entities",
+                "preferences.entities.mem_food_pref",
+            ],
+            "top_level_scope_paths": ["preferences"],
+            "externalizable_paths": ["preferences"],
+            "summary_projection": {},
+            "sensitivity_labels": {},
+            "confidence": 0.91,
+            "source_agent": "pkm_structure_agent",
+            "contract_version": 1,
+        },
+    )
+
+    assert manifest["scope_registry"]
+    scope = manifest["scope_registry"][0]
+    assert scope["description"] == "Food memory scoped to preferences."
+    assert scope["summary_projection"]["description"] == scope["description"]

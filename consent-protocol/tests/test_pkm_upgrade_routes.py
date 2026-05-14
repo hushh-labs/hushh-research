@@ -402,6 +402,112 @@ def test_validate_store_domain_route_accepts_payload_without_writing(monkeypatch
     assert "without saving it" in payload["message"]
 
 
+def test_validate_store_domain_rejects_memory_write_missing_scope_description(monkeypatch):
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/pkm/store-domain/validate",
+        json={
+            "user_id": "user_123",
+            "domain": "food",
+            "encrypted_blob": {
+                "ciphertext": "cipher",
+                "iv": "iv",
+                "tag": "tag",
+                "algorithm": "aes-256-gcm",
+            },
+            "summary": {"item_count": 1},
+            "structure_decision": {
+                "action": "create_domain",
+                "target_domain": "food",
+                "json_paths": ["preferences"],
+                "top_level_scope_paths": ["preferences"],
+                "externalizable_paths": ["preferences"],
+                "summary_projection": {},
+                "sensitivity_labels": {},
+                "confidence": 0.91,
+                "source_agent": "pkm_structure_agent",
+                "contract_version": 1,
+            },
+            "manifest": {
+                "domain": "food",
+                "manifest_version": 1,
+                "summary_projection": {},
+                "top_level_scope_paths": ["preferences"],
+                "externalizable_paths": ["preferences"],
+                "paths": [],
+                "scope_registry": [
+                    {
+                        "scope_handle": "s_food_preferences",
+                        "scope_label": "Preferences",
+                        "segment_ids": ["preferences"],
+                        "exposure_enabled": True,
+                        "summary_projection": {
+                            "top_level_scope_path": "preferences",
+                        },
+                    }
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["code"] == "PKM_SCOPE_METADATA_DESCRIPTION_REQUIRED"
+    assert detail["errors"][0]["loc"] == ["manifest", "scope_registry", 0, "description"]
+
+
+def test_validate_store_domain_accepts_memory_write_scope_description(monkeypatch):
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/pkm/store-domain/validate",
+        json={
+            "user_id": "user_123",
+            "domain": "food",
+            "encrypted_blob": {
+                "ciphertext": "cipher",
+                "iv": "iv",
+                "tag": "tag",
+                "algorithm": "aes-256-gcm",
+            },
+            "summary": {"item_count": 1},
+            "structure_decision": {
+                "action": "create_domain",
+                "target_domain": "food",
+                "json_paths": ["preferences"],
+                "top_level_scope_paths": ["preferences"],
+                "externalizable_paths": ["preferences"],
+                "summary_projection": {},
+                "sensitivity_labels": {},
+                "confidence": 0.91,
+                "source_agent": "pkm_structure_agent",
+                "contract_version": 1,
+            },
+            "manifest": {
+                "domain": "food",
+                "manifest_version": 1,
+                "summary_projection": {},
+                "top_level_scope_paths": ["preferences"],
+                "externalizable_paths": ["preferences"],
+                "paths": [],
+                "scope_registry": [
+                    {
+                        "scope_handle": "s_food_preferences",
+                        "scope_label": "Preferences",
+                        "description": "Food memory scoped to preferences.",
+                        "segment_ids": ["preferences"],
+                        "exposure_enabled": True,
+                        "summary_projection": {
+                            "top_level_scope_path": "preferences",
+                        },
+                    }
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+
+
 def test_canonical_pkm_router_exposes_upgrade_status(monkeypatch):
     class _FakeUpgradeService:
         async def build_status(self, user_id: str):
