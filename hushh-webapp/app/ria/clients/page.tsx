@@ -222,7 +222,6 @@ export default function RiaClientsPage() {
                     </button>
                   ))}
 
-                  {/* --- PROOF OF REACHABILITY --- */}
                   <div className="mt-2 border-t border-border/40 bg-muted/5 px-4 py-3">
                     <PaginationFooter
                       currentPage={1}
