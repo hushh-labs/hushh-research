@@ -73,6 +73,19 @@ CANONICAL_BUNDLES: dict[str, ScopeBundle] = {
             "attr.shopping.*",
         ),
     ),
+    "kyc_workflow": ScopeBundle(
+        bundle_key="kyc_workflow",
+        label="KYC Workflow",
+        description="Identity workflow processing, approval-gated drafts, and structured PKM writeback",
+        icon_name="id-card",
+        color_hex="#6366F1",
+        scopes=(
+            "agent.kyc.process",
+            "agent.kyc.draft",
+            "agent.kyc.writeback",
+            "pkm.write",
+        ),
+    ),
 }
 
 

@@ -16,11 +16,25 @@ const hotGet = createHotGetJsonCache({
   staleTtlMs: 5 * 60 * 1000,
 });
 
+function buildFallbackSummary(actor: string) {
+  return {
+    user_id: "",
+    actor: actor === "ria" ? "ria" : "investor",
+    counts: {
+      pending: 0,
+      active: 0,
+      previous: 0,
+    },
+    degraded: true,
+  };
+}
+
 export async function GET(request: NextRequest) {
   const requestId = resolveRequestId(request);
   const authHeader = request.headers.get("authorization") || "";
   const targetUrl = `${getPythonApiUrl()}/api/consent/center/summary${request.nextUrl.search}`;
   const hotCacheKey = authHeader ? `${request.nextUrl.search}:${authHeader}` : null;
+  const actor = request.nextUrl.searchParams.get("actor") || "investor";
 
   if (hotCacheKey) {
     const cached = hotGet.read(hotCacheKey);
@@ -61,6 +75,7 @@ export async function GET(request: NextRequest) {
       if (stale) {
         return withRequestIdJson(requestId, stale.payload, { status: stale.status });
       }
+      return withRequestIdJson(requestId, buildFallbackSummary(actor), { status: 200 });
     }
     return withRequestIdJson(requestId, result.payload, { status: result.status });
   } catch (error) {
@@ -71,11 +86,7 @@ export async function GET(request: NextRequest) {
         return withRequestIdJson(requestId, stale.payload, { status: stale.status });
       }
     }
-    return withRequestIdJson(
-      requestId,
-      { error: "Failed to load consent center summary" },
-      { status: 500 }
-    );
+    return withRequestIdJson(requestId, buildFallbackSummary(actor), { status: 200 });
   } finally {
     if (hotCacheKey) {
       hotGet.clearInflight(hotCacheKey);

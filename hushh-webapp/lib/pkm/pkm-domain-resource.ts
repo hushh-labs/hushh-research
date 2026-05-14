@@ -1,6 +1,7 @@
 "use client";
 
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
+import { logRequestAudit } from "@/lib/cache/request-audit-log";
 import {
   type EncryptedDomainBlob,
   PersonalKnowledgeModelService,
@@ -69,7 +70,7 @@ function toDeviceResourceKey(params: { domain: string; segmentIds?: string[] }):
 }
 
 function logRequest(stage: string, detail: Record<string, unknown>): void {
-  console.info(`[RequestAudit:pkm_domain_resource] ${stage}`, detail);
+  logRequestAudit("pkm_domain_resource", stage, detail);
 }
 
 function buildSnapshot(params: {

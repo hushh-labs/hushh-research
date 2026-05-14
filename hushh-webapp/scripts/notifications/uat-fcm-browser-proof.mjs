@@ -6,6 +6,10 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { chromium } from "playwright";
+import {
+  defaultReviewerIdentityEnvFiles,
+  resolveReviewerTestIdentity,
+} from "../testing/reviewer-test-identity.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,7 +69,14 @@ async function main() {
   );
   const startUrl = process.env.HUSHH_UAT_START_URL || `${origin}/login`;
   const requestUrl = process.env.HUSHH_UAT_NOTIFICATION_TARGET || `${origin}/consents?tab=pending`;
-  const passphrase = process.env.HUSHH_KAI_TEST_PASSPHRASE || "test#123";
+  const reviewerIdentity = resolveReviewerTestIdentity({
+    envFiles: defaultReviewerIdentityEnvFiles({
+      repoRoot,
+      webDir: path.join(repoRoot, "hushh-webapp"),
+    }),
+  });
+  const passphrase = reviewerIdentity.reviewerVaultPassphrase;
+  const reviewerUid = reviewerIdentity.reviewerUid;
   const protocolEnv =
     process.env.HUSHH_PROTOCOL_ENV || path.join(repoRoot, "consent-protocol", ".env");
   const webEnv =
@@ -104,6 +115,18 @@ async function main() {
         });
       }
     });
+    await context.addInitScript(
+      ({ expectedUserId, vaultPassphrase }) => {
+        window.__HUSHH_NATIVE_TEST__ = {
+          ...(window.__HUSHH_NATIVE_TEST__ || {}),
+          enabled: true,
+          autoReviewerLogin: true,
+          expectedUserId,
+          vaultPassphrase,
+        };
+      },
+      { expectedUserId: reviewerUid, vaultPassphrase: passphrase }
+    );
 
     const page = context.pages()[0] || (await context.newPage());
     const consoleLogs = [];
@@ -124,13 +147,18 @@ async function main() {
     });
 
     await page.goto(startUrl, { waitUntil: "networkidle" });
-    await page.getByRole("button", { name: /continue as reviewer/i }).click();
+    const reviewerButton = page.getByRole("button", { name: /continue as reviewer/i });
+    if (await reviewerButton.isVisible().catch(() => false)) {
+      await reviewerButton.click();
+    }
 
     const unlockInput = page.locator("#unlock-passphrase");
-    await unlockInput.waitFor({ state: "visible", timeout: 60000 });
-    await unlockInput.fill(passphrase);
-    await page.getByRole("button", { name: /unlock with passphrase/i }).click();
-    await unlockInput.waitFor({ state: "hidden", timeout: 60000 });
+    await unlockInput.waitFor({ state: "visible", timeout: 60000 }).catch(() => {});
+    if (await unlockInput.isVisible().catch(() => false)) {
+      await unlockInput.fill(passphrase);
+      await page.getByRole("button", { name: /unlock with passphrase/i }).click();
+      await unlockInput.waitFor({ state: "hidden", timeout: 60000 });
+    }
 
     await page.waitForFunction(() => Notification.permission === "granted", undefined, {
       timeout: 30000,

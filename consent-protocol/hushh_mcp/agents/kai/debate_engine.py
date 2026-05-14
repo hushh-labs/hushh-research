@@ -1048,7 +1048,20 @@ class DebateEngine:
                     f"{agent_id.capitalize()} agent dissents: recommends {vote}"
                 )
 
-        # Generate final statement
+        # If no consensus and low confidence, explain the disagreement
+        # deterministically without adding another LLM call to the decision path.
+        if not consensus_reached and confidence < 0.60:
+            logger.info(
+                "[Conflict Resolution] Low confidence detected. Adding deterministic dissent summary."
+            )
+            conflict_summary = self._build_conflict_summary(
+                fundamental,
+                sentiment,
+                valuation,
+            )
+            if conflict_summary:
+                dissenting_opinions.append(conflict_summary)
+
         final_statement = self._generate_final_statement(
             decision, confidence, consensus_reached, dissenting_opinions
         )
@@ -1080,7 +1093,6 @@ class DebateEngine:
         valuation: ValuationInsight,
     ) -> tuple[DecisionType, float]:
         """Calculate weighted decision based on risk profile."""
-
         # Convert recommendations to numeric scores
         scores = {
             "fundamental": self._rec_to_score(fundamental.recommendation),
@@ -1168,6 +1180,67 @@ class DebateEngine:
             return -1.0
         else:
             return 0.0
+
+    def _build_conflict_summary(
+        self,
+        fundamental: FundamentalInsight,
+        sentiment: SentimentInsight,
+        valuation: ValuationInsight,
+    ) -> Optional[str]:
+        """Summarize the strongest disagreement without changing the final decision."""
+        insights = {
+            "fundamental": fundamental,
+            "sentiment": sentiment,
+            "valuation": valuation,
+        }
+        scores = {
+            agent_id: self._rec_to_score(insight.recommendation)
+            for agent_id, insight in insights.items()
+        }
+        agent_ids = list(scores.keys())
+        pair = (agent_ids[0], agent_ids[1])
+        max_gap = -1.0
+
+        for i in range(len(agent_ids)):
+            for j in range(i + 1, len(agent_ids)):
+                gap = abs(scores[agent_ids[i]] - scores[agent_ids[j]])
+                if gap > max_gap:
+                    max_gap = gap
+                    pair = (agent_ids[i], agent_ids[j])
+
+        if max_gap == 0:
+            pair = tuple(
+                sorted(
+                    agent_ids,
+                    key=lambda agent_id: len(str(insights[agent_id].summary or "")),
+                    reverse=True,
+                )[:2]
+            )
+
+        first_id, second_id = pair
+        first = insights[first_id]
+        second = insights[second_id]
+        first_summary = self._summarize_conflict_evidence(first_id, first)
+        second_summary = self._summarize_conflict_evidence(second_id, second)
+
+        return (
+            "Conflict evidence: "
+            f"{first_id} recommends {first.recommendation} while "
+            f"{second_id} recommends {second.recommendation}. "
+            f"{first_summary} {second_summary} "
+            "Kai is preserving lower confidence until the source evidence converges."
+        )
+
+    def _summarize_conflict_evidence(
+        self,
+        agent_id: str,
+        insight: FundamentalInsight | SentimentInsight | ValuationInsight,
+    ) -> str:
+        text = self.current_statements.get(agent_id) or insight.summary or "No summary provided."
+        text = " ".join(str(text).split())
+        if len(text) > 140:
+            text = f"{text[:137].rstrip()}..."
+        return f"{agent_id.capitalize()} evidence: {text}"
 
     def _generate_final_statement(
         self,

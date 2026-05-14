@@ -1,6 +1,7 @@
 package com.hushh.app.plugins.HushhAuth
 
 import android.content.Intent
+import android.util.Base64
 import android.util.Log
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -265,15 +266,7 @@ class HushhAuthPlugin : Plugin() {
     }
 
     private fun resolveFromStorage(call: PluginCall) {
-        // Try memory
-        currentIdToken?.let {
-            call.resolve(JSObject().put("idToken", it))
-            return
-        }
-
-        // Try storage
-        loadIdTokenFromSecureStorage()?.let {
-            currentIdToken = it
+        currentUsableIdToken()?.let {
             call.resolve(JSObject().put("idToken", it))
             return
         }
@@ -319,10 +312,8 @@ class HushhAuthPlugin : Plugin() {
 
     @PluginMethod
     fun isSignedIn(call: PluginCall) {
-        val signedIn = firebaseAuth.currentUser != null || 
-                       GoogleSignIn.getLastSignedInAccount(context) != null ||
-                       currentIdToken != null ||
-                       loadIdTokenFromSecureStorage() != null
+        val signedIn = firebaseAuth.currentUser != null ||
+                       (currentUsableIdToken() != null && loadUserFromSecureStorage() != null)
 
         call.resolve(JSObject().put("signedIn", signedIn))
     }
@@ -463,11 +454,42 @@ class HushhAuthPlugin : Plugin() {
         }
     }
 
+    private fun decodeJwtPayload(token: String): JSONObject? {
+        val parts = token.split(".")
+        if (parts.size < 2) return null
+        return try {
+            val payload = String(Base64.decode(parts[1], Base64.URL_SAFE or Base64.NO_WRAP))
+            JSONObject(payload)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun isUsableIdToken(token: String?): Boolean {
+        if (token.isNullOrBlank()) return false
+        val payload = decodeJwtPayload(token) ?: return false
+        val expiresAtSeconds = payload.optLong("exp", 0L)
+        if (expiresAtSeconds <= 0L) return false
+        val minRemainingMs = System.currentTimeMillis() + 60_000
+        return expiresAtSeconds * 1000 > minRemainingMs
+    }
+
+    private fun currentUsableIdToken(): String? {
+        val inMemory = currentIdToken
+        if (isUsableIdToken(inMemory)) {
+            return inMemory
+        }
+
+        val stored = getEncryptedPrefs()?.getString("id_token", null)
+        return if (isUsableIdToken(stored)) stored else null
+    }
+
     private fun loadIdTokenFromSecureStorage(): String? {
-        return getEncryptedPrefs()?.getString("id_token", null)
+        return currentUsableIdToken()
     }
 
     private fun loadUserFromSecureStorage(): AuthUser? {
+        if (currentUsableIdToken() == null) return null
         val prefs = getEncryptedPrefs() ?: return null
         val id = prefs.getString("user_id", null) ?: return null
         return AuthUser(

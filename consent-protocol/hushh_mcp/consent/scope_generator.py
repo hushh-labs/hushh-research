@@ -34,6 +34,11 @@ class DynamicScopeGenerator:
 
     SCOPE_PREFIX = "attr."
     WILDCARD_SUFFIX = ".*"
+    _STRUCTURAL_TOP_LEVEL_SCOPE_PATHS = {
+        "domain_intent",
+        "schema_version",
+        "updated_at",
+    }
 
     def __init__(self):
         self._supabase = None
@@ -166,6 +171,38 @@ class DynamicScopeGenerator:
                 if cls._normalize_domain_key(domain)
             }
         )
+
+    @classmethod
+    def _scope_visibility_metadata(
+        cls,
+        *,
+        top_level_path: str | None,
+        summary_projection: dict | None = None,
+    ) -> dict[str, object]:
+        projection = dict(summary_projection or {})
+        normalized_path = cls._normalize_scope_path(
+            projection.get("top_level_scope_path") or top_level_path
+        )
+        consumer_visible = (
+            bool(normalized_path) and normalized_path not in cls._STRUCTURAL_TOP_LEVEL_SCOPE_PATHS
+        )
+        return {
+            "top_level_scope_path": normalized_path,
+            "consumer_visible": bool(
+                projection.get("consumer_visible")
+                if isinstance(projection.get("consumer_visible"), bool)
+                else consumer_visible
+            ),
+            "internal_only": bool(
+                projection.get("internal_only")
+                if isinstance(projection.get("internal_only"), bool)
+                else not consumer_visible
+            ),
+            "visibility_reason": str(
+                projection.get("visibility_reason")
+                or ("consumer_shareable" if consumer_visible else "structural_top_level_path")
+            ).strip(),
+        }
 
     async def _get_legacy_scope_catalog(self, user_id: str) -> dict[str, dict[str, set[str]]]:
         result = (
@@ -350,8 +387,8 @@ class DynamicScopeGenerator:
         registry_rows = registry_result.data or []
 
         registry_by_top_level: dict[tuple[str, str], dict[str, object]] = {}
-        enabled_top_levels_by_domain: dict[str, set[str]] = {}
-        all_top_levels_by_domain: dict[str, set[str]] = {}
+        enabled_consumer_top_levels_by_domain: dict[str, set[str]] = {}
+        all_consumer_top_levels_by_domain: dict[str, set[str]] = {}
         known_domains = set(index_domains)
         for row in manifest_rows:
             if not isinstance(row, dict):
@@ -372,24 +409,36 @@ class DynamicScopeGenerator:
             if domain:
                 known_domains.add(domain)
             summary_projection = self._coerce_json_dict(row.get("summary_projection"))
-            top_level_path = self._normalize_scope_path(
-                summary_projection.get("top_level_scope_path")
+            visibility = self._scope_visibility_metadata(
+                top_level_path=summary_projection.get("top_level_scope_path"),
+                summary_projection=summary_projection,
             )
+            top_level_path = self._normalize_scope_path(visibility.get("top_level_scope_path"))
             if domain and top_level_path:
-                all_top_levels_by_domain.setdefault(domain, set()).add(top_level_path)
-                if row.get("exposure_enabled") is not False:
-                    enabled_top_levels_by_domain.setdefault(domain, set()).add(top_level_path)
+                if (
+                    visibility.get("consumer_visible") is not False
+                    and visibility.get("internal_only") is not True
+                ):
+                    all_consumer_top_levels_by_domain.setdefault(domain, set()).add(top_level_path)
+                    if row.get("exposure_enabled") is not False:
+                        enabled_consumer_top_levels_by_domain.setdefault(domain, set()).add(
+                            top_level_path
+                        )
                 registry_by_top_level[(domain, top_level_path)] = {
                     "registry_handle": str(row.get("scope_handle") or "").strip() or None,
                     "label": str(row.get("scope_label") or "").strip() or None,
                     "manifest_revision": row.get("manifest_version"),
                     "source_kind": "pkm_scope_registry",
                     "exposure_enabled": row.get("exposure_enabled") is not False,
+                    "consumer_visible": visibility.get("consumer_visible") is not False,
+                    "internal_only": visibility.get("internal_only") is True,
+                    "visibility_reason": visibility.get("visibility_reason"),
+                    "top_level_scope_path": top_level_path,
                 }
 
         for domain in sorted(known_domains):
-            domain_top_levels = all_top_levels_by_domain.get(domain, set())
-            enabled_top_levels = enabled_top_levels_by_domain.get(domain, set())
+            domain_top_levels = all_consumer_top_levels_by_domain.get(domain, set())
+            enabled_top_levels = enabled_consumer_top_levels_by_domain.get(domain, set())
             if domain_top_levels and enabled_top_levels != domain_top_levels:
                 continue
             _upsert_scope_entry(
@@ -404,6 +453,9 @@ class DynamicScopeGenerator:
                     "exposure_eligibility": True,
                     "manifest_revision": None,
                     "meta_reference": "domain wildcard derived from discovered PKM domains",
+                    "consumer_visible": True,
+                    "internal_only": False,
+                    "visibility_reason": "consumer_shareable",
                 }
             )
 
@@ -436,6 +488,9 @@ class DynamicScopeGenerator:
                         "manifest_revision": registry_meta.get("manifest_revision")
                         or manifest_version,
                         "meta_reference": "manifest top-level scope path",
+                        "consumer_visible": registry_meta.get("consumer_visible") is not False,
+                        "internal_only": registry_meta.get("internal_only") is True,
+                        "visibility_reason": registry_meta.get("visibility_reason"),
                     }
                 )
             for raw_path in row.get("externalizable_paths") or []:
@@ -460,6 +515,9 @@ class DynamicScopeGenerator:
                         "manifest_revision": registry_meta.get("manifest_revision")
                         or manifest_version,
                         "meta_reference": "externalizable manifest path",
+                        "consumer_visible": registry_meta.get("consumer_visible") is not False,
+                        "internal_only": registry_meta.get("internal_only") is True,
+                        "visibility_reason": registry_meta.get("visibility_reason"),
                     }
                 )
 
@@ -491,6 +549,9 @@ class DynamicScopeGenerator:
                     "exposure_eligibility": True,
                     "manifest_revision": registry_meta.get("manifest_revision"),
                     "meta_reference": "manifest path row marked exposure eligible",
+                    "consumer_visible": registry_meta.get("consumer_visible") is not False,
+                    "internal_only": registry_meta.get("internal_only") is True,
+                    "visibility_reason": registry_meta.get("visibility_reason"),
                 }
             )
 
@@ -511,6 +572,9 @@ class DynamicScopeGenerator:
                     "exposure_eligibility": True,
                     "manifest_revision": None,
                     "meta_reference": "legacy metadata fallback domain wildcard",
+                    "consumer_visible": True,
+                    "internal_only": False,
+                    "visibility_reason": "consumer_shareable",
                 }
             )
             for path in sorted(entry.get("wildcards", set())):
@@ -526,6 +590,9 @@ class DynamicScopeGenerator:
                         "exposure_eligibility": True,
                         "manifest_revision": None,
                         "meta_reference": "legacy metadata fallback wildcard path",
+                        "consumer_visible": True,
+                        "internal_only": False,
+                        "visibility_reason": "consumer_shareable",
                     }
                 )
             for path in sorted(entry.get("paths", set())):
@@ -541,6 +608,9 @@ class DynamicScopeGenerator:
                         "exposure_eligibility": True,
                         "manifest_revision": None,
                         "meta_reference": "legacy metadata fallback exact path",
+                        "consumer_visible": True,
+                        "internal_only": False,
+                        "visibility_reason": "consumer_shareable",
                     }
                 )
         return [entries[scope] for scope in sorted(entries)]
@@ -634,7 +704,13 @@ class DynamicScopeGenerator:
             logger.error(f"Error validating scope {scope}: {e}")
             return False
 
-    async def get_available_scopes(self, user_id: str) -> list[str]:
+    async def get_available_scopes(
+        self,
+        user_id: str,
+        *,
+        include_internal: bool = False,
+        include_exact_paths: bool = False,
+    ) -> list[str]:
         """
         Get all valid consent scopes for a user from manifest-backed discovery.
 
@@ -647,6 +723,12 @@ class DynamicScopeGenerator:
         try:
             scopes: set[str] = {"pkm.read"}
             for entry in await self.get_available_scope_entries(user_id):
+                if not include_internal and (
+                    entry.get("internal_only") is True or entry.get("consumer_visible") is False
+                ):
+                    continue
+                if not include_exact_paths and entry.get("wildcard") is not True:
+                    continue
                 scope = str(entry.get("scope") or "").strip()
                 if scope:
                     scopes.add(scope)
@@ -655,7 +737,9 @@ class DynamicScopeGenerator:
             logger.error(f"Error getting available scopes for {user_id}: {e}")
             return []
 
-    async def get_available_wildcards(self, user_id: str) -> list[str]:
+    async def get_available_wildcards(
+        self, user_id: str, *, include_internal: bool = False
+    ) -> list[str]:
         """
         Get all valid wildcard scopes for a user from PKM index metadata.
 
@@ -665,7 +749,11 @@ class DynamicScopeGenerator:
         Returns:
             List of wildcard scope strings
         """
-        scopes = await self.get_available_scopes(user_id)
+        scopes = await self.get_available_scopes(
+            user_id,
+            include_internal=include_internal,
+            include_exact_paths=False,
+        )
         return sorted(
             scope for scope in scopes if scope == "pkm.read" or scope.endswith(self.WILDCARD_SUFFIX)
         )

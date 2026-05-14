@@ -3,7 +3,7 @@ name: frontend-surface-placement
 description: Use when deciding whether frontend code belongs in Morphy UX, app-ui, or a feature folder inside the frontend owner family.
 ---
 
-# Hushh Frontend Surface Placement Skill
+# Hussh Frontend Surface Placement Skill
 
 ## Purpose and Trigger
 

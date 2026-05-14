@@ -1,6 +1,16 @@
 import { ApiService } from "@/lib/services/api-service";
+import { logRequestAudit } from "@/lib/cache/request-audit-log";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
+import {
+  trackEvent,
+  toEventResult,
+  toStatusBucket,
+} from "@/lib/observability/client";
+import {
+  resolveGrowthWorkspaceSource,
+  trackGrowthFunnelStepCompleted,
+} from "@/lib/observability/growth";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 
@@ -14,7 +24,6 @@ export interface PersonaState {
   primary_nav_persona: Persona;
   ria_setup_available: boolean;
   ria_switch_available: boolean;
-  dev_ria_bypass_allowed: boolean;
   investor_marketplace_opt_in: boolean;
   iam_schema_ready: boolean;
   mode: "full" | "compat_investor";
@@ -52,10 +61,10 @@ export interface RiaOnboardingStatus {
   exists: boolean;
   ria_profile_id?: string;
   verification_status: string;
+  verification_provider?: string;
   advisory_status?: string;
   brokerage_status?: string;
   requested_capabilities?: string[];
-  dev_ria_bypass_allowed?: boolean;
   display_name?: string;
   individual_legal_name?: string | null;
   individual_crd?: string | null;
@@ -84,6 +93,18 @@ export interface RiaOnboardingStatus {
     expires_at?: string | null;
     reference_metadata?: Record<string, unknown>;
   } | null;
+}
+
+export interface RiaNameVerificationResult {
+  status: "verified" | "not_verified" | "provider_unavailable";
+  matched_name?: string | null;
+  crd_number?: string | null;
+  current_firm?: string | null;
+  sec_number?: string | null;
+  reason?: string | null;
+  reason_code?: "query_too_broad" | "no_confident_match";
+  suggested_names?: string[];
+  provider: string;
 }
 
 export interface RiaFirmMembership {
@@ -479,6 +500,7 @@ interface FetchOptions {
   method: "GET" | "POST";
   body?: Record<string, unknown>;
   idToken?: string;
+  signal?: AbortSignal;
 }
 
 interface CachedReadOptions {
@@ -757,6 +779,7 @@ async function authFetch(path: string, options: FetchOptions): Promise<Response>
     method: options.method,
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
+    signal: options.signal,
   });
 }
 
@@ -765,7 +788,7 @@ export class RiaService {
   private static readonly DEVICE_TTL_MS = CACHE_TTL.MEDIUM;
 
   private static logRequest(stage: string, detail: Record<string, unknown>): void {
-    console.info(`[RequestAudit:ria_resource] ${stage}`, detail);
+    logRequestAudit("ria_resource", stage, detail);
   }
 
   private static readCached<T>(key: string, force?: boolean): T | null {
@@ -1009,6 +1032,12 @@ export class RiaService {
     brokerage_outcome: string;
     brokerage_message: string;
     professional_access_granted: boolean;
+    individual_legal_name?: string | null;
+    individual_crd?: string | null;
+    advisory_firm_legal_name?: string | null;
+    advisory_firm_iapd_number?: string | null;
+    broker_firm_legal_name?: string | null;
+    broker_firm_crd?: string | null;
   }> {
     const response = await authFetch("/api/ria/onboarding/submit", {
       method: "POST",
@@ -1016,6 +1045,20 @@ export class RiaService {
       body: payload,
     });
     return toJsonOrThrow(response);
+  }
+
+  static async verifyOnboardingName(
+    idToken: string,
+    payload: { query: string },
+    options?: { signal?: AbortSignal }
+  ): Promise<RiaNameVerificationResult> {
+    const response = await authFetch("/api/ria/onboarding/verify-name", {
+      method: "POST",
+      idToken,
+      body: payload,
+      signal: options?.signal,
+    });
+    return toJsonOrThrow<RiaNameVerificationResult>(response);
   }
 
   static async getOnboardingStatus(
@@ -1041,43 +1084,6 @@ export class RiaService {
         return toJsonOrThrow<RiaOnboardingStatus>(response);
       },
     });
-  }
-
-  static async activateDevRia(
-    idToken: string,
-    payload: {
-      display_name: string;
-      requested_capabilities: string[];
-      individual_legal_name?: string;
-      individual_crd?: string;
-      advisory_firm_legal_name?: string;
-      advisory_firm_iapd_number?: string;
-      broker_firm_legal_name?: string;
-      broker_firm_crd?: string;
-      bio?: string;
-      strategy?: string;
-      disclosures_url?: string;
-      primary_firm_role?: string;
-    }
-  ): Promise<{
-    ria_profile_id: string;
-    verification_status: string;
-    verification_provider?: string;
-    advisory_status: string;
-    brokerage_status: string;
-    requested_capabilities: string[];
-    verification_outcome: string;
-    verification_message: string;
-    brokerage_outcome: string;
-    brokerage_message: string;
-    professional_access_granted: boolean;
-  }> {
-    const response = await authFetch("/api/ria/onboarding/dev-activate", {
-      method: "POST",
-      idToken,
-      body: payload,
-    });
-    return toJsonOrThrow(response);
   }
 
   static async listFirms(idToken: string): Promise<RiaFirmMembership[]> {
@@ -1314,6 +1320,29 @@ export class RiaService {
       idToken,
       body: payload,
     });
+    const statusBucket = toStatusBucket(
+      response.status,
+      "POST",
+      "/api/ria/requests"
+    );
+    if (response.ok) {
+      trackEvent("ria_request_created", {
+        result: "success",
+        status_bucket: statusBucket,
+      });
+      trackGrowthFunnelStepCompleted({
+        journey: "ria",
+        step: "request_created",
+        workspaceSource: resolveGrowthWorkspaceSource(
+          typeof window !== "undefined" ? window.location.pathname : ""
+        ),
+      });
+    } else {
+      trackEvent("ria_request_created", {
+        result: toEventResult(statusBucket),
+        status_bucket: statusBucket,
+      });
+    }
     return toJsonOrThrow(response);
   }
 
@@ -1342,6 +1371,29 @@ export class RiaService {
       idToken,
       body: payload,
     });
+    const statusBucket = toStatusBucket(
+      response.status,
+      "POST",
+      "/api/ria/request-bundles"
+    );
+    if (response.ok) {
+      trackEvent("ria_request_created", {
+        result: "success",
+        status_bucket: statusBucket,
+      });
+      trackGrowthFunnelStepCompleted({
+        journey: "ria",
+        step: "request_created",
+        workspaceSource: resolveGrowthWorkspaceSource(
+          typeof window !== "undefined" ? window.location.pathname : ""
+        ),
+      });
+    } else {
+      trackEvent("ria_request_created", {
+        result: toEventResult(statusBucket),
+        status_bucket: statusBucket,
+      });
+    }
     return toJsonOrThrow(response);
   }
 

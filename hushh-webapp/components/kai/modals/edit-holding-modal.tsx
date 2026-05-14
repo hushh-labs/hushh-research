@@ -700,6 +700,8 @@ export function EditHoldingModal({
             </DrawerClose>
             <Button
               onClick={handleSave}
+              variant="none"
+              effect="fill"
               className="flex-1 h-12"
               icon={{ icon: Save, gradient: false }}
             >

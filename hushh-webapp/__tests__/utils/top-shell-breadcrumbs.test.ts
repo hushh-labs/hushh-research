@@ -5,12 +5,12 @@ import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumb
 describe("top shell breadcrumbs", () => {
   it("treats consents as the profile privacy workspace by default", () => {
     expect(resolveTopShellBreadcrumb("/consents")).toEqual({
-      backHref: "/profile?tab=privacy",
+      backHref: "/profile?panel=access",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/profile?tab=privacy" },
-        { label: "Privacy", href: "/profile?tab=privacy" },
+        { label: "Profile", href: "/profile?panel=access" },
+        { label: "Privacy", href: "/profile?panel=access" },
         { label: "Consent center" },
       ],
     });
@@ -25,8 +25,8 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/profile?tab=privacy" },
-        { label: "Privacy", href: "/profile?tab=privacy" },
+        { label: "Profile", href: "/profile?panel=access" },
+        { label: "Privacy", href: "/profile?panel=access" },
         { label: "Consent center" },
       ],
     });
@@ -34,13 +34,56 @@ describe("top shell breadcrumbs", () => {
 
   it("treats the PKM agent lab as a profile privacy surface", () => {
     expect(resolveTopShellBreadcrumb("/profile/pkm-agent-lab")).toEqual({
-      backHref: "/profile?tab=privacy",
+      backHref: "/profile?panel=access",
       width: "profile",
       align: "center",
       items: [
-        { label: "Profile", href: "/profile?tab=privacy" },
-        { label: "Privacy", href: "/profile?tab=privacy" },
+        { label: "Profile", href: "/profile?panel=access" },
+        { label: "Privacy", href: "/profile?panel=access" },
         { label: "PKM Agent" },
+      ],
+    });
+  });
+
+  it("owns profile query-state panels from the shared top bar", () => {
+    const panelParams = new URLSearchParams();
+    panelParams.set("panel", "my-data");
+
+    expect(resolveTopShellBreadcrumb("/profile", panelParams)).toEqual({
+      backHref: "/profile",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/profile" },
+        { label: "My Data", href: undefined },
+      ],
+    });
+
+    const detailParams = new URLSearchParams();
+    detailParams.set("panel", "security");
+    detailParams.set("detail", "vault");
+
+    expect(resolveTopShellBreadcrumb("/profile", detailParams)).toEqual({
+      backHref: "/profile?panel=security",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/profile" },
+        { label: "Security", href: "/profile?panel=security" },
+        { label: "Vault methods" },
+      ],
+    });
+
+    const legacyTabParams = new URLSearchParams();
+    legacyTabParams.set("tab", "preferences");
+
+    expect(resolveTopShellBreadcrumb("/profile", legacyTabParams)).toEqual({
+      backHref: "/profile",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/profile" },
+        { label: "Preferences", href: undefined },
       ],
     });
   });
@@ -57,7 +100,9 @@ describe("top shell breadcrumbs", () => {
       ],
     });
 
-    expect(resolveTopShellBreadcrumb("/ria/clients/user_123/accounts/account_456")).toEqual({
+    expect(
+      resolveTopShellBreadcrumb("/ria/clients/user_123/accounts/account_456"),
+    ).toEqual({
       backHref: "/ria/clients/user_123",
       width: "profile",
       align: "center",
@@ -69,7 +114,9 @@ describe("top shell breadcrumbs", () => {
       ],
     });
 
-    expect(resolveTopShellBreadcrumb("/ria/clients/user_123/requests/request_789")).toEqual({
+    expect(
+      resolveTopShellBreadcrumb("/ria/clients/user_123/requests/request_789"),
+    ).toEqual({
       backHref: "/ria/clients/user_123",
       width: "profile",
       align: "center",

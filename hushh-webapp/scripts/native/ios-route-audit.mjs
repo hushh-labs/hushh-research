@@ -3,121 +3,37 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync, execSync } from "node:child_process";
-import dotenv from "dotenv";
+import {
+  defaultReviewerIdentityEnvFiles,
+  resolveReviewerTestIdentity,
+} from "../testing/reviewer-test-identity.mjs";
 
 const repoRoot = process.cwd();
+const webDir = repoRoot;
+const monorepoRoot = path.resolve(webDir, "..");
 const inventoryPath = path.join(repoRoot, "native-route-inventory.json");
 const reportPath = path.join(repoRoot, "native-ios-parity-report.json");
+const derivedDataPath = path.resolve(
+  repoRoot,
+  process.env.IOS_DERIVED_DATA_PATH || "ios/App/build/DerivedData"
+);
 const appPath =
   process.env.IOS_APP_PATH ||
-  path.join(
-    process.env.HOME || "",
-    "Library/Developer/Xcode/DerivedData/App-gsttmaaoiypjtdgzrlnctebtjvgt/Build/Products/Debug-iphonesimulator/App.app"
-  );
+  path.join(derivedDataPath, "Build/Products/Debug-iphonesimulator/App.app");
 const destination = process.env.IOS_TEST_DESTINATION || "platform=iOS Simulator,name=iPhone 14 Plus";
+const destinationDeviceId = destination.match(/(?:^|,)id=([^,]+)/)?.[1] || "";
+const simulatorDevice = destinationDeviceId || "booted";
 const bundleId = "com.hushh.app";
 const timeoutMs = Number(process.env.IOS_ROUTE_AUDIT_TIMEOUT_MS || "60000");
 const routeFilter = (process.env.IOS_ROUTE_FILTER || "").trim();
 const xcodeProject = "ios/App/App.xcodeproj";
 const xcodeScheme = "App";
 
-function sanitizeConfiguredValue(value) {
-  const normalized = String(value || "").trim();
-  if (!normalized) {
-    return "";
-  }
-  const lower = normalized.toLowerCase();
-  if (
-    lower.includes("replace_with") ||
-    lower.includes("your_") ||
-    lower === "placeholder"
-  ) {
-    return "";
-  }
-  return normalized;
-}
-
-function readRawEnvValue(filePath, key) {
-  if (!fs.existsSync(filePath)) {
-    return "";
-  }
-  const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
-  for (const line of lines) {
-    if (!line.startsWith(`${key}=`)) {
-      continue;
-    }
-    return line.slice(key.length + 1).trim();
-  }
-  return "";
-}
-
-function resolveKaiTestPassphrase() {
-  const direct = sanitizeConfiguredValue(
-    process.env.KAI_TEST_PASSPHRASE || process.env.NEXT_PUBLIC_KAI_TEST_PASSPHRASE || ""
-  );
-  if (direct) {
-    return direct;
-  }
-
-  const envCandidates = [
-    path.join(repoRoot, ".env.local.local"),
-    path.join(repoRoot, "..", "consent-protocol", ".env"),
-    path.join(repoRoot, ".env.local"),
-    path.join(repoRoot, ".env"),
-  ];
-
-  for (const candidate of envCandidates) {
-    if (!fs.existsSync(candidate)) continue;
-    const parsed = dotenv.parse(fs.readFileSync(candidate, "utf8"));
-    const value = sanitizeConfiguredValue(
-      readRawEnvValue(candidate, "KAI_TEST_PASSPHRASE") ||
-        parsed.KAI_TEST_PASSPHRASE ||
-        parsed.NEXT_PUBLIC_KAI_TEST_PASSPHRASE ||
-        ""
-    );
-    if (value) {
-      return value;
-    }
-  }
-
-  return "";
-}
-
-const kaiTestPassphrase = resolveKaiTestPassphrase();
-
-function resolveReviewerUserId() {
-  const direct = sanitizeConfiguredValue(
-    process.env.REVIEWER_UID ||
-    process.env.KAI_TEST_USER_ID ||
-    process.env.NEXT_PUBLIC_KAI_TEST_USER_ID ||
-    ""
-  );
-  if (direct) {
-    return direct;
-  }
-
-  const envCandidates = [
-    path.join(repoRoot, ".env.local.local"),
-    path.join(repoRoot, "..", "consent-protocol", ".env"),
-    path.join(repoRoot, ".env.local"),
-    path.join(repoRoot, ".env"),
-  ];
-
-  for (const candidate of envCandidates) {
-    if (!fs.existsSync(candidate)) continue;
-    const parsed = dotenv.parse(fs.readFileSync(candidate, "utf8"));
-    const value = sanitizeConfiguredValue(
-      parsed.REVIEWER_UID || parsed.KAI_TEST_USER_ID || parsed.NEXT_PUBLIC_KAI_TEST_USER_ID || ""
-    );
-    if (value) {
-      return value;
-    }
-  }
-
-  return "";
-}
-
-const kaiTestUserId = resolveReviewerUserId();
+const reviewerIdentity = resolveReviewerTestIdentity({
+  envFiles: defaultReviewerIdentityEnvFiles({ repoRoot: monorepoRoot, webDir }),
+});
+const reviewerVaultPassphrase = reviewerIdentity.reviewerVaultPassphrase;
+const reviewerUid = reviewerIdentity.reviewerUid;
 
 function run(cmd, args, options = {}) {
   return execFileSync(cmd, args, {
@@ -134,6 +50,16 @@ function tryRun(cmd, args) {
   } catch {
     // Best effort cleanup.
   }
+}
+
+function ensureSimulatorBooted() {
+  if (!destinationDeviceId) {
+    return;
+  }
+  tryRun("xcrun", ["simctl", "boot", destinationDeviceId]);
+  run("xcrun", ["simctl", "bootstatus", destinationDeviceId, "-b"], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 }
 
 function parseStatus(raw) {
@@ -179,9 +105,9 @@ function matchesRoute(parsedRoute, route) {
 }
 
 function launchRoute(route) {
-  tryRun("xcrun", ["simctl", "terminate", "booted", bundleId]);
+  tryRun("xcrun", ["simctl", "terminate", simulatorDevice, bundleId]);
   try {
-    const container = run("xcrun", ["simctl", "get_app_container", "booted", bundleId, "data"]);
+    const container = run("xcrun", ["simctl", "get_app_container", simulatorDevice, bundleId, "data"]);
     const statusPath = path.join(container, "Documents", "native-test-status.txt");
     if (fs.existsSync(statusPath)) {
       fs.unlinkSync(statusPath);
@@ -189,18 +115,15 @@ function launchRoute(route) {
   } catch {
     // Best effort cleanup.
   }
-  const args = ["simctl", "launch", "booted", bundleId, "-UITestMode", "-UITestInitialRoute", route.initialRoute];
+  const args = ["simctl", "launch", simulatorDevice, bundleId, "-UITestMode", "-UITestInitialRoute", route.initialRoute];
   args.push("-UITestExpectedMarker", route.expectedMarker);
   if (route.expectedRoute) {
     args.push("-UITestExpectedRoute", route.expectedRoute);
   }
   args.push("-UITestAutoReviewerLogin", route.autoReviewerLogin ? "true" : "false");
-  if (kaiTestPassphrase) {
-    args.push("-UITestVaultPassphrase", kaiTestPassphrase);
-  }
-  if (kaiTestUserId) {
-    args.push("-UITestExpectedUserId", kaiTestUserId);
-  }
+  args.push("-UITestResetAppState", "false");
+  args.push("-UITestVaultPassphrase", reviewerVaultPassphrase);
+  args.push("-UITestExpectedUserId", reviewerUid);
   run("xcrun", args);
 }
 
@@ -220,6 +143,8 @@ function buildApp() {
     xcodeScheme,
     "-destination",
     destination,
+    "-derivedDataPath",
+    derivedDataPath,
     "build",
   ], {
     stdio: ["ignore", "pipe", "pipe"],
@@ -234,16 +159,18 @@ function waitForStatus(route) {
 
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      const container = run("xcrun", ["simctl", "get_app_container", "booted", bundleId, "data"]);
+      const container = run("xcrun", ["simctl", "get_app_container", simulatorDevice, bundleId, "data"]);
       const statusPath = path.join(container, "Documents", "native-test-status.txt");
       if (fs.existsSync(statusPath)) {
         lastRaw = fs.readFileSync(statusPath, "utf8").trim();
         if (lastRaw) {
           lastParsed = parseStatus(lastRaw);
+          const readyOk = (lastParsed.ready || "") === "1";
+          const markerOk = (lastParsed.marker || "") === route.expectedMarker;
           const routeOk = matchesRoute(lastParsed.route || "", route);
           const authOk = (lastParsed.auth || "") === route.expectedAuth;
           const dataOk = route.allowedDataStates.includes(lastParsed.data || "");
-          if (routeOk && authOk && dataOk) {
+          if (readyOk && markerOk && routeOk && authOk && dataOk) {
             return {
               ok: true,
               status: lastParsed,
@@ -276,9 +203,10 @@ function main() {
   console.log(`==> destination: ${destination}`);
 
   buildApp();
-  tryRun("xcrun", ["simctl", "terminate", "booted", bundleId]);
-  tryRun("xcrun", ["simctl", "uninstall", "booted", bundleId]);
-  run("xcrun", ["simctl", "install", "booted", appPath]);
+  ensureSimulatorBooted();
+  tryRun("xcrun", ["simctl", "terminate", simulatorDevice, bundleId]);
+  tryRun("xcrun", ["simctl", "uninstall", simulatorDevice, bundleId]);
+  run("xcrun", ["simctl", "install", simulatorDevice, appPath]);
 
   const results = [];
 
@@ -287,7 +215,7 @@ function main() {
     try {
       launchRoute(route);
       const result = waitForStatus(route);
-      tryRun("xcrun", ["simctl", "terminate", "booted", bundleId]);
+      tryRun("xcrun", ["simctl", "terminate", simulatorDevice, bundleId]);
 
       if (!result.ok) {
         console.log("FAIL");

@@ -21,6 +21,7 @@ import { PkmJsonTree, PkmManifestTree } from "@/components/profile/pkm-tree-view
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
+import { useVault } from "@/lib/vault/vault-context";
 import {
   PersonalKnowledgeModelService,
   type DomainSummary,
@@ -29,7 +30,7 @@ import {
 } from "@/lib/services/personal-knowledge-model-service";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { type DomainManifest } from "@/lib/personal-knowledge-model/manifest";
-import { useVault } from "@/lib/vault/vault-context";
+import { KYC_WORKFLOW_PKM_DOMAIN } from "@/lib/services/kyc-pkm-write-service";
 
 type DomainInspectorState = {
   manifest: DomainManifest | null;
@@ -311,7 +312,17 @@ export function PkmExplorerPanel() {
                         <p className="text-sm font-semibold">{domain.displayName}</p>
                         <p className="text-xs text-muted-foreground">{domain.key}</p>
                       </div>
-                      <Badge variant="secondary">{domain.attributeCount}</Badge>
+                      <div className="flex flex-col items-end gap-1">
+                        <Badge variant="secondary">{domain.attributeCount}</Badge>
+                        {domain.key === KYC_WORKFLOW_PKM_DOMAIN ? (
+                          <Badge
+                            variant="outline"
+                            className="border-emerald-300 text-[10px] text-emerald-600"
+                          >
+                            KYC workflow
+                          </Badge>
+                        ) : null}
+                      </div>
                     </div>
                     <p className="mt-2 text-xs text-muted-foreground">
                       Updated {formatTimestamp(domain.lastUpdated)}

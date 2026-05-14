@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo } from "react";
 
 import { SectionHeader } from "@/components/app-ui/page-sections";
 import {
@@ -19,6 +20,7 @@ import {
 } from "@/lib/navigation/routes";
 import { useRiaClientWorkspaceState } from "@/components/ria/use-ria-client-workspace-state";
 import { Database, Loader2, Wallet } from "lucide-react";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 function formatStatusLabel(status?: string | null) {
   return String(status || "pending").replaceAll("_", " ");
@@ -68,6 +70,37 @@ export function RiaClientAccountDetail({
   const financialSummary = (workspace?.domain_summaries?.financial ||
     detail?.domain_summaries?.financial ||
     {}) as Record<string, unknown>;
+  const voiceSurfaceMetadata = useMemo(
+    () => ({
+      screenId: "ria_client_account_detail",
+      title: accountBranch?.name || "RIA Client Account Detail",
+      purpose: "Read-only advisor account detail for a connected investor.",
+      primaryEntity: accountBranch?.name || accountId,
+      controls: [
+        {
+          id: "ria_client_account_detail_route",
+          label: "Account detail",
+          type: "route",
+          actionId: "route.ria_client_account_detail",
+        },
+        {
+          id: "ria_client_account_open_workspace_fallback",
+          label: "Open workspace",
+          type: "link",
+          actionId: "ria.client_account.open_workspace_fallback",
+        },
+      ],
+      visibleModules: ["Account status", "Readable branch summary"],
+      selectedEntity: accountBranch?.name || accountId,
+      screenMetadata: {
+        client_id: clientId,
+        account_id: accountId,
+        account_status: accountBranch?.status || null,
+      },
+    }),
+    [accountBranch?.name, accountBranch?.status, accountId, clientId]
+  );
+  usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
 
   if (personaLoading) return null;
 
@@ -145,6 +178,7 @@ export function RiaClientAccountDetail({
                     tab: "explorer",
                     testProfile: isTestProfile,
                   })}
+                  data-voice-control-id="ria_client_account_open_workspace_fallback"
                 >
                   Open workspace
                 </Link>

@@ -8,6 +8,12 @@
 
 All data access is gated by consent tokens. Firebase auth is only used to bootstrap the initial VAULT_OWNER token.
 
+Founder-language note:
+
+- `Capability Tokens` are the architecture headline
+- this file keeps the runtime labels `VAULT_OWNER`, `consent-token`, and `developer token` because readers need the exact wire contract
+- `PCHP` maps here to the `/api/v1/request-consent`, `/api/v1/consent-status`, and `/api/v1/scoped-export` flow
+
 ```
 Firebase Sign-In
       │
@@ -59,7 +65,7 @@ Client surfaces
 | GET | `/api/tickers/all` | Full ticker universe export with enrichment metadata |
 | POST | `/api/validate-token` | Validate a consent token |
 | GET | `/api/app-config/review-mode` | Review mode toggle (enabled only) |
-| POST | `/api/app-config/review-mode/session` | Mint Firebase custom token for `REVIEWER_UID` when review mode enabled |
+| POST | `/api/app-config/review-mode/session` | Mint Firebase custom token for `REVIEWER_UID`; non-production smoke may use `REVIEWER_VAULT_PASSPHRASE` |
 
 ### Developer API (Developer Token / Developer API Enabled)
 
@@ -98,6 +104,46 @@ Client surfaces
 | POST | `/api/notifications/register` | Register FCM push token |
 | DELETE | `/api/notifications/unregister` | Unregister FCM tokens (logout) |
 | POST | `/api/kai/consent/grant` | Grant consent for Kai scopes |
+
+### One Email KYC
+
+One mailbox intake is One-led and approval-gated. KYC workspace routes require
+a VAULT_OWNER token plus a matching `user_id`; mailbox maintenance routes use
+Pub/Sub OIDC or the One maintenance token, not user Firebase auth. Strict
+client-side ZK means the backend never decrypts consent exports, never builds
+review drafts, and never persists review draft plaintext. Dev/UAT One Email now
+uses text-only multi-scope disclosure intake: after resolving the vault owner,
+the backend matches email intent against that user's consumer-visible dynamic
+scope inventory, stores detected domains, candidate scopes, thread metadata,
+hashes, and consent/writeback/send metadata only; the vault-unlocked client
+confirms scopes and builds the final draft from approved encrypted exports. The
+maintained architecture reference is [One Email KYC](./one-email-kyc.md).
+
+Inbound user resolution uses exact verified email evidence. The resolver checks
+verified `To`, `Cc`, and `Reply-To` recipients before falling back to all
+participants, so a broker or alternate sender account does not override the
+vault owner explicitly copied on the request. Apple private relay addresses are
+not inferred to original emails; original addresses must be verified as aliases
+before they can resolve intake.
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| POST | `/api/one/email/webhook` | Pub/Sub OIDC | Receive Gmail Pub/Sub notifications for the delegated One mailbox |
+| POST | `/api/one/email/watch/renew` | `X-Hushh-Maintenance-Token` | Renew the Gmail watch for the delegated One mailbox |
+| GET | `/api/one/kyc/client-connector?user_id={user_id}` | VAULT_OWNER Bearer | Read registered public client connector metadata |
+| POST | `/api/one/kyc/client-connector` | VAULT_OWNER Bearer | Register public client connector metadata after vault unlock; private key remains client/vault-only |
+| GET | `/api/one/kyc/workflows?user_id={user_id}` | VAULT_OWNER Bearer | List One KYC workflows for the vault owner |
+| GET | `/api/one/kyc/workflows/{workflow_id}?user_id={user_id}` | VAULT_OWNER Bearer | Read one workflow and metadata-only draft state for the vault owner |
+| POST | `/api/one/kyc/workflows/{workflow_id}/scope-selection` | VAULT_OWNER Bearer | Confirm or narrow backend-detected candidate scopes before consent requests are created |
+| POST | `/api/one/kyc/workflows/{workflow_id}/refresh` | VAULT_OWNER Bearer | Refresh workflow state after consent approval; returns encrypted export metadata for client-side draft generation |
+| GET | `/api/one/kyc/workflows/{workflow_id}/consent-export?user_id={user_id}` | VAULT_OWNER Bearer | Return the encrypted wrapped-key export package for this ready workflow without exposing the consent token to the browser |
+| GET | `/api/one/kyc/workflows/{workflow_id}/consent-exports?user_id={user_id}` | VAULT_OWNER Bearer | Return all selected encrypted wrapped-key export packages for multi-scope client-side draft generation |
+| POST | `/api/one/kyc/workflows/{workflow_id}/send-approved-reply` | VAULT_OWNER Bearer | Transiently send the user-approved final email body as Gmail reply-all in the original thread; persist metadata/hashes and thread verification only |
+| POST | `/api/one/kyc/workflows/{workflow_id}/writeback-complete` | VAULT_OWNER Bearer | Record encrypted PKM writeback status and artifact hash |
+| POST | `/api/one/kyc/workflows/{workflow_id}/approve-draft` | VAULT_OWNER Bearer | Deprecated; returns gone because server-side draft approval is disabled |
+| POST | `/api/one/kyc/workflows/{workflow_id}/reject-draft` | VAULT_OWNER Bearer | Reject and block the workflow |
+| POST | `/api/one/kyc/workflows/{workflow_id}/redraft` | VAULT_OWNER Bearer | Record typed or voice-originated redraft instruction metadata; draft revision is client-local |
+| POST | `/api/one/kyc/retention/purge` | `X-Hushh-Maintenance-Token` | Redact terminal workflow drafts after the retention window |
 
 ### VAULT_OWNER (Consent-Gated)
 
@@ -226,6 +272,11 @@ Frontend reads/writes these fields through the centralized onboarding/profile fl
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
+| POST | `/api/account/identity/refresh` | Refresh backend identity shadow from Firebase Auth |
+| POST | `/api/account/phone/claim` | Persist a secondary Firebase phone-session token as the signed-in actor's verified app-level phone claim |
+| GET | `/api/account/email-aliases` | List vault-owner account email aliases |
+| POST | `/api/account/email-aliases/verification/start` | Start explicit email alias verification; dev/UAT review mode may echo the code |
+| POST | `/api/account/email-aliases/verification/confirm` | Confirm an email alias before it can match One Email KYC intake |
 | DELETE | `/api/account/delete` | Delete user account and all data |
 
 Reserved future surface:
@@ -269,7 +320,7 @@ Security invariant:
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/consent/data?token={consent_token}` | Retrieve encrypted export for token |
+| GET | `/api/consent/data` | Legacy consent-token encrypted export path; Developer API and MCP integrations should prefer `/api/v1/scoped-export` or `get_encrypted_scoped_export`, which return ciphertext plus `wrapped_key_bundle` for connector-local decryption |
 
 ### SSE (Server-Sent Events)
 
@@ -282,8 +333,8 @@ Security invariant:
 
 | Method | Path | Replacement |
 | ------ | ---- | ----------- |
-| POST | `/api/v1/food-data` | `GET /api/pkm/domain-data/{uid}/{discovered_domain}` after runtime domain discovery, or the publishable flow `/api/v1/user-scopes/{uid}` → `/api/v1/request-consent` → `/api/consent/data` |
-| POST | `/api/v1/professional-data` | `GET /api/pkm/domain-data/{uid}/{discovered_domain}` after runtime domain discovery, or the publishable flow `/api/v1/user-scopes/{uid}` → `/api/v1/request-consent` → `/api/consent/data` |
+| POST | `/api/v1/food-data` | `GET /api/pkm/domain-data/{uid}/{discovered_domain}` after runtime domain discovery, or the publishable flow `/api/v1/user-scopes/{uid}` → `/api/v1/request-consent` → `/api/v1/scoped-export` |
+| POST | `/api/v1/professional-data` | `GET /api/pkm/domain-data/{uid}/{discovered_domain}` after runtime domain discovery, or the publishable flow `/api/v1/user-scopes/{uid}` → `/api/v1/request-consent` → `/api/v1/scoped-export` |
 | DELETE | `/api/pkm/attributes/{uid}/{domain}/{key}` | Client-side BYOK operation |
 | POST | `/api/kai/decision/store` | `POST /api/pkm/store-domain` with domain=`financial`; first-party flows now attach `write_projections[]` instead of relying on legacy summary inference |
 | GET | `/api/kai/decision/{id}` | `GET /api/kai/decisions/{user_id}` |
@@ -404,14 +455,15 @@ External developers (MCP agents, third-party apps) use the `/api/v1` endpoints:
    Body: { token: "<consent-token>" }
    → Returns: { valid, user_id, scope, expires_at }
 
-5. GET /api/consent/data?token=<consent-token>
-   → Returns: { ciphertext, iv, tag, export_key }
-   → Developer decrypts with export_key
+5. POST /api/v1/scoped-export?token=<developer-token>
+   Body: { consent_token, expected_scope, connector_id, connector_public_key, connector_key_id }
+   → Returns: { encrypted_data, iv, tag, wrapped_key_bundle, export_revision, export_refresh_status }
+   → Connector unwraps and decrypts locally, then narrows to the approved workflow payload before any partner handoff
 ```
 
 For MCP hosts, the recommended consumption surface is:
 
-`discover_user_domains` → `request_consent` → `check_consent_status` → `get_scoped_data(expected_scope=original_scope)`
+`discover_user_domains` → `request_consent` → `check_consent_status` → `get_encrypted_scoped_export(expected_scope=original_scope)`
 
 Coverage rules:
 
@@ -419,6 +471,7 @@ Coverage rules:
 - narrower active grant → broader ask: requires fresh approval
 - exact duplicate pending request → reuse the existing request_id
 - broader-token reuse must still return the narrower requested slice when `expected_scope` is supplied
+- partner persistence is not implied by export access; partner CRMs may store consent/audit metadata and narrow approved workflow fields only under explicit purpose, consent, retention, masking/encryption, deletion, and audit policy
 
 Production policy:
 - All `/api/v1/*` endpoints return `410` with:

@@ -374,7 +374,7 @@ async function initializeNativeFCM(
 
     // Step 2: Get FCM token
     const { token } = await FirebaseMessaging.getToken();
-    console.log("[FCM] Got token:", token.substring(0, 20) + "...");
+    console.log("[FCM] Got push token");
 
     // Step 3: Register token with backend
     const platform = Capacitor.getPlatform() as "ios" | "android" | "web";
@@ -595,7 +595,7 @@ async function initializeWebFCM(
       return { status: "push_failed", detail: "empty_push_token" };
     }
 
-    console.log("[FCM] Got token:", token.substring(0, 20) + "...");
+    console.log("[FCM] Got push token");
 
     // Register token with backend
     console.log("[FCM] Registering token with backend...");
@@ -734,7 +734,7 @@ function setupNativeListeners(): void {
       );
 
       await FirebaseMessaging.addListener("tokenReceived", async (event) => {
-        console.log("[FCM] Token refreshed:", event.token.substring(0, 20) + "...");
+        console.log("[FCM] Push token refreshed");
         const platform = Capacitor.getPlatform() as "ios" | "android" | "web";
         try {
           if (lastKnownSession) {

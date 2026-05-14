@@ -1,0 +1,150 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "ria_home",
+  "surface_title": "RIA Workspace Home",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.ria_home",
+      "label": "Open RIA Home",
+      "meaning": "Navigates to the RIA workspace home route.",
+      "aliases": [
+        "open ria workspace",
+        "go to ria home",
+        "open advisor workspace"
+      ],
+      "search_keywords": [
+        "ria",
+        "advisor workspace",
+        "home"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria"
+        ],
+        "screens": [
+          "ria_home"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "RIA workspace must be available for this account."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": true
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria"
+      },
+      "control_ids": [
+        "ria_route_tab_home"
+      ],
+      "state_exposure": [
+        "RIA verification state",
+        "priority queue count",
+        "active client count"
+      ],
+      "docs_references": [
+        "docs/reference/iam/runtime-surface.md",
+        "hushh-webapp/app/ria/page.tsx"
+      ],
+      "workflow": {
+        "workflow_id": "route.ria_home.entry",
+        "confirmation_required": true,
+        "blocked_guidance": "Complete or unlock RIA setup before entering the RIA workspace.",
+        "steps": [
+          {
+            "type": "persona_switch",
+            "target_persona": "ria",
+            "confirmation_required": true,
+            "settlement_target": {
+              "persona": "ria"
+            },
+            "failure_behavior": "stop"
+          },
+          {
+            "type": "route_switch",
+            "href": "/ria",
+            "settlement_target": {
+              "route": "/ria",
+              "screen": "ria_home"
+            },
+            "failure_behavior": "stop"
+          }
+        ]
+      },
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "ria.home.open_priority_item",
+      "label": "Open Priority Queue Item",
+      "meaning": "Represents the visible priority queue Open buttons on RIA home. Dynamic queue URLs still require the on-screen control.",
+      "aliases": [
+        "open the priority item",
+        "open the next ria task",
+        "review the priority queue item"
+      ],
+      "search_keywords": [
+        "priority queue",
+        "next action",
+        "advisor task"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria"
+        ],
+        "screens": [
+          "ria_home"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A priority queue item with an href must be visible."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Priority queue item URLs are dynamic screen state and are not safe to execute from the static gateway yet.",
+        "intended_handler": "router.push"
+      },
+      "control_ids": [
+        "ria_home_priority_item_open"
+      ],
+      "state_exposure": [
+        "visible priority item titles",
+        "visible priority item next actions"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    }
+  ]
+}
