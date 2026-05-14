@@ -14,6 +14,8 @@ def _fake_report(
     contract_set: str = "general",
     findings: list[dict] | None = None,
     related_files: list[str] | None = None,
+    ci_status_gate: str = "SUCCESS",
+    current_checks: list[dict] | None = None,
 ) -> OrderedDict:
     findings = findings or []
     report = OrderedDict(
@@ -34,7 +36,10 @@ def _fake_report(
         changed_files=files,
         contract_set=contract_set,
         surface_tags=[],
-        current_ci_status_gate="SUCCESS",
+        current_ci_status_gate=ci_status_gate,
+        current_checks=current_checks or [
+            OrderedDict(name="CI Status Gate", conclusion=ci_status_gate)
+        ],
         findings=findings,
         exact_file_overlap=[],
         concept_overlap=[],
@@ -157,6 +162,45 @@ def test_pure_test_report_can_merge_now() -> None:
     _assert(decision["lane"] == "merge_now", "pure test proof with no findings can merge")
 
 
+def test_failing_required_gate_excluded_from_executable_trains() -> None:
+    failing = _fake_report(
+        7,
+        ["docs/failing.md"],
+        lane="merge_now",
+        ci_status_gate="FAILURE",
+    )
+    healthy = _fake_report(8, ["docs/healthy.md"], lane="merge_now")
+    graph = checklist._build_train_graph(
+        [failing, healthy],
+        queue_cohort_size=4,
+        max_parallel_patch_trains=3,
+    )
+    _assert(graph["queue_cohorts"][0]["prs"] == [8], "failing required gate must not enter queue cohort")
+    _assert(graph["check_failure_holds"][0]["pr"] == 7, "failing required gate must be reported as a hold")
+    _assert(not checklist._is_actionable_live_candidate(failing), "failing required gate must not be actionable")
+
+
+def test_failing_auxiliary_check_excluded_from_operator_batches() -> None:
+    aux_failing = _fake_report(
+        9,
+        ["docs/a.md"],
+        lane="merge_now",
+        current_checks=[
+            OrderedDict(name="CI Status Gate", conclusion="SUCCESS"),
+            OrderedDict(name="Markdown Lint", conclusion="FAILURE"),
+        ],
+    )
+    peer = _fake_report(10, ["docs/a.md"], lane="merge_now")
+    graph = checklist._build_train_graph(
+        [aux_failing, peer],
+        queue_cohort_size=4,
+        max_parallel_patch_trains=3,
+    )
+    _assert(not graph["collision_groups"], "aux-failing PR must not create executable collision train")
+    _assert(graph["queue_cohorts"][0]["prs"] == [10], "aux-failing PR must not enter queue cohort")
+    _assert(not checklist._is_actionable_live_candidate(aux_failing), "aux-failing PR must not be actionable")
+
+
 def main() -> int:
     test_same_file_collision()
     test_disjoint_merge_queue_cohort()
@@ -164,6 +208,8 @@ def main() -> int:
     test_patch_gate_blocks_unattached_export()
     test_patch_gate_allows_canonical_attach_point()
     test_pure_test_report_can_merge_now()
+    test_failing_required_gate_excluded_from_executable_trains()
+    test_failing_auxiliary_check_excluded_from_operator_batches()
     print("pr_review_checklist unit tests passed")
     return 0
 
