@@ -1,14 +1,6 @@
-"use client";
+import { redirect } from 'next/navigation';
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-
-export default function AppNotFoundPage() {
-  const router = useRouter();
-
-  useEffect(() => {
-    router.replace("/");
-  }, [router]);
-
-  return null;
+export default function NotFound() {
+  // Server-side redirect to the home page to avoid blank screen flashes
+  redirect('/');
 }
