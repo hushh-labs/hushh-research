@@ -66,17 +66,17 @@ export interface HushhAuthPlugin {
 
   /**
    * Sign in with Apple using native iOS AuthenticationServices or Firebase OAuthProvider
-   * 
+   *
    * iOS: Uses ASAuthorizationController (native Apple Sign-In sheet)
    * Android/Web: Uses Firebase OAuthProvider (web-based OAuth flow)
-   * 
+   *
    * Returns ID token for Firebase credential exchange
    * Note: Apple may return hidden email (relay address) if user chose to hide it
    */
   signInWithApple(): Promise<{
     idToken: string;
     accessToken?: string;
-    rawNonce?: string;  // iOS only - needed for JS SDK sync if required
+    rawNonce?: string; // iOS only - needed for JS SDK sync if required
     user: AuthUser;
   }>;
 
@@ -149,7 +149,7 @@ export interface HushhConsentPlugin {
    * Mirrors: verify_trust_link() in link.py
    */
   verifyTrustLink(
-    options: VerifyTrustLinkOptions
+    options: VerifyTrustLinkOptions,
   ): Promise<VerifyTrustLinkResult>;
 
   // ==================== Backend API Methods ====================
@@ -362,6 +362,17 @@ export interface HushhVaultPlugin {
     authToken?: string;
   }): Promise<{ success: boolean }>;
 
+  deleteVaultWrapper(options: {
+    userId: string;
+    vaultKeyHash: string;
+    method: string;
+    wrapperId?: string;
+    fallbackPrimaryMethod?: string;
+    fallbackPrimaryWrapperId?: string;
+    authToken?: string;
+    vaultOwnerToken?: string;
+  }): Promise<{ success: boolean }>;
+
   setPrimaryVaultMethod(options: {
     userId: string;
     primaryMethod: string;
@@ -476,14 +487,14 @@ export interface HushhKeychainPlugin {
    * Store a value requiring biometric authentication to retrieve
    */
   setBiometric(
-    options: KeychainSetOptions & { promptMessage: string }
+    options: KeychainSetOptions & { promptMessage: string },
   ): Promise<void>;
 
   /**
    * Retrieve a biometric-protected value
    */
   getBiometric(
-    options: KeychainGetOptions & { promptMessage: string }
+    options: KeychainGetOptions & { promptMessage: string },
   ): Promise<KeychainGetResult>;
 }
 
@@ -492,7 +503,7 @@ export const HushhKeychain = registerPlugin<HushhKeychainPlugin>(
   {
     web: () =>
       import("./plugins/keychain-web").then((m) => new m.HushhKeychainWeb()),
-  }
+  },
 );
 
 // ==================== HushhSettingsPlugin ====================
@@ -514,7 +525,7 @@ export interface HushhSettingsData {
 export interface HushhSettingsPlugin {
   getSettings(): Promise<HushhSettingsData>;
   updateSettings(
-    options: Partial<HushhSettingsData>
+    options: Partial<HushhSettingsData>,
   ): Promise<{ success: boolean }>;
   resetSettings(): Promise<{ success: boolean }>;
   shouldUseLocalAgents(): Promise<{ value: boolean }>;
@@ -526,7 +537,7 @@ export const HushhSettingsNative = registerPlugin<HushhSettingsPlugin>(
   {
     web: () =>
       import("./plugins/settings-web").then((m) => new m.HushhSettingsWeb()),
-  }
+  },
 );
 
 // ==================== HushhDatabasePlugin ====================
@@ -561,7 +572,7 @@ export const HushhDatabase = registerPlugin<HushhDatabasePlugin>(
   {
     web: () =>
       import("./plugins/database-web").then((m) => new m.HushhDatabaseWeb()),
-  }
+  },
 );
 
 // ==================== HushhAgentPlugin ====================
@@ -704,9 +715,9 @@ export const HushhNotifications = registerPlugin<HushhNotificationsPlugin>(
   {
     web: () =>
       import("./plugins/notifications-web").then(
-        (m) => new m.HushhNotificationsWeb()
+        (m) => new m.HushhNotificationsWeb(),
       ),
-  }
+  },
 );
 
 // ==================== HushhPersonalKnowledgeModelPlugin ====================

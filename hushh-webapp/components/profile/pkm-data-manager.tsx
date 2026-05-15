@@ -573,7 +573,7 @@ export function PkmDomainDetailPanel({
       <Dialog open={previewOpen} onOpenChange={onPreviewOpenChange}>
         <DialogContent
           showCloseButton={false}
-          className="w-[calc(100%-2.5rem)] max-h-[calc(100svh-2rem)] gap-0 overflow-hidden p-0 sm:max-w-[min(26rem,calc(100vw-8rem))] lg:max-w-[min(27rem,calc(100vw-12rem))]"
+          className="w-[calc(100%-2.5rem)] max-h-[calc(100svh-2rem)] gap-0 overflow-hidden p-0 sm:max-w-[min(42rem,calc(100vw-4rem))] lg:max-w-[min(48rem,calc(100vw-6rem))]"
         >
           <div className="sticky top-0 z-20 grid grid-cols-[minmax(0,1fr)_2.5rem] items-start gap-4 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-8 pb-4 pt-5 sm:px-9">
             <DialogHeader className="min-w-0 flex-1 text-left">

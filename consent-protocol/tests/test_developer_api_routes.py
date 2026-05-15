@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes import developer
+from api.routes.developer import _STATIC_REQUESTABLE_SCOPES, _is_supported_scope
 
 _CONNECTOR_PUBLIC_KEY = "U29tZUNvbm5lY3RvclB1YmxpY0tleURhdGE="
 _CONNECTOR_KEY_ID = "connector_demo"
@@ -253,6 +254,21 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
                     "visibility_reason": "structural_top_level_path",
                 },
                 {
+                    "scope": "attr.kyc_workflow.*",
+                    "domain": "kyc_workflow",
+                    "path": None,
+                    "wildcard": True,
+                    "source_kind": "pkm_index",
+                    "registry_handle": None,
+                    "label": "KYC Workflow Domain",
+                    "exposure_eligibility": True,
+                    "manifest_revision": 2,
+                    "meta_reference": "internal runtime domain",
+                    "consumer_visible": False,
+                    "internal_only": True,
+                    "visibility_reason": "internal_runtime_domain",
+                },
+                {
                     "scope": "attr.financial.profile.risk_tolerance",
                     "domain": "financial",
                     "path": "profile.risk_tolerance",
@@ -267,7 +283,7 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
             ]
 
     class _FakeIndex:
-        available_domains = ["financial"]
+        available_domains = ["financial", "kyc_workflow"]
 
     class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
@@ -1241,3 +1257,44 @@ def test_rotate_access_token_returns_new_raw_token(monkeypatch):
     payload = response.json()
     assert payload["raw_token"] == "hdk_rotated_secret"  # noqa: S105
     assert payload["active_token"]["token_prefix"] == "hdk_rotated"  # noqa: S105
+
+
+# ===========================================================================
+# _STATIC_REQUESTABLE_SCOPES and _is_supported_scope unit tests
+# ===========================================================================
+
+
+def test_static_requestable_scopes_has_no_duplicates():
+    scopes_list = list(_STATIC_REQUESTABLE_SCOPES)
+    assert len(scopes_list) == len(set(scopes_list)), (
+        "Duplicate entries in _STATIC_REQUESTABLE_SCOPES"
+    )
+
+
+def test_static_requestable_scopes_is_frozenset():
+    assert isinstance(_STATIC_REQUESTABLE_SCOPES, frozenset)
+
+
+def test_is_supported_scope_accepts_pkm_read():
+    assert _is_supported_scope("pkm.read") is True
+
+
+def test_is_supported_scope_accepts_pkm_write():
+    assert _is_supported_scope("pkm.write") is True
+
+
+def test_is_supported_scope_accepts_dynamic_attr_scope():
+    assert _is_supported_scope("attr.financial.holdings") is True
+    assert _is_supported_scope("attr.food.*") is True
+
+
+def test_is_supported_scope_rejects_unknown_static_scope():
+    assert _is_supported_scope("vault.owner") is False
+
+
+def test_is_supported_scope_rejects_empty_string():
+    assert _is_supported_scope("") is False
+
+
+def test_is_supported_scope_rejects_arbitrary_string():
+    assert _is_supported_scope("admin.all") is False

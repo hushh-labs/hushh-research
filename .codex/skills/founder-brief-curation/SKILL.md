@@ -51,27 +51,30 @@ Non-owned surfaces:
 ## Workflow
 
 1. Start from repo truth, not from prior pitch copy. Read the current architecture docs and implementation-contract docs that actually support the brief.
-2. Build the narrative in founder cadence: platform thesis first, runtime and trust boundary second, present-state honesty later.
-3. Expand every shortform on first use unless it is universally obvious in a first-read document.
-4. Keep shared artifacts free of internal build commentary such as drafting provenance, prompt notes, or repo-process explanations.
-5. Use a small coherent figure system. Prefer a few premium diagrams over many local boxes.
-6. If a diagram label is tight, enlarge the box or rebalance the grid before shrinking the text too far.
-7. Control page rhythm deliberately. Major section titles must either start on a fresh page with body that follows cleanly, or use an intentional title-divider page. Never let a new chapter title dangle under a preceding figure.
-8. If a title-divider page is used, keep the title page clean and force the following body to the next page.
-9. If the document is built around a layered platform model, add the cross-layer pointers or governing laws explicitly after the layer definition.
-10. Keep heading treatment consistent across sections unless the user explicitly asks for a different chapter system.
-11. For HTML-sourced PDFs, use measured page math when necessary to avoid oversized gaps, orphan headings, or brittle one-off page-start hacks.
-12. Render the actual PDF and inspect rendered pages, not just source HTML. If needed, export the PDF pages to images and verify the diagram pages and chapter transitions directly.
-13. Keep references hyperlinked and useful, but move source-detail inventory to the references section rather than the narrative body.
-14. State what is not implemented only in a dedicated honesty section; do not open with defensive caveats.
-15. Preserve founder cadence while normalizing the Hussh / One / Kai / Nav ontology:
+2. For material product thesis, founder language, One/Kai/Nav ontology, PCHP/BYOA/on-device posture, or future-state alignment, use the Founder Wiki North-Star Probe from `.codex/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md`.
+3. Keep the authority boundary explicit: repo truth proves current state; founder wiki canon shapes north-star language. If they diverge, treat it as `current_state_vs_north_star_drift` and do not overstate implementation.
+4. Keep private wiki evidence local-only unless the user explicitly asks for an internal private artifact.
+5. Build the narrative in founder cadence: platform thesis first, runtime and trust boundary second, present-state honesty later.
+6. Expand every shortform on first use unless it is universally obvious in a first-read document.
+7. Keep shared artifacts free of internal build commentary such as drafting provenance, prompt notes, or repo-process explanations.
+8. Use a small coherent figure system. Prefer a few premium diagrams over many local boxes.
+9. If a diagram label is tight, enlarge the box or rebalance the grid before shrinking the text too far.
+10. Control page rhythm deliberately. Major section titles must either start on a fresh page with body that follows cleanly, or use an intentional title-divider page. Never let a new chapter title dangle under a preceding figure.
+11. If a title-divider page is used, keep the title page clean and force the following body to the next page.
+12. If the document is built around a layered platform model, add the cross-layer pointers or governing laws explicitly after the layer definition.
+13. Keep heading treatment consistent across sections unless the user explicitly asks for a different chapter system.
+13. For HTML-sourced PDFs, use measured page math when necessary to avoid oversized gaps, orphan headings, or brittle one-off page-start hacks.
+14. Render the actual PDF and inspect rendered pages, not just source HTML. For every PDF deliverable, export page images or screenshots and verify page-to-page fit, diagram labels, table width, margins, and chapter transitions before calling the artifact shareable.
+15. Keep references hyperlinked and useful, but move source-detail inventory to the references section rather than the narrative body.
+16. State what is not implemented only in a dedicated honesty section; do not open with defensive caveats.
+17. Preserve founder cadence while normalizing the Hussh / One / Kai / Nav ontology:
     - Hussh is the platform and trust infrastructure.
     - One is the personal agent and relationship layer.
     - Kai is the finance specialist.
     - Nav is the privacy and consent guardian.
-16. Do not promote stale founder-draft phrases such as `Hussh is your personal MCP server and AI agent`, `One has two faces`, or `Kai is the One who remembers` into shared artifacts unless quoting them as source material being corrected.
-17. Treat `hu_ssh`, `SSH for humans`, and `Ask. Approve. Audit.` as founder-facing metaphors that must map back to Human Secure Socket Host and the current Consent Protocol.
-18. Keep claims about on-device memory, no platform-controlled recovery, BYO model execution, portable One memory, and user-private receipts future-state unless repo truth proves them.
+18. Do not promote stale founder-draft phrases such as `Hussh is your personal MCP server and AI agent`, `One has two faces`, or `Kai is the One who remembers` into shared artifacts unless quoting them as source material being corrected.
+19. Treat `hu_ssh`, `SSH for humans`, and `Ask. Approve. Audit.` as founder-facing metaphors that must map back to Human Secure Socket Host and the current Consent Protocol.
+20. Keep claims about on-device memory, no platform-controlled recovery, BYO model execution, portable One memory, and user-private receipts future-state unless repo truth proves them.
 
 ## Handoff Rules
 
