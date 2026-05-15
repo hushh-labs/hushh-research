@@ -642,6 +642,215 @@ async def test_process_message_prefers_verified_recipient_identity_over_sender_i
 
 
 @pytest.mark.asyncio
+async def test_process_message_matches_dynamic_available_scope_for_email_helper_request():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+
+    async def available_entries(user_id: str):
+        assert user_id == "user_123"
+        return [
+            {
+                "scope": "attr.travel.*",
+                "domain": "travel",
+                "path": None,
+                "wildcard": True,
+                "label": "Travel Preferences",
+                "consumer_visible": True,
+                "internal_only": False,
+            }
+        ]
+
+    service._available_one_email_scope_entries = available_entries  # type: ignore[method-assign]
+
+    result = await service._process_message(
+        _message(
+            subject="Test",
+            body="Hey One, can you get my favourite locations and create a draft here.",
+        ),
+        history_id="101dynamic",
+    )
+
+    workflow = result["workflow"]
+    assert workflow["status"] == "needs_scope"
+    assert workflow["requested_scope"] == "attr.travel.*"
+    assert workflow["metadata"]["classification"] == "dynamic_disclosure"
+    assert workflow["metadata"]["dynamic_scope_detection"] is True
+    assert workflow["required_fields"] == ["favorite_locations"]
+    assert [item["scope"] for item in workflow["metadata"]["candidate_scopes"]] == ["attr.travel.*"]
+
+    selected = await service.select_scopes(
+        user_id="user_123",
+        workflow_id=workflow["workflow_id"],
+        selected_scopes=["attr.travel.*"],
+    )
+
+    assert selected["requested_scopes"] == ["attr.travel.*"]
+    assert consent_db.events[0]["scope"] == "attr.travel.*"
+
+
+@pytest.mark.asyncio
+async def test_dynamic_scope_detection_prefers_intent_domain_over_stopword_path_matches():
+    service = _service(_FakeDb(), _FakeConsentDb())
+
+    async def available_entries(user_id: str):
+        assert user_id == "user_123"
+        return [
+            {
+                "scope": (
+                    "attr.financial.analysis_history.aapl.items.raw_card.key_metrics."
+                    "fundamental.research_and_development_billions"
+                ),
+                "domain": "financial",
+                "path": (
+                    "analysis_history.aapl.items.raw_card.key_metrics.fundamental."
+                    "research_and_development_billions"
+                ),
+                "wildcard": False,
+                "label": "Research And Development Billions",
+                "consumer_visible": True,
+                "internal_only": False,
+            },
+            {
+                "scope": "attr.shopping.*",
+                "domain": "shopping",
+                "path": None,
+                "wildcard": True,
+                "label": "Shopping Domain",
+                "consumer_visible": True,
+                "internal_only": False,
+            },
+            {
+                "scope": "attr.shopping.receipts_memory",
+                "domain": "shopping",
+                "path": "receipts_memory",
+                "wildcard": False,
+                "label": "Receipts Memory",
+                "consumer_visible": True,
+                "internal_only": False,
+            },
+        ]
+
+    service._available_one_email_scope_entries = available_entries  # type: ignore[method-assign]
+
+    candidates = await service._detect_available_scope_candidates(
+        user_id="user_123",
+        subject="Get my information",
+        body="Hey One, can you get my shopping information and create a draft here.",
+    )
+
+    assert [candidate["scope"] for candidate in candidates] == ["attr.shopping.*"]
+
+
+@pytest.mark.asyncio
+async def test_dynamic_scope_detection_prefers_seat_preferences_over_generic_preferences():
+    service = _service(_FakeDb(), _FakeConsentDb())
+
+    async def available_entries(user_id: str):
+        assert user_id == "user_123"
+        return [
+            {
+                "scope": "attr.financial.profile.preferences",
+                "domain": "financial",
+                "path": "profile.preferences",
+                "wildcard": False,
+                "label": "Profile Preferences",
+                "consumer_visible": True,
+                "internal_only": False,
+            },
+            {
+                "scope": "attr.location.preferences.*",
+                "domain": "location",
+                "path": "preferences",
+                "wildcard": True,
+                "label": "Preferences",
+                "consumer_visible": True,
+                "internal_only": False,
+            },
+            {
+                "scope": "attr.travel.seat_preferences.*",
+                "domain": "travel",
+                "path": "seat_preferences",
+                "wildcard": True,
+                "label": "Seat Preferences",
+                "consumer_visible": True,
+                "internal_only": False,
+            },
+            {
+                "scope": "attr.travel.seat_preferences.entities.travel_preference_seat_001",
+                "domain": "travel",
+                "path": "seat_preferences.entities.travel_preference_seat_001",
+                "wildcard": False,
+                "label": "Seat Preferences Entities Travel Preference Seat 001",
+                "consumer_visible": True,
+                "internal_only": False,
+            },
+        ]
+
+    service._available_one_email_scope_entries = available_entries  # type: ignore[method-assign]
+
+    candidates = await service._detect_available_scope_candidates(
+        user_id="user_123",
+        subject="Get my information",
+        body="Hey One, can you get my seat preferences and create a draft here.",
+    )
+
+    assert [candidate["scope"] for candidate in candidates] == ["attr.travel.seat_preferences.*"]
+
+
+@pytest.mark.asyncio
+async def test_reply_classification_ignores_quoted_prior_thread_text():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+
+    async def available_entries(user_id: str):
+        assert user_id == "user_123"
+        return [
+            {
+                "scope": "attr.shopping.*",
+                "domain": "shopping",
+                "path": None,
+                "wildcard": True,
+                "label": "Shopping Domain",
+                "consumer_visible": True,
+                "internal_only": False,
+            },
+            {
+                "scope": "attr.travel.seat_preferences.*",
+                "domain": "travel",
+                "path": "seat_preferences",
+                "wildcard": True,
+                "label": "Seat Preferences",
+                "consumer_visible": True,
+                "internal_only": False,
+            },
+        ]
+
+    service._available_one_email_scope_entries = available_entries  # type: ignore[method-assign]
+
+    result = await service._process_message(
+        _message(
+            subject="Re: Get my information",
+            body=(
+                "can you get my seat preferences\n\n"
+                "On Thu, 14 May 2026 at 04:57, Kushal Trivedi wrote:\n"
+                "> can you retrieve my shopping preferences and share here.\n"
+            ),
+        ),
+        history_id="101reply",
+    )
+
+    workflow = result["workflow"]
+    assert workflow["requested_scope"] == "attr.travel.seat_preferences.*"
+    assert workflow["required_fields"] == ["seat_preferences"]
+    assert workflow["metadata"]["quoted_reply_text_stripped"] is True
+    assert [item["scope"] for item in workflow["metadata"]["candidate_scopes"]] == [
+        "attr.travel.seat_preferences.*"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_select_scopes_creates_bundled_multi_scope_consent_requests():
     db = _FakeDb()
     consent_db = _FakeConsentDb()
