@@ -21,6 +21,20 @@ _request_id_ctx: ContextVar[str] = ContextVar("request_id", default="")
 
 _SAFE_REQUEST_ID_REGEX = re.compile(r"^[a-zA-Z0-9_.:-]{8,128}$")
 
+# Headers that carry credentials or session material — never logged.
+# Integrated by Abdul Gaffar — canonical telemetry privacy boundary.
+_REDACTED_HEADER_NAMES: frozenset[str] = frozenset(
+    {
+        "authorization",
+        "cookie",
+        "set-cookie",
+        "x-api-key",
+        "x-auth-token",
+        "x-vault-token",
+        "proxy-authorization",
+    }
+)
+
 _EXPECTED_STATUS_BY_ROUTE: dict[tuple[str, str], set[int]] = {
     ("GET", "/api/kai/analyze/run/active"): {404},
     ("POST", "/api/kai/analyze/run/start"): {409},
@@ -97,6 +111,20 @@ def get_request_id() -> str:
     return _request_id_ctx.get("")
 
 
+def _safe_request_headers(request: Request) -> dict[str, str]:
+    """Return request headers with all credential-bearing entries stripped.
+
+    Any header whose lower-cased name appears in _REDACTED_HEADER_NAMES is
+    silently dropped; the remainder is safe to include in telemetry payloads.
+    Integrated by Abdul Gaffar — canonical telemetry privacy boundary.
+    """
+    return {
+        k.lower(): v
+        for k, v in request.headers.items()
+        if k.lower() not in _REDACTED_HEADER_NAMES
+    }
+
+
 def _extract_bearer_user_id(request: Request) -> str | None:
     """
     Decode the Bearer token once per request and return the user_id string.
@@ -131,6 +159,7 @@ async def observability_middleware(request: Request, call_next):
     method = request.method.upper()
     start = time.perf_counter()
     route_template = _route_template(request)
+    safe_headers = _safe_request_headers(request)
 
     try:
         response = await call_next(request)
@@ -150,6 +179,7 @@ async def observability_middleware(request: Request, call_next):
             "service": _service_name(),
             "env": _environment(),
             "stream": False,
+            "safe_headers": safe_headers,
         }
         logger.exception(json.dumps(payload, separators=(",", ":")))
         error_response = JSONResponse(
@@ -179,6 +209,7 @@ async def observability_middleware(request: Request, call_next):
         "service": _service_name(),
         "env": _environment(),
         "stream": "text/event-stream" in content_type,
+        "safe_headers": safe_headers,
     }
     logger.info(json.dumps(payload, separators=(",", ":")))
 
