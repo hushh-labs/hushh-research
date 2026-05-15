@@ -60,4 +60,25 @@ describe("parseSSEBlocks", () => {
     const result = parseSSEBlocks(": ping\n\n\n");
     expect(result.events).toHaveLength(0);
   });
+    it("preserves SSE event ordering across fragmented chunks", () => {
+    const first =
+      'event: stage\nid: 1\ndata: {"schema_version":"1.0","stream_id":"strm_order","stream_kind":"portfolio_import","seq":1,"event":"stage","terminal":false,"payload":{"stage":"one"}}\n\n' +
+      'event: chunk\nid: 2\ndata: {"schema_version":"1.0","stream_id":"strm_order","stream_kind":"portfolio_import","seq":2,';
+
+    const firstResult = parseSSEBlocks(first);
+
+    expect(firstResult.events).toHaveLength(1);
+    expect(firstResult.events[0]?.event).toBe("stage");
+    expect(firstResult.remainder).toContain("event: chunk");
+
+    const second =
+      '"event":"chunk","terminal":false,"payload":{"text":"two"}}\n\n' +
+      'event: done\nid: 3\ndata: {"schema_version":"1.0","stream_id":"strm_order","stream_kind":"portfolio_import","seq":3,"event":"done","terminal":true,"payload":{"status":"complete"}}\n\n';
+
+    const secondResult = parseSSEBlocks(second, firstResult.remainder);
+
+    expect(secondResult.remainder).toBe("");
+    expect(secondResult.events.map((event) => event.id)).toEqual(["2", "3"]);
+    expect(secondResult.events.map((event) => event.event)).toEqual(["chunk", "done"]);
+  });
 });
