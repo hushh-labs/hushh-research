@@ -28,11 +28,16 @@
     ".codex/skills/pr-governance-review/references/review-axes.md",
     ".codex/skills/pr-governance-review/references/runtime-schematics-contract.md",
     ".codex/skills/pr-governance-review/references/operator-batch-output-contract.md",
+    ".codex/skills/pr-governance-review/references/operator-question-fixtures.json",
     ".codex/skills/pr-governance-review/references/blocker-gates.md",
-    ".codex/skills/pr-governance-review/references/comment-and-report-contract.md"
+    ".codex/skills/pr-governance-review/references/comment-and-report-contract.md",
+    ".codex/skills/pr-governance-review/references/pr-train-review-sop.md",
+    ".codex/skills/pr-governance-review/references/maintainer-harvest-attribution-ledger.md"
   ],
   "required_commands": [
     "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",
+    "python3 -m py_compile .codex/skills/pr-governance-review/scripts/test_pr_review_checklist.py",
+    "python3 .codex/skills/pr-governance-review/scripts/test_pr_review_checklist.py",
     "python3 -m py_compile .codex/skills/pr-governance-review/scripts/build_runtime_schematics.py",
     "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/delegation_router.py",
     "python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt \"review a PR touching voice, vault, and CI\" --paths \"hushh-webapp/lib/voice/foo.ts,hushh-webapp/lib/vault/foo.ts,.github/workflows/ci.yml\" --text",
@@ -40,9 +45,10 @@
     "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 498,505,444 --text",
     "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 531,529,435 --text",
     "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text",
-    "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text --output tmp/pr-governance-live-report.md",
+    "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md",
     "python3 -m py_compile .codex/skills/pr-governance-review/scripts/contributor_impact_report.py",
-    "python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 7 --text",
+    "python3 .codex/skills/pr-governance-review/scripts/test_contributor_impact_report.py",
+    "python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 14 --text",
     "./bin/hushh codex audit --text",
     "./bin/hushh docs verify"
   ],
@@ -51,6 +57,8 @@
       "id": "pr-governance-review",
       "commands": [
         "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",
+        "python3 -m py_compile .codex/skills/pr-governance-review/scripts/test_pr_review_checklist.py",
+        "python3 .codex/skills/pr-governance-review/scripts/test_pr_review_checklist.py",
         "python3 -m py_compile .codex/skills/pr-governance-review/scripts/build_runtime_schematics.py",
         "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/delegation_router.py",
         "python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt \"review a PR touching voice, vault, and CI\" --paths \"hushh-webapp/lib/voice/foo.ts,hushh-webapp/lib/vault/foo.ts,.github/workflows/ci.yml\" --text",
@@ -58,14 +66,17 @@
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 498,505,444 --text",
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 531,529,435 --text",
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text",
-        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text --output tmp/pr-governance-live-report.md",
+        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md",
         "python3 -m py_compile .codex/skills/pr-governance-review/scripts/contributor_impact_report.py",
-        "python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 7 --text",
+        "python3 .codex/skills/pr-governance-review/scripts/test_contributor_impact_report.py",
+        "python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 14 --text",
         "./bin/hushh codex audit --text",
         "./bin/hushh docs verify"
       ],
       "tests": [
         "python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_checklist.py",
+        "python3 -m py_compile .codex/skills/pr-governance-review/scripts/test_pr_review_checklist.py",
+        "python3 .codex/skills/pr-governance-review/scripts/test_pr_review_checklist.py",
         "python3 -m py_compile .codex/skills/pr-governance-review/scripts/build_runtime_schematics.py",
         "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/delegation_router.py",
         "python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt \"review a PR touching voice, vault, and CI\" --paths \"hushh-webapp/lib/voice/foo.ts,hushh-webapp/lib/vault/foo.ts,.github/workflows/ci.yml\" --text",
@@ -73,9 +84,10 @@
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 498,505,444 --text",
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 531,529,435 --text",
         "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --prs 488,489 --text",
-        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --text --output tmp/pr-governance-live-report.md",
+        "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md",
         "python3 -m py_compile .codex/skills/pr-governance-review/scripts/contributor_impact_report.py",
-        "python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 7 --text",
+        "python3 .codex/skills/pr-governance-review/scripts/test_contributor_impact_report.py",
+        "python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 14 --text",
         "./bin/hushh codex audit --text",
         "./bin/hushh docs verify"
       ]
