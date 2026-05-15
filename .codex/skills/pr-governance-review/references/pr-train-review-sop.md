@@ -23,7 +23,7 @@ Canonical order for every backlog, batch, repass, decision-wave, or scale pass:
    contributor response changes. Do not repeat them in the next operator wave.
 8. Run independent trains in parallel; sequence hard-edge PRs oldest-first inside a train. Checkpoints must not pause unrelated evidence, patch planning, or merge preparation.
 9. Treat PR Validation, Queue Validation, and Main Post-Merge Smoke as monitor lanes; while they run, prepare the next independent train or decision wave.
-10. After every state change, refresh the live report and contributor dashboard;
+10. Ingest every returned lane into queue, patch, comment/close, or hold writes;
     do not call the set complete until every train is terminal or blocked.
 
 If this order conflicts with another PR-governance reference, this section wins.
@@ -120,7 +120,7 @@ do not block parallelism by themselves.
 
 This is the Merge Train Capacity Model.
 
-1. `Queue Cohort`: independent `merge_now` PRs, max `4` at once.
+1. `Queue Cohort`: independent `merge_now` PRs, default `4`; larger only when homogeneous, low-risk, and exact-head verified.
 2. `Sequential Collision Train`: hard-edge PRs, one at a time.
 3. `Parallel Patch Train`: disjoint maintainer patches with proven attach
    points, max `3` by default.
@@ -191,7 +191,7 @@ available. Never rewrite `main` for retroactive co-author credit.
 4. Read every queue cohort, collision group, patch train, and decision wave.
 5. Assign each independent train to its evidence lane and prepare trains in
    parallel.
-6. Choose the next executable waves by value, age, and collision risk.
+6. Convert each returned lane into executable writes by value, age, and collision risk.
 7. Produce the operator dossier from `operator-batch-output-contract.md`; one
    approval starts the full reviewed train set, not a single train.
 8. Execute approved GitHub writes by editing existing maintainer records first.
