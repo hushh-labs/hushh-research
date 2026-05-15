@@ -114,6 +114,38 @@ def test_one_kyc_send_approved_reply_forwards_transient_body(monkeypatch):
     ]
 
 
+def test_one_kyc_scope_selection_uses_authenticated_user(monkeypatch):
+    calls: list[dict] = []
+
+    class _Service:
+        async def select_scopes(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "workflow_id": kwargs["workflow_id"],
+                "user_id": kwargs["user_id"],
+                "status": "needs_scope",
+                "requested_scopes": kwargs["selected_scopes"],
+            }
+
+    monkeypatch.setattr(one_email, "_service", lambda: _Service())
+    client = _build_app(user_id="user_123")
+
+    response = client.post(
+        "/api/one/kyc/workflows/workflow_123/scope-selection",
+        json={"user_id": "user_123", "selected_scopes": ["attr.identity.*", "attr.financial.*"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["requested_scopes"] == ["attr.identity.*", "attr.financial.*"]
+    assert calls == [
+        {
+            "user_id": "user_123",
+            "workflow_id": "workflow_123",
+            "selected_scopes": ["attr.identity.*", "attr.financial.*"],
+        }
+    ]
+
+
 def test_one_kyc_client_connector_registration_uses_vault_user(monkeypatch):
     calls: list[dict] = []
 
@@ -173,5 +205,36 @@ def test_one_kyc_workflow_consent_export_uses_vault_user_without_consent_token(m
 
     assert response.status_code == 200
     assert response.json()["encrypted_data"] == "ciphertext"
+    assert "consent_token" not in response.text
+    assert calls == [{"user_id": "user_123", "workflow_id": "workflow_123"}]
+
+
+def test_one_kyc_workflow_consent_exports_uses_vault_user_without_consent_token(monkeypatch):
+    calls: list[dict] = []
+
+    class _Service:
+        async def get_workflow_consent_exports(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "status": "success",
+                "exports": [
+                    {
+                        "request_id": "okyc_1",
+                        "scope": "attr.identity.*",
+                        "encrypted_data": "ciphertext",
+                        "iv": "iv",
+                        "tag": "tag",
+                        "wrapped_key_bundle": {"connector_key_id": "one-kyc-test"},
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(one_email, "_service", lambda: _Service())
+    client = _build_app(user_id="user_123")
+
+    response = client.get("/api/one/kyc/workflows/workflow_123/consent-exports?user_id=user_123")
+
+    assert response.status_code == 200
+    assert response.json()["exports"][0]["scope"] == "attr.identity.*"
     assert "consent_token" not in response.text
     assert calls == [{"user_id": "user_123", "workflow_id": "workflow_123"}]

@@ -71,7 +71,7 @@ async def kai_chat(request: ChatRequest):
     - Sentiment Analysis
     - Valuation Analysis
 
-    Orchestrates tools via Gemini 3 Flash.
+    Orchestrates multi-agent investment analysis (fundamental, sentiment, valuation).
     """
     logger.info(f"📈 Kai Agent: user={request.userId}, msg='{request.message[:50]}...'")
 
