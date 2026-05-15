@@ -44,7 +44,9 @@ def test_refresh_account_identity_returns_synced_identity(monkeypatch):
 
 def test_claim_account_phone_requires_firebase_auth():
     client = TestClient(_build_app())
-    response = client.post("/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"})
+    response = client.post(
+        "/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"}
+    )
 
     assert response.status_code == 401
 
@@ -70,7 +72,9 @@ def test_claim_account_phone_persists_verified_phone(monkeypatch):
     monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", _mock_claim)
 
     client = TestClient(app)
-    response = client.post("/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"})
+    response = client.post(
+        "/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"}
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -115,7 +119,9 @@ def test_claim_account_phone_rejects_phone_token_without_phone_number(monkeypatc
     monkeypatch.setattr(account, "_verify_phone_claim_id_token", _mock_verify)
 
     client = TestClient(app)
-    response = client.post("/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"})
+    response = client.post(
+        "/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"}
+    )
 
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "PHONE_ID_TOKEN_MISSING_PHONE_NUMBER"
@@ -134,7 +140,9 @@ def test_claim_account_phone_maps_persistence_failure(monkeypatch):
     monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", _mock_claim)
 
     client = TestClient(app)
-    response = client.post("/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"})
+    response = client.post(
+        "/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"}
+    )
 
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "PHONE_CLAIM_PERSISTENCE_UNAVAILABLE"

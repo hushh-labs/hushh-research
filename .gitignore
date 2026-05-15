@@ -92,6 +92,13 @@ hushh-webapp/test-results/
 hushh-webapp/npm-audit-report.json
 **/build.log
 
+# Runtime-generated PKM debug logs
+**/pkm-debug.log*
+**/pkm-debug-*.log*
+**/pkm-debug-*.jsonl
+**/pkm-debug-*.ndjson
+**/.pkm-debug/
+
 # Generated native/build artifacts
 hushh-webapp/.next/
 hushh-webapp/.next-prod/
