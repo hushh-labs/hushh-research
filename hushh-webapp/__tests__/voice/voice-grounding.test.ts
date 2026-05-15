@@ -608,4 +608,28 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.resolutionSource).toBe("none");
     expect(plan.execution.steps).toHaveLength(0);
   });
+    it("preserves manual-only execution for destructive transcript intents", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "Please do that yourself in the app.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "delete my account permanently",
+      response,
+      structuredContext: makeContext("/profile"),
+    });
+
+    expect(plan.status).toBe("manual_only");
+    expect(plan.actionId).toBe("profile.delete_account");
+    expect(plan.destructive).toBe(true);
+    expect(plan.execution.mode).toBe("manual_only");
+    expect(plan.execution.steps).toHaveLength(1);
+
+    expect(plan.execution.steps[0]).toMatchObject({
+      type: "prompt",
+      reason: "destructive_action_policy",
+    });
+  });
 });
