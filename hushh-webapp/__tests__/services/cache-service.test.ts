@@ -47,4 +47,14 @@ describe("CacheService", () => {
     expect(cache.get("market-home")).toBeNull();
     expect(cache.getStats().size).toBe(0);
   });
+    it("preserves snapshot value consistency for unchanged cache reads", () => {
+    const cache = CacheService.getInstance();
+
+    cache.set("portfolio-feed", { stable: true }, 5_000);
+
+    const firstSnapshot = cache.peek<{ stable: boolean }>("portfolio-feed");
+    const secondSnapshot = cache.peek<{ stable: boolean }>("portfolio-feed");
+
+    expect(secondSnapshot).toStrictEqual(firstSnapshot);
+  });
 });
