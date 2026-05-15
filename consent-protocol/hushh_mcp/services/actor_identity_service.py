@@ -511,7 +511,9 @@ class ActorIdentityService:
                     normalized_phone_number,
                 )
         except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError):
-            logger.debug("actor_identity_cache phone claim skipped; phone shadow schema unavailable")
+            logger.debug(
+                "actor_identity_cache phone claim skipped; phone shadow schema unavailable"
+            )
             return None
         except Exception as exc:
             logger.debug(
