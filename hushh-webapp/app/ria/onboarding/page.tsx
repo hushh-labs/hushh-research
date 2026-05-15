@@ -366,8 +366,8 @@ export default function RiaOnboardingPage() {
         return;
       }
       if (verifyError instanceof RiaApiError && verifyError.status === 429) {
-        setError("Too many verification attempts. Please wait a moment.");
         updateDraft({ licenseVerificationStatus: "idle" });
+        setError("Too many verification attempts. Please wait a moment.");
         return;
       }
       updateDraft({ licenseVerificationStatus: "error" });
