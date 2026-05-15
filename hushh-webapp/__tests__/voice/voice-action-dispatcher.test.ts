@@ -85,6 +85,7 @@ describe("dispatchVoiceToolCall", () => {
         resultSummary: "Executed the requested Kai command.",
       },
     });
+    
   });
 
   it("returns blocked when a vault token is required but missing", async () => {
@@ -137,7 +138,6 @@ describe("dispatchVoiceToolCall", () => {
       },
     });
   });
-
   it("returns failed when resume_active_analysis throws", async () => {
     mocks.resumeActiveRun.mockRejectedValueOnce(new Error("resume failed"));
 
@@ -190,5 +190,34 @@ describe("dispatchVoiceToolCall", () => {
         resultSummary: "Resumed the active analysis run.",
       },
     });
+  });
+  it("rejects malformed execute_kai_command payload variants", async () => {
+    const malformedToolCalls = [
+      "execute_kai_comman",
+      " execute_kai_command ",
+      "EXECUTE_KAI_COMMAND",
+      "execute-kai-command",
+    ] as const;
+
+    for (const toolName of malformedToolCalls) {
+      const input = baseInput();
+
+      const result = await dispatchVoiceToolCall({
+        ...input,
+        toolCall: {
+          tool_name: toolName,
+          args: {
+            command: "dashboard",
+          },
+        },
+      });
+
+      expect(input.executeKaiCommand).not.toHaveBeenCalled();
+
+      expect(result).toMatchObject({
+        status: "invalid",
+        reason: "unsupported_tool_call",
+      });
+    }
   });
 });
