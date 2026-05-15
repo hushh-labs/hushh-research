@@ -86,7 +86,7 @@ export default function RiaOnboardingPage() {
     () => getRiaOnboardingStepIndex(draft, draft.currentStepId, flowOptions),
     [draft, flowOptions]
   );
-  const currentStep = steps[currentStepIndex] ?? steps[0];
+  const currentStep = (steps[currentStepIndex] ?? steps[0])!;
   const canContinue = canContinueRiaOnboardingStep(
     currentStep.id,
     draft,

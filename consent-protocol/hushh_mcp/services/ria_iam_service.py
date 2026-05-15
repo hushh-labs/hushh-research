@@ -21,6 +21,7 @@ from hushh_mcp.services.consent_request_links import (
     build_consent_request_url,
 )
 from hushh_mcp.services.email_delivery_queue_service import get_email_delivery_queue_service
+from hushh_mcp.services.kai_invite_email_service import get_kai_invite_email_service
 from hushh_mcp.services.ria_verification import (
     FinraVerificationAdapter,
     NameVerificationResult,
@@ -5367,8 +5368,6 @@ class RIAIAMService:
         reason: str | None,
         created_item: dict[str, Any],
     ) -> None:
-        from hushh_mcp.services.kai_invite_email_service import get_kai_invite_email_service
-
         invite_email_service = get_kai_invite_email_service()
         cfg = invite_email_service.config
         normalized_target_email = target_email.strip().lower()
