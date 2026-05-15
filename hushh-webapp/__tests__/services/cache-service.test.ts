@@ -47,4 +47,30 @@ describe("CacheService", () => {
     expect(cache.get("market-home")).toBeNull();
     expect(cache.getStats().size).toBe(0);
   });
+  it("stabilizes stale snapshot expiry boundaries after ttl elapses", () => {
+  const cache = CacheService.getInstance();
+
+  cache.set("consent-center", { synced: true }, 1_000);
+
+  expect(cache.peek<{ synced: boolean }>("consent-center")).toMatchObject({
+    isFresh: true,
+    isStale: false,
+  });
+
+  vi.advanceTimersByTime(999);
+
+  expect(cache.peek<{ synced: boolean }>("consent-center")).toMatchObject({
+    isFresh: true,
+    isStale: false,
+  });
+
+  vi.advanceTimersByTime(2);
+
+  expect(cache.peek<{ synced: boolean }>("consent-center")).toMatchObject({
+    isFresh: false,
+    isStale: true,
+  });
+
+  expect(cache.getStats().size).toBe(1);
+});
 });
