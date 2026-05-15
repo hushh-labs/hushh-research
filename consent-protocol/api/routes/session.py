@@ -7,7 +7,7 @@ import logging
 import os
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
 from api.middleware import require_vault_owner_token
 from api.models import LogoutRequest, SessionTokenRequest, SessionTokenResponse
@@ -109,9 +109,9 @@ async def logout_session(request: LogoutRequest):
 
 @router.get("/consent/history")
 async def get_consent_history(
-    userId: str,
-    page: int = 1,
-    limit: int = 50,
+    userId: str = Query(..., max_length=128),
+    page: int = Query(1, ge=1, le=10_000),
+    limit: int = Query(50, ge=1, le=200),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -148,22 +148,13 @@ async def get_consent_history(
             "grouped": grouped,
         }
     except Exception as e:
-        # SECURITY: Log error details server-side, return generic message (CodeQL fix)
         logger.error("consent_history.fetch_failed: %s", e)
-        return {
-            "userId": userId,
-            "page": page,
-            "limit": limit,
-            "total": 0,
-            "items": [],
-            "grouped": {},
-            "error": "Failed to fetch consent history",
-        }
+        raise HTTPException(status_code=500, detail="Failed to fetch consent history")
 
 
 @router.get("/consent/active")
 async def get_active_consents(
-    userId: str,
+    userId: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -201,9 +192,8 @@ async def get_active_consents(
 
         return {"grouped": grouped, "active": active_tokens}
     except Exception as e:
-        # SECURITY: Log error details server-side, return generic message (CodeQL fix)
         logger.error("consent_active.fetch_failed: %s", e)
-        return {"grouped": {}, "active": [], "error": "Failed to fetch active consents"}
+        raise HTTPException(status_code=500, detail="Failed to fetch active consents")
 
 
 @router.get("/user/lookup")

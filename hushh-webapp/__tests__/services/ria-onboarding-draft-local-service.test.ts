@@ -36,7 +36,7 @@ describe("RiaOnboardingDraftLocalService", () => {
 
     expect(setMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        key: "ria_onboarding_draft_v1:uid-1",
+        key: "ria_onboarding_draft_v2:uid-1",
         value: expect.stringContaining("\"currentStepId\":\"review\""),
       })
     );
@@ -54,7 +54,7 @@ describe("RiaOnboardingDraftLocalService", () => {
     const draft = await RiaOnboardingDraftLocalService.load("uid-1");
     expect(draft).toEqual(
       expect.objectContaining({
-        currentStepId: "capabilities",
+        currentStepId: "welcome",
         requestedCapabilities: ["advisory"],
         displayName: "Kai Advisor",
       })
@@ -65,7 +65,7 @@ describe("RiaOnboardingDraftLocalService", () => {
     await RiaOnboardingDraftLocalService.clear("uid-1");
 
     expect(removeMock).toHaveBeenCalledWith({
-      key: "ria_onboarding_draft_v1:uid-1",
+      key: "ria_onboarding_draft_v2:uid-1",
     });
   });
 });
