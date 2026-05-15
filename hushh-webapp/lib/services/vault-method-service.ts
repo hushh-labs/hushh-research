@@ -21,7 +21,9 @@ export type VaultCapabilityMatrix = {
 function ensureVaultKeyHex(value: string): string {
   const normalized = value.trim().toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(normalized)) {
-    throw new Error("Vault key in memory is invalid. Unlock vault again and retry.");
+    throw new Error(
+      "Vault key in memory is invalid. Unlock vault again and retry.",
+    );
   }
   return normalized;
 }
@@ -35,17 +37,19 @@ function normalizeVaultMethodError(error: unknown): Error {
     lowered.includes("rp id is not allowed")
   ) {
     return new Error(
-      "This passkey was enrolled under an older domain. Use passphrase once, then enroll passkey again for kai.hushh.ai."
+      "This passkey was enrolled under an older domain. Use passphrase once, then enroll passkey again for kai.hushh.ai.",
     );
   }
 
   if (lowered.includes("client_upgrade_required")) {
-    return new Error("Client upgrade required. Please update the app and retry.");
+    return new Error(
+      "Client upgrade required. Please update the app and retry.",
+    );
   }
 
   if (lowered.includes("passphrase wrapper missing")) {
     return new Error(
-      "Passphrase wrapper is missing for this vault. Use passphrase/recovery flow once to repair wrapper enrollment."
+      "Passphrase wrapper is missing for this vault. Use passphrase/recovery flow once to repair wrapper enrollment.",
     );
   }
 
@@ -142,10 +146,11 @@ export class VaultMethodService {
         return { method: "passphrase" };
       }
 
-      const material = await VaultBootstrapService.provisionGeneratedMethodMaterial({
-        userId: params.userId,
-        displayName: params.displayName,
-      });
+      const material =
+        await VaultBootstrapService.provisionGeneratedMethodMaterial({
+          userId: params.userId,
+          displayName: params.displayName,
+        });
 
       if (material.mode !== params.targetMethod) {
         throw new Error("Requested method is not supported on this device.");
@@ -182,7 +187,7 @@ export class VaultMethodService {
         await VaultService.setPrimaryVaultMethod(
           params.userId,
           material.mode,
-          material.passkeyCredentialId ?? "default"
+          material.passkeyCredentialId ?? "default",
         );
         trackEvent("profile_method_switch_result", {
           result: "success",
@@ -195,7 +200,7 @@ export class VaultMethodService {
         ) {
           await VaultBootstrapService.clearGeneratedDefaultMaterial(
             params.userId,
-            material.mode as GeneratedVaultKeyMode
+            material.mode as GeneratedVaultKeyMode,
           );
         }
         throw error;
@@ -250,7 +255,7 @@ export class VaultMethodService {
         await VaultService.setPrimaryVaultMethod(
           params.userId,
           "passphrase",
-          "default"
+          "default",
         );
         return { primaryMethod: "passphrase", passphraseUpdated: true };
       }
@@ -258,6 +263,77 @@ export class VaultMethodService {
       return {
         primaryMethod: state.primaryMethod,
         passphraseUpdated: true,
+      };
+    } catch (error) {
+      throw normalizeVaultMethodError(error);
+    }
+  }
+
+  static async removeMethod(params: {
+    userId: string;
+    currentVaultKey: string;
+    vaultOwnerToken: string;
+    method: VaultMethod;
+    wrapperId?: string;
+    fallbackPrimaryMethod?: VaultMethod;
+    fallbackPrimaryWrapperId?: string;
+  }): Promise<{ primaryMethod: VaultMethod }> {
+    try {
+      if (params.method === "passphrase") {
+        throw new Error("Passphrase unlock cannot be removed.");
+      }
+
+      const canonicalVaultKey = ensureVaultKeyHex(params.currentVaultKey);
+      const state = await VaultService.getVaultState(params.userId);
+      const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey);
+
+      if (state.vaultKeyHash && state.vaultKeyHash !== vaultKeyHash) {
+        throw new Error("Vault key mismatch detected. Unlock vault again.");
+      }
+
+      const wrapperId = params.wrapperId ?? "default";
+      const targetWrapper = state.wrappers.find(
+        (wrapper) =>
+          wrapper.method === params.method &&
+          (wrapper.wrapperId ?? "default") === wrapperId,
+      );
+      if (!targetWrapper) {
+        throw new Error("This unlock method is no longer enrolled.");
+      }
+
+      const fallbackPrimaryMethod =
+        params.fallbackPrimaryMethod ?? "passphrase";
+      const fallbackPrimaryWrapperId =
+        params.fallbackPrimaryWrapperId ?? "default";
+      const fallbackWrapper = state.wrappers.find(
+        (wrapper) =>
+          wrapper.method === fallbackPrimaryMethod &&
+          (wrapper.wrapperId ?? "default") === fallbackPrimaryWrapperId,
+      );
+      if (!fallbackWrapper) {
+        throw new Error(
+          "Passphrase unlock must be repaired before removing this method.",
+        );
+      }
+
+      await VaultService.deleteVaultWrapper({
+        userId: params.userId,
+        vaultKeyHash,
+        method: params.method,
+        vaultOwnerToken: params.vaultOwnerToken,
+        wrapperId,
+        fallbackPrimaryMethod,
+        fallbackPrimaryWrapperId,
+      });
+
+      const removingPrimary =
+        state.primaryMethod === params.method &&
+        (state.primaryWrapperId ?? "default") === wrapperId;
+
+      return {
+        primaryMethod: removingPrimary
+          ? fallbackPrimaryMethod
+          : state.primaryMethod,
       };
     } catch (error) {
       throw normalizeVaultMethodError(error);
