@@ -556,7 +556,7 @@ export default function RiaOnboardingPage() {
         return (
           <OnboardingStepWelcome
             onboardingType={draft.onboardingType}
-            onSelect={(type: RiaOnboardingType) =>
+            onSelect={(type: "individual" | "firm") =>
               updateDraft({ onboardingType: type })
             }
           />

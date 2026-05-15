@@ -24,7 +24,7 @@ export function OnboardingStepWelcome({
   onboardingType,
   onSelect,
 }: {
-  onboardingType: "individual" | "firm";
+  onboardingType: "" | "individual" | "firm";
   onSelect: (type: "individual" | "firm") => void;
 }) {
   return (
