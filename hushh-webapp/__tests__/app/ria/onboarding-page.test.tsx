@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   routerPush: vi.fn(),
@@ -237,7 +237,6 @@ import RiaOnboardingPage from "@/app/ria/onboarding/page";
 
 describe("RiaOnboardingPage", () => {
   beforeEach(() => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.clearAllMocks();
 
     mocks.useAuth.mockReturnValue({
@@ -261,10 +260,6 @@ describe("RiaOnboardingPage", () => {
     );
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it("renders welcome step on fresh load", async () => {
     render(<RiaOnboardingPage />);
     await waitFor(() => {
@@ -280,7 +275,13 @@ describe("RiaOnboardingPage", () => {
       expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTestId("continue-btn"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("select-individual"));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("continue-btn"));
+    });
 
     await waitFor(() => {
       expect(screen.getByTestId("step-license")).toBeInTheDocument();
@@ -324,15 +325,27 @@ describe("RiaOnboardingPage", () => {
       expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTestId("continue-btn"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("select-individual"));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("continue-btn"));
+    });
+
     await waitFor(() => {
       expect(screen.getByTestId("step-license")).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByTestId("license-input"), {
-      target: { value: "123456" },
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("license-input"), {
+        target: { value: "123456" },
+      });
     });
-    fireEvent.click(screen.getByTestId("verify-btn"));
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("verify-btn"));
+    });
 
     await waitFor(() => {
       expect(mocks.riaService.verifyOnboardingLicense).toHaveBeenCalledWith(
@@ -342,13 +355,12 @@ describe("RiaOnboardingPage", () => {
       );
     });
 
-    await act(async () => {
-      vi.advanceTimersByTime(700);
-    });
-
-    await waitFor(() => {
-      expect(screen.getByTestId("step-license-details")).toBeInTheDocument();
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("step-license-details")).toBeInTheDocument();
+      },
+      { timeout: 3000 }
+    );
 
     expect(screen.getByTestId("advisor-name")).toHaveTextContent("Jane Doe");
     expect(screen.getByTestId("firm-name")).toHaveTextContent("Acme Wealth");
@@ -365,15 +377,27 @@ describe("RiaOnboardingPage", () => {
       expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTestId("continue-btn"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("select-individual"));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("continue-btn"));
+    });
+
     await waitFor(() => {
       expect(screen.getByTestId("step-license")).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByTestId("license-input"), {
-      target: { value: "999999" },
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("license-input"), {
+        target: { value: "999999" },
+      });
     });
-    fireEvent.click(screen.getByTestId("verify-btn"));
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("verify-btn"));
+    });
 
     await waitFor(() => {
       expect(screen.getByTestId("verification-status")).toHaveTextContent(
@@ -403,15 +427,27 @@ describe("RiaOnboardingPage", () => {
       expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTestId("continue-btn"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("select-individual"));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("continue-btn"));
+    });
+
     await waitFor(() => {
       expect(screen.getByTestId("step-license")).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByTestId("license-input"), {
-      target: { value: "123456" },
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("license-input"), {
+        target: { value: "123456" },
+      });
     });
-    fireEvent.click(screen.getByTestId("verify-btn"));
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("verify-btn"));
+    });
 
     await waitFor(() => {
       expect(screen.getByText(/too many verification/i)).toBeInTheDocument();
@@ -425,7 +461,9 @@ describe("RiaOnboardingPage", () => {
       expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTestId("select-firm"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("select-firm"));
+    });
 
     await waitFor(() => {
       expect(mocks.draftService.save).toHaveBeenCalledWith(
