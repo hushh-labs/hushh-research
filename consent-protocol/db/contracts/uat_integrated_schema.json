@@ -80,7 +80,6 @@
       "updated_at"
     ],
     "ria_business_contacts": [
-      "id",
       "user_id",
       "email",
       "email_verified",
