@@ -1,9 +1,8 @@
 # hushh_mcp/consent/token.py
-
+import logging
 import base64
 import hashlib
 import hmac
-import logging
 import os
 import time
 from typing import Optional, Tuple, Union
@@ -104,21 +103,6 @@ def _scope_str_to_enum(scope_str: str) -> ConsentScope:
 # ========== Token Verifier ==========
 
 
-def validate_token(allowed_scopes = payload.get(
-    "allowed_scopes",
-    [],
-)
-
-if (
-    expected_scope is not None
-    and str(expected_scope)
-    not in allowed_scopes
-):
-    return (
-        False,
-        "Requested scope not allowed",
-        None,
-    )
     token_str: str,
     expected_scope: Optional[Union[str, ConsentScope]] = None,
     *,
@@ -206,18 +190,28 @@ if (
         if require_commercial is False and commercial:
             return False, "Non-commercial consent required for this operation", None
 
-        token = HushhConsentToken(
-            token=token_str,
-            user_id=UserID(user_id),
-            agent_id=AgentID(agent_id),
-            scope=scope_enum,
-            scope_str=scope_str,  # CRITICAL: Preserve actual scope string!
-            issued_at=int(issued_at_str),
-            expires_at=int(expires_at_str),
-            signature=signature,
-            commercial=commercial,
-        )
-        return True, None, token
+     token = HushhConsentToken(
+    token=token_str,
+    user_id=UserID(user_id),
+    agent_id=AgentID(agent_id),
+    scope=scope_enum,
+    scope_str=scope_str,
+    issued_at=int(issued_at_str),
+    expires_at=int(expires_at_str),
+    signature=signature,
+    commercial=commercial,
+)
+
+logger.info(
+    "Consent token validated",
+    extra={
+        "scope": scope_str,
+        "commercial": commercial,
+    },
+)
+
+return True, None, token
+        
 
     except (ValueError, UnicodeDecodeError) as e:
         return False, f"Malformed token: {str(e)}", None
