@@ -10,6 +10,10 @@ Thank you for your interest in contributing to the Hussh Consent Protocol. This 
 - `uv`
 - Dependencies installed: `uv sync --frozen --group dev`
 
+> **Windows:** `uv` is the only setup tool needed — `winget install astral-sh.uv`, then
+> `uv sync --frozen --group dev && uv run pytest` from `consent-protocol/`. No extra scripts.
+> — Integrated by Abdul Gaffar
+
 ---
 
 ## Development Workflow
