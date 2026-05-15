@@ -12,6 +12,21 @@ def _build_app() -> FastAPI:
     return app
 
 
+def test_health_reports_one_led_agent_model():
+    client = TestClient(_build_app())
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "healthy",
+        "agents": ["one", "kai", "nav", "kyc"],
+        "agent_model": {
+            "primary": "one",
+            "specialists": ["kai", "nav", "kyc"],
+        },
+    }
+
+
 def test_review_mode_session_requires_app_review_or_smoke_overlay(monkeypatch):
     monkeypatch.setenv("APP_RUNTIME_PROFILE", "uat")
     monkeypatch.delenv("APP_REVIEW_MODE", raising=False)

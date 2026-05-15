@@ -32,6 +32,17 @@ describe("deriveVoiceRouteScreen", () => {
     });
   });
 
+  it("maps One KYC to a voice-eligible screen", () => {
+    expect(deriveVoiceRouteScreen("/one/kyc")).toEqual({
+      screen: "one_kyc",
+      subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/one/kyc", "panel=aliases")).toEqual({
+      screen: "one_kyc",
+      subview: "aliases",
+    });
+  });
+
   it("preserves receipts, gmail, support, and investments screen specificity", () => {
     expect(deriveVoiceRouteScreen("/profile/receipts")).toEqual({
       screen: "profile_receipts",
@@ -66,6 +77,25 @@ describe("deriveVoiceRouteScreen", () => {
     });
     expect(deriveVoiceRouteScreen("/profile", "tab=privacy")).toEqual({
       screen: "profile_privacy",
+      subview: null,
+    });
+  });
+
+  it("maps RIA roster, workspace, and detail routes to specific voice screens", () => {
+    expect(deriveVoiceRouteScreen("/ria/clients")).toEqual({
+      screen: "ria_clients",
+      subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/ria/clients/client-123", "tab=access")).toEqual({
+      screen: "ria_client_workspace",
+      subview: "access",
+    });
+    expect(deriveVoiceRouteScreen("/ria/clients/client-123/accounts/account-1")).toEqual({
+      screen: "ria_client_account_detail",
+      subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/ria/clients/client-123/requests/request-1")).toEqual({
+      screen: "ria_client_request_detail",
       subview: null,
     });
   });

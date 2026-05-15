@@ -59,6 +59,7 @@ function projectExecutionHint(action: InvestorKaiActionDefinition) {
     status: "wired" as const,
     path: "route" as const,
     target: binding.href,
+    ...(binding.params ? { params: binding.params } : {}),
   };
 }
 
@@ -104,5 +105,81 @@ describe("voice-action-manifest", () => {
       )
     );
     expect(getVoiceActionManifestById("missing.action")).toBeNull();
+  });
+
+  it("projects RIA navigation while keeping risky RIA mutations guarded", () => {
+    const riaManifestActions = listVoiceActionManifestActions().filter(
+      (action) => action.id.includes("ria") || action.scope.screens.some((screen) => screen.startsWith("ria_"))
+    );
+
+    expect(riaManifestActions.map((action) => action.id)).toEqual(
+      expect.arrayContaining([
+        "route.ria_home",
+        "route.ria_clients",
+        "route.ria_picks",
+        "ria.picks.open_source_kai",
+        "ria.client_workspace.open_access_tab",
+        "ria.client_workspace.request_access",
+        "marketplace.ria.request_advisory",
+      ])
+    );
+    expect(getVoiceActionManifestById("route.ria_home")).toEqual({
+      id: "route.ria_home",
+      label: "Open RIA Home",
+      meaning: "Navigates to the RIA workspace home route.",
+      speaker_persona: "one",
+      delegate_agent_id: null,
+      scope: {
+        routes: ["/ria"],
+        screens: ["ria_home"],
+        hidden_navigable: true,
+        navigation_prerequisites: ["RIA workspace must be available for this account."],
+      },
+      guard_ids: ["auth_signed_in", "ria_persona_available"],
+      risk_level: "medium",
+      execution_policy: "allow_direct",
+      execution_hint: {
+        status: "wired",
+        path: "route",
+        target: "/ria",
+      },
+      map_references: [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/iam/runtime-surface.md",
+        "hushh-webapp/app/ria/page.tsx",
+      ],
+    });
+    expect(getVoiceActionManifestById("ria.picks.open_source_kai")?.execution_hint).toEqual({
+      status: "wired",
+      path: "route",
+      target: "/ria/picks?source=kai",
+    });
+    expect(getVoiceActionManifestById("ria.client_workspace.open_access_tab")?.execution_hint).toEqual({
+      status: "wired",
+      path: "route",
+      target: "/ria/clients/[userId]?tab=access",
+      params: {
+        requires_client_id: true,
+        tab: "access",
+      },
+    });
+    expect(getVoiceActionManifestById("ria.picks.save_package")).toEqual(
+      expect.objectContaining({
+        risk_level: "high",
+        execution_policy: "manual_only",
+        execution_hint: expect.objectContaining({
+          status: "unwired",
+        }),
+      })
+    );
+    expect(getVoiceActionManifestById("marketplace.ria.request_advisory")).toEqual(
+      expect.objectContaining({
+        risk_level: "high",
+        execution_policy: "manual_only",
+        execution_hint: expect.objectContaining({
+          status: "unwired",
+        }),
+      })
+    );
   });
 });

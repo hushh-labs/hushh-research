@@ -18,7 +18,8 @@
   "task_types": [
     "api-contract-change",
     "bug-triage",
-    "release-readiness"
+    "release-readiness",
+    "data-model-audit"
   ],
   "required_reads": [
     "docs/reference/architecture/architecture.md",
@@ -26,16 +27,19 @@
     "consent-protocol/docs/README.md"
   ],
   "required_commands": [
-    "cd consent-protocol && python3 -m pytest tests/services -q"
+    "cd consent-protocol && python3 -m pytest tests/services -q",
+    "./bin/hushh codex data-model-audit"
   ],
   "verification_bundles": [
     {
       "id": "backend-runtime",
       "commands": [
-        "cd consent-protocol && python3 -m pytest tests/services -q"
+        "cd consent-protocol && python3 -m pytest tests/services -q",
+        "./bin/hushh codex data-model-audit"
       ],
       "tests": [
-        "cd consent-protocol && python3 -m pytest tests/services -q"
+        "cd consent-protocol && python3 -m pytest tests/services -q",
+        "./bin/hushh codex data-model-audit"
       ]
     }
   ],

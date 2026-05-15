@@ -1,5 +1,8 @@
 "use client";
 
+import { AsyncActionStatus } from "@/components/system/async-action-status";
+import { SessionExpiryRecovery } from "@/components/system/session-expiry-recovery";
+import { StaleCacheTimestamp } from "@/components/system/stale-cache-timestamp";
 import Link from "next/link";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { ReadonlyURLSearchParams } from "next/navigation";
@@ -21,6 +24,8 @@ import {
   SettingsRow,
   SettingsSegmentedTabs,
 } from "@/components/profile/settings-ui";
+import { AccessibilityStatusAnnouncer } from "@/components/system/accessibility-status-announcer";
+import { ApiRetryState } from "@/components/system/api-retry-state";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
@@ -29,6 +34,7 @@ import {
   CONSENT_STATE_CHANGED_EVENT,
 } from "@/lib/consent/consent-events";
 import { useConsentActions, type PendingConsent } from "@/lib/consent";
+import { ConsentAuditTimeline } from "@/components/consent/consent-audit-timeline";
 import { HandshakeTimeline } from "@/components/consent/handshake-timeline";
 import {
   humanizeConsentScope,
@@ -551,7 +557,7 @@ export function ConsentCenterPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { activePersona } = usePersonaState();
   const {
     activeControlId: activeVoiceControlId,
@@ -575,6 +581,9 @@ export function ConsentCenterPage() {
   const [searchValue, setSearchValue] = useState(searchParams.get("q") || "");
   const deferredQuery = useDeferredValue(searchValue.trim());
   const [mutationTick, setMutationTick] = useState(0);
+  const retryConsentCenter = () => {
+    setMutationTick((value) => value + 1);
+  };
   const summaryCacheKey = user?.uid
     ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(user.uid, `${actor}:${mode}`)
     : "consent_center_summary_guest";
@@ -702,12 +711,12 @@ export function ConsentCenterPage() {
       setRetainedList({ key: listCacheKey, data: listResource.data });
     }
   }, [listCacheKey, listResource.data]);
-
   const summaryData =
     summaryResource.data ??
     (retainedSummary?.key === summaryCacheKey ? retainedSummary.data : null);
   const listData =
     listResource.data ?? (retainedList?.key === listCacheKey ? retainedList.data : null);
+
   const relationshipItems = useMemo(
     () => filterRelationshipEntries(buildRelationshipEntries(centerResource.data || null), deferredQuery),
     [centerResource.data, deferredQuery]
@@ -716,6 +725,29 @@ export function ConsentCenterPage() {
     () => (tab === "relationships" ? relationshipItems : listData?.items || []),
     [listData?.items, relationshipItems, tab]
   );
+  const activeListError =
+    tab === "relationships" ? centerResource.error : listResource.error;
+  const activeListLoading =
+    tab === "relationships" ? centerResource.loading : listResource.loading;
+  const activeListRefreshing =
+    tab === "relationships" ? centerResource.refreshing : listResource.refreshing;
+  const consentLoadError = activeListError || summaryResource.error;
+  const hasVisibleConsentListData =
+    items.length > 0 ||
+    (tab === "relationships" ? Boolean(centerResource.data) : Boolean(listData));
+  const showCompactRetryState = Boolean(consentLoadError && hasVisibleConsentListData);
+  const showFullRetryState = Boolean(consentLoadError && !hasVisibleConsentListData);
+  const showSessionRecovery = Boolean(!authLoading && !user && showFullRetryState);
+  const visibleSnapshot = tab === "relationships" ? centerResource.snapshot : listResource.snapshot;
+  const isConsentActionRefreshing =
+    summaryResource.refreshing || listResource.refreshing || centerResource.refreshing;
+  const accessibilityStatusMessage = activeListLoading
+    ? "Consent entries are loading."
+    : activeListRefreshing
+      ? "Consent entries are refreshing."
+      : consentLoadError
+        ? "Consent entries failed to refresh."
+        : "";
   const selectedEntry = useMemo(() => {
     if (!items.length) return null;
     if (selectedId) {
@@ -997,6 +1029,14 @@ export function ConsentCenterPage() {
                     data-voice-control-id="consent_search"
                   />
                 </div>
+                {visibleSnapshot ? (
+                  <div className="mt-3">
+                    <StaleCacheTimestamp
+                      updatedAt={visibleSnapshot.timestamp}
+                      stale={Boolean(activeListError && items.length > 0)}
+                    />
+                  </div>
+                ) : null}
                 {((tab === "relationships" ? centerResource.loading || centerResource.refreshing : listResource.loading || listResource.refreshing) && items.length > 0) ? (
                   <div className="mt-3 text-xs text-muted-foreground">
                     Refreshing from the latest consent state…
@@ -1008,33 +1048,79 @@ export function ConsentCenterPage() {
             <section data-testid="consent-manager-list">
               <SettingsGroup embedded>
                 <div className="space-y-2 px-2 py-2">
-                  {listResource.loading && items.length === 0 ? (
+                  <AccessibilityStatusAnnouncer message={accessibilityStatusMessage} />
+
+                  {showSessionRecovery ? <SessionExpiryRecovery /> : null}
+
+                  {isConsentActionRefreshing && items.length > 0 ? (
+                    <AsyncActionStatus
+                      state="loading"
+                      label="Refreshing consent state..."
+                      compact
+                    />
+                  ) : null}
+
+                  {showCompactRetryState ? (
+                    <ApiRetryState
+                      variant="compact"
+                      title="Showing saved consent data"
+                      description="The latest refresh failed. You can keep reviewing cached data or retry."
+                      onRetry={retryConsentCenter}
+                    />
+                  ) : null}
+
+                  {showFullRetryState && !showSessionRecovery ? (
+                    <ApiRetryState
+                      title="Unable to refresh consent data"
+                      description="Consent data could not be loaded right now. Retry to fetch the latest consent state."
+                      onRetry={retryConsentCenter}
+                    />
+                  ) : null}
+
+                  {listResource.loading && items.length === 0 && !showFullRetryState ? (
                     <div className="px-3 py-6 text-sm text-muted-foreground">
                       Loading consent entries…
                     </div>
                   ) : null}
-                  {!listResource.loading && tab !== "relationships" && items.length === 0 ? (
+                  {!listResource.loading && !showFullRetryState && tab !== "relationships" && items.length === 0 ? (
                     <div className="px-3 py-8 text-sm text-muted-foreground">
                       No {tab} entries match this view right now.
                     </div>
                   ) : null}
-                  {!centerResource.loading && tab === "relationships" && items.length === 0 ? (
+                  {!centerResource.loading && !showFullRetryState && tab === "relationships" && items.length === 0 ? (
                     <div className="px-3 py-8 text-sm text-muted-foreground">
                       No relationship entries match this view right now.
                     </div>
                   ) : null}
-                  {items.map((entry) => (
-                    <ConsentEntryRow
-                      key={entry.id}
-                      entry={entry}
-                      selected={selectedEntry?.id === entry.id}
-                      onSelect={() =>
+                  {tab === "history" && items.length > 0 ? (
+                    <ConsentAuditTimeline
+                      entries={items}
+                      selectedId={selectedId}
+                      onSelect={(entry) =>
                         setParam({
                           requestId: entry.request_id || entry.id,
                         })
                       }
+                      resolveCounterpartLabel={resolveCounterpartLabel}
+                      summarizeEntry={entrySummary}
                     />
-                  ))}
+                  ) : (
+                    items.map((entry) => (
+                      <ConsentEntryRow
+                        key={entry.id}
+                        entry={entry}
+                        selected={
+                          selectedEntry?.id === entry.id ||
+                          selectedEntry?.request_id === entry.request_id
+                        }
+                        onSelect={() =>
+                          setParam({
+                            requestId: entry.request_id || entry.id,
+                          })
+                        }
+                      />
+                    ))
+                  )}
                 </div>
 
                 {tab !== "relationships" && listData ? (

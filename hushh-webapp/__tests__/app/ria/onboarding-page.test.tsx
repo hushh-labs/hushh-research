@@ -17,7 +17,6 @@ const mocks = vi.hoisted(() => ({
     getRiaPublicProfile: vi.fn(),
     verifyOnboardingName: vi.fn(),
     submitOnboarding: vi.fn(),
-    activateDevRia: vi.fn(),
     setRiaMarketplaceDiscoverability: vi.fn(),
   },
   draftService: {
@@ -193,7 +192,6 @@ describe("RiaOnboardingPage", () => {
       },
     });
     mocks.usePersonaState.mockReturnValue({
-      devRiaBypassAllowed: false,
       refresh: mocks.refreshPersonaState,
     });
     mocks.draftService.load.mockResolvedValue(null);
@@ -227,6 +225,7 @@ describe("RiaOnboardingPage", () => {
 
     expect(continueButton.disabled).toBe(true);
     expect(screen.queryByRole("button", { name: "Use manual CRD fallback" })).toBeNull();
+    expect(screen.queryByLabelText("CRD")).toBeNull();
 
     fireEvent.change(input, { target: { value: "Ana Roumenova Carter" } });
     await new Promise((resolve) => setTimeout(resolve, 450));
@@ -258,6 +257,60 @@ describe("RiaOnboardingPage", () => {
     expect(continueButton.disabled).toBe(true);
   });
 
+  it("does not ask for CRD and clears verified state when advisor name changes", async () => {
+    mocks.riaService.verifyOnboardingName.mockResolvedValue({
+      status: "verified",
+      matched_name: "Ana Roumenova Carter",
+      crd_number: "4424794",
+      current_firm: "LCG CAPITAL ADVISORS, LLC",
+      sec_number: "801-12345",
+      provider: "ria_intelligence_stage1",
+      suggested_names: [],
+    });
+
+    render(<RiaOnboardingPage />);
+
+    const input = await screen.findByLabelText("Advisor name");
+    const continueButton = screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+    expect(screen.queryByLabelText("CRD")).toBeNull();
+
+    fireEvent.change(input, { target: { value: "Ana Roumenova Carter" } });
+    fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+
+    await screen.findByText("Verified name");
+    expect(continueButton.disabled).toBe(false);
+
+    fireEvent.change(input, { target: { value: "Ana Carter" } });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Verified name")).toBeNull();
+    });
+    expect(continueButton.disabled).toBe(true);
+  });
+
+  it("keeps continue blocked when verification returns no CRD", async () => {
+    mocks.riaService.verifyOnboardingName.mockResolvedValue({
+      status: "verified",
+      matched_name: "Ana Roumenova Carter",
+      crd_number: null,
+      current_firm: "LCG CAPITAL ADVISORS, LLC",
+      sec_number: "801-12345",
+      provider: "ria_intelligence_stage1",
+      suggested_names: [],
+    });
+
+    render(<RiaOnboardingPage />);
+
+    const input = await screen.findByLabelText("Advisor name");
+    const continueButton = screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+
+    fireEvent.change(input, { target: { value: "Ana Roumenova Carter" } });
+    fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+
+    await screen.findByText(/did not return a CRD-backed advisor record/i);
+    expect(continueButton.disabled).toBe(true);
+  });
+
   it("keeps non-actionable helper cards out of onboarding", async () => {
     render(<RiaOnboardingPage />);
 
@@ -265,49 +318,6 @@ describe("RiaOnboardingPage", () => {
 
     expect(screen.queryByText("Trust summary")).toBeNull();
     expect(screen.queryByText("Deferred for later settings")).toBeNull();
-  });
-
-  it("offers the verification bypass only when the environment allows it", async () => {
-    mocks.usePersonaState.mockReturnValue({
-      devRiaBypassAllowed: true,
-      refresh: mocks.refreshPersonaState,
-    });
-    mocks.riaService.activateDevRia.mockResolvedValue({
-      ria_profile_id: "ria-profile-1",
-      verification_status: "active",
-      advisory_status: "active",
-      brokerage_status: "draft",
-      requested_capabilities: ["advisory"],
-      verification_outcome: "dev_allowlist",
-      verification_message: "RIA activated for an allowlisted development account",
-      brokerage_outcome: "not_requested",
-      brokerage_message: "Brokerage capability was not requested.",
-      professional_access_granted: true,
-      individual_legal_name: "Local Advisor",
-      individual_crd: null,
-      advisory_firm_legal_name: null,
-      advisory_firm_iapd_number: null,
-      broker_firm_legal_name: null,
-      broker_firm_crd: null,
-    });
-
-    render(<RiaOnboardingPage />);
-
-    const input = await screen.findByLabelText("Advisor name");
-    fireEvent.change(input, { target: { value: "Local Advisor" } });
-    fireEvent.click(screen.getByRole("button", { name: "Bypass verification" }));
-
-    await waitFor(() => {
-      expect(mocks.riaService.activateDevRia).toHaveBeenCalledWith(
-        "token-ria-1",
-        expect.objectContaining({
-          display_name: "Local Advisor",
-          requested_capabilities: ["advisory"],
-        })
-      );
-    });
-    expect(mocks.riaService.verifyOnboardingName).not.toHaveBeenCalled();
-    expect(mocks.refreshPersonaState).toHaveBeenCalledWith({ force: true });
   });
 
   it("supports Enter-to-verify and blocks continue after a failed lookup", async () => {

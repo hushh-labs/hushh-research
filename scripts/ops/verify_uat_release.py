@@ -32,6 +32,8 @@ _UAT_SPEC.loader.exec_module(_UAT_MODULE)
 DEFAULT_PROTOCOL_ENV = _UAT_MODULE.DEFAULT_PROTOCOL_ENV
 DEFAULT_WEBAPP_ENV = _UAT_MODULE.DEFAULT_WEBAPP_ENV
 UatKaiSmoke = _UAT_MODULE.UatKaiSmoke
+RIA_STAGE1_SMOKE_QUERY = "JOSEPH KIRKLAND"
+RIA_STAGE1_SMOKE_CRD = "5838118"
 
 
 def _http_probe(url: str) -> dict[str, Any]:
@@ -177,6 +179,37 @@ def main() -> int:
                 failures.append("voice_capability")
         except Exception as exc:  # pragma: no cover - exercised in live verification
             _record_exception(report, failures, name="voice_capability", exc=exc)
+
+        try:
+            ria_stage1 = smoke._request(  # noqa: SLF001
+                "POST",
+                "/api/ria/onboarding/verify-name",
+                headers=smoke._firebase_auth_headers(),  # noqa: SLF001
+                json_body={
+                    "query": RIA_STAGE1_SMOKE_QUERY,
+                    "force_live_verification": True,
+                },
+                expected=200,
+            ).json()
+            ria_stage1_ok = (
+                str(ria_stage1.get("status") or "") == "verified"
+                and str(ria_stage1.get("crd_number") or "") == RIA_STAGE1_SMOKE_CRD
+            )
+            report["checks"].append(
+                {
+                    "name": "ria_stage1_query_only",
+                    "ok": ria_stage1_ok,
+                    "status": ria_stage1.get("status"),
+                    "provider": ria_stage1.get("provider"),
+                    "matched_name": ria_stage1.get("matched_name"),
+                    "crd_number": ria_stage1.get("crd_number"),
+                    "reason_code": ria_stage1.get("reason_code"),
+                }
+            )
+            if not ria_stage1_ok:
+                failures.append("ria_stage1_query_only")
+        except Exception as exc:  # pragma: no cover - exercised in live verification
+            _record_exception(report, failures, name="ria_stage1_query_only", exc=exc)
 
         try:
             realtime_session = smoke._request(  # noqa: SLF001

@@ -120,6 +120,7 @@ Before calling iOS/Android parity complete, run:
 
 That release gate includes:
 
+- native microphone permission metadata verification
 - full route-contract verification
 - native plugin parity verification
 - Capacitor route classification verification
@@ -192,7 +193,7 @@ All 10 plugins exist on both platforms with matching methods:
 
 Visible page routes are governed through `hushh-webapp/lib/navigation/routes.ts` together with the architecture/mobile parity docs. That coverage includes:
 
-- product routes (`/kai`, `/consents`, `/profile`, `/marketplace`, `/ria`)
+- product routes (`/kai`, `/consents`, `/profile`, `/one/kyc`, `/marketplace`, `/ria`)
 - `/developers`
 - public/auth content pages (`/`, `/login`, `/logout`)
 - visible lab routes
@@ -559,6 +560,7 @@ Native plugins call Python backend directly, bypassing Next.js:
 | Vault Get        | `POST /db/vault/get`                 | `GET /api/vault/get`                      | Python  |
 | Vault Setup      | `POST /db/vault/setup`               | `POST /api/vault/setup`                   | Python  |
 | Vault Wrapper Upsert | `POST /db/vault/wrapper/upsert`   | `POST /api/vault/wrapper/upsert`          | Python  |
+| Vault Wrapper Delete | `POST /db/vault/wrapper/delete`   | `POST /api/vault/wrapper/delete`          | Python  |
 | Vault Primary Set | `POST /db/vault/primary/set`        | `POST /api/vault/primary/set`             | Python  |
 | Food Get         | `POST /api/food/preferences`         | `GET /api/vault/food/preferences`         | Python  |
 | Professional Get | `POST /api/professional/preferences` | `GET /api/vault/professional/preferences` | Python  |
@@ -641,7 +643,7 @@ const DEV_MODE = false; // Must be false for production builds
 
 const config: CapacitorConfig = {
   appId: "com.hushh.app",
-  appName: "Hushh",
+  appName: "Kai",
   webDir: "out",
   server: {
     cleartext: true,

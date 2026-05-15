@@ -44,10 +44,10 @@ import {
   type RiaOnboardingStatus,
 } from "@/lib/services/ria-service";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { trackEvent } from "@/lib/observability/client";
 import {
   trackGrowthFunnelStepCompleted,
-  trackRiaActivationCompleted,
 } from "@/lib/observability/growth";
 
 type NameVerificationState =
@@ -99,7 +99,6 @@ function buildSubmitPayload(draft: RiaOnboardingDraft) {
     display_name: draft.displayName.trim(),
     requested_capabilities: draft.requestedCapabilities,
     individual_legal_name: draft.individualLegalName.trim() || undefined,
-    individual_crd: draft.individualCrd.trim() || undefined,
     advisory_firm_legal_name:
       advisoryEnabled ? draft.advisoryFirmName.trim() || undefined : undefined,
     advisory_firm_iapd_number:
@@ -111,7 +110,11 @@ function buildSubmitPayload(draft: RiaOnboardingDraft) {
 }
 
 function isAdvisoryAccessReady(status?: string | null): boolean {
-  return status === "active" || status === "verified" || status === "bypassed";
+  return status === "active" || status === "verified";
+}
+
+function normalizeCrd(value?: string | null): string {
+  return String(value || "").replace(/\D/g, "");
 }
 
 async function waitForNameVerificationResult<T>(
@@ -252,7 +255,7 @@ function ReviewField({
 export default function RiaOnboardingPage() {
   const router = useRouter();
   const { user } = useAuth();
-  const { devRiaBypassAllowed, refresh: refreshPersonaState } = usePersonaState();
+  const { refresh: refreshPersonaState } = usePersonaState();
 
   const [status, setStatus] = useState<RiaOnboardingStatus | null>(null);
   const [draft, setDraft] = useState<RiaOnboardingDraft>(
@@ -268,6 +271,7 @@ export default function RiaOnboardingPage() {
   const [nameVerificationStatus, setNameVerificationStatus] = useState<NameVerificationState>("idle");
   const [nameVerificationResult, setNameVerificationResult] = useState<RiaNameVerificationResult | null>(null);
   const [lastVerifiedQuery, setLastVerifiedQuery] = useState<string | null>(null);
+  const [lastVerifiedCrd, setLastVerifiedCrd] = useState<string | null>(null);
   const verificationRequestIdRef = useRef(0);
   const verificationAbortRef = useRef<AbortController | null>(null);
   const latestDisplayNameRef = useRef("");
@@ -284,6 +288,7 @@ export default function RiaOnboardingPage() {
           setNameVerificationStatus("idle");
           setNameVerificationResult(null);
           setLastVerifiedQuery(null);
+          setLastVerifiedCrd(null);
         }
         return;
       }
@@ -331,10 +336,12 @@ export default function RiaOnboardingPage() {
             suggested_names: [],
           });
           setLastVerifiedQuery(seeded.displayName.trim() || seededIdentity.matchedName);
+          setLastVerifiedCrd(normalizeCrd(seededIdentity.crdNumber));
         } else {
           setNameVerificationStatus("idle");
           setNameVerificationResult(null);
           setLastVerifiedQuery(null);
+          setLastVerifiedCrd(null);
         }
         setShouldPersistDraft(true);
       } catch (loadError) {
@@ -380,17 +387,19 @@ export default function RiaOnboardingPage() {
   const displayNameQuery = draft.displayName.trim();
   latestDisplayNameRef.current = displayNameQuery;
   const persistedVerifiedDisplayName = status?.display_name?.trim() || "";
+  const persistedVerifiedCrd = normalizeCrd(status?.individual_crd || status?.finra_crd);
   const persistedVerificationSatisfied =
     isAdvisoryAccessReady(status?.advisory_status || status?.verification_status) &&
-    Boolean(status?.individual_crd || status?.finra_crd) &&
+    Boolean(persistedVerifiedCrd) &&
     Boolean(persistedVerifiedDisplayName) &&
     persistedVerifiedDisplayName === displayNameQuery;
   const nameVerificationSatisfied =
     persistedVerificationSatisfied ||
     (nameVerificationStatus === "verified" &&
-      Boolean(nameVerificationResult?.crd_number) &&
+      Boolean(normalizeCrd(nameVerificationResult?.crd_number)) &&
       Boolean(displayNameQuery) &&
-      lastVerifiedQuery === displayNameQuery);
+      lastVerifiedQuery === displayNameQuery &&
+      Boolean(lastVerifiedCrd));
   const flowOptions = useMemo<RiaOnboardingFlowOptions>(
     () => ({ nameVerificationSatisfied }),
     [nameVerificationSatisfied]
@@ -403,7 +412,11 @@ export default function RiaOnboardingPage() {
     Boolean(user) &&
     displayNameQuery.length > 0 &&
     nameVerificationStatus !== "verifying" &&
-    !(nameVerificationStatus === "verified" && lastVerifiedQuery === displayNameQuery);
+    !(
+      nameVerificationStatus === "verified" &&
+      lastVerifiedQuery === displayNameQuery &&
+      Boolean(lastVerifiedCrd)
+    );
   const isBroadNameQuery =
     nameVerificationStatus === "not_verified" &&
     nameVerificationResult?.reason_code === "query_too_broad";
@@ -416,6 +429,67 @@ export default function RiaOnboardingPage() {
   const canContinue = canContinueRiaOnboardingStep(currentStep.id, draft, flowOptions);
   const capabilityLabels = getRequestedCapabilityLabels(draft);
   const progressValue = Math.round(((currentStepIndex + 1) / Math.max(steps.length, 1)) * 100);
+  const voiceSurfaceMetadata = useMemo(
+    () => ({
+      screenId: "ria_onboarding",
+      title: "RIA Onboarding",
+      purpose: "Advisor verification setup flow.",
+      sections: [
+        {
+          id: "ria_onboarding_step",
+          title: currentStep.title,
+          purpose: currentStep.description,
+        },
+      ],
+      controls: [
+        {
+          id: "ria_onboarding_route",
+          label: "RIA onboarding",
+          type: "route",
+          actionId: "route.ria_onboarding",
+        },
+        {
+          id: "ria_onboarding_verify_name",
+          label: "Verify advisor name",
+          type: "button",
+          state: canVerifyName ? "enabled" : "disabled",
+          actionId: "ria.onboarding.verify_name",
+        },
+        {
+          id: "ria_onboarding_submit_verification",
+          label: "Submit verification",
+          type: "button",
+          state: currentStep.id === "review" && canContinue ? "enabled" : "hidden",
+          actionId: "ria.onboarding.submit_verification",
+        },
+      ],
+      activeSection: currentStep.id,
+      visibleModules: [currentStep.title, "Verification status"],
+      selectedObjects: capabilityLabels,
+      screenMetadata: {
+        current_step_id: currentStep.id,
+        current_step_index: currentStepIndex,
+        step_count: steps.length,
+        can_continue: canContinue,
+        can_verify_name: canVerifyName,
+        name_verification_status: nameVerificationStatus,
+        advisory_verification_status: advisoryVerificationStatus,
+      },
+    }),
+    [
+      advisoryVerificationStatus,
+      canContinue,
+      canVerifyName,
+      capabilityLabels,
+      currentStep.description,
+      currentStep.id,
+      currentStep.title,
+      currentStepIndex,
+      nameVerificationStatus,
+      steps.length,
+    ]
+  );
+  usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
 
   useEffect(() => {
     setDraft((current) => {
@@ -436,6 +510,14 @@ export default function RiaOnboardingPage() {
     verificationAbortRef.current = null;
   }
 
+  function clearNameVerification() {
+    cancelActiveVerification();
+    setNameVerificationStatus("idle");
+    setNameVerificationResult(null);
+    setLastVerifiedQuery(null);
+    setLastVerifiedCrd(null);
+  }
+
   function applyVerifiedIdentityToDraft(result: RiaNameVerificationResult) {
     setShouldPersistDraft(true);
     setDraft((current) => ({
@@ -448,10 +530,7 @@ export default function RiaOnboardingPage() {
   }
 
   function handleDisplayNameChange(value: string) {
-    cancelActiveVerification();
-    setNameVerificationStatus("idle");
-    setNameVerificationResult(null);
-    setLastVerifiedQuery(null);
+    clearNameVerification();
     latestDisplayNameRef.current = value.trim();
     updateDraft({
       displayName: value,
@@ -484,13 +563,16 @@ export default function RiaOnboardingPage() {
     setNameVerificationStatus("verifying");
     setNameVerificationResult(null);
     setLastVerifiedQuery(null);
+    setLastVerifiedCrd(null);
 
     try {
       const idToken = await user.getIdToken();
       const initialResolution = await waitForNameVerificationResult(
         RiaService.verifyOnboardingName(
           idToken,
-          { query: normalizedQuery },
+          {
+            query: normalizedQuery,
+          },
           { signal: controller.signal }
         ),
         {
@@ -510,6 +592,7 @@ export default function RiaOnboardingPage() {
         });
         setNameVerificationStatus("provider_unavailable");
         setLastVerifiedQuery(null);
+        setLastVerifiedCrd(null);
         return;
       }
 
@@ -521,13 +604,26 @@ export default function RiaOnboardingPage() {
       ) {
         return;
       }
-      setNameVerificationResult(result);
-      setNameVerificationStatus(result.status);
-      if (result.status === "verified") {
-        applyVerifiedIdentityToDraft(result);
+      const verifiedCrd = normalizeCrd(result.crd_number);
+      const resolvedResult =
+        result.status === "verified" && !verifiedCrd
+          ? {
+              ...result,
+              status: "not_verified" as const,
+              reason:
+                "Verification did not return a CRD-backed advisor record. Onboarding stays blocked.",
+              reason_code: "no_confident_match" as const,
+            }
+          : result;
+      setNameVerificationResult(resolvedResult);
+      setNameVerificationStatus(resolvedResult.status);
+      if (resolvedResult.status === "verified") {
+        applyVerifiedIdentityToDraft(resolvedResult);
         setLastVerifiedQuery(normalizedQuery);
+        setLastVerifiedCrd(verifiedCrd);
       } else {
         setLastVerifiedQuery(null);
+        setLastVerifiedCrd(null);
       }
     } catch (verificationError) {
       if (
@@ -544,6 +640,7 @@ export default function RiaOnboardingPage() {
         setNameVerificationStatus("idle");
         setNameVerificationResult(null);
         setLastVerifiedQuery(null);
+        setLastVerifiedCrd(null);
         return;
       }
       setNameVerificationResult({
@@ -557,6 +654,7 @@ export default function RiaOnboardingPage() {
       });
       setNameVerificationStatus("provider_unavailable");
       setLastVerifiedQuery(null);
+      setLastVerifiedCrd(null);
     } finally {
       if (requestId === verificationRequestIdRef.current) {
         verificationAbortRef.current = null;
@@ -601,7 +699,7 @@ export default function RiaOnboardingPage() {
     moveToStep(steps[currentStepIndex + 1]?.id ?? currentStep.id);
   }
 
-  async function finalizeSubmission(mode: "submit" | "dev_activate") {
+  async function finalizeSubmission() {
     if (!user) return;
 
     setSaving(true);
@@ -609,14 +707,11 @@ export default function RiaOnboardingPage() {
     setNotice(null);
     try {
       const idToken = await user.getIdToken();
-      if (mode === "submit" && !nameVerificationSatisfied) {
+      if (!nameVerificationSatisfied) {
         throw new Error("Verify the advisor name and wait for a CRD-backed result before continuing.");
       }
       const payload = buildSubmitPayload(draft);
-      const result =
-        mode === "submit"
-          ? await RiaService.submitOnboarding(idToken, { ...payload, force_live_verification: true })
-          : await RiaService.activateDevRia(idToken, payload);
+      const result = await RiaService.submitOnboarding(idToken, { ...payload, force_live_verification: true });
 
       setStatus((current) => ({
         ...(current || { exists: true }),
@@ -631,9 +726,8 @@ export default function RiaOnboardingPage() {
         verification_status: result.verification_status,
         advisory_status: result.advisory_status,
         brokerage_status: result.brokerage_status,
-        dev_ria_bypass_allowed: mode === "dev_activate" ? true : current?.dev_ria_bypass_allowed,
       }));
-      if (mode === "submit" && result.advisory_status === "verified") {
+      if (result.advisory_status === "verified") {
         setNameVerificationStatus("verified");
         setNameVerificationResult({
           status: "verified",
@@ -645,6 +739,7 @@ export default function RiaOnboardingPage() {
           suggested_names: [],
         });
         setLastVerifiedQuery(draft.displayName.trim());
+        setLastVerifiedCrd(normalizeCrd(result.individual_crd));
       }
       trackEvent("ria_onboarding_submitted", {
         result: "success",
@@ -660,10 +755,8 @@ export default function RiaOnboardingPage() {
       const advisoryOutcome = (result.advisory_status || result.verification_status || "").toLowerCase();
       const verificationOutcome = (result.verification_outcome || "").toLowerCase();
       const canActivateDiscoverability =
-        mode === "dev_activate" ||
         advisoryOutcome === "verified" ||
-        advisoryOutcome === "active" ||
-        advisoryOutcome === "bypassed";
+        advisoryOutcome === "active";
 
       await RiaService.setRiaMarketplaceDiscoverability(idToken, {
         enabled: canActivateDiscoverability,
@@ -676,30 +769,7 @@ export default function RiaOnboardingPage() {
         setShouldPersistDraft(false);
       }
 
-      if (mode === "dev_activate") {
-        trackEvent("ria_verification_status_changed", {
-          action: "bypassed",
-          result: "success",
-        });
-        trackGrowthFunnelStepCompleted({
-          journey: "ria",
-          step: "workspace_ready",
-          entrySurface: "ria_onboarding",
-          workspaceSource: "developer_activation",
-          dedupeKey: "growth:ria:workspace_ready:developer_activation",
-          dedupeWindowMs: 5_000,
-        });
-        trackRiaActivationCompleted({
-          entrySurface: "ria_onboarding",
-          workspaceSource: "developer_activation",
-          dedupeKey: "growth:ria:activation:developer_activation",
-          dedupeWindowMs: 10_000,
-        });
-        toast.success("Developer activation completed", {
-          description: "The RIA workspace is ready in this environment.",
-        });
-        setNotice("Developer activation completed. The RIA workspace is ready in this environment.");
-      } else if (advisoryOutcome === "rejected") {
+      if (advisoryOutcome === "rejected") {
         trackEvent("ria_verification_status_changed", {
           action: "rejected",
           result: "error",
@@ -724,20 +794,6 @@ export default function RiaOnboardingPage() {
             "Your advisor name resolved to a verified CRD-backed RIA record.",
         });
         setNotice("Verification passed. Your RIA workspace is ready.");
-      } else if (advisoryOutcome === "bypassed") {
-        trackEvent("ria_verification_status_changed", {
-          action: "bypassed",
-          result: "success",
-        });
-        toast.warning("Verification bypass active", {
-          description:
-            result.verification_message ||
-            "This non-production environment is using the advisory verification bypass.",
-        });
-        setNotice(
-          result.verification_message ||
-            "Verification bypass is active in this environment. Your RIA workspace is ready for flow testing."
-        );
       } else if (verificationOutcome === "provider_unavailable") {
         trackEvent("ria_verification_status_changed", {
           action: "submitted",
@@ -791,11 +847,7 @@ export default function RiaOnboardingPage() {
       router.push(ROUTES.RIA_HOME);
       return;
     }
-    await finalizeSubmission("submit");
-  }
-
-  async function handleDevActivate() {
-    await finalizeSubmission("dev_activate");
+    await finalizeSubmission();
   }
 
   function renderQuestion(step: RiaOnboardingStep) {
@@ -849,7 +901,7 @@ export default function RiaOnboardingPage() {
             />
             {nameVerificationStatus === "idle" ? (
               <p className="text-sm leading-6 text-muted-foreground">
-                Kai verifies your identity against FINRA and SEC records before unlocking the advisory workflow.
+                Kai verifies the advisor name against FINRA and SEC records, then maps the returned CRD to your RIA profile.
               </p>
             ) : null}
             {nameVerificationStatus !== "idle" ? (
@@ -969,6 +1021,7 @@ export default function RiaOnboardingPage() {
               {nameVerificationStatus !== "verified" ? (
                 <button
                   type="button"
+                  data-voice-control-id="ria_onboarding_verify_name"
                   onClick={() => void handleVerifyName()}
                   disabled={!canVerifyName}
                   className="inline-flex min-h-10 items-center rounded-full bg-foreground px-4 text-sm font-medium text-background disabled:cursor-not-allowed disabled:opacity-60"
@@ -979,16 +1032,6 @@ export default function RiaOnboardingPage() {
                         nameVerificationStatus === "provider_unavailable"
                       ? "Retry verification"
                       : "Verify"}
-                </button>
-              ) : null}
-              {devRiaBypassAllowed && !nameVerificationSatisfied ? (
-                <button
-                  type="button"
-                  onClick={() => void handleDevActivate()}
-                  disabled={saving || displayNameQuery.length === 0}
-                  className="inline-flex min-h-10 items-center rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {saving ? "Activating..." : "Bypass verification"}
                 </button>
               ) : null}
             </div>
@@ -1271,19 +1314,13 @@ export default function RiaOnboardingPage() {
                 </button>
 
                 <div className="flex flex-wrap gap-2">
-                  {currentStep.id === "review" && devRiaBypassAllowed && !advisoryAccessReady ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleDevActivate()}
-                      disabled={saving}
-                      className="inline-flex min-h-11 items-center rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground hover:bg-muted/40 disabled:opacity-60"
-                    >
-                      {saving ? "Activating..." : "Bypass in Dev / UAT"}
-                    </button>
-                  ) : null}
-
                   <button
                     type="button"
+                    data-voice-control-id={
+                      currentStep.id === "review"
+                        ? "ria_onboarding_submit_verification"
+                        : "ria_onboarding_continue_review"
+                    }
                     onClick={handleContinue}
                     disabled={loading || !user || !canContinue || saving}
                     className="inline-flex min-h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-60"

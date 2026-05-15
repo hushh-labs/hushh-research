@@ -34,6 +34,7 @@ Non-owned surfaces:
 3. Diagnose why a commit, branch, or PR is not showing on the GitHub contribution graph.
 4. Keep daily contribution work on a PR path into `main`, `develop`, or the repository default branch.
 5. Check that GitHub attributes pushed commits to the intended account via the GitHub API.
+6. Build maintainer-harvest attribution plans that separate official GitHub commit credit from public acknowledgement and internal impact credit.
 
 ## Do Not Use
 
@@ -69,6 +70,22 @@ Non-owned surfaces:
    - amend/rebase those commits with the verified email and force-push the feature branch before merge
    - create a new correctly-authored follow-up commit and merge it
    Do not rewrite shared history without explicit branch-level approval.
+10. For maintainer-harvest PRs, decide attribution before the commit lands:
+   - use `Co-authored-by:` trailers only when contributor code or tests are
+     materially reused in the actual landing commit
+   - use public GitHub no-reply identities derived from the contributor's
+     public user id and login, or another verified address provided by the
+     contributor
+   - never expose private emails from `gh api user/emails`
+   - if only the idea/direction is used, record public acknowledgement and
+     internal dashboard harvest credit instead of co-authoring
+   - never rewrite `main` to retrofit co-author credit after merge
+11. If a maintainer harvest already merged without co-author trailers and the
+    operator explicitly wants external GitHub credit, use a transparent
+    follow-up PR with a real, non-empty co-authored harvest replay or
+    supplemental harvest patch plus a repo ledger entry. Make clear that this
+    credits the follow-up commit; it does not change the original merge commit
+    or original additions/deletions.
 
 ## Handoff Rules
 

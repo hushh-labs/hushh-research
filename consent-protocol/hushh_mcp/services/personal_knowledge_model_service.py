@@ -946,10 +946,12 @@ class PersonalKnowledgeModelService:
             summary.get("attribute_count"),
             summary.get("holdings_count"),
             summary.get("item_count"),
+            summary.get("externalizable_path_count"),
+            summary.get("path_count"),
         )
         for candidate in candidates:
             parsed = self._to_non_negative_int(candidate)
-            if parsed is not None:
+            if parsed is not None and parsed > 0:
                 return parsed
         return 0
 
@@ -1419,7 +1421,10 @@ class PersonalKnowledgeModelService:
         """Atomically merge a sanitized PKM discovery summary for one domain.
 
         Uses a single PostgreSQL upsert (merge_pkm_domain_summary RPC) so the
-        read-modify-write is done at the DB level with no race window.
+        cloud discovery projection has no read-modify-write race window. This
+        does not make pkm_index the user-memory authority; encrypted blobs,
+        manifests, mutation events, and local cache write-through remain the
+        source of truth for local-first and on-device flows.
         """
         domain = self._canonicalize_domain_key(domain)
         if not domain:
@@ -2304,23 +2309,14 @@ class PersonalKnowledgeModelService:
         embedding_vector: list[float],
         model_name: str = "all-MiniLM-L6-v2",
     ) -> bool:
-        """Store a user profile embedding."""
-        try:
-            data = {
-                "user_id": user_id,
-                "embedding_type": embedding_type.value,
-                "embedding_vector": embedding_vector,
-                "model_name": model_name,
-                "updated_at": datetime.now(UTC).isoformat(),
-            }
-
-            self.supabase.table("pkm_embeddings").upsert(
-                data, on_conflict="user_id,embedding_type"
-            ).execute()
-            return True
-        except Exception as e:
-            logger.error(f"Error storing embedding: {e}")
-            return False
+        """Legacy profile embeddings are retired until a PKM-native store exists."""
+        logger.info(
+            "Skipping legacy PKM embedding write for user=%s type=%s model=%s",
+            user_id,
+            embedding_type.value,
+            model_name,
+        )
+        return False
 
     async def find_similar_users(
         self,

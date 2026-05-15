@@ -62,6 +62,27 @@ These are UX bundles, not a second authorization system. Bundles expand into can
 | `health_wellness` | Health & Wellness | `attr.health.*` |
 | `lifestyle_preferences` | Lifestyle Preferences | `attr.food.*`, `attr.travel.*`, `attr.entertainment.*`, `attr.shopping.*` |
 
+## One Email Disclosure Bundles
+
+One Email KYC/dev-UAT disclosure workflows use the same bundle metadata pattern
+for user-confirmed candidate scopes. One detects text-only requested domains
+against the vault owner's current consumer-visible scope inventory, the vault
+owner confirms or narrows the recommendation, and each selected canonical scope
+becomes its own consent request under one `bundle_id`.
+
+Representative selected scopes:
+
+1. `attr.identity.*` for KYC/compliance identity disclosures.
+2. `attr.financial.*` for explicit full financial-information requests.
+3. `attr.financial.portfolio.*`, `attr.financial.profile.*`, or `attr.financial.documents.*` for narrower financial requests.
+4. Any consumer-visible dynamic `attr.<domain>.*` or `attr.<domain>.<path>.*`
+   scope already available for the user, such as `attr.travel.*` for favorite
+   locations or `attr.food.*` for food preferences.
+
+Denied selected scopes block external reply-all. Missing fields inside an
+approved export are described in the client-generated draft; the backend never
+decrypts or drafts from the scoped data.
+
 ## Duration Policy
 
 1. Presets: `24h`, `7d`, `30d`, `90d`

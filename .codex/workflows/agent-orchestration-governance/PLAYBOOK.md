@@ -11,8 +11,8 @@ Define or tighten repo-scoped Codex custom agents, bounded subagent limits, and 
 1. Start with `agent-orchestration-governance`.
 2. Open only the required reads listed in `workflow.json` plus the touched agent or skill manifests.
 3. Verify first that a repo-scoped custom agent is justified; prefer existing skills and workflows when a new role boundary is unnecessary.
-4. Keep repo custom agents thin, narrow, read-first, and inheritance-first by default.
-5. Let model and reasoning inherit from the parent Codex session unless a future specialized lane has a documented reason to pin them.
+4. Keep repo custom agents thin, narrow, read-first, and inheritance-first for model family.
+5. Keep `default_reasoning_effort` pins only for curated high-risk evidence lanes; broad parent-model overrides still need a documented reason.
 6. Keep global limits bounded:
    - `max_threads = 6`
    - `max_depth = 1`

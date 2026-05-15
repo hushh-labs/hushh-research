@@ -46,6 +46,7 @@ export type InvestorKaiActionWiring =
         | {
             kind: "route";
             href: string;
+            params?: Record<string, unknown>;
           };
     }
   | {
@@ -215,6 +216,7 @@ function toWiring(executionTarget: KaiActionExecutionTarget): InvestorKaiActionW
     binding: {
       kind: "route",
       href: executionTarget.target,
+      params: executionTarget.params ? { ...executionTarget.params } : undefined,
     },
   };
 }

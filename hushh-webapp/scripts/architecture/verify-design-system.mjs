@@ -2,8 +2,9 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 const STOCK_UI_FILES = new Set([
   "accordion.tsx",
@@ -174,6 +175,46 @@ const pkmManagerPath = path.join(repoRoot, "components/profile/pkm-data-manager.
 const pkmManagerSource = read(pkmManagerPath);
 if (pkmManagerSource.includes("SummaryTile")) {
   failures.push("components/profile/pkm-data-manager.tsx must not define or use SummaryTile KPI strips");
+}
+
+const settingsUiPath = path.join(repoRoot, "components/app-ui/settings-ui.tsx");
+const settingsUiSource = read(settingsUiPath);
+if (settingsUiSource.includes("<h2")) {
+  failures.push(
+    "components/app-ui/settings-ui.tsx must not render SettingsGroup titles as h2; body section headings use the compact settings scale"
+  );
+}
+if (!settingsUiSource.includes('role="heading"') || !settingsUiSource.includes("aria-level")) {
+  failures.push(
+    "components/app-ui/settings-ui.tsx must expose SettingsGroup titles as accessible compact headings"
+  );
+}
+if (!settingsUiSource.includes("gap-x-2") || !settingsUiSource.includes("tracking-[0.22em]")) {
+  failures.push(
+    "components/app-ui/settings-ui.tsx must keep SettingsGroup eyebrow inline with the title, not as a separate page-header line"
+  );
+}
+
+const pageSectionsPath = path.join(repoRoot, "components/app-ui/page-sections.tsx");
+const pageSectionsSource = read(pageSectionsPath);
+const sectionHeaderStart = pageSectionsSource.indexOf("export function SectionHeader");
+const sectionHeaderEnd = pageSectionsSource.indexOf("export function ContentSurface");
+const sectionHeaderSource =
+  sectionHeaderStart >= 0 && sectionHeaderEnd > sectionHeaderStart
+    ? pageSectionsSource.slice(sectionHeaderStart, sectionHeaderEnd)
+    : "";
+if (!sectionHeaderSource) {
+  failures.push("components/app-ui/page-sections.tsx must define the shared SectionHeader primitive");
+}
+if (sectionHeaderSource.includes("<h2")) {
+  failures.push(
+    "components/app-ui/page-sections.tsx must not render SectionHeader titles as h2; body section headings use the compact section scale"
+  );
+}
+if (!sectionHeaderSource.includes('role="heading"') || !sectionHeaderSource.includes("aria-level")) {
+  failures.push(
+    "components/app-ui/page-sections.tsx must expose SectionHeader titles as accessible compact headings"
+  );
 }
 
 if (failures.length > 0) {

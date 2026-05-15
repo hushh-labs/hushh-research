@@ -20,12 +20,10 @@ import logging
 import os
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from api.middleware import require_firebase_auth, verify_user_id_match
-from db.connection import DatabaseUnavailableError
-from db.db_client import DatabaseExecutionError
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.vault_keys_service import VaultKeysService
@@ -79,17 +77,21 @@ def _check_client_version_or_raise(http_request: Request) -> None:
 
 
 def _raise_database_http_exception(exc: Exception) -> None:
-    if isinstance(exc, DatabaseUnavailableError):
+    if exc.__class__.__name__ == "DatabaseUnavailableError":
+        status_code = getattr(exc, "status_code", 503)
+        code = getattr(exc, "code", "DATABASE_UNAVAILABLE")
+        hint = getattr(exc, "hint", None)
         raise HTTPException(
-            status_code=exc.status_code,
+            status_code=status_code,
             detail={
                 "error": "Database is temporarily unavailable.",
-                "code": exc.code,
-                **({"hint": exc.hint} if exc.hint else {}),
+                "code": code,
+                **({"hint": hint} if hint else {}),
             },
         ) from exc
-    if isinstance(exc, DatabaseExecutionError):
+    if exc.__class__.__name__ == "DatabaseExecutionError":
         status_code = getattr(exc, "status_code", 500)
+        hint = getattr(exc, "hint", None)
         raise HTTPException(
             status_code=status_code,
             detail={
@@ -97,9 +99,47 @@ def _raise_database_http_exception(exc: Exception) -> None:
                 if status_code == 503
                 else "Database error",
                 "code": getattr(exc, "code", "DATABASE_EXECUTION_ERROR"),
-                **({"hint": getattr(exc, "hint", None)} if getattr(exc, "hint", None) else {}),
+                **({"hint": hint} if hint else {}),
             },
         ) from exc
+
+
+async def require_vault_owner_consent_header(
+    hushh_consent: str | None = Header(None, alias="X-Hushh-Consent"),
+) -> dict:
+    """Require a VAULT_OWNER token in the explicit dual-auth consent header."""
+    raw_header = (hushh_consent or "").strip()
+    if not raw_header:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing X-Hushh-Consent header",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = raw_header.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing X-Hushh-Consent bearer token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    valid, reason, token_obj = await validate_token_with_db(token, ConsentScope.VAULT_OWNER)
+    if not valid or token_obj is None:
+        raise HTTPException(
+            status_code=401,
+            detail=f"Invalid token: {reason}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    scope = getattr(token_obj, "scope", None)
+    return {
+        "user_id": token_obj.user_id,
+        "agent_id": getattr(token_obj, "agent_id", None),
+        "scope": getattr(token_obj, "scope_str", None) or getattr(scope, "value", scope),
+        "token": token,
+        "token_obj": token_obj,
+    }
 
 
 # ============================================================================
@@ -196,6 +236,15 @@ class VaultWrapperUpsertRequest(BaseModel):
     passkeyProvider: str | None = None
     passkeyDeviceLabel: str | None = None
     passkeyLastUsedAt: int | None = None
+
+
+class VaultWrapperDeleteRequest(BaseModel):
+    userId: str
+    vaultKeyHash: str
+    method: str
+    wrapperId: str | None = None
+    fallbackPrimaryMethod: str | None = "passphrase"
+    fallbackPrimaryWrapperId: str | None = "default"
 
 
 class VaultPrimaryMethodSetRequest(BaseModel):
@@ -484,6 +533,68 @@ async def vault_wrapper_upsert(
     except Exception as e:
         logger.error(
             "vault/wrapper/upsert error user=%s method=%s: %s",
+            _mask_user_id(request.userId),
+            request.method,
+            e,
+        )
+        _raise_database_http_exception(e)
+        raise HTTPException(status_code=500, detail="Database error")
+
+
+@router.post("/vault/wrapper/delete", response_model=SuccessResponse)
+async def vault_wrapper_delete(
+    http_request: Request,
+    request: VaultWrapperDeleteRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+    vault_owner_token: dict = Depends(require_vault_owner_consent_header),
+):
+    """Remove an enrolled non-passphrase vault wrapper."""
+    verify_user_id_match(firebase_uid, request.userId)
+    token_user_id = str(vault_owner_token.get("user_id") or "")
+    if token_user_id != request.userId:
+        logger.warning(
+            "vault/wrapper/delete token mismatch token=%s request=%s",
+            _mask_user_id(token_user_id),
+            _mask_user_id(request.userId),
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="VAULT_OWNER token userId does not match requested userId",
+        )
+    _check_client_version_or_raise(http_request)
+    logger.info(
+        "vault/wrapper/delete request user=%s method=%s",
+        _mask_user_id(request.userId),
+        request.method,
+    )
+
+    try:
+        service = VaultKeysService()
+        await service.delete_wrapper(
+            user_id=request.userId,
+            vault_key_hash=request.vaultKeyHash,
+            method=request.method,
+            wrapper_id=request.wrapperId,
+            fallback_primary_method=request.fallbackPrimaryMethod,
+            fallback_primary_wrapper_id=request.fallbackPrimaryWrapperId,
+        )
+        return SuccessResponse(success=True)
+
+    except ValueError as e:
+        message = str(e)
+        code = "VAULT_VALIDATION_ERROR"
+        if "vaultKeyHash mismatch" in message:
+            code = "VAULT_KEY_HASH_MISMATCH"
+        elif "Vault wrapper not found" in message:
+            code = "VAULT_WRAPPER_NOT_FOUND"
+        elif "Passphrase wrapper cannot be removed" in message:
+            code = "VAULT_PASSPHRASE_REQUIRED"
+        elif "Fallback primary method/wrapper" in message:
+            code = "VAULT_PRIMARY_WRAPPER_NOT_FOUND"
+        raise HTTPException(status_code=400, detail={"error": message, "code": code})
+    except Exception as e:
+        logger.error(
+            "vault/wrapper/delete error user=%s method=%s: %s",
             _mask_user_id(request.userId),
             request.method,
             e,

@@ -618,7 +618,10 @@ export function evaluateKaiActionAvailability(input: {
   }
 
   for (const guardId of action.guard_ids) {
-    if (guardId === "auth_signed_in" && appRuntimeState?.auth.signed_in !== true) {
+    if (
+      (guardId === "auth_signed_in" || guardId === "auth_required") &&
+      appRuntimeState?.auth.signed_in !== true
+    ) {
       return {
         status: "blocked",
         reason: "Sign in to use this action.",

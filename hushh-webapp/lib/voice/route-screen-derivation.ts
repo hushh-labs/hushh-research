@@ -56,8 +56,17 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.RIA_HOME) {
     return { screen: "ria_home", subview: query.get("tab") || null };
   }
-  if (normalizedPath.startsWith(ROUTES.RIA_CLIENTS)) {
+  if (normalizedPath === ROUTES.RIA_CLIENTS) {
     return { screen: "ria_clients", subview: query.get("tab") || null };
+  }
+  if (normalizedPath.startsWith(`${ROUTES.RIA_CLIENTS}/`)) {
+    if (normalizedPath.includes("/accounts/")) {
+      return { screen: "ria_client_account_detail", subview: query.get("tab") || null };
+    }
+    if (normalizedPath.includes("/requests/")) {
+      return { screen: "ria_client_request_detail", subview: query.get("tab") || null };
+    }
+    return { screen: "ria_client_workspace", subview: query.get("tab") || "overview" };
   }
   if (normalizedPath.startsWith(ROUTES.RIA_WORKSPACE)) {
     return { screen: "ria_workspace", subview: query.get("tab") || null };
@@ -73,6 +82,9 @@ export function deriveVoiceRouteScreen(
   }
   if (normalizedPath.startsWith(ROUTES.CONSENTS)) {
     return { screen: "consents", subview: query.get("tab") || null };
+  }
+  if (normalizedPath === ROUTES.ONE_KYC) {
+    return { screen: "one_kyc", subview: query.get("panel") || null };
   }
   if (
     normalizedPath === ROUTES.PROFILE_PKM_AGENT_LAB ||

@@ -34,6 +34,7 @@ Non-owned surfaces:
 1. Route and service placement decisions inside the backend runtime.
 2. Runtime ownership boundaries between routes, services, and integrations.
 3. Aligning backend runtime docs and service-layer tests with implementation changes.
+4. Reviewing runtime DB table ownership, data-class posture, retention policy, and access paths when backend migrations or services add durable state.
 
 ## Do Not Use
 
@@ -51,10 +52,11 @@ Non-owned surfaces:
 
 1. Confirm the runtime boundary before moving code between routes, services, or integrations.
 2. Keep backend tests and backend docs aligned with runtime changes.
-3. Treat consent validation, trust, and audit rules as `security-audit` concerns when they become the primary boundary.
-4. Treat `uv` as the canonical Python toolchain for contributor and CI flows; `requirements*.txt` are generated runtime artifacts, not the source of dependency truth.
-5. For backend bootstrap, packaging, or runtime-governance changes, rerun the authoritative service checks once directly and once again through the canonical repo entrypoint.
-6. When a backend runtime failure is visible in UAT or CI, use `./bin/hushh codex rca --surface runtime --text` or `--surface uat --text` first so service fixes are anchored to the blocking runtime classification instead of log-chasing.
+3. For any migration or durable service table, confirm the runtime DB data-plane contract declares owner, data class, primary access path, expected row growth, retention policy, deletion behavior, and plaintext/ciphertext posture.
+4. Treat consent validation, trust, and audit rules as `security-audit` concerns when they become the primary boundary.
+5. Treat `uv` as the canonical Python toolchain for contributor and CI flows; `requirements*.txt` are generated runtime artifacts, not the source of dependency truth.
+6. For backend bootstrap, packaging, or runtime-governance changes, rerun the authoritative service checks once directly and once again through the canonical repo entrypoint.
+7. When a backend runtime failure is visible in UAT or CI, use `./bin/hushh codex rca --surface runtime --text` or `--surface uat --text` first so service fixes are anchored to the blocking runtime classification instead of log-chasing.
 
 ## Handoff Rules
 
@@ -67,4 +69,5 @@ Non-owned surfaces:
 
 ```bash
 cd consent-protocol && python3 -m pytest tests/services -q
+./bin/hushh codex data-model-audit
 ```

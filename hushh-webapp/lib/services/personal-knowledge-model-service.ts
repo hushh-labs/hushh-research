@@ -18,6 +18,7 @@
 import { Capacitor } from "@capacitor/core";
 import { HushhPersonalKnowledgeModel } from "@/lib/capacitor";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { logRequestAudit } from "@/lib/cache/request-audit-log";
 import type { PortfolioData as CachedPortfolioData } from "@/lib/cache/cache-context";
 import { AuthService } from "./auth-service";
 import { ApiService } from "./api-service";
@@ -1024,7 +1025,7 @@ export class PersonalKnowledgeModelService {
   }
 
   private static logMetadataRequest(stage: string, detail: Record<string, unknown>): void {
-    console.info(`[RequestAudit:pkm_metadata] ${stage}`, detail);
+    logRequestAudit("pkm_metadata", stage, detail);
   }
 
   /**

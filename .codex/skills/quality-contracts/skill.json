@@ -17,7 +17,8 @@
   "task_types": [
     "bug-triage",
     "release-readiness",
-    "new-feature-tri-flow"
+    "new-feature-tri-flow",
+    "data-model-audit"
   ],
   "required_reads": [
     "docs/reference/quality/README.md",
@@ -26,18 +27,24 @@
   ],
   "required_commands": [
     "cd hushh-webapp && npm run test:ci",
-    "cd consent-protocol && python3 -m pytest tests/quality -q"
+    "cd hushh-webapp && npm run verify:service-boundary",
+    "cd consent-protocol && python3 -m pytest tests/quality -q",
+    "./bin/hushh codex data-model-audit"
   ],
   "verification_bundles": [
     {
       "id": "quality-contracts",
       "commands": [
         "cd hushh-webapp && npm run test:ci",
-        "cd consent-protocol && python3 -m pytest tests/quality -q"
+        "cd hushh-webapp && npm run verify:service-boundary",
+        "cd consent-protocol && python3 -m pytest tests/quality -q",
+        "./bin/hushh codex data-model-audit"
       ],
       "tests": [
         "cd hushh-webapp && npm run test:ci",
-        "cd consent-protocol && python3 -m pytest tests/quality -q"
+        "cd hushh-webapp && npm run verify:service-boundary",
+        "cd consent-protocol && python3 -m pytest tests/quality -q",
+        "./bin/hushh codex data-model-audit"
       ]
     }
   ],

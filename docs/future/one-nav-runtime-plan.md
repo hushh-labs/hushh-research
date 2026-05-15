@@ -30,6 +30,7 @@ The current app already has pieces the One/Kai/Nav/KYC model can reuse:
 - consent center, profile security, deletion, and scoped-access surfaces
 - Kai finance routes, analysis actions, search grounding, and command execution
 - PKM writeback patterns that can become the structured memory layer for KYC outcomes
+- the current `one@hushh.ai` KYC mailbox contract described in [One Email KYC](../reference/architecture/one-email-kyc.md)
 
 The gap is not capability existence. The gap is ownership clarity: the live runtime still defaults to Kai as the assistant identity in many places, while the product direction makes One the top relationship layer and Nav the privacy guardian.
 
@@ -113,7 +114,7 @@ The founder drafts are directionally important, but the following claims remain 
 ### Phase 5: KYC Capability Inventory
 
 - Add KYC actions for identity/KYC request intake, missing-document status, draft generation, and structured PKM writeback.
-- Use `one@hushh.ai` as the planned inbound identity only after mailbox, delegated sender, consent, and rollout ownership are approved.
+- Use the current `one@hushh.ai` KYC mailbox contract in [One Email KYC](../reference/architecture/one-email-kyc.md) for active implementation truth.
 - Default outbound KYC messages to user approval before send.
 - Add tests proving KYC cannot read or write outside its workflow consent.
 
@@ -170,4 +171,4 @@ python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py
 - No callable alias path for previous route-navigation `nav.*` action ids.
 - No celebrity voice references in canonical docs.
 - No personal numeric preference in canonical docs.
-- No live public `one@hushh.ai` inbound KYC workflow until mailbox, delegated sender, consent, and rollout ownership are approved.
+- No production/public `one@hushh.ai` inbound KYC workflow until the [One Email KYC](../reference/architecture/one-email-kyc.md) production gates pass. UAT mailbox validation is allowed only under controlled smoke tests.

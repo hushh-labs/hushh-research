@@ -253,6 +253,21 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
                     "visibility_reason": "structural_top_level_path",
                 },
                 {
+                    "scope": "attr.kyc_workflow.*",
+                    "domain": "kyc_workflow",
+                    "path": None,
+                    "wildcard": True,
+                    "source_kind": "pkm_index",
+                    "registry_handle": None,
+                    "label": "KYC Workflow Domain",
+                    "exposure_eligibility": True,
+                    "manifest_revision": 2,
+                    "meta_reference": "internal runtime domain",
+                    "consumer_visible": False,
+                    "internal_only": True,
+                    "visibility_reason": "internal_runtime_domain",
+                },
+                {
                     "scope": "attr.financial.profile.risk_tolerance",
                     "domain": "financial",
                     "path": "profile.risk_tolerance",
@@ -267,7 +282,7 @@ def test_user_scopes_returns_discovered_domains(monkeypatch):
             ]
 
     class _FakeIndex:
-        available_domains = ["financial"]
+        available_domains = ["financial", "kyc_workflow"]
 
     class _FakePkmService:
         scope_generator = _FakeScopeGenerator()
