@@ -204,21 +204,24 @@ export default function RiaOnboardingPage() {
     []
   );
 
-  function updateDraft(patch: Partial<RiaOnboardingDraft>) {
-    setError(null);
-    setShouldPersistDraft(true);
-    setDraft((current) => {
-      const next = normalizeRiaOnboardingDraft({ ...current, ...patch });
-      return {
-        ...next,
-        currentStepId: resolveRiaOnboardingStepId(
-          next,
-          next.currentStepId,
-          flowOptions
-        ),
-      };
-    });
-  }
+  const updateDraft = useCallback(
+    (patch: Partial<RiaOnboardingDraft>) => {
+      setError(null);
+      setShouldPersistDraft(true);
+      setDraft((current) => {
+        const next = normalizeRiaOnboardingDraft({ ...current, ...patch });
+        return {
+          ...next,
+          currentStepId: resolveRiaOnboardingStepId(
+            next,
+            next.currentStepId,
+            flowOptions
+          ),
+        };
+      });
+    },
+    [flowOptions]
+  );
 
   function moveToStep(stepId: RiaOnboardingStepId) {
     setDraft((current) => ({
