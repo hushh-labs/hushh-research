@@ -3,6 +3,7 @@ iwebtechno-code/
 hushh-adk-agents/
 consent-protocol-old/
 hushh_starter_idea.md
+graphify-out/
 
 # Editor/IDE
 .idea/
@@ -97,6 +98,13 @@ hushh-webapp/npm-audit-report.json
 *.pid
 *.seed
 *.pid.lock
+
+# Runtime-generated PKM debug logs
+**/pkm-debug.log*
+**/pkm-debug-*.log*
+**/pkm-debug-*.jsonl
+**/pkm-debug-*.ndjson
+**/.pkm-debug/
 
 # Generated native/build artifacts
 hushh-webapp/.next/

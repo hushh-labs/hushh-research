@@ -483,9 +483,7 @@ def _compact_scope_entries(
 ) -> tuple[list[str], list[str], list[dict]]:
     compact_entries: list[dict] = []
     seen_scopes: set[str] = set()
-    discovered_domains = {
-        str(domain).strip().lower() for domain in available_domains if str(domain).strip()
-    }
+    discovered_domains = set()
 
     for entry in scope_entries:
         if not isinstance(entry, dict):
@@ -497,8 +495,6 @@ def _compact_scope_entries(
         source_kind = str(entry.get("source_kind") or "").strip()
         wildcard = entry.get("wildcard") is True
         domain = str(entry.get("domain") or "").strip().lower() or None
-        if domain:
-            discovered_domains.add(domain)
 
         # Default developer discovery should expose requestable top-level consent
         # surfaces only. Deep path-level manifest rows remain available via verbose
@@ -512,6 +508,8 @@ def _compact_scope_entries(
 
         compact_entries.append(entry)
         seen_scopes.add(scope)
+        if domain:
+            discovered_domains.add(domain)
 
     compact_scopes = sorted(
         {

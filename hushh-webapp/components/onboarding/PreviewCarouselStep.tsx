@@ -233,8 +233,8 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
                   </CarouselItem>
                 ))}
               </CarouselContent>
-              <CarouselPrevious className="left-2 border border-[var(--morphy-primary-start)]/25 bg-gradient-to-r from-[var(--morphy-primary-start)]/14 to-[var(--morphy-primary-end)]/14 text-[var(--morphy-primary-start)] backdrop-blur-sm transition-colors hover:from-[var(--morphy-primary-start)]/20 hover:to-[var(--morphy-primary-end)]/20 disabled:border-border/60 disabled:bg-muted/70 disabled:text-muted-foreground disabled:opacity-100" />
-              <CarouselNext className="right-2 border border-[var(--morphy-primary-start)]/25 bg-gradient-to-r from-[var(--morphy-primary-start)]/14 to-[var(--morphy-primary-end)]/14 text-[var(--morphy-primary-start)] backdrop-blur-sm transition-colors hover:from-[var(--morphy-primary-start)]/20 hover:to-[var(--morphy-primary-end)]/20 disabled:border-border/60 disabled:bg-muted/70 disabled:text-muted-foreground disabled:opacity-100" />
+              <CarouselPrevious aria-label="Previous slide" className="left-2 border border-[var(--morphy-primary-start)]/25 bg-gradient-to-r from-[var(--morphy-primary-start)]/14 to-[var(--morphy-primary-end)]/14 text-[var(--morphy-primary-start)] backdrop-blur-sm transition-colors hover:from-[var(--morphy-primary-start)]/20 hover:to-[var(--morphy-primary-end)]/20 disabled:border-border/60 disabled:bg-muted/70 disabled:text-muted-foreground disabled:opacity-100" />
+              <CarouselNext aria-label="Next slide" className="right-2 border border-[var(--morphy-primary-start)]/25 bg-gradient-to-r from-[var(--morphy-primary-start)]/14 to-[var(--morphy-primary-end)]/14 text-[var(--morphy-primary-start)] backdrop-blur-sm transition-colors hover:from-[var(--morphy-primary-start)]/20 hover:to-[var(--morphy-primary-end)]/20 disabled:border-border/60 disabled:bg-muted/70 disabled:text-muted-foreground disabled:opacity-100" />
             </Carousel>
           </div>
 

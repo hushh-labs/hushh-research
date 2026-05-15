@@ -1,9 +1,14 @@
 # tests/quality/test_rate_limiting.py
 """Rate limiting contract and security tests."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from fastapi import FastAPI, Request
+from fastapi.testclient import TestClient
+
 from api.middlewares import rate_limit
+from api.middlewares.observability import observability_middleware
 from api.middlewares.rate_limit import RateLimits, get_rate_limit_key
 from hushh_mcp.constants import ConsentScope
 
@@ -74,6 +79,38 @@ class TestRateLimitKeyExtraction:
         )
 
         assert key == "user:cached_user"
+
+    def test_observability_identity_is_reused_by_rate_limiter(self, monkeypatch):
+        decode_calls: list[str] = []
+
+        def _observability_validate_token(token: str):
+            decode_calls.append(token)
+            return True, None, SimpleNamespace(user_id="cached_request_user")
+
+        def _unexpected_rate_limit_decode(*_args, **_kwargs):
+            raise AssertionError("rate limiter should reuse observability middleware identity")
+
+        monkeypatch.setattr(
+            "hushh_mcp.consent.token.validate_token",
+            _observability_validate_token,
+        )
+        monkeypatch.setattr(rate_limit, "validate_token", _unexpected_rate_limit_decode)
+
+        app = FastAPI()
+        app.middleware("http")(observability_middleware)
+
+        @app.get("/rate-key")
+        async def rate_key(request: Request):
+            return {"key": get_rate_limit_key(request)}
+
+        response = TestClient(app).get(
+            "/rate-key",
+            headers={"Authorization": "Bearer signed-consent-token"},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"key": "user:cached_request_user"}
+        assert decode_calls == ["signed-consent-token"]
 
 
 class TestRateLimitKeyTrustBoundary:

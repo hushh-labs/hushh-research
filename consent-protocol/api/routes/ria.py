@@ -246,8 +246,8 @@ async def ria_firms(firebase_uid: str = Depends(require_firebase_auth)):
 
 @router.get("/clients")
 async def ria_clients(
-    q: str | None = Query(default=None),
-    status: str | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=200),
+    status: str | None = Query(default=None, max_length=50),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=50, ge=1, le=100),
     firebase_uid: str = Depends(_require_ria_verified),
