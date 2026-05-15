@@ -91,6 +91,11 @@ points, drafting patch plans, and preparing the next checkpoint.
 If scanning fails, state inventoried/reviewed/failed PRs and whether the result
 is complete, partial, or fallback-only.
 
+## Hundred-PR Active Pass Standard
+
+For 400+ PR backlogs, the default pass is the latest `100` reviewable PRs plus hybrid older candidates. A queue cohort is progress, not completion.
+Report open/reviewed counts, trains, terminal PRs by action, and non-terminal train/blocker/next action until all reviewed PRs are terminal or blocked.
+
 ## Check Failure Intake Filter
 
 Exclude PRs from executable trains when `CI Status Gate` is missing, pending,
@@ -196,22 +201,20 @@ available. Never rewrite `main` for retroactive co-author credit.
 11. Refresh live report and contributor-impact dashboard.
 12. Return the parent worktree to the recorded developer branch after temporary
     PR checkout, worktree, detached HEAD, or queue-monitoring branch changes.
-13. Start the next independent train while unrelated checks run; continue until
+13. Report active-pass progress in chat: `reviewed`, `acted`, `merged`,
+    `patched`, `commented`, `held`, `remaining`, and direct links.
+14. Start the next independent train while unrelated checks run; continue until
     every train in the approved set is terminal or blocked with links/reasons.
 
 ## Queue Cancellation Handling
 
-1. Main smoke cancelled by a newer main push is `superseded`; only the latest
-   non-cancelled smoke for current `main` is authoritative.
-2. Queue validation failure from runner/tool download/install before scanning
-   is `infra_transient`; rerun failed jobs once after substantive jobs pass.
-3. Repeated infra failure routes to `repo-operations`; do not blame the PR.
-4. Any test, type, secret finding, freshness, or mergeability failure is a real
-   stop until the PR or queue state is corrected.
+Main-smoke cancellation from a newer main push is `superseded`; only the latest
+non-cancelled current-main smoke is authoritative. Runner/tool setup failures
+are `infra_transient`; rerun once after substantive jobs pass, then route to
+`repo-operations`. Test, type, secret, freshness, or mergeability failures stop
+the PR until corrected.
 
 ## Stop Conditions
 
-Stop, split, or rescan on head SHA changes, CI state loss, dirty mergeability,
-new hard edge, local worktree overlap, missing browser proof for UI-visible
-change, unclear trust boundary, incomplete scan affecting the train, or lost
-patch attach point. Green CI never overrides exact file overlap.
+Stop, split, or rescan on head SHA changes, CI loss, dirty mergeability, new hard edge, local worktree overlap, missing UI browser proof, unclear trust boundary, incomplete scan, or lost patch attach point.
+Green CI never overrides exact file overlap.
