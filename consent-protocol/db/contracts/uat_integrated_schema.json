@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 52,
+  "expected_migration_version": 53,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -66,8 +66,45 @@
       "user_id",
       "display_name",
       "verification_status",
+      "license_number",
+      "regulator",
+      "regulator_status",
+      "license_expiry_date",
+      "certifications",
+      "onboarding_type",
+      "services_offered",
+      "fee_structure",
+      "min_engagement_amount",
+      "min_engagement_currency",
       "created_at",
       "updated_at"
+    ],
+    "ria_business_contacts": [
+      "id",
+      "user_id",
+      "email",
+      "email_verified",
+      "phone",
+      "phone_verified",
+      "city",
+      "area_locality",
+      "full_street_address",
+      "pin_zip",
+      "country_code",
+      "latitude",
+      "longitude",
+      "created_at",
+      "updated_at"
+    ],
+    "ria_license_verifications": [
+      "id",
+      "user_id",
+      "license_number",
+      "regulator",
+      "verification_source",
+      "raw_response",
+      "status",
+      "created_at"
     ],
     "advisor_investor_relationships": [
       "id",

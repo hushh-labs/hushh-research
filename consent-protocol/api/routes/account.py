@@ -137,42 +137,6 @@ async def _verify_phone_claim_id_token(raw_token: str) -> tuple[str, str | None]
     return phone_number, phone_session_uid
 
 
-async def _delete_firebase_auth_user(user_id: str) -> str:
-    """Delete the Firebase Auth identity after backend account data is removed."""
-    try:
-        from firebase_admin import auth as firebase_auth
-    except Exception as exc:
-        logger.exception("Firebase Auth SDK unavailable while deleting %s", user_id)
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "code": "FIREBASE_AUTH_DELETE_FAILED",
-                "message": "Backend account data was deleted, but Firebase Auth identity deletion failed.",
-            },
-        ) from exc
-
-    try:
-        firebase_app = get_firebase_auth_app()
-        if firebase_app is None:
-            raise RuntimeError("Firebase Admin is not configured")
-
-        await run_in_threadpool(lambda: firebase_auth.delete_user(user_id, app=firebase_app))
-        logger.info("Firebase Auth user deleted for %s", user_id)
-        return "deleted"
-    except firebase_auth.UserNotFoundError:
-        logger.info("Firebase Auth user already missing for %s", user_id)
-        return "already_missing"
-    except Exception as exc:
-        logger.exception("Firebase Auth user deletion failed for %s", user_id)
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "code": "FIREBASE_AUTH_DELETE_FAILED",
-                "message": "Backend account data was deleted, but Firebase Auth identity deletion failed.",
-            },
-        ) from exc
-
-
 @router.get("/email-aliases")
 async def list_email_aliases(token_data: dict = Depends(require_vault_owner_token)):
     """List account-owned verified email aliases."""
@@ -269,14 +233,6 @@ async def delete_account(
 
     if not result["success"]:
         raise HTTPException(status_code=500, detail=f"Deletion failed: {result.get('error')}")
-
-    if result.get("account_deleted") is True:
-        firebase_delete_status = await _delete_firebase_auth_user(user_id)
-        details = result.get("details")
-        if not isinstance(details, dict):
-            details = {}
-            result["details"] = details
-        details["firebase_auth_user"] = firebase_delete_status
 
     return result
 
