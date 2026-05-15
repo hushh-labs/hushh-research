@@ -114,6 +114,62 @@ class ConsentCenterService:
         return "none"
 
     @staticmethod
+    def _scrub_sensitive_data(data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Mask email and phone values in a response dict before surface delivery.
+
+        Returns a new dict; the original is never mutated.  No external utility
+        imports — every masking operation is a pure-Python string manipulation.
+
+        Canonical surface: hushh_mcp.services.consent_center_service
+        Runtime boundary: called by _developer_email and _hydrate_entry_identities
+
+        Integrated by Abdul Gaffar
+        """
+        _EMAIL_KEYS: frozenset[str] = frozenset(
+            {
+                "email",
+                "developer_email",
+                "counterpart_email",
+                "developer_contact_email",
+                "contact_email",
+                "owner_email",
+                "requester_email",
+            }
+        )
+        _PHONE_KEYS: frozenset[str] = frozenset(
+            {"phone", "phone_number", "mobile", "contact_phone"}
+        )
+
+        result: dict[str, Any] = {}
+        for key, value in data.items():
+            if isinstance(value, dict):
+                result[key] = ConsentCenterService._scrub_sensitive_data(value)
+            elif isinstance(value, str) and value:
+                if key in _EMAIL_KEYS:
+                    at = value.find("@")
+                    if at > 0:
+                        local, domain = value[:at], value[at:]
+                        masked = (
+                            f"{local[0]}***{local[-1]}{domain}"
+                            if len(local) > 2
+                            else f"***{domain}"
+                        )
+                    else:
+                        masked = "***"
+                    result[key] = masked
+                elif key in _PHONE_KEYS:
+                    digits = "".join(c for c in value if c.isdigit())
+                    result[key] = (
+                        f"****{digits[-4:]}" if len(digits) >= 4 else "****"
+                    )
+                else:
+                    result[key] = value
+            else:
+                result[key] = value
+        return result
+
+    @staticmethod
     def _developer_email(metadata: dict[str, Any]) -> str | None:
         for key in (
             "developer_contact_email",
@@ -123,7 +179,8 @@ class ConsentCenterService:
         ):
             value = str(metadata.get(key) or "").strip()
             if value:
-                return value
+                # Scrub PII before surface delivery — Integrated by Abdul Gaffar
+                return ConsentCenterService._scrub_sensitive_data({key: value})[key]
         return None
 
     @staticmethod
@@ -209,6 +266,12 @@ class ConsentCenterService:
             elif counterpart_type == "self":
                 counterpart_secondary_label = counterpart_secondary_label or counterpart_email
 
+            # Scrub counterpart_email before it enters the surface response dict.
+            # Integrated by Abdul Gaffar — _scrub_sensitive_data canonical boundary.
+            if counterpart_email:
+                counterpart_email = ConsentCenterService._scrub_sensitive_data(
+                    {"counterpart_email": counterpart_email}
+                )["counterpart_email"]
             item["counterpart_label"] = counterpart_label or counterpart_id or "Requester"
             item["counterpart_email"] = counterpart_email
             item["counterpart_secondary_label"] = counterpart_secondary_label
