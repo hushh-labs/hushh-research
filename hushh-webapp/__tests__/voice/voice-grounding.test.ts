@@ -607,5 +607,32 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.actionId).toBeNull();
     expect(plan.resolutionSource).toBe("none");
     expect(plan.execution.steps).toHaveLength(0);
+   });
+
+  it("prevents invalid canonical navigation fallbacks from leaking transcript route heuristics", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "Opening dashboard.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "open analysis",
+      response,
+      structuredContext: makeContext("/kai"),
+      canonicalActionId: "route.invalid_dashboard",
+    });
+
+    expect(plan.status).toBe("unavailable");
+    expect(plan.actionId).toBe("route.invalid_dashboard");
+    expect(plan.resolutionSource).toBe("canonical");
+    expect(plan.execution.mode).toBe("unavailable");
+    expect(plan.execution.steps).toEqual([
+      {
+        type: "prompt",
+        message: "I can’t do that right now.",
+        reason: "canonical_action_not_found",
+      },
+    ]);
   });
 });
