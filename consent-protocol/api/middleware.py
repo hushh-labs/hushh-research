@@ -3,9 +3,14 @@ FastAPI middleware and dependencies for authentication.
 
 Provides reusable dependency functions for route protection:
 - require_firebase_auth: Validates Firebase ID token and returns user_id
-- require_vault_owner_token: Validates VAULT_OWNER consent token
+- require_vault_owner_token: Validates VAULT_OWNER consent token.
+  Supports ZKP parity via the ``X-Hushh-ZK-Proof`` header: when present,
+  the ZK proof is validated first and, on success, the bearer-token path is
+  skipped entirely.
 """
 
+import hashlib
+import hmac
 import logging
 from typing import Optional
 
@@ -18,6 +23,72 @@ from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# ZKP parity — X-Hushh-ZK-Proof header
+# ---------------------------------------------------------------------------
+
+_ZKP_PROOF_PREFIX = "ZKP"
+_ZKP_SEPARATOR = "|"
+_ZKP_FIELD_COUNT = 6  # ZKP|<user_id>|<agent_id>|<scope>|<nonce>|<hmac>
+
+
+def _zkp_sign(payload: str) -> str:
+    """Compute HMAC-SHA256 signature for a ZK proof payload string.
+
+    Uses the same signing key as hushh_mcp.consent.token._sign so that ZK
+    proofs are interchangeable with standard consent token signatures.
+    Integrated by Abdul Gaffar — ZKP auth parity.
+    """
+    from hushh_mcp.config import APP_SIGNING_KEY  # inline: avoids circular import
+
+    return hmac.new(APP_SIGNING_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+
+def _validate_zk_proof(proof: str) -> tuple[bool, str | None, dict | None]:
+    """Parse and validate an ``X-Hushh-ZK-Proof`` header value.
+
+    Expected format (pipe-separated to avoid ambiguity with colon-containing IDs):
+        ZKP|<user_id>|<agent_id>|<scope>|<nonce>|<hmac-sha256>
+
+    The HMAC is computed over ``"<user_id>|<agent_id>|<scope>|<nonce>"``
+    using the shared ``APP_SIGNING_KEY``.  Comparison is constant-time
+    (``hmac.compare_digest``) to prevent timing attacks.
+
+    Returns:
+        (True, None, {"user_id": ..., "agent_id": ..., "scope": ...})
+            on success, or
+        (False, reason_str, None)
+            on any validation failure.
+
+    Integrated by Abdul Gaffar — ZKP auth parity.
+    """
+    if not proof or not proof.strip():
+        return False, "Empty ZK proof", None
+
+    parts = proof.strip().split(_ZKP_SEPARATOR)
+    if len(parts) != _ZKP_FIELD_COUNT:
+        return (
+            False,
+            f"Malformed ZK proof: expected {_ZKP_FIELD_COUNT} pipe-separated fields",
+            None,
+        )
+
+    prefix, user_id, agent_id, scope, nonce, provided_sig = parts
+
+    if prefix != _ZKP_PROOF_PREFIX:
+        return False, f"Invalid ZK proof prefix: expected '{_ZKP_PROOF_PREFIX}'", None
+
+    if not user_id or not agent_id or not scope or not nonce:
+        return False, "ZK proof fields must not be empty", None
+
+    payload = f"{user_id}|{agent_id}|{scope}|{nonce}"
+    expected_sig = _zkp_sign(payload)
+
+    if not hmac.compare_digest(provided_sig, expected_sig):
+        return False, "ZK proof signature invalid", None
+
+    return True, None, {"user_id": user_id, "agent_id": agent_id, "scope": scope}
 
 
 def _auth_error(detail: str) -> HTTPException:
@@ -139,25 +210,61 @@ async def require_vault_owner_token(
         alias="X-Hushh-Consent",
         description="Optional VAULT_OWNER token header for dual-auth surfaces",
     ),
+    x_hushh_zk_proof: Optional[str] = Header(
+        None,
+        alias="X-Hushh-ZK-Proof",
+        description=(
+            "Optional Zero-Knowledge proof header.  When present its validation "
+            "takes priority over the standard bearer-token path (ZKP parity).  "
+            "Format: ZKP:<user_id>:<agent_id>:<scope>:<nonce>:<hmac-sha256>"
+        ),
+    ),
 ) -> dict:
     """
     FastAPI dependency that validates a VAULT_OWNER consent token.
 
-    Usage:
-        @router.post("/protected")
-        async def protected_endpoint(
-            token_data: dict = Depends(require_vault_owner_token),
-        ):
-            user_id = token_data["user_id"]
-            ...
+    ZKP parity path (X-Hushh-ZK-Proof header present):
+        The ZK proof is validated first.  On success the function returns
+        immediately with ``{user_id, agent_id, scope, token: None,
+        token_obj: None, zk_proof: True}`` — bypassing the bearer path.
+        On failure a 401 is raised; the bearer header is NOT tried as a
+        fallback so that a caller cannot bypass ZKP validation by also
+        sending a valid bearer token.
+
+    Standard path (no ZK header):
+        Existing behaviour: accepts ``Authorization: Bearer`` or
+        ``X-Hushh-Consent: <raw_token>``.
 
     Returns:
-        dict with user_id, agent_id, scope, and token object
+        dict with user_id, agent_id, scope, and token object (or
+        zk_proof=True sentinel for the ZKP path)
 
     Raises:
-        HTTPException 401 if token is missing or invalid
+        HTTPException 401 if token / proof is missing or invalid
         HTTPException 403 if token scope is insufficient
     """
+    # ZKP parity — if the caller supplies X-Hushh-ZK-Proof, validate it and
+    # return before touching the bearer-token path.
+    # Integrated by Abdul Gaffar — ZKP auth parity.
+    if x_hushh_zk_proof is not None:
+        valid, reason, zk_data = _validate_zk_proof(x_hushh_zk_proof)
+        if not valid or zk_data is None:
+            logger.warning("ZK proof validation failed: %s", reason)
+            raise _auth_error(f"Invalid ZK proof: {reason}")
+        logger.info(
+            "consent.auth.zk_proof_accepted user_id=%s scope=%s",
+            zk_data["user_id"],
+            zk_data["scope"],
+        )
+        return {
+            "user_id": zk_data["user_id"],
+            "agent_id": zk_data["agent_id"],
+            "scope": zk_data["scope"],
+            "token": None,
+            "token_obj": None,
+            "zk_proof": True,
+        }
+
     header_value = hushh_consent if hushh_consent is not None else authorization
 
     # Explicitly allow raw tokens here to support the custom X-Hushh-Consent header
