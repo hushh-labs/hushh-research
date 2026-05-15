@@ -110,10 +110,9 @@ async def require_pkm_metadata_access(
 
 
 class PKMAgentLabStructureRequest(BaseModel):
-    user_id: str
+    user_id: str = Field(..., min_length=1, max_length=128)
     message: str = Field(min_length=1, max_length=12000)
-    current_domains: list[str] = Field(default_factory=list)
-    current_manifests: list[dict] = Field(default_factory=list)
+    current_domains: list[str] = Field(default_factory=list, max_length=50)
     simulated_state: dict | None = None
 
 
@@ -300,7 +299,6 @@ async def preview_pkm_structure(
         user_id=request.user_id,
         message=request.message,
         current_domains=request.current_domains,
-        current_manifests=request.current_manifests,
         simulated_state=request.simulated_state,
     )
     return PKMAgentLabStructureResponse(**payload)
