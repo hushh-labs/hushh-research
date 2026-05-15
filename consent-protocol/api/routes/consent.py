@@ -13,10 +13,10 @@ This ensures consistent consent-first architecture throughout the system.
 import logging
 import re
 import time
-from typing import Dict
+from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
@@ -312,6 +312,57 @@ async def mark_pending_consent_opened(
     return {"ok": True, "acknowledged": True, **opened}
 
 
+class ConsentApprovalPayload(BaseModel):
+    """Versioned consent-approval request body.
+
+    v1 payloads omit ``version`` entirely (plain approval, no data export).
+    v2 payloads include ``version: 2`` and carry the full encrypted-export bundle.
+
+    The @model_validator promotes v1 payloads to the current schema by injecting
+    safe defaults for every field introduced in v2, so the approve_consent handler
+    never needs to branch on the schema version.
+
+    Canonical surface: api.routes.consent — no separate versioning service.
+    Integrated by Abdul Gaffar — canonical schema versioning.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    version: int = Field(default=1, ge=1, le=2)
+
+    userId: str
+    requestId: str
+
+    encryptedData: str | None = None
+    encryptedIv: str | None = None
+    encryptedTag: str | None = None
+
+    wrappedExportKey: str | None = None
+    wrappedKeyIv: str | None = None
+    wrappedKeyTag: str | None = None
+    senderPublicKey: str | None = None
+    wrappingAlg: str | None = None
+    connectorKeyId: str | None = None
+
+    durationHours: int | None = None
+    sourceContentRevision: int | None = None
+    sourceManifestRevision: int | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _upgrade_v1_payload(cls, values: Any) -> Any:
+        """Detect v1 payloads (no ``version`` key) and stamp them version=1.
+
+        Older clients never sent a version field.  Stamping lets the rest of
+        the handler treat version as a reliable integer without special-casing
+        its absence.  All v2-only fields already default to None, so no
+        further migration logic is required for a plain approval.
+        """
+        if isinstance(values, dict) and "version" not in values:
+            values = {**values, "version": 1}
+        return values
+
+
 @router.post("/pending/approve")
 async def approve_consent(
     request: Request,
@@ -326,21 +377,24 @@ async def approve_consent(
     For connector-backed approvals, the export key is wrapped to the connector public key
     and the backend never persists a plaintext decrypt key.
     """
-    body = await request.json()
-    userId = body.get("userId")
-    requestId = body.get("requestId")
-    encryptedData = body.get("encryptedData")  # Base64 ciphertext
-    encryptedIv = body.get("encryptedIv")  # Base64 IV
-    encryptedTag = body.get("encryptedTag")  # Base64 auth tag
-    wrappedExportKey = body.get("wrappedExportKey")
-    wrappedKeyIv = body.get("wrappedKeyIv")
-    wrappedKeyTag = body.get("wrappedKeyTag")
-    senderPublicKey = body.get("senderPublicKey")
-    wrappingAlg = body.get("wrappingAlg")
-    connectorKeyId = body.get("connectorKeyId")
-    requested_duration_hours = body.get("durationHours")
-    source_content_revision = body.get("sourceContentRevision")
-    source_manifest_revision = body.get("sourceManifestRevision")
+    # ConsentApprovalPayload.model_validate promotes v1 payloads (missing
+    # version field) to v2 schema with safe defaults — no branch needed here.
+    # Integrated by Abdul Gaffar — canonical schema versioning.
+    payload = ConsentApprovalPayload.model_validate(await request.json())
+    userId = payload.userId
+    requestId = payload.requestId
+    encryptedData = payload.encryptedData  # Base64 ciphertext
+    encryptedIv = payload.encryptedIv  # Base64 IV
+    encryptedTag = payload.encryptedTag  # Base64 auth tag
+    wrappedExportKey = payload.wrappedExportKey
+    wrappedKeyIv = payload.wrappedKeyIv
+    wrappedKeyTag = payload.wrappedKeyTag
+    senderPublicKey = payload.senderPublicKey
+    wrappingAlg = payload.wrappingAlg
+    connectorKeyId = payload.connectorKeyId
+    requested_duration_hours = payload.durationHours
+    source_content_revision = payload.sourceContentRevision
+    source_manifest_revision = payload.sourceManifestRevision
 
     # Verify user is approving their own consent
     if token_data["user_id"] != userId:
