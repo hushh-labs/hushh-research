@@ -65,7 +65,7 @@ Non-owned surfaces:
    - classify important prompt claims as `already_exists`, `partially_exists`, `missing`, `future_state_only`, `wrong_direction`, or `needs_verification` before final synthesis
    - use subagents only when the user explicitly allows delegation or a repo workflow/global repo policy has an approved delegation step
    - treat every non-trivial repo workflow as eligible for read-only evidence lanes when the checkpoint passes
-   - treat high-stakes PR governance, RCA, release readiness, security/consent review, schema/migration review, docs/founder-language work, analytics/observability work, mobile/native work, frontend/backend contract review, and voice/action-runtime review as especially strong delegation candidates
+  - treat high-stakes PR governance, RCA, release readiness, security/consent review, schema/migration review, docs/founder-language work, founder wiki north-star review, analytics/observability work, mobile/native work, frontend/backend contract review, and voice/action-runtime review as especially strong delegation candidates
    - use `.codex/skills/agent-orchestration-governance/scripts/delegation_router.py` at prompt intake or mid-execution when prompt/path intent is ambiguous
    - require independent evidence lanes and a concrete handoff shape
    - keep final authority with the parent session or `governor`
@@ -99,10 +99,11 @@ Non-owned surfaces:
    - `assumptions`
    - `validations_run`
    - `unresolved_risks`
-10. When changing this surface, keep docs and workflow routing aligned with the actual agent/config files.
-11. Add a mid-execution delegation recheck to workflows that can discover new authority lanes after initial intake, especially PR governance, RCA, release readiness, and security/consent review.
-12. Treat self-maintenance as drift detection plus CI enforcement, not autonomous self-rewrite or bot mutation.
-13. Run the dedicated agent-orchestration validation and fleet audit first, then the router smoke tests, repo governance check, skill lint, and audit.
+10. For material product direction, founder language, One/Kai/Nav ontology, PCHP/BYOA/on-device posture, PKM/World Model authority, or PR north-star review, route product-docs evidence lanes through the Founder Wiki North-Star Probe. Child agents may read wiki evidence, but must remain read-only and must keep private wiki evidence local-only. If repo truth and wiki canon disagree, report `current_state_vs_north_star_drift`.
+11. When changing this surface, keep docs and workflow routing aligned with the actual agent/config files.
+12. Add a mid-execution delegation recheck to workflows that can discover new authority lanes after initial intake, especially PR governance, RCA, release readiness, and security/consent review.
+13. Treat self-maintenance as drift detection plus CI enforcement, not autonomous self-rewrite or bot mutation.
+14. Run the dedicated agent-orchestration validation and fleet audit first, then the router smoke tests, repo governance check, skill lint, and audit.
 
 ## Handoff Rules
 
