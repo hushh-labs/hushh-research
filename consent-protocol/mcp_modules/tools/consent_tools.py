@@ -10,6 +10,16 @@ Regulated cutover note:
 - caller receives `pending` and must wait for user approval in-app (FCM-driven flow).
 """
 
+import httpx
+
+
+def test_http_timeout_configuration():
+    timeout = httpx.Timeout(
+        10.0,
+        connect=5.0,
+    )
+
+    assert timeout.connect == 5.0
 import json
 import logging
 from typing import Optional
@@ -525,7 +535,12 @@ async def handle_check_consent_status(args: dict) -> list[TextContent]:
                 )
             ]
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(
+    timeout=httpx.Timeout(
+        10.0,
+        connect=5.0,
+    ),
+) as client:
             status_response = await client.get(
                 f"{FASTAPI_URL}/api/v1/consent-status",
                 params={
