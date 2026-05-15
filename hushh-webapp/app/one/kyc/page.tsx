@@ -106,6 +106,7 @@ function OneKycWorkspace() {
   const [workflows, setWorkflows] = useState<OneKycWorkflow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [aliasPanelOpen, setAliasPanelOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -133,27 +134,42 @@ function OneKycWorkspace() {
     () => emailAliases.filter((alias) => alias.verification_status === "verified"),
     [emailAliases]
   );
+  const pendingAliases = useMemo(
+    () => emailAliases.filter((alias) => alias.verification_status === "pending"),
+    [emailAliases]
+  );
   const voiceSurfaceMetadata = useMemo(
     () => ({
       screenId: "one_kyc",
-      title: "One KYC Workflows",
-      purpose: "Approval-gated broker KYC workflow review for one@hushh.ai.",
+      title: "Email",
+      purpose: "Approval-gated email request review for one@hushh.ai.",
       sections: [
         {
           id: "one_kyc_inbox",
-          title: "KYC workflow inbox",
+          title: "Requests",
         },
         {
           id: "one_kyc_detail",
-          title: "Selected KYC workflow",
+          title: "Selected request",
+        },
+        {
+          id: "one_kyc_aliases",
+          title: "Verified email addresses",
         },
       ],
       controls: [
         {
           id: "one-kyc-open",
-          label: "Open KYC workflows",
+          label: "Open Email",
           type: "route",
           actionId: "route.one_kyc",
+        },
+        {
+          id: "one-kyc-aliases",
+          label: "Manage verified emails",
+          type: "button",
+          actionId: "kyc.aliases.manage",
+          state: aliasPanelOpen ? "open" : "closed",
         },
         {
           id: "one-kyc-sync-status",
@@ -200,7 +216,7 @@ function OneKycWorkspace() {
         loading,
       },
     }),
-    [connectorReady, isVaultUnlocked, loading, localDrafts, selected, vaultKey, vaultOwnerToken, workflows.length]
+    [aliasPanelOpen, connectorReady, isVaultUnlocked, loading, localDrafts, selected, vaultKey, vaultOwnerToken, workflows.length]
   );
   usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
 
@@ -239,7 +255,7 @@ function OneKycWorkspace() {
       setSelectedId((current) => current || initialId || response.workflows[0]?.workflow_id || null);
     } catch (err) {
       setConnectorReady(false);
-      setError(err instanceof Error ? err.message : "Unable to load KYC workflows.");
+      setError(err instanceof Error ? err.message : "Unable to load email requests.");
     } finally {
       setLoading(false);
     }
@@ -507,7 +523,7 @@ function OneKycWorkspace() {
             return;
           }
         } else if (action === "reject") {
-          next = await OneKycService.rejectDraft({ ...input, reason: "Rejected from One KYC." });
+          next = await OneKycService.rejectDraft({ ...input, reason: "Rejected from Email." });
         } else {
           next = await OneKycService.refreshWorkflow(input);
         }
@@ -582,10 +598,10 @@ function OneKycWorkspace() {
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow="One"
-          title="KYC workflows"
-          description="Review broker KYC requests, consent status, and approval-gated drafts from one@hushh.ai."
+          title="Email"
+          description="Review emails that ask for your data, choose what to share, and send replies only after you approve."
           icon={ShieldCheck}
-          accent="consent"
+          accent="neutral"
           actions={
             <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
               <RefreshCw className="size-4" />
@@ -595,7 +611,7 @@ function OneKycWorkspace() {
         />
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion className="mx-auto grid w-full max-w-5xl gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
+      <AppPageContentRegion className="mx-auto grid w-full max-w-5xl items-start gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
         {error ? (
           <div className="lg:col-span-2 rounded-[var(--app-card-radius-standard)] border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
             {error}
@@ -604,9 +620,7 @@ function OneKycWorkspace() {
 
         <div className="space-y-4">
           <SettingsGroup
-            eyebrow="Inbox"
-            title="Broker requests"
-            description="KYC emails matched to one@hushh.ai stay here until you approve, reject, or wait on the counterparty."
+            title="Requests"
           >
             {loading ? (
               <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
@@ -616,14 +630,14 @@ function OneKycWorkspace() {
               <SettingsRow
                 icon={Inbox}
                 title="No matched requests"
-                description="New KYC emails appear here after One matches them to a verified email alias."
+                description="New emails appear here after One matches them to one of your verified addresses."
               />
             ) : (
               workflows.map((workflow) => (
                 <SettingsRow
                   key={workflow.workflow_id}
                   icon={statusIcon(workflow.status)}
-                  title={workflow.subject || "KYC request"}
+                  title={workflow.subject || "Email request"}
                   description={[
                     workflow.counterparty_label || workflow.sender_email || "Counterparty",
                     selectedScopeLabels(workflow).join(", ") || workflow.requested_scope || "Scope pending",
@@ -647,113 +661,37 @@ function OneKycWorkspace() {
 
         <div className="space-y-4">
           <SettingsGroup
-            title="Selected workflow"
-            description="Open the selected request to review consent, draft, thread, and send state."
-          >
-            {selected ? (
-              <>
-                <SettingsRow
-                  icon={statusIcon(selected.status)}
-                  title={selected.subject || "KYC request"}
-                  description={selected.counterparty_label || selected.sender_email || "Counterparty"}
-                  trailing={
-                    <Badge variant={statusVariant(selected.status)}>
-                      {STATUS_LABELS[selected.status] || selected.status}
-                    </Badge>
-                  }
-                  chevron
-                  onClick={() => setDetailOpen(true)}
-                  voiceControlId="one-kyc-open-selected"
-                />
-                <SettingsRow
-                  icon={ShieldCheck}
-                  title="Workflow consent"
-                  description={selectedScopeLabels(selected).join(", ") || selected.requested_scope || "No scopes selected yet"}
-                  trailing={<Badge variant="outline">{detectedDomains(selected).join(", ") || "KYC"}</Badge>}
-                />
-                <SettingsRow
-                  icon={Clock3}
-                  title="Thread status"
-                  description={threadStatusLabel(selected)}
-                  trailing={selected.status === "waiting_on_counterparty" ? <CheckCircle2 className="size-4 text-emerald-600" /> : null}
-                />
-              </>
-            ) : (
-              <SettingsRow
-                icon={Inbox}
-                title="No workflow selected"
-                description="Select a broker request from the inbox."
-              />
-            )}
-          </SettingsGroup>
-
-          <SettingsGroup
-            title="Email aliases"
-            description="Verified aliases help One match forwarded or CC'd broker requests to your account."
+            title="Matching emails"
           >
             <SettingsRow
               icon={MailPlus}
-              title="Verified aliases"
+              title="Verified email addresses"
               description={
                 verifiedAliases.length
                   ? verifiedAliases.map((alias) => alias.email).join(", ")
-                  : "No verified aliases."
+                  : "Add an address people already use for you."
               }
               trailing={<Badge variant="secondary">{verifiedAliases.length}</Badge>}
+              chevron
+              onClick={() => setAliasPanelOpen(true)}
               stackTrailingOnMobile
+              voiceControlId="one-kyc-aliases"
+              voiceActionId="kyc.aliases.manage"
             />
-            <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-              <Input
-                type="email"
-                value={aliasEmail}
-                onChange={(event) => setAliasEmail(event.target.value)}
-                placeholder="original@example.com"
-                autoComplete="email"
-              />
-              {aliasChallenge ? (
-                <Input
-                  value={aliasCode}
-                  onChange={(event) => setAliasCode(event.target.value)}
-                  placeholder="Verification code"
-                  inputMode="numeric"
-                />
-              ) : null}
-              {aliasChallenge?.reviewCode ? (
-                <p className="text-xs text-muted-foreground">UAT code: {aliasChallenge.reviewCode}</p>
-              ) : null}
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void startAliasVerification()}
-                  disabled={Boolean(busy) || !aliasEmail.trim()}
-                >
-                  <MailPlus className="size-4" />
-                  Register alias
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => void confirmAliasVerification()}
-                  disabled={Boolean(busy) || !aliasChallenge || !aliasCode.trim()}
-                >
-                  Verify
-                </Button>
-              </div>
-            </div>
           </SettingsGroup>
         </div>
 
         <SettingsDetailPanel
           open={detailOpen && Boolean(selected)}
           onOpenChange={setDetailOpen}
-          title={selected?.subject || "KYC workflow"}
+          title={selected?.subject || "Email request"}
           description={selected?.counterparty_label || selected?.sender_email || "Review the selected request."}
+          desktopMaxWidthClassName="sm:!max-w-[960px]"
+          desktopMaxWidth="min(960px, calc(100vw - 3rem))"
         >
           {!selected ? null : (
             <div className="space-y-4">
-              <SettingsGroup embedded title="Workflow">
+              <SettingsGroup embedded title="Request">
                 <SettingsRow
                   icon={statusIcon(selected.status)}
                   title="Status"
@@ -772,7 +710,7 @@ function OneKycWorkspace() {
                 />
                 <SettingsRow
                   icon={ShieldCheck}
-                  title="Scopes"
+                  title="Data to share"
                   description={selectedScopeLabels(selected).join(", ") || selected.requested_scope || "-"}
                 />
                 <SettingsRow
@@ -806,8 +744,8 @@ function OneKycWorkspace() {
               {selected.status === "needs_scope" ? (
                 <SettingsGroup
                   embedded
-                  title="Recommended scopes"
-                  description="Confirm the workflow scopes before any encrypted export is prepared."
+                  title="Recommended data"
+                  description="Confirm what One should request before any encrypted export is prepared."
                 >
                   {scopeCandidates(selected).map((candidate) => {
                     const checked = selectedScopesForWorkflow(
@@ -907,7 +845,7 @@ function OneKycWorkspace() {
               ) : null}
 
               {selected.last_error_message ? (
-                <SettingsGroup embedded title="Workflow issue">
+                <SettingsGroup embedded title="Request issue">
                   <SettingsRow
                     icon={AlertTriangle}
                     title="Attention needed"
@@ -986,6 +924,105 @@ function OneKycWorkspace() {
               </Button>
             </div>
           )}
+        </SettingsDetailPanel>
+
+        <SettingsDetailPanel
+          open={aliasPanelOpen}
+          onOpenChange={setAliasPanelOpen}
+          title="Verified emails"
+          description="Add addresses people already use so One can match requests without extra work."
+        >
+          <div className="space-y-4">
+            <SettingsGroup embedded title="Ready to match">
+              {verifiedAliases.length ? (
+                verifiedAliases.map((alias) => (
+                  <SettingsRow
+                    key={alias.alias_id}
+                    icon={BadgeCheck}
+                    title={alias.email}
+                    description={alias.verified_at ? `Verified ${new Date(alias.verified_at).toLocaleDateString()}` : "Verified"}
+                    trailing={<Badge variant="secondary">Ready</Badge>}
+                    stackTrailingOnMobile
+                  />
+                ))
+              ) : (
+                <SettingsRow
+                  icon={MailPlus}
+                  title="No verified emails yet"
+                  description="Add the email address people already use for requests."
+                />
+              )}
+            </SettingsGroup>
+
+            {pendingAliases.length ? (
+              <SettingsGroup embedded title="Waiting for code">
+                {pendingAliases.map((alias) => (
+                  <SettingsRow
+                    key={alias.alias_id}
+                    icon={Clock3}
+                    title={alias.email}
+                    description="Enter the code sent for this address."
+                    trailing={<Badge variant="outline">Pending</Badge>}
+                    stackTrailingOnMobile
+                  />
+                ))}
+              </SettingsGroup>
+            ) : null}
+
+            <SettingsGroup
+              embedded
+              title={aliasChallenge ? "Enter code" : "Add an email"}
+              description={
+                aliasChallenge
+                  ? `Use the code sent for ${aliasChallenge.email}.`
+                  : "Use an address where people may send requests."
+              }
+            >
+              <div className="space-y-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+                <Input
+                  type="email"
+                  value={aliasEmail}
+                  onChange={(event) => setAliasEmail(event.target.value)}
+                  placeholder="name@example.com"
+                  autoComplete="email"
+                />
+                {aliasChallenge ? (
+                  <Input
+                    value={aliasCode}
+                    onChange={(event) => setAliasCode(event.target.value)}
+                    placeholder="Verification code"
+                    inputMode="numeric"
+                  />
+                ) : null}
+                {aliasChallenge?.reviewCode ? (
+                  <p className="text-xs text-muted-foreground">Code for this test session: {aliasChallenge.reviewCode}</p>
+                ) : null}
+                <div className="grid gap-2 sm:flex sm:flex-wrap">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void startAliasVerification()}
+                    disabled={Boolean(busy) || !aliasEmail.trim()}
+                    className="w-full sm:w-auto"
+                  >
+                    <MailPlus className="size-4" />
+                    Send code
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => void confirmAliasVerification()}
+                    disabled={Boolean(busy) || !aliasChallenge || !aliasCode.trim()}
+                    className="w-full sm:w-auto"
+                  >
+                    <BadgeCheck className="size-4" />
+                    Verify email
+                  </Button>
+                </div>
+              </div>
+            </SettingsGroup>
+          </div>
         </SettingsDetailPanel>
       </AppPageContentRegion>
     </AppPageShell>
