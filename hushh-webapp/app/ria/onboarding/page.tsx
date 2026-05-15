@@ -24,7 +24,6 @@ import {
   type RiaOnboardingDraft,
   type RiaOnboardingFlowOptions,
   type RiaOnboardingStepId,
-  type RiaOnboardingType,
 } from "@/lib/ria/ria-onboarding-flow";
 import { RiaOnboardingDraftLocalService } from "@/lib/services/ria-onboarding-draft-local-service";
 import {
