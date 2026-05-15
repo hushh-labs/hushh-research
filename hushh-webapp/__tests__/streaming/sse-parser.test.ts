@@ -60,4 +60,20 @@ describe("parseSSEBlocks", () => {
     const result = parseSSEBlocks(": ping\n\n\n");
     expect(result.events).toHaveLength(0);
   });
+    it("preserves empty event id handling without dropping valid payloads", () => {
+    const input =
+      'event: chunk\n' +
+      'id:\n' +
+      'data: {"schema_version":"1.0","stream_id":"strm_empty_id","stream_kind":"portfolio_import","seq":31,"event":"chunk","terminal":false,"payload":{"text":"hello"}}\n\n';
+
+    const result = parseSSEBlocks(input);
+
+    expect(result.remainder).toBe("");
+    expect(result.events).toHaveLength(1);
+
+    expect(result.events[0]).toMatchObject({
+      event: "chunk",
+      id: "",
+    });
+  });
 });
