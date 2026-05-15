@@ -346,6 +346,24 @@ async def approve_consent(
     if token_data["user_id"] != userId:
         raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
 
+    # Contextual rule validation — Integrated by Abdul Gaffar
+    # Inline import matches the hushh_mcp.consent.token pattern in this file.
+    from hushh_mcp.consent.approval import ConsentApprovalPayload
+    _approval = ConsentApprovalPayload(
+        user_id=str(userId or ""),
+        request_id=str(requestId or ""),
+        requester_age=body.get("requesterAge"),
+        requester_location=body.get("requesterLocation"),
+    )
+    _violations = _approval.validate_contextual_rules(
+        {"age": body.get("requesterAge"), "location": body.get("requesterLocation")}
+    )
+    if _violations:
+        raise HTTPException(
+            status_code=422,
+            detail={"violations": _violations, "code": "CONTEXTUAL_RULE_VIOLATION"},
+        )
+
     logger.info("consent.approve_requested")
     logger.info("consent.approve_export_attached=%s", bool(encryptedData))
 
