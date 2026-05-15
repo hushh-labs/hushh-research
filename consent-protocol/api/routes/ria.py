@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -33,22 +35,22 @@ async def _require_ria_verified(
 
 
 class RIAOnboardingSubmitRequest(BaseModel):
-    display_name: str = Field(..., min_length=1)
-    requested_capabilities: list[str] = Field(default_factory=lambda: ["advisory"])
-    individual_legal_name: str | None = None
-    individual_crd: str | None = None
-    advisory_firm_legal_name: str | None = None
-    advisory_firm_iapd_number: str | None = None
-    broker_firm_legal_name: str | None = None
-    broker_firm_crd: str | None = None
-    legal_name: str | None = None
-    finra_crd: str | None = None
-    sec_iard: str | None = None
-    bio: str | None = None
-    strategy: str | None = None
-    disclosures_url: str | None = None
-    primary_firm_name: str | None = None
-    primary_firm_role: str | None = None
+    display_name: str = Field(..., min_length=1, max_length=256)
+    requested_capabilities: list[str] = Field(default_factory=lambda: ["advisory"], max_length=20)
+    individual_legal_name: str | None = Field(None, max_length=256)
+    individual_crd: str | None = Field(None, max_length=50)
+    advisory_firm_legal_name: str | None = Field(None, max_length=256)
+    advisory_firm_iapd_number: str | None = Field(None, max_length=50)
+    broker_firm_legal_name: str | None = Field(None, max_length=256)
+    broker_firm_crd: str | None = Field(None, max_length=50)
+    legal_name: str | None = Field(None, max_length=256)
+    finra_crd: str | None = Field(None, max_length=50)
+    sec_iard: str | None = Field(None, max_length=50)
+    bio: str | None = Field(None, max_length=5000)
+    strategy: str | None = Field(None, max_length=5000)
+    disclosures_url: str | None = Field(None, max_length=2048)
+    primary_firm_name: str | None = Field(None, max_length=256)
+    primary_firm_role: str | None = Field(None, max_length=128)
     force_live_verification: bool = False
     # Onboarding v2: license-first fields
     license_number: str | None = None
@@ -70,8 +72,8 @@ class RIAOnboardingSubmitRequest(BaseModel):
 
 
 class RIAOnboardingVerifyNameRequest(BaseModel):
-    query: str = Field(..., min_length=1)
-    crd_number: str | None = None
+    query: str = Field(..., min_length=1, max_length=256)
+    crd_number: str | None = Field(None, max_length=50)
     force_live_verification: bool = False
 
 
@@ -88,67 +90,67 @@ class RIAProfileRefreshLicenseRequest(BaseModel):
 
 
 class RIAConsentRequestCreate(BaseModel):
-    subject_user_id: str = Field(..., min_length=1)
-    requester_actor_type: str = Field(default="ria")
-    subject_actor_type: str = Field(default="investor")
-    scope_template_id: str = Field(..., min_length=1)
-    selected_scope: str | None = None
-    duration_mode: str = Field(default="preset")
+    subject_user_id: str = Field(..., min_length=1, max_length=128)
+    requester_actor_type: Literal["investor", "ria"] = "ria"
+    subject_actor_type: Literal["investor", "ria"] = "investor"
+    scope_template_id: str = Field(..., min_length=1, max_length=128)
+    selected_scope: str | None = Field(None, max_length=128)
+    duration_mode: str = Field("preset", max_length=50)
     duration_hours: int | None = None
-    firm_id: str | None = None
-    reason: str | None = None
+    firm_id: str | None = Field(None, max_length=128)
+    reason: str | None = Field(None, max_length=1000)
 
 
 class RIAConsentBundleCreate(BaseModel):
-    subject_user_id: str = Field(..., min_length=1)
-    scope_template_id: str = Field(..., min_length=1)
-    selected_scopes: list[str] = Field(default_factory=list)
-    selected_account_ids: list[str] = Field(default_factory=list)
-    firm_id: str | None = None
-    reason: str | None = None
+    subject_user_id: str = Field(..., min_length=1, max_length=128)
+    scope_template_id: str = Field(..., min_length=1, max_length=128)
+    selected_scopes: list[str] = Field(default_factory=list, max_length=50)
+    selected_account_ids: list[str] = Field(default_factory=list, max_length=100)
+    firm_id: str | None = Field(None, max_length=128)
+    reason: str | None = Field(None, max_length=1000)
 
 
 class RIAPicksParseRequest(BaseModel):
-    csv_content: str = Field(..., min_length=1)
-    source_filename: str | None = None
-    package_note: str | None = None
-    avoid_rows: list[dict] = Field(default_factory=list)
-    screening_sections: list[dict] = Field(default_factory=list)
+    csv_content: str = Field(..., min_length=1, max_length=5_242_880)  # 5 MiB
+    source_filename: str | None = Field(None, max_length=256)
+    package_note: str | None = Field(None, max_length=1000)
+    avoid_rows: list[dict] = Field(default_factory=list, max_length=5000)
+    screening_sections: list[dict] = Field(default_factory=list, max_length=100)
 
 
 class RIAPicksSyncRequest(BaseModel):
-    label: str | None = None
-    package_note: str | None = None
-    top_picks: list[dict] = Field(default_factory=list)
-    avoid_rows: list[dict] = Field(default_factory=list)
-    screening_sections: list[dict] = Field(default_factory=list)
+    label: str | None = Field(None, max_length=256)
+    package_note: str | None = Field(None, max_length=1000)
+    top_picks: list[dict] = Field(default_factory=list, max_length=5000)
+    avoid_rows: list[dict] = Field(default_factory=list, max_length=5000)
+    screening_sections: list[dict] = Field(default_factory=list, max_length=100)
     source_data_version: int | None = None
     source_manifest_revision: int | None = None
     retire_legacy: bool = True
 
 
 class RIAInviteTarget(BaseModel):
-    display_name: str | None = None
-    email: str | None = None
-    phone: str | None = None
-    investor_user_id: str | None = None
-    source: str | None = None
-    delivery_channel: str | None = None
+    display_name: str | None = Field(None, max_length=256)
+    email: str | None = Field(None, max_length=320)
+    phone: str | None = Field(None, max_length=20)
+    investor_user_id: str | None = Field(None, max_length=128)
+    source: str | None = Field(None, max_length=100)
+    delivery_channel: str | None = Field(None, max_length=50)
 
 
 class RIAInviteCreateRequest(BaseModel):
-    scope_template_id: str = Field(..., min_length=1)
-    duration_mode: str = Field(default="preset")
+    scope_template_id: str = Field(..., min_length=1, max_length=128)
+    duration_mode: str = Field("preset", max_length=50)
     duration_hours: int | None = None
-    firm_id: str | None = None
-    reason: str | None = None
-    targets: list[RIAInviteTarget] = Field(default_factory=list)
+    firm_id: str | None = Field(None, max_length=128)
+    reason: str | None = Field(None, max_length=1000)
+    targets: list[RIAInviteTarget] = Field(default_factory=list, max_length=500)
 
 
 class RIAMarketplaceDiscoverabilityRequest(BaseModel):
     enabled: bool
-    headline: str | None = None
-    strategy_summary: str | None = None
+    headline: str | None = Field(None, max_length=512)
+    strategy_summary: str | None = Field(None, max_length=5000)
 
 
 class RIAPicksShareStateRequest(BaseModel):
