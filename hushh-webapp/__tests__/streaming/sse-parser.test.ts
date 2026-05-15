@@ -60,4 +60,20 @@ describe("parseSSEBlocks", () => {
     const result = parseSSEBlocks(": ping\n\n\n");
     expect(result.events).toHaveLength(0);
   });
+    it("normalizes CRLF-delimited SSE frame boundaries", () => {
+    const input =
+      'event: stage\r\n' +
+      'id: 21\r\n' +
+      'data: {"schema_version":"1.0","stream_id":"strm_crlf","stream_kind":"portfolio_import","seq":21,"event":"stage","terminal":false,"payload":{"stage":"loading"}}\r\n\r\n';
+
+    const result = parseSSEBlocks(input);
+
+    expect(result.remainder).toBe("");
+    expect(result.events).toHaveLength(1);
+
+    expect(result.events[0]).toMatchObject({
+      event: "stage",
+      id: "21",
+    });
+  });
 });
