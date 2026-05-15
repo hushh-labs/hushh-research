@@ -2,6 +2,16 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const MockRiaApiError = vi.hoisted(() => {
+  return class extends Error {
+    status: number;
+    constructor(msg: string, status: number) {
+      super(msg);
+      this.status = status;
+    }
+  };
+});
+
 const mocks = vi.hoisted(() => ({
   routerPush: vi.fn(),
   useAuth: vi.fn(),
@@ -210,13 +220,7 @@ vi.mock("@/lib/services/ria-onboarding-draft-local-service", () => ({
 
 vi.mock("@/lib/services/ria-service", () => ({
   RiaService: mocks.riaService,
-  RiaApiError: class extends Error {
-    status: number;
-    constructor(msg: string, status: number) {
-      super(msg);
-      this.status = status;
-    }
-  },
+  RiaApiError: MockRiaApiError,
   isIAMSchemaNotReadyError: (err: unknown) =>
     err instanceof Error && err.message.includes("schema not ready"),
 }));
@@ -234,7 +238,6 @@ vi.mock("@/lib/observability/growth", () => ({
 }));
 
 import RiaOnboardingPage from "@/app/ria/onboarding/page";
-import { RiaApiError } from "@/lib/services/ria-service";
 
 describe("RiaOnboardingPage", () => {
   beforeEach(() => {
@@ -411,7 +414,7 @@ describe("RiaOnboardingPage", () => {
 
   it("handles rate limit (429) gracefully", async () => {
     mocks.riaService.verifyOnboardingLicense.mockRejectedValue(
-      new RiaApiError("rate limited", 429)
+      new MockRiaApiError("rate limited", 429)
     );
 
     render(<RiaOnboardingPage />);
