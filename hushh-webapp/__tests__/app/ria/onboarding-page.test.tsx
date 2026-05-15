@@ -409,16 +409,9 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("handles rate limit (429) gracefully", async () => {
-    const RiaApiErr = class extends Error {
-      status: number;
-      constructor(msg: string, status: number) {
-        super(msg);
-        this.status = status;
-        this.name = "RiaApiError";
-      }
-    };
+    const { RiaApiError } = await import("@/lib/services/ria-service");
     mocks.riaService.verifyOnboardingLicense.mockRejectedValue(
-      new RiaApiErr("rate limited", 429)
+      new RiaApiError("rate limited", 429)
     );
 
     render(<RiaOnboardingPage />);
