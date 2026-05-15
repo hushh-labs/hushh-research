@@ -17,7 +17,7 @@ import statistics
 
 import pytest
 
-from utils.privacy_engine import laplace_mechanism, noisy_approval_count
+from hushh_mcp.consent.privacy_engine import laplace_mechanism, noisy_approval_count
 
 # ---------------------------------------------------------------------------
 # Constants used across tests
