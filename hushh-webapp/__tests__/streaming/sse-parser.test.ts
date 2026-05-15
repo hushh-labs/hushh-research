@@ -60,4 +60,20 @@ describe("parseSSEBlocks", () => {
     const result = parseSSEBlocks(": ping\n\n\n");
     expect(result.events).toHaveLength(0);
   });
+    it("ignores whitespace-only SSE separator frames", () => {
+    const input =
+      "\n \n\t\n\n" +
+      'event: done\n' +
+      'id: 9\n' +
+      'data: {"schema_version":"1.0","stream_id":"strm_ws","stream_kind":"portfolio_import","seq":9,"event":"done","terminal":true,"payload":{"status":"ok"}}\n\n';
+
+    const result = parseSSEBlocks(input);
+
+    expect(result.remainder).toBe("");
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      event: "done",
+      id: "9",
+    });
+  });
 });
