@@ -29,6 +29,7 @@ from hushh_mcp.integrations.plaid import (
     PlaidRuntimeConfig,
 )
 from hushh_mcp.kai_import import build_financial_analytics_v2
+from hushh_mcp.runtime_settings import get_optional_plaid_access_token_key
 
 logger = logging.getLogger(__name__)
 
@@ -250,7 +251,7 @@ class PlaidPortfolioService:
         return self.config.manual_entry_enabled
 
     def _resolve_encryption_key(self) -> bytes:
-        configured = _clean_text(os.getenv("PLAID_TOKEN_ENCRYPTION_KEY"))
+        configured = _clean_text(get_optional_plaid_access_token_key())
         if configured:
             try:
                 decoded = base64.urlsafe_b64decode(configured.encode("utf-8"))

@@ -7,6 +7,7 @@ import {
   type KaiHomeSpotlightItem,
   type KaiHomeWatchlistItem,
 } from "@/lib/services/api-service";
+import { logRequestAudit } from "@/lib/cache/request-audit-log";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import {
   DeviceResourceCacheService,
@@ -343,7 +344,7 @@ function withStablePayloadFromCache(
 }
 
 function logRequest(stage: string, detail: Record<string, unknown>): void {
-  console.info(`[RequestAudit:kai_market_home] ${stage}`, detail);
+  logRequestAudit("kai_market_home", stage, detail);
 }
 
 export class KaiMarketHomeResourceService {

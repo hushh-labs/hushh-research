@@ -1,6 +1,6 @@
 # Documentation Homes
 
-This repo uses a strict three-home model plus thin root entrypoints.
+This repo uses a strict three-home model plus thin root entrypoints and an explicit future-roadmap tier inside root `docs/`.
 
 ## Root markdowns
 
@@ -22,6 +22,13 @@ Use `docs/` for:
 - quality and design-system contracts
 - repo-wide guides
 - product vision
+- future roadmap and R&D planning
+
+Within root `docs/`, keep these boundaries explicit:
+
+- `docs/vision/` = durable north stars only
+- `docs/future/` = planning-only future-state concepts and R&D assessments
+- `docs/reference/` = execution-owned cross-cutting contracts
 
 ## `consent-protocol/docs/`
 

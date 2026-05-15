@@ -188,3 +188,33 @@ artifacts/*.json
 
 # External Repositories
 claude_desktop_config.generated.json
+
+# Hushh Security Policy - Secrets and Credentials
+.env
+.env.*
+*.pem
+*.key
+*credentials*.json
+*secret*.json
+
+# Standard Python ignores
+__pycache__/
+*.py[cod]
+*.class
+.venv/
+venv/
+env/
+ENV/
+
+# Local validation scripts
+test_kai_endpoints.py
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+ehthumbs_vista.db
+[Tt]humbs.db

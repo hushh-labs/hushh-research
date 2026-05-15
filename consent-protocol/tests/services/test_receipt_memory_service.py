@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import sys
+import types
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -8,6 +11,7 @@ import pytest
 from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.receipt_memory_service import (
     ReceiptMemoryArtifactService,
+    ReceiptMemoryEnrichmentService,
     ReceiptMemoryPkmMapper,
     ReceiptMemoryPreviewService,
     ReceiptMemoryProjectionService,
@@ -358,3 +362,45 @@ async def test_preview_service_falls_back_to_ephemeral_artifact_when_cache_table
         artifact["candidate_pkm_payload"]["receipts_memory"]["provenance"]["artifact_id"]
         == artifact["artifact_id"]
     )
+
+
+@pytest.mark.asyncio
+async def test_enrichment_service_times_out_and_returns_none(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.setenv("KAI_RECEIPT_MEMORY_LLM_ENABLED", "true")
+    monkeypatch.setenv("KAI_RECEIPT_MEMORY_LLM_TIMEOUT_SECONDS", "0.01")
+
+    class _HangingModels:
+        async def generate_content(self, **_kwargs):
+            await asyncio.sleep(0.05)
+            return SimpleNamespace(text='{"readable_summary":{"text":"late","highlights":[]}}')
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.aio = SimpleNamespace(models=_HangingModels())
+
+    fake_google = types.ModuleType("google")
+    fake_genai = types.ModuleType("google.genai")
+    fake_types = types.ModuleType("google.genai.types")
+    fake_types.GenerateContentConfig = lambda **kwargs: kwargs
+    fake_genai.Client = _FakeClient
+    fake_google.genai = fake_genai
+    monkeypatch.setitem(sys.modules, "google", fake_google)
+    monkeypatch.setitem(sys.modules, "google.genai", fake_genai)
+    monkeypatch.setitem(sys.modules, "google.genai.types", fake_types)
+
+    service = ReceiptMemoryEnrichmentService()
+
+    projection = {
+        "observed_facts": {
+            "merchant_affinity": [],
+            "purchase_patterns": [],
+            "recent_highlights": [],
+        },
+        "inferred_preferences": [],
+        "budget_stats": {"eligible_receipt_count": 1},
+    }
+
+    enrichment = await service.enrich(projection)
+
+    assert enrichment is None

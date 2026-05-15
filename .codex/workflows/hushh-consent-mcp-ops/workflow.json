@@ -1,0 +1,55 @@
+{
+  "id": "hushh-consent-mcp-ops",
+  "title": "Hussh Consent MCP Ops",
+  "goal": "Operate and verify the Hussh Consent MCP connector directly without confusing connector startup, empty discovery, and environment mismatch.",
+  "owner_skill": "backend",
+  "default_spoke": "hushh-consent-mcp",
+  "task_type": "hushh-consent-mcp-ops",
+  "affected_surfaces": [
+    "packages/hushh-mcp",
+    "consent-protocol/docs/mcp-setup.md",
+    "docs/reference/operations/coding-agent-mcp.md"
+  ],
+  "required_reads": [
+    "packages/hushh-mcp/README.md",
+    "consent-protocol/docs/mcp-setup.md",
+    "docs/reference/operations/coding-agent-mcp.md"
+  ],
+  "required_commands": [
+    "cd packages/hushh-mcp && npm run print-config",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundle": {
+    "id": "hushh-consent-mcp-ops",
+    "commands": [
+      "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "./bin/hushh codex audit",
+      "cd packages/hushh-mcp && npm run print-config"
+    ],
+    "tests": [
+      "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "./bin/hushh codex audit"
+    ]
+  },
+  "deliverables": [
+    "connector config verification",
+    "environment mismatch summary",
+    "connector-vs-data diagnosis"
+  ],
+  "impact_fields": [
+    "Docs updated",
+    "Verification commands executed",
+    "Connector setup verified"
+  ],
+  "handoff_chain": [
+    "backend",
+    "hushh-consent-mcp",
+    "mcp-developer-surface",
+    "security-audit"
+  ],
+  "common_failures": [
+    "treating empty discovery as a connector crash",
+    "debugging hosted MCP without checking config first",
+    "mixing package/setup work with consent policy work"
+  ]
+}

@@ -61,7 +61,7 @@ const config: CapacitorConfig = {
     FirebaseAuthentication: {
       // Use native Google Sign-In SDK on iOS/Android
       skipNativeAuth: false,
-      providers: ["google.com"],
+      providers: ["google.com", "phone"],
     },
     FirebaseMessaging: {
       presentationOptions: ["alert", "badge", "sound"],

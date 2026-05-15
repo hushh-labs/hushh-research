@@ -83,7 +83,7 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        // Hushh Brand Colors
+        // Hussh brand colors
         hushh: {
           // Primary blue palette
           blue: {

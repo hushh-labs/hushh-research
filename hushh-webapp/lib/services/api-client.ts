@@ -20,6 +20,23 @@ export class ApiError extends Error {
   }
 }
 
+function extractApiErrorMessage(payload: unknown, fallback: string): string {
+  if (!payload || typeof payload !== "object") return fallback;
+  const record = payload as Record<string, unknown>;
+  for (const value of [record.error, record.message]) {
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  const detail = record.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+    const detailRecord = detail as Record<string, unknown>;
+    for (const value of [detailRecord.message, detailRecord.error, detailRecord.code]) {
+      if (typeof value === "string" && value.trim()) return value;
+    }
+  }
+  return fallback;
+}
+
 export async function apiJson<T>(
   path: string,
   options: RequestInit = {}
@@ -32,10 +49,7 @@ export async function apiJson<T>(
   const payload = isJson ? await res.json().catch(() => undefined) : undefined;
 
   if (!res.ok) {
-    const msg =
-      (payload as any)?.error ||
-      (payload as any)?.detail ||
-      `Request failed: ${res.status}`;
+    const msg = extractApiErrorMessage(payload, `Request failed: ${res.status}`);
     throw new ApiError(msg, res.status, payload);
   }
 

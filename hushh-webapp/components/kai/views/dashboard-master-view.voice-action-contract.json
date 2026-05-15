@@ -1,0 +1,178 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "kai_portfolio_dashboard",
+  "surface_title": "Kai Portfolio Dashboard",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "investor"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.kai_dashboard",
+      "label": "Open Portfolio Dashboard",
+      "meaning": "Navigates to portfolio dashboard for source/holdings context.",
+      "aliases": [
+        "open portfolio dashboard",
+        "open portfolio",
+        "go to holdings"
+      ],
+      "search_keywords": [
+        "portfolio",
+        "dashboard",
+        "holdings"
+      ],
+      "reachability": {
+        "routes": [
+          "/kai/portfolio"
+        ],
+        "screens": [
+          "kai_portfolio_dashboard"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "dashboard"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "route.kai_import",
+      "label": "Open Portfolio Import",
+      "meaning": "Navigates to import flow for statement upload / portfolio bootstrap.",
+      "aliases": [
+        "import portfolio",
+        "open import"
+      ],
+      "search_keywords": [
+        "import",
+        "portfolio import"
+      ],
+      "reachability": {
+        "routes": [
+          "/kai/import"
+        ],
+        "screens": [
+          "kai_portfolio_dashboard"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "import"
+      },
+      "control_ids": [
+        "import_portfolio"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "route.kai_investments",
+      "label": "Open Investments Surface",
+      "meaning": "Navigates to investments workspace from hidden or non-visible surface.",
+      "aliases": [
+        "open investments",
+        "show investments"
+      ],
+      "search_keywords": [
+        "investments"
+      ],
+      "reachability": {
+        "routes": [
+          "/kai/investments"
+        ],
+        "screens": [
+          "kai_investments"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "user must be signed in"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/kai/investments"
+      },
+      "control_ids": [
+        "view_investments"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/kai/views/dashboard-master-view.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "route.kai_optimize",
+      "label": "Open Optimize Surface",
+      "meaning": "Navigates to optimize workspace route directly.",
+      "aliases": [
+        "optimize portfolio",
+        "open optimize"
+      ],
+      "search_keywords": [
+        "optimize",
+        "rebalance"
+      ],
+      "reachability": {
+        "routes": [
+          "/kai/optimize"
+        ],
+        "screens": [
+          "kai_optimize"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "optimization context should be prepared from portfolio source"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/kai/optimize"
+      },
+      "control_ids": [
+        "optimize_portfolio"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/kai/optimize/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    }
+  ]
+}

@@ -3,7 +3,7 @@ name: backend-api-contracts
 description: Use when changing backend API contracts, Next.js proxy-to-backend contracts, or route-level request/response boundaries.
 ---
 
-# Hushh Backend API Contracts Skill
+# Hussh Backend API Contracts Skill
 
 ## Purpose and Trigger
 

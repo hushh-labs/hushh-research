@@ -21,7 +21,8 @@
   "task_types": [
     "security-consent-audit",
     "new-feature-tri-flow",
-    "bug-triage"
+    "bug-triage",
+    "data-model-audit"
   ],
   "required_reads": [
     "consent-protocol/docs/reference/personal-knowledge-model.md",
@@ -30,18 +31,21 @@
   ],
   "required_commands": [
     "cd consent-protocol && python3 -m pytest tests/test_vault.py -q",
-    "cd hushh-webapp && npm run verify:cache"
+    "cd hushh-webapp && npm run verify:cache",
+    "./bin/hushh codex data-model-audit"
   ],
   "verification_bundles": [
     {
       "id": "vault-pkm-governance",
       "commands": [
         "cd consent-protocol && python3 -m pytest tests/test_vault.py -q",
-        "cd hushh-webapp && npm run verify:cache"
+        "cd hushh-webapp && npm run verify:cache",
+        "./bin/hushh codex data-model-audit"
       ],
       "tests": [
         "cd consent-protocol && python3 -m pytest tests/test_vault.py -q",
-        "cd hushh-webapp && npm run verify:cache"
+        "cd hushh-webapp && npm run verify:cache",
+        "./bin/hushh codex data-model-audit"
       ]
     }
   ],

@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`[API] User ${userId} denying consent request: ${requestId}`);
+    console.log(`[API] Denying consent request: ${requestId}`);
 
     const response = await fetch(
       `${BACKEND_URL}/api/consent/pending/deny?userId=${userId}&requestId=${requestId}`,

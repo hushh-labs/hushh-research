@@ -52,7 +52,13 @@ export type DomainManifest = {
     sensitivity_tier?: string;
     scope_kind?: string;
     exposure_enabled?: boolean;
-    summary_projection?: Record<string, unknown>;
+    summary_projection?: Record<string, unknown> & {
+      top_level_scope_path?: string;
+      consumer_visible?: boolean;
+      internal_only?: boolean;
+      visibility_reason?: string;
+      storage_mode?: string;
+    };
   }>;
 };
 

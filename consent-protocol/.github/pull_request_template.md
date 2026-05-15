@@ -14,11 +14,19 @@
 ## Checklist
 
 ### Required for all PRs
-- [ ] `ruff check .` passes
-- [ ] `ruff format --check .` passes
-- [ ] `mypy --config-file pyproject.toml` passes
-- [ ] `pytest tests/ -v` passes
-- [ ] `bandit -r hushh_mcp/ api/ -c pyproject.toml` passes
+- [ ] `./bin/consent-protocol ci` passes, or the equivalent individual checks are listed below
+- [ ] Commits are signed off (`git commit -s`)
+- [ ] No secrets, tokens, raw user data, vault material, or plaintext PKM were added
+- [ ] First-party changes remain Apache-2.0 compatible
+- [ ] Third-party notice impact was reviewed if dependencies changed
+
+### Impact map
+- [ ] API route or response contract changed
+- [ ] Database migration or release manifest changed
+- [ ] Agent, tool, or operon contract changed
+- [ ] Consent scope, vault boundary, or PKM behavior changed
+- [ ] Documentation updated with exact files listed below
+- [ ] None of the above
 
 ### If adding/modifying agents or tools
 - [ ] Consent is validated at agent entry (`HushhAgent.run()`)
@@ -39,7 +47,8 @@
 
 ### If modifying database schema
 - [ ] SQL migration file added in `db/migrations/`
-- [ ] `docs/reference/world-model.md` updated if schema changed
+- [ ] `db/release_migration_manifest.json` updated
+- [ ] Relevant docs updated, such as `docs/reference/personal-knowledge-model.md`
 
 ## Testing
 

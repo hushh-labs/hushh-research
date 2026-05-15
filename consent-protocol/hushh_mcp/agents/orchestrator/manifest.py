@@ -1,7 +1,8 @@
 manifest = {
-    "id": "agent_orchestrator",
-    "name": "Hushh Orchestrator",
-    "description": "Primary interface. Analyzes intent and delegates to domain agents.",
-    "scopes": ["trust.delegate", "orchestrate.all"],
-    "version": "0.1.0",
+    "id": "agent_one",
+    "legacy_ids": ["agent_orchestrator"],
+    "name": "Agent One",
+    "description": "Top personal agent. Frames the relationship layer and delegates to Kai, Nav, and KYC specialists.",
+    "scopes": ["agent.one.orchestrate"],
+    "version": "0.2.0",
 }
