@@ -460,7 +460,7 @@ describe("RiaOnboardingPage", () => {
       verification_status: "verified",
     });
 
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const _user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {

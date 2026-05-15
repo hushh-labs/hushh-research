@@ -284,7 +284,7 @@ export default function RiaOnboardingPage() {
         }
       }, SCRAPE_POLL_INTERVAL_MS);
     },
-    [draft.firmName, draft.certifications]
+    [draft.firmName, draft.certifications, updateDraft]
   );
 
   async function handleVerifyLicense() {
