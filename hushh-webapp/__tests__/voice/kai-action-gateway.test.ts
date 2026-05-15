@@ -216,6 +216,8 @@ describe("kai-action-gateway", () => {
       target_persona: "ria",
       blocked_guidance: "Complete or unlock RIA setup before entering the RIA workspace.",
     });
+
+      
   });
 
   it("blocks locked RIA actions with guidance instead of exposing them as executable", () => {
@@ -349,4 +351,10 @@ describe("kai-action-gateway", () => {
       riaResults.find((entry) => entry.action.action_id === "route.ria_home")?.availability.status
     ).toBe("requires_persona_switch");
   });
+
+it("detects duplicate action identifiers in the gateway manifest", () => {
+  const ids = KAI_ACTION_GATEWAY.actions.map((action) => action.action_id);
+
+  expect(new Set(ids).size).toBe(ids.length);
+});
 });
