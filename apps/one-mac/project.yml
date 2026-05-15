@@ -108,6 +108,8 @@ targets:
       - package: OneMacPackage
         product: OneShared
       - package: OneMacPackage
+        product: OneConsent
+      - package: OneMacPackage
         product: OneIndexer
       - package: OneMacPackage
         product: OneMCPServer
