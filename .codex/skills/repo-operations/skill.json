@@ -32,7 +32,7 @@
     "docs/reference/operations/README.md",
     "docs/reference/operations/ci.md",
     "docs/reference/operations/branch-governance.md",
-    "docs/reference/operations/cli.md",
+    ".codex/skills/repo-operations/references/branch-runtime-ops.md",
     ".codex/skills/repo-operations/references/agent-trigger-policy.md"
   ],
   "required_commands": [
