@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from utils.redactor import (
+from hushh_mcp.consent.redactor import (
     _DEFAULT_ACTION,
     _REDACTION_TABLE,
     _SENTINEL,
@@ -397,6 +397,6 @@ class TestApplyFromEvaluation:
 
 class TestRedactionEngineSingleton:
     def test_singleton_identity(self):
-        from utils.redactor import redaction_engine as e2
+        from hushh_mcp.consent.redactor import redaction_engine as e2
 
         assert redaction_engine is e2
