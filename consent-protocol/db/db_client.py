@@ -81,6 +81,16 @@ def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
     return value
 
 
+# ---------------------------------------------------------------------------
+# Pool limit constants — single source of truth for QueuePool configuration.
+# Tests import these directly to assert that connection counts stay bounded.
+# Integrated by Abdul Gaffar — canonical connection pooling.
+# ---------------------------------------------------------------------------
+DB_POOL_SIZE: int = _env_int("DB_SQLALCHEMY_POOL_SIZE", 5, minimum=1)
+DB_MAX_OVERFLOW: int = _env_int("DB_SQLALCHEMY_MAX_OVERFLOW", 10, minimum=0)
+DB_MAX_CONNECTIONS: int = DB_POOL_SIZE + DB_MAX_OVERFLOW
+
+
 def _adapt_db_param_value(value: Any, dialect_name: str | None = None) -> Any:
     """Adapt JSON-like values for the active DB driver."""
     if isinstance(value, dict):
@@ -276,14 +286,23 @@ def close_db_engine():
 
 @contextmanager
 def get_db_connection():
-    """
-    Context manager for database connections.
+    """Context manager for raw SQLAlchemy connections.
+
+    Commits on clean exit, rolls back on exception, and always returns the
+    connection to the pool via ``close()``.
 
     Usage:
         with get_db_connection() as conn:
             result = conn.execute(text("SELECT * FROM users"))
     """
     engine = get_db_engine()
+    pool = engine.pool
+    logger.info(
+        "Pool Status: Active — checked_out=%s pool_size=%s overflow=%s",
+        pool.checkedout(),
+        pool.size(),
+        pool.overflow(),
+    )
     conn = engine.connect()
     try:
         yield conn
@@ -293,6 +312,58 @@ def get_db_connection():
         raise
     finally:
         conn.close()
+        logger.info(
+            "Pool Status: Released — checked_out=%s pool_size=%s",
+            pool.checkedout(),
+            pool.size(),
+        )
+
+
+@contextmanager
+def get_db_session():
+    """Context manager for SQLAlchemy Sessions with pool-status logging.
+
+    Uses a SQLAlchemy ``Session`` (unit-of-work) rather than a raw
+    ``Connection``.  Commits on clean exit, rolls back on exception, and
+    always closes the session (returning the underlying connection to the
+    pool) in the ``finally`` block — even if the caller raises.
+
+    Pool limits enforced:
+        pool_size   = DB_POOL_SIZE   (default 5, env DB_SQLALCHEMY_POOL_SIZE)
+        max_overflow = DB_MAX_OVERFLOW (default 10, env DB_SQLALCHEMY_MAX_OVERFLOW)
+        hard ceiling = DB_MAX_CONNECTIONS = pool_size + max_overflow
+
+    Usage:
+        with get_db_session() as session:
+            result = session.execute(text("SELECT 1"))
+
+    Integrated by Abdul Gaffar — canonical connection pooling and session management.
+    """
+    from sqlalchemy.orm import Session  # inline import — avoids circular import risk
+
+    engine = get_db_engine()
+    pool = engine.pool
+    logger.info(
+        "Pool Status: Active — checked_out=%s pool_size=%s overflow=%s max=%s",
+        pool.checkedout(),
+        pool.size(),
+        pool.overflow(),
+        DB_MAX_CONNECTIONS,
+    )
+    session = Session(bind=engine)
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        logger.info(
+            "Pool Status: Released — checked_out=%s pool_size=%s",
+            pool.checkedout(),
+            pool.size(),
+        )
 
 
 @dataclass
