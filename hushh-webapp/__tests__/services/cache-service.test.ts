@@ -47,4 +47,21 @@ describe("CacheService", () => {
     expect(cache.get("market-home")).toBeNull();
     expect(cache.getStats().size).toBe(0);
   });
+    
+    it("preserves zero-ttl stale snapshot visibility contracts", () => {
+    const cache = CacheService.getInstance();
+
+    cache.set("instant-expiry", { ok: true }, 0);
+
+    const snapshot = cache.peek<{ ok: boolean }>("instant-expiry");
+
+    expect(snapshot).toMatchObject({
+      data: { ok: true },
+      isFresh: true,
+isStale: false,
+      ttl: 0,
+    });
+
+    expect(cache.getStats().size).toBe(1);
+  });
 });
