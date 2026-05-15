@@ -60,20 +60,47 @@ describe("parseSSEBlocks", () => {
     const result = parseSSEBlocks(": ping\n\n\n");
     expect(result.events).toHaveLength(0);
   });
-    it("ignores whitespace-only SSE separator frames", () => {
+  it("ignores whitespace-only SSE separator frames", () => {
     const input =
       "\n \n\t\n\n" +
-      'event: done\n' +
+      'event: complete\n' +
       'id: 9\n' +
-      'data: {"schema_version":"1.0","stream_id":"strm_ws","stream_kind":"portfolio_import","seq":9,"event":"done","terminal":true,"payload":{"status":"ok"}}\n\n';
+      'data: {"schema_version":"1.0","stream_id":"strm_ws","stream_kind":"portfolio_import","seq":9,"event":"complete","terminal":true,"payload":{"status":"ok"}}\n\n';
 
     const result = parseSSEBlocks(input);
 
     expect(result.remainder).toBe("");
     expect(result.events).toHaveLength(1);
     expect(result.events[0]).toMatchObject({
-      event: "done",
+      event: "complete",
       id: "9",
     });
+  });
+
+  it("recovers valid frames after malformed SSE blocks", () => {
+    const input =
+      "event: broken\n" +
+      "id: bad-1\n" +
+      "retry: 1000\n\n" +
+      ": heartbeat\n\n" +
+      "data: orphan payload\n\n" +
+      "event: stage\n" +
+      "id: 4\n" +
+      'data: {"schema_version":"1.0","stream_id":"strm_3","stream_kind":"portfolio_import","seq":4,"event":"stage","terminal":false,"payload":{"stage":"recovered"}}\n\n';
+
+    const result = parseSSEBlocks(input);
+
+    expect(result.remainder).toBe("");
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      event: "stage",
+      id: "4",
+    });
+
+    const parsed = JSON.parse(result.events[0]!.data) as unknown;
+    expect(isKaiStreamEnvelope(parsed)).toBe(true);
+    if (isKaiStreamEnvelope(parsed)) {
+      expect(parsed.payload.stage).toBe("recovered");
+    }
   });
 });
