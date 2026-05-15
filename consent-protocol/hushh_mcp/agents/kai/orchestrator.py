@@ -81,6 +81,16 @@ class KaiOrchestrator(HushhAgent):
         self.debate_engine = DebateEngine(risk_profile)
         self.decision_generator = DecisionGenerator(risk_profile)
 
+        # Concurrency guard — prevents duplicate state transitions.
+        # _transition_lock serialises access to _in_flight so that 50
+        # simultaneous requests for the same ticker coalesce into a single
+        # _execute_analysis call.  Only native asyncio primitives are used;
+        # no external locking library.
+        # Integrated by Abdul Gaffar — canonical state-orchestrator lock.
+        self._transition_lock: asyncio.Lock = asyncio.Lock()
+        self._in_flight: Dict[str, asyncio.Future] = {}
+        self._transition_count: int = 0  # observable: increments once per unique analysis
+
         logger.info(
             f"[Kai] Orchestrator initialized - "
             f"User: {user_id}, Risk: {risk_profile}, Mode: {processing_mode}"
@@ -92,8 +102,16 @@ class KaiOrchestrator(HushhAgent):
         consent_token: str,
         context: Optional[Dict[str, Any]] = None,
     ) -> DecisionCard:
-        """
-        Perform complete investment analysis on a ticker.
+        """Perform complete investment analysis on a ticker.
+
+        Race-condition guard
+        --------------------
+        Concurrent callers for the same ``ticker`` coalesce into a single
+        ``_execute_analysis`` call.  The first caller acquires
+        ``_transition_lock``, increments ``_transition_count``, creates an
+        ``asyncio.Future``, and spawns a background task to settle it.  Every
+        subsequent caller for the same ticker (while work is in flight) receives
+        the same Future and awaits its result — no duplicate analysis runs.
 
         Args:
             ticker: Stock ticker symbol (e.g., "AAPL")
@@ -106,26 +124,97 @@ class KaiOrchestrator(HushhAgent):
             ValueError: If consent token is invalid
             TimeoutError: If analysis exceeds timeout
         """
-        start_time = datetime.utcnow()
-        logger.info(f"[Kai] Starting analysis for {ticker}")
+        logger.info("[Kai] analyze() called for %s by user %s", ticker, self.user_id)
 
-        # Step 1: Validate consent
+        # Consent validation is idempotent and does not mutate state —
+        # run it before the lock to avoid holding the lock during I/O.
         await self._validate_consent(consent_token)
 
+        key = ticker.upper().strip()
+
+        async with self._transition_lock:
+            pending = self._in_flight.get(key)
+            if pending is not None and not pending.done():
+                # Duplicate in-flight request — coalesce; no new transition.
+                logger.info(
+                    "[Kai] Lock acquired — coalescing duplicate state transition for %s "
+                    "(transition_count=%d)",
+                    key,
+                    self._transition_count,
+                )
+                in_flight: asyncio.Future[DecisionCard] = pending
+            else:
+                # First (or post-completion) request — start a new transition.
+                self._transition_count += 1
+                logger.info(
+                    "[Kai] Lock acquired — initiating state transition #%d for %s",
+                    self._transition_count,
+                    key,
+                )
+                future: asyncio.Future[DecisionCard] = asyncio.get_event_loop().create_future()
+                self._in_flight[key] = future
+                asyncio.create_task(
+                    self._run_and_settle(key, future, ticker, consent_token, context)
+                )
+                in_flight = future
+
+        return await in_flight
+
+    async def _run_and_settle(
+        self,
+        key: str,
+        future: "asyncio.Future[DecisionCard]",
+        ticker: str,
+        consent_token: str,
+        context: Optional[Dict[str, Any]],
+    ) -> None:
+        """Execute the analysis pipeline and settle *future* with the result.
+
+        Cleans up ``_in_flight[key]`` under the lock once the work is done so
+        the next independent request for the same ticker can start a fresh
+        transition.
+        Integrated by Abdul Gaffar — canonical state-orchestrator lock.
+        """
         try:
-            # Step 2: Run parallel agent analysis
+            result = await self._execute_analysis(ticker, consent_token, context)
+            if not future.done():
+                future.set_result(result)
+        except Exception as exc:
+            if not future.done():
+                future.set_exception(exc)
+        finally:
+            async with self._transition_lock:
+                if self._in_flight.get(key) is future:
+                    self._in_flight.pop(key, None)
+
+    async def _execute_analysis(
+        self,
+        ticker: str,
+        consent_token: str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> DecisionCard:
+        """Run the full analysis pipeline for *ticker*.
+
+        This is the sole point of actual state mutation.  Only one call per
+        ticker is ever in flight at a time (enforced by ``analyze()`` via the
+        transition lock).
+        """
+        start_time = datetime.utcnow()
+
+        try:
+            # Step 1: Run parallel agent analysis
             fundamental, sentiment, valuation = await asyncio.wait_for(
                 self._run_agent_analysis(ticker, consent_token, context), timeout=ANALYSIS_TIMEOUT
             )
 
-            # Step 3: Orchestrate debate
+            # Step 2: Orchestrate debate
             debate_result = await self.debate_engine.orchestrate_debate(
                 fundamental_insight=fundamental,
                 sentiment_insight=sentiment,
                 valuation_insight=valuation,
             )
 
-            # Step 4: Generate final decision card
+            # Step 3: Generate final decision card
             decision_card = await self.decision_generator.generate_decision(
                 ticker=ticker,
                 fundamental_insight=fundamental,
@@ -136,17 +225,16 @@ class KaiOrchestrator(HushhAgent):
                 consent_token=consent_token,
             )
 
-            # Step 5: Log completion
             duration = (datetime.utcnow() - start_time).total_seconds()
-            logger.info(f"[Kai] Analysis complete for {ticker} in {duration:.1f}s")
+            logger.info("[Kai] Analysis complete for %s in %.1fs", ticker, duration)
 
             return decision_card
 
         except asyncio.TimeoutError:
-            logger.error(f"[Kai] Analysis timeout for {ticker}")
+            logger.error("[Kai] Analysis timeout for %s", ticker)
             raise TimeoutError(f"Analysis exceeded {ANALYSIS_TIMEOUT}s timeout")
-        except Exception as e:
-            logger.error(f"[Kai] Analysis failed for {ticker}: {e}")
+        except Exception as exc:
+            logger.error("[Kai] Analysis failed for %s: %s", ticker, exc)
             raise
 
     async def _validate_consent(self, consent_token: str):
