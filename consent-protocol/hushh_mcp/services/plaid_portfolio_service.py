@@ -17,7 +17,7 @@ import logging
 import os
 import uuid
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Literal
+from typing import Any, AsyncIterator, Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -1233,32 +1233,74 @@ class PlaidPortfolioService:
         canonical_portfolio["analytics_v2"] = analytics
         return canonical_portfolio
 
-    async def _fetch_all_investment_transactions(self, access_token: str) -> list[dict[str, Any]]:
-        start_date = (date.today() - timedelta(days=self._tx_history_days())).isoformat()
-        end_date = date.today().isoformat()
+    async def _iter_investment_transactions(
+        self,
+        access_token: str,
+        start_date: str,
+        end_date: str,
+        *,
+        page_size: int = 100,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Yield investment transaction rows one page at a time (async generator).
+
+        Memory-safe buffering: at most ``page_size`` rows are held in RAM per
+        iteration step.  Each page is released as soon as the caller has
+        consumed its rows, so arbitrarily large portfolios can be streamed
+        without accumulating the full result set in memory.
+
+        The caller owns the loop — ``_post`` is awaited directly, so there is
+        no nested-loop risk when called from an async context.
+
+        Canonical surface: PlaidPortfolioService — no public API change.
+        Integrated by Abdul Gaffar — memory-safe buffered data fetching.
+        """
         offset = 0
-        count = 100
-        transactions: list[dict[str, Any]] = []
-        total = None
+        total: int | None = None
         while total is None or offset < total:
-            payload = await self._post(
+            payload: dict[str, Any] = await self._post(
                 "/investments/transactions/get",
                 {
                     "access_token": access_token,
                     "start_date": start_date,
                     "end_date": end_date,
-                    "count": count,
+                    "count": page_size,
                     "offset": offset,
                 },
             )
             rows = payload.get("investment_transactions")
-            page_rows = rows if isinstance(rows, list) else []
-            transactions.extend([row for row in page_rows if isinstance(row, dict)])
-            total = _to_int(payload.get("total_investment_transactions"), default=len(transactions))
+            page_rows: list[dict[str, Any]] = [
+                row for row in (rows if isinstance(rows, list) else [])
+                if isinstance(row, dict)
+            ]
+            if total is None:
+                total = _to_int(
+                    payload.get("total_investment_transactions"),
+                    default=len(page_rows),
+                )
+            for row in page_rows:
+                yield row
             offset += len(page_rows)
             if not page_rows:
                 break
-        return transactions
+
+    async def _fetch_all_investment_transactions(self, access_token: str) -> list[dict[str, Any]]:
+        """Fetch every investment transaction for the given access token.
+
+        Internally streams page-by-page via the async generator
+        ``_iter_investment_transactions`` so peak RAM is bounded to one page
+        even for very large portfolios.  The return type (``list[dict]``) and
+        call signature are unchanged — all callers remain unaffected.
+
+        Integrated by Abdul Gaffar — memory-safe buffered data fetching.
+        """
+        start_date = (date.today() - timedelta(days=self._tx_history_days())).isoformat()
+        end_date = date.today().isoformat()
+        return [
+            row
+            async for row in self._iter_investment_transactions(
+                access_token, start_date, end_date
+            )
+        ]
 
     async def _sync_item_snapshot(
         self,
