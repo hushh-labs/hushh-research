@@ -77,4 +77,22 @@ describe("parseSSEBlocks", () => {
 
     expect(parsed.payload.text).toBe("こんにちは 🌍");
   });
+    it("preserves unicode payload integrity across SSE parsing", () => {
+    const input =
+      "event: chunk\n" +
+      "id: 51\n" +
+      'data: {"schema_version":"1.0","stream_id":"strm_unicode","stream_kind":"portfolio_import","seq":51,"event":"chunk","terminal":false,"payload":{"text":"こんにちは 🌍"}}\n\n';
+
+    const result = parseSSEBlocks(input);
+
+    expect(result.remainder).toBe("");
+    expect(result.events).toHaveLength(1);
+
+    const parsed = JSON.parse(result.events[0]!.data) as {
+      payload: { text: string };
+    };
+
+    expect(parsed.payload.text).toBe("こんにちは 🌍");
+  });
 });
+
