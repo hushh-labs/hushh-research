@@ -189,9 +189,7 @@ class TestIsStale:
         assert ActorIdentityService._is_stale({"last_synced_at": old_iso}) is True
 
     def test_z_suffix_iso_string(self):
-        fresh_z = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        )
+        fresh_z = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
         assert ActorIdentityService._is_stale({"last_synced_at": fresh_z}) is False
 
     def test_invalid_string_is_stale(self):
