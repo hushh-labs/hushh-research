@@ -60,4 +60,19 @@ describe("parseSSEBlocks", () => {
     const result = parseSSEBlocks(": ping\n\n\n");
     expect(result.events).toHaveLength(0);
   });
+    it("preserves empty remainder after consecutive valid SSE frames", () => {
+    const input =
+      'event: stage\n' +
+      'id: 11\n' +
+      'data: {"schema_version":"1.0","stream_id":"strm_empty","stream_kind":"portfolio_import","seq":11,"event":"stage","terminal":false,"payload":{"stage":"loading"}}\n\n' +
+      'event: done\n' +
+      'id: 12\n' +
+      'data: {"schema_version":"1.0","stream_id":"strm_empty","stream_kind":"portfolio_import","seq":12,"event":"done","terminal":true,"payload":{"status":"complete"}}\n\n';
+
+    const result = parseSSEBlocks(input);
+
+    expect(result.remainder).toBe("");
+    expect(result.events).toHaveLength(2);
+    expect(result.events.map((event) => event.id)).toEqual(["11", "12"]);
+  });
 });
