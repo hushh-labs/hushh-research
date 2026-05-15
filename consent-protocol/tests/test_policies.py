@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from utils.policy_engine import (
+from hushh_mcp.consent.policy_engine import (
     PolicyEngine,
     PolicyOperationError,
     PolicyRule,
@@ -366,7 +366,7 @@ class TestSerialisation:
             TenantPolicy(tenant_id="x", tenant_name="X", mode="invalid_mode")
 
     def test_module_singleton_is_engine(self):
-        from utils.policy_engine import policy_engine as pe
+        from hushh_mcp.consent.policy_engine import policy_engine as pe
         assert isinstance(pe, PolicyEngine)
 
 
