@@ -608,7 +608,30 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.resolutionSource).toBe("none");
     expect(plan.execution.steps).toHaveLength(0);
   });
-    it("preserves manual-only execution for destructive transcript intents", () => {
+  it("preserves unavailable execution mode for blocked planner actions", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "That action is unavailable.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "delete my account",
+      response,
+      structuredContext: makeContext("/profile"),
+      canonicalActionId: "profile.delete_account",
+    });
+
+    expect(plan.status).toBe("manual_only");
+    expect(plan.execution.mode).toBe("manual_only");
+    expect(plan.execution.steps).toHaveLength(1);
+    expect(plan.execution.steps[0]).toMatchObject({
+      type: "prompt",
+      reason: "destructive_action_policy",
+    });
+  });
+
+  it("preserves manual-only execution for destructive transcript intents", () => {
     const response: VoiceResponse = {
       kind: "speak_only",
       message: "Please do that yourself in the app.",
@@ -626,10 +649,10 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.destructive).toBe(true);
     expect(plan.execution.mode).toBe("manual_only");
     expect(plan.execution.steps).toHaveLength(1);
-
     expect(plan.execution.steps[0]).toMatchObject({
       type: "prompt",
       reason: "destructive_action_policy",
     });
+  });
   });
 });
