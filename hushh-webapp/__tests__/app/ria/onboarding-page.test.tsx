@@ -1,5 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -275,14 +274,13 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("advances to license step after clicking Continue from welcome", async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
       expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByTestId("continue-btn"));
+    fireEvent.click(screen.getByTestId("continue-btn"));
 
     await waitFor(() => {
       expect(screen.getByTestId("step-license")).toBeInTheDocument();
@@ -320,20 +318,21 @@ describe("RiaOnboardingPage", () => {
       scrape_job_id: null,
     });
 
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
       expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByTestId("continue-btn"));
+    fireEvent.click(screen.getByTestId("continue-btn"));
     await waitFor(() => {
       expect(screen.getByTestId("step-license")).toBeInTheDocument();
     });
 
-    await user.type(screen.getByTestId("license-input"), "123456");
-    await user.click(screen.getByTestId("verify-btn"));
+    fireEvent.change(screen.getByTestId("license-input"), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByTestId("verify-btn"));
 
     await waitFor(() => {
       expect(mocks.riaService.verifyOnboardingLicense).toHaveBeenCalledWith(
@@ -360,20 +359,21 @@ describe("RiaOnboardingPage", () => {
       status: "not_found",
     });
 
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
       expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByTestId("continue-btn"));
+    fireEvent.click(screen.getByTestId("continue-btn"));
     await waitFor(() => {
       expect(screen.getByTestId("step-license")).toBeInTheDocument();
     });
 
-    await user.type(screen.getByTestId("license-input"), "999999");
-    await user.click(screen.getByTestId("verify-btn"));
+    fireEvent.change(screen.getByTestId("license-input"), {
+      target: { value: "999999" },
+    });
+    fireEvent.click(screen.getByTestId("verify-btn"));
 
     await waitFor(() => {
       expect(screen.getByTestId("verification-status")).toHaveTextContent(
@@ -397,20 +397,21 @@ describe("RiaOnboardingPage", () => {
       new RiaApiErr("rate limited", 429)
     );
 
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
       expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByTestId("continue-btn"));
+    fireEvent.click(screen.getByTestId("continue-btn"));
     await waitFor(() => {
       expect(screen.getByTestId("step-license")).toBeInTheDocument();
     });
 
-    await user.type(screen.getByTestId("license-input"), "123456");
-    await user.click(screen.getByTestId("verify-btn"));
+    fireEvent.change(screen.getByTestId("license-input"), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByTestId("verify-btn"));
 
     await waitFor(() => {
       expect(screen.getByText(/too many verification/i)).toBeInTheDocument();
@@ -418,14 +419,13 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("persists draft to local storage on changes", async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
       expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByTestId("select-firm"));
+    fireEvent.click(screen.getByTestId("select-firm"));
 
     await waitFor(() => {
       expect(mocks.draftService.save).toHaveBeenCalledWith(
@@ -460,7 +460,6 @@ describe("RiaOnboardingPage", () => {
       verification_status: "verified",
     });
 
-    const _user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
