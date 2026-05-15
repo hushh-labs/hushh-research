@@ -60,4 +60,21 @@ describe("parseSSEBlocks", () => {
     const result = parseSSEBlocks(": ping\n\n\n");
     expect(result.events).toHaveLength(0);
   });
+    it("preserves trailing newline payload integrity", () => {
+    const input =
+      'event: chunk\n' +
+      'id: 41\n' +
+      'data: {"schema_version":"1.0","stream_id":"strm_tail","stream_kind":"portfolio_import","seq":41,"event":"chunk","terminal":false,"payload":{"text":"line1\\n"}}\n\n';
+
+    const result = parseSSEBlocks(input);
+
+    expect(result.remainder).toBe("");
+    expect(result.events).toHaveLength(1);
+
+    const parsed = JSON.parse(result.events[0]!.data) as {
+      payload: { text: string };
+    };
+
+    expect(parsed.payload.text.endsWith("\n")).toBe(true);
+  });
 });
