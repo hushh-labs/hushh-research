@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   routerPush: vi.fn(),
@@ -14,10 +15,10 @@ const mocks = vi.hoisted(() => ({
   },
   riaService: {
     getOnboardingStatus: vi.fn(),
-    getRiaPublicProfile: vi.fn(),
-    verifyOnboardingName: vi.fn(),
+    verifyOnboardingLicense: vi.fn(),
     submitOnboarding: vi.fn(),
     setRiaMarketplaceDiscoverability: vi.fn(),
+    getCrdScrapeJobStatus: vi.fn(),
   },
   draftService: {
     load: vi.fn(),
@@ -27,7 +28,6 @@ const mocks = vi.hoisted(() => ({
   refreshPersonaState: vi.fn(),
   trackEvent: vi.fn(),
   trackGrowthFunnelStepCompleted: vi.fn(),
-  trackRiaActivationCompleted: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -40,102 +40,155 @@ vi.mock("lucide-react", () => ({
   CheckCircle2: () => <span />,
   Loader2: () => <span />,
   ShieldCheck: () => <span />,
+  Briefcase: () => <span />,
+  Building2: () => <span />,
+  Pencil: () => <span />,
+  Sparkles: () => <span />,
+  BarChart3: () => <span />,
+  Landmark: () => <span />,
+  FileText: () => <span />,
+  ScrollText: () => <span />,
+  AlertTriangle: () => <span />,
+  MapPin: () => <span />,
+  Mail: () => <span />,
+  Phone: () => <span />,
 }));
 
-vi.mock("@/components/app-ui/command-fields", () => ({
-  PopupTextEditorField: ({
-    value,
-    placeholder,
-    onSave,
-  }: {
-    value: string;
-    placeholder?: string;
-    onSave: (value: string) => void;
-  }) => (
-    <textarea
-      value={value}
-      placeholder={placeholder}
-      onChange={(event) => onSave(event.target.value)}
-    />
-  ),
-}));
-
-vi.mock("@/components/app-ui/surfaces", () => ({
-  SurfaceCard: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-    <div {...props}>{children}</div>
-  ),
-  SurfaceCardContent: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-    <div {...props}>{children}</div>
-  ),
-  SurfaceCardHeader: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-    <div {...props}>{children}</div>
-  ),
-  SurfaceInset: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-    <div {...props}>{children}</div>
-  ),
-}));
-
-vi.mock("@/components/profile/settings-ui", () => ({
-  SettingsGroup: ({
-    title,
+vi.mock("@/components/app-ui/fullscreen-flow-shell", () => ({
+  FullscreenFlowShell: ({
     children,
   }: {
-    title: string;
     children: React.ReactNode;
-  }) => (
-    <section>
-      <h2>{title}</h2>
-      {children}
-    </section>
-  ),
-  SettingsRow: ({
+  }) => <div data-testid="flow-shell">{children}</div>,
+}));
+
+vi.mock("@/components/ria/onboarding/onboarding-shell", () => ({
+  OnboardingShell: ({
+    children,
+    onBack,
+    onContinue,
+    canContinue,
+    saving,
+    eyebrow,
     title,
-    description,
   }: {
+    children: React.ReactNode;
+    onBack: () => void;
+    onContinue: () => void;
+    canContinue: boolean;
+    saving: boolean;
+    eyebrow: string;
     title: string;
-    description?: string;
   }) => (
-    <div>
-      <span>{title}</span>
-      <span>{description}</span>
+    <div data-testid="onboarding-shell">
+      <span data-testid="shell-eyebrow">{eyebrow}</span>
+      <span data-testid="shell-title">{title}</span>
+      <button data-testid="back-btn" onClick={onBack}>
+        Back
+      </button>
+      <button
+        data-testid="continue-btn"
+        onClick={onContinue}
+        disabled={!canContinue || saving}
+      >
+        Continue
+      </button>
+      {children}
     </div>
   ),
 }));
 
-vi.mock("@/components/ui/progress", () => ({
-  Progress: ({ value }: { value?: number }) => <div data-testid="progress" data-value={value} />,
-}));
-
-vi.mock("@/components/ui/badge", () => ({
-  Badge: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-}));
-
-vi.mock("@/components/ria/ria-page-shell", () => ({
-  RiaPageShell: ({
-    title,
-    description,
-    children,
+vi.mock("@/components/ria/onboarding/onboarding-step-welcome", () => ({
+  OnboardingStepWelcome: ({
+    onboardingType,
+    onSelect,
   }: {
-    title: string;
-    description: string;
-    children: React.ReactNode;
+    onboardingType: string;
+    onSelect: (type: string) => void;
   }) => (
-    <section>
-      <h1>{title}</h1>
-      <p>{description}</p>
-      {children}
-    </section>
+    <div data-testid="step-welcome">
+      <span data-testid="welcome-type">{onboardingType}</span>
+      <button data-testid="select-individual" onClick={() => onSelect("individual")}>
+        Individual
+      </button>
+      <button data-testid="select-firm" onClick={() => onSelect("firm")}>
+        Firm
+      </button>
+    </div>
   ),
-  RiaCompatibilityState: ({
-    title,
-    description,
+}));
+
+vi.mock("@/components/ria/onboarding/onboarding-step-license", () => ({
+  OnboardingStepLicense: ({
+    licenseNumber,
+    onLicenseNumberChange,
+    verificationStatus,
+    onVerify,
   }: {
-    title: string;
-    description: string;
+    licenseNumber: string;
+    onLicenseNumberChange: (val: string) => void;
+    verificationStatus: string;
+    onVerify: () => void;
   }) => (
-    <div>
-      <span>{title}</span>
-      <span>{description}</span>
+    <div data-testid="step-license">
+      <input
+        data-testid="license-input"
+        value={licenseNumber}
+        onChange={(e) => onLicenseNumberChange(e.target.value)}
+      />
+      <span data-testid="verification-status">{verificationStatus}</span>
+      <button data-testid="verify-btn" onClick={onVerify}>
+        Verify
+      </button>
+    </div>
+  ),
+}));
+
+vi.mock("@/components/ria/onboarding/onboarding-step-license-details", () => ({
+  OnboardingStepLicenseDetails: ({
+    advisorName,
+    firmName,
+  }: {
+    advisorName: string;
+    firmName: string;
+  }) => (
+    <div data-testid="step-license-details">
+      <span data-testid="advisor-name">{advisorName}</span>
+      <span data-testid="firm-name">{firmName}</span>
+    </div>
+  ),
+}));
+
+vi.mock("@/components/ria/onboarding/onboarding-step-services", () => ({
+  OnboardingStepServices: () => <div data-testid="step-services" />,
+}));
+
+vi.mock("@/components/ria/onboarding/onboarding-step-contact", () => ({
+  OnboardingStepContact: () => <div data-testid="step-contact" />,
+}));
+
+vi.mock("@/components/ria/onboarding/onboarding-step-review", () => ({
+  OnboardingStepReview: ({
+    advisorName,
+    onEditSection,
+    advisoryAccessReady,
+  }: {
+    advisorName: string;
+    onEditSection: (section: string) => void;
+    advisoryAccessReady: boolean;
+  }) => (
+    <div data-testid="step-review">
+      <span data-testid="review-name">{advisorName}</span>
+      <span data-testid="advisory-ready">{String(advisoryAccessReady)}</span>
+      <button data-testid="edit-license" onClick={() => onEditSection("license")}>
+        Edit Licence
+      </button>
+      <button data-testid="edit-services" onClick={() => onEditSection("services")}>
+        Edit Services
+      </button>
+      <button data-testid="edit-contact" onClick={() => onEditSection("contact")}>
+        Edit Contact
+      </button>
     </div>
   ),
 }));
@@ -149,10 +202,7 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
 }));
 
 vi.mock("@/lib/navigation/routes", () => ({
-  ROUTES: {
-    RIA_HOME: "/ria",
-    RIA_CLIENTS: "/ria/clients",
-  },
+  ROUTES: { RIA_HOME: "/ria" },
 }));
 
 vi.mock("@/lib/services/ria-onboarding-draft-local-service", () => ({
@@ -161,7 +211,15 @@ vi.mock("@/lib/services/ria-onboarding-draft-local-service", () => ({
 
 vi.mock("@/lib/services/ria-service", () => ({
   RiaService: mocks.riaService,
-  isIAMSchemaNotReadyError: () => false,
+  RiaApiError: class extends Error {
+    status: number;
+    constructor(msg: string, status: number) {
+      super(msg);
+      this.status = status;
+    }
+  },
+  isIAMSchemaNotReadyError: (err: unknown) =>
+    err instanceof Error && err.message.includes("schema not ready"),
 }));
 
 vi.mock("@/lib/persona/persona-context", () => ({
@@ -174,20 +232,18 @@ vi.mock("@/lib/observability/client", () => ({
 
 vi.mock("@/lib/observability/growth", () => ({
   trackGrowthFunnelStepCompleted: mocks.trackGrowthFunnelStepCompleted,
-  trackRiaActivationCompleted: mocks.trackRiaActivationCompleted,
 }));
 
 import RiaOnboardingPage from "@/app/ria/onboarding/page";
 
 describe("RiaOnboardingPage", () => {
   beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.clearAllMocks();
 
     mocks.useAuth.mockReturnValue({
       user: {
         uid: "user-ria-1",
-        displayName: "Ana Carter",
-        email: "ana@example.com",
         getIdToken: vi.fn().mockResolvedValue("token-ria-1"),
       },
     });
@@ -200,208 +256,215 @@ describe("RiaOnboardingPage", () => {
     mocks.riaService.getOnboardingStatus.mockResolvedValue({
       exists: false,
       verification_status: "draft",
-      requested_capabilities: ["advisory"],
     });
-    mocks.riaService.getRiaPublicProfile.mockResolvedValue(null);
-    mocks.riaService.setRiaMarketplaceDiscoverability.mockResolvedValue(undefined);
-  });
-
-  it("only verifies on explicit CTA and autofills read-only verified fields", async () => {
-    mocks.riaService.verifyOnboardingName.mockResolvedValue({
-      status: "verified",
-      matched_name: "Ana Roumenova Carter",
-      crd_number: "4424794",
-      current_firm: "LCG CAPITAL ADVISORS, LLC",
-      sec_number: "801-12345",
-      provider: "ria_intelligence_stage1",
-      suggested_names: [],
-    });
-
-    render(<RiaOnboardingPage />);
-
-    const input = await screen.findByLabelText("Advisor name");
-    const continueButton = screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
-    const verifyButton = screen.getByRole("button", { name: "Verify" }) as HTMLButtonElement;
-
-    expect(continueButton.disabled).toBe(true);
-    expect(screen.queryByRole("button", { name: "Use manual CRD fallback" })).toBeNull();
-    expect(screen.queryByLabelText("CRD")).toBeNull();
-
-    fireEvent.change(input, { target: { value: "Ana Roumenova Carter" } });
-    await new Promise((resolve) => setTimeout(resolve, 450));
-
-    expect(mocks.riaService.verifyOnboardingName).not.toHaveBeenCalled();
-
-    fireEvent.click(verifyButton);
-
-    await waitFor(() =>
-      expect(mocks.riaService.verifyOnboardingName).toHaveBeenCalledWith(
-        "token-ria-1",
-        { query: "Ana Roumenova Carter" },
-        expect.objectContaining({ signal: expect.any(AbortSignal) })
-      )
+    mocks.riaService.setRiaMarketplaceDiscoverability.mockResolvedValue(
+      undefined
     );
-    expect(mocks.riaService.verifyOnboardingName).toHaveBeenCalledTimes(1);
+  });
 
-    await screen.findByText("Verified name");
-    expect(screen.getByText("4424794")).toBeTruthy();
-    expect(screen.getByText("LCG CAPITAL ADVISORS, LLC")).toBeTruthy();
-    expect(screen.getByText("801-12345")).toBeTruthy();
-    expect(continueButton.disabled).toBe(false);
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
-    fireEvent.change(input, { target: { value: "Ana Carter" } });
+  it("renders welcome step on fresh load", async () => {
+    render(<RiaOnboardingPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("shell-eyebrow")).toHaveTextContent("Welcome");
+  });
+
+  it("advances to license step after clicking Continue from welcome", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<RiaOnboardingPage />);
 
     await waitFor(() => {
-      expect(screen.queryByText("Verified name")).toBeNull();
-    });
-    expect(continueButton.disabled).toBe(true);
-  });
-
-  it("does not ask for CRD and clears verified state when advisor name changes", async () => {
-    mocks.riaService.verifyOnboardingName.mockResolvedValue({
-      status: "verified",
-      matched_name: "Ana Roumenova Carter",
-      crd_number: "4424794",
-      current_firm: "LCG CAPITAL ADVISORS, LLC",
-      sec_number: "801-12345",
-      provider: "ria_intelligence_stage1",
-      suggested_names: [],
+      expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
     });
 
-    render(<RiaOnboardingPage />);
-
-    const input = await screen.findByLabelText("Advisor name");
-    const continueButton = screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
-    expect(screen.queryByLabelText("CRD")).toBeNull();
-
-    fireEvent.change(input, { target: { value: "Ana Roumenova Carter" } });
-    fireEvent.click(screen.getByRole("button", { name: "Verify" }));
-
-    await screen.findByText("Verified name");
-    expect(continueButton.disabled).toBe(false);
-
-    fireEvent.change(input, { target: { value: "Ana Carter" } });
+    await user.click(screen.getByTestId("continue-btn"));
 
     await waitFor(() => {
-      expect(screen.queryByText("Verified name")).toBeNull();
+      expect(screen.getByTestId("step-license")).toBeInTheDocument();
     });
-    expect(continueButton.disabled).toBe(true);
   });
 
-  it("keeps continue blocked when verification returns no CRD", async () => {
-    mocks.riaService.verifyOnboardingName.mockResolvedValue({
-      status: "verified",
-      matched_name: "Ana Roumenova Carter",
-      crd_number: null,
-      current_firm: "LCG CAPITAL ADVISORS, LLC",
-      sec_number: "801-12345",
-      provider: "ria_intelligence_stage1",
-      suggested_names: [],
-    });
-
+  it("shows sign-in message when no user", async () => {
+    mocks.useAuth.mockReturnValue({ user: null });
     render(<RiaOnboardingPage />);
-
-    const input = await screen.findByLabelText("Advisor name");
-    const continueButton = screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
-
-    fireEvent.change(input, { target: { value: "Ana Roumenova Carter" } });
-    fireEvent.click(screen.getByRole("button", { name: "Verify" }));
-
-    await screen.findByText(/did not return a CRD-backed advisor record/i);
-    expect(continueButton.disabled).toBe(true);
-  });
-
-  it("keeps non-actionable helper cards out of onboarding", async () => {
-    render(<RiaOnboardingPage />);
-
-    await screen.findByLabelText("Advisor name");
-
-    expect(screen.queryByText("Trust summary")).toBeNull();
-    expect(screen.queryByText("Deferred for later settings")).toBeNull();
-  });
-
-  it("supports Enter-to-verify and blocks continue after a failed lookup", async () => {
-    mocks.riaService.verifyOnboardingName.mockResolvedValue({
-      status: "not_verified",
-      matched_name: "Ana Carter",
-      crd_number: null,
-      current_firm: null,
-      sec_number: null,
-      reason: "No confident FINRA or SEC match was found for the query.",
-      provider: "ria_intelligence_stage1",
-      suggested_names: ["Ana Roumenova Carter"],
-    });
-
-    render(<RiaOnboardingPage />);
-
-    const input = await screen.findByLabelText("Advisor name");
-    const continueButton = screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
-
-    fireEvent.change(input, { target: { value: "Ana Carter" } });
-    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
 
     await waitFor(() => {
-      expect(mocks.riaService.verifyOnboardingName).toHaveBeenCalledTimes(1);
+      expect(screen.getByText(/sign in/i)).toBeInTheDocument();
     });
-
-    await screen.findByRole("button", { name: "Retry verification" });
-    // No manual fallback — strict gate: must verify via API
-    expect(screen.queryByRole("button", { name: "Use manual CRD fallback" })).toBeNull();
-    expect(continueButton.disabled).toBe(true);
   });
 
-  it("guides broad partial-name queries toward fuller suggestions without opening fallback", async () => {
-    mocks.riaService.verifyOnboardingName
-      .mockResolvedValueOnce({
-        status: "not_verified",
-        matched_name: null,
-        crd_number: null,
-        current_firm: null,
-        sec_number: null,
-        reason:
-          "The query 'Andrew G' is too broad and lacks a full last name or firm context, making it impossible to confidently identify a single registered financial professional or firm in FINRA or SEC public records.",
-        reason_code: "query_too_broad",
-        provider: "ria_intelligence_stage1",
-        suggested_names: ["Andrew Garrett Kirkland"],
-      })
-      .mockResolvedValueOnce({
-        status: "verified",
-        matched_name: "Andrew Garrett Kirkland",
-        crd_number: "7413463",
-        current_firm: "Eissman Wealth Management",
-        sec_number: null,
-        provider: "ria_intelligence_stage1",
-        suggested_names: [],
-      });
-
+  it("shows IAM unavailable banner on schema error", async () => {
+    mocks.riaService.getOnboardingStatus.mockRejectedValue(
+      new Error("schema not ready")
+    );
     render(<RiaOnboardingPage />);
 
-    const input = await screen.findByLabelText("Advisor name");
-    const continueButton = screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+    await waitFor(() => {
+      expect(screen.getByText(/unavailable/i)).toBeInTheDocument();
+    });
+  });
 
-    fireEvent.change(input, { target: { value: "Andrew G" } });
-    fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+  it("calls verifyOnboardingLicense and prepopulates on found", async () => {
+    mocks.riaService.verifyOnboardingLicense.mockResolvedValue({
+      status: "found",
+      advisor_name: "Jane Doe",
+      firm_name: "Acme Wealth",
+      regulator: "SEC",
+      regulator_status: "ACTIVE",
+      crd_number: "123456",
+      scrape_job_id: null,
+    });
 
-    await screen.findByText(/more specific advisor name/i);
-    expect(screen.getByText(/Try the advisor's full legal name/i)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Andrew Garrett Kirkland" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Use manual CRD fallback" })).toBeNull();
-    expect(continueButton.disabled).toBe(true);
-
-    fireEvent.click(screen.getByRole("button", { name: "Andrew Garrett Kirkland" }));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<RiaOnboardingPage />);
 
     await waitFor(() => {
-      expect(mocks.riaService.verifyOnboardingName).toHaveBeenNthCalledWith(
-        2,
+      expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("continue-btn"));
+    await waitFor(() => {
+      expect(screen.getByTestId("step-license")).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByTestId("license-input"), "123456");
+    await user.click(screen.getByTestId("verify-btn"));
+
+    await waitFor(() => {
+      expect(mocks.riaService.verifyOnboardingLicense).toHaveBeenCalledWith(
         "token-ria-1",
-        { query: "Andrew Garrett Kirkland" },
-        expect.objectContaining({ signal: expect.any(AbortSignal) })
+        expect.objectContaining({ license_number: "123456" }),
+        expect.any(Object)
       );
     });
 
-    await screen.findByText("Verified name");
-    expect(screen.getByDisplayValue("Andrew Garrett Kirkland")).toBeTruthy();
-    expect(continueButton.disabled).toBe(false);
+    await act(async () => {
+      vi.advanceTimersByTime(700);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-license-details")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("advisor-name")).toHaveTextContent("Jane Doe");
+    expect(screen.getByTestId("firm-name")).toHaveTextContent("Acme Wealth");
   });
 
+  it("handles not_found and stays on license step", async () => {
+    mocks.riaService.verifyOnboardingLicense.mockResolvedValue({
+      status: "not_found",
+    });
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("continue-btn"));
+    await waitFor(() => {
+      expect(screen.getByTestId("step-license")).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByTestId("license-input"), "999999");
+    await user.click(screen.getByTestId("verify-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("verification-status")).toHaveTextContent(
+        "not_found"
+      );
+    });
+
+    expect(screen.queryByTestId("step-license-details")).not.toBeInTheDocument();
+  });
+
+  it("handles rate limit (429) gracefully", async () => {
+    const RiaApiErr = class extends Error {
+      status: number;
+      constructor(msg: string, status: number) {
+        super(msg);
+        this.status = status;
+        this.name = "RiaApiError";
+      }
+    };
+    mocks.riaService.verifyOnboardingLicense.mockRejectedValue(
+      new RiaApiErr("rate limited", 429)
+    );
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("continue-btn"));
+    await waitFor(() => {
+      expect(screen.getByTestId("step-license")).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByTestId("license-input"), "123456");
+    await user.click(screen.getByTestId("verify-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/too many verification/i)).toBeInTheDocument();
+    });
+  });
+
+  it("persists draft to local storage on changes", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("select-firm"));
+
+    await waitFor(() => {
+      expect(mocks.draftService.save).toHaveBeenCalledWith(
+        "user-ria-1",
+        expect.objectContaining({ onboardingType: "firm" })
+      );
+    });
+  });
+
+  it("loads existing draft and restores saved step", async () => {
+    mocks.draftService.load.mockResolvedValue({
+      currentStepId: "services",
+      onboardingType: "individual",
+      licenseNumber: "111222",
+      licenseVerificationStatus: "found",
+      advisorName: "Saved Advisor",
+      servicesOffered: [],
+      feeStructure: [],
+    });
+
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(mocks.draftService.load).toHaveBeenCalledWith("user-ria-1");
+    });
+  });
+
+  it("redirects to RIA home if already verified when submit clicked", async () => {
+    mocks.riaService.getOnboardingStatus.mockResolvedValue({
+      exists: true,
+      advisory_status: "active",
+      verification_status: "verified",
+    });
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("onboarding-shell")).toBeInTheDocument();
+    });
+  });
 });

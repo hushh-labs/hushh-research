@@ -1,18 +1,43 @@
 "use client";
 
+export type RiaOnboardingType = "individual" | "firm";
+
 export type RiaCapability = "advisory" | "brokerage";
 
 export type RiaOnboardingStepId =
-  | "capabilities"
-  | "display_name"
-  | "legal_identity"
-  | "advisory_firm"
-  | "broker_firm"
-  | "public_profile"
+  | "welcome"
+  | "license_number"
+  | "license_details"
+  | "services"
+  | "contact_location"
   | "review";
 
 export type RiaOnboardingDraft = {
   currentStepId: RiaOnboardingStepId;
+  onboardingType: RiaOnboardingType;
+  licenseNumber: string;
+  regulator: string;
+  advisorName: string;
+  firmName: string;
+  regulatorStatus: string;
+  licenseExpiry: string;
+  certifications: string[];
+  city: string;
+  pinZip: string;
+  crdNumber: string;
+  secNumber: string;
+  servicesOffered: string[];
+  feeStructure: string[];
+  minEngagementAmount: string;
+  bio: string;
+  contactEmail: string;
+  contactPhone: string;
+  areaLocality: string;
+  fullStreetAddress: string;
+  latitude: number | null;
+  longitude: number | null;
+  licenseVerificationStatus: "idle" | "verifying" | "found" | "not_found" | "error";
+  scrapeJobId: string | null;
   requestedCapabilities: RiaCapability[];
   displayName: string;
   individualLegalName: string;
@@ -33,16 +58,15 @@ export type RiaOnboardingStep = {
 };
 
 export type RiaOnboardingFlowOptions = {
-  nameVerificationSatisfied?: boolean;
+  licenseVerificationSatisfied?: boolean;
 };
 
 const STEP_ORDER: RiaOnboardingStepId[] = [
-  "capabilities",
-  "display_name",
-  "legal_identity",
-  "advisory_firm",
-  "broker_firm",
-  "public_profile",
+  "welcome",
+  "license_number",
+  "license_details",
+  "services",
+  "contact_location",
   "review",
 ];
 
@@ -62,16 +86,36 @@ export function normalizeRiaCapabilities(value: unknown): RiaCapability[] {
       set.add(item);
     }
   }
-  return STEP_ORDER.flatMap((stepId) => {
-    if (stepId === "advisory_firm" && set.has("advisory")) return ["advisory"];
-    if (stepId === "broker_firm" && set.has("brokerage")) return ["brokerage"];
-    return [];
-  }) as RiaCapability[];
+  return Array.from(set);
 }
 
 export function createEmptyRiaOnboardingDraft(): RiaOnboardingDraft {
   return {
-    currentStepId: "capabilities",
+    currentStepId: "welcome",
+    onboardingType: "individual",
+    licenseNumber: "",
+    regulator: "",
+    advisorName: "",
+    firmName: "",
+    regulatorStatus: "",
+    licenseExpiry: "",
+    certifications: [],
+    city: "",
+    pinZip: "",
+    crdNumber: "",
+    secNumber: "",
+    servicesOffered: [],
+    feeStructure: [],
+    minEngagementAmount: "",
+    bio: "",
+    contactEmail: "",
+    contactPhone: "",
+    areaLocality: "",
+    fullStreetAddress: "",
+    latitude: null,
+    longitude: null,
+    licenseVerificationStatus: "idle",
+    scrapeJobId: null,
     requestedCapabilities: ["advisory"],
     displayName: "",
     individualLegalName: "",
@@ -85,79 +129,118 @@ export function createEmptyRiaOnboardingDraft(): RiaOnboardingDraft {
   };
 }
 
+const VALID_VERIFICATION_STATUSES = ["idle", "verifying", "found", "not_found", "error"];
+const VALID_ONBOARDING_TYPES = ["individual", "firm"];
+
+function sanitizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item) => typeof item === "string");
+}
+
 export function normalizeRiaOnboardingDraft(
   value: Partial<RiaOnboardingDraft> | null | undefined
 ): RiaOnboardingDraft {
   const base = createEmptyRiaOnboardingDraft();
+  const v = value as Record<string, unknown> | null | undefined;
   return {
-    currentStepId: isRiaOnboardingStepId(value?.currentStepId)
-      ? value.currentStepId
+    currentStepId: isRiaOnboardingStepId(v?.currentStepId)
+      ? (v.currentStepId as RiaOnboardingStepId)
       : base.currentStepId,
+    onboardingType:
+      typeof v?.onboardingType === "string" && VALID_ONBOARDING_TYPES.includes(v.onboardingType)
+        ? (v.onboardingType as RiaOnboardingType)
+        : base.onboardingType,
+    licenseNumber: sanitizeText(v?.licenseNumber),
+    regulator: sanitizeText(v?.regulator),
+    advisorName: sanitizeText(v?.advisorName),
+    firmName: sanitizeText(v?.firmName),
+    regulatorStatus: sanitizeText(v?.regulatorStatus),
+    licenseExpiry: sanitizeText(v?.licenseExpiry),
+    certifications: sanitizeStringArray(v?.certifications),
+    city: sanitizeText(v?.city),
+    pinZip: sanitizeText(v?.pinZip),
+    crdNumber: sanitizeText(v?.crdNumber),
+    secNumber: sanitizeText(v?.secNumber),
+    servicesOffered: sanitizeStringArray(v?.servicesOffered),
+    feeStructure: sanitizeStringArray(v?.feeStructure),
+    minEngagementAmount: sanitizeText(v?.minEngagementAmount),
+    bio: sanitizeText(v?.bio),
+    contactEmail: sanitizeText(v?.contactEmail),
+    contactPhone: sanitizeText(v?.contactPhone),
+    areaLocality: sanitizeText(v?.areaLocality),
+    fullStreetAddress: sanitizeText(v?.fullStreetAddress),
+    latitude: typeof v?.latitude === "number" ? v.latitude : null,
+    longitude: typeof v?.longitude === "number" ? v.longitude : null,
+    licenseVerificationStatus:
+      typeof v?.licenseVerificationStatus === "string" &&
+      VALID_VERIFICATION_STATUSES.includes(v.licenseVerificationStatus)
+        ? (v.licenseVerificationStatus as RiaOnboardingDraft["licenseVerificationStatus"])
+        : base.licenseVerificationStatus,
+    scrapeJobId: typeof v?.scrapeJobId === "string" ? v.scrapeJobId : null,
     requestedCapabilities:
-      normalizeRiaCapabilities(value?.requestedCapabilities).length > 0
-        ? normalizeRiaCapabilities(value?.requestedCapabilities)
+      normalizeRiaCapabilities(v?.requestedCapabilities).length > 0
+        ? normalizeRiaCapabilities(v?.requestedCapabilities)
         : base.requestedCapabilities,
-    displayName: sanitizeText(value?.displayName),
-    individualLegalName: sanitizeText(value?.individualLegalName),
-    individualCrd: sanitizeText(value?.individualCrd),
-    advisoryFirmName: sanitizeText(value?.advisoryFirmName),
-    advisoryFirmIapdNumber: sanitizeText(value?.advisoryFirmIapdNumber),
-    brokerFirmName: sanitizeText(value?.brokerFirmName),
-    brokerFirmCrd: sanitizeText(value?.brokerFirmCrd),
-    headline: sanitizeText(value?.headline),
-    strategySummary: sanitizeText(value?.strategySummary),
+    displayName: sanitizeText(v?.displayName),
+    individualLegalName: sanitizeText(v?.individualLegalName),
+    individualCrd: sanitizeText(v?.individualCrd),
+    advisoryFirmName: sanitizeText(v?.advisoryFirmName),
+    advisoryFirmIapdNumber: sanitizeText(v?.advisoryFirmIapdNumber),
+    brokerFirmName: sanitizeText(v?.brokerFirmName),
+    brokerFirmCrd: sanitizeText(v?.brokerFirmCrd),
+    headline: sanitizeText(v?.headline),
+    strategySummary: sanitizeText(v?.strategySummary),
   };
 }
 
 export function buildRiaOnboardingSteps(
-  draft: RiaOnboardingDraft,
+  _draft: RiaOnboardingDraft,
   _options?: RiaOnboardingFlowOptions
 ): RiaOnboardingStep[] {
-  const steps: RiaOnboardingStep[] = [
+  return [
     {
-      id: "capabilities",
-      eyebrow: "Capability",
-      title: "Which professional lane are you activating first?",
+      id: "welcome",
+      eyebrow: "Welcome",
+      title: "How would you like to register?",
       description:
-        "Choose the trust lane Kai should verify. Advisory unlocks the current RIA workflow. Brokerage stays tracked separately.",
+        "Choose whether you are onboarding as an individual advisor or registering a firm or practice.",
     },
     {
-      id: "display_name",
-      eyebrow: "Identity",
-      title: "What name should Kai verify first?",
+      id: "license_number",
+      eyebrow: "Licence",
+      title: "Enter your licence number",
       description:
-        "Enter the advisor name once. Kai verifies it in the background before the rest of the RIA workflow opens.",
+        "Provide your CRD or licence number so Kai can verify your registration with the regulator.",
     },
-  ];
-
-  if (draft.requestedCapabilities.includes("brokerage")) {
-    steps.push({
-      id: "broker_firm",
-      eyebrow: "Broker Firm",
-      title: "Which broker-dealer should Kai pair with this capability?",
-      description:
-        "Brokerage remains a separate verification lane, so we capture the primary broker firm here.",
-    });
-  }
-
-  steps.push(
     {
-      id: "public_profile",
-      eyebrow: "Trust Surface",
-      title: "What should an investor understand before accepting your invite?",
+      id: "license_details",
+      eyebrow: "Verification",
+      title: "Verify your details",
       description:
-        "Keep it short and credible. A strong headline and summary are enough for v1 onboarding.",
+        "Review the information prepopulated from the regulator database and correct anything that looks off.",
+    },
+    {
+      id: "services",
+      eyebrow: "Services",
+      title: "What do you offer?",
+      description:
+        "List the services you provide and how you charge so investors know what to expect.",
+    },
+    {
+      id: "contact_location",
+      eyebrow: "Contact",
+      title: "Contact & location",
+      description:
+        "Let potential clients know how to reach you and where you are located.",
     },
     {
       id: "review",
       eyebrow: "Review",
-      title: "Review the trust story before you submit it",
+      title: "Everything correct?",
       description:
-        "Kai will submit the regulatory data for verification and stage the short public profile investors will see first.",
-    }
-  );
-
-  return steps;
+        "Confirm your details are accurate. Once submitted your profile will go live as pending verification.",
+    },
+  ];
 }
 
 export function canContinueRiaOnboardingStep(
@@ -166,25 +249,20 @@ export function canContinueRiaOnboardingStep(
   options?: RiaOnboardingFlowOptions
 ): boolean {
   switch (stepId) {
-    case "capabilities":
-      return draft.requestedCapabilities.length > 0;
-    case "display_name":
-      return draft.displayName.trim().length > 0 && Boolean(options?.nameVerificationSatisfied);
-    case "legal_identity":
+    case "welcome":
+      return draft.onboardingType.length > 0;
+    case "license_number":
       return (
-        draft.individualLegalName.trim().length > 0 &&
-        draft.individualCrd.trim().length > 0
+        draft.licenseNumber.trim().length > 0 &&
+        Boolean(options?.licenseVerificationSatisfied)
       );
-    case "advisory_firm":
+    case "license_details":
+      return draft.advisorName.trim().length > 0;
+    case "services":
+      return draft.servicesOffered.length > 0 && draft.feeStructure.length > 0;
+    case "contact_location":
       return (
-        draft.advisoryFirmName.trim().length > 0 &&
-        draft.advisoryFirmIapdNumber.trim().length > 0
-      );
-    case "broker_firm":
-      return draft.brokerFirmName.trim().length > 0 && draft.brokerFirmCrd.trim().length > 0;
-    case "public_profile":
-      return (
-        draft.headline.trim().length > 0 || draft.strategySummary.trim().length > 0
+        draft.contactEmail.trim().length > 0 || draft.contactPhone.trim().length > 0
       );
     case "review":
       return true;
@@ -193,10 +271,8 @@ export function canContinueRiaOnboardingStep(
   }
 }
 
-export function getRequestedCapabilityLabels(draft: RiaOnboardingDraft): string[] {
-  return draft.requestedCapabilities.map((capability) =>
-    capability === "advisory" ? "Advisory" : "Brokerage"
-  );
+export function getOnboardingTypeLabel(type: RiaOnboardingType): string {
+  return type === "individual" ? "Individual RIA" : "Firm / Practice";
 }
 
 export function resolveRiaOnboardingStepId(
@@ -209,7 +285,7 @@ export function resolveRiaOnboardingStepId(
     return preferredStepId;
   }
   if (preferredStepId) {
-    return steps[0]?.id || "capabilities";
+    return steps[0]?.id || "welcome";
   }
   return findFirstIncompleteRiaOnboardingStepId(draft, options);
 }
