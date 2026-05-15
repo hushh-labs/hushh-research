@@ -441,8 +441,22 @@ describe("RiaOnboardingPage", () => {
       });
     });
 
+    await waitFor(() => {
+      expect(
+        (screen.getByTestId("license-input") as HTMLInputElement).value
+      ).toBe("123456");
+    });
+
     await act(async () => {
       fireEvent.click(screen.getByTestId("verify-btn"));
+    });
+
+    await waitFor(() => {
+      expect(mocks.riaService.verifyOnboardingLicense).toHaveBeenCalledWith(
+        "token-ria-1",
+        expect.objectContaining({ license_number: "123456" }),
+        expect.any(Object)
+      );
     });
 
     await waitFor(() => {
