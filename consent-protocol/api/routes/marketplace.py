@@ -23,10 +23,10 @@ def _iam_schema_not_ready_response(message: str | None = None) -> JSONResponse:
 
 @router.get("/rias")
 async def list_marketplace_rias(
-    query: str | None = Query(default=None),
+    query: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=20, ge=1, le=50),
-    firm: str | None = Query(default=None),
-    verification_status: str | None = Query(default=None),
+    firm: str | None = Query(default=None, max_length=200),
+    verification_status: str | None = Query(default=None, max_length=50),
 ):
     service = RIAIAMService()
     try:
@@ -43,7 +43,7 @@ async def list_marketplace_rias(
 
 @router.get("/investors")
 async def list_marketplace_investors(
-    query: str | None = Query(default=None),
+    query: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=20, ge=1, le=50),
 ):
     service = RIAIAMService()

@@ -8,7 +8,27 @@ const {
   mockPhoneAuthProvider,
   mockUpdatePhoneNumber,
   mockLinkWithCredential,
+  mockSignInWithCredential,
+  mockFirebaseSignOut,
+  mockSetPersistence,
+  mockGetAuth,
+  mockGetApps,
+  mockInitializeApp,
+  mockFirebaseApp,
+  mockPhoneClaimAuth,
 } = vi.hoisted(() => ({
+  mockFirebaseApp: {
+    name: "[DEFAULT]",
+    options: {
+      projectId: "demo-project",
+      apiKey: "demo-key",
+    },
+  },
+  mockPhoneClaimAuth: {
+    app: {
+      name: "hushh-phone-claim",
+    },
+  },
   mockAuth: {
     currentUser: null as any,
     onAuthStateChanged: vi.fn(),
@@ -36,6 +56,12 @@ const {
   mockPhoneAuthProvider: vi.fn(),
   mockUpdatePhoneNumber: vi.fn(),
   mockLinkWithCredential: vi.fn(),
+  mockSignInWithCredential: vi.fn(),
+  mockFirebaseSignOut: vi.fn(),
+  mockSetPersistence: vi.fn(),
+  mockGetAuth: vi.fn(),
+  mockGetApps: vi.fn(),
+  mockInitializeApp: vi.fn(),
 }));
 
 vi.mock("@capacitor/core", () => ({
@@ -52,7 +78,13 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@/lib/firebase/config", () => ({
+  app: mockFirebaseApp,
   auth: mockAuth,
+}));
+
+vi.mock("firebase/app", () => ({
+  getApps: mockGetApps,
+  initializeApp: mockInitializeApp,
 }));
 
 vi.mock("firebase/auth", () => ({
@@ -60,15 +92,18 @@ vi.mock("firebase/auth", () => ({
     credential: vi.fn(),
     credentialFromResult: vi.fn(),
   },
+  getAuth: mockGetAuth,
+  inMemoryPersistence: "in-memory-persistence",
   OAuthProvider: vi.fn(),
   PhoneAuthProvider: Object.assign(mockPhoneAuthProvider, {
     credential: vi.fn(),
   }),
   linkWithCredential: mockLinkWithCredential,
-  signInWithCredential: vi.fn(),
+  setPersistence: mockSetPersistence,
+  signInWithCredential: mockSignInWithCredential,
   signInWithCustomToken: vi.fn(),
   signInWithPopup: vi.fn(),
-  signOut: vi.fn(),
+  signOut: mockFirebaseSignOut,
   onAuthStateChanged: vi.fn(),
   updatePhoneNumber: mockUpdatePhoneNumber,
 }));
@@ -89,6 +124,9 @@ import {
   linkWithCredential,
   onAuthStateChanged,
   PhoneAuthProvider,
+  setPersistence,
+  signInWithCredential,
+  signOut as firebaseSignOut,
   updatePhoneNumber,
 } from "firebase/auth";
 import { HushhAuth } from "@/lib/capacitor";
@@ -112,6 +150,12 @@ describe("AuthService.restoreNativeSession", () => {
     mockCapacitor.getPlatform.mockReturnValue("ios");
     mockAuth.currentUser = null;
     mockAuth.onAuthStateChanged.mockReset();
+    mockGetApps.mockReturnValue([mockFirebaseApp] as any);
+    mockInitializeApp.mockReturnValue(mockFirebaseApp as any);
+    mockGetAuth.mockReturnValue(mockPhoneClaimAuth as any);
+    vi.mocked(setPersistence).mockResolvedValue(undefined);
+    vi.mocked(signInWithCredential).mockReset();
+    vi.mocked(firebaseSignOut).mockResolvedValue(undefined);
     vi.mocked(onAuthStateChanged).mockImplementation(((_auth, next) => {
       next(null);
       return vi.fn();
@@ -327,6 +371,39 @@ describe("AuthService.restoreNativeSession", () => {
     expect(linkWithCredential).toHaveBeenCalledWith(mockAuth.currentUser, "phone-credential");
     expect(reload).toHaveBeenCalledTimes(1);
     expect(verifiedUser).toBe(linkedUser);
+  });
+
+  it("mints a web phone claim token without linking the primary Firebase user", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const getIdToken = vi.fn().mockResolvedValue("phone-claim-id-token");
+    vi.mocked(PhoneAuthProvider.credential).mockReturnValue("phone-credential" as any);
+    vi.mocked(signInWithCredential).mockResolvedValue({
+      user: {
+        getIdToken,
+      },
+    } as any);
+
+    const claimToken = await AuthService.getPhoneClaimIdToken({
+      verificationCode: "123456",
+      verificationId: "claim-verification-id",
+    });
+
+    expect(PhoneAuthProvider.credential).toHaveBeenCalledWith(
+      "claim-verification-id",
+      "123456"
+    );
+    expect(setPersistence).toHaveBeenCalledWith(
+      mockPhoneClaimAuth,
+      "in-memory-persistence"
+    );
+    expect(signInWithCredential).toHaveBeenCalledWith(
+      mockPhoneClaimAuth,
+      "phone-credential"
+    );
+    expect(linkWithCredential).not.toHaveBeenCalled();
+    expect(getIdToken).toHaveBeenCalledWith(true);
+    expect(firebaseSignOut).toHaveBeenCalledWith(mockPhoneClaimAuth);
+    expect(claimToken).toBe("phone-claim-id-token");
   });
 
   it("updates the web user phone number during replacement confirmation", async () => {
