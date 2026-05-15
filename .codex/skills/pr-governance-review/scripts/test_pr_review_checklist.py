@@ -14,6 +14,8 @@ def _fake_report(
     contract_set: str = "general",
     findings: list[dict] | None = None,
     related_files: list[str] | None = None,
+    surface_tags: list[str] | None = None,
+    created_at: str | None = None,
     ci_status_gate: str = "SUCCESS",
     current_checks: list[dict] | None = None,
 ) -> OrderedDict:
@@ -25,6 +27,7 @@ def _fake_report(
             url=f"https://github.com/hushh-labs/hushh-research/pull/{number}",
             author="tester",
             head_sha=f"sha-{number}",
+            created_at=created_at or "",
             additions=1,
             deletions=0,
             changed_files_count=len(files),
@@ -35,7 +38,7 @@ def _fake_report(
         ),
         changed_files=files,
         contract_set=contract_set,
-        surface_tags=[],
+        surface_tags=surface_tags or [],
         current_ci_status_gate=ci_status_gate,
         current_checks=current_checks or [
             OrderedDict(name="CI Status Gate", conclusion=ci_status_gate)
@@ -201,6 +204,206 @@ def test_failing_auxiliary_check_excluded_from_operator_batches() -> None:
     _assert(not checklist._is_actionable_live_candidate(aux_failing), "aux-failing PR must not be actionable")
 
 
+def test_zero_queue_cohort_size_does_not_emit_empty_cohort() -> None:
+    reports = [
+        _fake_report(11, ["docs/a.md"], lane="merge_now"),
+        _fake_report(12, ["docs/b.md"], lane="merge_now"),
+    ]
+    graph = checklist._build_train_graph(
+        reports,
+        queue_cohort_size=0,
+        max_parallel_patch_trains=3,
+    )
+    _assert(graph["queue_cohorts"] == [], "queue_cohort_size=0 must not emit an empty queue cohort")
+    _assert(not reports[0]["queue_cohort_id"], "zero-sized queue cohort must not mark reports as queued")
+
+
+def test_scan_failure_is_hold_not_public_changes_requested() -> None:
+    report = checklist._scan_failure_report(
+        "hushh-labs/hushh-research",
+        13,
+        "timeout",
+        "per-PR review timed out",
+    )
+    _assert(report["lane"] == "block", "scan failure should remain blocked from execution")
+    _assert(
+        report["public_comment_policy"] == "no_comment_review_only_scan_incomplete",
+        "scan failure must not generate a public changes-requested policy",
+    )
+    _assert(report["live_report_action"] == "hold_until_scan_refresh", "scan failure should be held until refresh")
+
+
+def test_train_graph_maps_trains_to_subagent_lanes() -> None:
+    patch = _fake_report(
+        14,
+        ["consent-protocol/hushh_mcp/services/account_service.py"],
+        lane="patch_then_merge",
+        contract_set="account-export",
+        findings=[
+            {
+                "id": "account_export_schema_contract_mismatch",
+                "severity": "high",
+                "summary": "bounded contract mismatch",
+                "files": ["consent-protocol/hushh_mcp/services/account_service.py"],
+            }
+        ],
+        related_files=["consent-protocol/hushh_mcp/services/account_service.py"],
+    )
+    frontend = _fake_report(
+        15,
+        ["hushh-webapp/app/example/page.tsx"],
+        lane="merge_now",
+        contract_set="frontend",
+    )
+    graph = checklist._build_train_graph(
+        [patch, frontend],
+        queue_cohort_size=4,
+        max_parallel_patch_trains=3,
+    )
+    entries = {entry["id"]: entry for entry in graph["train_to_subagent_map"]}
+    _assert(entries["queue-cohort-1"]["agent"] == "repo_operator", "queue cohort should map to repo operator")
+    _assert(
+        entries["patch-train-1"]["agent"] == "security_consent_auditor",
+        "account-export patch train should map to security/consent evidence lane",
+    )
+
+
+def test_collision_train_sequences_oldest_created_pr_first() -> None:
+    reports = [
+        _fake_report(
+            100,
+            ["hushh-webapp/lib/shared.ts"],
+            created_at="2026-05-12T10:00:00Z",
+        ),
+        _fake_report(
+            99,
+            ["hushh-webapp/lib/shared.ts"],
+            created_at="2026-05-13T10:00:00Z",
+        ),
+    ]
+    graph = checklist._build_train_graph(
+        reports,
+        queue_cohort_size=4,
+        max_parallel_patch_trains=3,
+    )
+    group = graph["collision_groups"][0]
+    _assert(group["sequence"] == [100, 99], "collision train must sequence by PR creation time, not PR number")
+    _assert(reports[1]["must_wait_for"] == [100], "newer PR must wait for older PR in the same train")
+
+
+def test_all_async_trains_output_names_parallel_model() -> None:
+    reports = [
+        _fake_report(110, ["hushh-webapp/lib/a.ts"]),
+        _fake_report(111, ["hushh-webapp/lib/a.ts"]),
+    ]
+    graph = checklist._build_train_graph(
+        reports,
+        queue_cohort_size=4,
+        max_parallel_patch_trains=3,
+    )
+    batch = {"repo": "hushh-labs/hushh-research", "reports": reports, "train_to_subagent_map": graph["train_to_subagent_map"]}
+    text = "\n".join(checklist._subagent_taskforce_lines(batch))
+    _assert("## All Async Trains" in text, "train report must expose all async trains")
+    _assert("oldest PR first" in text, "train report must describe oldest-first sequencing")
+
+
+def test_dynamic_decision_wave_size_selection() -> None:
+    high_risk = [
+        _fake_report(
+            16,
+            ["consent-protocol/hushh_mcp/services/pkm_service.py"],
+            lane="block",
+            contract_set="pkm-privacy",
+            surface_tags=["backend-service"],
+        )
+        for _ in range(6)
+    ]
+    mixed = [
+        _fake_report(30, ["docs/a.md"], lane="block", contract_set="docs"),
+        _fake_report(31, ["hushh-webapp/app/a/page.tsx"], lane="block", contract_set="frontend"),
+    ]
+    normal = [
+        _fake_report(
+            40,
+            ["docs/a.md"],
+            lane="block",
+            contract_set="general",
+            findings=[{"id": "needs_rework", "severity": "medium", "summary": "rework"}],
+        )
+    ]
+    low_risk = [
+        _fake_report(50, ["docs/a.md"], lane="block", contract_set="general")
+    ]
+
+    _assert(checklist._decision_wave_size_plan(high_risk)["size"] == 5, "high-risk wave must cap at 5")
+    _assert(checklist._decision_wave_size_plan(mixed)["size"] == 10, "mixed-topic wave must cap at 10")
+    _assert(checklist._decision_wave_size_plan(normal)["size"] == 20, "normal homogeneous wave must cap at 20")
+    _assert(checklist._decision_wave_size_plan(low_risk)["size"] == 40, "low-risk same-template wave can cap at 40")
+
+
+def test_stale_decision_wave_requires_refresh() -> None:
+    reports = [_fake_report(60, ["docs/a.md"], lane="block")]
+    plan = checklist._decision_wave_size_plan(reports, scan_fresh=False)
+    _assert(plan["size"] == 0, "stale live report must not allow wave writes")
+    _assert(plan["next_action"] == "refresh_scan", "stale live report should request refresh")
+
+
+def test_decision_wave_visible_without_merge_or_patch_train() -> None:
+    reports = [
+        _fake_report(70, ["docs/a.md"], lane="block"),
+        _fake_report(71, ["docs/b.md"], lane="block"),
+    ]
+    graph = checklist._build_train_graph(
+        reports,
+        queue_cohort_size=4,
+        max_parallel_patch_trains=3,
+    )
+    _assert(not graph["queue_cohorts"], "blocked-only batch must not create merge queue")
+    _assert(not graph["parallel_patch_trains"], "blocked-only batch must not create patch train")
+    _assert(graph["decision_waves"], "blocked-only batch must still expose decision wave train")
+    wave = graph["decision_waves"][0]
+    _assert(wave["next_action"] == "ask_operator", "decision wave must ask operator before writes")
+    _assert(wave["prs"] == [70, 71], "decision wave should include the selected PRs")
+
+
+def test_pre_wave_question_contains_research_shape_and_links() -> None:
+    reports = [
+        _fake_report(80, ["docs/a.md"], lane="block"),
+        _fake_report(81, ["docs/b.md"], lane="block"),
+    ]
+    graph = checklist._build_train_graph(
+        reports,
+        queue_cohort_size=4,
+        max_parallel_patch_trains=3,
+    )
+    batch = {"repo": "hushh-labs/hushh-research", "reports": reports, "decision_waves": graph["decision_waves"]}
+    text = "\n".join(checklist._decision_wave_lines(batch))
+    for expected in [
+        "Question Before Wave",
+        "Current truth",
+        "Recommended path",
+        "Risk if accepted blindly",
+        "Decision needed",
+        "https://github.com/hushh-labs/hushh-research/pull/80",
+        "https://github.com/hushh-labs/hushh-research/pull/81",
+    ]:
+        _assert(expected in text, f"decision wave output must include {expected}")
+
+
+def test_check_failure_excluded_from_acknowledgement_wave() -> None:
+    failing = _fake_report(90, ["docs/fail.md"], lane="block", ci_status_gate="FAILURE")
+    healthy = _fake_report(91, ["docs/ok.md"], lane="block")
+    graph = checklist._build_train_graph(
+        [failing, healthy],
+        queue_cohort_size=4,
+        max_parallel_patch_trains=3,
+    )
+    wave = graph["decision_waves"][0]
+    _assert(90 not in wave["candidate_prs"], "check-failure PR must not enter acknowledgement wave")
+    _assert(91 in wave["candidate_prs"], "healthy blocked PR should enter acknowledgement wave")
+    _assert(graph["check_failure_holds"][0]["pr"] == 90, "check-failure PR must be held separately")
+
+
 def main() -> int:
     test_same_file_collision()
     test_disjoint_merge_queue_cohort()
@@ -210,6 +413,16 @@ def main() -> int:
     test_pure_test_report_can_merge_now()
     test_failing_required_gate_excluded_from_executable_trains()
     test_failing_auxiliary_check_excluded_from_operator_batches()
+    test_zero_queue_cohort_size_does_not_emit_empty_cohort()
+    test_scan_failure_is_hold_not_public_changes_requested()
+    test_train_graph_maps_trains_to_subagent_lanes()
+    test_collision_train_sequences_oldest_created_pr_first()
+    test_all_async_trains_output_names_parallel_model()
+    test_dynamic_decision_wave_size_selection()
+    test_stale_decision_wave_requires_refresh()
+    test_decision_wave_visible_without_merge_or_patch_train()
+    test_pre_wave_question_contains_research_shape_and_links()
+    test_check_failure_excluded_from_acknowledgement_wave()
     print("pr_review_checklist unit tests passed")
     return 0
 

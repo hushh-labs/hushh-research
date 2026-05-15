@@ -116,6 +116,18 @@ The router is advisory, not authority. If it recommends a lane that the runtime 
 
 Founder wiki evidence lanes use the Founder Wiki North-Star Probe and are read-only by default. They may use product/architecture/non-negotiable pages for north-star alignment, but private wiki evidence must stay local-only and public GitHub comments must not cite private wiki pages. When repo truth and wiki canon disagree, classify the gap as `current_state_vs_north_star_drift`.
 
+## Skill Activation Detection
+
+Use these sources to detect how a skill can activate agents or subagents:
+
+1. `skill.json`: role, owner family, task types, reads, checks, and handoff targets.
+2. `.codex/workflows/*/workflow.json`: `owner_skill`, `default_spoke`, `task_type`, and explicit `delegation_policy` lanes.
+3. `.codex/agents/*.toml`: the skill block that says which skills each read-only agent can support.
+4. `delegation_router.py`: repo-global prompt/path lane matches for workflows without explicit delegation policy.
+5. `skill_fleet_audit.py`: compact fleet table that reports each skill as `master <skill-id>` or `spoke <skill-id>` with agents, workflows, and detection mechanisms.
+
+Report owner skills as master lanes in operator-facing output, but do not rename the manifest role from `owner`.
+
 ## Authority rules
 
 1. Only `governor` produces final merge, deploy, or plan recommendations inside delegated workflows.
