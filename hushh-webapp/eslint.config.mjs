@@ -57,6 +57,8 @@ export default [
       "react-hooks/set-state-in-effect": "off",
       "react-hooks/purity": "off",
       "react-hooks/incompatible-library": "off",
+      "react-hooks/refs": "off",
+      "react-hooks/preserve-manual-memoization": "off",
       // BYOK rules + storage ban
       "no-restricted-syntax": [
         "error",

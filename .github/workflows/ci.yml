@@ -121,8 +121,6 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-          cache-dependency-path: hushh-webapp/package-lock.json
 
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
@@ -193,8 +191,6 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-          cache-dependency-path: hushh-webapp/package-lock.json
 
       - name: Run web check script (single source of truth)
         run: bash scripts/ci/orchestrate.sh web
@@ -257,8 +253,6 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-          cache-dependency-path: hushh-webapp/package-lock.json
 
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
