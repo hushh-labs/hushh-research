@@ -190,6 +190,8 @@ export const Navbar = () => {
     ? "profile"
     : normalizedPathname.startsWith(ROUTES.CONSENTS)
     ? "profile"
+    : normalizedPathname === ROUTES.ONE_KYC
+    ? "profile"
     : activePersona === "ria"
     ? activeRiaRouteTabFromPath(normalizedPathname)
     : activeKaiRouteTabFromPath(normalizedPathname);

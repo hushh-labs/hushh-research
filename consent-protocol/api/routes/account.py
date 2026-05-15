@@ -7,6 +7,7 @@ Endpoints for account lifecycle management.
 
 Routes:
     POST /api/account/identity/refresh - Refresh backend identity shadow from Firebase Auth
+    POST /api/account/phone/claim - Claim a Firebase-verified phone for the signed-in actor
     GET /api/account/email-aliases - List verified/pending account email aliases
     POST /api/account/email-aliases/verification/start - Start alias verification
     POST /api/account/email-aliases/verification/confirm - Confirm alias verification
@@ -14,17 +15,19 @@ Routes:
     GET /api/account/export - Export encrypted account data bundle
 
 Security:
-    Identity refresh requires Firebase auth.
+    Identity refresh and phone claim require Firebase auth.
     Email aliases, delete, and export require VAULT_OWNER token.
 """
 
 import logging
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.services.account_service import AccountService
 from hushh_mcp.services.actor_identity_service import (
     ActorIdentityAliasError,
@@ -65,11 +68,109 @@ class EmailAliasVerificationConfirmRequest(BaseModel):
     verification_code: str = Field(min_length=1, max_length=64)
 
 
+class PhoneClaimRequest(BaseModel):
+    phone_id_token: str = Field(min_length=1, max_length=20_000)
+
+
 def _raise_alias_error(exc: ActorIdentityAliasError) -> None:
     raise HTTPException(
         status_code=exc.status_code,
         detail={"code": exc.code, "message": str(exc)},
     ) from exc
+
+
+async def _verify_phone_claim_id_token(raw_token: str) -> tuple[str, str | None]:
+    normalized_token = str(raw_token or "").strip()
+    if not normalized_token:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "PHONE_ID_TOKEN_REQUIRED",
+                "message": "A phone verification token is required.",
+            },
+        )
+
+    try:
+        from firebase_admin import auth as firebase_auth
+
+        firebase_app = get_firebase_auth_app()
+        decoded = await run_in_threadpool(
+            lambda: firebase_auth.verify_id_token(normalized_token, app=firebase_app)
+        )
+    except Exception as exc:
+        logger.info("Phone claim token verification failed: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "INVALID_PHONE_ID_TOKEN",
+                "message": "The phone verification token is invalid or expired.",
+            },
+        ) from exc
+
+    claims: dict[str, Any] = dict(decoded or {})
+    firebase_claims = claims.get("firebase")
+    sign_in_provider = (
+        str(firebase_claims.get("sign_in_provider") or "").strip()
+        if isinstance(firebase_claims, dict)
+        else ""
+    )
+    if sign_in_provider != "phone":
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "PHONE_ID_TOKEN_PROVIDER_MISMATCH",
+                "message": "The phone verification token must come from Firebase phone auth.",
+            },
+        )
+
+    phone_number = str(claims.get("phone_number") or "").strip()
+    if not phone_number:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "PHONE_ID_TOKEN_MISSING_PHONE_NUMBER",
+                "message": "The phone verification token does not contain a phone number.",
+            },
+        )
+
+    phone_session_uid = str(claims.get("uid") or claims.get("sub") or "").strip() or None
+    return phone_number, phone_session_uid
+
+
+async def _delete_firebase_auth_user(user_id: str) -> str:
+    """Delete the Firebase Auth identity after backend account data is removed."""
+    try:
+        from firebase_admin import auth as firebase_auth
+    except Exception as exc:
+        logger.exception("Firebase Auth SDK unavailable while deleting %s", user_id)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "FIREBASE_AUTH_DELETE_FAILED",
+                "message": "Backend account data was deleted, but Firebase Auth identity deletion failed.",
+            },
+        ) from exc
+
+    try:
+        firebase_app = get_firebase_auth_app()
+        if firebase_app is None:
+            raise RuntimeError("Firebase Admin is not configured")
+
+        await run_in_threadpool(lambda: firebase_auth.delete_user(user_id, app=firebase_app))
+        logger.info("Firebase Auth user deleted for %s", user_id)
+        return "deleted"
+    except firebase_auth.UserNotFoundError:
+        logger.info("Firebase Auth user already missing for %s", user_id)
+        return "already_missing"
+    except Exception as exc:
+        logger.exception("Firebase Auth user deletion failed for %s", user_id)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "FIREBASE_AUTH_DELETE_FAILED",
+                "message": "Backend account data was deleted, but Firebase Auth identity deletion failed.",
+            },
+        ) from exc
 
 
 @router.get("/email-aliases")
@@ -115,6 +216,39 @@ async def confirm_email_alias_verification(
     return {"success": True, "user_id": user_id, "alias": alias}
 
 
+@router.post("/phone/claim")
+async def claim_account_phone(
+    payload: PhoneClaimRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Persist a Firebase phone-auth session as the app-level verified phone claim."""
+    phone_number, phone_session_uid = await _verify_phone_claim_id_token(payload.phone_id_token)
+    identity = await ActorIdentityService().claim_verified_phone(
+        user_id=firebase_uid,
+        phone_number=phone_number,
+    )
+    if not identity:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "PHONE_CLAIM_PERSISTENCE_UNAVAILABLE",
+                "message": "Phone verification was accepted but could not be persisted.",
+            },
+        )
+
+    logger.info(
+        "Account phone claim persisted user=%s phone_session_uid_present=%s",
+        firebase_uid,
+        bool(phone_session_uid),
+    )
+    return {
+        "success": True,
+        "user_id": firebase_uid,
+        "identity": identity,
+        "phone_verified": identity.get("phone_verified") is True,
+    }
+
+
 @router.delete("/delete")
 async def delete_account(
     payload: DeleteAccountRequest | None = Body(default=None),
@@ -135,6 +269,14 @@ async def delete_account(
 
     if not result["success"]:
         raise HTTPException(status_code=500, detail=f"Deletion failed: {result.get('error')}")
+
+    if result.get("account_deleted") is True:
+        firebase_delete_status = await _delete_firebase_auth_user(user_id)
+        details = result.get("details")
+        if not isinstance(details, dict):
+            details = {}
+            result["details"] = details
+        details["firebase_auth_user"] = firebase_delete_status
 
     return result
 
