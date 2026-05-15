@@ -33,6 +33,7 @@ describe("ria-onboarding-flow", () => {
   it("validates license-first trust-critical steps", () => {
     const draft = {
       ...createEmptyRiaOnboardingDraft(),
+      onboardingType: "individual" as const,
       licenseNumber: "123456",
       licenseVerificationStatus: "found" as const,
       advisorName: "Manish Sainani",
@@ -55,6 +56,7 @@ describe("ria-onboarding-flow", () => {
 
   it("finds the first incomplete step for seeded onboarding", () => {
     const draft = normalizeRiaOnboardingDraft({
+      onboardingType: "individual",
       licenseNumber: "123456",
       licenseVerificationStatus: "found",
       advisorName: "Manish Sainani",
