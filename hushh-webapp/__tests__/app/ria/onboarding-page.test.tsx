@@ -234,6 +234,7 @@ vi.mock("@/lib/observability/growth", () => ({
 }));
 
 import RiaOnboardingPage from "@/app/ria/onboarding/page";
+import { RiaApiError } from "@/lib/services/ria-service";
 
 describe("RiaOnboardingPage", () => {
   beforeEach(() => {
@@ -409,7 +410,6 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("handles rate limit (429) gracefully", async () => {
-    const { RiaApiError } = await import("@/lib/services/ria-service");
     mocks.riaService.verifyOnboardingLicense.mockRejectedValue(
       new RiaApiError("rate limited", 429)
     );
