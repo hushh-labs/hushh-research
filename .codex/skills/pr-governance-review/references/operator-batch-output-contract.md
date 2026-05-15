@@ -13,31 +13,33 @@ live report. Use these sections:
 2. `Research Basis`: concise current truth, recommended path, and risk if accepted blindly.
 3. `Delegation Evidence`: router decision, taskforce lanes, async train-to-subagent map, skipped/unavailable rationale, and parent-only authority.
 4. `Scan Scope`: mode, active limit, candidate limit, open inventory count, reviewed PRs, failed PRs, and completeness.
-5. `Check Failure Holds`: PRs excluded because current required/auxiliary checks are not clean.
-6. `Input`: every PR with a direct Markdown link and current lane.
-7. `Train Simulation`: branch evidence, delta summary, behavior claim, canonical fit, simulated patch, action outcome, comment simulation, and verification timeline.
-8. `Output`: concise landing decision, async train placement, and next operator-visible artifact.
-9. `Expected Actions`: each PR mapped to `review_only`, `hold`, `request_changes`, `close`, `maintainer_harvest`, `maintainer_patch_then_merge`, `merge_now`, or `post_merge_monitor`.
-10. `Comment Plan`: each PR mapped to `none_before_merge_then_post_merge_closeout`, `edit_existing_maintainer_comment`, `new_changes_requested_comment`, `new_closed_superseded_comment`, or `no_comment_review_only`.
-11. `Contributor Attribution`: co-author trailer, public acknowledgement, internal impact credit, or no credit for each harvest source.
-12. `Per-PR Assessment`: direct link, lane, risk, head SHA prefix, changed surface, batch reason, Blind-merge risk, planned action, comment action, and Smallest proof.
-13. `Execution`: queue cohort, collision sequence, patch train, decision wave, and hold split.
-14. `All Async Trains`: every train in the reviewed scope with exact PR links,
+5. `Hundred-PR Active Pass`: latest-100 reviewed count, terminal count,
+   active trains, remaining non-terminal PRs, and whether the pass is complete.
+6. `Check Failure Holds`: PRs excluded because current required/auxiliary checks are not clean.
+7. `Input`: every PR with a direct Markdown link and current lane.
+8. `Train Simulation`: branch evidence, delta summary, behavior claim, canonical fit, simulated patch, action outcome, comment simulation, and verification timeline.
+9. `Output`: concise landing decision, async train placement, and next operator-visible artifact.
+10. `Expected Actions`: each PR mapped to `review_only`, `hold`, `request_changes`, `close`, `maintainer_harvest`, `maintainer_patch_then_merge`, `merge_now`, or `post_merge_monitor`.
+11. `Comment Plan`: each PR mapped to `none_before_merge_then_post_merge_closeout`, `edit_existing_maintainer_comment`, `new_changes_requested_comment`, `new_closed_superseded_comment`, or `no_comment_review_only`.
+12. `Contributor Attribution`: co-author trailer, public acknowledgement, internal impact credit, or no credit for each harvest source.
+13. `Per-PR Assessment`: direct link, lane, risk, head SHA prefix, changed surface, batch reason, Blind-merge risk, planned action, comment action, and Smallest proof.
+14. `Execution`: queue cohort, collision sequence, patch train, decision wave, and hold split.
+15. `All Async Trains`: every train in the reviewed scope with exact PR links,
     assigned evidence lane/subagent, non-touching parallel trains, hard-edge
     sequence, and oldest-first execution order.
-15. `Question Before Wave`: required before any comment, close, patch, queue,
+16. `Question Before Wave`: required before any comment, close, patch, queue,
     or merge checkpoint; include current truth, the complete train set already
     running, recommended path, risk if accepted blindly, decision needed,
     recommended option first, and exact PR links.
-16. `Recommended Wave Size`: the dynamic size selected for this wave.
-17. `Why This Size`: concise reason based on risk, topic mix, scan freshness, check status, and edit safety.
-18. `Exact PR Links`: direct Markdown links for every PR in the selected wave.
-19. `Comment/Edit Policy`: edit existing maintainer records when possible; otherwise name the exact new record type.
-20. `Decision Questions`: only unresolved choices; include current truth, recommended path, risk if accepted blindly, decision needed, and recommended option first.
-21. `Stop Conditions`
-22. `Verification`
-23. `After-Merge Kickoff`: how Automatic next train discovery happens after report refresh.
-24. `After-Wave Handoff`: after any state-changing wave, return the affected
+17. `Recommended Wave Size`: the dynamic size selected for this wave.
+18. `Why This Size`: concise reason based on risk, topic mix, scan freshness, check status, and edit safety.
+19. `Exact PR Links`: direct Markdown links for every PR in the selected wave.
+20. `Comment/Edit Policy`: edit existing maintainer records when possible; otherwise name the exact new record type.
+21. `Decision Questions`: only unresolved choices; include current truth, recommended path, risk if accepted blindly, decision needed, and recommended option first.
+22. `Stop Conditions`
+23. `Verification`
+24. `After-Merge Kickoff`: how Automatic next train discovery happens after report refresh.
+25. `After-Wave Handoff`: after any state-changing wave, return the affected
     PR links, maintainer record links, action explanation, refreshed artifacts,
     and recommended next async train in chat.
 
@@ -91,6 +93,10 @@ code blocks.
 17. A wave is only a bounded state-change checkpoint. It must not shrink the
     active train set or stop unrelated subagents from preparing complete
     non-touching trains in parallel.
+18. On a 400+ PR backlog, default chat handoff must answer in active-pass
+    terms: `reviewed 100 PRs`, train count, terminal count, links for every
+    state-changed PR, and the next unresolved train. A small merge cohort is
+    progress, not the whole pass.
 
 ## Research And Review Standard
 
