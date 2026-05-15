@@ -263,16 +263,16 @@ describe("RiaOnboardingPage", () => {
   it("renders welcome step on fresh load", async () => {
     render(<RiaOnboardingPage />);
     await waitFor(() => {
-      expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
+      expect(screen.getByTestId("step-welcome")).toBeTruthy();
     });
-    expect(screen.getByTestId("shell-eyebrow")).toHaveTextContent("Welcome");
+    expect(screen.getByTestId("shell-eyebrow").textContent).toBe("Welcome");
   });
 
   it("advances to license step after clicking Continue from welcome", async () => {
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
+      expect(screen.getByTestId("step-welcome")).toBeTruthy();
     });
 
     await act(async () => {
@@ -284,7 +284,7 @@ describe("RiaOnboardingPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("step-license")).toBeInTheDocument();
+      expect(screen.getByTestId("step-license")).toBeTruthy();
     });
   });
 
@@ -293,7 +293,7 @@ describe("RiaOnboardingPage", () => {
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
-      expect(screen.getByText(/sign in/i)).toBeInTheDocument();
+      expect(screen.getByText(/sign in/i)).toBeTruthy();
     });
   });
 
@@ -304,7 +304,7 @@ describe("RiaOnboardingPage", () => {
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
-      expect(screen.getByText(/unavailable/i)).toBeInTheDocument();
+      expect(screen.getByText(/unavailable/i)).toBeTruthy();
     });
   });
 
@@ -322,7 +322,7 @@ describe("RiaOnboardingPage", () => {
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
+      expect(screen.getByTestId("step-welcome")).toBeTruthy();
     });
 
     await act(async () => {
@@ -334,7 +334,7 @@ describe("RiaOnboardingPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("step-license")).toBeInTheDocument();
+      expect(screen.getByTestId("step-license")).toBeTruthy();
     });
 
     await act(async () => {
@@ -357,13 +357,13 @@ describe("RiaOnboardingPage", () => {
 
     await waitFor(
       () => {
-        expect(screen.getByTestId("step-license-details")).toBeInTheDocument();
+        expect(screen.getByTestId("step-license-details")).toBeTruthy();
       },
       { timeout: 3000 }
     );
 
-    expect(screen.getByTestId("advisor-name")).toHaveTextContent("Jane Doe");
-    expect(screen.getByTestId("firm-name")).toHaveTextContent("Acme Wealth");
+    expect(screen.getByTestId("advisor-name").textContent).toBe("Jane Doe");
+    expect(screen.getByTestId("firm-name").textContent).toBe("Acme Wealth");
   });
 
   it("handles not_found and stays on license step", async () => {
@@ -374,7 +374,7 @@ describe("RiaOnboardingPage", () => {
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
+      expect(screen.getByTestId("step-welcome")).toBeTruthy();
     });
 
     await act(async () => {
@@ -386,7 +386,7 @@ describe("RiaOnboardingPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("step-license")).toBeInTheDocument();
+      expect(screen.getByTestId("step-license")).toBeTruthy();
     });
 
     await act(async () => {
@@ -400,12 +400,12 @@ describe("RiaOnboardingPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("verification-status")).toHaveTextContent(
+      expect(screen.getByTestId("verification-status").textContent).toBe(
         "not_found"
       );
     });
 
-    expect(screen.queryByTestId("step-license-details")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("step-license-details")).toBeNull();
   });
 
   it("handles rate limit (429) gracefully", async () => {
@@ -424,7 +424,7 @@ describe("RiaOnboardingPage", () => {
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
+      expect(screen.getByTestId("step-welcome")).toBeTruthy();
     });
 
     await act(async () => {
@@ -436,7 +436,7 @@ describe("RiaOnboardingPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("step-license")).toBeInTheDocument();
+      expect(screen.getByTestId("step-license")).toBeTruthy();
     });
 
     await act(async () => {
@@ -450,7 +450,7 @@ describe("RiaOnboardingPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/too many verification/i)).toBeInTheDocument();
+      expect(screen.getByText(/too many verification/i)).toBeTruthy();
     });
   });
 
@@ -458,7 +458,7 @@ describe("RiaOnboardingPage", () => {
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("step-welcome")).toBeInTheDocument();
+      expect(screen.getByTestId("step-welcome")).toBeTruthy();
     });
 
     await act(async () => {
@@ -501,7 +501,7 @@ describe("RiaOnboardingPage", () => {
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("onboarding-shell")).toBeInTheDocument();
+      expect(screen.getByTestId("onboarding-shell")).toBeTruthy();
     });
   });
 });
