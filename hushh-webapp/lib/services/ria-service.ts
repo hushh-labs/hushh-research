@@ -107,6 +107,45 @@ export interface RiaNameVerificationResult {
   provider: string;
 }
 
+export interface RiaLicenseVerificationResult {
+  status: "found" | "not_found" | "pending" | "error";
+  advisor_name?: string | null;
+  firm_name?: string | null;
+  regulator?: string | null;
+  regulator_status?: string | null;
+  license_expiry?: string | null;
+  certifications?: string[];
+  city?: string | null;
+  pin_zip?: string | null;
+  crd_number?: string | null;
+  sec_number?: string | null;
+  employment_history?: Array<Record<string, unknown>>;
+  disclosures_count?: number;
+  exams_passed?: string[];
+  provider: string;
+  scrape_job_id?: string | null;
+  broker_intelligence_summary?: string | null;
+}
+
+export interface CrdScrapeJobResult {
+  jobId: string;
+  status: "queued" | "running" | "completed" | "partial" | "failed";
+  crdNumber?: string;
+  reportAvailable?: boolean;
+  errors?: string[];
+  report?: {
+    fullName?: string;
+    barredStatus?: string;
+    registrationStatus?: string;
+    disclosuresCount?: number;
+    firmHistory?: Array<Record<string, unknown>>;
+    officialReports?: Array<Record<string, unknown>>;
+    sources?: Array<Record<string, unknown>>;
+    rawSources?: Record<string, unknown>;
+    warnings?: string[];
+  } | null;
+}
+
 export interface RiaFirmMembership {
   id: string;
   legal_name: string;
@@ -1019,6 +1058,22 @@ export class RiaService {
       disclosures_url?: string;
       primary_firm_role?: string;
       force_live_verification?: boolean;
+      license_number?: string;
+      regulator?: string;
+      onboarding_type?: string;
+      services_offered?: string[];
+      fee_structure?: string[];
+      min_engagement_amount?: number;
+      min_engagement_currency?: string;
+      certifications?: string[];
+      contact_email?: string;
+      contact_phone?: string;
+      business_city?: string;
+      business_area?: string;
+      business_address?: string;
+      business_pin_zip?: string;
+      business_latitude?: number;
+      business_longitude?: number;
     }
   ): Promise<{
     ria_profile_id: string;
@@ -1059,6 +1114,31 @@ export class RiaService {
       signal: options?.signal,
     });
     return toJsonOrThrow<RiaNameVerificationResult>(response);
+  }
+
+  static async verifyOnboardingLicense(
+    idToken: string,
+    payload: { license_number: string; regulator?: string },
+    options?: { signal?: AbortSignal }
+  ): Promise<RiaLicenseVerificationResult> {
+    const response = await authFetch("/api/ria/onboarding/verify-license", {
+      method: "POST",
+      idToken,
+      body: payload,
+      signal: options?.signal,
+    });
+    return toJsonOrThrow<RiaLicenseVerificationResult>(response);
+  }
+
+  static async getCrdScrapeJobStatus(
+    jobId: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<CrdScrapeJobResult> {
+    const response = await ApiService.apiFetch(
+      `/api/ria/crd-scrape-jobs/${encodeURIComponent(jobId)}`,
+      { method: "GET", signal: options?.signal }
+    );
+    return toJsonOrThrow<CrdScrapeJobResult>(response);
   }
 
   static async getOnboardingStatus(
