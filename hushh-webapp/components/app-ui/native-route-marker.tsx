@@ -1,4 +1,4 @@
-type NativeRouteMarkerProps = {
+export type NativeRouteMarkerProps = {
   routeId: string;
   marker: string;
   authState?: string;
@@ -8,12 +8,12 @@ type NativeRouteMarkerProps = {
 export function NativeRouteMarker({
   routeId,
   marker,
-  authState = "",
-  dataState = "",
+  authState,
+  dataState,
 }: NativeRouteMarkerProps) {
   return (
     <div
-      style={{ display: "none" }}
+      className="hidden"
       aria-hidden="true"
       data-testid={marker}
       data-native-route-marker="true"
