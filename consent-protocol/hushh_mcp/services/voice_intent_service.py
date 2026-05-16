@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import time
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from difflib import get_close_matches
@@ -240,6 +241,88 @@ _DESTRUCTIVE_INTENT_KEYWORDS = (
     "wipe my data",
     "clear all data",
 )
+
+# In-process LRU cache for LLM intent-planning calls
+# Cache key: (utterance_normalized, active_persona, planner_version)
+# Value:     (validated_tool_call, openai_http_ms, model_used)
+#
+# *Only* deterministic, persona-scoped, version-stamped results are cached.
+# The cache is intentionally per-process (not Redis/memcached) so that it
+# costs nothing extra in infrastructure and survives only for the lifetime of
+# the worker — which is exactly right for a hot-path utterance cache.
+
+_INTENT_CACHE_MAX_SIZE: int = int(os.getenv("VOICE_INTENT_CACHE_MAX_SIZE", "512"))
+
+
+class _IntentLRUCache:
+    """Thread-safe (GIL-protected) LRU cache for LLM planner results.
+
+    Key  : (utterance_normalized: str, persona: str, planner_version: str)
+    Value: (validated_tool_call: dict | None, openai_http_ms: int, model_used: str)
+    """
+
+    def __init__(self, maxsize: int = 512) -> None:
+        self._maxsize = max(1, maxsize)
+        self._store: OrderedDict[tuple[str, str, str], tuple[dict[str, Any] | None, int, str]] = (
+            OrderedDict()
+        )
+        self._hits: int = 0
+        self._misses: int = 0
+
+    # Public API
+
+    def get(
+        self, key: tuple[str, str, str]
+    ) -> tuple[dict[str, Any] | None, int, str] | None:
+        if key in self._store:
+            self._store.move_to_end(key)
+            self._hits += 1
+            return self._store[key]
+        self._misses += 1
+        return None
+
+    def set(
+        self,
+        key: tuple[str, str, str],
+        value: tuple[dict[str, Any] | None, int, str],
+    ) -> None:
+        if key in self._store:
+            self._store.move_to_end(key)
+            self._store[key] = value
+            return
+        self._store[key] = value
+        if len(self._store) > self._maxsize:
+            self._store.popitem(last=False)
+
+    def stats(self) -> dict[str, int]:
+        return {
+            "hits": self._hits,
+            "misses": self._misses,
+            "size": len(self._store),
+            "maxsize": self._maxsize,
+        }
+
+    def clear(self) -> None:
+        self._store.clear()
+        self._hits = 0
+        self._misses = 0
+
+
+# Module-level singleton — shared across all VoiceIntentService instances
+# within the same process / worker.
+_intent_lru_cache: _IntentLRUCache = _IntentLRUCache(maxsize=_INTENT_CACHE_MAX_SIZE)
+
+
+def _make_cache_key(
+    *,
+    transcript: str,
+    persona: str,
+    planner_version: str,
+) -> tuple[str, str, str]:
+    """Return a stable, lowercase-normalised cache key."""
+    normalized = re.sub(r"\s+", " ", transcript.strip().lower())
+    return (normalized, persona.strip().lower(), planner_version.strip().lower())
+
 
 
 def _parse_model_candidates(raw: str | None, *, default_models: list[str]) -> list[str]:
@@ -1638,7 +1721,7 @@ def _extract_analyze_target(transcript: str) -> str | None:
     if not match:
         return None
     target = _coerce_str(match.group("target"))
-    target = re.sub(r"[’']s\b", "", target, flags=re.IGNORECASE)
+    target = re.sub(r"['']s\b", "", target, flags=re.IGNORECASE)
     target = re.sub(
         r"\b(stock|stocks|ticker|company|share|shares)\b", "", target, flags=re.IGNORECASE
     )
@@ -2009,6 +2092,18 @@ class VoiceIntentService:
                 "[VOICE_FAIL_FAST] model fallback chains are disabled by VOICE_RUNTIME_CONFIG_JSON."
             )
 
+    # Cache helpers
+
+    @staticmethod
+    def _active_persona(gate_state: dict[str, Any]) -> str:
+        """Return the active persona string used as part of the cache key."""
+        return _coerce_str(gate_state.get("active_persona")) or "investor"
+
+    @staticmethod
+    def _cache_stats() -> dict[str, int]:
+        """Expose LRU cache statistics (useful for metrics/health endpoints)."""
+        return _intent_lru_cache.stats()
+
     def _ordered_tts_model_candidates(self) -> list[str]:
         return [self.tts_model or "gpt-4o-mini-tts"]
 
@@ -2219,6 +2314,25 @@ class VoiceIntentService:
                 "deterministic",
             )
 
+        # --- LRU cache check (plan_intent uses a fixed "investor" persona) ---
+        cache_key = _make_cache_key(
+            transcript=clean_transcript,
+            persona="investor",
+            planner_version=_PLANNER_NORMALIZATION_VERSION,
+        )
+        cached = _intent_lru_cache.get(cache_key)
+        if cached is not None:
+            cached_tool_call, _, cached_model = cached
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            logger.debug(
+                "[VOICE_PLAN_CACHE] status=hit model=%s elapsed_ms=%s transcript_chars=%s",
+                cached_model,
+                elapsed_ms,
+                len(clean_transcript),
+            )
+            return cached_tool_call, 0, f"{cached_model}:cache"
+        # --- end cache check ---
+
         tools = _build_tools_schema()
         context_payload = _compact_context(context)
         planner_context = build_voice_planner_context(
@@ -2305,6 +2419,10 @@ class VoiceIntentService:
             len(clean_transcript),
             validated,
         )
+
+        # Store successful LLM result in cache
+        _intent_lru_cache.set(cache_key, (validated, openai_http_ms, model_used))
+
         return validated, openai_http_ms, model_used
 
     @staticmethod
@@ -2473,9 +2591,34 @@ class VoiceIntentService:
         user_id: str,
         context_payload: dict[str, Any],
         runtime_state: dict[str, Any],
+        persona: str = "investor",
         trace_hook: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> tuple[dict[str, Any] | None, int, str]:
+        """Call the LLM planner, with an in-process LRU cache keyed on
+        (utterance_normalized, persona, planner_version).
+
+        Cache hits return immediately with ~0 ms latency; misses fall
+        through to the real OpenAI call and populate the cache on success.
+        """
         self._require_api_key()
+
+        # --- LRU cache check ---
+        cache_key = _make_cache_key(
+            transcript=transcript,
+            persona=persona,
+            planner_version=_PLANNER_NORMALIZATION_VERSION,
+        )
+        cached = _intent_lru_cache.get(cache_key)
+        if cached is not None:
+            cached_tool_call, _, cached_model = cached
+            logger.debug(
+                "[VOICE_PLANNER_CACHE] status=hit model=%s transcript_chars=%s",
+                cached_model,
+                len(transcript),
+            )
+            return cached_tool_call, 0, f"{cached_model}:cache"
+        # --- end cache check ---
+
         tools = _build_tools_schema()
         planner_context = build_voice_planner_context(
             transcript=transcript,
@@ -2566,6 +2709,16 @@ class VoiceIntentService:
             raise VoiceServiceError(502, detail)
         raw_tool_call = _extract_first_tool_call(result)
         validated = _validate_tool_call(raw_tool_call)
+
+        # Populate cache only on a valid (non-None) result
+        if validated is not None:
+            _intent_lru_cache.set(cache_key, (validated, openai_http_ms, model_used))
+            logger.debug(
+                "[VOICE_PLANNER_CACHE] status=miss_stored model=%s transcript_chars=%s",
+                model_used,
+                len(transcript),
+            )
+
         return validated, openai_http_ms, model_used
 
     async def plan_voice_response(
@@ -3210,11 +3363,15 @@ class VoiceIntentService:
                     "deterministic",
                 )
 
+        # Pass active persona into the LLM call so the cache key is
+        # persona-scoped (RIA vs. investor personas may produce different plans).
+        active_persona = self._active_persona(gate_state)
         tool_call, openai_http_ms, model_used = await self._plan_intent_with_llm_v1(
             transcript=clean_transcript,
             user_id=user_id,
             context_payload=context_payload,
             runtime_state=runtime_state,
+            persona=active_persona,
             trace_hook=trace_hook,
         )
 
