@@ -1,5 +1,7 @@
 "use client";
 
+import { getNestedValue } from "@/lib/utils/object";
+
 export type VoiceRealtimeSessionInfo = {
   clientSecret: string;
   model: string;
@@ -131,30 +133,16 @@ function normalizeTranscriptEvent(payload: Record<string, unknown>): VoiceRealti
 }
 
 function parseResponseId(payload: Record<string, unknown>): string | null {
-  if (typeof payload.response_id === "string" && payload.response_id.trim()) {
-    return payload.response_id.trim();
-  }
-  const metadataObject = asObject(payload.metadata);
-  if (
-    metadataObject &&
-    typeof metadataObject.response_id === "string" &&
-    metadataObject.response_id.trim()
-  ) {
-    return metadataObject.response_id.trim();
-  }
-  const responseObject = asObject(payload.response);
-  if (responseObject) {
-    const responseMetadata = asObject(responseObject.metadata);
-    if (
-      responseMetadata &&
-      typeof responseMetadata.response_id === "string" &&
-      responseMetadata.response_id.trim()
-    ) {
-      return responseMetadata.response_id.trim();
+  for (const path of [
+    "response_id",
+    "metadata.response_id",
+    "response.metadata.response_id",
+    "response.id",
+  ]) {
+    const value = getNestedValue<string>(payload, path);
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
     }
-  }
-  if (responseObject && typeof responseObject.id === "string" && responseObject.id.trim()) {
-    return responseObject.id.trim();
   }
   return null;
 }

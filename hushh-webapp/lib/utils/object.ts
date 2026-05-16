@@ -27,6 +27,7 @@ export function hasNestedKey(obj: unknown, path: string): boolean {
   let current: any = obj;
 
   for (const key of keys) {
+    if (current == null || typeof current !== "object") return false;
     if (!(key in current)) return false;
     current = current[key];
   }
