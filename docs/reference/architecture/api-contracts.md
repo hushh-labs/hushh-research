@@ -193,6 +193,12 @@ RIA relationship bundle note:
 | GET | `/api/pkm/scopes/{user_id}` | Get available PKM scope handles for the user |
 | POST | `/api/pkm/get-context` | Get user context for analysis |
 
+PKM proxy privacy boundary:
+
+- The shipped web owner for browser-facing PKM metadata is `hushh-webapp/app/api/pkm/[...path]/route.ts`.
+- Only `GET /api/pkm/metadata/{user_id}` uses the route-local hot cache. Cache keys include the full metadata path, query string, and vault-owner `Authorization` header so metadata and trace headers are not shared across tokens.
+- Cached and stale metadata responses preserve backend `x-correlation-id` and trace headers for observability, while writes and encrypted data reads continue to proxy directly to the backend without this cache.
+
 #### Kai Chat
 
 | Method | Path | Description |
