@@ -195,10 +195,15 @@ function emailWorkflowBusyLabel(busy: string | null): string | null {
 
 function shouldSyncWorkflowOnLoad(workflow: OneKycWorkflow): boolean {
   if (workflowConsentRequestIds(workflow).length === 0) return false;
-  if (workflow.status === "needs_scope" || workflow.status === "needs_documents") {
+  if (
+    workflow.status === "needs_scope" ||
+    workflow.status === "needs_documents"
+  ) {
     return true;
   }
-  return workflow.status === "waiting_on_user" && workflow.draft_status === "ready";
+  return (
+    workflow.status === "waiting_on_user" && workflow.draft_status === "ready"
+  );
 }
 
 function mergeWorkflows(
@@ -206,10 +211,18 @@ function mergeWorkflows(
   updates: OneKycWorkflow[],
 ): OneKycWorkflow[] {
   if (!updates.length) return baseWorkflows;
-  const byId = new Map(updates.map((workflow) => [workflow.workflow_id, workflow]));
-  const merged = baseWorkflows.map((workflow) => byId.get(workflow.workflow_id) || workflow);
+  const byId = new Map(
+    updates.map((workflow) => [workflow.workflow_id, workflow]),
+  );
+  const merged = baseWorkflows.map(
+    (workflow) => byId.get(workflow.workflow_id) || workflow,
+  );
   for (const update of updates) {
-    if (!baseWorkflows.some((workflow) => workflow.workflow_id === update.workflow_id)) {
+    if (
+      !baseWorkflows.some(
+        (workflow) => workflow.workflow_id === update.workflow_id,
+      )
+    ) {
       merged.unshift(update);
     }
   }
@@ -1057,7 +1070,9 @@ function OneKycWorkspace() {
               onClick={() => void load()}
               disabled={loading}
             >
-              <RefreshCw className={loading ? "size-4 animate-spin" : "size-4"} />
+              <RefreshCw
+                className={loading ? "size-4 animate-spin" : "size-4"}
+              />
               Refresh
             </Button>
           }

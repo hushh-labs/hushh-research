@@ -911,6 +911,28 @@ class DynamicScopeGenerator:
             "description": description,
         }
 
+    async def prewarm_validator(self) -> None:
+        """
+        Exercise format-only validation paths so the first request does not pay
+        singleton setup, parser, wildcard, and domain metadata import costs.
+
+        Per-user scope catalogs remain lazy because they are backed by PKM rows
+        and must be evaluated against the requesting user's latest manifests.
+        """
+        warmup_scopes = (
+            "attr.financial.*",
+            "attr.financial.profile.*",
+            "attr.financial.profile.risk_score",
+        )
+        for scope in warmup_scopes:
+            await self.validate_scope(scope)
+            self.get_scope_display_info(scope)
+
+        self.matches_wildcard(
+            "attr.financial.profile.risk_score",
+            "attr.financial.profile.*",
+        )
+
 
 # Singleton instance
 _scope_generator: Optional[DynamicScopeGenerator] = None
