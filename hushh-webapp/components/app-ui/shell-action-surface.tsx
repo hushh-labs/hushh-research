@@ -5,6 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { cn } from "@/lib/utils";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 
 const shellActionSurfaceVariants = cva(
   "group/shell-action relative isolate inline-flex overflow-hidden rounded-full border border-[color:var(--app-shell-surface-border)] bg-[color:var(--app-shell-surface-bg)] bg-[image:var(--app-shell-surface-fill)] bg-[length:100%_100%] bg-no-repeat text-[color:var(--app-shell-surface-foreground)] shadow-[var(--app-shell-surface-shadow)] backdrop-blur-[var(--app-shell-surface-blur)] transition-[background-color,transform,box-shadow,border-color] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/55 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:pointer-events-none disabled:opacity-60",
@@ -52,12 +53,20 @@ export const ShellActionSurface = React.forwardRef<
   },
   ref
 ) {
+  // 1. Initialize your accessibility hook!
+  const prefersReducedMotion = useReducedMotion();
+
   return (
     <span className={cn("relative inline-flex shrink-0 overflow-visible align-middle", wrapperClassName)}>
       <button
         ref={ref}
         type={type}
-        className={cn(shellActionSurfaceVariants({ variant }), className)}
+        // 2. Add the reachability proof right here to override the animations
+        className={cn(
+          shellActionSurfaceVariants({ variant }), 
+          className,
+          prefersReducedMotion && "!transition-none !duration-0 !transform-none"
+        )}
         {...props}
       >
         <span
@@ -65,7 +74,8 @@ export const ShellActionSurface = React.forwardRef<
           className={cn(
             "pointer-events-none absolute inset-0 z-[1] rounded-full bg-transparent transition-[background-color]",
             "group-hover/shell-action:bg-foreground/[0.04] group-active/shell-action:bg-foreground/[0.065]",
-            "dark:group-hover/shell-action:bg-white/[0.075] dark:group-active/shell-action:bg-white/[0.12]"
+            "dark:group-hover/shell-action:bg-white/[0.075] dark:group-active/shell-action:bg-white/[0.12]",
+            prefersReducedMotion && "!transition-none !duration-0"
           )}
         />
         <span
@@ -77,7 +87,10 @@ export const ShellActionSurface = React.forwardRef<
         >
           {children}
         </span>
-        <MaterialRipple variant="none" effect="fade" className={cn("z-10", rippleClassName)} />
+        {/* Only show the ripple effect if reduced motion is FALSE */}
+        {!prefersReducedMotion && (
+          <MaterialRipple variant="none" effect="fade" className={cn("z-10", rippleClassName)} />
+        )}
       </button>
       {badge ? (
         <span
