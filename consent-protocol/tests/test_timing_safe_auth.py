@@ -10,7 +10,7 @@ Also tests that the agents.py Kai route does not leak internal errors.
 """
 
 import hmac
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
