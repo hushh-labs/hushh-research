@@ -104,6 +104,7 @@ steps:
         append_optional_env "ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED" "${_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED}"
         append_optional_env "ONE_EMAIL_KYC_DEFAULT_SCOPE" "${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
         append_optional_env "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED" "${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
+        append_optional_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
 
         env_var_string="$(IFS=,; echo "${env_vars[*]}")"
         deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
@@ -180,6 +181,7 @@ substitutions:
   _ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED: "true"
   _ONE_EMAIL_KYC_DEFAULT_SCOPE: ""
   _ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED: "true"
+  _APP_REVIEW_MODE: ""
   _CLOUD_RUN_NO_TRAFFIC: "false"
   _IMAGE_TAG: v2.1.0
   _DEPLOY_ENV: manual
