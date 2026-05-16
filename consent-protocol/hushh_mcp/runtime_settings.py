@@ -162,6 +162,37 @@ class VoiceRuntimeSettings:
     tts_default_voice: str
     tts_format: str
     tts_prefer_quality: bool
+    vad_silence_ms: int
+
+
+@dataclass(frozen=True)
+class IndianMarketSettings:
+    """Runtime settings for the Indian stock market feature."""
+
+    enabled: bool
+    default_exchange: str          # "NSE" or "BSE"
+    zerodha_configured: bool
+    upstox_configured: bool
+
+
+def get_indian_market_settings() -> IndianMarketSettings:
+    """Return current Indian market settings (not cached — broker keys can be rotated)."""
+    enabled_raw = _clean_env("INDIAN_MARKET_ENABLED", "true").lower()
+    enabled = enabled_raw not in {"0", "false", "no", "off", "disabled"}
+    default_exchange = _clean_env("INDIAN_MARKET_DEFAULT_EXCHANGE", "NSE").upper() or "NSE"
+    zerodha_configured = bool(
+        _clean_env("ZERODHA_API_KEY") and _clean_env("ZERODHA_ACCESS_TOKEN")
+    )
+    upstox_configured = bool(
+        _clean_env("UPSTOX_API_KEY") and _clean_env("UPSTOX_ACCESS_TOKEN")
+    )
+    return IndianMarketSettings(
+        enabled=enabled,
+        default_exchange=default_exchange,
+        zerodha_configured=zerodha_configured,
+        upstox_configured=upstox_configured,
+    )
+
 
 
 def get_optional_gmail_oauth_token_key() -> str:
@@ -261,6 +292,7 @@ def get_voice_runtime_settings() -> VoiceRuntimeSettings:
         tts_default_voice=str(config.get("tts_default_voice") or "alloy").strip() or "alloy",
         tts_format=str(config.get("tts_format") or "mp3").strip() or "mp3",
         tts_prefer_quality=_bool_from_value(config.get("tts_prefer_quality"), default=False),
+        vad_silence_ms=max(300, min(2000, _int_from_value(config.get("vad_silence_ms"), 500))),
     )
 
 

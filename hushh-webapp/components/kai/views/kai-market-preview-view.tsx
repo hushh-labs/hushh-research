@@ -78,6 +78,7 @@ import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
 } from "@/lib/voice/voice-surface-metadata";
+import { IndianIndexBar } from "@/components/indian-market/IndianIndexBar";
 
 function useRetainedSurfaceSelection<T>(selection: T | null, delayMs = 180): T | null {
   const [retained, setRetained] = useState<T | null>(selection);
@@ -2107,6 +2108,8 @@ export function KaiMarketPreviewView() {
 
       {hasPayload ? (
         <div className="flex flex-col gap-12">
+          <IndianIndexBar className="mb-2" />
+
           <section className="space-y-4">
             <MarketSectionLead title="Overview" />
             <MarketOverviewGrid

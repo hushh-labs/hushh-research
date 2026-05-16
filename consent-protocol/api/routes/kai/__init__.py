@@ -11,6 +11,7 @@ This package organizes Kai routes into logical modules:
 - decisions.py: Decision history (reads from domain_summaries; legacy CRUD returns 410)
 - consent.py: Kai-specific consent grants
 - support.py: Profile support and bug-report messaging via Gmail API
+- indian_market.py: Indian stock market (NSE/BSE) — quotes, indices, symbol search, broker portfolio
 
 All sub-routers are aggregated into `kai_router` for backward compatibility.
 """
@@ -23,6 +24,7 @@ from .consent import router as consent_router
 from .decisions import router as decisions_router
 from .gmail import router as gmail_router
 from .health import router as health_router
+from .indian_market import router as indian_market_router
 from .losers import router as losers_router
 from .market_insights import router as market_insights_router
 from .plaid import router as plaid_router
@@ -105,6 +107,11 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/market/insights/baseline/{user_id}",
     "/market/insights/{user_id}",
     "/stock-preview/{user_id}",
+    "/kai/indian-market/status",
+    "/kai/indian-market/indices",
+    "/kai/indian-market/quote/{symbol}",
+    "/kai/indian-market/search",
+    "/kai/indian-market/portfolio",
 ]
 
 # Include all sub-routers (no prefix since main router has /api/kai)
@@ -121,6 +128,7 @@ kai_router.include_router(decisions_router)
 kai_router.include_router(losers_router)
 kai_router.include_router(market_insights_router)
 kai_router.include_router(support_router)
+kai_router.include_router(indian_market_router)
 
 # Export for server.py
 router = kai_router

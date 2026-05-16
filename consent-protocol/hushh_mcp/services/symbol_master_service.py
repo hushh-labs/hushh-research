@@ -22,6 +22,8 @@ _TRADE_ACTION_SYMBOLS = {
 _CASH_EQUIVALENT_SYMBOLS = {"CASH", "MMF", "SWEEP", "QACDS"}
 _CASH_HINTS = ("cash", "sweep", "money market", "core position", "deposit")
 _TICKER_PATTERN_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,5}$")
+_INDIAN_SUFFIX_RE = re.compile(r"\.(NS|BO)$", re.IGNORECASE)
+_INDIAN_TICKER_RE = re.compile(r"^[A-Z&][A-Z0-9&.\-]{0,14}\.(NS|BO)$", re.IGNORECASE)
 
 
 @dataclass
@@ -37,11 +39,18 @@ class SymbolMasterService:
 
     def normalize(self, raw_symbol: Any) -> str:
         text = str(raw_symbol or "").strip().upper()
+        # Preserve .NS/.BO Indian exchange suffixes before stripping
+        indian_suffix = ""
+        if _INDIAN_SUFFIX_RE.search(text):
+            m = _INDIAN_SUFFIX_RE.search(text)
+            indian_suffix = m.group(0).upper()  # e.g. ".NS"
+            text = text[: m.start()]
         out = []
         for ch in text:
-            if ch.isalnum() or ch in ".-":
+            if ch.isalnum() or ch in ".&-":
                 out.append(ch)
-        return "".join(out)[:12]
+        base = "".join(out)[:10]
+        return base + indian_suffix if indian_suffix else base[:12]
 
     def get_ticker_metadata(self, symbol: str) -> dict[str, Any] | None:
         normalized = self.normalize(symbol)
@@ -53,6 +62,10 @@ class SymbolMasterService:
             except Exception:
                 return None
         return ticker_cache.get_by_ticker(normalized)
+
+    def is_indian_symbol(self, symbol: str) -> bool:
+        """Return True if the symbol is an NSE or BSE-listed equity."""
+        return bool(_INDIAN_SUFFIX_RE.search((symbol or "").strip().upper()))
 
     def is_trade_action_symbol(self, symbol: str) -> bool:
         return self.normalize(symbol) in _TRADE_ACTION_SYMBOLS
@@ -122,6 +135,15 @@ class SymbolMasterService:
                 trust_tier="tradable_ticker" if tradable else "non_tradable_identifier",
                 tradable=tradable,
                 reason="symbol_master_match",
+            )
+
+        # Check for Indian exchange symbols — always tradable candidates.
+        if self.is_indian_symbol(normalized) or _INDIAN_TICKER_RE.match(normalized):
+            return SymbolClassification(
+                symbol=normalized,
+                trust_tier="indian_exchange_ticker",
+                tradable=True,
+                reason="indian_exchange_pattern",
             )
 
         # Fallback: when the ticker master is stale/incomplete, treat valid ticker-like
