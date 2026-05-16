@@ -240,7 +240,11 @@ async def lookup_user(
             country=country,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logger.warning("user_lookup.invalid_identifier: %s", exc)
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid lookup identifier. Provide a valid email, phone number, or user ID.",
+        ) from exc
 
     logger.info("user_lookup.requested kind=%s", lookup_kind)
 
