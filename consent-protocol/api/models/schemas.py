@@ -8,9 +8,10 @@ All request and response schemas are centralized here for:
 - Easy documentation generation
 """
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # ============================================================================
 # AGENT CHAT MODELS
@@ -20,8 +21,8 @@ from pydantic import BaseModel
 class ChatRequest(BaseModel):
     """Request model for agent chat endpoints."""
 
-    userId: str
-    message: str
+    userId: str = Field(..., min_length=1, max_length=128)
+    message: str = Field(..., min_length=1, max_length=4000)
     sessionState: Optional[Dict[str, Any]] = None
 
 
@@ -49,7 +50,7 @@ class ChatResponse(BaseModel):
 class ValidateTokenRequest(BaseModel):
     """Request to validate a consent token."""
 
-    token: str
+    token: str = Field(..., min_length=1)
 
 
 # ============================================================================
@@ -60,11 +61,16 @@ class ValidateTokenRequest(BaseModel):
 class ConsentRequest(BaseModel):
     """Request consent from a user for data access."""
 
-    user_id: str
-    developer_token: str  # Developer's API key
-    scope: str  # e.g. "attr.food.*", "world_model.read"
-    reason: Optional[str] = None
-    expiry_hours: int = 24  # How long consent lasts
+    user_id: str = Field(..., min_length=1, max_length=128)
+    developer_token: str = Field(..., min_length=1, max_length=512)
+    scope: str = Field(
+        ...,
+        min_length=3,
+        max_length=128,
+        pattern=r"^[a-z][a-z0-9_]*(\.[a-z0-9_*]+)+$",
+    )
+    reason: Optional[str] = Field(default=None, max_length=512)
+    expiry_hours: int = Field(default=24, ge=1, le=720)
 
 
 class ConsentResponse(BaseModel):
@@ -80,8 +86,8 @@ class ConsentResponse(BaseModel):
 class DataAccessRequest(BaseModel):
     """Request to access user data with consent token."""
 
-    user_id: str
-    consent_token: str  # Token from user consent
+    user_id: str = Field(..., min_length=1, max_length=128)
+    consent_token: str = Field(..., min_length=1)
 
 
 class DataAccessResponse(BaseModel):
@@ -100,8 +106,8 @@ class DataAccessResponse(BaseModel):
 class SessionTokenRequest(BaseModel):
     """Request to issue a session token."""
 
-    userId: str
-    scope: str = "session"
+    userId: str = Field(..., min_length=1, max_length=128)
+    scope: str = Field(default="session", min_length=1, max_length=128)
 
 
 class SessionTokenResponse(BaseModel):
@@ -116,12 +122,27 @@ class SessionTokenResponse(BaseModel):
 class LogoutRequest(BaseModel):
     """Request to logout and destroy session tokens."""
 
-    userId: str
+    userId: str = Field(..., min_length=1, max_length=128)
 
 
 class HistoryRequest(BaseModel):
     """Request for consent history with pagination."""
 
-    userId: str
-    page: int = 1
-    limit: int = 20
+    userId: str = Field(..., min_length=1, max_length=128)
+    page: int = Field(default=1, ge=1)
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+# ============================================================================
+# AI OBSERVABILITY MODELS
+# ============================================================================
+
+
+class ReasoningStep(BaseModel):
+    agent_id: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    intent: str
+    thought: str
+    action_taken: Optional[str] = None
+    observation: Optional[str] = None
+    confidence_score: float
