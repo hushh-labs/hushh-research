@@ -13,6 +13,7 @@
 
 "use client";
 
+import { AutoResizeTextarea } from "@/components/app-ui/auto-resize-textarea";
 import { useState } from "react";
 import { ArrowLeft, TrendingUp, TrendingDown, Minus, Search, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -274,13 +275,12 @@ export function AnalysisView({
                   size="sm"
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
                 />
-                <input
-                  type="text"
+               {/* HARVESTED AUTO-RESIZE SEMANTICS HERE */}
+                <AutoResizeTextarea 
                   value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value.toUpperCase())}
-                  placeholder="Enter ticker (e.g., AAPL)"
-                  maxLength={5}
-                  className="w-full pl-9 pr-3 py-2 rounded-lg border border-border bg-background outline-none focus:border-primary transition-colors"
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  placeholder="Search or analyze portfolio..."
+                  className="pl-9 w-full min-h-[40px] bg-background border rounded-md resize-none"
                 />
               </div>
               <MorphyButton 
