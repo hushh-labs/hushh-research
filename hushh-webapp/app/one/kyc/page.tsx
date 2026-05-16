@@ -486,14 +486,14 @@ function OneKycWorkspace() {
         .slice(0, 10);
       const syncResults = syncCandidates.length
         ? await Promise.allSettled(
-            syncCandidates.map((workflow) =>
-              OneKycService.refreshWorkflow({
-                userId,
-                vaultOwnerToken,
-                workflowId: workflow.workflow_id,
-              }),
-            ),
-          )
+          syncCandidates.map((workflow) =>
+            OneKycService.refreshWorkflow({
+              userId,
+              vaultOwnerToken,
+              workflowId: workflow.workflow_id,
+            }),
+          ),
+        )
         : [];
       const syncedWorkflows = syncResults
         .filter(
@@ -513,13 +513,9 @@ function OneKycWorkspace() {
       );
     } catch (err) {
       setConnectorReady(false);
-<<<<<<< HEAD
-      setError(err instanceof Error ? err.message : "Unable to load email requests.");
-=======
       setError(
         err instanceof Error ? err.message : "Unable to load email requests.",
       );
->>>>>>> upstream/main
     } finally {
       setLoading(false);
     }
@@ -765,24 +761,22 @@ function OneKycWorkspace() {
             clientDraftHash: localDraft.draftHash,
             consentExportRevision:
               Array.isArray(workflow.consent_exports) &&
-              workflow.consent_exports.length > 1
+                workflow.consent_exports.length > 1
                 ? null
                 : typeof workflow.consent_export?.export_revision === "number"
                   ? workflow.consent_export.export_revision
                   : typeof workflow.metadata?.consent_export === "object" &&
-                      workflow.metadata.consent_export !== null &&
-                      typeof (
-                        workflow.metadata.consent_export as Record<
-                          string,
-                          unknown
-                        >
-                      ).export_revision === "number"
+                    workflow.metadata.consent_export !== null &&
+                    typeof (
+                      workflow.metadata.consent_export as Record<
+                        string,
+                        unknown>
+                    ).export_revision === "number"
                     ? ((
-                        workflow.metadata.consent_export as Record<
-                          string,
-                          unknown
-                        >
-                      ).export_revision as number)
+                      workflow.metadata.consent_export as Record<
+                        string,
+                        unknown>
+                    ).export_revision as number)
                     : null,
             pkmWritebackArtifactHash: artifactHash,
           });
@@ -823,21 +817,16 @@ function OneKycWorkspace() {
             updateWorkflow(next);
             clearLocalWorkflowState(workflow.workflow_id);
             setError(
-              `Approved reply sent, but encrypted PKM writeback failed: ${
-                writeback.message || "PKM writeback failed."
+              `Approved reply sent, but encrypted PKM writeback failed: ${writeback.message || "PKM writeback failed."
               }`,
             );
             return;
           }
         } else if (action === "reject") {
-<<<<<<< HEAD
-          next = await OneKycService.rejectDraft({ ...input, reason: "Rejected from Email." });
-=======
           next = await OneKycService.rejectDraft({
             ...input,
             reason: "Rejected from Email.",
           });
->>>>>>> upstream/main
         } else {
           next = await refreshWorkflowState(workflow);
         }
@@ -1101,13 +1090,7 @@ function OneKycWorkspace() {
         ) : null}
 
         <div className="space-y-4">
-<<<<<<< HEAD
-          <SettingsGroup
-            title="Requests"
-          >
-=======
           <SettingsGroup title="Requests">
->>>>>>> upstream/main
             {loading ? (
               <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
                 <AsyncActionStatus
@@ -1129,11 +1112,11 @@ function OneKycWorkspace() {
                   title={workflow.subject || "Email request"}
                   description={[
                     workflow.counterparty_label ||
-                      workflow.sender_email ||
-                      "Counterparty",
+                    workflow.sender_email ||
+                    "Counterparty",
                     selectedScopeLabels(workflow).join(", ") ||
-                      workflow.requested_scope ||
-                      "Scope pending",
+                    workflow.requested_scope ||
+                    "Scope pending",
                   ].join(" / ")}
                   trailing={
                     <Badge variant={statusVariant(workflow.status)}>
@@ -1153,13 +1136,7 @@ function OneKycWorkspace() {
         </div>
 
         <div className="space-y-4">
-<<<<<<< HEAD
-          <SettingsGroup
-            title="Matching emails"
-          >
-=======
           <SettingsGroup title="Matching emails">
->>>>>>> upstream/main
             <SettingsRow
               icon={MailPlus}
               title="Verified email addresses"
@@ -1167,12 +1144,9 @@ function OneKycWorkspace() {
                 verifiedAliases.length
                   ? verifiedAliases.map((alias) => alias.email).join(", ")
                   : "Add an address people already use for you."
-<<<<<<< HEAD
-=======
               }
               trailing={
                 <Badge variant="secondary">{verifiedAliases.length}</Badge>
->>>>>>> upstream/main
               }
               chevron
               onClick={() => setAliasPanelOpen(true)}
@@ -1187,15 +1161,11 @@ function OneKycWorkspace() {
           open={detailOpen && Boolean(selected)}
           onOpenChange={setDetailOpen}
           title={selected?.subject || "Email request"}
-<<<<<<< HEAD
-          description={selected?.counterparty_label || selected?.sender_email || "Review the selected request."}
-=======
           description={
             selected?.counterparty_label ||
             selected?.sender_email ||
             "Review the selected request."
           }
->>>>>>> upstream/main
           desktopMaxWidthClassName="sm:!max-w-[960px]"
           desktopMaxWidth="min(960px, calc(100vw - 3rem))"
         >
@@ -1229,15 +1199,11 @@ function OneKycWorkspace() {
                 <SettingsRow
                   icon={ShieldCheck}
                   title="Data to share"
-<<<<<<< HEAD
-                  description={selectedScopeLabels(selected).join(", ") || selected.requested_scope || "-"}
-=======
                   description={
                     selectedScopeLabels(selected).join(", ") ||
                     selected.requested_scope ||
                     "-"
                   }
->>>>>>> upstream/main
                 />
                 <SettingsRow
                   icon={Clock3}
@@ -1537,7 +1503,7 @@ function OneKycWorkspace() {
               </SettingsGroup>
 
               {selected.status === "needs_scope" &&
-              workflowConsentRequestIds(selected).length > 0 ? (
+                workflowConsentRequestIds(selected).length > 0 ? (
                 <Button asChild variant="ghost" size="sm">
                   <Link href={consentCenterHrefForWorkflow(selected)}>
                     Open Access Center

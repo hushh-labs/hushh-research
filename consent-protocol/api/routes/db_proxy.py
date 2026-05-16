@@ -143,44 +143,6 @@ async def require_vault_owner_consent_header(
     }
 
 
-async def require_vault_owner_consent_header(
-    hushh_consent: str | None = Header(None, alias="X-Hushh-Consent"),
-) -> dict:
-    """Require a VAULT_OWNER token in the explicit dual-auth consent header."""
-    raw_header = (hushh_consent or "").strip()
-    if not raw_header:
-        raise HTTPException(
-            status_code=401,
-            detail="Missing X-Hushh-Consent header",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    token = raw_header.removeprefix("Bearer ").strip()
-    if not token:
-        raise HTTPException(
-            status_code=401,
-            detail="Missing X-Hushh-Consent bearer token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    valid, reason, token_obj = await validate_token_with_db(token, ConsentScope.VAULT_OWNER)
-    if not valid or token_obj is None:
-        raise HTTPException(
-            status_code=401,
-            detail=f"Invalid token: {reason}",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    scope = getattr(token_obj, "scope", None)
-    return {
-        "user_id": token_obj.user_id,
-        "agent_id": getattr(token_obj, "agent_id", None),
-        "scope": getattr(token_obj, "scope_str", None) or getattr(scope, "value", scope),
-        "token": token,
-        "token_obj": token_obj,
-    }
-
-
 # ============================================================================
 # Request/Response Models
 # ============================================================================
@@ -309,8 +271,6 @@ class VaultIntegrityResponse(BaseModel):
 # Vault Endpoints (Minimal SQL Operations)
 # ============================================================================
 
-# NOTE: /food/get and /professional/get removed; domain data is via PKM.
-
 
 @router.post("/vault/check", response_model=VaultCheckResponse)
 async def vault_check(
@@ -319,12 +279,8 @@ async def vault_check(
 ):
     """
     Check if a vault exists for the user.
-
     ⚠️ DEPRECATED: Use modern vault endpoints instead.
-
-    SECURITY: Requires Firebase authentication. User can only check their own vault.
     """
-    # Verify user is checking their own vault
     verify_user_id_match(firebase_uid, request.userId)
 
     try:
@@ -343,8 +299,7 @@ async def vault_bootstrap_state(
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     """
-    Ensure authenticated user has placeholder/active entry and return DB-first
-    pre-vault onboarding/tour state.
+    Ensure authenticated user has placeholder entry and return onboarding state.
     """
     user_id = request.userId or firebase_uid
     verify_user_id_match(firebase_uid, user_id)
@@ -383,7 +338,7 @@ async def vault_pre_vault_state(
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     """
-    Update DB-first pre-vault onboarding/tour state for the authenticated user.
+    Update onboarding state for the authenticated user.
     """
     user_id = request.userId or firebase_uid
     verify_user_id_match(firebase_uid, user_id)
@@ -430,12 +385,8 @@ async def vault_get(
 ):
     """
     Get encrypted vault key data for the user.
-
     ⚠️ DEPRECATED: Use modern vault endpoints instead.
-
-    SECURITY: Requires Firebase authentication. User can only get their own vault.
     """
-    # Verify user is getting their own vault
     verify_user_id_match(firebase_uid, request.userId)
 
     try:
@@ -462,12 +413,8 @@ async def vault_setup(
 ):
     """
     Store encrypted vault key data.
-
     ⚠️ DEPRECATED: Use modern vault endpoints instead.
-
-    SECURITY: Requires Firebase authentication. User can only setup their own vault.
     """
-    # Verify user is setting up their own vault
     verify_user_id_match(firebase_uid, request.userId)
     _check_client_version_or_raise(http_request)
     methods = [wrapper.method for wrapper in request.wrappers]
@@ -633,67 +580,6 @@ async def vault_wrapper_delete(
             e,
         )
         _raise_database_http_exception(e)
-
-
-@router.post("/vault/wrapper/delete", response_model=SuccessResponse)
-async def vault_wrapper_delete(
-    http_request: Request,
-    request: VaultWrapperDeleteRequest,
-    firebase_uid: str = Depends(require_firebase_auth),
-    vault_owner_token: dict = Depends(require_vault_owner_consent_header),
-):
-    """Remove an enrolled non-passphrase vault wrapper."""
-    verify_user_id_match(firebase_uid, request.userId)
-    token_user_id = str(vault_owner_token.get("user_id") or "")
-    if token_user_id != request.userId:
-        logger.warning(
-            "vault/wrapper/delete token mismatch token=%s request=%s",
-            _mask_user_id(token_user_id),
-            _mask_user_id(request.userId),
-        )
-        raise HTTPException(
-            status_code=403,
-            detail="VAULT_OWNER token userId does not match requested userId",
-        )
-    _check_client_version_or_raise(http_request)
-    logger.info(
-        "vault/wrapper/delete request user=%s method=%s",
-        _mask_user_id(request.userId),
-        request.method,
-    )
-
-    try:
-        service = VaultKeysService()
-        await service.delete_wrapper(
-            user_id=request.userId,
-            vault_key_hash=request.vaultKeyHash,
-            method=request.method,
-            wrapper_id=request.wrapperId,
-            fallback_primary_method=request.fallbackPrimaryMethod,
-            fallback_primary_wrapper_id=request.fallbackPrimaryWrapperId,
-        )
-        return SuccessResponse(success=True)
-
-    except ValueError as e:
-        message = str(e)
-        code = "VAULT_VALIDATION_ERROR"
-        if "vaultKeyHash mismatch" in message:
-            code = "VAULT_KEY_HASH_MISMATCH"
-        elif "Vault wrapper not found" in message:
-            code = "VAULT_WRAPPER_NOT_FOUND"
-        elif "Passphrase wrapper cannot be removed" in message:
-            code = "VAULT_PASSPHRASE_REQUIRED"
-        elif "Fallback primary method/wrapper" in message:
-            code = "VAULT_PRIMARY_WRAPPER_NOT_FOUND"
-        raise HTTPException(status_code=400, detail={"error": message, "code": code})
-    except Exception as e:
-        logger.error(
-            "vault/wrapper/delete error user=%s method=%s: %s",
-            _mask_user_id(request.userId),
-            request.method,
-            e,
-        )
-        _raise_database_http_exception(e)
         raise HTTPException(status_code=500, detail="Database error")
 
 
@@ -746,10 +632,7 @@ async def vault_integrity(
     request: VaultGetRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """
-    Validate vault invariants for the authenticated user.
-    Intended for internal/dev diagnostics.
-    """
+    """Validate vault invariants for internal diagnostics."""
     verify_user_id_match(firebase_uid, request.userId)
 
     try:
@@ -844,12 +727,7 @@ async def get_vault_status(
     request: Request,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """
-    Get status for all vault domains.
-    Returns metadata without encrypted data.
-
-    SECURITY: Requires Firebase authentication AND VAULT_OWNER token.
-    """
+    """Get status for all vault domains."""
     try:
         body = await request.json()
         user_id = body.get("userId")
@@ -858,10 +736,8 @@ async def get_vault_status(
         if not user_id:
             raise HTTPException(status_code=400, detail="userId is required")
 
-        # Verify user is getting their own vault status
         verify_user_id_match(firebase_uid, user_id)
 
-        # Use VaultKeysService (handles consent validation internally)
         service = VaultKeysService()
         await validate_vault_owner_token(consent_token, user_id)
         status = await service.get_vault_status(user_id, consent_token)
@@ -869,7 +745,6 @@ async def get_vault_status(
         return status
 
     except ValueError as e:
-        # Consent validation errors
         raise HTTPException(status_code=401, detail=str(e))
     except HTTPException:
         raise
