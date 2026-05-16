@@ -1,21 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
-import { createTimeoutSignal } from "@/lib/api/request-timeout";
+import { fetchWithTimeout } from "@/lib/api/request-timeout";
 
 const REQUEST_TIMEOUT_MS = 8000;
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
 
 export async function GET(_request: NextRequest) {
   const url = `${getPythonApiUrl()}/api/app-config/review-mode`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
-    const response = await fetch(url, {
-  method: "GET",
-  signal: createTimeoutSignal(8000),
-});
-    clearTimeout(timeout);
+    const response = await fetchWithTimeout(url, { method: "GET" }, REQUEST_TIMEOUT_MS);
 
     if (!response.ok) {
       return NextResponse.json(
@@ -27,7 +21,6 @@ export async function GET(_request: NextRequest) {
     const data = await response.json();
     return NextResponse.json(data, { status: 200, headers: NO_STORE_HEADERS });
   } catch (error) {
-    clearTimeout(timeout);
     console.warn("[app-config/review-mode] fallback disabled:", error);
     return NextResponse.json(
       { enabled: false },
