@@ -15,7 +15,7 @@ import hashlib
 import time
 from unittest.mock import AsyncMock
 
-from utils.compliance import (
+from hushh_mcp.services.compliance import (
     ComplianceEngine,
     ConsentEventRecord,
     ForgetMeReport,
@@ -263,6 +263,6 @@ class TestForgetMe:
 
 class TestComplianceEngineSingleton:
     def test_compliance_engine_singleton_identity(self):
-        from utils.compliance import compliance_engine as e2
+        from hushh_mcp.services.compliance import compliance_engine as e2
 
         assert compliance_engine is e2
