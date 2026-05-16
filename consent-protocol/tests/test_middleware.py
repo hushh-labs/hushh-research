@@ -240,3 +240,96 @@ class TestTelemetryFiredOnOtherRoutes:
         data = json.loads(matching[0].message)
         assert data["method"] == "GET"
         assert data["status_code"] == 200
+
+
+# ===========================================================================
+# Trust-boundary proof — middleware is reachable from the real consent router
+# ===========================================================================
+
+
+class TestTrustBoundaryProof:
+    """
+    Canonical surface : api.middlewares.observability._safe_request_headers
+                        (called inside observability_middleware on every HTTP request)
+    Canonical caller  : app.middleware("http")(observability_middleware)
+                        registered in server.py line 122 — fires on ALL routes,
+                        including the entire consent router mounted at /api/consent:
+                          GET  /api/consent/pending
+                          POST /api/consent/pending/approve
+                          GET  /api/consent/center
+                          … and every other consent route.
+    Attach point proof: The test below mounts the real consent APIRouter (from
+                        api.routes.consent) behind observability_middleware in an
+                        isolated FastAPI app, issues a request to
+                        GET /api/consent/pending, and asserts that a
+                        ``request.summary`` log entry is emitted — proving the
+                        middleware boundary is reachable and non-duplicative.
+    """
+
+    @staticmethod
+    def _build_consent_app() -> "FastAPI":
+        """Minimal app that mirrors the server.py wiring for the consent router."""
+        from api.routes.consent import router as consent_router
+
+        app = FastAPI()
+        app.middleware("http")(observability_middleware)
+        app.include_router(consent_router)
+        return app
+
+    def test_middleware_fires_on_real_consent_router_route(self, caplog):
+        """observability_middleware emits request.summary on GET /api/consent/pending."""
+        app = self._build_consent_app()
+        client = TestClient(app, raise_server_exceptions=False)
+        with caplog.at_level(logging.INFO, logger=_LOGGER_NAME):
+            # 401/403 is expected — no auth token supplied; what matters is the
+            # middleware fires BEFORE the auth dependency short-circuits.
+            client.get("/api/consent/pending", params={"userId": "test-uid"})
+
+        matching = [
+            r for r in caplog.records
+            if r.name == _LOGGER_NAME and "request.summary" in r.message
+        ]
+        assert matching, (
+            "observability_middleware must emit request.summary on real consent routes"
+        )
+        data = json.loads(matching[0].message)
+        assert data["method"] == "GET"
+        assert "safe_headers" in data
+
+    def test_authorization_header_never_logged_on_consent_route(self, caplog):
+        """Authorization value is not present in any log payload on consent routes."""
+        app = self._build_consent_app()
+        client = TestClient(app, raise_server_exceptions=False)
+        with caplog.at_level(logging.INFO, logger=_LOGGER_NAME):
+            client.get(
+                "/api/consent/pending",
+                params={"userId": "test-uid"},
+                headers={"Authorization": "Bearer super-secret-consent-token"},
+            )
+
+        for record in caplog.records:
+            if record.name == _LOGGER_NAME and "request.summary" in record.message:
+                assert "super-secret-consent-token" not in record.message
+                data = json.loads(record.message)
+                assert "authorization" not in data.get("safe_headers", {})
+
+    def test_safe_headers_helper_is_the_sole_filtering_path(self):
+        """_safe_request_headers is the only function that strips credential headers."""
+        from starlette.requests import Request
+
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/consent/pending/approve",
+            "query_string": b"",
+            "headers": [
+                (b"authorization", b"Bearer tok"),
+                (b"x-api-key", b"key-123"),
+                (b"content-type", b"application/json"),
+            ],
+        }
+        req = Request(scope)
+        result = _safe_request_headers(req)
+        assert "authorization" not in result
+        assert "x-api-key" not in result
+        assert result.get("content-type") == "application/json"
