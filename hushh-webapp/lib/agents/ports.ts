@@ -1,5 +1,7 @@
 // lib/agents/ports.ts
 
+import { safeJsonParse } from "@/lib/utils/safe-json";
+
 /**
  * Agent Port Configuration
  *
@@ -33,15 +35,14 @@ function loadAgentPorts(): Record<string, number> {
   const portsJson = process.env.AGENT_PORTS_JSON;
 
   if (portsJson) {
-    try {
-      const parsed = JSON.parse(portsJson);
+    const parsed = safeJsonParse<Record<string, unknown> | null>(portsJson, null);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       console.log("[AgentPorts] Loaded from environment");
-      return { ...DEFAULT_AGENT_PORTS, ...parsed };
-    } catch (_e) {
-      console.warn(
-        "[AgentPorts] Failed to parse AGENT_PORTS_JSON, using defaults"
-      );
+      return { ...DEFAULT_AGENT_PORTS, ...parsed } as Record<string, number>;
     }
+    console.warn(
+      "[AgentPorts] Failed to parse AGENT_PORTS_JSON, using defaults"
+    );
   }
 
   return DEFAULT_AGENT_PORTS;
