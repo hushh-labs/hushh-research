@@ -136,11 +136,7 @@ export class KaiWeb extends WebPlugin implements KaiPlugin {
     vaultOwnerToken: string;
   }): Promise<{
     response: string;
-    conversation_id: string;
-    component_type?: "import_prompt" | "analysis_summary" | "profile_summary" | null;
-    component_data?: Record<string, unknown> | null;
-    learned_attributes?: Array<{ domain: string; key: string; value: string }>;
-    tokens_used?: number | null;
+    conversationId: string;
     timestamp: string;
   }> {
     // Use VAULT_OWNER token for consent-gated access
