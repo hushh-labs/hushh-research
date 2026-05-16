@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo } from "react";
 import { ClipboardList, Loader2 } from "lucide-react";
 
 import { SectionHeader } from "@/components/app-ui/page-sections";
@@ -14,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { buildRiaClientWorkspaceRoute } from "@/lib/navigation/routes";
 import { useRiaClientWorkspaceState } from "@/components/ria/use-ria-client-workspace-state";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 function formatStatusLabel(status?: string | null) {
   return String(status || "pending").replaceAll("_", " ");
@@ -63,6 +65,37 @@ export function RiaClientRequestDetail({
   });
 
   const request = detail?.request_history.find((entry) => entry.request_id === requestId) || null;
+  const voiceSurfaceMetadata = useMemo(
+    () => ({
+      screenId: "ria_client_request_detail",
+      title: request?.scope_metadata?.label || "RIA Client Request Detail",
+      purpose: "Read-only advisor request detail for a connected investor.",
+      primaryEntity: request?.request_id || requestId,
+      controls: [
+        {
+          id: "ria_client_request_detail_route",
+          label: "Request detail",
+          type: "route",
+          actionId: "route.ria_client_request_detail",
+        },
+        {
+          id: "ria_client_request_open_access_fallback",
+          label: "Open access",
+          type: "link",
+          actionId: "ria.client_request.open_access_fallback",
+        },
+      ],
+      visibleModules: ["Request summary", "Client access framing"],
+      selectedEntity: request?.scope_metadata?.label || requestId,
+      screenMetadata: {
+        client_id: clientId,
+        request_id: requestId,
+        request_action: request?.action || null,
+      },
+    }),
+    [clientId, request?.action, request?.request_id, request?.scope_metadata?.label, requestId]
+  );
+  usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
 
   if (personaLoading) return null;
 
@@ -134,6 +167,7 @@ export function RiaClientRequestDetail({
                     tab: "access",
                     testProfile: isTestProfile,
                   })}
+                  data-voice-control-id="ria_client_request_open_access_fallback"
                 >
                   Open access
                 </Link>

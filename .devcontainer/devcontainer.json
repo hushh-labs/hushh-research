@@ -1,0 +1,24 @@
+{
+  "name": "hushh-research",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.13"
+    },
+    "ghcr.io/astral-sh/uv/devcontainer-features/uv:1": {}
+  },
+  "postCreateCommand": "bash ./bin/hushh bootstrap --mode uat",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "tamasfe.even-better-toml"
+      ]
+    }
+  }
+}

@@ -39,6 +39,14 @@ export type NativeTestConfig = {
   expectedRoute: string | null;
 };
 
+function sanitizeConfiguredValue(value: string | null | undefined) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return null;
+  if (/replace_with_/i.test(trimmed)) return null;
+  if (/your_[a-z0-9_]+_here/i.test(trimmed)) return null;
+  return trimmed;
+}
+
 export function getNativeTestConfig(): NativeTestConfig {
   if (typeof window === "undefined") {
     return {
@@ -72,10 +80,7 @@ export function getNativeTestConfig(): NativeTestConfig {
       typeof raw.vaultPassphrase === "string" && raw.vaultPassphrase.trim().length > 0
         ? raw.vaultPassphrase
         : null,
-    expectedUserId:
-      typeof raw.expectedUserId === "string" && raw.expectedUserId.trim().length > 0
-        ? raw.expectedUserId.trim()
-        : null,
+    expectedUserId: sanitizeConfiguredValue(raw.expectedUserId),
     expectedMarker:
       typeof raw.expectedMarker === "string" && raw.expectedMarker.trim().length > 0
         ? raw.expectedMarker.trim()

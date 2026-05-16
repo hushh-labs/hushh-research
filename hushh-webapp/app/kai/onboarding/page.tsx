@@ -36,6 +36,7 @@ import {
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
 import { trackEvent } from "@/lib/observability/client";
+import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 import { Card } from "@/lib/morphy-ux/card";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
 
@@ -487,6 +488,12 @@ function KaiOnboardingPageContent() {
               action: "complete",
               result: "success",
             });
+            trackGrowthFunnelStepCompleted({
+              journey: "investor",
+              step: "onboarding_completed",
+              dedupeKey: "growth:investor:onboarding_completed:complete",
+              dedupeWindowMs: 5_000,
+            });
             router.replace("/kai/import");
           } catch (error) {
             console.error("[KaiOnboardingPage] Failed to finalize onboarding:", error);
@@ -583,6 +590,12 @@ function KaiOnboardingPageContent() {
           trackEvent("onboarding_completed", {
             action: "skip",
             result: "success",
+          });
+          trackGrowthFunnelStepCompleted({
+            journey: "investor",
+            step: "onboarding_completed",
+            dedupeKey: "growth:investor:onboarding_completed:skip",
+            dedupeWindowMs: 5_000,
           });
           router.replace("/kai");
         } catch (error) {

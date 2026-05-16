@@ -20,6 +20,8 @@ type UseAmplitudeMeterResult = {
 const DEFAULT_SENSITIVITY = 10;
 const DEFAULT_SMOOTHING_FACTOR = 0.2;
 const DEFAULT_LOG_INTERVAL_MS = 500;
+const VOICE_AUDIO_DEBUG_ENABLED =
+  process.env.NEXT_PUBLIC_KAI_VOICE_AUDIO_DEBUG === "1";
 
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -87,7 +89,9 @@ export function useAmplitudeMeter(
     setNormalizedLevel(0);
     setSmoothedLevel(0);
     setIsRunning(false);
-    console.info("[VOICE_AUDIO] meter_stopped");
+    if (VOICE_AUDIO_DEBUG_ENABLED) {
+      console.info("[VOICE_AUDIO] meter_stopped");
+    }
   }, []);
 
   const start = useCallback(
@@ -106,6 +110,9 @@ export function useAmplitudeMeter(
       }
 
       const context = new AudioContextCtor();
+      if (context.state === "suspended") {
+        await context.resume().catch(() => undefined);
+      }
       const source = context.createMediaStreamSource(stream);
       const analyzer = context.createAnalyser();
       analyzer.fftSize = 2048;
@@ -123,7 +130,9 @@ export function useAmplitudeMeter(
       ) as Float32Array<ArrayBuffer>;
       smoothedRef.current = 0;
       setIsRunning(true);
-      console.info("[VOICE_AUDIO] meter_started");
+      if (VOICE_AUDIO_DEBUG_ENABLED) {
+        console.info("[VOICE_AUDIO] meter_started");
+      }
 
       const tick = () => {
         const node = analyzerNodeRef.current;
@@ -155,7 +164,10 @@ export function useAmplitudeMeter(
         setSmoothedLevel(smoothed);
 
         const now = Date.now();
-        if (now - lastLogAtRef.current >= logIntervalMs) {
+        if (
+          VOICE_AUDIO_DEBUG_ENABLED &&
+          now - lastLogAtRef.current >= logIntervalMs
+        ) {
           lastLogAtRef.current = now;
           console.info(
             `[VOICE_AUDIO] rms=${rms.toFixed(4)} level=${normalized.toFixed(3)} smoothed=${smoothed.toFixed(3)}`

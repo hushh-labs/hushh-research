@@ -37,6 +37,13 @@ import {
   REQUEST_ID_HEADER,
 } from "@/lib/observability/request-id";
 import { resolveRouteId } from "@/lib/observability/route-map";
+import {
+  resolveRuntimeBackendUrl,
+  resolveVoiceDirectBackendPreference,
+  resolveVoiceFailFastPolicy,
+  resolveVoiceForceProxyPreference,
+} from "@/lib/runtime/settings";
+import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
 
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
 const AUTH_SESSION_INVALIDATED_EVENT = "auth-session-invalidated";
@@ -48,7 +55,7 @@ type VaultOwnerAuthFailure = {
 };
 
 const getEnvBackendUrl = (): string => {
-  return (process.env.NEXT_PUBLIC_BACKEND_URL || "").trim().replace(/\/$/, "");
+  return resolveRuntimeBackendUrl();
 };
 
 const LOCAL_NATIVE_HOSTS = new Set(["localhost", "127.0.0.1", "10.0.2.2"]);
@@ -146,13 +153,11 @@ function getVoiceTransportMode(): VoiceTransportMode {
   if (!backend) {
     return { mode: "nextjs_proxy", reason: "missing_backend_url" };
   }
-  const explicitProxy =
-    String(process.env.NEXT_PUBLIC_VOICE_FORCE_PROXY || "").toLowerCase() === "true";
+  const explicitProxy = resolveVoiceForceProxyPreference();
   if (explicitProxy) {
     return { mode: "nextjs_proxy", reason: "explicit_proxy", backendUrl: backend };
   }
-  const explicitDirect =
-    String(process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND || "").toLowerCase() === "true";
+  const explicitDirect = resolveVoiceDirectBackendPreference();
   if (explicitDirect) {
     return { mode: "direct_backend", reason: "explicit_direct", backendUrl: backend };
   }
@@ -177,66 +182,14 @@ function getVoiceTransportMode(): VoiceTransportMode {
   return { mode: "nextjs_proxy", reason: "proxy_default", backendUrl: backend };
 }
 
-function isTruthyEnvFlag(raw: string | undefined): boolean {
-  return ["1", "true", "yes", "on", "enabled"].includes(String(raw || "").trim().toLowerCase());
-}
-
 function isVoiceFailFastEnabled(): boolean {
-  const disableFallbacks =
-    isTruthyEnvFlag(process.env.NEXT_PUBLIC_DISABLE_VOICE_FALLBACKS) ||
-    isTruthyEnvFlag(process.env.DISABLE_VOICE_FALLBACKS);
-  const failFast =
-    isTruthyEnvFlag(process.env.NEXT_PUBLIC_FAIL_FAST_VOICE) ||
-    isTruthyEnvFlag(process.env.FAIL_FAST_VOICE);
-  const forceRealtime =
-    isTruthyEnvFlag(process.env.NEXT_PUBLIC_FORCE_REALTIME_VOICE) ||
-    isTruthyEnvFlag(process.env.FORCE_REALTIME_VOICE);
-  return disableFallbacks || failFast || forceRealtime;
+  return resolveVoiceFailFastPolicy();
 }
 
 function isVoiceDirectBackendRequired(): boolean {
   if (Capacitor.isNativePlatform()) return false;
-  const explicitDirect = isTruthyEnvFlag(process.env.NEXT_PUBLIC_VOICE_DIRECT_BACKEND);
-  const devDefaultDirectOnly = process.env.NODE_ENV === "development";
-  return explicitDirect || isVoiceFailFastEnabled() || devDefaultDirectOnly;
-}
-
-function normalizeVoiceAudioMimeType(rawMimeType: string | null | undefined): string {
-  const normalized = String(rawMimeType || "").trim().toLowerCase();
-  const base = (normalized.split(";", 1)[0] || "").trim();
-  if (base === "video/webm") return "audio/webm";
-  if (base === "audio/webm") return "audio/webm";
-  if (base === "audio/wav" || base === "audio/x-wav") return "audio/wav";
-  if (base === "audio/mp4" || base === "audio/m4a" || base === "audio/x-m4a") return "audio/mp4";
-  if (base === "audio/mpeg" || base === "audio/mp3" || base === "audio/mpga") return "audio/mpeg";
-  return "audio/webm";
-}
-
-function extFromVoiceAudioMimeType(mimeType: string): string {
-  if (mimeType.includes("webm")) return "webm";
-  if (mimeType.includes("wav")) return "wav";
-  if (mimeType.includes("m4a") || mimeType.includes("mp4")) return "m4a";
-  if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return "mp3";
-  return "webm";
-}
-
-function prepareVoiceAudioUpload(data: {
-  audioBlob: Blob;
-  mimeType?: string;
-  filename?: string;
-}): {
-  audioFile: File;
-  mimeType: string;
-  filename: string;
-  rawMimeType: string;
-  blobBytes: number;
-} {
-  const rawMimeType = String(data.audioBlob.type || "").trim();
-  const mimeType = normalizeVoiceAudioMimeType(data.mimeType || rawMimeType || "audio/webm");
-  const ext = extFromVoiceAudioMimeType(mimeType);
-  const filename = (data.filename || "").trim() || `kai-voice.${ext}`;
-  const audioFile = new File([data.audioBlob], filename, { type: mimeType });
-  return { audioFile, mimeType, filename, rawMimeType, blobBytes: audioFile.size };
+  const explicitDirect = resolveVoiceDirectBackendPreference();
+  return explicitDirect || isVoiceFailFastEnabled();
 }
 
 function toResultFromStatus(status: number): "success" | "expected_error" | "error" {
@@ -595,7 +548,6 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
             (options.headers as Record<string, string>)["x-voice-turn-id"]
           : undefined;
   const turnIdHeader = turnIdHeaderRaw || undefined;
-  const finalizeTrace = /\/api\/kai\/voice\/tts$/.test(path);
   if (directRequired && transport.mode !== "direct_backend") {
     const reason = `VOICE_DIRECT_BACKEND_REQUIRED:${transport.reason}`;
     emitVoiceTransportStage(turnIdHeader, "transport_config_invalid", {
@@ -627,7 +579,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
           mode: "nextjs_proxy",
           status: response.status,
         },
-        { finalize: finalizeTrace || !response.ok }
+        { finalize: true }
       );
       return response;
     } catch (error) {
@@ -705,7 +657,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
         mode: "direct_backend",
         status: response.status,
       },
-      { finalize: finalizeTrace || !response.ok }
+      { finalize: true }
     );
     return response;
   } catch (error) {
@@ -1009,10 +961,33 @@ export interface KaiDashboardProfilePicksResponse {
   context?: Record<string, unknown>;
 }
 
+export interface AccountIdentity {
+  user_id?: string;
+  display_name?: string | null;
+  email?: string | null;
+  phone_number?: string | null;
+  photo_url?: string | null;
+  email_verified?: boolean;
+  phone_verified?: boolean;
+  source?: string | null;
+  last_synced_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface AccountPhoneClaimResponse {
+  success: boolean;
+  user_id: string;
+  identity: AccountIdentity | null;
+  phone_verified: boolean;
+}
+
 /**
  * API Service for platform-aware API calls
  */
 export class ApiService {
+  private static appReviewModeSessionInflight: Promise<{ token: string }> | null = null;
+
   private static readonly dashboardProfilePicksInflight = new Map<
     string,
     Promise<KaiDashboardProfilePicksResponse>
@@ -1105,76 +1080,6 @@ export class ApiService {
 
   // ==================== Kai Voice ====================
 
-  static async transcribeKaiVoice(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    audioBlob: Blob;
-    mimeType?: string;
-    filename?: string;
-    voiceTurnId?: string;
-  }): Promise<Response> {
-    const prepared = prepareVoiceAudioUpload(data);
-    const form = new FormData();
-    form.append("user_id", data.userId);
-    form.append("audio_file", prepared.audioFile, prepared.filename);
-    form.append("audio_mime_type", prepared.mimeType);
-    console.info(
-      "[VOICE_AUDIO_UPLOAD] route=/api/kai/voice/stt turn_id=%s blob_bytes=%s raw_mime=%s normalized_mime=%s filename=%s",
-      data.voiceTurnId || "unknown",
-      prepared.blobBytes,
-      prepared.rawMimeType || "(empty)",
-      prepared.mimeType,
-      prepared.filename
-    );
-
-    return voiceFetch("/api/kai/voice/stt", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
-      },
-      body: form,
-    });
-  }
-
-  static async understandKaiVoice(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    audioBlob: Blob;
-    context?: Record<string, unknown>;
-    appState?: AppRuntimeState;
-    mimeType?: string;
-    filename?: string;
-    voiceTurnId?: string;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    const prepared = prepareVoiceAudioUpload(data); // Takes less than 1ms 
-    const form = new FormData();
-    form.append("user_id", data.userId);
-    form.append("audio_file", prepared.audioFile, prepared.filename);
-    form.append("audio_mime_type", prepared.mimeType);
-    form.append("context_json", JSON.stringify(data.context || {}));
-    form.append("app_state_json", JSON.stringify(data.appState || {}));
-    console.info(
-      "[VOICE_AUDIO_UPLOAD] route=/api/kai/voice/understand turn_id=%s blob_bytes=%s raw_mime=%s normalized_mime=%s filename=%s",
-      data.voiceTurnId || "unknown",
-      prepared.blobBytes,
-      prepared.rawMimeType || "(empty)",
-      prepared.mimeType,
-      prepared.filename
-    );
-
-    return voiceFetch("/api/kai/voice/understand", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
-      },
-      body: form,
-      signal: data.signal,
-    });
-  }
-
   static async planKaiVoiceIntent(data: {
     userId: string;
     vaultOwnerToken: string;
@@ -1207,6 +1112,59 @@ export class ApiService {
         context_structured: data.plannerV2?.structuredContext,
         memory_short: data.plannerV2?.memoryShort || [],
         memory_retrieved: data.plannerV2?.memoryRetrieved || [],
+      }),
+      signal: data.signal,
+    });
+  }
+
+  static async composeKaiVoiceReply(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    transcript: string;
+    response: Record<string, unknown>;
+    appState?: AppRuntimeState;
+    context?: Record<string, unknown>;
+    structuredContext?: unknown;
+    turnId?: string;
+    responseId?: string;
+    mode?: string;
+    actionId?: string | null;
+    slots?: Record<string, unknown>;
+    guards?: string[];
+    replyStrategy?: string;
+    clarification?: Record<string, unknown> | null;
+    actionCompletion?: string | null;
+    actionResult?: Record<string, unknown> | null;
+    memoryShort?: unknown[];
+    memoryRetrieved?: unknown[];
+    voiceTurnId?: string;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return voiceFetch("/api/kai/voice/compose", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
+      },
+      body: JSON.stringify({
+        user_id: data.userId,
+        transcript: data.transcript,
+        response: data.response,
+        app_state: data.appState,
+        context: data.context || {},
+        context_structured: data.structuredContext || {},
+        turn_id: data.turnId,
+        response_id: data.responseId,
+        mode: data.mode,
+        action_id: data.actionId,
+        slots: data.slots || {},
+        guards: data.guards || [],
+        reply_strategy: data.replyStrategy,
+        clarification: data.clarification ?? null,
+        action_completion: data.actionCompletion ?? null,
+        action_result: data.actionResult ?? null,
+        memory_short: data.memoryShort || [],
+        memory_retrieved: data.memoryRetrieved || [],
       }),
       signal: data.signal,
     });
@@ -1341,35 +1299,56 @@ export class ApiService {
    * Request a backend-minted Firebase custom token for reviewer login.
    * Only available when app-review mode is enabled server-side.
    */
-  static async createAppReviewModeSession(subject: "reviewer" = "reviewer"): Promise<{ token: string }> {
-    const response = await apiFetch("/api/app-config/review-mode/session", {
-      method: "POST",
-      cache: "no-store",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ subject }),
-    });
-
-    const payload = (await response.json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >;
-
-    if (!response.ok) {
-      const msg =
-        (typeof payload.error === "string" && payload.error) ||
-        (typeof payload.detail === "string" && payload.detail) ||
-        "Reviewer login unavailable";
-      throw new Error(msg);
+  static async createAppReviewModeSession(
+    subject: "reviewer" = "reviewer",
+    options?: { smokePassphrase?: string | null }
+  ): Promise<{ token: string }> {
+    if (this.appReviewModeSessionInflight) {
+      return this.appReviewModeSessionInflight;
     }
 
-    const token = payload.token;
-    if (typeof token !== "string" || token.length === 0) {
-      throw new Error("Invalid reviewer session token");
-    }
+    this.appReviewModeSessionInflight = (async () => {
+      const response = await apiFetch("/api/app-config/review-mode/session", {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          subject,
+          smoke_passphrase:
+            typeof options?.smokePassphrase === "string" && options.smokePassphrase.trim().length > 0
+              ? options.smokePassphrase
+              : undefined,
+        }),
+      });
 
-    return { token };
+      const payload = (await response.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+
+      if (!response.ok) {
+        const msg =
+          (typeof payload.error === "string" && payload.error) ||
+          (typeof payload.detail === "string" && payload.detail) ||
+          "Reviewer login unavailable";
+        throw new Error(msg);
+      }
+
+      const token = payload.token;
+      if (typeof token !== "string" || token.length === 0) {
+        throw new Error("Invalid reviewer session token");
+      }
+
+      return { token };
+    })();
+
+    try {
+      return await this.appReviewModeSessionInflight;
+    } finally {
+      this.appReviewModeSessionInflight = null;
+    }
   }
 
   // ==================== Auth ====================
@@ -1390,6 +1369,65 @@ export class ApiService {
       method: "POST",
       body: JSON.stringify(data),
     });
+  }
+
+  static async refreshAccountIdentityShadow(idToken?: string): Promise<Response> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      return new Response(JSON.stringify({ error: "Missing Firebase ID token" }), {
+        status: 401,
+      });
+    }
+
+    return apiFetch("/api/account/identity/refresh", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firebaseIdToken}`,
+      },
+    });
+  }
+
+  static async claimAccountPhone(
+    phoneIdToken: string,
+    idToken?: string
+  ): Promise<AccountPhoneClaimResponse> {
+    const normalizedPhoneIdToken = String(phoneIdToken || "").trim();
+    if (!normalizedPhoneIdToken) {
+      throw new Error("Missing phone verification token");
+    }
+
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      throw new Error("Missing Firebase ID token");
+    }
+
+    const response = await apiFetch("/api/account/phone/claim", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firebaseIdToken}`,
+      },
+      body: JSON.stringify({
+        phone_id_token: normalizedPhoneIdToken,
+      }),
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      const detail = payload.detail;
+      const message =
+        typeof detail === "object" &&
+        detail !== null &&
+        typeof (detail as Record<string, unknown>).message === "string"
+          ? String((detail as Record<string, unknown>).message)
+          : typeof detail === "string"
+            ? detail
+            : typeof payload.error === "string"
+              ? payload.error
+              : `Phone claim failed with HTTP ${response.status}`;
+      throw new Error(message);
+    }
+
+    return payload as unknown as AccountPhoneClaimResponse;
   }
 
   /**
@@ -1510,7 +1548,8 @@ export class ApiService {
         return response;
       } catch (e) {
         console.error("[ApiService] Native approvePendingConsent error:", e);
-        const response = new Response(JSON.stringify({ error: (e as Error).message }), {
+        const { message } = sanitizeErrorMessage(e, 500, "approvePendingConsent");
+        const response = new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
         trackEvent("consent_action_result", {
@@ -1601,7 +1640,8 @@ export class ApiService {
         return response;
       } catch (e) {
         console.error("[ApiService] Native denyPendingConsent error:", e);
-        const response = new Response(JSON.stringify({ error: (e as Error).message }), {
+        const { message } = sanitizeErrorMessage(e, 500, "denyPendingConsent");
+        const response = new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
         trackEvent("consent_action_result", {
@@ -1701,7 +1741,8 @@ export class ApiService {
         return response;
       } catch (e) {
         console.error("[ApiService] Native revokeConsent error:", e);
-        const response = new Response((e as Error).message || "Failed", { status: 500 });
+        const { message } = sanitizeErrorMessage(e, 500, "revokeConsent");
+        const response = new Response(message, { status: 500 });
         trackEvent("consent_action_result", {
           action: "revoke",
           result: "error",
@@ -1762,7 +1803,8 @@ export class ApiService {
         return response;
       } catch (e) {
         console.warn("[ApiService] Native getPendingConsents error:", e);
-        const response = new Response(JSON.stringify({ error: (e as Error).message }), {
+        const { message } = sanitizeErrorMessage(e, 500, "getPendingConsents");
+        const response = new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
         trackEvent("consent_pending_loaded", {
@@ -1882,8 +1924,9 @@ export class ApiService {
         });
       } catch (e) {
         console.warn("[ApiService] Native unregisterPushToken error:", e);
+        const { message } = sanitizeErrorMessage(e, 500, "unregisterPushToken");
         return new Response(
-          JSON.stringify({ error: (e as Error).message || "Native error" }),
+          JSON.stringify({ error: message }),
           { status: 500, headers: { "Content-Type": "application/json" } }
         );
       }
@@ -1927,7 +1970,8 @@ export class ApiService {
         });
       } catch (e) {
         console.warn("[ApiService] Native getActiveConsents error:", e);
-        return new Response(JSON.stringify({ error: (e as Error).message }), {
+        const { message } = sanitizeErrorMessage(e, 500, "getActiveConsents");
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
       }
@@ -1971,7 +2015,8 @@ export class ApiService {
         });
       } catch (e) {
         console.warn("[ApiService] Native getConsentHistory error:", e);
-        return new Response(JSON.stringify({ error: (e as Error).message }), {
+        const { message } = sanitizeErrorMessage(e, 500, "getConsentHistory");
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
       }
@@ -2727,10 +2772,11 @@ export class ApiService {
       return response;
     } catch (error) {
       console.error("[ApiService] importPortfolio error:", error);
+      const { message } = sanitizeErrorMessage(error, 500, "importPortfolio");
       const response = new Response(
         JSON.stringify({
           success: false,
-          error: (error as Error).message,
+          error: message,
         }),
         { status: 500 }
       );
@@ -3027,7 +3073,8 @@ export class ApiService {
         });
       } catch (error) {
         console.error("[ApiService] Native analyzePortfolioLosers error:", error);
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
+        const { message } = sanitizeErrorMessage(error, 500, "analyzePortfolioLosers");
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
       }
@@ -3405,7 +3452,8 @@ export class ApiService {
         });
       } catch (error) {
         console.error("[ApiService] Native streamKaiAnalysis error:", error);
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
+        const { message } = sanitizeErrorMessage(error, 500, "streamKaiAnalysis");
+        return new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
       }

@@ -14,14 +14,17 @@ import {
   type ConsentCenterActor,
   type ConsentCenterPageSummary,
 } from "@/lib/services/consent-center-service";
+import { CACHE_KEYS } from "@/lib/services/cache-service";
 
 export function useConsentPendingSummaryCount() {
   const { user } = useAuth();
   const { activePersona } = usePersonaState();
-  const actor: ConsentCenterActor = activePersona === "ria" ? "ria" : "investor";
+  const actor: ConsentCenterActor =
+    activePersona === "ria" ? "ria" : "investor";
+  const mode = "consents";
   const [mutationTick, setMutationTick] = useState(0);
   const cacheKey = user?.uid
-    ? `consent_center_summary_${user.uid}_${actor}`
+    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(user.uid, `${actor}:${mode}`)
     : "consent_center_summary_guest";
   const [retainedSummary, setRetainedSummary] = useState<{
     key: string;
@@ -40,7 +43,7 @@ export function useConsentPendingSummaryCount() {
 
   const summaryResource = useStaleResource({
     cacheKey,
-    refreshKey: `${actor}:${mutationTick}`,
+    refreshKey: `${actor}:${mode}:${mutationTick}`,
     enabled: Boolean(user?.uid),
     load: async () => {
       const idToken = await user?.getIdToken();
@@ -51,6 +54,7 @@ export function useConsentPendingSummaryCount() {
         idToken,
         userId: user.uid,
         actor,
+        mode,
         force: mutationTick > 0,
       });
     },

@@ -6,9 +6,20 @@ Verifies that token revocation is persisted to database and survives server rest
 """
 
 import hashlib
+import sys
 import time
+import types
+from unittest.mock import AsyncMock, patch
 
 import pytest
+
+from hushh_mcp.consent.token import (
+    issue_token,
+    revoke_token,
+    validate_token,
+    validate_token_with_db,
+)
+from hushh_mcp.constants import ConsentScope
 
 
 # Simulated revocation functions that match the implementation pattern
@@ -160,3 +171,154 @@ class TestRevocationValidation:
 
         for token in tokens:
             assert await db.is_revoked(token) is True
+
+
+# ===========================================================================
+# Real validate_token_with_db tests — cross-instance revocation
+# ===========================================================================
+
+USER_ID = "user_test_revocation"
+AGENT_ID = "agent_test"
+
+
+@pytest.fixture(autouse=True)
+def clear_in_memory_revocation_registry():
+    """Keep token revocation state isolated per test."""
+    from hushh_mcp.consent import token as token_module
+
+    token_module._revoked_tokens.clear()
+    yield
+    token_module._revoked_tokens.clear()
+
+
+@pytest.mark.asyncio
+async def test_validate_token_with_db_rejects_db_revoked_token():
+    """
+    Token revoked in DB but absent from in-memory set must be rejected.
+    This proves cross-instance revocation works: a token revoked on
+    instance A is rejected on instance B which has an empty memory set.
+    """
+    token_obj = issue_token(USER_ID, AGENT_ID, ConsentScope.VAULT_OWNER)
+    token_str = token_obj.token
+
+    # Confirm in-memory check passes (token not in local revocation set)
+    valid, _, _ = validate_token(token_str)
+    assert valid is True, "Token should be valid before revocation"
+
+    # Simulate: DB says token is NOT active (revoked on another instance)
+    fake_module = types.ModuleType("hushh_mcp.services.consent_db")
+    mock_service_instance = AsyncMock()
+    mock_service_instance.is_token_active = AsyncMock(return_value=False)
+    fake_module.ConsentDBService = lambda: mock_service_instance
+
+    with patch.dict(sys.modules, {"hushh_mcp.services.consent_db": fake_module}):
+        # DB revocation checks are skipped in TESTING mode; disable it for this case.
+        with patch.dict("os.environ", {"TESTING": "false"}, clear=False):
+            valid_db, reason_db, _ = await validate_token_with_db(token_str)
+
+    assert valid_db is False
+    assert reason_db == "Token has been revoked (DB check)"
+
+
+@pytest.mark.asyncio
+async def test_validate_token_with_db_passes_active_token():
+    """
+    Non-revoked token must still pass DB-backed validation.
+    Regression test: hardening must not break valid token flows.
+    """
+    token_obj = issue_token(USER_ID, AGENT_ID, ConsentScope.VAULT_OWNER)
+    token_str = token_obj.token
+
+    fake_module = types.ModuleType("hushh_mcp.services.consent_db")
+    mock_service_instance = AsyncMock()
+    mock_service_instance.is_token_active = AsyncMock(return_value=True)
+    fake_module.ConsentDBService = lambda: mock_service_instance
+
+    with patch.dict(sys.modules, {"hushh_mcp.services.consent_db": fake_module}):
+        valid, reason, token_result = await validate_token_with_db(token_str)
+
+    assert valid is True
+    assert reason is None
+    assert token_result is not None
+    assert token_result.user_id == USER_ID
+
+
+@pytest.mark.asyncio
+async def test_validate_token_with_db_rejects_memory_revoked_token():
+    """
+    Token in local in-memory revocation set must be rejected
+    without even hitting the DB (fast path).
+    """
+    token_obj = issue_token(USER_ID, AGENT_ID, ConsentScope.VAULT_OWNER)
+    token_str = token_obj.token
+
+    # Revoke in local memory
+    revoke_token(token_str)
+
+    # DB should NOT be called — in-memory check catches it first
+    fake_module = types.ModuleType("hushh_mcp.services.consent_db")
+    mock_service_instance = AsyncMock()
+    mock_service_instance.is_token_active = AsyncMock(return_value=True)
+    fake_module.ConsentDBService = lambda: mock_service_instance
+
+    with patch.dict(sys.modules, {"hushh_mcp.services.consent_db": fake_module}):
+        valid, reason, _ = await validate_token_with_db(token_str)
+
+    # DB must NOT have been called
+    mock_service_instance.is_token_active.assert_not_called()
+
+    assert valid is False
+    assert reason == "Token has been revoked"
+
+
+@pytest.mark.asyncio
+async def test_validate_token_with_db_vault_owner_grace_period_on_db_error():
+    """
+    VAULT_OWNER token gets grace period when DB is unreachable.
+    Users must not be locked out of their own vault during brief DB hiccups.
+    """
+    token_obj = issue_token(USER_ID, AGENT_ID, ConsentScope.VAULT_OWNER)
+    token_str = token_obj.token
+
+    fake_module = types.ModuleType("hushh_mcp.services.consent_db")
+    mock_service_instance = AsyncMock()
+    mock_service_instance.is_token_active = AsyncMock(
+        side_effect=Exception("DB connection refused")
+    )
+    fake_module.ConsentDBService = lambda: mock_service_instance
+
+    with patch.dict(sys.modules, {"hushh_mcp.services.consent_db": fake_module}):
+        valid, reason, token_result = await validate_token_with_db(
+            token_str, ConsentScope.VAULT_OWNER
+        )
+
+    # VAULT_OWNER gets grace period — user can still access their own vault
+    assert valid is True
+    assert reason is None
+    assert token_result is not None
+
+
+@pytest.mark.asyncio
+async def test_validate_token_with_db_scoped_token_fails_closed_on_db_error():
+    """
+    Scoped tokens fail closed when DB is unreachable.
+    Third-party agent access must not be allowed when revocation
+    status cannot be confirmed — consent integrity takes priority.
+    """
+    token_obj = issue_token(USER_ID, AGENT_ID, ConsentScope.PKM_READ)
+    token_str = token_obj.token
+
+    fake_module = types.ModuleType("hushh_mcp.services.consent_db")
+    mock_service_instance = AsyncMock()
+    mock_service_instance.is_token_active = AsyncMock(
+        side_effect=Exception("DB connection refused")
+    )
+    fake_module.ConsentDBService = lambda: mock_service_instance
+
+    with patch.dict(sys.modules, {"hushh_mcp.services.consent_db": fake_module}):
+        valid, reason, token_result = await validate_token_with_db(token_str, ConsentScope.PKM_READ)
+
+    # Scoped token fails closed — deny access when DB is unreachable
+    assert valid is False
+    assert reason == "Token revocation status could not be confirmed (DB unavailable)"
+    assert token_result is None

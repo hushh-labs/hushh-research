@@ -21,10 +21,7 @@ _current_developer_token: ContextVar[str | None] = ContextVar(
 
 
 def _configured_token() -> str:
-    hushh_token = str(os.getenv("HUSHH_DEVELOPER_TOKEN", "")).strip()
-    if hushh_token:
-        return hushh_token
-    return str(os.getenv("MCP_DEVELOPER_TOKEN", "")).strip()
+    return str(os.getenv("HUSHH_DEVELOPER_TOKEN", "")).strip()
 
 
 def set_current_developer_principal(
@@ -70,3 +67,10 @@ def get_developer_request_query() -> dict[str, str]:
     if not raw_token:
         return {}
     return {"token": raw_token}
+
+
+def get_developer_request_headers() -> dict[str, str]:
+    raw_token = _current_developer_token.get() or _configured_token()
+    if not raw_token:
+        return {}
+    return {"X-MCP-Developer-Token": raw_token}

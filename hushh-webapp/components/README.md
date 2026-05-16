@@ -53,6 +53,7 @@ Run from `hushh-webapp`:
 
 ```bash
 npm run verify:design-system
+npm run verify:service-boundary
 npm run verify:cache
 npm run verify:docs
 npm run typecheck

@@ -1,0 +1,65 @@
+{
+  "id": "contributor-onboarding",
+  "title": "Contributor Onboarding",
+  "goal": "Keep the contributor-first-run path lean, deterministic, and aligned across monorepo bootstrap and standalone consent-protocol setup.",
+  "owner_skill": "contributor-onboarding",
+  "default_spoke": null,
+  "task_type": "contributor-onboarding",
+  "affected_surfaces": [
+    "README.md",
+    "contributing.md",
+    ".devcontainer",
+    "docs/guides/getting-started.md",
+    "scripts/env",
+    "consent-protocol/README.md",
+    "consent-protocol/CONTRIBUTING.md"
+  ],
+  "required_reads": [
+    "README.md",
+    "contributing.md",
+    "docs/guides/getting-started.md",
+    "scripts/env/bootstrap.sh",
+    "scripts/env/doctor.sh",
+    "consent-protocol/CONTRIBUTING.md"
+  ],
+  "required_commands": [
+    "./bin/hushh bootstrap --help",
+    "./bin/hushh env bootstrap",
+    "./bin/hushh doctor --mode local --json",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundle": {
+    "id": "contributor-onboarding",
+    "commands": [
+      "./bin/hushh bootstrap --help",
+      "./bin/hushh env bootstrap",
+      "./bin/hushh doctor --mode local --json",
+      "./bin/hushh docs verify"
+    ],
+    "tests": [
+      "./bin/hushh doctor --mode local --json",
+      "./bin/hushh docs verify"
+    ]
+  },
+  "deliverables": [
+    "single blessed monorepo setup path",
+    "aligned standalone consent-protocol path",
+    "bootstrap and doctor verification notes"
+  ],
+  "impact_fields": [
+    "Docs updated",
+    "Verification commands executed",
+    "Bootstrap or doctor scripts updated"
+  ],
+  "handoff_chain": [
+    "contributor-onboarding",
+    "docs-governance",
+    "repo-operations",
+    "subtree-upstream-governance"
+  ],
+  "common_failures": [
+    "teaching multiple conflicting install paths",
+    "documenting secrets in tracked files",
+    "changing bootstrap without checking doctor output"
+  ]
+}

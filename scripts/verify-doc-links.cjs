@@ -77,6 +77,10 @@ function resolveCandidate(baseFile, token) {
   const cleaned = token.split("#")[0].trim();
   const baseDir = path.dirname(path.join(repoRoot, baseFile));
 
+  if (cleaned === "./bin/hushh") {
+    return path.join(repoRoot, "bin/hushh");
+  }
+
   if (cleaned.startsWith("./") || cleaned.startsWith("../")) {
     return path.resolve(baseDir, cleaned);
   }
@@ -105,6 +109,10 @@ function shouldValidateCodePath(token) {
 function resolveCodePath(baseFile, token) {
   const cleaned = token.replace(/[),.;:]+$/g, "");
   const baseDir = path.dirname(path.join(repoRoot, baseFile));
+
+  if (cleaned === "./bin/hushh") {
+    return [path.join(repoRoot, "bin/hushh")];
+  }
 
   if (cleaned.startsWith("./") || cleaned.startsWith("../")) {
     return [path.resolve(baseDir, cleaned)];

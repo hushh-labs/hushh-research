@@ -47,7 +47,7 @@ flowchart TB
 
 ## Purpose
 
-Hushh frontend cache is split by sensitivity and runtime role:
+Hussh frontend cache is split by sensitivity and runtime role:
 
 - decrypted PKM stays **memory-only**
 - encrypted PKM-derived snapshots can persist in **encrypted IndexedDB**
@@ -97,6 +97,11 @@ Backend Kai market cache tiers (generalized modules):
 - L2 Postgres cache table: `kai_market_cache_entries`
 - L3 live provider fetch
 
+Runtime DB data classes:
+- `provider_cache` tables are refreshable operational state, not durable user memory.
+- `workflow_state` tables can hold active approval or status state, but terminal sensitive drafts/previews should be compacted or redacted by the family retention policy.
+- durable personal memory must be written through the encrypted PKM path, not by promoting provider cache rows into long-lived app DB truth.
+
 ## Mutation -> Cache Sync Matrix
 
 - PKM store domain: `CacheSyncService.onPkmDomainStored(...)`
@@ -120,6 +125,10 @@ Do:
 - Centralize invalidation/write-through in `CacheSyncService`.
 - Write through encrypted blob keys when CRUD payloads already include ciphertext.
 - Patch cached PKM metadata in-place when safe summary fields are provided.
+- Treat backend `pkm_index` updates as cloud discovery projections. Local memory,
+  secure device cache, and encrypted-domain write-through remain first-class
+  state for local-first and on-device flows; failed projection sync should
+  invalidate or retry the projection lane, not erase local encrypted cache.
 - Keep `CacheContext` as a state mirror only.
 - Use `invalidateUser(userId)` when purging a full user session.
 - Keep domain blob + metadata reconciliation aligned with PKM index semantics.

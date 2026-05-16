@@ -3,7 +3,7 @@ name: iam-consent-governance
 description: Use when changing IAM, consent scopes, actor model, verification policy, or marketplace access contracts inside the security-audit owner family.
 ---
 
-# Hushh IAM Consent Governance Skill
+# Hussh IAM Consent Governance Skill
 
 ## Purpose and Trigger
 

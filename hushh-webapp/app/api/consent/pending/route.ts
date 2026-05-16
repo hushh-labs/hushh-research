@@ -23,6 +23,13 @@ const pendingCache = createHotGetJsonCache({
   staleTtlMs: 5 * 60 * 1000,
 });
 
+function degradedPendingPayload() {
+  return {
+    pending: [],
+    degraded: true,
+  };
+}
+
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
@@ -75,6 +82,12 @@ export async function GET(request: NextRequest) {
           `[API] request_id=${requestId} pending_consents backend_error status=${response.status}`,
           error
         );
+        if (response.status < 500) {
+          return {
+            status: response.status,
+            payload: { error: error || "Failed to fetch pending consents" },
+          };
+        }
         throw new Error(`pending_backend_error:${response.status}`);
       }
 
@@ -99,11 +112,7 @@ export async function GET(request: NextRequest) {
         return withRequestIdJson(requestId, stale.payload, { status: stale.status });
       }
     }
-    return withRequestIdJson(
-      requestId,
-      { error: "Failed to fetch pending consents" },
-      { status: 504 }
-    );
+    return withRequestIdJson(requestId, degradedPendingPayload(), { status: 200 });
   } finally {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get("userId");

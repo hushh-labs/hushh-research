@@ -279,12 +279,11 @@ export async function registerWithPrf(
 
   console.log("🔐 Registering passkey with PRF...");
   console.log("  RP ID:", rpId);
-  console.log("  User:", displayName);
 
   const createOptions: PublicKeyCredentialCreationOptions = {
     challenge,
     rp: {
-      name: "Hushh",
+      name: "Hussh",
       id: rpId,
     },
     user: {

@@ -17,35 +17,57 @@ from typing import Optional
 import httpx
 from mcp.types import TextContent
 
+from hushh_mcp.services.user_identifier_service import resolve_lookup_identifier
 from mcp_modules.config import (
     DEVELOPER_API_ENABLED,
     FASTAPI_URL,
     PRODUCTION_MODE,
     resolve_scope_api,
 )
-from mcp_modules.developer_context import get_developer_request_query
+from mcp_modules.developer_context import get_developer_request_headers, get_developer_request_query
 
 logger = logging.getLogger("hushh-mcp-server")
 
 
-async def resolve_email_to_uid(user_id: str) -> tuple[Optional[str], str | None, str | None]:
+async def resolve_user_identifier_to_uid(
+    user_id: str,
+    *,
+    country_iso2: str | None = None,
+    country: str | None = None,
+) -> tuple[Optional[str], str | None, str | None]:
     """
-    If user_id is an email, resolve to Firebase UID.
+    If user_id is an email or phone number, resolve to Firebase UID.
     Returns (user_id, email, display_name).
     """
-    if not user_id or "@" not in user_id:
+    try:
+        lookup_kind, lookup_identifier = resolve_lookup_identifier(
+            identifier=user_id,
+            email=None,
+            phone_number=None,
+            country_iso2=country_iso2,
+            country=country,
+        )
+    except ValueError:
         return user_id, None, None
 
-    token_query = get_developer_request_query()
-    if not token_query:
-        logger.warning("Email-to-UID lookup skipped: developer token not configured")
+    if lookup_kind == "uid":
+        return user_id, None, None
+
+    token_headers = get_developer_request_headers()
+    if not token_headers:
+        logger.warning("User-identifier lookup skipped: developer token not configured")
         return user_id, None, None
 
     try:
         async with httpx.AsyncClient() as client:
             lookup_response = await client.get(
                 f"{FASTAPI_URL}/api/user/lookup",
-                params={"email": user_id, **token_query},
+                params={
+                    "identifier": lookup_identifier,
+                    **({"country_iso2": country_iso2} if country_iso2 else {}),
+                    **({"country": country} if country else {}),
+                },
+                headers=token_headers,
                 timeout=10.0,
             )
 
@@ -55,15 +77,28 @@ async def resolve_email_to_uid(user_id: str) -> tuple[Optional[str], str | None,
                     resolved_uid = lookup_data["user_id"]
                     email = lookup_data.get("email")
                     display_name = lookup_data.get("display_name")
-                    logger.info("Resolved email to uid for consent request")
+                    logger.info("Resolved user identifier to uid for consent request")
                     return resolved_uid, email, display_name
-                return None, user_id, None
+                return None, lookup_identifier, None
 
-            logger.warning("Email lookup failed with status=%s", lookup_response.status_code)
+            logger.warning("User lookup failed with status=%s", lookup_response.status_code)
     except Exception as e:
-        logger.warning("Email lookup failed: %s", e)
+        logger.warning("User lookup failed: %s", e)
 
     return user_id, None, None
+
+
+async def resolve_email_to_uid(
+    user_id: str,
+    *,
+    country_iso2: str | None = None,
+    country: str | None = None,
+) -> tuple[Optional[str], str | None, str | None]:
+    return await resolve_user_identifier_to_uid(
+        user_id,
+        country_iso2=country_iso2,
+        country=country,
+    )
 
 
 async def handle_request_consent(args: dict) -> list[TextContent]:
@@ -72,9 +107,11 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
 
     In production, this endpoint returns:
     - granted: if already granted
-    - pending: user must approve in Hushh app/dashboard
+    - pending: user must approve in Hussh app/dashboard
     """
     user_id = args.get("user_id")
+    country_iso2 = args.get("country_iso2")
+    country = args.get("country")
     scope_str = args.get("scope")
     scope_bundle_key = args.get("scope_bundle")
 
@@ -129,7 +166,11 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
         resolved_approval_timeout_minutes = 24 * 60
 
     original_identifier = user_id
-    user_id, user_email, user_display_name = await resolve_email_to_uid(user_id)
+    user_id, user_email, user_display_name = await resolve_user_identifier_to_uid(
+        user_id,
+        country_iso2=str(country_iso2 or "").strip() or None,
+        country=str(country or "").strip() or None,
+    )
 
     if user_id is None:
         return [
@@ -138,9 +179,9 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
                 text=json.dumps(
                     {
                         "status": "user_not_found",
-                        "email": original_identifier,
-                        "message": f"No Hushh account found for {original_identifier}",
-                        "next_step": "Ask the user to sign in to the Hushh app before requesting consent.",
+                        "identifier": original_identifier,
+                        "message": f"No Hussh account found for {original_identifier}",
+                        "next_step": "Ask the user to sign in to the Hussh app before requesting consent.",
                     }
                 ),
             )
@@ -372,7 +413,7 @@ async def handle_request_consent(args: dict) -> list[TextContent]:
                             "request_id": request_id,
                             "message": data.get(
                                 "message",
-                                "Consent request submitted. User approval is pending in Hushh app.",
+                                "Consent request submitted. User approval is pending in Hussh app.",
                             ),
                             "approval_surface": data.get("approval_surface", "/consents"),
                             "request_url": data.get("request_url"),
@@ -426,6 +467,8 @@ async def handle_check_consent_status(args: dict) -> list[TextContent]:
     Check consent status - returns active token if available, or pending status.
     """
     user_id = args.get("user_id")
+    country_iso2 = args.get("country_iso2")
+    country = args.get("country")
     scope_str = args.get("scope")
     request_id = args.get("request_id")
 
@@ -444,7 +487,11 @@ async def handle_check_consent_status(args: dict) -> list[TextContent]:
         ]
 
     original_identifier = user_id
-    user_id, _user_email, _user_display_name = await resolve_email_to_uid(user_id)
+    user_id, _user_email, _user_display_name = await resolve_user_identifier_to_uid(
+        user_id,
+        country_iso2=str(country_iso2 or "").strip() or None,
+        country=str(country or "").strip() or None,
+    )
 
     if user_id is None:
         return [
@@ -453,8 +500,8 @@ async def handle_check_consent_status(args: dict) -> list[TextContent]:
                 text=json.dumps(
                     {
                         "status": "user_not_found",
-                        "email": original_identifier,
-                        "message": f"No Hushh account found for {original_identifier}",
+                        "identifier": original_identifier,
+                        "message": f"No Hussh account found for {original_identifier}",
                     }
                 ),
             )

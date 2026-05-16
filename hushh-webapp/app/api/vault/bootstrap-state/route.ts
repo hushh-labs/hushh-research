@@ -79,7 +79,11 @@ export async function POST(request: NextRequest) {
         status: response.status,
         payload: response.ok
           ? payload
-          : { error: payload?.error || payload?.detail || "Backend error" },
+          : {
+              error: payload?.error || payload?.detail || "Backend error",
+              ...(typeof payload?.code === "string" ? { code: payload.code } : {}),
+              ...(typeof payload?.hint === "string" ? { hint: payload.hint } : {}),
+            },
       };
     })();
 

@@ -23,12 +23,8 @@ def test_sse_payload_includes_enriched_request_fields():
     )
 
     assert payload["request_id"] == "req_123"
-    assert payload["request_url"].endswith(
-        "/profile?tab=privacy&sheet=consents&consentView=pending&requestId=req_123"
-    )
-    assert payload["deep_link"] == (
-        "/profile?tab=privacy&sheet=consents&consentView=pending&requestId=req_123"
-    )
+    assert payload["request_url"].endswith("/consents?tab=pending&requestId=req_123")
+    assert payload["deep_link"] == "/consents?tab=pending&requestId=req_123"
     assert payload["requester_label"] == "Codex Local Workspace"
     assert payload["requester_image_url"] == "https://example.com/logo.png"
     assert payload["requester_website_url"] == "https://example.com"

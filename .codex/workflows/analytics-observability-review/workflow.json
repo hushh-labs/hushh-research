@@ -1,0 +1,77 @@
+{
+  "id": "analytics-observability-review",
+  "title": "Analytics Observability Review",
+  "goal": "Inspect and govern Kai analytics observability across GA4, Firebase Analytics, BigQuery export, dashboard query contracts, and environment-split verification.",
+  "owner_skill": "analytics-observability-governance",
+  "default_spoke": null,
+  "task_type": "analytics-observability-review",
+  "affected_surfaces": [
+    "docs/reference/operations",
+    "docs/reference/quality",
+    "hushh-webapp/lib/observability",
+    "hushh-webapp/__tests__/services",
+    "consent-protocol/scripts/observability",
+    ".codex/skills/analytics-observability-governance"
+  ],
+  "required_reads": [
+    "docs/reference/operations/observability-architecture-map.md",
+    "docs/reference/operations/observability-google-first.md",
+    "docs/reference/operations/observability-event-matrix.md",
+    "docs/reference/quality/analytics-verification-contract.md",
+    ".codex/skills/analytics-observability-governance/references/property-stream-dataset-matrix.md",
+    ".codex/skills/analytics-observability-governance/references/event-taxonomy-and-validation.md",
+    "consent-protocol/scripts/observability/ga4_growth_dashboard_queries.sql"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task analytics-observability-review",
+    "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py validate",
+    "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py health",
+    "cd hushh-webapp && npm run verify:analytics",
+    "cd hushh-webapp && npm run audit:analytics-sandbox",
+    "cd hushh-webapp && npm run smoke:analytics:uat",
+    "cd hushh-webapp && npm run verify:analytics:governed",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundle": {
+    "id": "analytics-observability-review",
+      "commands": [
+        "python3 -m py_compile .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py",
+        "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py validate",
+        "python3 .codex/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py health",
+        "cd hushh-webapp && npm run verify:analytics",
+        "cd hushh-webapp && npm run audit:analytics-sandbox",
+        "cd hushh-webapp && npm run smoke:analytics:uat",
+        "cd hushh-webapp && npm run verify:analytics:governed",
+        "./bin/hushh docs verify"
+      ],
+      "tests": [
+        "cd hushh-webapp && npm run verify:analytics",
+        "cd hushh-webapp && npm run audit:analytics-sandbox",
+        "cd hushh-webapp && npm run smoke:analytics:uat",
+        "./bin/hushh docs verify"
+      ]
+  },
+  "deliverables": [
+    "property and stream topology summary",
+    "dashboard query and verification contract",
+    "docs and skill updates for observability ownership"
+  ],
+  "impact_fields": [
+    "Properties and streams verified",
+    "BigQuery export state verified",
+    "Docs and skill surfaces updated"
+  ],
+  "handoff_chain": [
+    "analytics-observability-governance",
+    "docs-governance",
+    "repo-operations",
+    "frontend",
+    "mobile-native"
+  ],
+  "common_failures": [
+    "treating shared auth as shared analytics",
+    "trusting GA UI cards instead of modeled SQL",
+    "forgetting to exclude non-Kai streams from growth reporting",
+    "assuming BigQuery export is complete before datasets and tables materialize"
+  ]
+}

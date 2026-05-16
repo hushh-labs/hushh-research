@@ -527,9 +527,16 @@ async def main() -> None:
     load_dotenv(args.env_file, override=True)
     db = get_db()
     user_id = str(args.user_id).strip()
-    passphrase = str(args.passphrase or os.getenv("KAI_TEST_PASSPHRASE") or "").strip()
+    passphrase = str(
+        args.passphrase
+        or os.getenv("REVIEWER_VAULT_PASSPHRASE")
+        or os.getenv("KAI_TEST_PASSPHRASE")
+        or ""
+    ).strip()
     if not passphrase:
-        raise RuntimeError("Missing passphrase. Pass --passphrase or set KAI_TEST_PASSPHRASE.")
+        raise RuntimeError(
+            "Missing passphrase. Pass --passphrase or set REVIEWER_VAULT_PASSPHRASE."
+        )
 
     has_pkm_data = _table_exists(db, "pkm_data")
     has_world_model_data = _table_exists(db, "world_model_data")

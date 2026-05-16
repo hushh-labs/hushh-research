@@ -1691,7 +1691,7 @@ export function PortfolioReviewView({
         account_summary: hasSummaryValues(statementAccountSummary)
           ? statementAccountSummary
           : null,
-        holdings: portfolioToSave.holdings || [],
+        holdings: consolidatedActiveHoldings || [],
         transactions:
           initialData.transactions ||
           initialData.activity_and_transactions ||
@@ -2170,7 +2170,7 @@ export function PortfolioReviewView({
                     }))
                   }
                   placeholder="Name"
-                  className="mt-1 overflow-x-auto whitespace-nowrap [text-overflow:clip] [touch-action:pan-x]"
+                  className="mt-1 truncate"
                   title={accountInfo.holder_name || ""}
                 />
               </div>
@@ -2185,7 +2185,7 @@ export function PortfolioReviewView({
                     }))
                   }
                   placeholder="XXX-XXXX"
-                  className="mt-1 overflow-x-auto whitespace-nowrap [text-overflow:clip] [touch-action:pan-x]"
+                  className="mt-1 truncate"
                   title={accountInfo.account_number || ""}
                 />
               </div>
@@ -2200,7 +2200,7 @@ export function PortfolioReviewView({
                     }))
                   }
                   placeholder="Brokerage name"
-                  className="mt-1 overflow-x-auto whitespace-nowrap [text-overflow:clip] [touch-action:pan-x]"
+                  className="mt-1 truncate"
                   title={accountInfo.brokerage || ""}
                 />
               </div>
@@ -2215,7 +2215,7 @@ export function PortfolioReviewView({
                     }))
                   }
                   placeholder="Individual, IRA, etc."
-                  className="mt-1 overflow-x-auto whitespace-nowrap [text-overflow:clip] [touch-action:pan-x]"
+                  className="mt-1 truncate"
                   title={accountInfo.account_type || ""}
                 />
               </div>
