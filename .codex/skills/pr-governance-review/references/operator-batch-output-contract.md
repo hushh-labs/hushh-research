@@ -13,8 +13,7 @@ live report. Use these sections:
 2. `Research Basis`: concise current truth, recommended path, and risk if accepted blindly.
 3. `Delegation Evidence`: router decision, taskforce lanes, async train-to-subagent map, skipped/unavailable rationale, and parent-only authority.
 4. `Scan Scope`: mode, active limit, candidate limit, open inventory count, reviewed PRs, failed PRs, and completeness.
-5. `Hundred-PR Active Pass`: latest-100 reviewed count, terminal count,
-   active trains, remaining non-terminal PRs, and whether the pass is complete.
+5. `Hundred-PR Active Pass`: oldest-100 reviewed count, acted/terminal/blocked/remaining counts, active train workers, next refill train, and whether the pass is complete.
 6. `Check Failure Holds`: PRs excluded because current required/auxiliary checks are not clean.
 7. `Input`: every PR with a direct Markdown link and current lane.
 8. `Train Simulation`: branch evidence, delta summary, behavior claim, canonical fit, simulated patch, action outcome, comment simulation, and verification timeline.
@@ -71,8 +70,9 @@ code blocks.
    throughput.
 9. A merge train can proceed while the next independent batch is reviewed, but
    dependent trains must not merge concurrently.
-10. "Automatic next train" means automatic next-train discovery and preparation;
-   approval, merge, deploy, and close remain explicit operator actions.
+10. "Automatic next train" means automatic next-train discovery, preparation,
+   and approved writer-envelope execution; merge policy, deploy, code patches,
+   and branch authority remain parent/governor actions.
 11. Every PR must expose `collision_group_id`, `collision_reasons`,
    `can_queue_with`, `must_wait_for`, `queue_cohort_id`,
    `parallel_patch_train_id`, patch attachment fields, and whether a north-star
@@ -94,9 +94,9 @@ code blocks.
     active train set or stop unrelated subagents from preparing complete
     non-touching trains in parallel.
 18. On a 400+ PR backlog, default chat handoff must answer in active-pass
-    terms: `reviewed 100 PRs`, train count, terminal count, links for every
-    state-changed PR, and the next unresolved train. A small merge cohort is
-    progress, not the whole pass.
+    terms: `reviewed 100 PRs`, train count, acted/terminal/blocked/remaining
+    counts, links for every bucket, and the next unresolved train. A small
+    merge cohort is progress, not the whole pass.
 
 ## Research And Review Standard
 

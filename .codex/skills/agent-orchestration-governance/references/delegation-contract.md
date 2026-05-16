@@ -112,6 +112,8 @@ Common high-signal lanes:
 
 Automatic here means the parent may spawn the lane without asking the user again. It does not mean child agents can approve, merge, deploy, push, or mutate branches.
 
+PR governance has one narrow workflow-local writer-lane exception for pre-approved train execution. It is separate from repo-scoped custom agents: evidence lanes stay read-only, while the exception may only edit/post standardized maintainer records, request changes, close superseded PRs, acknowledge harvest, or enqueue exact-head queue candidates under the PR train SOP gates. Branch switching, code patches, commits, pushes, deploys, secrets, product-policy changes, and final merge policy stay with the parent/governor.
+
 The router is advisory, not authority. If it recommends a lane that the runtime does not expose in the current session, record that runtime availability gap and continue locally or with the closest available read-only agent.
 
 Founder wiki evidence lanes use the Founder Wiki North-Star Probe and are read-only by default. They may use product/architecture/non-negotiable pages for north-star alignment, but private wiki evidence must stay local-only and public GitHub comments must not cite private wiki pages. When repo truth and wiki canon disagree, classify the gap as `current_state_vs_north_star_drift`.

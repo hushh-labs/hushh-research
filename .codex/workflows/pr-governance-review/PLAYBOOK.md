@@ -11,13 +11,13 @@ Review the current PR head, not stale history, and decide whether the change is 
 1. Start with `pr-governance-review`.
 2. Run the delegation router before final review selection:
    `python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt "<user request>" --paths "<changed paths>" --text`.
-3. Spawn/read the returned read-only evidence lanes when the task spans multiple PRs, sensitive surfaces, or any async train. Record the lanes used or why they were unavailable.
+3. Spawn/read the returned read-only evidence lanes when the task spans multiple PRs, sensitive surfaces, or any async train. Record the lanes used or why they were unavailable; the writer-lane exception does not make evidence lanes writable.
 4. For a single PR, run `python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo <repo> --pr <number> --text`.
 5. For batched, backlog, repass, or train review, use `.codex/skills/pr-governance-review/references/pr-train-review-sop.md` and refresh the hybrid live report before choosing trains:
-   `python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md`.
+   `python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --selection-order oldest --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md`.
 6. Exclude PRs with failing, missing, stale, or auxiliary-failing checks from executable trains. Put them in `Check Failure Holds` unless the task is explicitly CI repair.
 7. Build trains from hard edges: exact files, lockfiles, generated contracts, schema/migrations, sensitive runtime families, local dirty-file overlap, stacked/conflicting state, and queue/main dependencies.
-8. Run independent trains in parallel through broad evidence lanes; sequence only PRs that share a hard edge. The train is the delegation unit, not the individual PR.
+8. Run independent trains in parallel through broad evidence lanes; sequence only PRs that share a hard edge. The train is the delegation unit, not the individual PR, and the five-worker pool refills with the next oldest non-touching train when a lane finishes or blocks.
 9. Treat helper-detected main-overlap and parallel-architecture findings as first-class review inputs, not optional notes. Exact file overlap is not the only duplication signal that matters.
 10. Lock the review to the current head SHA and current `CI Status Gate` result.
 11. Use a two-pass review model on every lane:

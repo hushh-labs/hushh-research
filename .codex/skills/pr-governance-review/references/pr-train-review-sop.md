@@ -14,17 +14,16 @@ Canonical order for every backlog, batch, repass, decision-wave, or scale pass:
 3. Build the train graph from hard edges: files, lockfiles, generated
    contracts, schema/migrations, sensitive runtimes, dirty-file overlap,
    stacked/conflicting state, and queue/main dependencies.
-4. Identify all async trains from that graph, not only the next visible batch.
-5. Start one read-only evidence lane per independent train family before final train selection; do not spawn one subagent per PR.
+4. Identify all async trains from that graph, oldest PRs first, not only the next visible batch.
+5. Start one read-only evidence lane per independent train family before final train selection; the writer-lane exception does not make evidence lanes writable.
 6. Ask one Pre-Wave Operator Question for the whole reviewed train set before
    any comment, close, patch, queue, merge, or deploy checkpoint.
 7. After a wave completes, treat PRs with current standardized maintainer
    records as handled until their head SHA, CI state, mergeability, or
    contributor response changes. Do not repeat them in the next operator wave.
-8. Run independent trains in parallel; sequence hard-edge PRs oldest-first inside a train. Checkpoints must not pause unrelated evidence, patch planning, or merge preparation.
+8. Run independent trains in parallel through a five-worker train pool; sequence hard-edge PRs oldest-first inside a train and refill a freed worker with the next oldest non-touching train.
 9. Treat PR Validation, Queue Validation, and Main Post-Merge Smoke as monitor lanes; while they run, prepare the next independent train or decision wave.
-10. Ingest every returned lane into queue, patch, comment/close, or hold writes;
-    do not call the set complete until every train is terminal or blocked.
+10. Ingest every returned lane into queue, patch, comment/close, hold, or next-refill writes; do not call the set complete until every reviewed PR is linked as acted, terminal, blocked, or remaining.
 
 If this order conflicts with another PR-governance reference, this section wins.
 
@@ -34,7 +33,7 @@ Fetch main, inspect worktree, confirm no dirty local file overlaps a PR under re
 
 Record the starting developer branch before any worktree, PR checkout, detached HEAD, or temporary review branch operation. If the parent session switches away, the train is not complete until it returns to that branch or reports the exact blocker.
 
-## Subagent Taskforce
+## Subagent Taskforce And Worker Pool
 
 1. `frontend/UI reachability`
 2. `backend/runtime trust`
@@ -42,11 +41,9 @@ Record the starting developer branch before any worktree, PR checkout, detached 
 4. `devex/repo operations`
 5. `decision-wave communications`
 
-Add a sixth lane only for a real independent surface such as mobile/native or founder/north-star direction. Every train maps to one read-only lane by default; the parent keeps branches, commits, GitHub writes, approvals, merges, deploys, report refreshes, and final decisions.
+Add a sixth lane only for a real independent surface such as mobile/native or founder/north-star direction. Every train maps to one evidence lane by default; the parent keeps branches, commits, code patches, secrets, deploys, report refreshes, and final synthesis.
 
-Each lane returns direct PR links, head SHA, files, hard collisions, attach
-point or `no_attach_point`, accepted value, dropped/deferred pieces, proof,
-train placement, comment posture, risks, and stop conditions.
+Default active pool size is `5`; when one lane finishes or blocks, immediately assign the next oldest non-touching train. Each lane returns direct PR links, head SHA, files, hard collisions, attach point or `no_attach_point`, accepted value, dropped/deferred pieces, proof, train placement, comment posture, risks, and stop conditions.
 
 ## N-Train Parallel Model
 
@@ -58,12 +55,15 @@ Identify every train in the reviewed scope before any state change:
    contracts, lockfiles, schema, deploy, and dirty surfaces do not touch.
 4. Inside a train, process PRs one after another in ascending PR creation time;
    fall back to ascending PR number when creation time is unavailable.
-5. The subagent owns train evidence; the parent owns GitHub writes, patches,
-   branches, queueing, merge decisions, and final synthesis.
+5. The subagent owns train evidence and may use only the controlled writer envelope after approval; the parent owns patches, branches, deploys, merge policy, and final synthesis.
 6. A train can contain `20+` PRs when homogeneous and same-surface. High-risk
    state-changing writes still use the dynamic wave caps.
 7. The handoff lists every train, PR links, sequence, lane/subagent, action,
    patch/harvest possibility, attribution, and next stop condition.
+
+## Controlled Writer-Lane Envelope
+
+Allowed after operator approval: edit/post standardized maintainer reviews or comments, request changes, close superseded PRs, acknowledge harvest, and queue exact-head PRs when green, clean, non-draft, and edge-free. Not allowed: branch switching, commits, pushes, code patches, secrets, deploys, direct merge to `main`, product-policy changes, or merging unsafe contributor heads. Drift, stale heads, new conflicts, failing checks, or lost attach points return to the parent/governor.
 
 ## Wave Means Checkpoint
 
@@ -76,10 +76,7 @@ operator-approved state-changing checkpoint across already running trains.
 3. `Wave`: bounded GitHub writes, maintainer patches, queue actions, closes, or
    merges inside the already approved train set.
 
-Approval applies to the reviewed train set, not just the first train. Waves are
-parent-session checkpoints for safe GitHub writes while all lanes continue.
-While the operator answers, unrelated lanes keep scanning, proving attach
-points, drafting patch plans, and preparing the next checkpoint.
+Approval applies to the reviewed train set, not just the first train. Waves are state-changing checkpoints for safe GitHub writes while all lanes continue. While the operator answers, unrelated lanes keep scanning, proving attach points, drafting patch plans, and preparing the next checkpoint.
 
 ## Scan Modes
 
@@ -93,7 +90,7 @@ is complete, partial, or fallback-only.
 
 ## Hundred-PR Active Pass Standard
 
-For 400+ PR backlogs, the default pass is the latest `100` reviewable PRs plus hybrid older candidates. A queue cohort is progress, not completion.
+For 400+ PR backlogs, the default pass is the oldest `100` reviewable PRs plus hybrid high-signal candidates. A queue cohort is progress, not completion.
 Report open/reviewed counts, trains, terminal PRs by action, and non-terminal train/blocker/next action until all reviewed PRs are terminal or blocked.
 
 ## Check Failure Intake Filter
@@ -185,26 +182,20 @@ available. Never rewrite `main` for retroactive co-author credit.
 
 ## Operating Loop
 
-1. Refresh the live report.
+1. Refresh the live report with oldest-first selection unless explicitly asked for latest.
 2. Build the complete async train map and train-to-subagent map.
 3. Ignore `Check Failure Holds` unless this is CI repair.
 4. Read every queue cohort, collision group, patch train, and decision wave.
-5. Assign each independent train to its evidence lane and prepare trains in
-   parallel.
+5. Assign each independent train to its evidence lane and prepare trains in parallel.
 6. Convert each returned lane into executable writes by value, age, and collision risk.
-7. Produce the operator dossier from `operator-batch-output-contract.md`; one
-   approval starts the full reviewed train set, not a single train.
+7. Produce the operator dossier from `operator-batch-output-contract.md`; one approval starts the full reviewed train set, not a single train.
 8. Execute approved GitHub writes by editing existing maintainer records first.
-9. Exclude PRs just handled by a current standardized maintainer record until
-   fresh contributor or GitHub state changes.
+9. Exclude PRs just handled by a current standardized maintainer record until fresh contributor or GitHub state changes.
 10. For merges, enqueue exact head SHA and monitor queue and smoke.
 11. Refresh live report and contributor-impact dashboard.
-12. Return the parent worktree to the recorded developer branch after temporary
-    PR checkout, worktree, detached HEAD, or queue-monitoring branch changes.
-13. Report active-pass progress in chat: `reviewed`, `acted`, `merged`,
-    `patched`, `commented`, `held`, `remaining`, and direct links.
-14. Start the next independent train while unrelated checks run; continue until
-    every train in the approved set is terminal or blocked with links/reasons.
+12. Return the parent worktree to the recorded developer branch after temporary PR checkout, worktree, detached HEAD, or queue-monitoring branch changes.
+13. Report active-pass progress in chat: `reviewed`, `acted`, `terminal`, `blocked`, `remaining`, `merged`, `patched`, `commented`, and direct links.
+14. Start the next independent train while unrelated checks run; continue until every train in the approved set is terminal or blocked with links/reasons.
 
 ## Queue Cancellation Handling
 
