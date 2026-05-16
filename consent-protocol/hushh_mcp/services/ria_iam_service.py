@@ -6,6 +6,7 @@ import io
 import json
 import logging
 import os
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -80,6 +81,70 @@ _RIA_KAI_SPECIALIZED_DESCRIPTION = (
     "Advisor-side Kai and explorer access for portfolio, profile, analysis history, "
     "and runtime context."
 )
+_OFFICIAL_LOCATION_REPORT_URLS: tuple[str, ...] = (
+    "https://reports.adviserinfo.sec.gov/reports/individual/individual_{crd}.pdf",
+    "https://files.brokercheck.finra.org/individual/individual_{crd}.pdf",
+)
+_US_STATE_CODES = {
+    "AL",
+    "AK",
+    "AZ",
+    "AR",
+    "CA",
+    "CO",
+    "CT",
+    "DE",
+    "FL",
+    "GA",
+    "HI",
+    "ID",
+    "IL",
+    "IN",
+    "IA",
+    "KS",
+    "KY",
+    "LA",
+    "ME",
+    "MD",
+    "MA",
+    "MI",
+    "MN",
+    "MS",
+    "MO",
+    "MT",
+    "NE",
+    "NV",
+    "NH",
+    "NJ",
+    "NM",
+    "NY",
+    "NC",
+    "ND",
+    "OH",
+    "OK",
+    "OR",
+    "PA",
+    "RI",
+    "SC",
+    "SD",
+    "TN",
+    "TX",
+    "UT",
+    "VT",
+    "VA",
+    "WA",
+    "WV",
+    "WI",
+    "WY",
+    "DC",
+}
+_OFFICIAL_ADDRESS_RE = re.compile(
+    r"(?P<address>\d{1,6}\s+[A-Z0-9][A-Z0-9 .,#'&/-]{4,120}?)\s+"
+    r"(?P<city>[A-Z][A-Z .'-]{1,60}?),\s*"
+    r"(?P<state>AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\s+"
+    r"(?P<pin_zip>\d{5}(?:-\d{4})?)\b",
+    re.IGNORECASE,
+)
 
 
 def _first_text_value(*values: Any) -> str | None:
@@ -109,6 +174,88 @@ def _broker_pin_zip(payload: dict[str, Any]) -> str | None:
         payload.get("postalCode"),
         payload.get("postal_code"),
     )
+
+
+def _title_case_city(value: str) -> str:
+    small_words = {"of", "and", "the"}
+    parts: list[str] = []
+    for word in value.strip().lower().split():
+        parts.append(word if word in small_words else word.capitalize())
+    return " ".join(parts)
+
+
+def _official_location_from_text(text: str, source_url: str) -> dict[str, str] | None:
+    normalized = " ".join(str(text or "").replace("\xa0", " ").split())
+    if not normalized:
+        return None
+
+    for match in _OFFICIAL_ADDRESS_RE.finditer(normalized):
+        state = match.group("state").upper()
+        if state not in _US_STATE_CODES:
+            continue
+        city = _title_case_city(match.group("city"))
+        pin_zip = match.group("pin_zip")
+        address = " ".join(match.group("address").split()).strip(" ,")
+        return {
+            "city": city,
+            "state": state,
+            "pin_zip": pin_zip,
+            "address": address,
+            "location": f"{city}, {state}",
+            "source_url": source_url,
+        }
+    return None
+
+
+def _official_location_from_pdf(content: bytes, source_url: str) -> dict[str, str] | None:
+    import pdfplumber
+
+    with pdfplumber.open(io.BytesIO(content)) as pdf:
+        parts: list[str] = []
+        for page in pdf.pages[:8]:
+            parts.append(page.extract_text() or "")
+            if sum(len(part) for part in parts) > 20_000:
+                break
+    return _official_location_from_text(" ".join(parts), source_url)
+
+
+async def _official_pdf_location_for_crd(crd_number: str) -> dict[str, str] | None:
+    import httpx
+
+    normalized = re.sub(r"\D+", "", str(crd_number or ""))
+    if not normalized:
+        return None
+
+    timeout = httpx.Timeout(connect=6.0, read=24.0, write=6.0, pool=6.0)
+    headers = {
+        "User-Agent": "hushh-ria-onboarding/1.0 (+https://hushh.ai)",
+        "Accept": "application/pdf,*/*",
+    }
+    async with httpx.AsyncClient(
+        timeout=timeout,
+        follow_redirects=True,
+        headers=headers,
+    ) as client:
+        for template in _OFFICIAL_LOCATION_REPORT_URLS:
+            source_url = template.format(crd=normalized)
+            try:
+                response = await client.get(source_url)
+                response.raise_for_status()
+                location = await asyncio.to_thread(
+                    _official_location_from_pdf,
+                    response.content,
+                    source_url,
+                )
+            except Exception:
+                logger.info(
+                    "verify_ria_license: official PDF location fallback failed for %s",
+                    normalized,
+                    exc_info=True,
+                )
+                continue
+            if location:
+                return location
+    return None
 
 
 def _broker_exams(payload: dict[str, Any]) -> list[str]:
@@ -739,6 +886,15 @@ class RIAIAMService:
             bool(broker_data.get("verifiedName") or broker_data.get("crdNumber"))
             and broker_status != "NOT_FOUND"
         )
+        city = _broker_city(broker_data)
+        pin_zip = _broker_pin_zip(broker_data)
+        if found and (not city or not pin_zip):
+            official_location = await _official_pdf_location_for_crd(
+                str(broker_data.get("crdNumber") or normalized)
+            )
+            if official_location:
+                city = city or official_location.get("city")
+                pin_zip = pin_zip or official_location.get("pin_zip")
 
         response: dict[str, Any] = {
             "status": "found"
@@ -750,8 +906,8 @@ class RIAIAMService:
             "regulator_status": broker_data.get("status"),
             "license_expiry": None,
             "certifications": [],
-            "city": _broker_city(broker_data),
-            "pin_zip": _broker_pin_zip(broker_data),
+            "city": city,
+            "pin_zip": pin_zip,
             "crd_number": broker_data.get("crdNumber") or normalized,
             "sec_number": None,
             "employment_history": broker_data.get("employmentHistory", []),

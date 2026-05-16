@@ -40,6 +40,7 @@ from hushh_mcp.services.crd_scrape_proxy_service import (  # noqa: E402
 from hushh_mcp.services.ria_iam_service import (  # noqa: E402
     RIAIAMPolicyError,
     RIAIAMService,
+    _official_location_from_text,
 )
 
 # ---------------------------------------------------------------------------
@@ -173,6 +174,80 @@ def test_verify_license_passes_through_city_pin_zip_and_string_exams(monkeypatch
     assert result["city"] == "Kennesaw"
     assert result["pin_zip"] == "30144"
     assert result["exams_passed"] == ["Series 65"]
+
+
+def test_verify_license_fills_missing_location_from_official_pdf(monkeypatch) -> None:
+    """When provider location is blank, use official regulator PDF text as fallback."""
+
+    class _FakeProxy:
+        async def broker_intelligence(self, *, query: str, request_id: str | None = None):
+            assert query == "7413463"
+            return CrdScrapeProviderResponse(
+                200,
+                {
+                    "verifiedName": "Andrew Garrett Kirkland",
+                    "currentFirm": "Not Currently Registered",
+                    "status": "Investment Adviser Representative",
+                    "crdNumber": "7413463",
+                    "city": None,
+                    "pinZip": None,
+                    "exams": ["Series 66"],
+                    "employmentHistory": [],
+                },
+            )
+
+        async def create_job(self, *, crd_number: str, request_id: str | None = None):
+            assert crd_number == "7413463"
+            return CrdScrapeProviderResponse(404, {"detail": "Not Found"})
+
+    async def _mock_official_location(crd_number: str):
+        assert crd_number == "7413463"
+        return {
+            "city": "Kennesaw",
+            "state": "GA",
+            "pin_zip": "30144",
+            "source_url": "https://reports.adviserinfo.sec.gov/reports/individual/individual_7413463.pdf",
+        }
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.crd_scrape_proxy_service.CrdScrapeProxyService",
+        lambda: _FakeProxy(),
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.ria_iam_service._official_pdf_location_for_crd",
+        _mock_official_location,
+    )
+
+    result = asyncio.run(
+        RIAIAMService().verify_ria_license(
+            _TEST_UID,
+            license_number="7413463",
+            regulator="SEC",
+        )
+    )
+
+    assert result["status"] == "found"
+    assert result["city"] == "Kennesaw"
+    assert result["pin_zip"] == "30144"
+    assert result["exams_passed"] == ["Series 66"]
+
+
+def test_official_location_from_text_extracts_city_and_zip() -> None:
+    """The fallback parser extracts address fields from official report text."""
+
+    result = _official_location_from_text(
+        "Business Address 114 Townpark Drive, Ste. 175 Kennesaw, GA 30144 Registered Since 09/2021",
+        "https://reports.adviserinfo.sec.gov/reports/individual/individual_7413463.pdf",
+    )
+
+    assert result == {
+        "city": "Kennesaw",
+        "state": "GA",
+        "pin_zip": "30144",
+        "address": "114 Townpark Drive, Ste. 175",
+        "location": "Kennesaw, GA",
+        "source_url": "https://reports.adviserinfo.sec.gov/reports/individual/individual_7413463.pdf",
+    }
 
 
 def test_verify_license_invalid_number_422() -> None:
