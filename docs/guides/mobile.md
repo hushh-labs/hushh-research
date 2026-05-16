@@ -560,6 +560,7 @@ Native plugins call Python backend directly, bypassing Next.js:
 | Vault Get        | `POST /db/vault/get`                 | `GET /api/vault/get`                      | Python  |
 | Vault Setup      | `POST /db/vault/setup`               | `POST /api/vault/setup`                   | Python  |
 | Vault Wrapper Upsert | `POST /db/vault/wrapper/upsert`   | `POST /api/vault/wrapper/upsert`          | Python  |
+| Vault Wrapper Delete | `POST /db/vault/wrapper/delete`   | `POST /api/vault/wrapper/delete`          | Python  |
 | Vault Primary Set | `POST /db/vault/primary/set`        | `POST /api/vault/primary/set`             | Python  |
 | Food Get         | `POST /api/food/preferences`         | `GET /api/vault/food/preferences`         | Python  |
 | Professional Get | `POST /api/professional/preferences` | `GET /api/vault/professional/preferences` | Python  |

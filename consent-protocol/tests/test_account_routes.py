@@ -44,7 +44,9 @@ def test_refresh_account_identity_returns_synced_identity(monkeypatch):
 
 def test_claim_account_phone_requires_firebase_auth():
     client = TestClient(_build_app())
-    response = client.post("/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"})
+    response = client.post(
+        "/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"}
+    )
 
     assert response.status_code == 401
 
@@ -70,7 +72,9 @@ def test_claim_account_phone_persists_verified_phone(monkeypatch):
     monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", _mock_claim)
 
     client = TestClient(app)
-    response = client.post("/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"})
+    response = client.post(
+        "/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"}
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -115,7 +119,9 @@ def test_claim_account_phone_rejects_phone_token_without_phone_number(monkeypatc
     monkeypatch.setattr(account, "_verify_phone_claim_id_token", _mock_verify)
 
     client = TestClient(app)
-    response = client.post("/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"})
+    response = client.post(
+        "/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"}
+    )
 
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "PHONE_ID_TOKEN_MISSING_PHONE_NUMBER"
@@ -134,7 +140,9 @@ def test_claim_account_phone_maps_persistence_failure(monkeypatch):
     monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", _mock_claim)
 
     client = TestClient(app)
-    response = client.post("/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"})
+    response = client.post(
+        "/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"}
+    )
 
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "PHONE_CLAIM_PERSISTENCE_UNAVAILABLE"
@@ -202,14 +210,21 @@ def test_delete_account_requires_vault_owner_token():
 
 
 def test_delete_account_defaults_target_to_both(monkeypatch):
+    deleted_auth_users = []
+
     async def _mock_delete(self, user_id: str, target: str = "both"):
         assert user_id == "user_123"
         assert target == "both"
         return {"success": True, "deleted_target": "both", "account_deleted": True}
 
+    async def _mock_delete_firebase_user(user_id: str):
+        deleted_auth_users.append(user_id)
+        return "deleted"
+
     app = _build_app()
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "user_123"}
     monkeypatch.setattr(AccountService, "delete_account", _mock_delete)
+    monkeypatch.setattr(account, "_delete_firebase_auth_user", _mock_delete_firebase_user)
 
     client = TestClient(app)
     response = client.delete("/api/account/delete")
@@ -218,17 +233,26 @@ def test_delete_account_defaults_target_to_both(monkeypatch):
     payload = response.json()
     assert payload["success"] is True
     assert payload["account_deleted"] is True
+    assert payload["details"]["firebase_auth_user"] == "deleted"
+    assert deleted_auth_users == ["user_123"]
 
 
 def test_delete_account_forwards_requested_target(monkeypatch):
+    deleted_auth_users = []
+
     async def _mock_delete(self, user_id: str, target: str = "both"):
         assert user_id == "user_123"
         assert target == "investor"
         return {"success": True, "deleted_target": "investor", "remaining_personas": ["ria"]}
 
+    async def _mock_delete_firebase_user(user_id: str):
+        deleted_auth_users.append(user_id)
+        return "deleted"
+
     app = _build_app()
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "user_123"}
     monkeypatch.setattr(AccountService, "delete_account", _mock_delete)
+    monkeypatch.setattr(account, "_delete_firebase_auth_user", _mock_delete_firebase_user)
 
     client = TestClient(app)
     response = client.request(
@@ -241,6 +265,7 @@ def test_delete_account_forwards_requested_target(monkeypatch):
     payload = response.json()
     assert payload["deleted_target"] == "investor"
     assert payload["remaining_personas"] == ["ria"]
+    assert deleted_auth_users == []
 
 
 def test_delete_account_maps_service_failure_to_500(monkeypatch):

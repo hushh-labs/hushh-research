@@ -10,7 +10,6 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { Bug } from "lucide-react";
 
 import {
   KaiCommandPalette,
@@ -311,6 +310,7 @@ export function KaiSearchBar({
 }: KaiSearchBarProps) {
   const { getVaultOwnerToken, vaultKey } = useVault();
   const [open, setOpen] = useState(false);
+  const [voiceDebugOpen, setVoiceDebugOpen] = useState(false);
   const [voiceUiState, setVoiceUiState] = useState<VoiceUiState>("idle");
   const [voiceErrorMessage, setVoiceErrorMessage] = useState<string | null>(
     null,
@@ -1665,6 +1665,8 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
             showMic={!micHidden}
             micDisabled={micDisabled}
             micDisabledReason={stableMicDisabledReason}
+            showDebug={DEV_VOICE_DEBUG_ENABLED}
+            debugActive={voiceDebugOpen}
             showSubmit={
               VOICE_V2_FLAGS.submitDebugVisible &&
               (showVoiceSheet || realtimeConnecting)
@@ -1678,6 +1680,10 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
             )}
             onOpenSearch={() => setOpen(true)}
             onMicToggle={handleMicTap}
+            onDebugToggle={(event) => {
+              event.stopPropagation();
+              setVoiceDebugOpen((current) => !current);
+            }}
             onMuteToggle={toggleMuteListening}
             onSubmit={submitDebugTurn}
             onEnd={cancelListening}
@@ -1733,17 +1739,10 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
           voiceAvailable ? "available" : voiceUnavailableReason || "unavailable"
         }
         mobilePlacement="above-searchbar"
+        open={voiceDebugOpen}
+        onOpenChange={setVoiceDebugOpen}
+        showTrigger={false}
       />
-
-      {DEV_VOICE_DEBUG_ENABLED ? (
-        <div className="pointer-events-none fixed bottom-[108px] right-4 z-[150] hidden rounded-full border border-border/60 bg-background/90 px-2 py-1 text-[10px] text-muted-foreground shadow sm:block">
-          <span className="pointer-events-none inline-flex items-center gap-1">
-            <Bug className="h-3 w-3" />
-            {voiceUiState} | {ttsPlaybackState} | mic:{micPermissionStatus} |
-            session:{sessionStateText}
-          </span>
-        </div>
-      ) : null}
     </>
   );
 }

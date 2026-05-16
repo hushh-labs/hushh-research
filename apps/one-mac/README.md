@@ -1,7 +1,7 @@
-# 🤫 One for macOS
+# One for macOS
 
 > **Hussh = `[hu]man [s]ecure [s]ocket [h]ost`.**
-> One for macOS is the **host**: the user's latest Apple-silicon Mac runs the daemon, the on-device index, and the secure socket (local MCP server) that exposes user-owned knowledge — under PCHP consent — to BYOA agents and trusted people.
+> One for macOS is the planned **host**: the user's latest Apple-silicon Mac will run the daemon, the on-device index, and the secure socket (local MCP server) that exposes user-owned knowledge under PCHP consent to BYOA agents and trusted people.
 
 Status: **Phase 1 in progress.** PR-1 (this branch) lands the infra root: Xcode project (via XcodeGen), entitlements + Info.plist + PrivacyInfo.xcprivacy + LaunchAgent plist, OSLog scaffold, SwiftLint + swift-format + .swift-version, notarization runbook, threat model + observability + distribution docs, CODEOWNERS, dependabot, and expanded CI. See [`docs/future/one-mac-knowledge-base-app.md`](../../docs/future/one-mac-knowledge-base-app.md) for the full Phase 1 plan and exit criteria.
 
@@ -11,7 +11,7 @@ A native SwiftUI Mac app + LaunchAgent daemon that:
 
 1. Ingests local + cloud knowledge sources (Files, Spotlight, Apple Notes, Apple Mail, Calendar, Obsidian, Notion, Google Drive, Slack) into an encrypted SQLite + MLX vector index.
 2. Exposes that index to BYOA AI agents (Claude / ChatGPT / Cursor / local MLX) via a local MCP HTTP/SSE server on `127.0.0.1:31070`.
-3. Serves as the first concrete **OpenClaw** reference implementation — Apache-2.0, forkable, pluggable `DataSourceBinding` interface.
+3. Is intended to serve as the first concrete **OpenClaw** reference implementation after the MCP host, conformance harness, and pluggable `DataSourceBinding` interface ship.
 4. Mirrors PKM ciphertext to the cloud via the existing PKM contract at [`consent-protocol/api/routes/pkm_routes_shared.py`](../../consent-protocol/api/routes/pkm_routes_shared.py). **Plaintext never traverses cloud.**
 5. Bridges to the existing iOS Capacitor app via the existing hosted Consent MCP at `https://api.uat.hushh.ai/mcp/` — ciphertext-only relay.
 

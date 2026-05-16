@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import json
@@ -87,6 +88,7 @@ _RIA_KAI_SPECIALIZED_SCOPES: tuple[str, ...] = (
     "attr.financial.runtime.*",
 )
 _RIA_KAI_SPECIALIZED_SCOPE_SET = set(_RIA_KAI_SPECIALIZED_SCOPES)
+_RIA_LICENSE_VERIFICATION_REUSE_TTL = timedelta(hours=24)
 
 
 class RIAIAMPolicyError(Exception):
@@ -649,6 +651,204 @@ class RIAIAMService:
             use_cache=use_cache,
         )
         return self._serialize_name_verification_result(result)
+
+    async def verify_ria_license(
+        self,
+        user_id: str,
+        *,
+        license_number: str,
+        regulator: str | None = None,
+    ) -> dict[str, Any]:
+        from hushh_mcp.services.crd_scrape_proxy_service import (
+            CrdScrapeProxyService,
+            normalize_crd_number,
+        )
+
+        normalized = normalize_crd_number(license_number)
+        proxy = CrdScrapeProxyService()
+
+        broker_task = asyncio.create_task(proxy.broker_intelligence(query=normalized))
+        scrape_task = asyncio.create_task(proxy.create_job(crd_number=normalized))
+
+        broker_result = None
+        scrape_result = None
+        try:
+            broker_result = await broker_task
+        except Exception:
+            logger.warning("verify_ria_license: broker_intelligence failed for %s", normalized)
+        try:
+            scrape_result = await scrape_task
+        except Exception:
+            logger.warning("verify_ria_license: create_job failed for %s", normalized)
+
+        broker_data = (
+            broker_result.payload if broker_result and broker_result.status_code < 400 else None
+        ) or {}
+        scrape_data = (
+            scrape_result.payload if scrape_result and scrape_result.status_code < 400 else None
+        ) or {}
+
+        broker_status = str(broker_data.get("status", "")).upper()
+        found = (
+            bool(broker_data.get("verifiedName") or broker_data.get("crdNumber"))
+            and broker_status != "NOT_FOUND"
+        )
+
+        response: dict[str, Any] = {
+            "status": "found"
+            if found
+            else ("pending" if scrape_data.get("jobId") else "not_found"),
+            "advisor_name": broker_data.get("verifiedName"),
+            "firm_name": broker_data.get("currentFirm"),
+            "regulator": regulator or ("SEC" if found else None),
+            "regulator_status": broker_data.get("status"),
+            "license_expiry": None,
+            "certifications": [],
+            "city": None,
+            "pin_zip": None,
+            "crd_number": broker_data.get("crdNumber") or normalized,
+            "sec_number": None,
+            "employment_history": broker_data.get("employmentHistory", []),
+            "disclosures_count": broker_data.get("disclosures", {}).get("count", 0)
+            if isinstance(broker_data.get("disclosures"), dict)
+            else 0,
+            "exams_passed": [
+                e.get("name", "") for e in broker_data.get("exams", []) if isinstance(e, dict)
+            ],
+            "provider": "ria_intelligence_combined",
+            "scrape_job_id": scrape_data.get("jobId"),
+            "broker_intelligence_summary": broker_data.get("summary"),
+        }
+
+        # Store audit trail
+        try:
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO ria_license_verifications
+                      (user_id, license_number, regulator, verification_source, raw_response, status)
+                    VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+                    """,
+                    user_id,
+                    normalized,
+                    regulator,
+                    "broker_intelligence",
+                    json.dumps(broker_data),
+                    "completed" if found else "pending",
+                )
+        except Exception:
+            logger.warning("verify_ria_license: failed to store audit for %s", normalized)
+
+        return response
+
+    @staticmethod
+    def _parse_json_mapping(value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except Exception:
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
+        return {}
+
+    @classmethod
+    def _name_lookup_from_license_verification_payload(
+        cls,
+        payload: dict[str, Any],
+        *,
+        license_number: str | None,
+        submitted_individual_crd: str | None,
+    ) -> NameVerificationResult | None:
+        broker_status = str(payload.get("status") or "").strip().upper()
+        if broker_status == "NOT_FOUND":
+            return None
+
+        matched_name = cls._normalize_optional_text(payload.get("verifiedName"))
+        returned_crd = cls._normalize_optional_text(payload.get("crdNumber"))
+        normalized_returned_crd = cls._normalize_crd_text(returned_crd)
+        normalized_license = cls._normalize_crd_text(license_number)
+        normalized_submitted_crd = cls._normalize_crd_text(submitted_individual_crd)
+
+        if not matched_name or not normalized_returned_crd:
+            return None
+        if normalized_license and normalized_returned_crd != normalized_license:
+            return None
+        if normalized_submitted_crd and normalized_returned_crd != normalized_submitted_crd:
+            return None
+
+        disclosures = payload.get("disclosures")
+        disclosures_count = None
+        if isinstance(disclosures, dict):
+            disclosures_count = disclosures.get("count")
+
+        return NameVerificationResult(
+            status="verified",
+            matched_name=matched_name,
+            crd_number=returned_crd,
+            current_firm=cls._normalize_optional_text(payload.get("currentFirm")),
+            sec_number=cls._normalize_optional_text(payload.get("secNumber")),
+            provider="broker_intelligence_license_verification",
+            metadata={
+                "provider": "broker_intelligence_license_verification",
+                "source": "ria_license_verifications",
+                "regulator_status": broker_status or None,
+                "disclosures_count": disclosures_count,
+            },
+        )
+
+    async def _lookup_recent_license_verification_result(
+        self,
+        *,
+        user_id: str,
+        license_number: str | None,
+        submitted_individual_crd: str | None,
+    ) -> NameVerificationResult | None:
+        normalized_license = self._normalize_crd_text(license_number)
+        normalized_submitted_crd = self._normalize_crd_text(submitted_individual_crd)
+        lookup_license = normalized_license or normalized_submitted_crd
+        if not lookup_license:
+            return None
+
+        try:
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT raw_response
+                    FROM ria_license_verifications
+                    WHERE user_id = $1
+                      AND license_number = $2
+                      AND status = 'completed'
+                      AND verification_source = 'broker_intelligence'
+                      AND created_at >= $3
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    user_id,
+                    lookup_license,
+                    datetime.now(timezone.utc) - _RIA_LICENSE_VERIFICATION_REUSE_TTL,
+                )
+        except Exception:
+            logger.warning(
+                "ria.submit_license_verification_lookup_failed user_id=%s",
+                user_id,
+                exc_info=True,
+            )
+            return None
+
+        if row is None:
+            return None
+
+        raw_response = row["raw_response"] if "raw_response" in row else None
+        payload = self._parse_json_mapping(raw_response)
+        return self._name_lookup_from_license_verification_payload(
+            payload,
+            license_number=lookup_license,
+            submitted_individual_crd=normalized_submitted_crd,
+        )
 
     @staticmethod
     def _advisory_status_from_row(row: Any) -> str:
@@ -2197,6 +2397,22 @@ class RIAIAMService:
         primary_firm_name: str | None = None,
         primary_firm_role: str | None = None,
         force_live_verification: bool = False,
+        license_number: str | None = None,
+        regulator: str | None = None,
+        onboarding_type: str = "individual",
+        services_offered: list[str] | None = None,
+        fee_structure: list[str] | None = None,
+        min_engagement_amount: float | None = None,
+        min_engagement_currency: str = "USD",
+        certifications: list[str] | None = None,
+        contact_email: str | None = None,
+        contact_phone: str | None = None,
+        business_city: str | None = None,
+        business_area: str | None = None,
+        business_address: str | None = None,
+        business_pin_zip: str | None = None,
+        business_latitude: float | None = None,
+        business_longitude: float | None = None,
     ) -> dict[str, Any]:
         prepared = self._prepare_professional_onboarding_inputs(
             display_name=display_name,
@@ -2216,11 +2432,19 @@ class RIAIAMService:
         normalized_display_name = str(prepared["display_name"])
         normalized_requested_capabilities = list(prepared["requested_capabilities"])
         submitted_individual_crd = self._normalize_optional_text(prepared.get("individual_crd"))
-        name_lookup = await self._verify_ria_name_result(
-            normalized_display_name,
-            crd_number=submitted_individual_crd,
-            use_cache=not force_live_verification,
-        )
+        name_lookup: NameVerificationResult | None = None
+        if not force_live_verification:
+            name_lookup = await self._lookup_recent_license_verification_result(
+                user_id=user_id,
+                license_number=license_number,
+                submitted_individual_crd=submitted_individual_crd,
+            )
+        if name_lookup is None:
+            name_lookup = await self._verify_ria_name_result(
+                normalized_display_name,
+                crd_number=submitted_individual_crd,
+                use_cache=not force_live_verification,
+            )
         if name_lookup.status == "provider_unavailable":
             raise RIAIAMPolicyError(
                 name_lookup.reason or "RIA name verification provider unavailable.",
@@ -2524,6 +2748,75 @@ class RIAIAMService:
                     str(prepared.get("strategy") or ""),
                     next_status,
                 )
+
+                # Onboarding v2: persist license-first fields
+                try:
+                    await conn.execute(
+                        """
+                        UPDATE ria_profiles
+                        SET
+                          license_number = COALESCE(NULLIF($2, ''), license_number),
+                          regulator = COALESCE(NULLIF($3, ''), regulator),
+                          onboarding_type = COALESCE(NULLIF($4, ''), onboarding_type),
+                          services_offered = CASE WHEN $5::text[] = '{}' THEN services_offered ELSE $5::text[] END,
+                          fee_structure = CASE WHEN $6::text[] = '{}' THEN fee_structure ELSE $6::text[] END,
+                          min_engagement_amount = COALESCE($7, min_engagement_amount),
+                          min_engagement_currency = COALESCE(NULLIF($8, ''), min_engagement_currency),
+                          certifications = CASE WHEN $9::text[] = '{}' THEN certifications ELSE $9::text[] END,
+                          updated_at = NOW()
+                        WHERE id = $1
+                        """,
+                        ria["id"],
+                        license_number or "",
+                        regulator or "",
+                        onboarding_type or "",
+                        services_offered or [],
+                        fee_structure or [],
+                        min_engagement_amount,
+                        min_engagement_currency or "",
+                        certifications or [],
+                    )
+                except asyncpg.exceptions.UndefinedColumnError:
+                    logger.warning(
+                        "ria_profiles v2 columns unavailable; skipping license-first fields"
+                    )
+
+                # Onboarding v2: persist business contact
+                if contact_email or contact_phone or business_city or business_address:
+                    try:
+                        await conn.execute(
+                            """
+                            INSERT INTO ria_business_contacts (
+                              user_id, email, phone, city, area_locality,
+                              full_street_address, pin_zip, latitude, longitude
+                            )
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                            ON CONFLICT (user_id) DO UPDATE
+                            SET
+                              email = COALESCE(NULLIF(EXCLUDED.email, ''), ria_business_contacts.email),
+                              phone = COALESCE(NULLIF(EXCLUDED.phone, ''), ria_business_contacts.phone),
+                              city = COALESCE(NULLIF(EXCLUDED.city, ''), ria_business_contacts.city),
+                              area_locality = COALESCE(NULLIF(EXCLUDED.area_locality, ''), ria_business_contacts.area_locality),
+                              full_street_address = COALESCE(NULLIF(EXCLUDED.full_street_address, ''), ria_business_contacts.full_street_address),
+                              pin_zip = COALESCE(NULLIF(EXCLUDED.pin_zip, ''), ria_business_contacts.pin_zip),
+                              latitude = COALESCE(EXCLUDED.latitude, ria_business_contacts.latitude),
+                              longitude = COALESCE(EXCLUDED.longitude, ria_business_contacts.longitude),
+                              updated_at = NOW()
+                            """,
+                            user_id,
+                            contact_email or "",
+                            contact_phone or "",
+                            business_city or "",
+                            business_area or "",
+                            business_address or "",
+                            business_pin_zip or "",
+                            business_latitude,
+                            business_longitude,
+                        )
+                    except asyncpg.exceptions.UndefinedTableError:
+                        logger.warning(
+                            "ria_business_contacts table unavailable; skipping contact fields"
+                        )
 
                 advisory_status = "verified"
                 brokerage_status = "draft"
