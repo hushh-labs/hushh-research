@@ -417,7 +417,7 @@ async def analyze_stock_with_gemini(
     --- SENIOR ANALYST TERMINAL ({ticker}) ---
     Company: {sec_data.get("entity_name", ticker)}
     {personalization}
-    
+
     [Current Fundamentals]
     Revenue: ${latest_10k.get("revenue", 0):,}
     Net Income: ${latest_10k.get("net_income", 0):,}
@@ -425,18 +425,18 @@ async def analyze_stock_with_gemini(
     Operating Cash Flow: ${latest_10k.get("operating_cash_flow", 0):,}
     Free Cash Flow: ${latest_10k.get("free_cash_flow", 0):,}
     R&D Investment: ${latest_10k.get("research_and_development", 0):,}
-    
+
     [3-Year Quant Trends]
     Revenue Trend: {quant_metrics.get("revenue_trend_data") if quant_metrics else "N/A"}
     Net Income Trend: {quant_metrics.get("net_income_trend_data") if quant_metrics else "N/A"}
     OCF Trend: {quant_metrics.get("ocf_trend_data") if quant_metrics else "N/A"}
     R&D Trend: {quant_metrics.get("rnd_trend_data") if quant_metrics else "N/A"}
-    
+
     [Efficiency Ratios]
     Revenue CAGR (3Y): {quant_metrics.get("revenue_cagr_3y", 0) * 100:.2f}%
     Revenue Growth (YoY): {quant_metrics.get("revenue_growth_yoy", 0) * 100:.2f}%
     Net Income Growth (YoY): {quant_metrics.get("net_income_growth_yoy", 0) * 100:.2f}%
-    
+
     --- MARKET DATA ---
     Current Price: {market_data.get("price", "N/A") if market_data else "N/A"}
     Market Cap: {market_data.get("market_cap", "N/A") if market_data else "N/A"}
@@ -455,7 +455,7 @@ Your mission is to perform a high-conviction, data-driven "Earnings Quality & Mo
 ### REPORT STRUCTURE (Strict JSON)
 - `business_moat`: (String) Depth of the "castle moat". Use Revenue CAGR and R&D trends to justify if the moat is expanding or shrinking.
 - `financial_resilience`: (String) Audit the balance sheet. Evaluate the relationship between OCF and Net Income. Is the cash real?
-- `growth_efficiency`: (String) Capital allocation audit. Are they getting a good return on their R&D spend? 
+- `growth_efficiency`: (String) Capital allocation audit. Are they getting a good return on their R&D spend?
 - `bull_case`: (String) Upside based on compounding or inflection points.
 - `bear_case`: (String) Hard risks (e.g., growth slowing vs high R&D cost).
 - `summary`: (String) 1-paragraph institutional summary.
@@ -540,7 +540,7 @@ async def analyze_sentiment_with_gemini(
 
     context = f"""
     --- SENTIMENT ANALYSIS TERMINAL ({ticker}) ---
-    
+
     [Recent News Articles]
     {news_context}
 
@@ -550,7 +550,7 @@ async def analyze_sentiment_with_gemini(
     Volume: {market_data.get("volume", "N/A") if market_data else "N/A"}
     Market Cap: {market_data.get("market_cap", "N/A") if market_data else "N/A"}
     Sector: {market_data.get("sector", "Unknown") if market_data else "Unknown"}
-    
+
     [Investor Profile]
     Risk Tolerance: {user_risk}
     """
@@ -642,7 +642,7 @@ async def analyze_valuation_with_gemini(
 
     context = f"""
     --- VALUATION ANALYSIS TERMINAL ({ticker}) ---
-    
+
     [Market Data]
     Current Price: ${market_data.get("price", "N/A")}
     P/E Ratio: {market_data.get("pe_ratio", "N/A")}
@@ -653,10 +653,10 @@ async def analyze_valuation_with_gemini(
     Market Cap: ${market_data.get("market_cap", "N/A")}
     Dividend Yield: {market_data.get("dividend_yield", "N/A")}
     52-Week Range: ${market_data.get("52w_low", "N/A")} - ${market_data.get("52w_high", "N/A")}
-    
+
     [Peer Comparison]
     {peer_context}
-    
+
     [Investor Profile]
     Risk Tolerance: {user_risk}
     """
@@ -968,16 +968,16 @@ async def analyze_fundamental_streaming(
     --- SENIOR ANALYST TERMINAL ({ticker}) ---
     Company: {sec_data.get("entity_name", ticker)}
     Risk Profile: {risk}
-    
+
     [Current Fundamentals]
     Revenue: ${latest_10k.get("revenue", 0):,}
     Net Income: ${latest_10k.get("net_income", 0):,}
     Operating Cash Flow: ${latest_10k.get("operating_cash_flow", 0):,}
     Free Cash Flow: ${latest_10k.get("free_cash_flow", 0):,}
-    
+
     [3-Year Quant Trends]
     Revenue Trend: {quant_metrics.get("revenue_trend_data") if quant_metrics else "N/A"}
-    
+
     --- MARKET DATA ---
     Current Price: {market_data.get("price", "N/A") if market_data else "N/A"}
     Market Cap: {market_data.get("market_cap", "N/A") if market_data else "N/A"}
@@ -991,7 +991,7 @@ Walk through your reasoning step by step.
 
 Cover:
 1. Business moat assessment
-2. Financial health audit  
+2. Financial health audit
 3. Growth efficiency review
 4. Bull case and bear case
 5. Final recommendation (buy/hold/reduce) with confidence

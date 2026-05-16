@@ -896,7 +896,7 @@ async def stream_agent_thinking(
     try:
         async for event in stream_gemini_response(
             prompt=f"""You are a {agent_name} analyst. Briefly think through your analysis approach for {ticker}.
-            
+
 Context: {prompt_context}
 
 Think step by step in 2-3 sentences about what you'll analyze and why it matters.""",

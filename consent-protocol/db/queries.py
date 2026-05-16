@@ -211,7 +211,7 @@ async def get_audit_log(user_id: str, page: int = 1, limit: int = 50) -> Dict:
     offset = (page - 1) * limit
 
     query = """
-        SELECT id, token_id, agent_id, scope, action, issued_at, expires_at, 
+        SELECT id, token_id, agent_id, scope, action, issued_at, expires_at,
                request_id, poll_timeout_at, scope_description, metadata
         FROM consent_audit
         WHERE user_id = $1

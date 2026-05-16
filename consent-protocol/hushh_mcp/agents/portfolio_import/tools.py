@@ -168,7 +168,7 @@ async def extract_with_llm(text: str, brokerage: str = "unknown") -> Dict[str, A
         client = genai.Client(api_key=api_key)
 
         prompt = f"""Extract investment holdings from this {brokerage} document.
-        
+
 For each holding, extract: symbol, name, quantity, price, market_value, cost_basis.
 Return as JSON array.
 

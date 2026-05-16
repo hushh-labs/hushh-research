@@ -296,16 +296,16 @@ async def create_pkm_data(pool: asyncpg.Pool):
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS pkm_data (
             user_id TEXT PRIMARY KEY REFERENCES vault_keys(user_id) ON DELETE CASCADE,
-            
+
             -- Encrypted data blob (BYOK - client encrypts, server stores only ciphertext)
             encrypted_data_ciphertext TEXT NOT NULL,
             encrypted_data_iv TEXT NOT NULL,
             encrypted_data_tag TEXT NOT NULL,
             algorithm TEXT DEFAULT 'aes-256-gcm',
-            
+
             -- Version tracking
             data_version INTEGER DEFAULT 1,
-            
+
             -- Timestamps
             created_at TIMESTAMPTZ DEFAULT NOW(),
             updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -327,24 +327,24 @@ async def create_pkm_index(pool: asyncpg.Pool):
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS pkm_index (
             user_id TEXT PRIMARY KEY REFERENCES vault_keys(user_id) ON DELETE CASCADE,
-            
+
             -- Domain summaries (JSONB - { domain_key: { summary_data } })
             domain_summaries JSONB DEFAULT '{}',
-            
+
             -- List of available domains
             available_domains TEXT[] DEFAULT '{}',
-            
+
             -- Computed tags for search/filtering
             computed_tags TEXT[] DEFAULT '{}',
-            
+
             -- Activity signals
             activity_score DECIMAL(3,2),
             last_active_at TIMESTAMPTZ,
             total_attributes INTEGER DEFAULT 0,
-            
+
             -- Model version
             model_version INTEGER DEFAULT 2,
-            
+
             -- Timestamps
             created_at TIMESTAMPTZ DEFAULT NOW(),
             updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -376,10 +376,10 @@ async def create_consent_exports(pool: asyncpg.Pool):
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS consent_exports (
             consent_token TEXT PRIMARY KEY,
-            
+
             -- User reference
             user_id TEXT REFERENCES vault_keys(user_id) ON DELETE CASCADE,
-            
+
             -- Encrypted export data (MCP decrypts with export_key)
             encrypted_data TEXT NOT NULL,
             iv TEXT NOT NULL,
@@ -393,13 +393,13 @@ async def create_consent_exports(pool: asyncpg.Pool):
             source_content_revision INTEGER,
             source_manifest_revision INTEGER,
             refresh_status TEXT NOT NULL DEFAULT 'current' CHECK (refresh_status IN ('current', 'refresh_pending', 'stale')),
-            
+
             -- Scope this export is for
             scope TEXT NOT NULL,
-            
+
             -- Expiry
             expires_at TIMESTAMPTZ NOT NULL,
-            
+
             -- Timestamps
             created_at TIMESTAMPTZ DEFAULT NOW()
         )
@@ -467,20 +467,20 @@ async def create_domain_registry(pool: asyncpg.Pool):
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS domain_registry (
             domain_key TEXT PRIMARY KEY,
-            
+
             -- Display information
             display_name TEXT NOT NULL,
             description TEXT,
             icon_name TEXT DEFAULT 'folder',
             color_hex TEXT DEFAULT '#6B7280',
-            
+
             -- Hierarchy
             parent_domain TEXT REFERENCES domain_registry(domain_key),
-            
+
             -- Statistics
             attribute_count INTEGER DEFAULT 0,
             user_count INTEGER DEFAULT 0,
-            
+
             -- Timestamps
             first_seen_at TIMESTAMPTZ DEFAULT NOW(),
             last_updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -1063,7 +1063,7 @@ async def show_status(pool: asyncpg.Pool):
     print("\n📊 Table summary:")
 
     tables = await pool.fetch("""
-        SELECT table_name FROM information_schema.tables 
+        SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public' ORDER BY table_name
     """)
     print(f"   Tables: {', '.join(r['table_name'] for r in tables)}")

@@ -331,7 +331,6 @@ class DebateEngine:
         # But we do return it for the caller to use.
         # UPDATE: Async generators cannot return values in Python < 3.13 (or standard usage).
         # stream.py calculates this manually, so we just finish.
-        pass
 
     async def orchestrate_debate(
         self,
@@ -790,8 +789,8 @@ class DebateEngine:
         - Free Cash Flow (Billions): {fcf}
         - Thesis: {thesis}
         {screening_line}
-        
-        MANDATE: You MUST reference this 'Renaissance' data. 
+
+        MANDATE: You MUST reference this 'Renaissance' data.
         If Tier is ACE/KING, respect the math even if sentiment is weak.
             """
 
@@ -902,14 +901,14 @@ class DebateEngine:
         - Eligible Symbol Sample: {", ".join(eligible_preview) if eligible_preview else "n/a"}
         - Top Positions: {", ".join(top_position_lines) if top_position_lines else "n/a"}
         - Allocation Snapshot: {allocation_summary}
-        
+
         MANDATE: You MUST personalize your argument.
         Example: "Since you own [Holding], adding [Ticker] increases/decreases risk..."
             """
 
         prompt = f"""
         {role_desc}
-        
+
         DEBATE PROTOCOL (AlphaAgents 2508.11152):
         - Round-robin, adversarial collaboration.
         - Each specialist speaks at least twice and must challenge weak assumptions.
@@ -922,38 +921,38 @@ class DebateEngine:
         - Explicitly frame risk tradeoff (concentration/diversification/downside) for this user.
         - If your view conflicts with Renaissance screening, state the conflict and mitigation.
         - Avoid raw data dumps; use only the highest-signal facts.
-        
+
         AUDIENCE CONTEXT:
         User Name: {self.user_context.get("user_name", "Value Investor")}
         {user_context_str}
         {ren_context_str}
         {complexity_instruction}
-        
+
         YOUR DATA:
         {details}
-        
+
         {previous_context}
-        
+
         TASK:
         {task}
-        
+
         STRICT OUTPUT FORMAT (XML):
         <analysis>
            <thought>Step-by-step reasoning...</thought>
-           
+
            <claim id="c1" type="fact/projection" confidence="0.9">Key point here</claim>
            <evidence target="c1" source="SEC/News">Quote or metric</evidence>
            <portfolio_impact type="risk/opportunity" magnitude="high" score="8">Impact on user</portfolio_impact>
-           
+
            <!-- TRINITY CARDS - MANDATORY SECTIONS -->
            <bull_case_personalized>
                [Why THIS USER specifically should be bullish. Reference their portfolio/goals.]
            </bull_case_personalized>
-           
+
            <bear_case_personalized>
                [Why THIS USER specifically should be worried. Reference their risk profile/holdings.]
            </bear_case_personalized>
-           
+
            <renaissance_verdict>
                [The Mathematical Truth. Cite the Tier, FCF, and Thesis explicitly.]
            </renaissance_verdict>

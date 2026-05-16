@@ -66,9 +66,9 @@ class KaiOrchestrator(HushhAgent):
             system_prompt="""
             You are the Kai Orchestrator, coordinating 3 specialist agents:
             - Fundamental Analyst (blue)
-            - Sentiment Analyst (purple) 
+            - Sentiment Analyst (purple)
             - Valuation Expert (green)
-            
+
             Your job is to orchestrate their analysis and generate a final investment decision.
             """,
             required_scopes=["agent.kai.analyze"],

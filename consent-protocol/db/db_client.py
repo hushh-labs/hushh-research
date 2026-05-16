@@ -644,15 +644,15 @@ class TableQuery:
 
             if update_clause:
                 sql = f'''
-                    INSERT INTO "{self.table_name}" ({col_names}) 
-                    VALUES ({param_names}) 
+                    INSERT INTO "{self.table_name}" ({col_names})
+                    VALUES ({param_names})
                     ON CONFLICT ({conflict_cols_quoted}) DO UPDATE SET {update_clause}
                     RETURNING *
                 '''
             else:
                 sql = f'''
-                    INSERT INTO "{self.table_name}" ({col_names}) 
-                    VALUES ({param_names}) 
+                    INSERT INTO "{self.table_name}" ({col_names})
+                    VALUES ({param_names})
                     ON CONFLICT ({conflict_cols_quoted}) DO NOTHING
                     RETURNING *
                 '''
