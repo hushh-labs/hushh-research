@@ -1,0 +1,67 @@
+{
+  "id": "autonomous-rca-governance",
+  "title": "Autonomous RCA Governance",
+  "goal": "Classify core runtime and release failures into a small RCA taxonomy, run the smallest authoritative checks, keep machine-readable artifacts that let later agents resume without rediscovering the same blocker, and continue monitoring until the relevant core run chain reaches terminal green or a concrete blocker.",
+  "owner_skill": "autonomous-rca-governance",
+  "default_spoke": null,
+  "task_type": "autonomous-rca-governance",
+  "affected_surfaces": [
+    "scripts/ops",
+    "scripts/ci",
+    ".github/workflows",
+    "deploy",
+    ".codex/skills"
+  ],
+  "required_reads": [
+    "docs/reference/operations/ci.md",
+    "docs/reference/operations/env-and-secrets.md",
+    ".codex/skills/repo-operations/SKILL.md",
+    ".codex/skills/quality-contracts/SKILL.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task autonomous-rca-governance",
+    "./bin/hushh codex rca --surface runtime --text",
+    "./bin/hushh codex rca --surface uat --text"
+  ],
+  "verification_bundle": {
+    "id": "autonomous-rca-governance",
+    "commands": [
+      "./bin/hushh codex rca --surface runtime --text",
+      "./bin/hushh codex rca --surface ci --text",
+      "./bin/hushh codex rca --surface uat --text",
+      "python3 -m py_compile .codex/skills/autonomous-rca-governance/scripts/rca_runner.py"
+    ],
+    "tests": [
+      "./bin/hushh codex rca --surface runtime --text",
+      "python3 -m py_compile .codex/skills/autonomous-rca-governance/scripts/rca_runner.py"
+    ]
+  },
+  "deliverables": [
+    "blocking RCA classifications",
+    "resume-safe RCA artifact",
+    "smallest safe remediation direction",
+    "authoritative rerun record",
+    "terminal release outcome or blocker note"
+  ],
+  "impact_fields": [
+    "Surface",
+    "Blocking classifications",
+    "Advisory classifications",
+    "Reports generated",
+    "Next actions"
+  ],
+  "handoff_chain": [
+    "autonomous-rca-governance",
+    "repo-operations",
+    "backend-runtime-governance",
+    "quality-contracts",
+    "contributor-onboarding"
+  ],
+  "common_failures": [
+    "treating secret drift and runtime-mount drift as the same class of problem",
+    "declaring success when the semantic verifier never wrote an artifact",
+    "rerunning checks once and trusting the first green pass",
+    "blocking on helper drift instead of core runtime authority",
+    "declaring success while the relevant deploy or UAT run is still active"
+  ]
+}

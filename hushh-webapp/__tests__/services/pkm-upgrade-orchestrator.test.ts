@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 process.env.NEXT_PUBLIC_APP_ENV = "development";
 process.env.NEXT_PUBLIC_PKM_UPGRADE_REHEARSAL = "true";
-process.env.NEXT_PUBLIC_KAI_TEST_USER_ID = "kai-test-user";
+process.env.NEXT_PUBLIC_REVIEWER_UID = "reviewer-user";
 
 /* ---------- mocks (before any real imports) ---------- */
 
@@ -165,7 +165,10 @@ vi.mock("@/lib/utils/session-storage", () => ({
   removeSessionItem: (...a: unknown[]) => removeSessionItemMock(...a),
 }));
 
-import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
+import {
+  PKM_UPGRADE_COMPLETED_EVENT,
+  PkmUpgradeOrchestrator,
+} from "@/lib/services/pkm-upgrade-orchestrator";
 import { PkmUpgradeRouteUnavailableError } from "@/lib/services/pkm-upgrade-service";
 import { PkmDomainManifestError } from "@/lib/services/personal-knowledge-model-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
@@ -430,11 +433,11 @@ describe("PkmUpgradeOrchestrator", () => {
     });
   });
 
-  describe("Kai no-write rehearsal", () => {
-    it("keeps the normal Kai login path on real upgrades by default", async () => {
+  describe("reviewer no-write rehearsal", () => {
+    it("keeps the normal login path on real upgrades by default", async () => {
       const kaiParams = {
         ...BASE_PARAMS,
-        userId: "kai-test-user",
+        userId: "reviewer-user",
       };
 
       await expect(PkmUpgradeOrchestrator.ensureRunning(kaiParams)).resolves.toBeUndefined();
@@ -451,15 +454,15 @@ describe("PkmUpgradeOrchestrator", () => {
       );
     });
 
-    it("rehearses the upgrade for the Kai test user without writing PKM rows", async () => {
+    it("rehearses the upgrade for the reviewer test user without writing PKM rows", async () => {
       const kaiParams = {
         ...BASE_PARAMS,
-        userId: "kai-test-user",
+        userId: "reviewer-user",
       };
       getSessionItemMock.mockReturnValue("true");
       startOrResumeMock.mockReset();
       getUpgradeStatusMock.mockResolvedValue({
-        userId: "kai-test-user",
+        userId: "reviewer-user",
         modelVersion: 2,
         storedModelVersion: 2,
         effectiveModelVersion: 2,
@@ -498,12 +501,12 @@ describe("PkmUpgradeOrchestrator", () => {
     it("stays quiet when rehearsal is enabled but no upgrade is actually required", async () => {
       const kaiParams = {
         ...BASE_PARAMS,
-        userId: "kai-test-user",
+        userId: "reviewer-user",
       };
       getSessionItemMock.mockReturnValue("true");
       startOrResumeMock.mockReset();
       getUpgradeStatusMock.mockResolvedValue({
-        userId: "kai-test-user",
+        userId: "reviewer-user",
         modelVersion: 3,
         storedModelVersion: 3,
         effectiveModelVersion: 3,
@@ -526,10 +529,10 @@ describe("PkmUpgradeOrchestrator", () => {
     it("shows a background task for metadata-only PKM reconciliation and toasts on completion", async () => {
       const kaiParams = {
         ...BASE_PARAMS,
-        userId: "kai-test-user",
+        userId: "reviewer-user",
       };
       getUpgradeStatusMock.mockResolvedValue({
-        userId: "kai-test-user",
+        userId: "reviewer-user",
         modelVersion: 3,
         storedModelVersion: 2,
         effectiveModelVersion: 3,
@@ -540,7 +543,7 @@ describe("PkmUpgradeOrchestrator", () => {
         run: null,
       });
       startOrResumeMock.mockResolvedValue({
-        userId: "kai-test-user",
+        userId: "reviewer-user",
         modelVersion: 3,
         storedModelVersion: 3,
         effectiveModelVersion: 3,
@@ -570,6 +573,31 @@ describe("PkmUpgradeOrchestrator", () => {
           description: "Your Personal Knowledge Model is current.",
         })
       );
+    });
+
+    it("refreshes metadata before emitting completion for the profile surface", async () => {
+      const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+
+      await expect(PkmUpgradeOrchestrator.ensureRunning(BASE_PARAMS)).resolves.toBeUndefined();
+
+      const metadataCallOrder = Math.max(...pkmGetMetadataMock.mock.invocationCallOrder);
+      const completeTaskOrder = Math.max(
+        ...(AppBackgroundTaskService.completeTask as unknown as ReturnType<typeof vi.fn>).mock
+          .invocationCallOrder
+      );
+
+      expect(metadataCallOrder).toBeLessThan(completeTaskOrder);
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: PKM_UPGRADE_COMPLETED_EVENT,
+          detail: expect.objectContaining({
+            userId: BASE_PARAMS.userId,
+            mode: "real",
+          }),
+        })
+      );
+
+      dispatchSpy.mockRestore();
     });
   });
 });

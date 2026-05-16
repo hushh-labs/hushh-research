@@ -1,0 +1,76 @@
+{
+  "id": "oss-license-governance",
+  "role": "owner",
+  "owner_family": "oss-license-governance",
+  "primary_scope": "oss-license-governance-intake",
+  "description": "Use when changing Apache-2.0 licensing, SPDX/REUSE coverage, package license metadata, or third-party notice generation across consent-protocol and hushh-research.",
+  "owned_paths": [
+    "LICENSE",
+    "LICENSES",
+    "NOTICE",
+    "REUSE.toml",
+    "THIRD_PARTY_NOTICES.md",
+    "consent-protocol/LICENSE",
+    "consent-protocol/NOTICE",
+    "consent-protocol/THIRD_PARTY_NOTICES.md",
+    "scripts/licenses",
+    ".codex/skills/oss-license-governance"
+  ],
+  "non_owned_paths": [
+    "docs-governance",
+    "repo-operations",
+    "backend",
+    "frontend",
+    "subtree-upstream-governance"
+  ],
+  "task_types": [
+    "oss-license-governance"
+  ],
+  "required_reads": [
+    "LICENSE",
+    "NOTICE",
+    "REUSE.toml",
+    "consent-protocol/pyproject.toml",
+    "hushh-webapp/package.json",
+    "packages/hushh-mcp/package.json"
+  ],
+  "required_commands": [
+    "python3 scripts/licenses/verify_apache_surface.py",
+    "python3 scripts/licenses/generate_third_party_notices.py",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundles": [
+    {
+      "id": "oss-license-governance",
+      "commands": [
+        "python3 scripts/licenses/verify_apache_surface.py",
+        "python3 scripts/licenses/generate_third_party_notices.py",
+        "./bin/hushh docs verify"
+      ],
+      "tests": [
+        "python3 scripts/licenses/verify_apache_surface.py",
+        "./bin/hushh docs verify"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "repo-operations",
+    "docs-governance",
+    "subtree-upstream-governance",
+    "backend",
+    "frontend"
+  ],
+  "adjacent_skills": [
+    "repo-operations",
+    "docs-governance",
+    "subtree-upstream-governance",
+    "backend",
+    "frontend"
+  ],
+  "risk_tags": [
+    "license-surface-drift",
+    "notice-drift",
+    "reuse-coverage-drift",
+    "third-party-attribution-drift"
+  ]
+}

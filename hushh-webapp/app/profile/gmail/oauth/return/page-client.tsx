@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   AppPageContentRegion,
@@ -40,6 +40,7 @@ export default function ProfileGmailOAuthReturnPageClient({
   initialErrorDescription: string;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const startedRef = useRef(false);
   const { user, loading } = useAuth();
   const [stage, setStage] = useState<CompleteStage>("loading");
@@ -48,16 +49,21 @@ export default function ProfileGmailOAuthReturnPageClient({
   useEffect(() => {
     if (loading || startedRef.current) return;
 
-    const oauthError = initialError;
+    const liveError = String(searchParams.get("error") || "").trim();
+    const liveErrorDescription = String(searchParams.get("error_description") || "").trim();
+    const liveCode = String(searchParams.get("code") || "").trim();
+    const liveState = String(searchParams.get("state") || "").trim();
+
+    const oauthError = liveError || initialError;
     if (oauthError) {
-      const oauthErrorDescription = initialErrorDescription;
+      const oauthErrorDescription = liveErrorDescription || initialErrorDescription;
       setStage("error");
       setError(oauthErrorDescription || oauthError || "Google OAuth authorization was denied.");
       return;
     }
 
-    const code = initialCode;
-    const state = initialState;
+    const code = liveCode || initialCode;
+    const state = liveState || initialState;
     if (!code || !state) {
       setStage("error");
       setError("Missing OAuth code or state. Start Connect Gmail again from Profile.");
@@ -128,7 +134,16 @@ export default function ProfileGmailOAuthReturnPageClient({
         setError(resolveErrorMessage(completeError));
       }
     })();
-  }, [initialCode, initialError, initialErrorDescription, initialState, loading, router, user]);
+  }, [
+    initialCode,
+    initialError,
+    initialErrorDescription,
+    initialState,
+    loading,
+    router,
+    searchParams,
+    user,
+  ]);
 
   if (stage !== "error") {
     return (

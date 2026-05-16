@@ -11,12 +11,23 @@ import {
 const PORTFOLIO_SHARE_ISSUER = "hushh-portfolio-share";
 const PORTFOLIO_SHARE_AUDIENCE = "portfolio-share-public";
 const DEFAULT_EXPIRY_SECONDS = 7 * 24 * 60 * 60;
+const INSECURE_DEV_FALLBACK_SECRET = "dev-portfolio-share-secret-change-in-prod";
 
-const secretKey =
-  process.env.PORTFOLIO_SHARE_SECRET ||
-  process.env.SESSION_SECRET ||
-  "dev-portfolio-share-secret-change-in-prod";
-const key = new TextEncoder().encode(secretKey);
+function resolveSigningKey(): Uint8Array {
+  const secretKey = process.env.PORTFOLIO_SHARE_SECRET || process.env.SESSION_SECRET;
+
+  if (secretKey) {
+    return new TextEncoder().encode(secretKey);
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "Missing portfolio share signing secret. Set PORTFOLIO_SHARE_SECRET or SESSION_SECRET.",
+    );
+  }
+
+  return new TextEncoder().encode(INSECURE_DEV_FALLBACK_SECRET);
+}
 
 interface PortfolioShareTokenPayload {
   p: PortfolioSharePayload;
@@ -26,6 +37,7 @@ interface PortfolioShareTokenPayload {
 export async function createPortfolioShareToken(
   payloadInput: unknown
 ): Promise<{ token: string; expiresAt: string }> {
+  const key = resolveSigningKey();
   const payload = sanitizePortfolioSharePayload(payloadInput);
   const expiresAtEpochSeconds = Math.floor(Date.now() / 1000) + DEFAULT_EXPIRY_SECONDS;
 
@@ -52,6 +64,7 @@ export async function verifyPortfolioShareToken(
   if (!token) return null;
 
   try {
+    const key = resolveSigningKey();
     const { payload } = await jwtVerify(token, key, {
       algorithms: ["HS256"],
       issuer: PORTFOLIO_SHARE_ISSUER,
