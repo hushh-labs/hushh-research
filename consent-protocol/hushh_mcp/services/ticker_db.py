@@ -539,7 +539,8 @@ class TickerDBService:
             try:
                 from hushh_mcp.services.ticker_cache import ticker_cache
 
-                ticker_cache.load_from_db()
+                # Patch only the rows that changed — avoids a full table reload.
+                ticker_cache.update_rows(rows_to_upsert)
             except Exception as exc:
                 logger.warning("Ticker cache refresh after enrichment failed: %s", exc)
 
@@ -682,7 +683,9 @@ class TickerDBService:
             try:
                 from hushh_mcp.services.ticker_cache import ticker_cache
 
-                ticker_cache.load_from_db()
+                # Patch only the rows that changed — avoids a full table reload.
+                all_written = rows_to_seed + rows_to_update
+                ticker_cache.update_rows(all_written)
             except Exception as exc:
                 logger.warning("Ticker cache refresh after seed sync failed: %s", exc)
 

@@ -24,7 +24,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from hushh_mcp.services.ticker_db import TickerDBService
 
@@ -116,8 +116,53 @@ class TickerCache:
                 "tradable": row.tradable,
             }
 
+    def update_rows(self, rows: List[Dict[str, Any]]) -> int:
+        """
+        Surgically update specific ticker rows in the cache without a full DB reload.
+
+        Called after enrich_symbols() or sync_holdings_symbols() to patch only
+        the rows that were just written, instead of re-fetching the entire table.
+
+        Args:
+            rows: List of dicts with at minimum a 'ticker' key, matching the
+                  shape produced by ticker_db upsert helpers.
+
+        Returns:
+            Number of rows updated/inserted in the cache.
+        """
+        updated = 0
+        with self._lock:
+            for r in rows:
+                ticker = (r.get("ticker") or "").upper().strip()
+                if not ticker:
+                    continue
+                existing = self._row_by_ticker.get(ticker)
+                new_row = TickerRow(
+                    ticker=ticker,
+                    title=r.get("title") or (existing.title if existing else ticker),
+                    cik=r.get("cik") or (existing.cik if existing else None),
+                    exchange=r.get("exchange") or (existing.exchange if existing else None),
+                    sic_code=r.get("sic_code") or (existing.sic_code if existing else None),
+                    sic_description=r.get("sic_description") or (existing.sic_description if existing else None),
+                    sector_primary=r.get("sector_primary") or (existing.sector_primary if existing else None),
+                    industry_primary=r.get("industry_primary") or (existing.industry_primary if existing else None),
+                    sector_tags=r.get("sector_tags") if isinstance(r.get("sector_tags"), list)
+                                else (existing.sector_tags if existing else []),
+                    metadata_confidence=float(r.get("metadata_confidence") or
+                                              (existing.metadata_confidence if existing else 0.0)),
+                    tradable=bool(r.get("tradable", existing.tradable if existing else True)),
+                )
+                if ticker not in self._row_by_ticker:
+                    self._rows.append(new_row)
+                self._row_by_ticker[ticker] = new_row
+                updated += 1
+
+        if updated:
+            logger.debug("[TickerCache] update_rows: patched %d ticker(s) in-place", updated)
+        return updated
+
     def load_from_db(self) -> int:
-        """Load all tickers from DB into memory."""
+        """Load all tickers from DB into memory. Only called at server startup."""
         t0 = time.time()
         svc = TickerDBService()
         db = svc._get_db()
