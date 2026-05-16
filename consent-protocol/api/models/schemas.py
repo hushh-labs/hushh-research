@@ -10,7 +10,7 @@ All request and response schemas are centralized here for:
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # ============================================================================
 # AGENT CHAT MODELS
@@ -101,7 +101,11 @@ class SessionTokenRequest(BaseModel):
     """Request to issue a session token."""
 
     userId: str
-    scope: str = "session"
+    scope: str = Field(
+        default="session",
+        min_length=1,
+        max_length=64,
+    )
 
 
 class SessionTokenResponse(BaseModel):

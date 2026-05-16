@@ -70,6 +70,8 @@ describe("VaultMethodService.changePassphrase", () => {
   });
 
   it("updates passphrase wrapper without changing primary method by default", async () => {
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+
     const result = await VaultMethodService.changePassphrase({
       userId: "uid-1",
       currentVaultKey:
@@ -91,6 +93,15 @@ describe("VaultMethodService.changePassphrase", () => {
       primaryMethod: "generated_default_native_passkey_prf",
       passphraseUpdated: true,
     });
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "vault-rekeyed",
+        detail: {
+          userId: "uid-1",
+          reason: "vault_passphrase_changed",
+        },
+      })
+    );
   });
 
   it("can set passphrase as primary when keepPrimaryMethod is false", async () => {

@@ -1,6 +1,7 @@
 # hushh_mcp/consent/token.py
 
 import base64
+import binascii
 import hashlib
 import hmac
 import logging
@@ -248,6 +249,9 @@ def validate_token(
         if not hmac.compare_digest(signature, expected_sig):
             return False, "Invalid signature", None
 
+        if int(time.time() * 1000) >= int(expires_at_str):
+            return False, "Token expired", None
+
         # SCOPE VALIDATION with domain isolation
         if expected_scope:
             # Convert enum to string if needed
@@ -268,9 +272,6 @@ def validate_token(
                     None,
                 )
 
-        if int(time.time() * 1000) >= int(expires_at_str):
-            return False, "Token expired", None
-
         # Commercial-flag gate (issue #30).
         if require_commercial is True and not commercial:
             return False, "Commercial consent required for this operation", None
@@ -290,7 +291,7 @@ def validate_token(
         )
         return True, None, token
 
-    except (ValueError, UnicodeDecodeError) as e:
+    except (ValueError, UnicodeDecodeError, binascii.Error) as e:
         return False, f"Malformed token: {str(e)}", None
     except Exception as e:
         logger.error(f"Unexpected error during token validation: {e}", exc_info=True)

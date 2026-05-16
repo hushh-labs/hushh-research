@@ -2096,7 +2096,15 @@ class OneEmailKycService:
         workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
         if workflow["status"] == "needs_client_connector":
             workflow = await self._ensure_consent_request(workflow)
-        if workflow["status"] not in {"needs_scope", "needs_documents"}:
+        should_revalidate_ready_draft = (
+            workflow["status"] == "waiting_on_user"
+            and workflow.get("draft_status") == "ready"
+            and bool(_workflow_consent_requests(workflow))
+        )
+        if (
+            workflow["status"] not in {"needs_scope", "needs_documents"}
+            and not should_revalidate_ready_draft
+        ):
             return workflow
         consent_requests = _workflow_consent_requests(workflow)
         metadata = workflow.get("metadata", {})
@@ -2126,8 +2134,17 @@ class OneEmailKycService:
             if not export_package:
                 return self._update_workflow(
                     workflow_id,
+                    status="needs_scope",
+                    draft_status="not_ready",
+                    draft_body=None,
                     last_error_code="scoped_export_pending",
                     last_error_message="Consent is granted; One is waiting for the scoped encrypted export.",
+                    metadata={
+                        **_redact_sensitive_workflow_metadata(workflow.get("metadata", {})),
+                        "consent_export": None,
+                        "consent_exports": None,
+                        "client_draft_required": False,
+                    },
                 )
             export_metadata = self._public_export_metadata(export_package)
             workflow = self._update_workflow(
@@ -2212,6 +2229,9 @@ class OneEmailKycService:
                 ),
                 metadata={
                     **metadata,
+                    "consent_export": None,
+                    "consent_exports": None,
+                    "client_draft_required": False,
                     "denied_scopes": [item["scope"] for item in denied],
                     "external_reply_blocked": True,
                     "internal_user_explanation": (
@@ -2222,11 +2242,19 @@ class OneEmailKycService:
         if pending or len(exports) != len(consent_requests):
             return self._update_workflow(
                 workflow["workflow_id"],
+                status="needs_scope",
+                draft_status="not_ready",
+                draft_body=None,
                 last_error_code="scoped_export_pending" if exports else None,
                 last_error_message=(
                     "One is waiting for all selected scoped encrypted exports." if exports else None
                 ),
-                metadata=metadata,
+                metadata={
+                    **metadata,
+                    "consent_export": None,
+                    "consent_exports": None,
+                    "client_draft_required": False,
+                },
             )
         export_metadata = [
             item["metadata"] | {"request_id": item["request_id"]} for item in exports
