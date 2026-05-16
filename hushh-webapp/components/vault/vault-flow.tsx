@@ -1,5 +1,6 @@
 "use client";
 
+import { PasswordStrengthMeter } from "@/components/app-ui/password-strength-meter";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Button, Card, CardContent } from "@/lib/morphy-ux/morphy";
@@ -627,6 +628,15 @@ export function VaultFlow({
                   autoFocus
                   className="h-11 px-3 text-base sm:h-12 sm:px-4 sm:text-lg"
                 />
+                <Input
+  id="passphrase"
+  type="password"
+  placeholder="Enter your passphrase"
+  value={passphrase}
+  // ... any other existing attributes from the old code
+/>
+{/* HARVESTED STRENGTH FEEDBACK SEMANTICS HERE */}
+<PasswordStrengthMeter password={passphrase} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="confirm" className="text-sm sm:text-base">Confirm Passphrase</Label>
