@@ -201,6 +201,66 @@ describe("CacheSyncService mutation cascades", () => {
     expect(invalidatedKeys).toContain(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
   });
 
+  it("onPkmDomainStored never reads unchecked memory scopes from domain summaries", () => {
+    cache.set(
+      CACHE_KEYS.PKM_METADATA(userId),
+      {
+        userId,
+        domains: [
+          {
+            key: "financial",
+            displayName: "Financial",
+            icon: "wallet",
+            color: "green",
+            attributeCount: 3,
+            summary: {},
+            availableScopes: ["attr.financial.checked"],
+            lastUpdated: "2026-05-10T00:00:00.000Z",
+          },
+        ],
+        totalAttributes: 3,
+        modelCompleteness: 0,
+        modelVersion: 1,
+        storedModelVersion: 1,
+        effectiveModelVersion: 1,
+        targetModelVersion: 1,
+        upgradeStatus: "current",
+        upgradableDomains: [],
+        lastUpgradedAt: null,
+        suggestedDomains: [],
+        lastUpdated: "2026-05-10T00:00:00.000Z",
+      },
+      CACHE_TTL.MEDIUM
+    );
+
+    CacheSyncService.onPkmDomainStored(userId, "financial", {
+      metadataTimestamp: "2026-05-11T00:00:00.000Z",
+      domainSummary: {
+        attribute_count: 4,
+        readable_summary: "Financial memory updated.",
+        available_scopes: ["attr.financial.unchecked"],
+        availableScopes: ["attr.financial.uncheckedCamel"],
+        top_level_scope_paths: ["holdings"],
+        externalizable_paths: ["holdings.account_number"],
+        scope_handles: ["unchecked-handle"],
+      },
+    });
+
+    const metadata = cache.get<any>(CACHE_KEYS.PKM_METADATA(userId));
+    const financialDomain = metadata?.domains.find((entry: any) => entry.key === "financial");
+
+    expect(financialDomain?.availableScopes).toEqual(["attr.financial.checked"]);
+    expect(financialDomain?.summary).toEqual({
+      attribute_count: 4,
+      readable_summary: "Financial memory updated.",
+    });
+    expect(financialDomain?.summary.available_scopes).toBeUndefined();
+    expect(financialDomain?.summary.availableScopes).toBeUndefined();
+    expect(financialDomain?.summary.top_level_scope_paths).toBeUndefined();
+    expect(financialDomain?.summary.externalizable_paths).toBeUndefined();
+    expect(financialDomain?.summary.scope_handles).toBeUndefined();
+  });
+
   // ---------- 10. onPkmDomainCleared (financial) ----------
   it("onPkmDomainCleared invalidates domain data, encrypted blob, PKM blob, decrypted blob, metadata, and portfolio data for financial", () => {
     CacheSyncService.onPkmDomainCleared(userId, "financial");
