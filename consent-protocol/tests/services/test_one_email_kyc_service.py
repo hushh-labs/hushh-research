@@ -1046,6 +1046,60 @@ async def test_refresh_workflow_marks_multi_scope_exports_ready():
 
 
 @pytest.mark.asyncio
+async def test_refresh_workflow_demotes_stale_ready_multi_scope_when_export_revoked():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+    result = await service._process_message(
+        _message(
+            subject="Broker API KYC and financial questionnaire",
+            body="Broker KYC questionnaire asking for full name and all financial information.",
+        ),
+        history_id="102multi-stale",
+    )
+    selected = await service.select_scopes(
+        user_id="user_123",
+        workflow_id=result["workflow"]["workflow_id"],
+        selected_scopes=["attr.identity.*", "attr.financial.*"],
+    )
+    requests = selected["metadata"]["consent_requests"]
+    for request, token_id in zip(
+        requests,
+        ["token_identity_stale", "token_financial_stale"],
+        strict=True,
+    ):
+        consent_db.status_by_request[request["request_id"]] = {
+            "action": "CONSENT_GRANTED",
+            "token_id": token_id,
+        }
+        consent_db.export_by_token[token_id] = _encrypted_export(
+            {"data": {"scope": request["scope"]}},
+            scope=request["scope"],
+            export_revision=1,
+        )
+
+    ready = await service.refresh_workflow(
+        user_id="user_123",
+        workflow_id=selected["workflow_id"],
+    )
+    assert ready["status"] == "waiting_on_user"
+    assert ready["draft_status"] == "ready"
+
+    consent_db.status_by_request[requests[1]["request_id"]] = {
+        "action": "REQUESTED",
+    }
+
+    refreshed = await service.refresh_workflow(
+        user_id="user_123",
+        workflow_id=selected["workflow_id"],
+    )
+
+    assert refreshed["status"] == "needs_scope"
+    assert refreshed["draft_status"] == "not_ready"
+    assert refreshed["last_error_code"] == "scoped_export_pending"
+
+
+@pytest.mark.asyncio
 async def test_denied_selected_scope_blocks_external_reply():
     db = _FakeDb()
     consent_db = _FakeConsentDb()

@@ -1105,9 +1105,9 @@ export function ConsentCenterPage() {
                       summarizeEntry={entrySummary}
                     />
                   ) : (
-                    items.map((entry) => (
+                    items.map((entry, index) => (
                       <ConsentEntryRow
-                        key={entry.id}
+                        key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
                         entry={entry}
                         selected={
                           selectedEntry?.id === entry.id ||

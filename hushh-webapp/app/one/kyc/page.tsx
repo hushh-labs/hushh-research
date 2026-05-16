@@ -12,6 +12,7 @@ import {
   Clock3,
   FileText,
   Inbox,
+  Loader2,
   MailPlus,
   RefreshCw,
   Send,
@@ -27,13 +28,13 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   SettingsDetailPanel,
   SettingsGroup,
   SettingsRow,
 } from "@/components/app-ui/settings-ui";
+import { AsyncActionStatus } from "@/components/system/async-action-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,6 +61,7 @@ import {
   AccountService,
   type AccountEmailAlias,
 } from "@/lib/services/account-service";
+import { ApiError } from "@/lib/services/api-client";
 import {
   ConsentCenterService,
   type ConsentCenterEntry,
@@ -178,6 +180,42 @@ function consentEntryToPendingConsent(
   };
 }
 
+function emailWorkflowBusyLabel(busy: string | null): string | null {
+  if (!busy) return null;
+  if (busy === "draft") return "Preparing draft...";
+  if (busy === "refresh") return "Refreshing request state...";
+  if (busy === "consent-approve") return "Approving access...";
+  if (busy === "consent-deny") return "Denying access...";
+  if (busy === "approve") return "Sending approved reply...";
+  if (busy === "reject") return "Rejecting request...";
+  if (busy === "redraft") return "Redrafting reply...";
+  if (busy === "alias") return "Updating verified email...";
+  return "Working...";
+}
+
+function shouldSyncWorkflowOnLoad(workflow: OneKycWorkflow): boolean {
+  if (workflowConsentRequestIds(workflow).length === 0) return false;
+  if (workflow.status === "needs_scope" || workflow.status === "needs_documents") {
+    return true;
+  }
+  return workflow.status === "waiting_on_user" && workflow.draft_status === "ready";
+}
+
+function mergeWorkflows(
+  baseWorkflows: OneKycWorkflow[],
+  updates: OneKycWorkflow[],
+): OneKycWorkflow[] {
+  if (!updates.length) return baseWorkflows;
+  const byId = new Map(updates.map((workflow) => [workflow.workflow_id, workflow]));
+  const merged = baseWorkflows.map((workflow) => byId.get(workflow.workflow_id) || workflow);
+  for (const update of updates) {
+    if (!baseWorkflows.some((workflow) => workflow.workflow_id === update.workflow_id)) {
+      merged.unshift(update);
+    }
+  }
+  return merged;
+}
+
 export default function OneKycPage() {
   return (
     <VaultLockGuard>
@@ -230,6 +268,7 @@ function OneKycWorkspace() {
   const selectedDraft = selected
     ? localDrafts[selected.workflow_id] || null
     : null;
+  const busyLabel = emailWorkflowBusyLabel(busy);
   const verifiedAliases = useMemo(
     () =>
       emailAliases.filter((alias) => alias.verification_status === "verified"),
@@ -374,19 +413,53 @@ function OneKycWorkspace() {
     [],
   );
 
+  const updateWorkflow = useCallback(
+    (next: OneKycWorkflow) => {
+      setWorkflows((current) => {
+        const index = current.findIndex(
+          (workflow) => workflow.workflow_id === next.workflow_id,
+        );
+        if (index === -1) return [next, ...current];
+        const copy = [...current];
+        copy[index] = next;
+        return copy;
+      });
+      setSelectedId(next.workflow_id);
+      if (!isKycClientDraftReady(next)) {
+        clearLocalWorkflowState(next.workflow_id);
+      }
+    },
+    [clearLocalWorkflowState],
+  );
+
+  const refreshWorkflowState = useCallback(
+    async (workflow: OneKycWorkflow) => {
+      if (!auth.userId || !vaultOwnerToken) return workflow;
+      const next = await OneKycService.refreshWorkflow({
+        userId: auth.userId,
+        vaultOwnerToken,
+        workflowId: workflow.workflow_id,
+      });
+      updateWorkflow(next);
+      return next;
+    },
+    [auth.userId, updateWorkflow, vaultOwnerToken],
+  );
+
   const load = useCallback(async () => {
     if (!auth.user || !auth.userId || !vaultKey || !vaultOwnerToken) return;
+    const userId = auth.userId;
     setLoading(true);
     setError(null);
     try {
       await OneKycClientZkService.ensureConnector({
-        userId: auth.userId,
+        userId,
         vaultKey,
         vaultOwnerToken,
       });
       setConnectorReady(true);
       const response = await OneKycService.listWorkflows({
-        userId: auth.userId,
+        userId,
         vaultOwnerToken,
       });
       const aliasResponse = await AccountService.listEmailAliases(
@@ -395,14 +468,35 @@ function OneKycWorkspace() {
       if (aliasResponse) {
         setEmailAliases(aliasResponse.aliases);
       }
-      setWorkflows(response.workflows);
-      retainReadyLocalWorkflowState(response.workflows);
+      const syncCandidates = response.workflows
+        .filter(shouldSyncWorkflowOnLoad)
+        .slice(0, 10);
+      const syncResults = syncCandidates.length
+        ? await Promise.allSettled(
+            syncCandidates.map((workflow) =>
+              OneKycService.refreshWorkflow({
+                userId,
+                vaultOwnerToken,
+                workflowId: workflow.workflow_id,
+              }),
+            ),
+          )
+        : [];
+      const syncedWorkflows = syncResults
+        .filter(
+          (result): result is PromiseFulfilledResult<OneKycWorkflow> =>
+            result.status === "fulfilled",
+        )
+        .map((result) => result.value);
+      const nextWorkflows = mergeWorkflows(response.workflows, syncedWorkflows);
+      setWorkflows(nextWorkflows);
+      retainReadyLocalWorkflowState(nextWorkflows);
       const initialId = new URLSearchParams(window.location.search).get(
         "workflowId",
       );
       setSelectedId(
         (current) =>
-          current || initialId || response.workflows[0]?.workflow_id || null,
+          current || initialId || nextWorkflows[0]?.workflow_id || null,
       );
     } catch (err) {
       setConnectorReady(false);
@@ -471,6 +565,11 @@ function OneKycWorkspace() {
           }));
         }
       } catch (err) {
+        if (err instanceof ApiError && err.status === 409 && !cancelled) {
+          clearLocalWorkflowState(selected.workflow_id);
+          await load().catch(() => undefined);
+          return;
+        }
         if (!cancelled) {
           setError(
             err instanceof Error
@@ -490,40 +589,15 @@ function OneKycWorkspace() {
     return () => {
       cancelled = true;
     };
-  }, [auth.userId, localDrafts, selected, vaultKey, vaultOwnerToken]);
-
-  const updateWorkflow = useCallback(
-    (next: OneKycWorkflow) => {
-      setWorkflows((current) => {
-        const index = current.findIndex(
-          (workflow) => workflow.workflow_id === next.workflow_id,
-        );
-        if (index === -1) return [next, ...current];
-        const copy = [...current];
-        copy[index] = next;
-        return copy;
-      });
-      setSelectedId(next.workflow_id);
-      if (!isKycClientDraftReady(next)) {
-        clearLocalWorkflowState(next.workflow_id);
-      }
-    },
-    [clearLocalWorkflowState],
-  );
-
-  const refreshWorkflowState = useCallback(
-    async (workflow: OneKycWorkflow) => {
-      if (!auth.userId || !vaultOwnerToken) return workflow;
-      const next = await OneKycService.refreshWorkflow({
-        userId: auth.userId,
-        vaultOwnerToken,
-        workflowId: workflow.workflow_id,
-      });
-      updateWorkflow(next);
-      return next;
-    },
-    [auth.userId, updateWorkflow, vaultOwnerToken],
-  );
+  }, [
+    auth.userId,
+    clearLocalWorkflowState,
+    load,
+    localDrafts,
+    selected,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
 
   const refreshAliases = useCallback(async () => {
     if (!vaultOwnerToken) return;
@@ -983,7 +1057,7 @@ function OneKycWorkspace() {
               onClick={() => void load()}
               disabled={loading}
             >
-              <RefreshCw className="size-4" />
+              <RefreshCw className={loading ? "size-4 animate-spin" : "size-4"} />
               Refresh
             </Button>
           }
@@ -997,11 +1071,20 @@ function OneKycWorkspace() {
           </div>
         ) : null}
 
+        {busyLabel ? (
+          <div className="lg:col-span-2">
+            <AsyncActionStatus state="loading" label={busyLabel} compact />
+          </div>
+        ) : null}
+
         <div className="space-y-4">
           <SettingsGroup title="Requests">
             {loading ? (
               <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-                <HushhLoader variant="inline" label="Loading workflows." />
+                <AsyncActionStatus
+                  state="loading"
+                  label="Loading email requests..."
+                />
               </div>
             ) : workflows.length === 0 ? (
               <SettingsRow
@@ -1208,8 +1291,14 @@ function OneKycWorkspace() {
                       data-voice-control-id="one-kyc-approve-access"
                       data-voice-action-id="kyc.workflow.approve_access"
                     >
-                      <ShieldCheck className="size-4" />
-                      Approve access
+                      {busy === "consent-approve" ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <ShieldCheck className="size-4" />
+                      )}
+                      {busy === "consent-approve"
+                        ? "Approving..."
+                        : "Approve access"}
                     </Button>
                     <Button
                       type="button"
@@ -1225,8 +1314,12 @@ function OneKycWorkspace() {
                       data-voice-control-id="one-kyc-deny-access"
                       data-voice-action-id="kyc.workflow.deny_access"
                     >
-                      <XCircle className="size-4" />
-                      Deny
+                      {busy === "consent-deny" ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <XCircle className="size-4" />
+                      )}
+                      {busy === "consent-deny" ? "Denying..." : "Deny"}
                     </Button>
                     {workflowConsentRequestIds(selected).length > 0 ? (
                       <Button asChild variant="ghost">
@@ -1328,8 +1421,12 @@ function OneKycWorkspace() {
                       data-voice-control-id="one-kyc-redraft"
                       data-voice-action-id="kyc.draft.request_redraft"
                     >
-                      <Wand2 className="size-4" />
-                      Redraft
+                      {busy === "redraft" ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Wand2 className="size-4" />
+                      )}
+                      {busy === "redraft" ? "Redrafting..." : "Redraft"}
                     </Button>
                   </div>
                 </SettingsGroup>
@@ -1344,8 +1441,12 @@ function OneKycWorkspace() {
                     data-voice-control-id="one-kyc-sync-status"
                     data-voice-action-id="kyc.workflow.sync_status"
                   >
-                    <RefreshCw className="size-4" />
-                    Sync status
+                    <RefreshCw
+                      className={
+                        busy === "refresh" ? "size-4 animate-spin" : "size-4"
+                      }
+                    />
+                    {busy === "refresh" ? "Syncing..." : "Sync status"}
                   </Button>
                   <Button
                     onClick={() => void runAction("approve", selected)}
@@ -1357,8 +1458,12 @@ function OneKycWorkspace() {
                     data-voice-control-id="one-kyc-approve-send"
                     data-voice-action-id="kyc.draft.approve_send"
                   >
-                    <Send className="size-4" />
-                    Approve send
+                    {busy === "approve" ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Send className="size-4" />
+                    )}
+                    {busy === "approve" ? "Sending..." : "Approve send"}
                   </Button>
                   <Button
                     variant="outline"
@@ -1369,8 +1474,12 @@ function OneKycWorkspace() {
                     data-voice-control-id="one-kyc-reject"
                     data-voice-action-id="kyc.draft.reject"
                   >
-                    <XCircle className="size-4" />
-                    Reject
+                    {busy === "reject" ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <XCircle className="size-4" />
+                    )}
+                    {busy === "reject" ? "Rejecting..." : "Reject"}
                   </Button>
                   {selected.status === "waiting_on_counterparty" ? (
                     <Badge variant="secondary">
@@ -1479,8 +1588,12 @@ function OneKycWorkspace() {
                     disabled={Boolean(busy) || !aliasEmail.trim()}
                     className="w-full sm:w-auto"
                   >
-                    <MailPlus className="size-4" />
-                    Send code
+                    {busy === "alias" ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <MailPlus className="size-4" />
+                    )}
+                    {busy === "alias" ? "Sending..." : "Send code"}
                   </Button>
                   <Button
                     type="button"
@@ -1491,8 +1604,12 @@ function OneKycWorkspace() {
                     }
                     className="w-full sm:w-auto"
                   >
-                    <BadgeCheck className="size-4" />
-                    Verify email
+                    {busy === "alias" ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <BadgeCheck className="size-4" />
+                    )}
+                    {busy === "alias" ? "Verifying..." : "Verify email"}
                   </Button>
                 </div>
               </div>
