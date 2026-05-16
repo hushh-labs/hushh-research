@@ -36,6 +36,7 @@ import {
 } from "@/lib/kai/market-snapshot";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
+import { trackEvent } from "@/lib/observability/client";
 import {
   getInitialRoundCollapseState,
   getRoundCollapseStateForDecision,
@@ -1214,6 +1215,9 @@ export function DebateStreamView({
           setBusyOperation("stock_analysis_stream", false);
           if (!decisionNotifiedRef.current) {
             decisionNotifiedRef.current = true;
+            trackEvent("analysis_stream_terminal_decision", {
+              result: "success",
+            });
             const completedRunId =
               (typeof data.run_id === "string" && data.run_id.trim()) ||
               currentRunId ||

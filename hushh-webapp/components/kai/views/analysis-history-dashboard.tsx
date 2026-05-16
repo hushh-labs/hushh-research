@@ -946,7 +946,6 @@ export function AnalysisHistoryDashboard({
   }, []);
 
   const columns = getColumns({
-    onView: onViewHistory,
     onDelete: handleDeleteEntry,
     onDeleteTicker: handleDeleteTicker,
     onViewVersions: openVersions,
@@ -1032,6 +1031,7 @@ export function AnalysisHistoryDashboard({
       <DataTable
         columns={columns}
         data={entries}
+        onRowClick={onViewHistory}
         searchKey="ticker"
         globalSearchKeys={["ticker", "companyName", "searchText"]}
         searchPlaceholder="Search analysis history by ticker or company..."

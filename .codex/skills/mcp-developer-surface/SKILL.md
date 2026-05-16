@@ -1,14 +1,14 @@
 ---
 name: mcp-developer-surface
-description: Use when changing the Hushh MCP developer surface, @hushh/mcp package behavior, developer API docs, or MCP setup guidance.
+description: Use when changing the Hussh MCP developer surface, @hushh/mcp package behavior, developer API docs, or MCP setup guidance.
 ---
 
-# Hushh MCP Developer Surface Skill
+# Hussh MCP Developer Surface Skill
 
 ## Purpose and Trigger
 
 - Primary scope: `mcp-developer-surface`
-- Trigger on Hushh MCP package behavior, developer API docs, MCP setup guidance, or external developer-surface changes.
+- Trigger on Hussh MCP package behavior, developer API docs, MCP setup guidance, or external developer-surface changes.
 - Avoid overlap with `backend-api-contracts` and `security-audit`.
 
 ## Coverage and Ownership

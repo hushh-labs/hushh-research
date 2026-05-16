@@ -10,7 +10,7 @@ from mcp_modules.tools import data_tools
 
 @pytest.mark.asyncio
 async def test_get_encrypted_scoped_export_returns_ciphertext_only(monkeypatch):
-    async def _resolve(user_id: str) -> str:
+    async def _resolve(user_id: str, **kwargs) -> str:  # noqa: ANN003
         assert user_id == "user@example.com"
         return "user_123"
 
@@ -76,7 +76,7 @@ async def test_get_encrypted_scoped_export_returns_ciphertext_only(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_get_encrypted_scoped_export_echoes_expected_scope_for_superset(monkeypatch):
-    async def _resolve(user_id: str) -> str:
+    async def _resolve(user_id: str, **kwargs) -> str:  # noqa: ANN003
         assert user_id == "user@example.com"
         return "user_123"
 

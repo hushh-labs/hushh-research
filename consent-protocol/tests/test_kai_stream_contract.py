@@ -152,6 +152,19 @@ def test_analyze_stream_handles_round_start_and_starts_round_one():
     assert "current_round = 1" in analyze_source
 
 
+def test_analyze_stream_emits_agent_start_before_parallel_analysis_calls():
+    analyze_source = (_ROOT / "api/routes/kai/stream.py").read_text(encoding="utf-8")
+
+    gather_index = analyze_source.index("concurrent_results = await asyncio.gather")
+    fundamental_start_index = analyze_source.index('"agent": "fundamental"')
+    sentiment_start_index = analyze_source.index('"agent": "sentiment"')
+    valuation_start_index = analyze_source.index('"agent": "valuation"')
+
+    assert fundamental_start_index < gather_index
+    assert sentiment_start_index < gather_index
+    assert valuation_start_index < gather_index
+
+
 def test_single_repair_pass_inserts_missing_commas_and_balances_braces():
     raw = '{"account_metadata":{"account_holder":"Ada"} "detailed_holdings":[{"symbol":"AAPL"}]'
     parsed, diagnostics = parse_json_with_single_repair(raw, required_keys={"detailed_holdings"})

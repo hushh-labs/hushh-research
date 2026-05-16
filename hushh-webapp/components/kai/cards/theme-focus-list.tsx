@@ -3,7 +3,9 @@
 import { Cpu, Percent, Zap, type LucideIcon } from "lucide-react";
 
 import { Icon } from "@/lib/morphy-ux/ui";
-import { SettingsGroup } from "@/components/profile/settings-ui";
+import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
+import { marketCardClassName } from "@/components/kai/shared/market-surface-theme";
+import { cn } from "@/lib/utils";
 
 export interface ThemeFocusItem {
   id?: string;
@@ -17,32 +19,40 @@ const FALLBACK_ICON: LucideIcon[] = [Cpu, Percent, Zap];
 export function ThemeFocusList({ themes = [] }: { themes?: ThemeFocusItem[] }) {
   if (!themes.length) {
     return (
-      <SettingsGroup>
-        <div className="px-4 py-4 text-sm text-muted-foreground">
+      <SurfaceCard>
+        <SurfaceCardContent className="px-4 py-4 text-sm text-muted-foreground">
           No active market themes are available right now.
-        </div>
-      </SettingsGroup>
+        </SurfaceCardContent>
+      </SurfaceCard>
     );
   }
 
   return (
-    <SettingsGroup>
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {themes.map((theme, idx) => (
-        <div
+        <SurfaceCard
           key={theme.id || theme.title}
-          className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-4"
+          accent="none"
+          className={cn("h-full", marketCardClassName)}
         >
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-2xl border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)]">
-              <Icon icon={theme.icon || FALLBACK_ICON[idx % FALLBACK_ICON.length] || Cpu} size="md" />
+          <SurfaceCardContent className="flex h-full min-w-0 items-start gap-3 p-4">
+            <div
+              className={cn(
+                "grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)]"
+              )}
+            >
+              <Icon
+                icon={theme.icon || FALLBACK_ICON[idx % FALLBACK_ICON.length] || Cpu}
+                size="md"
+              />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 space-y-1">
               <p className="text-sm font-semibold leading-tight text-foreground">{theme.title}</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">{theme.subtitle}</p>
+              <p className="text-xs leading-5 text-muted-foreground">{theme.subtitle}</p>
             </div>
-          </div>
-        </div>
+          </SurfaceCardContent>
+        </SurfaceCard>
       ))}
-    </SettingsGroup>
+    </div>
   );
 }

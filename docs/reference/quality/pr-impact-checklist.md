@@ -11,6 +11,7 @@ Mandatory impact mapping for any change touching Kai, PKM, routes, or mobile par
 
 - Routes touched
 - API/schema/type changes
+- Runtime DB data-plane changes
 - Cache keys touched
 - PKM domain summary effects
 - Mobile parity impacts
@@ -27,6 +28,11 @@ Mandatory impact mapping for any change touching Kai, PKM, routes, or mobile par
 
 - API/schema/type changes:
   - ...
+
+- Runtime DB data-plane changes:
+  - Table families changed: ...
+  - Data class / retention / deletion policy updated: yes/no
+  - `./bin/hushh codex data-model-audit` run: yes/no
 
 - Cache keys touched:
   - ...

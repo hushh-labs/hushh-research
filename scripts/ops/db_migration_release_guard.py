@@ -30,7 +30,7 @@ SCRIPT_PATH = Path(__file__).resolve()
 REPO_ROOT = SCRIPT_PATH.parents[2]
 DEFAULT_MIGRATIONS_DIR = REPO_ROOT / "consent-protocol" / "db" / "migrations"
 DEFAULT_CONTRACT_FILE = (
-    REPO_ROOT / "consent-protocol" / "db" / "schema_contract" / "prod_core_schema.json"
+    REPO_ROOT / "consent-protocol" / "db" / "contracts" / "prod_core_schema.json"
 )
 MIGRATION_PATTERN = re.compile(r"^(?P<version>\d{3})_[a-z0-9_]+\.sql$")
 VALID_VERSION_POLICIES = {"exact", "minimum"}
