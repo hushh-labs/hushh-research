@@ -76,8 +76,36 @@ describe("voice-json-validator", () => {
     });
   });
 
+  it("accepts blocked responses for portfolio-required analysis guards", () => {
+    const response = validateVoiceResponse({
+      kind: "blocked",
+      reason: "portfolio_required",
+      message: "Import your portfolio before starting stock analysis.",
+      speak: true,
+    });
+
+    expect(response).toEqual({
+      kind: "blocked",
+      reason: "portfolio_required",
+      message: "Import your portfolio before starting stock analysis.",
+      speak: true,
+    });
+  });
+
   it("validates plan payload with memory hints", () => {
     const payload = validateVoicePlanPayload({
+      schema_version: "kai.voice.plan.v1",
+      mode: "execute_and_wait",
+      action_id: "analysis.start",
+      slots: {
+        ticker: "NVDA",
+        confirmation_required: false,
+        context: {
+          source: "voice",
+        },
+      },
+      guards: ["portfolio_required", "analysis_idle_required"],
+      reply_strategy: "template",
       response: {
         kind: "execute",
         message: "Starting analysis for NVDA.",
@@ -98,6 +126,18 @@ describe("voice-json-validator", () => {
     });
 
     expect(payload).toEqual({
+      schema_version: "kai.voice.plan.v1",
+      mode: "execute_and_wait",
+      action_id: "analysis.start",
+      slots: {
+        ticker: "NVDA",
+        confirmation_required: false,
+        context: {
+          source: "voice",
+        },
+      },
+      guards: ["portfolio_required", "analysis_idle_required"],
+      reply_strategy: "template",
       response: {
         kind: "execute",
         message: "Starting analysis for NVDA.",
@@ -118,6 +158,54 @@ describe("voice-json-validator", () => {
     });
   });
 
+  it("preserves legacy-only payload compatibility when canonical fields are absent", () => {
+    const payload = validateVoicePlanPayload({
+      response: {
+        kind: "speak_only",
+        message: "Opening profile.",
+        speak: true,
+      },
+    });
+
+    expect(payload).toEqual({
+      response: {
+        kind: "speak_only",
+        message: "Opening profile.",
+        speak: true,
+      },
+    });
+  });
+
+  it("validates clarify-mode canonical metadata when provided", () => {
+    const payload = validateVoicePlanPayload({
+      schema_version: "kai.voice.plan.v1",
+      mode: "clarify",
+      reply_strategy: "llm",
+      clarification: {
+        question: "Which ticker did you want?",
+        reason: "ticker_ambiguous",
+        options: ["NVDA", "NVDL"],
+        candidate: "NVDA",
+        entity: "ticker",
+      },
+      response: {
+        kind: "clarify",
+        reason: "ticker_ambiguous",
+        message: "Which ticker did you want?",
+        speak: true,
+        candidate: "NVDA",
+      },
+    });
+
+    expect(payload?.clarification).toEqual({
+      question: "Which ticker did you want?",
+      reason: "ticker_ambiguous",
+      options: ["NVDA", "NVDL"],
+      candidate: "NVDA",
+      entity: "ticker",
+    });
+  });
+
   it("rejects malformed response payloads", () => {
     const payload = validateVoicePlanPayload({
       response: {
@@ -130,6 +218,20 @@ describe("voice-json-validator", () => {
             command: "delete_account",
           },
         },
+      },
+    });
+
+    expect(payload).toBeNull();
+  });
+
+  it("rejects canonical execution modes that omit action_id", () => {
+    const payload = validateVoicePlanPayload({
+      schema_version: "kai.voice.plan.v1",
+      mode: "execute_and_wait",
+      response: {
+        kind: "speak_only",
+        message: "Opening profile.",
+        speak: true,
       },
     });
 

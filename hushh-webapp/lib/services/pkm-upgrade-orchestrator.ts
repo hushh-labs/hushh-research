@@ -36,6 +36,7 @@ const PKM_UPGRADE_SNAPSHOT_PREFIX = "pkm_upgrade_snapshot_v1";
 const PKM_UPGRADE_REHEARSAL_SESSION_PREFIX = "pkm_upgrade_rehearsal_v1";
 const PKM_UPGRADE_ROUTE = "/profile/pkm-agent-lab?tab=overview";
 const MAX_CONFLICT_RETRIES = 3;
+export const PKM_UPGRADE_COMPLETED_EVENT = "pkm-upgrade-completed";
 
 type PkmUpgradeTimings = {
   manifestReadMs: number;
@@ -51,6 +52,13 @@ type PkmUpgradeStepPlan = {
   targetDomainContractVersion: number;
   currentReadableSummaryVersion: number;
   targetReadableSummaryVersion: number;
+};
+
+export type PkmUpgradeCompletedEventDetail = {
+  userId: string;
+  mode: PkmUpgradeMode;
+  runId: string | null;
+  occurredAt: string;
 };
 
 class PkmUpgradePausedForLocalAuthError extends Error {
@@ -130,11 +138,15 @@ function nowMs(): number {
 }
 
 function canUseRehearsalMode(userId: string): boolean {
-  const kaiTestUserId = String(process.env.NEXT_PUBLIC_KAI_TEST_USER_ID || "").trim();
+  const reviewerUid = String(
+    process.env.NEXT_PUBLIC_REVIEWER_UID ||
+      process.env.NEXT_PUBLIC_KAI_TEST_USER_ID ||
+      ""
+  ).trim();
   const rehearsalEnabled = process.env.NEXT_PUBLIC_PKM_UPGRADE_REHEARSAL === "true";
   const appEnv = String(process.env.NEXT_PUBLIC_APP_ENV || "").trim().toLowerCase();
   const rehearsalEligibleEnvironment = appEnv === "development" || appEnv === "uat";
-  return rehearsalEnabled && rehearsalEligibleEnvironment && Boolean(kaiTestUserId) && userId === kaiTestUserId;
+  return rehearsalEnabled && rehearsalEligibleEnvironment && Boolean(reviewerUid) && userId === reviewerUid;
 }
 
 function syncRehearsalRequestFromLocation(userId: string): void {
@@ -267,6 +279,17 @@ function needsVisibleMetadataReconciliation(status: PkmUpgradeStatus): boolean {
   );
 }
 
+function dispatchUpgradeCompletedEvent(detail: PkmUpgradeCompletedEventDetail): void {
+  if (typeof window === "undefined" || typeof window.dispatchEvent !== "function") {
+    return;
+  }
+  window.dispatchEvent(
+    new CustomEvent<PkmUpgradeCompletedEventDetail>(PKM_UPGRADE_COMPLETED_EVENT, {
+      detail,
+    })
+  );
+}
+
 export class PkmUpgradeOrchestrator {
   private static inFlightByUser = new Map<string, Promise<void>>();
   private static pauseRequestedByUser = new Set<string>();
@@ -286,6 +309,39 @@ export class PkmUpgradeOrchestrator {
         id: `pkm-upgrade-complete:${params.userId}`,
       });
     }
+  }
+
+  private static async finalizeCompletion(params: {
+    taskId: string;
+    description: string;
+    mode: PkmUpgradeMode;
+    userId: string;
+    vaultOwnerToken: string;
+    metadata?: Record<string, unknown> | null;
+    runId?: string | null;
+  }): Promise<void> {
+    await PersonalKnowledgeModelService.getMetadata(
+      params.userId,
+      true,
+      params.vaultOwnerToken
+    ).catch((error) => {
+      console.warn("[PkmUpgradeOrchestrator] Final PKM metadata refresh failed.", error);
+    });
+
+    this.completeTaskAndNotify({
+      taskId: params.taskId,
+      description: params.description,
+      mode: params.mode,
+      userId: params.userId,
+      metadata: params.metadata ?? null,
+    });
+
+    dispatchUpgradeCompletedEvent({
+      userId: params.userId,
+      mode: params.mode,
+      runId: params.runId ?? null,
+      occurredAt: new Date().toISOString(),
+    });
   }
 
   static peekSnapshot(userId: string): PkmUpgradeSnapshot | null {
@@ -472,11 +528,13 @@ export class PkmUpgradeOrchestrator {
       const snapshot = readSnapshot(params.userId);
       const completedTaskId = snapshot?.taskId || repairTaskId;
       if (completedTaskId) {
-        this.completeTaskAndNotify({
+        await this.finalizeCompletion({
           taskId: completedTaskId,
           description: descriptionForStatus(snapshot?.mode || mode, "completed", null),
           mode: snapshot?.mode || mode,
           userId: params.userId,
+          vaultOwnerToken: params.vaultOwnerToken,
+          runId: status.run?.runId || null,
         });
       }
       clearSnapshot(params.userId);
@@ -518,15 +576,17 @@ export class PkmUpgradeOrchestrator {
         userId: params.userId,
         vaultOwnerToken: params.vaultOwnerToken,
       });
-      this.completeTaskAndNotify({
+      await this.finalizeCompletion({
         taskId,
         description: descriptionForStatus(mode, "completed", null),
         mode,
         userId: params.userId,
+        vaultOwnerToken: params.vaultOwnerToken,
         metadata: {
           runId: status.run?.runId || completedRunId,
           mode,
         },
+        runId: status.run?.runId || completedRunId,
       });
       writeSnapshot({
         version: 1,
@@ -540,7 +600,6 @@ export class PkmUpgradeOrchestrator {
         updatedAt: new Date().toISOString(),
       });
       clearSnapshot(params.userId);
-      await PersonalKnowledgeModelService.getMetadata(params.userId, true, params.vaultOwnerToken);
     } catch (error) {
       if (error instanceof PkmUpgradePausedForLocalAuthError) {
         const snapshot = readSnapshot(params.userId);

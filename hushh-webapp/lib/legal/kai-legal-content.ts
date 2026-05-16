@@ -58,7 +58,7 @@ export const KAI_LEGAL_DOCUMENTS: Record<KaiLegalDocumentType, KaiLegalDocument>
       {
         title: "Data Ownership & Encryption",
         points: [
-          "Hushh uses BYOK: encryption keys stay with the user, and servers store ciphertext only.",
+          "Hussh uses BYOK: encryption keys stay with the user, and servers store ciphertext only.",
           "Personal Knowledge Model storage is encrypted (AES-256-GCM) and decrypted on the client.",
           "Sensitive credentials remain in memory and are not persisted as long-term browser storage.",
         ],

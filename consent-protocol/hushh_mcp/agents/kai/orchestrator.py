@@ -183,11 +183,14 @@ class KaiOrchestrator(HushhAgent):
             fundamental_task, sentiment_task, valuation_task, return_exceptions=True
         )
 
-        # Handle exceptions in tasks
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                logger.error(f"[Kai] Agent {i} failed: {result}")
-                raise result
+        # Fix #411: collect ALL failures first so none are silently dropped.
+        # The old loop raised on the first exception, making every subsequent
+        # agent failure invisible in logs (e.g. auth errors behind network errors).
+        exceptions = [(i, r) for i, r in enumerate(results) if isinstance(r, Exception)]
+        if exceptions:
+            for i, e in exceptions:
+                logger.error(f"[Kai] Agent {i} failed: {e}")
+            raise exceptions[0][1]  # raise first; all others are now logged
 
         return results
 

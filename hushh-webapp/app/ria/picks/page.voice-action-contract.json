@@ -1,0 +1,693 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "ria_picks",
+  "surface_title": "RIA Picks Workspace",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.ria_picks",
+      "label": "Open RIA Picks",
+      "meaning": "Navigates to the RIA stock universe and advisor package route.",
+      "aliases": [
+        "open ria picks",
+        "open advisor picks",
+        "show stock universe"
+      ],
+      "search_keywords": [
+        "picks",
+        "stock universe",
+        "advisor package"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA onboarding must be complete."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/picks"
+      },
+      "control_ids": [
+        "ria_route_tab_picks"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/app/ria/picks/page.tsx",
+        "hushh-webapp/components/ria/layout/ria-route-tabs.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "ria.picks.open_source_kai",
+      "label": "Show Kai Picks Source",
+      "meaning": "Switches the picks route state to Kai's read-only reference list.",
+      "aliases": [
+        "show kai list",
+        "switch to kai picks",
+        "open kai source"
+      ],
+      "search_keywords": [
+        "kai list",
+        "source",
+        "reference picks"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/picks?source=kai"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/picks?source=kai"
+      },
+      "control_ids": [
+        "ria_picks_source_kai"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.picks.open_source_my",
+      "label": "Show My Advisor Picks",
+      "meaning": "Switches the picks route state to the advisor's own package.",
+      "aliases": [
+        "show my picks",
+        "switch to my list",
+        "open advisor package"
+      ],
+      "search_keywords": [
+        "my list",
+        "advisor package",
+        "source"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/picks?source=my"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/picks?source=my"
+      },
+      "control_ids": [
+        "ria_picks_source_my"
+      ],
+      "state_exposure": [
+        "advisor package metadata"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.picks.open_category_top_picks",
+      "label": "Show Top Picks",
+      "meaning": "Switches the picks route state to top picks.",
+      "aliases": [
+        "show top picks",
+        "open top picks tab",
+        "show the top-picks category"
+      ],
+      "search_keywords": [
+        "top picks",
+        "category",
+        "stocks"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/picks?category=top-picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/picks?category=top-picks"
+      },
+      "control_ids": [
+        "ria_picks_category_top_picks"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.picks.open_category_avoid",
+      "label": "Show Avoid List",
+      "meaning": "Switches the picks route state to avoid rows.",
+      "aliases": [
+        "show avoid list",
+        "open avoid tab",
+        "show exclusions"
+      ],
+      "search_keywords": [
+        "avoid",
+        "exclusions",
+        "category"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/picks?category=avoid"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/picks?category=avoid"
+      },
+      "control_ids": [
+        "ria_picks_category_avoid"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.picks.open_category_screening",
+      "label": "Show Screening Rules",
+      "meaning": "Switches the picks route state to screening rules.",
+      "aliases": [
+        "show screening",
+        "open screening tab",
+        "show screening rules"
+      ],
+      "search_keywords": [
+        "screening",
+        "rules",
+        "category"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/picks?category=screening"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/picks?category=screening"
+      },
+      "control_ids": [
+        "ria_picks_category_screening"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.picks.start_edit_package",
+      "label": "Edit Advisor Package",
+      "meaning": "Represents opening the editable advisor package draft. Voice can explain it, but editing stays manual.",
+      "aliases": [
+        "edit my picks",
+        "edit advisor package",
+        "open picks editor"
+      ],
+      "search_keywords": [
+        "edit",
+        "advisor package",
+        "draft"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "My list source must be selected.",
+          "Vault must be unlocked."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The advisor package editor mutates local draft state and is not exposed as a voice tool.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_picks_edit_package"
+      ],
+      "state_exposure": [
+        "current advisor package draft"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.picks.save_package",
+      "label": "Save Advisor Package",
+      "meaning": "Represents saving the advisor package to vault-backed pick storage. Voice cannot complete the save.",
+      "aliases": [
+        "save my picks",
+        "publish advisor package",
+        "save advisor package"
+      ],
+      "search_keywords": [
+        "save",
+        "publish",
+        "advisor package",
+        "vault"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Editor must be open.",
+          "Draft must have unsaved changes.",
+          "Vault must be unlocked."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Saving advisor picks writes vault-backed PKM and API state and must stay user-triggered.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_picks_save_package"
+      ],
+      "state_exposure": [
+        "advisor package draft",
+        "validation issues"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.picks.upload_csv_replace_top_picks",
+      "label": "Upload Top Picks CSV",
+      "meaning": "Represents the CSV upload and replace flow. File picking and upload remain manual.",
+      "aliases": [
+        "upload picks csv",
+        "replace top picks from csv",
+        "import advisor picks"
+      ],
+      "search_keywords": [
+        "upload",
+        "csv",
+        "replace top picks",
+        "import"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "My list source must be selected.",
+          "Upload panel must be open.",
+          "A CSV file must be selected.",
+          "Vault must be unlocked."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "CSV file selection and replacement are browser/file-system interactions and must stay manual.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_picks_upload_csv"
+      ],
+      "state_exposure": [
+        "selected csv filename",
+        "current advisor package avoid and screening context"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.picks.copy_from_kai",
+      "label": "Copy Kai Package Into My List",
+      "meaning": "Represents copying Kai reference picks into the advisor draft. Voice can explain it, but the copy stays manual.",
+      "aliases": [
+        "copy from kai",
+        "use kai list as my list",
+        "copy kai package"
+      ],
+      "search_keywords": [
+        "copy",
+        "kai list",
+        "advisor draft"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "My list source must be selected.",
+          "Vault must be unlocked.",
+          "Kai package rows must be available."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Copying the Kai package replaces local advisor draft state and must stay user-triggered.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_picks_copy_from_kai"
+      ],
+      "state_exposure": [
+        "Kai reference package",
+        "current advisor draft"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.picks.discard_package_changes",
+      "label": "Discard Advisor Package Changes",
+      "meaning": "Represents discarding unsaved advisor package draft changes. Voice cannot discard for the user.",
+      "aliases": [
+        "discard picks changes",
+        "cancel advisor package edits",
+        "throw away unsaved picks"
+      ],
+      "search_keywords": [
+        "discard",
+        "cancel edits",
+        "unsaved changes"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Editor must be open."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Discarding draft changes must stay user-triggered.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_picks_discard_changes"
+      ],
+      "state_exposure": [
+        "unsaved advisor package draft"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.picks.edit_rows_manual",
+      "label": "Edit Picks Rows Manually",
+      "meaning": "Covers row-level add, remove, ticker, tier, thesis, avoid reason, and screening rule edits that require hands-on UI entry.",
+      "aliases": [
+        "edit a picks row",
+        "add a picks row",
+        "remove a picks row",
+        "edit screening rules"
+      ],
+      "search_keywords": [
+        "row edit",
+        "add row",
+        "remove row",
+        "screening rule",
+        "ticker"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/picks"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "My list source must be selected.",
+          "Editor must be open.",
+          "Vault must be unlocked."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Row-level editing requires structured manual input inside the picks editor.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "ria_picks_add_top_pick_row",
+        "ria_picks_remove_top_pick_row",
+        "ria_picks_add_avoid_row",
+        "ria_picks_remove_avoid_row",
+        "ria_picks_add_screening_rule",
+        "ria_picks_remove_screening_rule",
+        "ria_picks_row_ticker_lookup",
+        "ria_picks_row_text_editor"
+      ],
+      "state_exposure": [
+        "editable advisor package rows"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.picks.download_template",
+      "label": "Download Picks CSV Template",
+      "meaning": "Navigates to the CSV template used for top-picks uploads.",
+      "aliases": [
+        "download picks template",
+        "get csv template",
+        "download advisor picks template"
+      ],
+      "search_keywords": [
+        "download",
+        "template",
+        "csv"
+      ],
+      "reachability": {
+        "routes": [
+          "/templates/ria-picks-template.csv"
+        ],
+        "screens": [
+          "ria_picks"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/templates/ria-picks-template.csv"
+      },
+      "control_ids": [
+        "ria_picks_download_template"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/app/ria/picks/page.tsx"
+      ],
+      "speaker_persona": "kai"
+    }
+  ]
+}

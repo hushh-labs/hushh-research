@@ -34,6 +34,13 @@ async function extractError(response: Response, fallback: string): Promise<strin
   }
 }
 
+function buildSealedHeaders(idToken: string, vaultOwnerToken: string): HeadersInit {
+  return {
+    Authorization: `Bearer ${idToken}`,
+    "X-Hushh-Consent": `Bearer ${vaultOwnerToken}`,
+  };
+}
+
 export type ReceiptMemoryMerchantAffinity = {
   merchant_id: string;
   merchant_label: string;
@@ -233,14 +240,15 @@ export type ReceiptMemoryArtifact = {
 export class GmailReceiptMemoryService {
   static async preview(params: {
     idToken: string;
+    vaultOwnerToken: string;
     userId: string;
     forceRefresh?: boolean;
   }): Promise<ReceiptMemoryArtifact> {
     const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.receiptsMemoryPreview, {
       method: "POST",
       headers: {
+        ...buildSealedHeaders(params.idToken, params.vaultOwnerToken),
         "Content-Type": "application/json",
-        Authorization: `Bearer ${params.idToken}`,
       },
       body: JSON.stringify({
         user_id: params.userId,
@@ -255,6 +263,7 @@ export class GmailReceiptMemoryService {
 
   static async getArtifact(params: {
     idToken: string;
+    vaultOwnerToken: string;
     userId: string;
     artifactId: string;
   }): Promise<ReceiptMemoryArtifact> {
@@ -263,9 +272,7 @@ export class GmailReceiptMemoryService {
       `${buildGmailReceiptMemoryArtifactPath(params.artifactId)}?${query}`,
       {
         method: "GET",
-        headers: {
-          Authorization: `Bearer ${params.idToken}`,
-        },
+        headers: buildSealedHeaders(params.idToken, params.vaultOwnerToken),
       }
     );
     if (!response.ok) {

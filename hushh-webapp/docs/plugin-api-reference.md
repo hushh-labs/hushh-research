@@ -6,7 +6,9 @@
 
 ## Visual Context
 
-Canonical visual owner: [Hushh Webapp Docs](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+Canonical visual owner: [Hussh Webapp Docs](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+
+Founder-language note: these plugins are the native half of the platform's `Separation of Duties`. This file stays implementation-primary because method names and parameter names must remain exact across TypeScript, iOS, and Android.
 
 When modifying any native plugin:
 1. Update this document FIRST
@@ -62,6 +64,8 @@ No parameters required.
 ## HushhVault
 
 Encryption and vault storage plugin.
+
+This plugin owns mobile-facing `Cryptographic Primitives` such as key derivation, encryption, decryption, vault wrappers, and secure unlock helpers.
 
 ### deriveKey
 | Parameter | Type | Required | Description |
@@ -142,6 +146,25 @@ Encryption and vault storage plugin.
 | recoverySalt | string | Yes | Recovery salt |
 | recoveryIv | string | Yes | Recovery IV |
 | authToken | string | No | Firebase ID token |
+
+### deleteVaultWrapper
+Removes an enrolled non-passphrase vault wrapper. If the removed wrapper is the primary unlock method, the backend switches primary unlock to the provided enrolled fallback before removal.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| userId | string | Yes | User ID |
+| vaultKeyHash | string | Yes | Hash of the unlocked vault key |
+| method | string | Yes | Wrapper method to remove |
+| wrapperId | string | No | Wrapper identifier (default: `default`) |
+| fallbackPrimaryMethod | string | No | Enrolled fallback method (default: `passphrase`) |
+| fallbackPrimaryWrapperId | string | No | Enrolled fallback wrapper ID (default: `default`) |
+| authToken | string | No | Firebase ID token |
+| vaultOwnerToken | string | Yes | Fresh VAULT_OWNER token from the unlocked vault session |
+
+**Returns:**
+| Field | Type | Description |
+|-------|------|-------------|
+| success | boolean | Whether the wrapper was removed |
 
 ### isPasskeyAvailable
 | Parameter | Type | Required | Description |

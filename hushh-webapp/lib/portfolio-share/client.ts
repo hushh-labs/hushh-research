@@ -559,10 +559,7 @@ function compactPayloadForPublicLink(payloadInput: unknown): PortfolioSharePaylo
 }
 
 function resolvePublicShareBaseUrl(): string {
-  const configured =
-    (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_FRONTEND_URL || "")
-      .trim()
-      .replace(/\/$/, "");
+  const configured = (process.env.NEXT_PUBLIC_APP_URL || "").trim().replace(/\/$/, "");
   if (/^https?:\/\//i.test(configured)) return configured;
 
   if (typeof window !== "undefined") {

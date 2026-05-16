@@ -12,8 +12,21 @@ node_modules/
 # Python virtual environments
 venv/
 .venv/
+**/venv/
+**/.venv/
 __pycache__/
+**/__pycache__/
 *.pyc
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+**/.mypy_cache/
+**/.pytest_cache/
+**/.ruff_cache/
+.coverage
+coverage.xml
+**/.coverage
+**/coverage.xml
 
 # Development files
 .env
@@ -26,15 +39,27 @@ __pycache__/
 
 # Build outputs (will be generated during build)
 .next/
+**/.next/
+.next-prod/
+**/.next-prod/
 out/
+**/out/
 dist/
+**/dist/
 build/
+**/build/
+*.tsbuildinfo
 
 # Documentation and artifacts
 docs/
 .gemini/
 *.md
 !README.md
+tmp/
+temp/
+data/
+**/backend.log
+**/artifacts/
 
 # Test files
 tests/
@@ -57,4 +82,3 @@ assets/
 # deploy/
 *.sh
 *.ps1
-

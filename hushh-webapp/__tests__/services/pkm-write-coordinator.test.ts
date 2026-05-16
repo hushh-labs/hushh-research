@@ -101,13 +101,14 @@ function stubWriteContext(overrides?: {
   baseFullBlob?: Record<string, unknown>;
   domainData?: Record<string, unknown>;
   expectedDataVersion?: number;
+  currentEncryptedDomain?: Record<string, unknown> | null;
 }) {
   prepareDomainWriteContextMock.mockResolvedValue({
     baseFullBlob: overrides?.baseFullBlob ?? { existing: { foo: "bar" } },
     domainData: overrides?.domainData ?? { items: [] },
     expectedDataVersion: overrides?.expectedDataVersion ?? 1,
   });
-  pkmGetDomainDataMock.mockResolvedValue(null);
+  pkmGetDomainDataMock.mockResolvedValue(overrides?.currentEncryptedDomain ?? null);
 }
 
 const BUILD_CALLBACK = vi.fn().mockImplementation(() => ({
@@ -177,8 +178,75 @@ describe("PkmWriteCoordinator", () => {
           domain: BASE_PARAMS.domain,
           domainData: { favorite: "sushi" },
           summary: { item_count: 1 },
+          syncCheckpoint: expect.objectContaining({
+            schemaVersion: "pkm_sync_checkpoint.v1",
+            source: "merged_domain",
+            domain: BASE_PARAMS.domain,
+            attempt: 0,
+            expectedDataVersion: 1,
+            conflictRetry: false,
+          }),
         })
       );
+      expect(result.syncCheckpoint).toMatchObject({
+        schemaVersion: "pkm_sync_checkpoint.v1",
+        source: "merged_domain",
+        domain: BASE_PARAMS.domain,
+        attempt: 0,
+        expectedDataVersion: 1,
+        resultDataVersion: 2,
+        conflictRetry: false,
+      });
+    });
+
+    it("uses current encrypted data version and manifest revision in deterministic sync checkpoints", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext({
+        expectedDataVersion: 3,
+        currentEncryptedDomain: {
+          ciphertext: "cipher",
+          iv: "iv",
+          tag: "tag",
+          dataVersion: 7,
+        },
+      });
+      pkmGetDomainManifestMock.mockResolvedValue({
+        domain: "food",
+        manifest_version: 4,
+        domain_contract_version: 2,
+        readable_summary_version: 1,
+      });
+      pkmStoreMergedDomainWithPreparedBlobMock.mockResolvedValue({
+        success: true,
+        conflict: false,
+        dataVersion: 8,
+        fullBlob: { food: { favorite: "sushi" } },
+      });
+
+      const result = await PkmWriteCoordinator.saveMergedDomain({
+        ...BASE_PARAMS,
+        build: () => ({
+          domainData: { favorite: "sushi" },
+          summary: { item_count: 1 },
+          manifest: {
+            domain: "food",
+            manifest_version: 5,
+            summary_projection: {},
+            top_level_scope_paths: [],
+            externalizable_paths: [],
+            paths: [],
+          },
+        }),
+      });
+
+      expect(result.syncCheckpoint).toMatchObject({
+        checkpointKey:
+          "pkm_sync_checkpoint.v1|merged_domain|food|attempt:0|expected:7|current_manifest:4|target_manifest:5|upgrade:none",
+        expectedDataVersion: 7,
+        resultDataVersion: 8,
+        currentManifestVersion: 4,
+        targetManifestVersion: 5,
+      });
     });
   });
 

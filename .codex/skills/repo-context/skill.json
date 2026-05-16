@@ -3,7 +3,7 @@
   "role": "owner",
   "owner_family": "repo-context",
   "primary_scope": "repo-context-intake",
-  "description": "Use when a request starts with scanning the Hushh repository, establishing repo context, mapping code/docs/skills, or deciding which owner skill should own the next step.",
+  "description": "Use when a request starts with scanning the Hussh repository, establishing repo context, mapping code/docs/skills, or deciding which owner skill should own the next step.",
   "owned_paths": [
     "README.md",
     "data"
@@ -14,12 +14,17 @@
     "backend",
     "security-audit",
     "docs-governance",
-    "repo-operations"
+    "repo-operations",
+    "analytics-observability-governance",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance"
   ],
   "task_types": [
     "repo-orientation",
     "bug-triage",
-    "skill-authoring"
+    "skill-authoring",
+    "data-model-audit"
   ],
   "required_reads": [
     ".codex/skills/repo-context/references/index-contract.md",
@@ -27,23 +32,31 @@
     "docs/project_context_map.md"
   ],
   "required_commands": [
-    "python3 .codex/skills/repo-context/scripts/repo_scan.py summary",
-    "python3 .codex/skills/repo-context/scripts/repo_scan.py section skills",
-    "python3 .codex/skills/repo-context/scripts/repo_scan.py section skills --verbose",
-    "python3 .codex/skills/repo-context/scripts/repo_scan.py summary --text",
+    "./bin/hushh codex scan summary",
+    "./bin/hushh codex list-workflows",
+    "./bin/hushh codex route-task repo-orientation",
+    "./bin/hushh codex impact repo-orientation",
+    "./bin/hushh codex data-model-audit",
+    "./bin/hushh codex audit",
     "python3 .codex/skills/repo-context/scripts/repo_scan.py validate"
   ],
   "verification_bundles": [
     {
       "id": "repo-context-core",
       "commands": [
-        "python3 .codex/skills/repo-context/scripts/repo_scan.py summary",
-        "python3 .codex/skills/repo-context/scripts/repo_scan.py section skills",
-        "python3 .codex/skills/repo-context/scripts/repo_scan.py section skills --verbose",
-        "python3 .codex/skills/repo-context/scripts/repo_scan.py summary --text",
+        "./bin/hushh codex scan summary",
+        "./bin/hushh codex list-workflows",
+        "./bin/hushh codex route-task repo-orientation",
+        "./bin/hushh codex impact repo-orientation",
+        "./bin/hushh codex data-model-audit",
+        "./bin/hushh codex audit",
         "python3 .codex/skills/repo-context/scripts/repo_scan.py validate"
       ],
-      "tests": []
+      "tests": [
+        "./bin/hushh codex audit",
+        "./bin/hushh codex data-model-audit",
+        "python3 .codex/skills/repo-context/scripts/repo_scan.py validate"
+      ]
     }
   ],
   "handoff_targets": [
@@ -52,7 +65,11 @@
     "backend",
     "security-audit",
     "docs-governance",
+    "analytics-observability-governance",
     "repo-operations",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance",
     "codex-skill-authoring",
     "planning-board",
     "comms-community"
@@ -63,7 +80,11 @@
     "backend",
     "security-audit",
     "docs-governance",
+    "analytics-observability-governance",
     "repo-operations",
+    "oss-license-governance",
+    "contributor-onboarding",
+    "subtree-upstream-governance",
     "codex-skill-authoring"
   ],
   "risk_tags": [

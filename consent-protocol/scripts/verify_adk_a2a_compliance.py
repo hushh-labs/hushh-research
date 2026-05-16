@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static compliance checks for Kai ADK and Google A2A contracts."""
+"""Static compliance checks for ADK and Google A2A contracts."""
 
 from __future__ import annotations
 
@@ -31,9 +31,18 @@ def main() -> int:
             ROOT / "hushh_mcp/adk_bridge/kai_agent.py",
             [
                 r"X-Consent-Token",
-                r"validate_token\(consent_token,\s*ConsentScope\.VAULT_OWNER\)",
+                r"validate_a2a_consent_token\(\"agent_kai\",\s*consent_token\)",
                 r"orchestrate_debate_stream",
                 r"DebateEngine",
+            ],
+        ),
+        _check_patterns(
+            ROOT / "hushh_mcp/adk_bridge/delegation.py",
+            [
+                r"\"agent_one\":\s*ConsentScope\.AGENT_ONE_ORCHESTRATE",
+                r"\"agent_kai\":\s*ConsentScope\.AGENT_KAI_ANALYZE",
+                r"\"agent_nav\":\s*ConsentScope\.AGENT_NAV_REVIEW",
+                r"\"agent_kyc\":\s*ConsentScope\.AGENT_KYC_PROCESS",
             ],
         ),
         _check_patterns(

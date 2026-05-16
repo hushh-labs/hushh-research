@@ -6,6 +6,7 @@ receipt rows without storing raw email payloads in PKM.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -709,6 +710,16 @@ class ReceiptMemoryEnrichmentService:
     def _model(self) -> str:
         return _clean_text(os.getenv("KAI_RECEIPT_MEMORY_LLM_MODEL"), "gemini-2.5-flash-lite")
 
+    def _timeout_seconds(self) -> float:
+        raw = _clean_text(os.getenv("KAI_RECEIPT_MEMORY_LLM_TIMEOUT_SECONDS"), "8")
+        try:
+            value = float(raw)
+        except ValueError:
+            return 8.0
+        if value <= 0:
+            return 8.0
+        return value
+
     def enrichment_cache_key(self) -> str:
         if not self._enabled():
             return "deterministic-only"
@@ -753,10 +764,13 @@ class ReceiptMemoryEnrichmentService:
 
         try:
             client = genai.Client(api_key=api_key)
-            response = await client.aio.models.generate_content(
-                model=self._model(),
-                contents=prompt,
-                config=genai_types.GenerateContentConfig(temperature=0),
+            response = await asyncio.wait_for(
+                client.aio.models.generate_content(
+                    model=self._model(),
+                    contents=prompt,
+                    config=genai_types.GenerateContentConfig(temperature=0),
+                ),
+                timeout=self._timeout_seconds(),
             )
             text = _clean_text(getattr(response, "text", ""))
             if not text:

@@ -81,9 +81,88 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         SecItemDelete(query as CFDictionary)
     }
 
+    private func keychainSetOptional(_ value: String?, forKey key: String) {
+        keychainSet(value ?? "", forKey: key)
+    }
+
+    private func persistCachedUser(
+        uid: String,
+        email: String?,
+        displayName: String?,
+        photoUrl: String?,
+        emailVerified: Bool
+    ) {
+        keychainSet(uid, forKey: "hushh_user_id")
+        keychainSetOptional(email, forKey: "hushh_user_email")
+        keychainSetOptional(displayName, forKey: "hushh_user_display_name")
+        keychainSetOptional(photoUrl, forKey: "hushh_user_photo_url")
+        keychainSet(emailVerified ? "true" : "false", forKey: "hushh_user_email_verified")
+    }
+
+    private func cachedUserData() -> [String: Any]? {
+        guard let uid = keychainGet("hushh_user_id"), !uid.isEmpty else {
+            return nil
+        }
+
+        return [
+            "uid": uid,
+            "email": keychainGet("hushh_user_email") ?? "",
+            "displayName": keychainGet("hushh_user_display_name") ?? "",
+            "photoUrl": keychainGet("hushh_user_photo_url") ?? "",
+            "emailVerified": (keychainGet("hushh_user_email_verified") ?? "false") == "true"
+        ]
+    }
+
+    private func decodeJwtPayload(_ token: String) -> [String: Any]? {
+        let parts = token.split(separator: ".")
+        guard parts.count > 1 else { return nil }
+
+        var base64 = String(parts[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let padding = (4 - (base64.count % 4)) % 4
+        if padding > 0 {
+            base64 += String(repeating: "=", count: padding)
+        }
+
+        guard let data = Data(base64Encoded: base64),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return json
+    }
+
+    private func isUsableCachedIdToken(_ token: String?) -> Bool {
+        guard let token, !token.isEmpty,
+              let payload = decodeJwtPayload(token),
+              let expValue = payload["exp"] as? NSNumber else {
+            return false
+        }
+
+        let expiresAtMs = expValue.doubleValue * 1000
+        let minRemainingMs = Date().timeIntervalSince1970 * 1000 + 60_000
+        return expiresAtMs > minRemainingMs
+    }
+
+    private func freshCachedIdToken() -> String? {
+        if isUsableCachedIdToken(currentIdToken) {
+            return currentIdToken
+        }
+        let persisted = keychainGet("hushh_id_token")
+        return isUsableCachedIdToken(persisted) ? persisted : nil
+    }
+
     /// One-time migration: move tokens from UserDefaults to Keychain, then purge UserDefaults.
     private func migrateUserDefaultsToKeychain() {
-        let keys = ["hushh_id_token", "hushh_access_token", "hushh_user_id", "hushh_user_email"]
+        let keys = [
+            "hushh_id_token",
+            "hushh_access_token",
+            "hushh_user_id",
+            "hushh_user_email",
+            "hushh_user_display_name",
+            "hushh_user_photo_url",
+            "hushh_user_email_verified"
+        ]
         for key in keys {
             if let value = UserDefaults.standard.string(forKey: key), keychainGet(key) == nil {
                 keychainSet(value, forKey: key)
@@ -183,6 +262,13 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                         self.keychainSet(token, forKey: "hushh_id_token")
                     }
                     self.keychainSet(accessToken, forKey: "hushh_access_token")
+                    self.persistCachedUser(
+                        uid: firebaseUser.uid,
+                        email: firebaseUser.email,
+                        displayName: firebaseUser.displayName,
+                        photoUrl: firebaseUser.photoURL?.absoluteString,
+                        emailVerified: firebaseUser.isEmailVerified
+                    )
                     
                     let response: [String: Any] = [
                         "idToken": firebaseIdToken ?? "",
@@ -224,6 +310,9 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         keychainDelete("hushh_access_token")
         keychainDelete("hushh_user_id")
         keychainDelete("hushh_user_email")
+        keychainDelete("hushh_user_display_name")
+        keychainDelete("hushh_user_photo_url")
+        keychainDelete("hushh_user_email_verified")
         
         print("✅ [\(TAG)] Signed out")
         call.resolve()
@@ -240,13 +329,13 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                     self.currentIdToken = token
                     self.keychainSet(token, forKey: "hushh_id_token")
                     call.resolve(["idToken": token])
-                } else if let cached = self.currentIdToken ?? self.keychainGet("hushh_id_token") {
+                } else if let cached = self.freshCachedIdToken() {
                     call.resolve(["idToken": cached])
                 } else {
                     call.resolve(["idToken": NSNull()])
                 }
             }
-        } else if let cached = currentIdToken ?? keychainGet("hushh_id_token") {
+        } else if let cached = freshCachedIdToken() {
             call.resolve(["idToken": cached])
         } else {
             call.resolve(["idToken": NSNull()])
@@ -264,6 +353,8 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                 "emailVerified": user.isEmailVerified
             ]
             call.resolve(["user": userData])
+        } else if freshCachedIdToken() != nil, let cached = cachedUserData() {
+            call.resolve(["user": cached])
         } else {
             call.resolve(["user": NSNull()])
         }
@@ -271,7 +362,9 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     
     // MARK: - Is Signed In
     @objc func isSignedIn(_ call: CAPPluginCall) {
-        let signedIn = Auth.auth().currentUser != nil
+        let signedIn =
+            Auth.auth().currentUser != nil ||
+            (freshCachedIdToken() != nil && cachedUserData() != nil)
         call.resolve(["signedIn": signedIn])
     }
     
@@ -394,6 +487,13 @@ extension HushhAuthPlugin: ASAuthorizationControllerDelegate {
                 if let token = firebaseIdToken {
                     self.keychainSet(token, forKey: "hushh_id_token")
                 }
+                self.persistCachedUser(
+                    uid: firebaseUser.uid,
+                    email: firebaseUser.email ?? appleIDCredential.email,
+                    displayName: displayName,
+                    photoUrl: firebaseUser.photoURL?.absoluteString,
+                    emailVerified: firebaseUser.isEmailVerified
+                )
                 
                 let response: [String: Any] = [
                     "idToken": firebaseIdToken ?? "",

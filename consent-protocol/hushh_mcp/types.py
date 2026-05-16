@@ -23,6 +23,7 @@ class HushhConsentToken(BaseModel):
     issued_at: int  # epoch ms
     expires_at: int  # epoch ms
     signature: str
+    commercial: bool = False  # True if token authorizes monetized/commercial agent usage
 
 
 # ==================== TrustLink ====================

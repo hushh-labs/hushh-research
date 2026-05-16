@@ -52,7 +52,8 @@ describe("pkm natural-language helpers", () => {
 
     expect(presentation.summary).toContain("financial");
     expect(presentation.sections).toEqual(["Analytics", "Events"]);
-    expect(presentation.highlights.some((item) => item.includes("consent-ready"))).toBe(true);
+    expect(presentation.highlights).toContain("12 saved details");
+    expect(presentation.highlights.some((item) => item.includes("consent-ready"))).toBe(false);
   });
 
   it("translates active grants without exposing raw scope strings", () => {
