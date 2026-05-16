@@ -88,6 +88,7 @@ _RIA_KAI_SPECIALIZED_SCOPES: tuple[str, ...] = (
     "attr.financial.runtime.*",
 )
 _RIA_KAI_SPECIALIZED_SCOPE_SET = set(_RIA_KAI_SPECIALIZED_SCOPES)
+_RIA_LICENSE_VERIFICATION_REUSE_TTL = timedelta(hours=24)
 
 
 class RIAIAMPolicyError(Exception):
@@ -740,6 +741,114 @@ class RIAIAMService:
             logger.warning("verify_ria_license: failed to store audit for %s", normalized)
 
         return response
+
+    @staticmethod
+    def _parse_json_mapping(value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except Exception:
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
+        return {}
+
+    @classmethod
+    def _name_lookup_from_license_verification_payload(
+        cls,
+        payload: dict[str, Any],
+        *,
+        license_number: str | None,
+        submitted_individual_crd: str | None,
+    ) -> NameVerificationResult | None:
+        broker_status = str(payload.get("status") or "").strip().upper()
+        if broker_status == "NOT_FOUND":
+            return None
+
+        matched_name = cls._normalize_optional_text(payload.get("verifiedName"))
+        returned_crd = cls._normalize_optional_text(payload.get("crdNumber"))
+        normalized_returned_crd = cls._normalize_crd_text(returned_crd)
+        normalized_license = cls._normalize_crd_text(license_number)
+        normalized_submitted_crd = cls._normalize_crd_text(submitted_individual_crd)
+
+        if not matched_name or not normalized_returned_crd:
+            return None
+        if normalized_license and normalized_returned_crd != normalized_license:
+            return None
+        if normalized_submitted_crd and normalized_returned_crd != normalized_submitted_crd:
+            return None
+
+        disclosures = payload.get("disclosures")
+        disclosures_count = None
+        if isinstance(disclosures, dict):
+            disclosures_count = disclosures.get("count")
+
+        return NameVerificationResult(
+            status="verified",
+            matched_name=matched_name,
+            crd_number=returned_crd,
+            current_firm=cls._normalize_optional_text(payload.get("currentFirm")),
+            sec_number=cls._normalize_optional_text(payload.get("secNumber")),
+            provider="broker_intelligence_license_verification",
+            metadata={
+                "provider": "broker_intelligence_license_verification",
+                "source": "ria_license_verifications",
+                "regulator_status": broker_status or None,
+                "disclosures_count": disclosures_count,
+            },
+        )
+
+    async def _lookup_recent_license_verification_result(
+        self,
+        *,
+        user_id: str,
+        license_number: str | None,
+        submitted_individual_crd: str | None,
+    ) -> NameVerificationResult | None:
+        normalized_license = self._normalize_crd_text(license_number)
+        normalized_submitted_crd = self._normalize_crd_text(submitted_individual_crd)
+        lookup_license = normalized_license or normalized_submitted_crd
+        if not lookup_license:
+            return None
+
+        try:
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT raw_response
+                    FROM ria_license_verifications
+                    WHERE user_id = $1
+                      AND license_number = $2
+                      AND status = 'completed'
+                      AND verification_source = 'broker_intelligence'
+                      AND created_at >= $3
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    user_id,
+                    lookup_license,
+                    datetime.now(timezone.utc) - _RIA_LICENSE_VERIFICATION_REUSE_TTL,
+                )
+        except Exception:
+            logger.warning(
+                "ria.submit_license_verification_lookup_failed user_id=%s",
+                user_id,
+                exc_info=True,
+            )
+            return None
+
+        if row is None:
+            return None
+
+        raw_response = row["raw_response"] if "raw_response" in row else None
+        payload = self._parse_json_mapping(raw_response)
+        return self._name_lookup_from_license_verification_payload(
+            payload,
+            license_number=lookup_license,
+            submitted_individual_crd=normalized_submitted_crd,
+        )
 
     @staticmethod
     def _advisory_status_from_row(row: Any) -> str:
@@ -2323,11 +2432,19 @@ class RIAIAMService:
         normalized_display_name = str(prepared["display_name"])
         normalized_requested_capabilities = list(prepared["requested_capabilities"])
         submitted_individual_crd = self._normalize_optional_text(prepared.get("individual_crd"))
-        name_lookup = await self._verify_ria_name_result(
-            normalized_display_name,
-            crd_number=submitted_individual_crd,
-            use_cache=not force_live_verification,
-        )
+        name_lookup: NameVerificationResult | None = None
+        if not force_live_verification:
+            name_lookup = await self._lookup_recent_license_verification_result(
+                user_id=user_id,
+                license_number=license_number,
+                submitted_individual_crd=submitted_individual_crd,
+            )
+        if name_lookup is None:
+            name_lookup = await self._verify_ria_name_result(
+                normalized_display_name,
+                crd_number=submitted_individual_crd,
+                use_cache=not force_live_verification,
+            )
         if name_lookup.status == "provider_unavailable":
             raise RIAIAMPolicyError(
                 name_lookup.reason or "RIA name verification provider unavailable.",
