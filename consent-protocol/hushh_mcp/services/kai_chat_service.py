@@ -315,7 +315,7 @@ class KaiChatService:
             conversation = await self._get_or_create_conversation(user_id, conversation_id)
 
             # 2. Get chat history for context
-            history = await self.chat_db.get_recent_context(conversation.id, max_messages=10)
+            history = await self.chat_db.get_recent_context(conversation.id, max_messages=5)
 
             # 3. Get user's PKM context
             user_context = await self.pkm_service.get_user_metadata(user_id)
