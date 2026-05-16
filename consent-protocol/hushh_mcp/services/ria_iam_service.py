@@ -80,6 +80,52 @@ _RIA_KAI_SPECIALIZED_DESCRIPTION = (
     "Advisor-side Kai and explorer access for portfolio, profile, analysis history, "
     "and runtime context."
 )
+
+
+def _first_text_value(*values: Any) -> str | None:
+    for value in values:
+        if value is None:
+            continue
+        normalized = str(value).strip()
+        if normalized:
+            return normalized
+    return None
+
+
+def _broker_city(payload: dict[str, Any]) -> str | None:
+    return _first_text_value(
+        payload.get("city"),
+        payload.get("businessCity"),
+        payload.get("business_city"),
+    )
+
+
+def _broker_pin_zip(payload: dict[str, Any]) -> str | None:
+    return _first_text_value(
+        payload.get("pinZip"),
+        payload.get("pin_zip"),
+        payload.get("zip"),
+        payload.get("zipCode"),
+        payload.get("postalCode"),
+        payload.get("postal_code"),
+    )
+
+
+def _broker_exams(payload: dict[str, Any]) -> list[str]:
+    exams = payload.get("exams")
+    if not isinstance(exams, list):
+        return []
+    normalized: list[str] = []
+    for item in exams:
+        if isinstance(item, dict):
+            value = _first_text_value(item.get("name"), item.get("examName"))
+        else:
+            value = _first_text_value(item)
+        if value and value not in normalized:
+            normalized.append(value)
+    return normalized
+
+
 _RIA_KAI_SPECIALIZED_PRESENTATIONS: tuple[str, ...] = ("kai", "explorer")
 _RIA_KAI_SPECIALIZED_SCOPES: tuple[str, ...] = (
     "attr.financial.portfolio.*",
@@ -704,17 +750,15 @@ class RIAIAMService:
             "regulator_status": broker_data.get("status"),
             "license_expiry": None,
             "certifications": [],
-            "city": None,
-            "pin_zip": None,
+            "city": _broker_city(broker_data),
+            "pin_zip": _broker_pin_zip(broker_data),
             "crd_number": broker_data.get("crdNumber") or normalized,
             "sec_number": None,
             "employment_history": broker_data.get("employmentHistory", []),
             "disclosures_count": broker_data.get("disclosures", {}).get("count", 0)
             if isinstance(broker_data.get("disclosures"), dict)
             else 0,
-            "exams_passed": [
-                e.get("name", "") for e in broker_data.get("exams", []) if isinstance(e, dict)
-            ],
+            "exams_passed": _broker_exams(broker_data),
             "provider": "ria_intelligence_combined",
             "scrape_job_id": scrape_data.get("jobId"),
             "broker_intelligence_summary": broker_data.get("summary"),

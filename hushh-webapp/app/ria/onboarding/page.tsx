@@ -30,6 +30,7 @@ import {
   isIAMSchemaNotReadyError,
   RiaApiError,
   RiaService,
+  type CrdScrapeJobResult,
   type RiaLicenseVerificationResult,
   type RiaOnboardingStatus,
 } from "@/lib/services/ria-service";
@@ -39,6 +40,27 @@ import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 
 const LICENSE_VERIFICATION_TIMEOUT_MS = 90_000;
 const SCRAPE_POLL_INTERVAL_MS = 5_000;
+
+function textValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function locationPatchFromCrdReport(
+  report: NonNullable<CrdScrapeJobResult["report"]>
+): Pick<RiaOnboardingDraft, "city" | "pinZip"> {
+  const officialLocation = report.officialLocation;
+  const firmHistoryLocation =
+    (report.firmHistory?.find(
+      (entry) =>
+        typeof entry?.city === "string" && typeof entry?.state === "string"
+    ) ?? {}) as Record<string, unknown>;
+
+  return {
+    city:
+      textValue(officialLocation?.city) || textValue(firmHistoryLocation.city),
+    pinZip: textValue(officialLocation?.pinZip),
+  };
+}
 
 function isAdvisoryAccessReady(status?: string | null): boolean {
   return status === "active" || status === "verified";
@@ -260,12 +282,15 @@ export default function RiaOnboardingPage() {
               scrapePollingRef.current = null;
             }
             if (result.report) {
+              const locationPatch = locationPatchFromCrdReport(result.report);
               updateDraft({
                 firmName:
                   draft.firmName ||
                   (result.report.firmHistory?.[0] as Record<string, string>)
                     ?.firmName ||
                   "",
+                city: draft.city || locationPatch.city,
+                pinZip: draft.pinZip || locationPatch.pinZip,
                 certifications:
                   draft.certifications.length > 0
                     ? draft.certifications
@@ -286,7 +311,7 @@ export default function RiaOnboardingPage() {
         }
       }, SCRAPE_POLL_INTERVAL_MS);
     },
-    [draft.firmName, draft.certifications, updateDraft]
+    [draft.firmName, draft.city, draft.pinZip, draft.certifications, updateDraft]
   );
 
   async function handleVerifyLicense() {

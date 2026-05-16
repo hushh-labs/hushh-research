@@ -138,6 +138,13 @@ export interface CrdScrapeJobResult {
     barredStatus?: string;
     registrationStatus?: string;
     disclosuresCount?: number;
+    officialLocation?: {
+      city?: string | null;
+      state?: string | null;
+      pinZip?: string | null;
+      location?: string | null;
+      address?: string | null;
+    } | null;
     firmHistory?: Array<Record<string, unknown>>;
     officialReports?: Array<Record<string, unknown>>;
     sources?: Array<Record<string, unknown>>;
