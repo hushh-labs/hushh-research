@@ -1747,6 +1747,48 @@ class PersonalKnowledgeModelService:
             logger.error("Error loading recent decision records for %s: %s", user_id, e)
             return []
 
+    async def get_recent_kai_weight_eval_artifacts(
+        self,
+        user_id: str,
+        *,
+        domain: str = "financial",
+        limit: int = 50,
+    ) -> list[dict]:
+        """Read recent shadow-eval run/promotion artifacts from PKM events."""
+        try:
+            rows = self.supabase.execute_raw(
+                """
+                SELECT metadata, created_at
+                FROM pkm_events
+                WHERE user_id = :user_id
+                  AND domain = :domain
+                  AND operation_type = 'decision_projection'
+                ORDER BY created_at DESC
+                LIMIT :limit
+                """,
+                {"user_id": user_id, "domain": domain, "limit": max(1, limit)},
+            ).data
+            artifacts: list[dict] = []
+            for row in rows:
+                metadata = row.get("metadata") if isinstance(row, dict) else {}
+                payload = metadata if isinstance(metadata, dict) else {}
+                projection_type = str(payload.get("projection_type") or "").strip().lower()
+                if projection_type not in {"kai_weight_eval_v1", "kai_weight_eval_promotion_v1"}:
+                    continue
+                artifacts.append(
+                    {
+                        "projection_type": projection_type,
+                        "created_at": row.get("created_at") if isinstance(row, dict) else None,
+                        "payload": payload,
+                    }
+                )
+                if len(artifacts) >= limit:
+                    break
+            return artifacts
+        except Exception as e:
+            logger.error("Error loading shadow eval artifacts for %s: %s", user_id, e)
+            return []
+
     async def _queue_consent_export_refreshes_for_domain_write(
         self,
         *,

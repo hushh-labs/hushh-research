@@ -324,6 +324,46 @@ async def test_get_recent_decision_records_prefers_replace_all_projection():
 
 
 @pytest.mark.asyncio
+async def test_get_recent_kai_weight_eval_artifacts_filters_projection_types():
+    class _SupabaseWithRaw:
+        def execute_raw(self, _query, _params):
+            return SimpleNamespace(
+                data=[
+                    {
+                        "metadata": {
+                            "projection_type": "kai_weight_eval_v1",
+                            "shadow_eval_run": {"run_id": "run_a"},
+                        },
+                        "created_at": "2026-04-01T00:00:00Z",
+                    },
+                    {
+                        "metadata": {
+                            "projection_type": "decision_history_v1",
+                            "decisions": [{"ticker": "AAPL"}],
+                        },
+                        "created_at": "2026-04-01T00:01:00Z",
+                    },
+                    {
+                        "metadata": {
+                            "projection_type": "kai_weight_eval_promotion_v1",
+                            "promotion_decision": {"run_id": "run_a", "approved": True},
+                        },
+                        "created_at": "2026-04-01T00:02:00Z",
+                    },
+                ]
+            )
+
+    service = PersonalKnowledgeModelService()
+    service._supabase = _SupabaseWithRaw()
+
+    result = await service.get_recent_kai_weight_eval_artifacts("user-9")
+
+    assert len(result) == 2
+    assert result[0]["projection_type"] == "kai_weight_eval_v1"
+    assert result[1]["projection_type"] == "kai_weight_eval_promotion_v1"
+
+
+@pytest.mark.asyncio
 async def test_queue_refresh_jobs_targets_matching_strict_grants(monkeypatch):
     service = PersonalKnowledgeModelService()
     queued: list[dict[str, object]] = []

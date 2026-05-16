@@ -70,6 +70,11 @@ KAI_AUTH_EXPECTATIONS = [
         '@router.get("/gmail/receipts-memory/artifacts/{artifact_id}")',
         "require_vault_owner_token",
     ),
+    (
+        "api/routes/kai/weight_eval.py",
+        '@router.get("/weight-eval/artifacts"',
+        "require_vault_owner_token",
+    ),
 ]
 
 
