@@ -45,15 +45,31 @@ function textValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function textArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map(textValue).filter((item): item is string => item.length > 0)
+    : [];
+}
+
+function certificationsFromVerificationResult(
+  result: RiaLicenseVerificationResult,
+): string[] {
+  return Array.from(
+    new Set([
+      ...textArray(result.certifications),
+      ...textArray(result.exams_passed),
+    ]),
+  );
+}
+
 function locationPatchFromCrdReport(
-  report: NonNullable<CrdScrapeJobResult["report"]>
+  report: NonNullable<CrdScrapeJobResult["report"]>,
 ): Pick<RiaOnboardingDraft, "city" | "pinZip"> {
   const officialLocation = report.officialLocation;
-  const firmHistoryLocation =
-    (report.firmHistory?.find(
-      (entry) =>
-        typeof entry?.city === "string" && typeof entry?.state === "string"
-    ) ?? {}) as Record<string, unknown>;
+  const firmHistoryLocation = (report.firmHistory?.find(
+    (entry) =>
+      typeof entry?.city === "string" && typeof entry?.state === "string",
+  ) ?? {}) as Record<string, unknown>;
 
   return {
     city:
@@ -73,7 +89,7 @@ export default function RiaOnboardingPage() {
 
   const [status, setStatus] = useState<RiaOnboardingStatus | null>(null);
   const [draft, setDraft] = useState<RiaOnboardingDraft>(
-    normalizeRiaOnboardingDraft(undefined)
+    normalizeRiaOnboardingDraft(undefined),
   );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -96,22 +112,22 @@ export default function RiaOnboardingPage() {
 
   const flowOptions = useMemo<RiaOnboardingFlowOptions>(
     () => ({ licenseVerificationSatisfied }),
-    [licenseVerificationSatisfied]
+    [licenseVerificationSatisfied],
   );
 
   const steps = useMemo(
     () => buildRiaOnboardingSteps(draft, flowOptions),
-    [draft, flowOptions]
+    [draft, flowOptions],
   );
   const currentStepIndex = useMemo(
     () => getRiaOnboardingStepIndex(draft, draft.currentStepId, flowOptions),
-    [draft, flowOptions]
+    [draft, flowOptions],
   );
   const currentStep = (steps[currentStepIndex] ?? steps[0])!;
   const canContinue = canContinueRiaOnboardingStep(
     currentStep.id,
     draft,
-    flowOptions
+    flowOptions,
   );
 
   useEffect(() => {
@@ -145,9 +161,8 @@ export default function RiaOnboardingPage() {
 
         const alreadyVerified =
           isAdvisoryAccessReady(
-            nextStatus?.advisory_status || nextStatus?.verification_status
-          ) &&
-          Boolean(nextStatus?.individual_crd || nextStatus?.finra_crd);
+            nextStatus?.advisory_status || nextStatus?.verification_status,
+          ) && Boolean(nextStatus?.individual_crd || nextStatus?.finra_crd);
 
         let resolvedDraft = seeded;
         if (alreadyVerified && nextStatus) {
@@ -164,9 +179,7 @@ export default function RiaOnboardingPage() {
               nextStatus.finra_crd ||
               "",
             firmName:
-              seeded.firmName ||
-              nextStatus.advisory_firm_legal_name ||
-              "",
+              seeded.firmName || nextStatus.advisory_firm_legal_name || "",
             licenseVerificationStatus: "found",
           });
         }
@@ -178,7 +191,7 @@ export default function RiaOnboardingPage() {
             licenseVerificationSatisfied:
               alreadyVerified ||
               resolvedDraft.licenseVerificationStatus === "found",
-          }
+          },
         );
 
         setStatus(nextStatus);
@@ -192,7 +205,7 @@ export default function RiaOnboardingPage() {
             setError(
               loadError instanceof Error
                 ? loadError.message
-                : "Failed to load RIA onboarding."
+                : "Failed to load RIA onboarding.",
             );
           }
         }
@@ -222,7 +235,7 @@ export default function RiaOnboardingPage() {
         clearInterval(scrapePollingRef.current);
       }
     },
-    []
+    [],
   );
 
   const updateDraft = useCallback(
@@ -236,12 +249,12 @@ export default function RiaOnboardingPage() {
           currentStepId: resolveRiaOnboardingStepId(
             next,
             next.currentStepId,
-            flowOptions
+            flowOptions,
           ),
         };
       });
     },
-    [flowOptions]
+    [flowOptions],
   );
 
   function moveToStep(stepId: RiaOnboardingStepId) {
@@ -273,10 +286,7 @@ export default function RiaOnboardingPage() {
       scrapePollingRef.current = setInterval(async () => {
         try {
           const result = await RiaService.getCrdScrapeJobStatus(jobId);
-          if (
-            result.status === "completed" ||
-            result.status === "partial"
-          ) {
+          if (result.status === "completed" || result.status === "partial") {
             if (scrapePollingRef.current) {
               clearInterval(scrapePollingRef.current);
               scrapePollingRef.current = null;
@@ -292,9 +302,7 @@ export default function RiaOnboardingPage() {
                 city: draft.city || locationPatch.city,
                 pinZip: draft.pinZip || locationPatch.pinZip,
                 certifications:
-                  draft.certifications.length > 0
-                    ? draft.certifications
-                    : [],
+                  draft.certifications.length > 0 ? draft.certifications : [],
               });
             }
           } else if (result.status === "failed") {
@@ -311,7 +319,13 @@ export default function RiaOnboardingPage() {
         }
       }, SCRAPE_POLL_INTERVAL_MS);
     },
-    [draft.firmName, draft.city, draft.pinZip, draft.certifications, updateDraft]
+    [
+      draft.firmName,
+      draft.city,
+      draft.pinZip,
+      draft.certifications,
+      updateDraft,
+    ],
   );
 
   async function handleVerifyLicense() {
@@ -326,7 +340,10 @@ export default function RiaOnboardingPage() {
 
     try {
       const idToken = await user.getIdToken();
-      const timeoutId = setTimeout(() => controller.abort(), LICENSE_VERIFICATION_TIMEOUT_MS);
+      const timeoutId = setTimeout(
+        () => controller.abort(),
+        LICENSE_VERIFICATION_TIMEOUT_MS,
+      );
 
       const result: RiaLicenseVerificationResult =
         await RiaService.verifyOnboardingLicense(
@@ -335,13 +352,14 @@ export default function RiaOnboardingPage() {
             license_number: draft.licenseNumber.trim(),
             regulator: draft.regulator || undefined,
           },
-          { signal: controller.signal }
+          { signal: controller.signal },
         );
 
       clearTimeout(timeoutId);
       if (controller.signal.aborted) return;
 
       if (result.status === "found") {
+        const certifications = certificationsFromVerificationResult(result);
         updateDraft({
           licenseVerificationStatus: "found",
           advisorName: result.advisor_name || "",
@@ -349,7 +367,7 @@ export default function RiaOnboardingPage() {
           regulator: result.regulator || draft.regulator || "",
           regulatorStatus: result.regulator_status || "",
           licenseExpiry: result.license_expiry || "",
-          certifications: result.certifications || [],
+          certifications,
           city: result.city || "",
           pinZip: result.pin_zip || "",
           crdNumber: result.crd_number || draft.licenseNumber.trim(),
@@ -399,7 +417,7 @@ export default function RiaOnboardingPage() {
       setError(
         verifyError instanceof Error
           ? verifyError.message
-          : "License verification failed."
+          : "License verification failed.",
       );
     } finally {
       if (!controller.signal.aborted) {
@@ -424,10 +442,16 @@ export default function RiaOnboardingPage() {
       const result = await RiaService.submitOnboarding(idToken, {
         display_name: draft.advisorName.trim() || draft.displayName.trim(),
         requested_capabilities: draft.requestedCapabilities,
-        individual_legal_name: draft.individualLegalName.trim() || draft.advisorName.trim() || undefined,
-        individual_crd: draft.individualCrd.trim() || draft.crdNumber.trim() || undefined,
-        advisory_firm_legal_name: draft.advisoryFirmName.trim() || draft.firmName.trim() || undefined,
-        advisory_firm_iapd_number: draft.advisoryFirmIapdNumber.trim() || undefined,
+        individual_legal_name:
+          draft.individualLegalName.trim() ||
+          draft.advisorName.trim() ||
+          undefined,
+        individual_crd:
+          draft.individualCrd.trim() || draft.crdNumber.trim() || undefined,
+        advisory_firm_legal_name:
+          draft.advisoryFirmName.trim() || draft.firmName.trim() || undefined,
+        advisory_firm_iapd_number:
+          draft.advisoryFirmIapdNumber.trim() || undefined,
         bio: draft.bio.trim() || undefined,
         strategy: draft.strategySummary.trim() || undefined,
         force_live_verification: shouldForceLiveVerification,
@@ -466,18 +490,15 @@ export default function RiaOnboardingPage() {
       ).toLowerCase();
 
       await RiaService.setRiaMarketplaceDiscoverability(idToken, {
-        enabled:
-          advisoryOutcome === "verified" || advisoryOutcome === "active",
+        enabled: advisoryOutcome === "verified" || advisoryOutcome === "active",
         headline: draft.headline.trim() || undefined,
-        strategy_summary: draft.strategySummary.trim() || draft.bio.trim() || undefined,
+        strategy_summary:
+          draft.strategySummary.trim() || draft.bio.trim() || undefined,
       }).catch(() => null);
 
       await refreshPersonaState({ force: true });
 
-      if (
-        advisoryOutcome === "verified" ||
-        advisoryOutcome === "active"
-      ) {
+      if (advisoryOutcome === "verified" || advisoryOutcome === "active") {
         await RiaOnboardingDraftLocalService.clear(user.uid);
         setShouldPersistDraft(false);
         toast.success("Credentials verified", {
@@ -486,8 +507,7 @@ export default function RiaOnboardingPage() {
       } else if (advisoryOutcome === "rejected") {
         toast.error("Verification failed", {
           description:
-            result.verification_message ||
-            "The license could not be verified.",
+            result.verification_message || "The license could not be verified.",
         });
         setError(result.verification_message || "Verification was rejected.");
       } else {
@@ -506,7 +526,8 @@ export default function RiaOnboardingPage() {
         individual_legal_name: result.individual_legal_name || undefined,
         individual_crd: result.individual_crd || undefined,
         advisory_firm_legal_name: result.advisory_firm_legal_name || undefined,
-        advisory_firm_iapd_number: result.advisory_firm_iapd_number || undefined,
+        advisory_firm_iapd_number:
+          result.advisory_firm_iapd_number || undefined,
       }));
 
       moveToStep("review");
@@ -518,7 +539,7 @@ export default function RiaOnboardingPage() {
       setError(
         submitError instanceof Error
           ? submitError.message
-          : "Failed to submit onboarding."
+          : "Failed to submit onboarding.",
       );
       toast.error("Could not submit verification", {
         description:
@@ -545,9 +566,7 @@ export default function RiaOnboardingPage() {
     }
   }
 
-  const isEnriching = Boolean(
-    draft.scrapeJobId && scrapePollingRef.current
-  );
+  const isEnriching = Boolean(draft.scrapeJobId && scrapePollingRef.current);
 
   function renderStep() {
     if (loading) {
@@ -570,8 +589,8 @@ export default function RiaOnboardingPage() {
     if (iamUnavailable) {
       return (
         <div className="rounded-[24px] border border-amber-200 bg-amber-50 px-4 py-6 text-sm text-foreground">
-          RIA onboarding is unavailable in this environment. The backend
-          IAM schema has not been activated yet.
+          RIA onboarding is unavailable in this environment. The backend IAM
+          schema has not been activated yet.
         </div>
       );
     }

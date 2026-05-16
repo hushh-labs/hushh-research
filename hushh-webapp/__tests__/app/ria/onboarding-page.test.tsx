@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -64,11 +70,9 @@ vi.mock("lucide-react", () => ({
 }));
 
 vi.mock("@/components/app-ui/fullscreen-flow-shell", () => ({
-  FullscreenFlowShell: ({
-    children,
-  }: {
-    children: React.ReactNode;
-  }) => <div data-testid="flow-shell">{children}</div>,
+  FullscreenFlowShell: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="flow-shell">{children}</div>
+  ),
 }));
 
 vi.mock("@/components/ria/onboarding/onboarding-shell", () => ({
@@ -117,7 +121,10 @@ vi.mock("@/components/ria/onboarding/onboarding-step-welcome", () => ({
   }) => (
     <div data-testid="step-welcome">
       <span data-testid="welcome-type">{onboardingType}</span>
-      <button data-testid="select-individual" onClick={() => onSelect("individual")}>
+      <button
+        data-testid="select-individual"
+        onClick={() => onSelect("individual")}
+      >
         Individual
       </button>
       <button data-testid="select-firm" onClick={() => onSelect("firm")}>
@@ -157,17 +164,24 @@ vi.mock("@/components/ria/onboarding/onboarding-step-license-details", () => ({
   OnboardingStepLicenseDetails: ({
     advisorName,
     firmName,
+    certifications,
     city,
     pinZip,
   }: {
     advisorName: string;
     firmName: string;
+    certifications: string[];
     city: string;
     pinZip: string;
   }) => (
     <div data-testid="step-license-details">
       <span data-testid="advisor-name">{advisorName}</span>
       <span data-testid="firm-name">{firmName}</span>
+      {certifications.map((certification) => (
+        <span key={certification} data-testid="certification">
+          {certification}
+        </span>
+      ))}
       <span data-testid="city">{city}</span>
       <span data-testid="pin-zip">{pinZip}</span>
     </div>
@@ -195,13 +209,22 @@ vi.mock("@/components/ria/onboarding/onboarding-step-review", () => ({
     <div data-testid="step-review">
       <span data-testid="review-name">{advisorName}</span>
       <span data-testid="advisory-ready">{String(advisoryAccessReady)}</span>
-      <button data-testid="edit-license" onClick={() => onEditSection("license")}>
+      <button
+        data-testid="edit-license"
+        onClick={() => onEditSection("license")}
+      >
         Edit Licence
       </button>
-      <button data-testid="edit-services" onClick={() => onEditSection("services")}>
+      <button
+        data-testid="edit-services"
+        onClick={() => onEditSection("services")}
+      >
         Edit Services
       </button>
-      <button data-testid="edit-contact" onClick={() => onEditSection("contact")}>
+      <button
+        data-testid="edit-contact"
+        onClick={() => onEditSection("contact")}
+      >
         Edit Contact
       </button>
     </div>
@@ -266,7 +289,7 @@ describe("RiaOnboardingPage", () => {
       verification_status: "draft",
     });
     mocks.riaService.setRiaMarketplaceDiscoverability.mockResolvedValue(
-      undefined
+      undefined,
     );
   });
 
@@ -309,7 +332,7 @@ describe("RiaOnboardingPage", () => {
 
   it("shows IAM unavailable banner on schema error", async () => {
     mocks.riaService.getOnboardingStatus.mockRejectedValue(
-      new Error("schema not ready")
+      new Error("schema not ready"),
     );
     render(<RiaOnboardingPage />);
 
@@ -325,6 +348,8 @@ describe("RiaOnboardingPage", () => {
       firm_name: "Acme Wealth",
       regulator: "SEC",
       regulator_status: "ACTIVE",
+      certifications: [],
+      exams_passed: ["Series 66", "SIE"],
       city: "Kennesaw",
       pin_zip: "30144",
       crd_number: "123456",
@@ -363,7 +388,7 @@ describe("RiaOnboardingPage", () => {
       expect(mocks.riaService.verifyOnboardingLicense).toHaveBeenCalledWith(
         "token-ria-1",
         expect.objectContaining({ license_number: "123456" }),
-        expect.any(Object)
+        expect.any(Object),
       );
     });
 
@@ -371,11 +396,14 @@ describe("RiaOnboardingPage", () => {
       () => {
         expect(screen.getByTestId("step-license-details")).toBeTruthy();
       },
-      { timeout: 3000 }
+      { timeout: 3000 },
     );
 
     expect(screen.getByTestId("advisor-name").textContent).toBe("Jane Doe");
     expect(screen.getByTestId("firm-name").textContent).toBe("Acme Wealth");
+    expect(
+      screen.getAllByTestId("certification").map((item) => item.textContent),
+    ).toEqual(["Series 66", "SIE"]);
     expect(screen.getByTestId("city").textContent).toBe("Kennesaw");
     expect(screen.getByTestId("pin-zip").textContent).toBe("30144");
   });
@@ -415,7 +443,7 @@ describe("RiaOnboardingPage", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("verification-status").textContent).toBe(
-        "not_found"
+        "not_found",
       );
     });
 
@@ -424,7 +452,7 @@ describe("RiaOnboardingPage", () => {
 
   it("handles rate limit (429) gracefully", async () => {
     mocks.riaService.verifyOnboardingLicense.mockRejectedValue(
-      new MockRiaApiError("rate limited", 429)
+      new MockRiaApiError("rate limited", 429),
     );
 
     render(<RiaOnboardingPage />);
@@ -453,7 +481,7 @@ describe("RiaOnboardingPage", () => {
 
     await waitFor(() => {
       expect(
-        (screen.getByTestId("license-input") as HTMLInputElement).value
+        (screen.getByTestId("license-input") as HTMLInputElement).value,
       ).toBe("123456");
     });
 
@@ -465,7 +493,7 @@ describe("RiaOnboardingPage", () => {
       expect(mocks.riaService.verifyOnboardingLicense).toHaveBeenCalledWith(
         "token-ria-1",
         expect.objectContaining({ license_number: "123456" }),
-        expect.any(Object)
+        expect.any(Object),
       );
     });
 
@@ -488,7 +516,7 @@ describe("RiaOnboardingPage", () => {
     await waitFor(() => {
       expect(mocks.draftService.save).toHaveBeenCalledWith(
         "user-ria-1",
-        expect.objectContaining({ onboardingType: "firm" })
+        expect.objectContaining({ onboardingType: "firm" }),
       );
     });
   });
@@ -556,7 +584,7 @@ describe("RiaOnboardingPage", () => {
           license_number: "7265726",
           individual_crd: "7265726",
           force_live_verification: false,
-        })
+        }),
       );
     });
   });
