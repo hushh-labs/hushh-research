@@ -611,3 +611,91 @@ class TestIdempotency:
         resp = client.post("/api/consent/pending/approve",
                            json={"userId": _USER, "requestId": "req-idempotent-03"})
         assert resp.status_code == 404
+
+
+# ===========================================================================
+# Trust-boundary proof — routes exercised are the canonical consent surfaces
+# ===========================================================================
+
+
+class TestTrustBoundaryProof:
+    """
+    Canonical surfaces exercised by this integration test suite:
+      POST /api/consent/pending/approve  → api.routes.consent.approve_consent
+      POST /api/consent/pending/deny     → api.routes.consent.deny_consent
+      POST /api/consent/cancel           → api.routes.consent.cancel_consent
+      POST /api/consent/revoke           → api.routes.consent.revoke_consent
+
+    Canonical caller chain for approve:
+      TestClient → api.routes.consent.approve_consent
+        → ConsentDBService.get_pending_by_request_id  (stubbed by _FakeDB)
+        → issue_token                                 (stubbed by _fake_issue_token)
+        → ConsentDBService.approve_consent_request    (stubbed by _FakeDB)
+
+    Attach point proof: Each test in this class calls a real consent route
+    (same router as api.routes.consent) via TestClient, with _FakeDB replacing
+    the live DB — proving the consent lifecycle is reachable and correct
+    through the canonical route surface without any live infrastructure.
+    """
+
+    def test_approve_route_is_reachable_and_issues_token(self, monkeypatch):
+        """POST /api/consent/pending/approve is reachable and issues an active token."""
+        db = _FakeDB()
+        db.seed_pending("req-boundary-01")
+        monkeypatch.setattr(consent, "ConsentDBService", lambda: db)
+        monkeypatch.setattr(consent, "RIAIAMService", _NoOpRIAIAM)
+        monkeypatch.setattr(consent, "issue_token", _fake_issue_token)
+        monkeypatch.setattr(consent, "_hydrate_pending_requester_labels", _passthrough)
+
+        client = TestClient(_build_app(), raise_server_exceptions=False)
+        resp = client.post(
+            "/api/consent/pending/approve",
+            json={"userId": _USER, "requestId": "req-boundary-01"},
+        )
+        assert resp.status_code == 200
+        assert (_AGENT, _SCOPE) in db.active
+
+    def test_deny_route_is_reachable_and_does_not_issue_token(self, monkeypatch):
+        """POST /api/consent/pending/deny is reachable and leaves no active token."""
+        db = _FakeDB()
+        db.seed_pending("req-boundary-deny")
+        monkeypatch.setattr(consent, "ConsentDBService", lambda: db)
+        monkeypatch.setattr(consent, "_hydrate_pending_requester_labels", _passthrough)
+
+        client = TestClient(_build_app(), raise_server_exceptions=False)
+        resp = client.post(
+            "/api/consent/pending/deny",
+            params={"userId": _USER, "requestId": "req-boundary-deny"},
+        )
+        assert resp.status_code == 200
+        assert len(db.active) == 0
+
+    def test_cancel_route_is_reachable_and_removes_pending(self, monkeypatch):
+        """POST /api/consent/cancel is reachable and removes the pending request."""
+        db = _FakeDB()
+        db.seed_pending("req-boundary-cancel")
+        monkeypatch.setattr(consent, "ConsentDBService", lambda: db)
+
+        client = TestClient(_build_app(), raise_server_exceptions=False)
+        resp = client.post(
+            "/api/consent/cancel",
+            json={"userId": _USER, "requestId": "req-boundary-cancel"},
+        )
+        assert resp.status_code == 200
+        assert "req-boundary-cancel" not in db.pending.get(_USER, [])
+
+    def test_cross_user_guard_enforced_on_approve_route(self, monkeypatch):
+        """Canonical cross-user guard: user B cannot approve user A's request via the route."""
+        db = _FakeDB()
+        db.seed_pending("req-boundary-xuser")
+        monkeypatch.setattr(consent, "ConsentDBService", lambda: db)
+        monkeypatch.setattr(consent, "RIAIAMService", _NoOpRIAIAM)
+        monkeypatch.setattr(consent, "issue_token", _fake_issue_token)
+        monkeypatch.setattr(consent, "_hydrate_pending_requester_labels", _passthrough)
+
+        client = TestClient(_build_app(), raise_server_exceptions=False)
+        resp = client.post(
+            "/api/consent/pending/approve",
+            json={"userId": "other-user-xyz", "requestId": "req-boundary-xuser"},
+        )
+        assert resp.status_code == 403
