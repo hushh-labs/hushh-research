@@ -91,6 +91,10 @@ type_name:
   min_length:
     warning: 2
 
+function_parameter_count:
+  warning: 8
+  error: 12
+
 cyclomatic_complexity:
   warning: 12
   error: 20

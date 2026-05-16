@@ -60,7 +60,7 @@
     {
       "schema_version": "kai.local_action_contract.v1",
       "surface_id": "one_kyc",
-      "surface_title": "One KYC",
+      "surface_title": "Email",
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
         "docs/reference/architecture/one-email-kyc.md",
@@ -1123,19 +1123,19 @@
     {
       "action_id": "route.one_kyc",
       "surface_id": "one_kyc",
-      "label": "Open One KYC",
+      "label": "Open Email",
       "aliases": [
-        "open kyc",
-        "open one kyc",
-        "show kyc workflows",
-        "show broker requests"
+        "open email",
+        "open email helper",
+        "show email requests",
+        "show requests"
       ],
       "search_keywords": [
-        "kyc",
+        "email",
         "one",
-        "broker"
+        "request"
       ],
-      "meaning": "Navigates to One broker request review.",
+      "meaning": "Navigates to One email request review.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "kyc",
       "reachability": {
@@ -1198,15 +1198,15 @@
       "label": "Manage Verified Emails",
       "aliases": [
         "manage verified emails",
-        "add broker email",
+        "add email address",
         "show matching emails"
       ],
       "search_keywords": [
-        "kyc",
         "email",
-        "broker"
+        "address",
+        "match"
       ],
-      "meaning": "Opens the verified email address panel used to match broker KYC requests.",
+      "meaning": "Opens the verified email address panel used to match email requests.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "kyc",
       "reachability": {
@@ -1266,17 +1266,17 @@
     {
       "action_id": "kyc.workflow.sync_status",
       "surface_id": "one_kyc",
-      "label": "Sync KYC Status",
+      "label": "Sync Email Status",
       "aliases": [
-        "sync kyc",
-        "refresh kyc status"
+        "sync email",
+        "refresh request status"
       ],
       "search_keywords": [
-        "kyc",
+        "email",
         "sync",
         "consent"
       ],
-      "meaning": "Refreshes the selected One KYC workflow status after consent approval.",
+      "meaning": "Refreshes the selected email request status after consent approval.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "kyc",
       "reachability": {
@@ -1335,17 +1335,17 @@
     {
       "action_id": "kyc.draft.review",
       "surface_id": "one_kyc",
-      "label": "Review KYC Draft",
+      "label": "Review Email Draft",
       "aliases": [
-        "review kyc draft",
-        "show kyc draft"
+        "review email draft",
+        "show email draft"
       ],
       "search_keywords": [
-        "kyc",
+        "email",
         "draft",
         "review"
       ],
-      "meaning": "Reads or focuses the current approval-gated KYC draft.",
+      "meaning": "Reads or focuses the current approval-gated email draft.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "kyc",
       "reachability": {
@@ -1404,17 +1404,17 @@
     {
       "action_id": "kyc.draft.request_redraft",
       "surface_id": "one_kyc",
-      "label": "Request KYC Redraft",
+      "label": "Request Email Redraft",
       "aliases": [
-        "redraft kyc",
-        "revise kyc draft"
+        "redraft email",
+        "revise email draft"
       ],
       "search_keywords": [
-        "kyc",
+        "email",
         "redraft",
         "revise"
       ],
-      "meaning": "Requests a new KYC draft revision from typed or spoken user instructions.",
+      "meaning": "Requests a new email draft revision from typed or spoken user instructions.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "kyc",
       "reachability": {
@@ -1474,17 +1474,17 @@
     {
       "action_id": "kyc.draft.approve_send",
       "surface_id": "one_kyc",
-      "label": "Approve KYC Send",
+      "label": "Approve Email Send",
       "aliases": [
-        "approve kyc send",
-        "send kyc reply"
+        "approve email send",
+        "send email reply"
       ],
       "search_keywords": [
-        "kyc",
+        "email",
         "send",
         "approve"
       ],
-      "meaning": "Sends the KYC draft only after explicit user approval.",
+      "meaning": "Sends the email draft only after explicit user approval.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "kyc",
       "reachability": {
@@ -1545,17 +1545,17 @@
     {
       "action_id": "kyc.draft.reject",
       "surface_id": "one_kyc",
-      "label": "Reject KYC Draft",
+      "label": "Reject Email Draft",
       "aliases": [
-        "reject kyc draft",
-        "block kyc workflow"
+        "reject email draft",
+        "block email request"
       ],
       "search_keywords": [
-        "kyc",
+        "email",
         "reject",
         "block"
       ],
-      "meaning": "Rejects the current KYC draft and blocks the workflow.",
+      "meaning": "Rejects the current email draft and blocks the workflow.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "kyc",
       "reachability": {

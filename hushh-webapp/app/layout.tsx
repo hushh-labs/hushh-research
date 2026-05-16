@@ -1,3 +1,4 @@
+import { NetworkStatusBanner } from "@/components/system/network-status-banner";
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
 import Script from "next/script";
@@ -114,6 +115,7 @@ export default function RootLayout({
       <RootLayoutClient
         fontClasses={`${geistSans.variable} ${geistMono.variable} ${headingSans.variable}`}
       >
+        <NetworkStatusBanner />
         {children}
       </RootLayoutClient>
     </html>
