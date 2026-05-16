@@ -80,6 +80,34 @@ def test_user_scopes_requires_developer_key(monkeypatch):
     assert detail["error_code"] == "DEVELOPER_TOKEN_REQUIRED"
 
 
+def test_user_scopes_rejects_oversized_query_token_before_auth(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    client = TestClient(_build_app())
+    response = client.get("/api/v1/user-scopes/user_123", params={"token": "x" * 2049})
+
+    assert response.status_code == 422
+
+
+def test_consent_status_rejects_oversized_query_params_before_auth(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/consent-status",
+        params={
+            "user_id": "u" * 129,
+            "scope": "s" * 501,
+            "request_id": "r" * 201,
+            "token": "x" * 2049,
+        },
+    )
+
+    assert response.status_code == 422
+
+
 class _EmptyScopeGenerator:
     async def get_available_scopes(self, user_id: str) -> list[str]:
         return []

@@ -742,7 +742,7 @@ async def get_tool_catalog(
 async def get_user_scopes(
     user_id: str,
     request: Request,
-    token: Optional[str] = Query(None),
+    token: Optional[str] = Query(None, max_length=2048),
     authorization: Optional[str] = Header(None),
     detail: Literal["compact", "verbose"] = Query(default="compact"),
 ):
@@ -769,10 +769,10 @@ async def get_user_scopes(
 @developer_api_router.get("/consent-status", response_model=DeveloperConsentStatusResponse)
 async def get_consent_status(
     request: Request,
-    user_id: str = Query(..., alias="user_id"),
-    scope: str | None = Query(default=None),
-    request_id: str | None = Query(default=None),
-    token: Optional[str] = Query(None),
+    user_id: str = Query(..., alias="user_id", max_length=128),
+    scope: str | None = Query(default=None, max_length=500),
+    request_id: str | None = Query(default=None, max_length=200),
+    token: Optional[str] = Query(None, max_length=2048),
     authorization: Optional[str] = Header(None),
 ):
     principal = _resolve_principal(
