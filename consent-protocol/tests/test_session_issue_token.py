@@ -136,9 +136,7 @@ class _FakeConsentDBService:
 def test_consent_history_uses_vault_owner_dependency(monkeypatch):
     app = _build_app()
 
-    app.dependency_overrides[session.require_vault_owner_token] = (
-        lambda: {"user_id": "user_123"}
-    )
+    app.dependency_overrides[session.require_vault_owner_token] = lambda: {"user_id": "user_123"}
 
     monkeypatch.setattr(
         session,
@@ -181,9 +179,7 @@ def test_consent_history_uses_vault_owner_dependency(monkeypatch):
 def test_consent_history_rejects_token_user_mismatch():
     app = _build_app()
 
-    app.dependency_overrides[session.require_vault_owner_token] = (
-        lambda: {"user_id": "other_user"}
-    )
+    app.dependency_overrides[session.require_vault_owner_token] = lambda: {"user_id": "other_user"}
 
     client = TestClient(app)
 
@@ -199,9 +195,7 @@ def test_consent_history_rejects_token_user_mismatch():
 def test_active_consents_uses_vault_owner_dependency(monkeypatch):
     app = _build_app()
 
-    app.dependency_overrides[session.require_vault_owner_token] = (
-        lambda: {"user_id": "user_123"}
-    )
+    app.dependency_overrides[session.require_vault_owner_token] = lambda: {"user_id": "user_123"}
 
     monkeypatch.setattr(
         session,
@@ -228,9 +222,7 @@ def test_active_consents_uses_vault_owner_dependency(monkeypatch):
 def test_active_consents_rejects_token_user_mismatch():
     app = _build_app()
 
-    app.dependency_overrides[session.require_vault_owner_token] = (
-        lambda: {"user_id": "other_user"}
-    )
+    app.dependency_overrides[session.require_vault_owner_token] = lambda: {"user_id": "other_user"}
 
     client = TestClient(app)
 

@@ -46,14 +46,28 @@ export interface ButtonProps
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, isLoading = false, children, disabled, ...props }, ref) => {
+  (
+    {
+      className,
+      variant,
+      size,
+      asChild = false,
+      isLoading = false,
+      children,
+      disabled,
+      ...props
+    },
+    ref,
+  ) => {
     const Comp = asChild ? Slot : "button"
-    
+
     // When using asChild, we must ensure only one child is passed to Slot.
     // If loading, we handle the content inside a single span.
     const content = (
       <>
-        {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
+        {isLoading && (
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+        )}
         {isLoading ? <span className="opacity-0">{children}</span> : children}
       </>
     )
@@ -67,9 +81,8 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       >
         {asChild ? React.Children.only(children) : content}
       </Comp>
-    
     )
-  }
+  },
 )
 
 Button.displayName = "Button"

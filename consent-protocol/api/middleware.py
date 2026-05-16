@@ -72,7 +72,9 @@ def _token_data_dict(token: str, token_obj) -> dict:
 
 
 def _scope_cache_key(token: str, required_scope: str | ConsentScope) -> tuple[str, str]:
-    scope = required_scope.value if isinstance(required_scope, ConsentScope) else str(required_scope)
+    scope = (
+        required_scope.value if isinstance(required_scope, ConsentScope) else str(required_scope)
+    )
     return token, scope
 
 

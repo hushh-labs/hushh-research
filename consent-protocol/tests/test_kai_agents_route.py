@@ -24,7 +24,9 @@ _VALID_CHAT_PAYLOAD = {
     "sessionState": None,
 }
 
-_LEAKED_ERROR_TEXT = "projects/my-gcp-project/locations/us-central1/publishers/google/models/gemini-2.0-flash"  # noqa: S105
+_LEAKED_ERROR_TEXT = (
+    "projects/my-gcp-project/locations/us-central1/publishers/google/models/gemini-2.0-flash"  # noqa: S105
+)
 
 
 # ---------------------------------------------------------------------------

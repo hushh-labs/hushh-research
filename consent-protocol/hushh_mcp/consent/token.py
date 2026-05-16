@@ -249,6 +249,9 @@ def validate_token(
         if not hmac.compare_digest(signature, expected_sig):
             return False, "Invalid signature", None
 
+        if int(time.time() * 1000) >= int(expires_at_str):
+            return False, "Token expired", None
+
         # SCOPE VALIDATION with domain isolation
         if expected_scope:
             # Convert enum to string if needed
@@ -268,9 +271,6 @@ def validate_token(
                     f"Scope mismatch: token has '{granted_scope_str}', but '{expected_scope_str}' required",
                     None,
                 )
-
-        if int(time.time() * 1000) >= int(expires_at_str):
-            return False, "Token expired", None
 
         # Commercial-flag gate (issue #30).
         if require_commercial is True and not commercial:
