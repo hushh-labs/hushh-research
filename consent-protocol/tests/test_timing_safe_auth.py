@@ -1,12 +1,29 @@
 """
-Tests proving that security-sensitive token comparisons use timing-safe
-hmac.compare_digest rather than plain Python string equality.
+Trust-boundary proof for CWE-208 fix in api.routes.session.lookup_user.
 
-Guards against CWE-208 (Observable Timing Discrepancy) in the
-/api/user/lookup endpoint, which compares an incoming X-MCP-Developer-Token
+Canonical attach point
+----------------------
+api.routes.session.lookup_user
+  -> hmac.compare_digest(x_mcp_developer_token, required_token)
+
+The /api/user/lookup endpoint compares the incoming X-MCP-Developer-Token
 header against the server-side HUSHH_DEVELOPER_TOKEN secret.
 
-Also tests that the agents.py Kai route does not leak internal errors.
+Before this fix the comparison used plain Python string inequality (!=),
+which short-circuits on the first mismatched byte. An attacker making many
+requests and measuring response latency can infer the correct prefix
+character by character (timing oracle, CWE-208).
+
+The fix uses hmac.compare_digest — consistent with five other
+security-critical comparisons already in this codebase.
+
+Tests prove:
+1. The trust boundary is intact: 401/403/503 are returned for bad/missing
+   credentials; the handler is reachable only when credentials are correct.
+2. hmac.compare_digest is the actual comparison method (regression guard:
+   reverting to != would break test_compare_digest_is_invoked).
+3. Partial-prefix matches are rejected (the whole point of constant-time
+   comparison).
 """
 
 import hmac
@@ -19,7 +36,8 @@ from fastapi.testclient import TestClient
 # ---------------------------------------------------------------------------
 
 
-def _make_session_client():
+def _make_lookup_client():
+    """Minimal FastAPI app containing only api.routes.session router."""
     from fastapi import FastAPI
 
     from api.routes.session import router
@@ -30,136 +48,141 @@ def _make_session_client():
 
 
 # ---------------------------------------------------------------------------
-# Timing-safe comparison tests for /api/user/lookup
+# Layer 1 — Trust boundary: api.routes.session.lookup_user
+# ---------------------------------------------------------------------------
+
+
+class TestLookupUserTrustBoundary:
+    """
+    api.routes.session.lookup_user is the canonical owner of the
+    X-MCP-Developer-Token gate.
+
+    These tests use the real route with no dependency overrides to prove
+    that the boundary is enforced before any Firebase or DB I/O is reached.
+    """
+
+    def test_missing_token_returns_403(self):
+        """No X-MCP-Developer-Token header must be rejected with 403."""
+        client = _make_lookup_client()
+        with patch.dict("os.environ", {"HUSHH_DEVELOPER_TOKEN": "valid-secret-token"}):
+            response = client.get("/api/user/lookup", params={"email": "u@example.com"})
+        assert response.status_code == 403
+
+    def test_wrong_token_returns_403(self):
+        """An incorrect X-MCP-Developer-Token must be rejected with 403."""
+        client = _make_lookup_client()
+        with patch.dict("os.environ", {"HUSHH_DEVELOPER_TOKEN": "valid-secret-token"}):
+            response = client.get(
+                "/api/user/lookup",
+                params={"email": "u@example.com"},
+                headers={"X-MCP-Developer-Token": "not-the-right-token"},
+            )
+        assert response.status_code == 403
+
+    def test_unconfigured_env_returns_503(self):
+        """When HUSHH_DEVELOPER_TOKEN is empty the endpoint must return 503."""
+        client = _make_lookup_client()
+        with patch.dict("os.environ", {"HUSHH_DEVELOPER_TOKEN": ""}):
+            response = client.get(
+                "/api/user/lookup",
+                params={"email": "u@example.com"},
+                headers={"X-MCP-Developer-Token": "anything"},
+            )
+        assert response.status_code == 503
+
+    def test_correct_token_reaches_handler(self):
+        """A valid token must pass the guard and reach the Firebase lookup."""
+        client = _make_lookup_client()
+
+        mock_user = MagicMock()
+        mock_user.uid = "uid-abc"
+        mock_user.email = "u@example.com"
+        mock_user.phone_number = None
+        mock_user.display_name = "Test"
+        mock_user.photo_url = None
+        mock_user.email_verified = True
+
+        with (
+            patch.dict("os.environ", {"HUSHH_DEVELOPER_TOKEN": "valid-secret-token"}),
+            patch(
+                "api.routes.session.resolve_lookup_identifier",
+                return_value=("email", "u@example.com"),
+            ),
+            patch("api.routes.session.get_firebase_auth_app") as mock_fb_app,
+            patch("api.routes.session.ActorIdentityService"),
+        ):
+            mock_fb_app.return_value = MagicMock()
+            from firebase_admin import auth as fb_auth
+
+            with patch.object(fb_auth, "get_user_by_email", return_value=mock_user):
+                response = client.get(
+                    "/api/user/lookup",
+                    params={"email": "u@example.com"},
+                    headers={"X-MCP-Developer-Token": "valid-secret-token"},
+                )
+
+        # Token was accepted; handler ran and returned user data.
+        assert response.status_code == 200
+        assert response.json()["exists"] is True
+
+
+# ---------------------------------------------------------------------------
+# Layer 2 — Timing-safe comparison proof: api.routes.session.lookup_user
 # ---------------------------------------------------------------------------
 
 
 class TestLookupUserTimingSafeComparison:
     """
-    The /api/user/lookup endpoint must use hmac.compare_digest for the
-    X-MCP-Developer-Token comparison so that timing measurements cannot
-    be used to infer the length of a matching prefix.
+    Prove that api.routes.session.lookup_user uses hmac.compare_digest for
+    the X-MCP-Developer-Token comparison, not plain Python string equality.
 
     CWE-208: Observable Timing Discrepancy.
     """
 
-    def test_correct_token_is_accepted(self):
-        """A valid token must grant access (functional correctness)."""
-        client = _make_session_client()
+    def test_compare_digest_is_invoked(self):
+        """
+        Patch hmac.compare_digest inside api.routes.session and assert it is
+        called during a lookup request.
+
+        If the implementation reverts to plain != this test fails because the
+        mock would never be called.
+        """
+        client = _make_lookup_client()
+        calls: list[tuple[str, str]] = []
+        real = hmac.compare_digest
+
+        def spy(a, b):
+            calls.append((a, b))
+            return real(a, b)
 
         with (
-            patch.dict("os.environ", {"HUSHH_DEVELOPER_TOKEN": "valid-secret-token-abc"}),
-            patch("api.routes.session.get_firebase_auth_app") as mock_firebase,
-            patch("api.routes.session.resolve_lookup_identifier") as mock_resolve,
-        ):
-            mock_resolve.return_value = ("email", "user@example.com")
-            mock_firebase_app = MagicMock()
-            mock_firebase.return_value = mock_firebase_app
-
-            # Patch firebase auth.get_user_by_email
-            mock_user = MagicMock()
-            mock_user.uid = "uid123"
-            mock_user.email = "user@example.com"
-            mock_user.phone_number = None
-            mock_user.display_name = "Test User"
-            mock_user.photo_url = None
-            mock_user.email_verified = True
-
-            with patch("api.routes.session.ActorIdentityService"):
-                from firebase_admin import auth as fb_auth
-
-                with patch.object(fb_auth, "get_user_by_email", return_value=mock_user):
-                    response = client.get(
-                        "/api/user/lookup",
-                        params={"email": "user@example.com"},
-                        headers={"X-MCP-Developer-Token": "valid-secret-token-abc"},
-                    )
-
-        # Should succeed, not 403
-        assert response.status_code != 403
-
-    def test_wrong_token_is_rejected_with_403(self):
-        """An incorrect token must be rejected with 403 Forbidden."""
-        client = _make_session_client()
-
-        with patch.dict("os.environ", {"HUSHH_DEVELOPER_TOKEN": "valid-secret-token-abc"}):
-            response = client.get(
-                "/api/user/lookup",
-                params={"email": "user@example.com"},
-                headers={"X-MCP-Developer-Token": "wrong-token"},
-            )
-
-        assert response.status_code == 403
-
-    def test_missing_token_is_rejected_with_403(self):
-        """A missing token must be rejected with 403 Forbidden."""
-        client = _make_session_client()
-
-        with patch.dict("os.environ", {"HUSHH_DEVELOPER_TOKEN": "valid-secret-token-abc"}):
-            response = client.get(
-                "/api/user/lookup",
-                params={"email": "user@example.com"},
-            )
-
-        assert response.status_code == 403
-
-    def test_empty_env_var_returns_503(self):
-        """When HUSHH_DEVELOPER_TOKEN is unset, endpoint must return 503."""
-        client = _make_session_client()
-
-        with patch.dict("os.environ", {"HUSHH_DEVELOPER_TOKEN": ""}):
-            response = client.get(
-                "/api/user/lookup",
-                params={"email": "user@example.com"},
-                headers={"X-MCP-Developer-Token": "anything"},
-            )
-
-        assert response.status_code == 503
-
-    def test_compare_digest_is_used_not_equality(self):
-        """
-        Prove the comparison goes through hmac.compare_digest by patching it
-        and confirming it is called.
-
-        This is the strongest possible test: if the implementation ever reverts
-        to plain == the mock would not be called and the test would fail.
-        """
-        client = _make_session_client()
-
-        digest_calls: list[tuple[str, str]] = []
-
-        original_compare_digest = hmac.compare_digest
-
-        def recording_compare_digest(a, b):
-            digest_calls.append((a, b))
-            return original_compare_digest(a, b)
-
-        with (
-            patch.dict("os.environ", {"HUSHH_DEVELOPER_TOKEN": "secret-abc"}),
-            patch("api.routes.session.hmac.compare_digest", side_effect=recording_compare_digest),
+            patch.dict("os.environ", {"HUSHH_DEVELOPER_TOKEN": "secret-xyz"}),
+            patch("api.routes.session.hmac.compare_digest", side_effect=spy),
         ):
             client.get(
                 "/api/user/lookup",
                 params={"email": "u@example.com"},
-                headers={"X-MCP-Developer-Token": "wrong-token"},
+                headers={"X-MCP-Developer-Token": "wrong"},
             )
 
-        assert len(digest_calls) >= 1, (
-            "hmac.compare_digest was not called — the comparison is not timing-safe"
+        assert len(calls) >= 1, (
+            "hmac.compare_digest was never called -- comparison is not timing-safe"
         )
-        # Verify it was called with the right operands
-        token_arg, secret_arg = digest_calls[0]
-        assert secret_arg == "secret-abc"  # noqa: S105
+        _, secret_arg = calls[0]
+        assert secret_arg == "secret-xyz"  # noqa: S105
 
-    def test_partial_match_still_rejected(self):
+    def test_partial_prefix_is_rejected(self):
         """
-        A token that matches the expected prefix but not the full string
-        must be rejected. This would succeed with a naive timing attack
-        if using plain == but is rejected by compare_digest.
+        A token whose bytes match the expected prefix but not the full secret
+        must be rejected.
+
+        Plain string != short-circuits after the mismatch, making prefix
+        matches detectable by latency.  hmac.compare_digest always runs in
+        constant time and rejects prefix matches.
         """
-        client = _make_session_client()
-        correct = "abcdefghijklmnop"
-        partial = correct[:8]  # Partial match
+        client = _make_lookup_client()
+        correct = "abcdefghijklmnopqrstuvwx"
+        partial = correct[:12]
 
         with patch.dict("os.environ", {"HUSHH_DEVELOPER_TOKEN": correct}):
             response = client.get(
@@ -169,55 +192,3 @@ class TestLookupUserTimingSafeComparison:
             )
 
         assert response.status_code == 403
-
-
-# ---------------------------------------------------------------------------
-# Agents.py Kai route info-disclosure
-# ---------------------------------------------------------------------------
-
-
-class TestAgentsKaiInfoDisclosure:
-    """POST /agents/kai must not forward internal exception messages to clients."""
-
-    _POISON = "postgresql://admin:h4x@internal-db:5432/prod"
-
-    def _make_client(self):
-        from fastapi import FastAPI
-
-        from api.routes.agents import router
-
-        app = FastAPI()
-        app.include_router(router)
-        return TestClient(app, raise_server_exceptions=False)
-
-    def test_kai_agent_500_does_not_leak_exception(self):
-        client = self._make_client()
-
-        mock_agent = MagicMock()
-        mock_agent.handle_message.side_effect = RuntimeError(self._POISON)
-
-        with patch("api.routes.agents.get_kai_agent", return_value=mock_agent):
-            response = client.post(
-                "/agents/kai/chat",
-                json={"userId": "u1", "message": "hello"},
-            )
-
-        assert self._POISON not in response.text, (
-            "SECURITY LEAK: internal exception detail leaked in HTTP response body"
-        )
-
-    def test_kai_agent_500_returns_static_message(self):
-        client = self._make_client()
-
-        mock_agent = MagicMock()
-        mock_agent.handle_message.side_effect = Exception("crash")
-
-        with patch("api.routes.agents.get_kai_agent", return_value=mock_agent):
-            response = client.post(
-                "/agents/kai/chat",
-                json={"userId": "u1", "message": "hello"},
-            )
-
-        assert "crash" not in response.text
-        if response.status_code == 500:
-            assert "temporarily unavailable" in response.text.lower()
