@@ -139,6 +139,7 @@ import {
   buildPkmSectionPreviewPresentation,
   type PkmSectionPreviewPresentation,
 } from "@/lib/profile/pkm-section-preview";
+import { loadProfilePkmMetadataForVaultState } from "@/lib/profile/profile-pkm-metadata-policy";
 import { maskPhoneNumber } from "@/lib/services/phone-mandate-service";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
@@ -959,17 +960,23 @@ function ProfilePageContent() {
 
   const refreshPkmMetadata = useCallback(
     async (force = false) => {
-      if (!user?.uid) return;
-      const metadata = await PersonalKnowledgeModelService.getMetadata(
-        user.uid,
+      if (!user?.uid || hasVault === null) return;
+      const metadata = await loadProfilePkmMetadataForVaultState({
+        userId: user.uid,
+        hasVault,
         force,
-        vaultOwnerToken ?? undefined,
-      );
+        vaultOwnerToken,
+      });
       setPkmMetadata(metadata);
       setPkmError(null);
+      if (!hasVault) {
+        setDomainManifests({});
+        setDomainManifestErrors({});
+        setLoadingDomainManifests({});
+      }
       return metadata;
     },
-    [user?.uid, vaultOwnerToken],
+    [hasVault, user?.uid, vaultOwnerToken],
   );
 
   const refreshDomainManifest = useCallback(
@@ -1130,11 +1137,12 @@ function ProfilePageContent() {
 
         const idToken = await user.getIdToken();
         const [metadata, center] = await Promise.all([
-          PersonalKnowledgeModelService.getMetadata(
-            user.uid,
-            false,
-            vaultOwnerToken ?? undefined,
-          ),
+          loadProfilePkmMetadataForVaultState({
+            userId: user.uid,
+            hasVault,
+            force: false,
+            vaultOwnerToken,
+          }),
           ConsentCenterService.getCenter({
             idToken,
             userId: user.uid,
@@ -1148,6 +1156,11 @@ function ProfilePageContent() {
         setConsentCenter(center);
         setPkmError(null);
         setConsentCenterError(null);
+        if (!hasVault) {
+          setDomainManifests({});
+          setDomainManifestErrors({});
+          setLoadingDomainManifests({});
+        }
         completeStep();
       } catch (error) {
         console.error("Failed to load profile manager data:", error);
