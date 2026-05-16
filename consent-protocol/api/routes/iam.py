@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/iam", tags=["IAM"])
 
 
 class PersonaSwitchRequest(BaseModel):
-    persona: str = Field(..., description="Target persona: investor | ria")
+    persona: str = Field(..., description="Target persona: investor | ria", max_length=32)
 
 
 class MarketplaceOptInRequest(BaseModel):

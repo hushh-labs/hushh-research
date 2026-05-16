@@ -106,7 +106,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             WKUserScript(
                 source: nativeTestConfig.injectedScript,
                 injectionTime: .atDocumentStart,
-                forMainFrameOnly: false
+                forMainFrameOnly: true
             )
         )
 
@@ -158,7 +158,13 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         func normalizeRoute(_ value: String) -> String {
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty, trimmed != "/" else { return trimmed.isEmpty ? "/" : trimmed }
-            return trimmed.hasSuffix("/") ? String(trimmed.dropLast()) : trimmed
+            guard var components = URLComponents(string: "https://native-test.local\(trimmed)") else {
+                return trimmed.hasSuffix("/") ? String(trimmed.dropLast()) : trimmed
+            }
+            if components.path.count > 1 && components.path.hasSuffix("/") {
+                components.path = String(components.path.dropLast())
+            }
+            return "\(components.path)\(components.percentEncodedQuery.map { "?\($0)" } ?? "")"
         }
 
         let route = (payload["route"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

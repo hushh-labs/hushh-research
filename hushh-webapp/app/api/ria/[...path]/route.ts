@@ -41,7 +41,8 @@ function resolveProxyTimeoutMs(path: string, method: "GET" | "POST"): number {
     method === "POST" &&
     (
       path.startsWith("onboarding/submit") ||
-      path.startsWith("onboarding/verify-name")
+      path.startsWith("onboarding/verify-name") ||
+      path.startsWith("onboarding/verify-license")
     )
   ) {
     return ONBOARDING_PROXY_TIMEOUT_MS;

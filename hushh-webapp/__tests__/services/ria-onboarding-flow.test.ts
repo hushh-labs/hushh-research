@@ -10,16 +10,14 @@ import {
 } from "@/lib/ria/ria-onboarding-flow";
 
 describe("ria-onboarding-flow", () => {
-  it("builds dynamic firm steps from requested capabilities", () => {
-    const draft = normalizeRiaOnboardingDraft({
-      requestedCapabilities: ["advisory", "brokerage"],
-    });
-
+  it("builds 6-step license-first flow", () => {
+    const draft = createEmptyRiaOnboardingDraft();
     expect(buildRiaOnboardingSteps(draft).map((step) => step.id)).toEqual([
-      "capabilities",
-      "display_name",
-      "broker_firm",
-      "public_profile",
+      "welcome",
+      "license_number",
+      "license_details",
+      "services",
+      "contact_location",
       "review",
     ]);
   });
@@ -32,59 +30,62 @@ describe("ria-onboarding-flow", () => {
     expect(draft.requestedCapabilities).toEqual(["advisory"]);
   });
 
-  it("validates trust-critical steps only", () => {
+  it("validates license-first trust-critical steps", () => {
     const draft = {
       ...createEmptyRiaOnboardingDraft(),
-      displayName: "Manish Sainani",
-      individualLegalName: "Manish Sainani",
-      individualCrd: "12345",
-      advisoryFirmName: "Hushh Advisory",
-      advisoryFirmIapdNumber: "9012",
-      headline: "Global macro wealth planning",
+      onboardingType: "individual" as const,
+      licenseNumber: "123456",
+      licenseVerificationStatus: "found" as const,
+      advisorName: "Manish Sainani",
+      servicesOffered: ["Portfolio Management"],
+      feeStructure: ["Fee-only"],
+      contactEmail: "manish@example.com",
     };
 
-    expect(canContinueRiaOnboardingStep("capabilities", draft)).toBe(true);
+    expect(canContinueRiaOnboardingStep("welcome", draft)).toBe(true);
     expect(
-      canContinueRiaOnboardingStep("display_name", draft, {
-        nameVerificationSatisfied: true,
+      canContinueRiaOnboardingStep("license_number", draft, {
+        licenseVerificationSatisfied: true,
       })
     ).toBe(true);
-    expect(canContinueRiaOnboardingStep("legal_identity", draft)).toBe(true);
-    expect(canContinueRiaOnboardingStep("advisory_firm", draft)).toBe(true);
-    expect(canContinueRiaOnboardingStep("public_profile", draft)).toBe(true);
+    expect(canContinueRiaOnboardingStep("license_details", draft)).toBe(true);
+    expect(canContinueRiaOnboardingStep("services", draft)).toBe(true);
+    expect(canContinueRiaOnboardingStep("contact_location", draft)).toBe(true);
+    expect(canContinueRiaOnboardingStep("review", draft)).toBe(true);
   });
 
   it("finds the first incomplete step for seeded onboarding", () => {
     const draft = normalizeRiaOnboardingDraft({
-      displayName: "Manish Sainani",
-      individualLegalName: "Manish Sainani",
-      individualCrd: "12345",
+      onboardingType: "individual",
+      licenseNumber: "123456",
+      licenseVerificationStatus: "found",
+      advisorName: "Manish Sainani",
     });
 
     expect(
       findFirstIncompleteRiaOnboardingStepId(draft, {
-        nameVerificationSatisfied: true,
+        licenseVerificationSatisfied: true,
       })
-    ).toBe("public_profile");
+    ).toBe("services");
   });
 
-  it("clamps removed steps when capabilities change", () => {
+  it("falls back to first step when preferred step is invalid", () => {
     const draft = normalizeRiaOnboardingDraft({
       requestedCapabilities: ["advisory"],
     });
 
-    expect(resolveRiaOnboardingStepId(draft, "broker_firm")).toBe("capabilities");
+    expect(resolveRiaOnboardingStepId(draft, "broker_firm" as any)).toBe("welcome");
   });
 
-  it("blocks the default display-name step until explicit verification succeeds", () => {
+  it("blocks license step until explicit verification succeeds", () => {
     const draft = normalizeRiaOnboardingDraft({
-      displayName: "Ana Roumenova Carter",
+      licenseNumber: "123456",
     });
 
-    expect(canContinueRiaOnboardingStep("display_name", draft)).toBe(false);
+    expect(canContinueRiaOnboardingStep("license_number", draft)).toBe(false);
     expect(
-      canContinueRiaOnboardingStep("display_name", draft, {
-        nameVerificationSatisfied: true,
+      canContinueRiaOnboardingStep("license_number", draft, {
+        licenseVerificationSatisfied: true,
       })
     ).toBe(true);
   });
