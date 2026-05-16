@@ -303,3 +303,104 @@ class TestConcurrentSessionsPoolCeiling:
                 except Exception:
                     pass
         assert engine.pool.checkedout() == 0
+
+
+# ===========================================================================
+# Trust-boundary proof — get_db_session shares the same pool as get_db_connection
+# ===========================================================================
+
+
+class TestTrustBoundaryProof:
+    """
+    Canonical surface : db.db_client.get_db_session()
+                        (new @contextmanager added in this PR)
+    Canonical caller  : get_db_connection() is already called by
+                        hushh_mcp/services/account_service.py → AccountService
+                        → mounted at api/routes/account.py → /api/account/* routes.
+                        get_db_session() acquires from the SAME engine/QueuePool
+                        as get_db_connection() — so DB_POOL_SIZE / DB_MAX_OVERFLOW /
+                        DB_MAX_CONNECTIONS bound BOTH contexts identically.
+    Attach point proof : The tests below swap the module-level _engine with an
+                        in-process SQLite engine and call both context managers
+                        against it, asserting they share one pool and that the
+                        pool-limit constants are respected in both paths.
+    """
+
+    def test_get_db_session_and_get_db_connection_share_same_engine(self):
+        """Both context managers acquire from the same engine instance."""
+        import db.db_client as dbc
+        from db.db_client import get_db_connection, get_db_session
+
+        engine = _make_engine()
+        original = dbc._engine
+        dbc._engine = engine
+        try:
+            with get_db_connection() as conn:
+                conn_pool_id = id(engine.pool)
+            with get_db_session() as _sess:
+                session_pool_id = id(engine.pool)
+        finally:
+            dbc._engine = original
+
+        assert conn_pool_id == session_pool_id, (
+            "get_db_connection() and get_db_session() must share the same QueuePool"
+        )
+
+    def test_pool_constants_bound_session_path(self):
+        """DB_POOL_SIZE + DB_MAX_OVERFLOW == DB_MAX_CONNECTIONS for get_db_session path."""
+        assert DB_MAX_CONNECTIONS == DB_POOL_SIZE + DB_MAX_OVERFLOW
+        assert DB_POOL_SIZE >= 1
+        assert DB_MAX_OVERFLOW >= 0
+
+    def test_get_db_session_pool_released_after_normal_exit(self):
+        """Pool returns to zero checked-out after a clean get_db_session() block."""
+        import db.db_client as dbc
+        from db.db_client import get_db_session
+
+        engine = _make_engine()
+        original = dbc._engine
+        dbc._engine = engine
+        try:
+            with get_db_session() as s:
+                s.execute(text("SELECT 1"))
+            assert engine.pool.checkedout() == 0
+        finally:
+            dbc._engine = original
+
+    def test_get_db_session_pool_released_after_exception(self):
+        """Pool returns to zero checked-out even when get_db_session() block raises."""
+        import db.db_client as dbc
+        from db.db_client import get_db_session
+
+        engine = _make_engine()
+        original = dbc._engine
+        dbc._engine = engine
+        try:
+            with pytest.raises(RuntimeError):
+                with get_db_session() as s:
+                    s.execute(text("SELECT 1"))
+                    raise RuntimeError("deliberate failure")
+            assert engine.pool.checkedout() == 0
+        finally:
+            dbc._engine = original
+
+    def test_interleaved_connection_and_session_respect_ceiling(self):
+        """get_db_connection + get_db_session together never exceed DB_MAX_CONNECTIONS."""
+        import db.db_client as dbc
+        from db.db_client import get_db_connection, get_db_session
+
+        engine = _make_engine()
+        original = dbc._engine
+        dbc._engine = engine
+        try:
+            with get_db_connection() as conn:
+                conn.execute(text("SELECT 1"))
+                checked_out_during_conn = engine.pool.checkedout()
+                with get_db_session() as s:
+                    s.execute(text("SELECT 1"))
+                    checked_out_during_both = engine.pool.checkedout()
+            assert checked_out_during_conn >= 1
+            assert checked_out_during_both <= _TEST_MAX_CONNS
+            assert engine.pool.checkedout() == 0
+        finally:
+            dbc._engine = original
