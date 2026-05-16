@@ -240,3 +240,62 @@ class TestExceptionPropagation:
 
         # After exception, _in_flight must be clean for subsequent requests.
         assert "AAPL" not in orchestrator._in_flight
+
+
+# ===========================================================================
+# Trust-boundary proof — analyze() is the canonical entry point
+# ===========================================================================
+
+
+class TestTrustBoundaryProof:
+    """
+    Canonical surface : hushh_mcp.agents.kai.orchestrator.KaiOrchestrator.analyze()
+                        (concurrency coalescing via asyncio.Lock + _in_flight futures)
+    Canonical caller  : Any Kai analysis route or service that calls
+                        KaiOrchestrator.analyze(ticker, consent_token)
+                        — the lock is wired inside analyze(), so it fires on
+                        every public entry point automatically.
+    Attach point proof: The tests below prove that the lock primitives
+                        (_transition_lock, _in_flight, _transition_count) are
+                        present on the orchestrator, that analyze() coalesces
+                        concurrent calls correctly, and that the _in_flight dict
+                        is cleaned up after both success and failure — satisfying
+                        the invariant that no duplicate state transitions occur.
+    """
+
+    async def test_analyze_coalesces_concurrent_calls_to_one_execution(
+        self, orchestrator, monkeypatch
+    ):
+        """The canonical invariant: N concurrent analyze() calls → 1 _execute_analysis."""
+        execution_count = 0
+
+        async def _counting_execute(ticker, consent_token, context=None):
+            nonlocal execution_count
+            execution_count += 1
+            await asyncio.sleep(0)
+            return _stub_decision_card()
+
+        monkeypatch.setattr(orchestrator, "_execute_analysis", _counting_execute)
+        await asyncio.gather(
+            *[orchestrator.analyze("MSFT", _TOKEN) for _ in range(20)],
+            return_exceptions=True,
+        )
+        assert execution_count == 1
+        assert orchestrator._transition_count == 1
+
+    async def test_in_flight_is_empty_after_successful_call(self, orchestrator, monkeypatch):
+        """_in_flight is cleaned up after a successful analyze() — no memory leak."""
+        async def _ok(ticker, consent_token, context=None):
+            return _stub_decision_card()
+
+        monkeypatch.setattr(orchestrator, "_execute_analysis", _ok)
+        await orchestrator.analyze("GOOG", _TOKEN)
+        assert "GOOG" not in orchestrator._in_flight
+
+    async def test_lock_is_asyncio_lock(self, orchestrator):
+        """_transition_lock must be an asyncio.Lock — other primitives break coalescing."""
+        assert isinstance(orchestrator._transition_lock, asyncio.Lock)
+
+    async def test_in_flight_is_dict(self, orchestrator):
+        """_in_flight must be a dict for per-ticker coalescing."""
+        assert isinstance(orchestrator._in_flight, dict)
