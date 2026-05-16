@@ -608,4 +608,26 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.resolutionSource).toBe("none");
     expect(plan.execution.steps).toHaveLength(0);
   });
+    it("fails closed for unsupported persona routing intents", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "Switching persona.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "switch to unknown persona",
+      response,
+      structuredContext: makeContext("/"),
+      canonicalActionId: "persona.switch",
+    });
+
+    expect(plan.status).toBe("unavailable");
+    expect(plan.execution.mode).toBe("unavailable");
+    expect(plan.execution.steps).toHaveLength(1);
+
+    expect(plan.execution.steps[0]).toMatchObject({
+      type: "prompt",
+    });
+  });
 });
