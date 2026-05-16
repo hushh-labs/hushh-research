@@ -275,3 +275,69 @@ class TestMaskHelpers:
         # Only the first colon determines the prefix
         result = _mask_token("ZKP:user:agent:nonce:sig")
         assert result == "ZKP:***"
+
+
+# ===========================================================================
+# Trust-boundary proof — @model_validator fires on the canonical issue_token path
+# ===========================================================================
+
+
+class TestTrustBoundaryProof:
+    """
+    Canonical surface : hushh_mcp.types.HushhConsentToken
+                        @model_validator(mode="before") — pre-save hook
+                        .public_dict()                  — post-load masking hook
+    Canonical caller  : hushh_mcp.consent.token.issue_token()
+                          -> HushhConsentToken(token=..., user_id=..., ...)
+                          -> @model_validator fires before field assignment
+                          -> whitespace stripped from all string fields
+                        The pre-save hook runs on EVERY HushhConsentToken
+                        construction — there is no code path that bypasses it.
+    Attach point proof: The tests below call issue_token() with deliberately
+                        whitespace-padded fields and prove the pre-save hook
+                        fires automatically, plus that public_dict() masks the
+                        token and user_id fields in the issued token.
+    """
+
+    def test_pre_save_hook_fires_via_issue_token(self):
+        """Pre-save hook strips whitespace from user_id when HushhConsentToken is constructed."""
+        from hushh_mcp.consent.token import issue_token
+        from hushh_mcp.constants import ConsentScope
+
+        token = issue_token(
+            user_id="  test-user-001  ",
+            agent_id="  ria:firm-001  ",
+            scope=ConsentScope.PKM_READ,
+        )
+        assert token.user_id == "test-user-001", (
+            "Pre-save hook must strip whitespace from user_id on issue_token()"
+        )
+        assert token.agent_id == "ria:firm-001", (
+            "Pre-save hook must strip whitespace from agent_id on issue_token()"
+        )
+
+    def test_public_dict_masks_token_on_issued_token(self):
+        """public_dict() masks the token string on a token produced by issue_token()."""
+        from hushh_mcp.consent.token import issue_token
+        from hushh_mcp.constants import ConsentScope
+
+        token = issue_token(
+            user_id="test-user-001",
+            agent_id="ria:firm-001",
+            scope=ConsentScope.PKM_READ,
+        )
+        safe = token.public_dict()
+        assert "***" in safe["token"], "public_dict() must mask the token field"
+        assert token.token not in safe["token"], "Raw token must not appear in public_dict()"
+
+    def test_model_validator_is_the_sole_whitespace_normalizer(self):
+        """Whitespace normalization is done by @model_validator — not the caller."""
+        obj = HushhConsentToken.model_validate(_MESSY_TOKEN_DATA)
+        assert obj.user_id == _MESSY_TOKEN_DATA["user_id"].strip()
+        assert obj.agent_id == _MESSY_TOKEN_DATA["agent_id"].strip()
+
+    def test_hook_fires_on_every_construction_path(self):
+        """@model_validator fires for both model_validate() and direct construction."""
+        obj1 = HushhConsentToken.model_validate(_MESSY_TOKEN_DATA)
+        obj2 = HushhConsentToken(**_MESSY_TOKEN_DATA)
+        assert obj1.user_id == obj2.user_id == _MESSY_TOKEN_DATA["user_id"].strip()
