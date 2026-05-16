@@ -1,19 +1,34 @@
 """
 Tests for RIA request model input bounds.
 
-Covers:
-- RIAOnboardingSubmitRequest: display_name, bio, strategy, URL fields
-- RIAOnboardingVerifyNameRequest: query, crd_number
-- RIAConsentRequestCreate: Literal actor types, userId, reason
-- RIAConsentBundleCreate: list length limits
-- RIAPicksParseRequest: csv_content max size, list bounds
-- RIAPicksSyncRequest: list bounds
-- RIAInviteTarget: email, phone, user_id
-- RIAInviteCreateRequest: targets list max_length
-- RIAMarketplaceDiscoverabilityRequest: headline, strategy_summary
+Canonical attach points
+-----------------------
+api.routes.ria.submit_onboarding
+  -> payload: RIAOnboardingSubmitRequest (display_name max_length=256, bio max_length=5000, ...)
+  -> FastAPI returns HTTP 422 when any bound is exceeded
+
+api.routes.ria.verify_onboarding_name
+  -> payload: RIAOnboardingVerifyNameRequest (query max_length=256, crd_number max_length=50)
+  -> FastAPI returns HTTP 422 when any bound is exceeded
+
+api.routes.ria.create_ria_request
+  -> payload: RIAConsentRequestCreate (requester_actor_type: Literal["investor","ria"])
+  -> FastAPI returns HTTP 422 for invalid Literal or oversized fields
+
+The canonical callers are the live POST routes mounted at /api/ria/....
+The Pydantic models define the bounds; the route-level tests below confirm
+FastAPI enforces them at the HTTP layer (not just in model unit tests).
+
+Pydantic model unit tests:
+- RIAOnboardingSubmitRequest, RIAOnboardingVerifyNameRequest,
+  RIAConsentRequestCreate, RIAConsentBundleCreate, RIAPicksParseRequest,
+  RIAPicksSyncRequest, RIAInviteTarget, RIAInviteCreateRequest,
+  RIAMarketplaceDiscoverabilityRequest
 """
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from api.routes.ria import (
@@ -305,3 +320,167 @@ class TestRIAMarketplaceDiscoverabilityRequest:
     def test_strategy_summary_at_max_passes(self):
         r = RIAMarketplaceDiscoverabilityRequest(enabled=True, strategy_summary="s" * 5000)
         assert len(r.strategy_summary) == 5000
+
+
+# ===========================================================================
+# Canonical route-level caller proof
+# ===========================================================================
+# The classes below drive real TestClient requests to prove the bounds fire
+# at the HTTP layer (HTTP 422 from FastAPI/Pydantic), not just in isolation.
+# ===========================================================================
+
+import api.routes.ria as ria_module  # noqa: E402 (after Pydantic-only tests)
+from api.middleware import require_firebase_auth  # noqa: E402
+
+
+def _firebase_stub():
+    return "test-firebase-uid"
+
+
+def _ria_verified_stub():
+    return "test-firebase-uid"
+
+
+def _client_with_auth() -> TestClient:
+    """Minimal FastAPI app with the RIA router and auth dependencies stubbed out."""
+    app = FastAPI()
+    app.include_router(ria_module.router)
+    app.dependency_overrides[require_firebase_auth] = _firebase_stub
+    app.dependency_overrides[ria_module._require_ria_verified] = _ria_verified_stub
+    return TestClient(app, raise_server_exceptions=False)
+
+
+# ---------------------------------------------------------------------------
+# Canonical attach point: api.routes.ria.submit_onboarding
+# POST /api/ria/onboarding/submit  ->  RIAOnboardingSubmitRequest
+# ---------------------------------------------------------------------------
+
+
+class TestSubmitOnboardingRouteInputBounds:
+    """
+    api.routes.ria.submit_onboarding is the canonical owner of
+    RIAOnboardingSubmitRequest validation for POST /api/ria/onboarding/submit.
+
+    Proves FastAPI returns HTTP 422 (not 500) when the request body violates
+    the model bounds, confirming the validation fires at the framework layer.
+    """
+
+    _URL = "/api/ria/onboarding/submit"
+
+    def test_valid_minimal_passes(self):
+        """A minimal valid body must not be rejected by validation."""
+        resp = _client_with_auth().post(self._URL, json={"display_name": "Alice"})
+        assert resp.status_code != 422
+
+    def test_display_name_over_max_returns_422(self):
+        """display_name > 256 chars must be rejected at the HTTP layer with 422."""
+        resp = _client_with_auth().post(self._URL, json={"display_name": "x" * 257})
+        assert resp.status_code == 422
+
+    def test_bio_over_max_returns_422(self):
+        """bio > 5000 chars must be rejected with 422."""
+        resp = _client_with_auth().post(
+            self._URL, json={"display_name": "Alice", "bio": "b" * 5001}
+        )
+        assert resp.status_code == 422
+
+    def test_individual_crd_over_max_returns_422(self):
+        """individual_crd > 50 chars must be rejected with 422."""
+        resp = _client_with_auth().post(
+            self._URL, json={"display_name": "Alice", "individual_crd": "c" * 51}
+        )
+        assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Canonical attach point: api.routes.ria.verify_onboarding_name
+# POST /api/ria/onboarding/verify-name  ->  RIAOnboardingVerifyNameRequest
+# ---------------------------------------------------------------------------
+
+
+class TestVerifyOnboardingNameRouteInputBounds:
+    """
+    api.routes.ria.verify_onboarding_name is the canonical owner of
+    RIAOnboardingVerifyNameRequest validation for POST /api/ria/onboarding/verify-name.
+
+    Proves HTTP 422 fires at the framework layer before the service is called.
+    """
+
+    _URL = "/api/ria/onboarding/verify-name"
+
+    def test_valid_query_passes(self):
+        """A short, valid query must not be rejected by validation."""
+        resp = _client_with_auth().post(self._URL, json={"query": "Alice Smith"})
+        assert resp.status_code != 422
+
+    def test_query_over_max_returns_422(self):
+        """query > 256 chars must be rejected with 422."""
+        resp = _client_with_auth().post(self._URL, json={"query": "q" * 257})
+        assert resp.status_code == 422
+
+    def test_empty_query_returns_422(self):
+        """Empty query must be rejected with 422 (min_length=1)."""
+        resp = _client_with_auth().post(self._URL, json={"query": ""})
+        assert resp.status_code == 422
+
+    def test_crd_number_over_max_returns_422(self):
+        """crd_number > 50 chars must be rejected with 422."""
+        resp = _client_with_auth().post(
+            self._URL, json={"query": "Alice", "crd_number": "c" * 51}
+        )
+        assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Canonical attach point: api.routes.ria.create_ria_request
+# POST /api/ria/requests  ->  RIAConsentRequestCreate
+# ---------------------------------------------------------------------------
+
+
+class TestCreateRiaRequestRouteInputBounds:
+    """
+    api.routes.ria.create_ria_request is the canonical owner of
+    RIAConsentRequestCreate validation for POST /api/ria/requests.
+
+    Proves the Literal["investor","ria"] constraint and field length bounds
+    fire at the HTTP layer, returning 422 before any service I/O.
+    """
+
+    _URL = "/api/ria/requests"
+
+    def _valid_body(self, **overrides) -> dict:
+        base = {"subject_user_id": "uid_abc", "scope_template_id": "scope_001"}
+        return {**base, **overrides}
+
+    def test_valid_body_passes(self):
+        """A minimal valid body must not be rejected by validation."""
+        resp = _client_with_auth().post(self._URL, json=self._valid_body())
+        assert resp.status_code != 422
+
+    def test_invalid_requester_actor_type_returns_422(self):
+        """requester_actor_type outside Literal["investor","ria"] must return 422."""
+        resp = _client_with_auth().post(
+            self._URL, json=self._valid_body(requester_actor_type="broker")
+        )
+        assert resp.status_code == 422
+
+    def test_invalid_subject_actor_type_returns_422(self):
+        """subject_actor_type outside Literal["investor","ria"] must return 422."""
+        resp = _client_with_auth().post(
+            self._URL, json=self._valid_body(subject_actor_type="admin")
+        )
+        assert resp.status_code == 422
+
+    def test_subject_user_id_over_max_returns_422(self):
+        """subject_user_id > 128 chars must be rejected with 422."""
+        resp = _client_with_auth().post(
+            self._URL, json=self._valid_body(subject_user_id="u" * 129)
+        )
+        assert resp.status_code == 422
+
+    def test_reason_over_max_returns_422(self):
+        """reason > 1000 chars must be rejected with 422."""
+        resp = _client_with_auth().post(
+            self._URL, json=self._valid_body(reason="r" * 1001)
+        )
+        assert resp.status_code == 422
