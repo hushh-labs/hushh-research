@@ -185,6 +185,8 @@ GitHub already shows merge checks. Public comments should explain what landed, w
    affected PR links, public record links, what changed, what stayed held,
    why no merge/patch happened if applicable, refreshed report/dashboard status,
    and the recommended next async train.
+6. For async train passes, the handoff must separate `reviewed`, `acted`,
+   `terminal`, `blocked`, and `remaining` with direct PR links in every bucket.
 
 ## Contributor Impact Dashboard
 

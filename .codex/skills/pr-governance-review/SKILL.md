@@ -84,7 +84,7 @@ python3 -m py_compile .codex/skills/pr-governance-review/scripts/pr_review_check
 python3 .codex/skills/pr-governance-review/scripts/test_pr_review_checklist.py
 python3 .codex/skills/agent-orchestration-governance/scripts/agent_router_smoke.py
 python3 .codex/skills/pr-governance-review/scripts/build_runtime_schematics.py --text
-python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md
+python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --selection-order oldest --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md
 python3 .codex/skills/pr-governance-review/scripts/test_contributor_impact_report.py
 ./bin/hushh codex audit --text
 ./bin/hushh docs verify

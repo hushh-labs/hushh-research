@@ -790,6 +790,7 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
             "For batched, backlog, repass, or train review",
             "Exclude PRs with failing, missing, stale, or auxiliary-failing checks",
             "Run independent trains in parallel through broad evidence lanes",
+            "writer-lane exception does not make evidence lanes writable",
             "use the lane-to-comment map",
         ]
         for phrase in required_pr_playbook_phrases:
