@@ -68,13 +68,14 @@ function PhoneMandatePageContent() {
         return;
       }
 
-      await AccountIdentityService.syncCurrentUser(activeUser);
+      const identity = await AccountIdentityService.syncCurrentUser(activeUser);
       const idToken = await activeUser.getIdToken().catch(() => undefined);
       const nextPath = await PostAuthRouteService.resolveAfterLogin({
         userId: activeUser.uid,
         redirectPath,
         idToken,
         phoneNumber: activeUser.phoneNumber,
+        phoneVerified: AccountIdentityService.hasVerifiedPhone(identity),
         hostname: window.location.hostname,
       });
       router.replace(nextPath);

@@ -589,6 +589,35 @@ describe("resolveGroundedVoicePlan", () => {
     ]);
   });
 
+  it("prevents invalid canonical action ids from leaking transcript route fallbacks", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "Opening analysis.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "open analysis",
+      response,
+      structuredContext: makeContext("/kai"),
+      canonicalActionId: "route.invalid_dashboard",
+    });
+
+    expect(plan.status).toBe("unavailable");
+    expect(plan.actionId).toBe("route.invalid_dashboard");
+    expect(plan.resolutionSource).toBe("canonical");
+    expect(plan.execution).toEqual({
+      mode: "unavailable",
+      steps: [
+        {
+          type: "prompt",
+          message: "I can’t do that right now.",
+          reason: "canonical_action_not_found",
+        },
+      ],
+    });
+  });
+
   it("disables heuristic compatibility fallback when explicitly requested", () => {
     const response: VoiceResponse = {
       kind: "speak_only",
@@ -608,7 +637,30 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.resolutionSource).toBe("none");
     expect(plan.execution.steps).toHaveLength(0);
   });
-    it("fails closed for unsupported persona routing intents", () => {
+  it("preserves unavailable execution mode for blocked planner actions", () => {
+    const response: VoiceResponse = {
+      kind: "speak_only",
+      message: "That action is unavailable.",
+      speak: true,
+    };
+
+    const plan = resolveGroundedVoicePlan({
+      transcript: "delete my account",
+      response,
+      structuredContext: makeContext("/profile"),
+      canonicalActionId: "profile.delete_account",
+    });
+
+    expect(plan.status).toBe("manual_only");
+    expect(plan.execution.mode).toBe("manual_only");
+    expect(plan.execution.steps).toHaveLength(1);
+    expect(plan.execution.steps[0]).toMatchObject({
+      type: "prompt",
+      reason: "destructive_action_policy",
+    });
+  });
+
+  it("fails closed for unsupported persona routing intents", () => {
     const response: VoiceResponse = {
       kind: "speak_only",
       message: "Switching persona.",
@@ -625,9 +677,10 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.status).toBe("unavailable");
     expect(plan.execution.mode).toBe("unavailable");
     expect(plan.execution.steps).toHaveLength(1);
-
     expect(plan.execution.steps[0]).toMatchObject({
       type: "prompt",
+    });
+  });
     });
   });
 });
