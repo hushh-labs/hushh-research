@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes import pkm, pkm_routes_shared
+from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService
 
 
 def _build_app() -> FastAPI:
@@ -402,112 +404,6 @@ def test_validate_store_domain_route_accepts_payload_without_writing(monkeypatch
     assert "without saving it" in payload["message"]
 
 
-def test_validate_store_domain_rejects_memory_write_missing_scope_description(monkeypatch):
-    client = TestClient(_build_app())
-    response = client.post(
-        "/api/pkm/store-domain/validate",
-        json={
-            "user_id": "user_123",
-            "domain": "food",
-            "encrypted_blob": {
-                "ciphertext": "cipher",
-                "iv": "iv",
-                "tag": "tag",
-                "algorithm": "aes-256-gcm",
-            },
-            "summary": {"item_count": 1},
-            "structure_decision": {
-                "action": "create_domain",
-                "target_domain": "food",
-                "json_paths": ["preferences"],
-                "top_level_scope_paths": ["preferences"],
-                "externalizable_paths": ["preferences"],
-                "summary_projection": {},
-                "sensitivity_labels": {},
-                "confidence": 0.91,
-                "source_agent": "pkm_structure_agent",
-                "contract_version": 1,
-            },
-            "manifest": {
-                "domain": "food",
-                "manifest_version": 1,
-                "summary_projection": {},
-                "top_level_scope_paths": ["preferences"],
-                "externalizable_paths": ["preferences"],
-                "paths": [],
-                "scope_registry": [
-                    {
-                        "scope_handle": "s_food_preferences",
-                        "scope_label": "Preferences",
-                        "segment_ids": ["preferences"],
-                        "exposure_enabled": True,
-                        "summary_projection": {
-                            "top_level_scope_path": "preferences",
-                        },
-                    }
-                ],
-            },
-        },
-    )
-
-    assert response.status_code == 422
-    detail = response.json()["detail"]
-    assert detail["code"] == "PKM_SCOPE_METADATA_DESCRIPTION_REQUIRED"
-    assert detail["errors"][0]["loc"] == ["manifest", "scope_registry", 0, "description"]
-
-
-def test_validate_store_domain_accepts_memory_write_scope_description(monkeypatch):
-    client = TestClient(_build_app())
-    response = client.post(
-        "/api/pkm/store-domain/validate",
-        json={
-            "user_id": "user_123",
-            "domain": "food",
-            "encrypted_blob": {
-                "ciphertext": "cipher",
-                "iv": "iv",
-                "tag": "tag",
-                "algorithm": "aes-256-gcm",
-            },
-            "summary": {"item_count": 1},
-            "structure_decision": {
-                "action": "create_domain",
-                "target_domain": "food",
-                "json_paths": ["preferences"],
-                "top_level_scope_paths": ["preferences"],
-                "externalizable_paths": ["preferences"],
-                "summary_projection": {},
-                "sensitivity_labels": {},
-                "confidence": 0.91,
-                "source_agent": "pkm_structure_agent",
-                "contract_version": 1,
-            },
-            "manifest": {
-                "domain": "food",
-                "manifest_version": 1,
-                "summary_projection": {},
-                "top_level_scope_paths": ["preferences"],
-                "externalizable_paths": ["preferences"],
-                "paths": [],
-                "scope_registry": [
-                    {
-                        "scope_handle": "s_food_preferences",
-                        "scope_label": "Preferences",
-                        "description": "Food memory scoped to preferences.",
-                        "segment_ids": ["preferences"],
-                        "exposure_enabled": True,
-                        "summary_projection": {
-                            "top_level_scope_path": "preferences",
-                        },
-                    }
-                ],
-            },
-        },
-    )
-
-    assert response.status_code == 200
-
-
 def test_canonical_pkm_router_exposes_upgrade_status(monkeypatch):
     class _FakeUpgradeService:
         async def build_status(self, user_id: str):
@@ -565,3 +461,123 @@ def test_canonical_pkm_router_exposes_validate_store_domain(monkeypatch):
     payload = response.json()
     assert payload["success"] is True
     assert "without saving it" in payload["message"]
+
+
+def test_pkm_agent_lab_structure_route_returns_scope_descriptions(monkeypatch):
+    service = PKMAgentLabService()
+
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(
+            return_value=[
+                {
+                    "domain_key": "food",
+                    "display_name": "Food & Dining",
+                    "description": "Dietary preferences and restaurant history",
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=[
+                {
+                    "segments": [
+                        {
+                            "source_text": "Remember that I prefer Cantonese menus.",
+                            "confidence": 0.98,
+                            "reason": "Single durable food preference.",
+                        }
+                    ],
+                    "source_agent": "memory_segmentation_agent",
+                    "contract_version": 1,
+                },
+                {
+                    "routing_decision": "non_financial_or_ephemeral",
+                    "confidence": 0.95,
+                    "reason": "Food preference.",
+                    "source_agent": "financial_guard_agent",
+                    "contract_version": 1,
+                },
+                {
+                    "save_class": "durable",
+                    "intent_class": "preference",
+                    "mutation_intent": "create",
+                    "requires_confirmation": False,
+                    "confirmation_reason": "",
+                    "candidate_domain_choices": [{"domain_key": "food", "recommended": True}],
+                    "confidence": 0.93,
+                    "source_agent": "memory_intent_agent",
+                    "contract_version": 1,
+                },
+                {
+                    "merge_mode": "create_entity",
+                    "target_domain": "food",
+                    "target_entity_id": "mem_food_pref",
+                    "target_entity_path": "preferences.entities.mem_food_pref",
+                    "match_confidence": 0.9,
+                    "match_reason": "New durable food preference.",
+                    "source_agent": "memory_merge_agent",
+                    "contract_version": 1,
+                },
+                {
+                    "candidate_payload": {
+                        "preferences": {
+                            "entities": {
+                                "mem_food_pref": {
+                                    "entity_id": "mem_food_pref",
+                                    "kind": "preference",
+                                    "summary": "Prefers Cantonese menus.",
+                                    "status": "active",
+                                }
+                            }
+                        }
+                    },
+                    "structure_decision": {
+                        "action": "create_domain",
+                        "target_domain": "food",
+                        "json_paths": [
+                            "preferences",
+                            "preferences.entities",
+                            "preferences.entities.mem_food_pref",
+                        ],
+                        "top_level_scope_paths": ["preferences"],
+                        "externalizable_paths": ["preferences"],
+                        "summary_projection": {},
+                        "sensitivity_labels": {},
+                        "confidence": 0.91,
+                        "source_agent": "pkm_structure_agent",
+                        "contract_version": 1,
+                    },
+                    "write_mode": "can_save",
+                    "primary_json_path": "preferences",
+                    "target_entity_scope": "preferences",
+                    "validation_hints": [],
+                },
+            ]
+        ),
+    )
+
+    app = FastAPI()
+    app.include_router(pkm.router)
+    app.dependency_overrides[pkm.require_vault_owner_token] = lambda: {"user_id": "user_123"}
+    monkeypatch.setattr(pkm, "get_pkm_agent_lab_service", lambda: service)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/pkm/agent-lab/structure",
+        json={
+            "user_id": "user_123",
+            "message": "Remember that I prefer Cantonese menus.",
+            "current_domains": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    scope = payload["manifest_draft"]["scope_registry"][0]
+    assert scope["description"] == "Food memory scoped to preferences."
+    assert scope["summary_projection"]["description"] == scope["description"]

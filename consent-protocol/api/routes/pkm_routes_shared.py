@@ -344,7 +344,6 @@ class DomainManifestPayload(BaseModel):
     top_level_scope_paths: List[str] = Field(default_factory=list)
     externalizable_paths: List[str] = Field(default_factory=list)
     paths: List[PathDescriptorPayload] = Field(default_factory=list)
-    scope_registry: List[dict] = Field(default_factory=list)
     source_agent: Optional[str] = None
 
 
@@ -410,78 +409,6 @@ class StoreDomainResponse(BaseModel):
 EncryptedBlob.model_rebuild()
 
 
-def _scope_metadata_description(entry: dict) -> str:
-    for key in ("description", "scope_description"):
-        value = entry.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    summary_projection = entry.get("summary_projection")
-    if isinstance(summary_projection, dict):
-        for key in ("description", "scope_description"):
-            value = summary_projection.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-    return ""
-
-
-def _is_memory_origin_write(request: StoreDomainRequest) -> bool:
-    source_candidates = [
-        request.source_agent,
-        request.manifest.source_agent if request.manifest else None,
-        request.structure_decision.source_agent if request.structure_decision else None,
-    ]
-    return any(
-        "memory" in str(candidate or "").lower()
-        or str(candidate or "").lower().startswith("pkm_")
-        for candidate in source_candidates
-    )
-
-
-def _validate_scope_metadata_descriptions(request: StoreDomainRequest) -> None:
-    if not _is_memory_origin_write(request) or request.manifest is None:
-        return
-
-    scope_registry = request.manifest.scope_registry or []
-    if not scope_registry and request.manifest.top_level_scope_paths:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "code": "PKM_SCOPE_METADATA_DESCRIPTION_REQUIRED",
-                "message": "Memory writes must include scope metadata descriptions for exposed scopes.",
-                "errors": [
-                    {
-                        "loc": ["manifest", "scope_registry"],
-                        "msg": "Scope registry is required when a memory write exposes scope paths.",
-                    }
-                ],
-            },
-        )
-
-    errors = []
-    for index, entry in enumerate(scope_registry):
-        if not isinstance(entry, dict):
-            continue
-        if entry.get("exposure_enabled") is False:
-            continue
-        if not _scope_metadata_description(entry):
-            errors.append(
-                {
-                    "loc": ["manifest", "scope_registry", index, "description"],
-                    "msg": "Exposed memory scope metadata must include a non-empty description.",
-                }
-            )
-
-    if errors:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "code": "PKM_SCOPE_METADATA_DESCRIPTION_REQUIRED",
-                "message": "Memory writes must include scope metadata descriptions for exposed scopes.",
-                "errors": errors,
-            },
-        )
-
-
 @router.post("/store-domain/validate", response_model=StoreDomainResponse)
 async def validate_store_domain(
     payload: dict = Body(...),
@@ -518,8 +445,6 @@ async def validate_store_domain(
             detail="Token user_id does not match request user_id",
         )
 
-    _validate_scope_metadata_descriptions(request)
-
     canonical_domain = canonical_top_level_domain(request.domain)
     return StoreDomainResponse(
         success=True,
@@ -550,8 +475,6 @@ async def store_domain(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Token user_id does not match request user_id",
         )
-
-    _validate_scope_metadata_descriptions(request)
 
     pkm_service = get_pkm_service()
 

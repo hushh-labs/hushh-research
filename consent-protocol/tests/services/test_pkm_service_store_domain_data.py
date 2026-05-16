@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -176,6 +177,8 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
     scope_upsert = service._supabase.tables["pkm_scope_registry"].last_upsert_data
     assert scope_upsert["on_conflict"] == "user_id,domain,scope_handle"
     assert len(scope_upsert["data"]) == 2
+    scope_projection = json.loads(scope_upsert["data"][0]["summary_projection"])
+    assert scope_projection["description"].startswith("Financial memory scoped to ")
 
     update_summary = service.update_domain_summary
     update_summary.assert_awaited_once()
