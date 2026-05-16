@@ -16,6 +16,9 @@ Use this reference for GitHub write actions, post-merge closeouts, live report u
 10. In a repass or correction wave, edit the existing maintainer-authored
     review/comment instead of posting a new record, unless the existing record
     is not editable or a distinct review-state action is required.
+11. Repass/correction waves must normalize editable maintainer records to the
+    current lane template. Do not leave older free-form requested-changes
+    records in place when the wave is specifically correcting comment posture.
 
 ## Maintainer Patch Preference
 
@@ -26,6 +29,38 @@ smallest proof command, prefer `maintainer_patch_then_merge` or
 `maintainer_harvest` over asking the contributor to redo the branch.
 
 ## Required Headings
+
+Every PR merged through this governance workflow must get one post-merge closeout after `Main Post-Merge Smoke` is green.
+Every GitHub write must use the lane-specific heading contract below.
+Edit the existing current-lane record when possible.
+Final handoffs for state-changing PR work must include direct links to every affected PR and maintainer-authored record.
+
+prefer `patch_then_merge` over contributor round trips when the maintainer can
+name a safe accepted value, canonical attach point, write set, dropped/deferred
+pieces, and proof.
+
+Do not include a separate successful-merge evidence section such as `### Proof`
+or `### Verification`; GitHub owns check evidence.
+
+## Lane To Comment Map
+
+Use this table before every GitHub write. It is the canonical mapping from the
+internal lane/action to public comment timing and heading.
+
+| Lane or action | Comment plan | Timing | Default write behavior | Required heading |
+| --- | --- | --- | --- | --- |
+| `merge_now` | `none_before_merge_then_post_merge_closeout` | after Main Post-Merge Smoke passes | post one closeout; do not post approval noise | `## Merged: <contract or outcome>` |
+| `patch_then_merge` | `none_before_merge_then_post_merge_closeout` | after patched head merges and smoke passes | post one closeout with `### Maintainer Patch` | `## Merged: <contract or outcome>` |
+| `maintainer_harvest` | `new_changes_requested_comment` or source closeout | before source PR is closed or left blocked | edit existing maintainer record first; explain what was harvested | `## Changes Requested: <blocker>` or `## Closed: <reason>` |
+| `harvest_then_close` | `new_closed_superseded_comment` | before close | edit existing maintainer record first; name accepted value and landing link | `## Closed: <reason>` |
+| `close_duplicate` | `new_closed_superseded_comment` | before close | edit existing maintainer record first; link the surviving PR/path | `## Closed: <reason>` |
+| `block` | `new_changes_requested_comment` | before merge; no approval | edit existing maintainer record first; contributor path required | `## Changes Requested: <blocker>` |
+| `comment_only` | lane-specific comment | when a public record is needed but no state changes | edit existing maintainer record first | one of the three required headings |
+| `review_only` | `no_comment_review_only` | no GitHub write | no public comment | none |
+
+`### Proof Needed` is allowed only inside `## Changes Requested`. Merge
+closeouts must not add `### Proof` or `### Verification`; GitHub already owns
+check evidence.
 
 ### Post-Merge Without Maintainer Patch
 
@@ -90,6 +125,17 @@ For `### Maintainer Patch`, do not write only that maintainers "normalized" or "
 
 Use this shape when the right answer is contributor clarity, a split/rebase, proof the maintainer cannot supply, or direction correction. If the PR is aligned and maintainers can safely apply the bounded fix, prefer the maintainer-patch path instead.
 
+Every `## Changes Requested` record must include exactly these public sections
+in this order:
+
+1. `### Direction`
+2. `### Blocker`
+3. `### Path To Merge`
+4. `### Proof Needed`
+
+For correction waves, existing maintainer records missing these sections must
+be edited into this shape before the wave is considered complete.
+
 ### Closed / Superseded
 
 ```markdown
@@ -135,6 +181,12 @@ GitHub already shows merge checks. Public comments should explain what landed, w
    linked list with a count such as `49 reviews posted`.
 4. For large waves, group links by action and keep each row compact; do not
    omit links for brevity.
+5. After every state-changing wave, the chat handoff must include:
+   affected PR links, public record links, what changed, what stayed held,
+   why no merge/patch happened if applicable, refreshed report/dashboard status,
+   and the recommended next async train.
+6. For async train passes, the handoff must separate `reviewed`, `acted`,
+   `terminal`, `blocked`, and `remaining` with direct PR links in every bucket.
 
 ## Contributor Impact Dashboard
 
