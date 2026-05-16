@@ -60,4 +60,11 @@ describe("parseSSEBlocks", () => {
     const result = parseSSEBlocks(": ping\n\n\n");
     expect(result.events).toHaveLength(0);
   });
+    it("ignores retry-only sse directive blocks", () => {
+    const result = parseSSEBlocks("retry: 1000\n\n");
+
+    expect(result.remainder).toBe("");
+    expect(result.events).toHaveLength(0);
+  });
 });
+
