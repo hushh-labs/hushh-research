@@ -395,6 +395,7 @@ export default function RiaOnboardingPage() {
 
     try {
       const idToken = await user.getIdToken();
+      const shouldForceLiveVerification = !licenseVerificationSatisfied;
       const result = await RiaService.submitOnboarding(idToken, {
         display_name: draft.advisorName.trim() || draft.displayName.trim(),
         requested_capabilities: draft.requestedCapabilities,
@@ -404,7 +405,7 @@ export default function RiaOnboardingPage() {
         advisory_firm_iapd_number: draft.advisoryFirmIapdNumber.trim() || undefined,
         bio: draft.bio.trim() || undefined,
         strategy: draft.strategySummary.trim() || undefined,
-        force_live_verification: true,
+        force_live_verification: shouldForceLiveVerification,
         license_number: draft.licenseNumber.trim() || undefined,
         regulator: draft.regulator.trim() || undefined,
         onboarding_type: draft.onboardingType,

@@ -501,6 +501,56 @@ describe("RiaOnboardingPage", () => {
     });
   });
 
+  it("does not force a second live verification after license verification", async () => {
+    mocks.draftService.load.mockResolvedValue({
+      currentStepId: "review",
+      onboardingType: "individual",
+      licenseNumber: "7265726",
+      licenseVerificationStatus: "found",
+      advisorName: "Ria Ashley Sen",
+      firmName: "Not Currently Registered",
+      regulator: "SEC",
+      regulatorStatus: "ACTIVE",
+      crdNumber: "7265726",
+      individualCrd: "7265726",
+      servicesOffered: ["Portfolio Management"],
+      feeStructure: ["Fee-only"],
+      contactEmail: "ria-e2e@example.invalid",
+    });
+    mocks.riaService.submitOnboarding.mockResolvedValue({
+      requested_capabilities: ["advisory"],
+      verification_status: "verified",
+      advisory_status: "active",
+      individual_legal_name: "Ria Ashley Sen",
+      individual_crd: "7265726",
+      advisory_firm_legal_name: "Not Currently Registered",
+    });
+    mocks.riaService.setRiaMarketplaceDiscoverability.mockResolvedValue({
+      enabled: true,
+    });
+
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-review")).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("continue-btn"));
+    });
+
+    await waitFor(() => {
+      expect(mocks.riaService.submitOnboarding).toHaveBeenCalledWith(
+        "token-ria-1",
+        expect.objectContaining({
+          license_number: "7265726",
+          individual_crd: "7265726",
+          force_live_verification: false,
+        })
+      );
+    });
+  });
+
   it("redirects to RIA home if already verified when submit clicked", async () => {
     mocks.riaService.getOnboardingStatus.mockResolvedValue({
       exists: true,

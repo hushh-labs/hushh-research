@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes import developer
+from api.routes.developer import _STATIC_REQUESTABLE_SCOPES, _is_supported_scope
 
 _CONNECTOR_PUBLIC_KEY = "U29tZUNvbm5lY3RvclB1YmxpY0tleURhdGE="
 _CONNECTOR_KEY_ID = "connector_demo"
@@ -77,6 +78,34 @@ def test_user_scopes_requires_developer_key(monkeypatch):
     assert response.status_code == 401
     detail = response.json()["detail"]
     assert detail["error_code"] == "DEVELOPER_TOKEN_REQUIRED"
+
+
+def test_user_scopes_rejects_oversized_query_token_before_auth(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    client = TestClient(_build_app())
+    response = client.get("/api/v1/user-scopes/user_123", params={"token": "x" * 2049})
+
+    assert response.status_code == 422
+
+
+def test_consent_status_rejects_oversized_query_params_before_auth(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/consent-status",
+        params={
+            "user_id": "u" * 129,
+            "scope": "s" * 501,
+            "request_id": "r" * 201,
+            "token": "x" * 2049,
+        },
+    )
+
+    assert response.status_code == 422
 
 
 class _EmptyScopeGenerator:
@@ -1256,3 +1285,44 @@ def test_rotate_access_token_returns_new_raw_token(monkeypatch):
     payload = response.json()
     assert payload["raw_token"] == "hdk_rotated_secret"  # noqa: S105
     assert payload["active_token"]["token_prefix"] == "hdk_rotated"  # noqa: S105
+
+
+# ===========================================================================
+# _STATIC_REQUESTABLE_SCOPES and _is_supported_scope unit tests
+# ===========================================================================
+
+
+def test_static_requestable_scopes_has_no_duplicates():
+    scopes_list = list(_STATIC_REQUESTABLE_SCOPES)
+    assert len(scopes_list) == len(set(scopes_list)), (
+        "Duplicate entries in _STATIC_REQUESTABLE_SCOPES"
+    )
+
+
+def test_static_requestable_scopes_is_frozenset():
+    assert isinstance(_STATIC_REQUESTABLE_SCOPES, frozenset)
+
+
+def test_is_supported_scope_accepts_pkm_read():
+    assert _is_supported_scope("pkm.read") is True
+
+
+def test_is_supported_scope_accepts_pkm_write():
+    assert _is_supported_scope("pkm.write") is True
+
+
+def test_is_supported_scope_accepts_dynamic_attr_scope():
+    assert _is_supported_scope("attr.financial.holdings") is True
+    assert _is_supported_scope("attr.food.*") is True
+
+
+def test_is_supported_scope_rejects_unknown_static_scope():
+    assert _is_supported_scope("vault.owner") is False
+
+
+def test_is_supported_scope_rejects_empty_string():
+    assert _is_supported_scope("") is False
+
+
+def test_is_supported_scope_rejects_arbitrary_string():
+    assert _is_supported_scope("admin.all") is False
