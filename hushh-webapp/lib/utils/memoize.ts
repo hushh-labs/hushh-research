@@ -29,7 +29,7 @@ export function memoize<TArgs extends unknown[], TResult>(
     if (cache.size > maxSize) {
       const firstKey = cache.keys().next().value;
 
-      if (firstKey) {
+      if (firstKey !== undefined) {
         cache.delete(firstKey);
       }
     }
