@@ -157,13 +157,19 @@ vi.mock("@/components/ria/onboarding/onboarding-step-license-details", () => ({
   OnboardingStepLicenseDetails: ({
     advisorName,
     firmName,
+    city,
+    pinZip,
   }: {
     advisorName: string;
     firmName: string;
+    city: string;
+    pinZip: string;
   }) => (
     <div data-testid="step-license-details">
       <span data-testid="advisor-name">{advisorName}</span>
       <span data-testid="firm-name">{firmName}</span>
+      <span data-testid="city">{city}</span>
+      <span data-testid="pin-zip">{pinZip}</span>
     </div>
   ),
 }));
@@ -319,6 +325,8 @@ describe("RiaOnboardingPage", () => {
       firm_name: "Acme Wealth",
       regulator: "SEC",
       regulator_status: "ACTIVE",
+      city: "Kennesaw",
+      pin_zip: "30144",
       crd_number: "123456",
       scrape_job_id: null,
     });
@@ -368,6 +376,8 @@ describe("RiaOnboardingPage", () => {
 
     expect(screen.getByTestId("advisor-name").textContent).toBe("Jane Doe");
     expect(screen.getByTestId("firm-name").textContent).toBe("Acme Wealth");
+    expect(screen.getByTestId("city").textContent).toBe("Kennesaw");
+    expect(screen.getByTestId("pin-zip").textContent).toBe("30144");
   });
 
   it("handles not_found and stays on license step", async () => {

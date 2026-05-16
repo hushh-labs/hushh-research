@@ -34,6 +34,7 @@ sys.modules.setdefault("api.middlewares.rate_limit", rate_limit_module)
 from api.middleware import require_firebase_auth  # noqa: E402
 from api.routes import ria as ria_module  # noqa: E402
 from hushh_mcp.services.crd_scrape_proxy_service import (  # noqa: E402
+    CrdScrapeProviderResponse,
     CrdScrapeProxyService,
 )
 from hushh_mcp.services.ria_iam_service import (  # noqa: E402
@@ -124,6 +125,54 @@ def test_verify_license_not_found(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "not_found"
+
+
+def test_verify_license_passes_through_city_pin_zip_and_string_exams(monkeypatch) -> None:
+    """The service should preserve source-backed location fields from broker intelligence."""
+
+    class _FakeProxy:
+        async def broker_intelligence(self, *, query: str, request_id: str | None = None):
+            assert query == "7413463"
+            return CrdScrapeProviderResponse(
+                200,
+                {
+                    "verifiedName": "Andrew Garrett Kirkland",
+                    "currentFirm": "Eissman Wealth Management",
+                    "status": "Investment Adviser Representative",
+                    "crdNumber": "7413463",
+                    "city": "Kennesaw",
+                    "pinZip": "30144",
+                    "exams": ["Series 65"],
+                    "disclosures": {"count": 1},
+                    "employmentHistory": [],
+                    "summary": "Official PDF-backed location resolved.",
+                },
+            )
+
+        async def create_job(self, *, crd_number: str, request_id: str | None = None):
+            assert crd_number == "7413463"
+            return CrdScrapeProviderResponse(
+                202,
+                {"jobId": "crd_scrape_location_123", "status": "queued"},
+            )
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.crd_scrape_proxy_service.CrdScrapeProxyService",
+        lambda: _FakeProxy(),
+    )
+
+    result = asyncio.run(
+        RIAIAMService().verify_ria_license(
+            _TEST_UID,
+            license_number="7413463",
+            regulator="SEC",
+        )
+    )
+
+    assert result["status"] == "found"
+    assert result["city"] == "Kennesaw"
+    assert result["pin_zip"] == "30144"
+    assert result["exams_passed"] == ["Series 65"]
 
 
 def test_verify_license_invalid_number_422() -> None:
