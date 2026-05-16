@@ -1,6 +1,7 @@
 "use client";
 
 import { ApiService } from "@/lib/services/api-service";
+import { isIndianMarketIntent, resolveIndianSymbol } from "@/lib/voice/indian-market-intents";
 import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
 import { normalizeClarifyToolCall, validateVoicePlanPayload } from "@/lib/voice/voice-json-validator";
 import { createVoiceTurnId, logVoiceMetric } from "@/lib/voice/voice-telemetry";
@@ -328,6 +329,9 @@ export class VoiceTurnOrchestrator {
           ...(voiceContext || {}),
           planner_v2_enabled: true,
           planner_turn_id: turnId,
+          ...(isIndianMarketIntent(cleanTranscript)
+            ? { indian_market_hint: resolveIndianSymbol(cleanTranscript) ?? true }
+            : {}),
         },
         appState: appRuntimeState,
         voiceTurnId: turnId,
