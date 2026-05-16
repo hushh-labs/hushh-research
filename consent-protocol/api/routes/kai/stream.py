@@ -1977,13 +1977,10 @@ async def analyze_stream_generator(
         # The DebateEngine logic I wrote runs `_build_consensus` at the end.
         # I will call that here to get the final object for the "decision" event.
 
-        debate_result = await asyncio.wait_for(
-            debate_engine._build_consensus(
-                fundamental_insight, sentiment_insight, valuation_insight
-            ),
-            timeout=remaining_timeout(),
-        )
-        # Note: debate_engine.rounds is populated by the generator run!
+        # Access the debate result stored on the engine by the stream generator.
+        # _build_consensus was already called inside orchestrate_debate_stream;
+        # reading debate_engine.result avoids a redundant second LLM-backed call.
+        debate_result = debate_engine.result
         debate_result.rounds = debate_engine.rounds
 
         # =====================================================================

@@ -38,6 +38,7 @@ from hushh_mcp.services.personal_knowledge_model_service import (
     UserPersonalKnowledgeModelMetadata,
     get_pkm_service,
 )
+from hushh_mcp.services.renaissance_service import get_renaissance_service
 
 logger = logging.getLogger(__name__)
 
@@ -1129,8 +1130,6 @@ class KaiChatService:
             conversation = await self._get_or_create_conversation(user_id, conversation_id)
 
             # Get Renaissance context for the ticker
-            from hushh_mcp.services.renaissance_service import get_renaissance_service
-
             renaissance = get_renaissance_service()
             ren_context = await renaissance.get_analysis_context(ticker)
 

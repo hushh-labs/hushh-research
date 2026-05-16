@@ -140,6 +140,7 @@ class DebateEngine:
         self.agent_weights = AGENT_WEIGHTS[risk_profile]
         self.rounds: List[DebateRound] = []
         self.current_statements: Dict[str, str] = {}
+        self.result: Optional[DebateResult] = None
         self._disconnection_event = disconnection_event
         self.user_context = user_context or {}
         self.renaissance_context = renaissance_context or {}
@@ -327,11 +328,13 @@ class DebateEngine:
         # =========================================================================
         # CONSENSUS PHASE
         # =========================================================================
-        # We don't yield the result here, the caller (stream.py) handles the final decision/yield.
-        # But we do return it for the caller to use.
-        # UPDATE: Async generators cannot return values in Python < 3.13 (or standard usage).
-        # stream.py calculates this manually, so we just finish.
-        pass
+        # Build and store the result on the engine so the caller can read
+        # debate_engine.result instead of calling _build_consensus a second time.
+        self.result = await self._build_consensus(
+            fundamental=fundamental_insight,
+            sentiment=sentiment_insight,
+            valuation=valuation_insight,
+        )
 
     async def orchestrate_debate(
         self,
