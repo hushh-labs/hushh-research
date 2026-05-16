@@ -1,52 +1,21 @@
-# hushh_mcp/config.py
-
-import os
-
-from dotenv import load_dotenv
-
-dotenv_path = os.path.join(os.path.dirname(__file__), "..", ".env")
-
-# Load .env file into environment (override=False means Secret Manager/Cloud Run env vars take precedence)
-load_dotenv(override=False)
-
-# ==================== Security Keys ====================
-
-SECRET_KEY = os.getenv("SECRET_KEY")
-if not SECRET_KEY or len(SECRET_KEY) < 32:
-    raise ValueError("❌ SECRET_KEY must be set in .env and at least 32 characters long")
-
-VAULT_ENCRYPTION_KEY = os.getenv("VAULT_ENCRYPTION_KEY")
-if not VAULT_ENCRYPTION_KEY or len(VAULT_ENCRYPTION_KEY) != 64:
-    raise ValueError("❌ VAULT_ENCRYPTION_KEY must be a 64-character hex string (256-bit AES key)")
-
-# ==================== Expiration Settings ====================
-
-# Default expiry durations (in milliseconds)
-# 7 days
-DEFAULT_CONSENT_TOKEN_EXPIRY_MS = int(
-    os.getenv("DEFAULT_CONSENT_TOKEN_EXPIRY_MS", 1000 * 60 * 60 * 24 * 7)
-)  # 30 days
-DEFAULT_TRUST_LINK_EXPIRY_MS = int(
-    os.getenv("DEFAULT_TRUST_LINK_EXPIRY_MS", 1000 * 60 * 60 * 24 * 30)
+from hushh_mcp.runtime_settings import (
+    get_core_security_settings,
 )
 
-# ==================== Environment Info ====================
+_SETTINGS = get_core_security_settings()
 
-ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
-AGENT_ID = os.getenv("AGENT_ID", "agent_hushh_default")
-HUSHH_HACKATHON = os.getenv("HUSHH_HACKATHON", "disabled").lower() == "enabled"
-
-# IMPORTANT (Cloud Run):
-# Secret Manager values are commonly stored with a trailing newline. If we pass that
-# through to gRPC metadata (Gemini SDK), it can error with "Illegal header value".
-_raw_google_api_key = os.getenv("GOOGLE_API_KEY")
-GOOGLE_API_KEY = _raw_google_api_key.strip() if _raw_google_api_key else None
-
-# ==================== Defaults Export ====================
+APP_SIGNING_KEY = _SETTINGS.app_signing_key
+VAULT_DATA_KEY = _SETTINGS.vault_data_key
+DEFAULT_CONSENT_TOKEN_EXPIRY_MS = _SETTINGS.default_consent_token_expiry_ms
+DEFAULT_TRUST_LINK_EXPIRY_MS = _SETTINGS.default_trust_link_expiry_ms
+ENVIRONMENT = _SETTINGS.environment
+AGENT_ID = _SETTINGS.agent_id
+HUSHH_HACKATHON = _SETTINGS.hushh_hackathon
+GOOGLE_API_KEY = _SETTINGS.google_api_key or None
 
 __all__ = [
-    "SECRET_KEY",
-    "VAULT_ENCRYPTION_KEY",
+    "APP_SIGNING_KEY",
+    "VAULT_DATA_KEY",
     "DEFAULT_CONSENT_TOKEN_EXPIRY_MS",
     "DEFAULT_TRUST_LINK_EXPIRY_MS",
     "ENVIRONMENT",

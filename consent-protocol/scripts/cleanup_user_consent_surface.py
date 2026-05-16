@@ -413,14 +413,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Dry-run or apply consent/invite cleanup for one user without deleting PKM."
     )
-    parser.add_argument("--user-id", help="Firebase user id to clean; defaults to KAI_TEST_USER_ID")
+    parser.add_argument("--user-id", help="Firebase user id to clean; defaults to REVIEWER_UID")
     parser.add_argument("--apply", action="store_true", help="Apply the cleanup instead of dry-run")
     parser.add_argument("--report", help="Optional path to write the JSON before/after report")
     args = parser.parse_args()
 
-    user_id = str(args.user_id or os.getenv("KAI_TEST_USER_ID") or "").strip()
+    user_id = str(
+        args.user_id or os.getenv("REVIEWER_UID") or os.getenv("KAI_TEST_USER_ID") or ""
+    ).strip()
     if not user_id:
-        print("Missing user id. Pass --user-id or set KAI_TEST_USER_ID.", file=sys.stderr)
+        print("Missing user id. Pass --user-id or set REVIEWER_UID.", file=sys.stderr)
         return 2
 
     environment = _active_environment()

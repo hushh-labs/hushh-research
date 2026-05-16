@@ -1,4 +1,4 @@
-# IAM Reference
+# Hussh IAM Reference
 
 
 ## Visual Map
@@ -25,6 +25,17 @@ flowchart TD
 ```
 
 This directory is the **source of truth** for Investor + RIA identity, consent IAM policy, and marketplace access contracts.
+
+Within the seven-layer architecture, IAM is the canonical Layer 3 surface: **Trust, Identity, and Governance**.
+
+These docs use founder language first when they describe architecture:
+
+- `Capability Tokens` map to `VAULT_OWNER`, consent tokens, scoped tokens, and developer tokens.
+- `PCHP` maps to the current approval and encrypted scoped export flow.
+- `TrustLink / A2A delegation` maps to the current delegated-access implementation surface.
+
+Canonical mapping: [../architecture/founder-language-matrix.md](../architecture/founder-language-matrix.md)
+Brand and compatibility rule: [../operations/brand-and-compatibility-contract.md](../operations/brand-and-compatibility-contract.md)
 
 ## Scope
 

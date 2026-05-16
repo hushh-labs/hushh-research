@@ -102,7 +102,6 @@ export interface ConsentCenterResponse {
     primary_nav_persona: "investor" | "ria";
     ria_setup_available: boolean;
     ria_switch_available: boolean;
-    dev_ria_bypass_allowed: boolean;
     investor_marketplace_opt_in: boolean;
     iam_schema_ready: boolean;
     mode: "full" | "compat_investor";
@@ -177,6 +176,39 @@ interface CreateRequestOptions {
     firm_id?: string;
     reason?: string;
   };
+}
+
+export interface HandshakeTimelineEntry {
+  id: string;
+  action: string;
+  status: string;
+  scope?: string | null;
+  scope_description?: string | null;
+  issued_at?: number | string | null;
+  expires_at?: number | string | null;
+  request_id?: string | null;
+  actor: ConsentCenterActor;
+  counterpart_id: string;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface HandshakeHistoryResponse {
+  user_id: string;
+  counterpart_id: string;
+  actor: ConsentCenterActor;
+  page: number;
+  limit: number;
+  total: number;
+  has_more: boolean;
+  timeline: HandshakeTimelineEntry[];
+}
+
+interface HandshakeHistoryOptions {
+  idToken: string;
+  counterpartId: string;
+  actor?: ConsentCenterActor;
+  page?: number;
+  limit?: number;
 }
 
 interface DisconnectRelationshipOptions {
@@ -376,6 +408,35 @@ export class ConsentCenterService {
 
     CacheSyncService.onConsentMutated(userId);
     return body;
+  }
+
+  static async getHandshakeHistory(
+    options: HandshakeHistoryOptions
+  ): Promise<HandshakeHistoryResponse> {
+    const { idToken, counterpartId, actor = "investor", page = 1, limit = 50 } = options;
+    const query = new URLSearchParams({
+      counterpart_id: counterpartId,
+      actor,
+      page: String(page),
+      limit: String(limit),
+    });
+    const response = await ApiService.apiFetch(
+      `/api/consent/handshake/history?${query.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+        },
+      }
+    );
+
+    const payload = (await response.json().catch(() => ({}))) as HandshakeHistoryResponse &
+      ErrorPayload;
+    if (!response.ok) {
+      throw new Error(payload.detail || payload.error || `Request failed: ${response.status}`);
+    }
+    payload.timeline = Array.isArray(payload.timeline) ? payload.timeline : [];
+    return payload;
   }
 
   static async disconnectRelationship(options: DisconnectRelationshipOptions) {

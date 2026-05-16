@@ -41,7 +41,6 @@ describe("passkey RP resolution", () => {
   it("uses runtime hostname on web and normalizes 127.0.0.1", () => {
     delete process.env.NEXT_PUBLIC_PASSKEY_RP_ID;
     delete process.env.NEXT_PUBLIC_APP_URL;
-    delete process.env.NEXT_PUBLIC_FRONTEND_URL;
 
     const rpId = resolvePasskeyRpId({
       isNative: false,

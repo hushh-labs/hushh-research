@@ -2,6 +2,8 @@
 
 This is the canonical contract for the Codex operating system under `.codex/skills/` and `.codex/workflows/`.
 
+The shared truth-first reasoning contract lives at `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Every repo-local skill and workflow inherits that operating kernel.
+
 ## Machine-readable source of truth
 
 Every repo-local skill must have:
@@ -53,6 +55,7 @@ Owner-skill rules:
 1. The skill folder name must match `Owner family`.
 2. Owner skills are the default entrypoint for broad requests in that domain.
 3. Every meaningful repo surface must map to at least one owner skill.
+4. Human-facing fleet reports label owner lanes as `master <skill-id>`; the machine-readable manifest role stays `owner` for compatibility.
 
 Spoke-skill rules:
 
@@ -119,6 +122,22 @@ Workflow-routing rules:
 4. Be explicit about what the skill does not own.
 5. Hand off to owner or sibling skills instead of absorbing adjacent workflows.
 6. Do not create a new skill when tightening an existing owner or spoke is enough.
+7. Every skill inherits the repo-wide premise verification gate from `AGENTS.md` and the shared truth-first operating kernel.
+8. Skills that answer, review, plan, or merge must explicitly avoid blind agreement with prompt claims. They should verify current repo contracts before treating a claim as true.
+9. When a task includes phrases such as `missing`, `not implemented`, `static`, `dynamic`, `duplicate`, `safe`, `ready`, `working before`, or `should be easy`, the owning skill must classify the claim as `already_exists`, `partially_exists`, `missing`, `future_state_only`, `wrong_direction`, or `needs_verification` before recommending a path.
+10. If a capability already exists, the skill must route the user toward extending the existing contract rather than creating a parallel path.
+11. If a capability exists transiently but is not durable, the skill should name the real gap precisely: persistence, schema, generated contract, tests, docs, UI visibility, observability, consent, vault, cache, or deployment parity.
+12. Skills that ask operator questions for non-trivial planning must use the shared planning question contract: `Current truth`, `Recommended path`, `Risk if accepted blindly`, `Decision needed`, and recommended option first.
+13. Maintain the compact-kernel pattern:
+   - `SKILL.md` contains purpose, ownership, operating sequence, handoffs, and required checks.
+   - `references/` contains detailed gates, examples, templates, and calibration notes that are loaded only when relevant.
+   - `scripts/` contains repeatable classification, reporting, linting, or generation logic.
+   - `workflow.json` and `skill.json` contain routing and machine-readable metadata.
+14. Enforce strict compact budgets: master/owner `SKILL.md` max 110 lines, spoke `SKILL.md` max 85 lines, reference file max 220 lines, `Read First` max 8 entries, and `Required Checks` max 8 commands.
+15. Do not patch skills by appending every newly discovered miss to the main workflow. First decide whether the fix belongs in a script, a focused reference, a workflow playbook, or a shorter operating rule.
+16. Treat a skill as bloated when the main `SKILL.md` becomes a mixed incident ledger, comment-template inventory, domain checklist, and workflow procedure in one file. The correction is extraction, not deleting the governance constraint.
+17. A scan for skill quality should report line count, role, owner family, reads, checks, references, scripts, budget status, likely duplication, and agent/subagent activation mechanisms.
+18. Skills that judge product direction, founder language, future-state plans, or PR north-star fit must use the Founder Wiki North-Star Probe from `.codex/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md` when the task is material. The wiki is a direction lens, not current-state implementation proof; private wiki evidence stays local-only; conflicts should be recorded as `current_state_vs_north_star_drift`.
 
 ## Coverage baseline
 
@@ -163,3 +182,7 @@ The local lint tool checks for:
 10. orphaned meaningful repo surfaces
 11. workflow-pack owner/default-skill consistency
 12. workflow-pack routing, verification, and handoff completeness
+13. blocking compact-kernel budgets for skill files, references, `Read First`, and `Required Checks`
+14. context-size and modularity review advisories for non-skill docs and code modules
+
+Skill compact-kernel findings are failures. Non-skill context-size advisories are review triggers: the next material edit should consider extracting a bounded reference, workflow playbook, doc, service, or component before adding more content.
