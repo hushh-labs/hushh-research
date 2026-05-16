@@ -856,6 +856,10 @@ class PersonalKnowledgeModelService:
             ):
                 sensitivity_tier = "restricted"
             handle = self._scope_handle_for_path(user_id, domain, normalized_path)
+            description = (
+                f"{domain.replace('_', ' ').title()} memory scoped to "
+                f"{normalized_path.replace('.', ' ').replace('_', ' ').title().lower()}."
+            )
             for descriptor in matching:
                 descriptor.scope_handle = handle
             entries.append(
@@ -868,6 +872,7 @@ class PersonalKnowledgeModelService:
                     exposure_enabled=True,
                     summary_projection={
                         **self._scope_visibility_projection(normalized_path),
+                        "description": description,
                         "manifest_version": manifest_version,
                         "storage_mode": "manifest",
                     },

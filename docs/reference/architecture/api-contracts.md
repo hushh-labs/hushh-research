@@ -192,6 +192,13 @@ RIA relationship bundle note:
 | POST | `/api/pkm/upgrade/runs/{run_id}/fail` | Mark a PKM upgrade run failed |
 | GET | `/api/pkm/scopes/{user_id}` | Get available PKM scope handles for the user |
 | POST | `/api/pkm/get-context` | Get user context for analysis |
+| POST | `/api/pkm/agent-lab/structure` | Preview PKM Agent Lab memory structure for the vault owner; generated scope registry entries include non-sensitive descriptions for exposed scope handles |
+
+PKM Agent Lab scope-description boundary:
+
+- `/api/pkm/agent-lab/structure` is the owner surface for first-party memory preview manifests.
+- `/api/pkm/store-domain` continues to accept the existing encrypted domain write contract; it does not add a generic source-agent rejection layer.
+- `PersonalKnowledgeModelService` normalizes persisted `pkm_scope_registry.summary_projection.description` from manifest scope paths so scope handles remain explainable without exposing plaintext PKM content.
 
 #### Kai Chat
 
