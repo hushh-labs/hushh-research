@@ -401,8 +401,8 @@ class ActorIdentityService:
                       email = COALESCE(EXCLUDED.email, actor_identity_cache.email),
                       phone_number = COALESCE(EXCLUDED.phone_number, actor_identity_cache.phone_number),
                       photo_url = COALESCE(EXCLUDED.photo_url, actor_identity_cache.photo_url),
-                      email_verified = COALESCE(EXCLUDED.email_verified, actor_identity_cache.email_verified),
-                      phone_verified = COALESCE(EXCLUDED.phone_verified, actor_identity_cache.phone_verified),
+                      email_verified = COALESCE($6, actor_identity_cache.email_verified),
+                      phone_verified = COALESCE($7, actor_identity_cache.phone_verified),
                       source = CASE
                         WHEN EXCLUDED.source IS NULL OR EXCLUDED.source = '' THEN actor_identity_cache.source
                         ELSE EXCLUDED.source
@@ -434,6 +434,90 @@ class ActorIdentityService:
         except Exception as exc:
             logger.debug(
                 "actor_identity_cache upsert skipped for %s: %s",
+                normalized_user_id,
+                exc,
+            )
+            return None
+
+        return self._normalize_row(row)
+
+    async def claim_verified_phone(
+        self,
+        *,
+        user_id: str,
+        phone_number: str,
+    ) -> dict[str, Any] | None:
+        normalized_user_id = str(user_id or "").strip()
+        normalized_phone_number = str(phone_number or "").strip()
+        if not normalized_user_id or not normalized_phone_number:
+            return None
+
+        pool = await get_pool()
+        try:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE actor_identity_cache
+                    SET
+                      phone_number = NULL,
+                      phone_verified = FALSE,
+                      updated_at = NOW()
+                    WHERE phone_number = $2
+                      AND user_id <> $1
+                    """,
+                    normalized_user_id,
+                    normalized_phone_number,
+                )
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO actor_identity_cache (
+                      user_id,
+                      phone_number,
+                      phone_verified,
+                      source,
+                      last_synced_at,
+                      created_at,
+                      updated_at
+                    )
+                    VALUES (
+                      $1,
+                      $2,
+                      TRUE,
+                      'firebase_phone_claim',
+                      NOW(),
+                      NOW(),
+                      NOW()
+                    )
+                    ON CONFLICT (user_id) DO UPDATE SET
+                      phone_number = EXCLUDED.phone_number,
+                      phone_verified = TRUE,
+                      source = 'firebase_phone_claim',
+                      last_synced_at = NOW(),
+                      updated_at = NOW()
+                    RETURNING
+                      user_id,
+                      display_name,
+                      email,
+                      phone_number,
+                      photo_url,
+                      email_verified,
+                      phone_verified,
+                      source,
+                      last_synced_at,
+                      created_at,
+                      updated_at
+                    """,
+                    normalized_user_id,
+                    normalized_phone_number,
+                )
+        except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError):
+            logger.debug(
+                "actor_identity_cache phone claim skipped; phone shadow schema unavailable"
+            )
+            return None
+        except Exception as exc:
+            logger.debug(
+                "actor_identity_cache phone claim skipped for %s: %s",
                 normalized_user_id,
                 exc,
             )
@@ -787,14 +871,15 @@ class ActorIdentityService:
             )
             return cached
 
+        firebase_phone_number = getattr(user_record, "phone_number", None)
         updated = await self.upsert_identity(
             user_id=normalized_user_id,
             display_name=getattr(user_record, "display_name", None),
             email=getattr(user_record, "email", None),
-            phone_number=getattr(user_record, "phone_number", None),
+            phone_number=firebase_phone_number,
             photo_url=getattr(user_record, "photo_url", None),
             email_verified=getattr(user_record, "email_verified", None),
-            phone_verified=bool(getattr(user_record, "phone_number", None)),
+            phone_verified=True if firebase_phone_number else None,
             source="firebase_auth",
         )
         return updated or cached
