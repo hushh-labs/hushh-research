@@ -1,5 +1,6 @@
 "use client";
 
+import { HoldToConfirm } from "@/components/app-ui/hold-to-confirm";
 import Link from "next/link";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { ReadonlyURLSearchParams } from "next/navigation";
@@ -452,11 +453,13 @@ function ConsentEntryDetail({
             title="Revoke active access"
             description="Immediately stop this grant and keep the audit trail intact."
             trailing={
-              <Button variant="none" effect="fade" size="sm" onClick={() => onRevoke(entry)}>
-                Revoke
-              </Button>
-            }
-          />
+            <HoldToConfirm
+              onConfirm={() => onRevoke(entry)}
+            >
+              Hold to revoke
+            </HoldToConfirm>
+          }
+        />
         ) : null}
 
         {entry.request_url ? (
