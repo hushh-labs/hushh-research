@@ -104,3 +104,5 @@ hushh-webapp/android/app/build/
 
 envs
 envs_From_Others
+
+.claude/
