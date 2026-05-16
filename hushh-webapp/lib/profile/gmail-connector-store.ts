@@ -217,7 +217,7 @@ function deriveTaskDescription(
   run: GmailSyncRun | null,
 ): string {
   if (run?.status === "queued") {
-    return "Kai is getting the Gmail sync ready. You can keep using the app.";
+    return "One is getting the Gmail sync ready. You can keep using the app.";
   }
   if (run?.status === "failed") {
     return sanitizeGmailUserMessage(run.error_message, {
@@ -227,12 +227,12 @@ function deriveTaskDescription(
     });
   }
   if (kind === "gmail_bootstrap") {
-    return "Kai is scanning your recent Gmail receipts in the background.";
+    return "One is scanning your recent Gmail receipts in the background.";
   }
   if (kind === "gmail_backfill") {
-    return "Kai is fetching older Gmail receipts without blocking the UI.";
+    return "One is fetching older Gmail receipts without blocking the UI.";
   }
-  return "Kai is syncing Gmail receipts without blocking the UI.";
+  return "One is syncing Gmail receipts without blocking the UI.";
 }
 
 function readPersistedState(): Record<string, GmailConnectorEntry> {
