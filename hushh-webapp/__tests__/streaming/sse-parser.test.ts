@@ -41,6 +41,31 @@ describe("parseSSEBlocks", () => {
     }
   });
 
+  it("preserves empty data payload frames before later valid SSE frames", () => {
+  const input =
+    "event: chunk\n" +
+    "id: 71\n" +
+    "data:\n\n" +
+    "event: done\n" +
+    "id: 72\n" +
+    'data: {"schema_version":"1.0","stream_id":"strm_empty_data","stream_kind":"portfolio_import","seq":72,"event":"done","terminal":true,"payload":{"status":"complete"}}\n\n';
+
+  const result = parseSSEBlocks(input);
+
+  expect(result.remainder).toBe("");
+  expect(result.events).toHaveLength(2);
+
+  expect(result.events[0]).toMatchObject({
+    event: "chunk",
+    id: "71",
+    data: "",
+  });
+
+  expect(result.events[1]).toMatchObject({
+    event: "done",
+    id: "72",
+  });
+});
   it("preserves incomplete frame as remainder", () => {
     const part1 =
       'event: stage\n' +
@@ -60,4 +85,5 @@ describe("parseSSEBlocks", () => {
     const result = parseSSEBlocks(": ping\n\n\n");
     expect(result.events).toHaveLength(0);
   });
+  
 });
