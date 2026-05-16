@@ -28,9 +28,17 @@ from urllib.parse import urlencode
 
 import httpx
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from google.auth.transport.requests import Request as GoogleAuthRequest
+from google.oauth2 import id_token as google_id_token
 
 from db.connection import get_pool
 from db.db_client import get_db
+from hushh_mcp.runtime_settings import (
+    APP_SIGNING_KEY_ENV,
+    GMAIL_OAUTH_TOKEN_KEY_ENV,
+    get_core_security_settings,
+    get_optional_gmail_oauth_token_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +90,7 @@ _MERCHANT_HINTS = {
 _RUN_CANCELED_MESSAGE = "Gmail sync canceled because the connection was disconnected."
 _RUN_STALE_MESSAGE = "Gmail sync expired before completion. Please start a new sync."
 _RUN_ORPHANED_MESSAGE = "Gmail sync worker stopped before reporting a final status."
+_RUN_PREEMPTED_MESSAGE = "Older Gmail backfill was paused so a newer sync could run."
 _RUN_HISTORY_GAP_MESSAGE = (
     "Gmail history cursor expired. Starting a recovery sync to rebuild the mailbox snapshot."
 )
@@ -282,15 +291,16 @@ class GmailReceiptsService:
         return _clean_text(os.getenv("GMAIL_OAUTH_REDIRECT_URI"))
 
     def _state_secret(self) -> str:
-        configured = _clean_text(os.getenv("SECRET_KEY"))
-        if configured:
-            return configured
+        try:
+            return get_core_security_settings().app_signing_key
+        except ValueError:
+            pass
         if self._allow_local_dev_fallback():
             logger.warning("gmail.receipts.state_secret_local_dev_fallback_enabled")
             return "gmail-receipts-local-dev-secret"
         raise RuntimeError(
-            "SECRET_KEY is required for Gmail OAuth state signing. "
-            "Set SECRET_KEY or enable GMAIL_ALLOW_LOCAL_DEV_FALLBACK only in local development."
+            f"{APP_SIGNING_KEY_ENV} is required for Gmail OAuth state signing. "
+            f"Set {APP_SIGNING_KEY_ENV} or enable GMAIL_ALLOW_LOCAL_DEV_FALLBACK only in local development."
         )
 
     def _allow_local_dev_fallback(self) -> bool:
@@ -299,8 +309,87 @@ class GmailReceiptsService:
         environment = _clean_text(os.getenv("ENVIRONMENT"), "development").lower()
         return environment in {"development", "dev", "local"}
 
+    def _webhook_auth_enabled(self) -> bool:
+        raw = os.getenv("GMAIL_WEBHOOK_AUTH_ENABLED")
+        if raw is not None:
+            return _to_bool(raw, True)
+        environment = _clean_text(os.getenv("ENVIRONMENT"), "development").lower()
+        return environment not in {"development", "dev", "local", "test"}
+
+    def _webhook_audience(self) -> str:
+        return _clean_text(os.getenv("GMAIL_WEBHOOK_AUDIENCE"))
+
+    def _webhook_service_account_email(self) -> str:
+        return _clean_text(os.getenv("GMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL")).lower()
+
+    def _verify_webhook_ingress_sync(self, *, headers: dict[str, str]) -> dict[str, Any]:
+        if not self._webhook_auth_enabled():
+            return {"verified": False, "auth_disabled": True}
+
+        audience = self._webhook_audience()
+        if not audience:
+            raise GmailApiError(
+                "Gmail webhook audience is not configured",
+                status_code=503,
+            )
+
+        normalized_headers = {
+            _clean_text(key).lower(): value for key, value in headers.items() if _clean_text(key)
+        }
+        authorization = _clean_text(normalized_headers.get("authorization"))
+        if not authorization.startswith("Bearer "):
+            raise GmailApiError(
+                "Missing Gmail Pub/Sub bearer token",
+                status_code=401,
+            )
+
+        token = authorization.removeprefix("Bearer ").strip()
+        if not token:
+            raise GmailApiError(
+                "Missing Gmail Pub/Sub bearer token",
+                status_code=401,
+            )
+
+        try:
+            claims = google_id_token.verify_oauth2_token(
+                token,
+                GoogleAuthRequest(),
+                audience=audience,
+            )
+        except Exception as exc:
+            raise GmailApiError(
+                "Gmail Pub/Sub webhook token validation failed",
+                status_code=401,
+            ) from exc
+
+        if not isinstance(claims, dict):
+            raise GmailApiError(
+                "Gmail Pub/Sub webhook token payload is invalid",
+                status_code=401,
+            )
+
+        expected_email = self._webhook_service_account_email()
+        if expected_email:
+            token_email = _clean_text(claims.get("email")).lower()
+            if token_email != expected_email:
+                raise GmailApiError(
+                    "Gmail Pub/Sub webhook token subject is not authorized",
+                    status_code=403,
+                )
+
+        if "email_verified" in claims and not _to_bool(claims.get("email_verified"), False):
+            raise GmailApiError(
+                "Gmail Pub/Sub webhook token email is not verified",
+                status_code=403,
+            )
+
+        return claims
+
+    async def verify_webhook_ingress(self, *, headers: dict[str, str]) -> dict[str, Any]:
+        return await asyncio.to_thread(self._verify_webhook_ingress_sync, headers=headers)
+
     def _token_key(self) -> bytes:
-        configured = _clean_text(os.getenv("GMAIL_TOKEN_ENCRYPTION_KEY"))
+        configured = _clean_text(get_optional_gmail_oauth_token_key())
         if configured:
             try:
                 decoded = base64.urlsafe_b64decode(configured.encode("utf-8"))
@@ -316,7 +405,7 @@ class GmailReceiptsService:
             logger.warning("gmail.receipts.token_key_local_dev_fallback_enabled")
             return hashlib.sha256(f"{fallback_secret}::gmail-token-dev".encode("utf-8")).digest()
         raise RuntimeError(
-            "GMAIL_TOKEN_ENCRYPTION_KEY is required for Gmail token storage. "
+            f"{GMAIL_OAUTH_TOKEN_KEY_ENV} is required for Gmail token storage. "
             "Set a 16/24/32-byte key or enable GMAIL_ALLOW_LOCAL_DEV_FALLBACK only in local development."
         )
 
@@ -383,6 +472,9 @@ class GmailReceiptsService:
     def _watch_enabled(self) -> bool:
         return bool(self._watch_topic_name())
 
+    def _webhook_subscription(self) -> str:
+        return _clean_text(os.getenv("GMAIL_WEBHOOK_SUBSCRIPTION"))
+
     def _watch_label_ids(self) -> list[str]:
         raw = _clean_text(os.getenv("GMAIL_PUBSUB_LABEL_IDS"), "CATEGORY_PURCHASES")
         labels = [part.strip() for part in raw.split(",") if part.strip()]
@@ -409,6 +501,26 @@ class GmailReceiptsService:
         except Exception:
             return 900
 
+    async def _execute_raw_async(self, sql: str, params: dict[str, Any] | None = None):
+        return await asyncio.to_thread(self.db.execute_raw, sql, params)
+
+    async def _refresh_receipt_total_cache(self, *, user_id: str) -> int:
+        result = await self._execute_raw_async(
+            "SELECT COUNT(*) AS total FROM kai_gmail_receipts WHERE user_id = :user_id",
+            {"user_id": user_id},
+        )
+        total = int(result.data[0].get("total") or 0) if result.data else 0
+        await self._execute_raw_async(
+            """
+            UPDATE kai_gmail_connections
+            SET receipt_total = :receipt_total,
+                updated_at = NOW()
+            WHERE user_id = :user_id
+            """,
+            {"user_id": user_id, "receipt_total": total},
+        )
+        return total
+
     def _sync_run_activity_at(self, row: dict[str, Any] | None) -> datetime | None:
         if not row:
             return None
@@ -432,6 +544,15 @@ class GmailReceiptsService:
         if callable(done) and done():
             self._sync_tasks_by_run_id.pop(run_id, None)
         return task
+
+    def _cancel_local_sync_task(self, run_id: str) -> None:
+        task = self._sync_task_for_run(run_id)
+        if task is None:
+            return
+        try:
+            task.cancel()
+        except Exception:
+            logger.warning("gmail.sync.cancel_local_task_failed run_id=%s", run_id)
 
     def _mark_run_terminal(self, *, run_id: str, status: str, error_message: str | None) -> None:
         self.db.execute_raw(
@@ -516,6 +637,33 @@ class GmailReceiptsService:
                         error_message,
                     )
                 return True
+            if self._is_stale_active_run(run):
+                await conn.execute(
+                    """
+                    UPDATE kai_gmail_sync_runs
+                    SET status = 'failed',
+                        error_message = $2,
+                        completed_at = COALESCE(completed_at, NOW()),
+                        updated_at = NOW()
+                    WHERE run_id = $1
+                      AND status IN ('queued', 'running')
+                    """,
+                    run_id,
+                    _RUN_STALE_MESSAGE,
+                )
+                await conn.execute(
+                    """
+                    UPDATE kai_gmail_connections
+                    SET last_sync_status = 'failed',
+                        last_sync_error = $2,
+                        updated_at = NOW()
+                    WHERE user_id = $1
+                    """,
+                    user_id,
+                    _RUN_STALE_MESSAGE,
+                )
+                self._cancel_local_sync_task(run_id)
+                return True
             return False
 
         if not self._is_stale_active_run(run):
@@ -587,6 +735,18 @@ class GmailReceiptsService:
                             status="failed",
                             error_message=error_message,
                         )
+                elif self._is_stale_active_run(current):
+                    self._mark_run_terminal(
+                        run_id=current_run_id,
+                        status="failed",
+                        error_message=_RUN_STALE_MESSAGE,
+                    )
+                    self._update_connection_sync_status(
+                        user_id=user_id,
+                        status="failed",
+                        error_message=_RUN_STALE_MESSAGE,
+                    )
+                    self._cancel_local_sync_task(current_run_id)
                 continue
             if not self._is_stale_active_run(current):
                 continue
@@ -891,6 +1051,9 @@ class GmailReceiptsService:
         )
         return result.data[0] if result.data else None
 
+    async def _execute_raw_async(self, sql: str, params: dict[str, Any] | None = None):
+        return await asyncio.to_thread(self.db.execute_raw, sql, params)
+
     def _count_receipts(self, *, user_id: str) -> int:
         result = self.db.execute_raw(
             "SELECT COUNT(*) AS total FROM kai_gmail_receipts WHERE user_id = :user_id",
@@ -1009,7 +1172,7 @@ class GmailReceiptsService:
         row: dict[str, Any] | None,
         latest_run: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        receipt_total = self._count_receipts(user_id=user_id)
+        receipt_total = int(row.get("receipt_total") or 0) if row else 0
         connection_state = self._derive_connection_state(row)
         watch_status = self._derive_watch_status(row)
         connected = connection_state == "connected"
@@ -1365,6 +1528,22 @@ class GmailReceiptsService:
         return _clean_text(row.get("status")) == "connected" and not _to_bool(
             row.get("revoked"), False
         )
+
+    def _is_run_sync_active(self, *, run_id: str) -> bool:
+        if not _clean_text(run_id):
+            return False
+        result = self.db.execute_raw(
+            """
+            SELECT status
+            FROM kai_gmail_sync_runs
+            WHERE run_id = :run_id
+            LIMIT 1
+            """,
+            {"run_id": run_id},
+        )
+        if not result.data:
+            return False
+        return _clean_text(result.data[0].get("status")) in {"queued", "running"}
 
     async def _ensure_access_token(self, *, user_id: str) -> tuple[str, dict[str, Any]]:
         row = self._fetch_connection_row(user_id=user_id)
@@ -1791,72 +1970,88 @@ class GmailReceiptsService:
             "receipt_checksum": checksum,
         }
 
-    def _upsert_receipt(
+    async def _upsert_receipt(
         self, *, user_id: str, candidate: ReceiptCandidate, extracted: dict[str, Any]
     ) -> bool:
-        result = self.db.execute_raw(
+        result = await self._execute_raw_async(
             """
-            INSERT INTO kai_gmail_receipts (
-                user_id,
-                gmail_message_id,
-                gmail_thread_id,
-                gmail_internal_date,
-                gmail_history_id,
-                subject,
-                snippet,
-                from_name,
-                from_email,
-                merchant_name,
-                order_id,
-                currency,
-                amount,
-                receipt_date,
-                classification_confidence,
-                classification_source,
-                receipt_checksum,
-                raw_reference_json,
-                updated_at
-            ) VALUES (
-                :user_id,
-                :gmail_message_id,
-                :gmail_thread_id,
-                :gmail_internal_date,
-                :gmail_history_id,
-                :subject,
-                :snippet,
-                :from_name,
-                :from_email,
-                :merchant_name,
-                :order_id,
-                :currency,
-                :amount,
-                :receipt_date,
-                :classification_confidence,
-                :classification_source,
-                :receipt_checksum,
-                CAST(:raw_reference_json AS jsonb),
-                NOW()
+            WITH upserted AS (
+                INSERT INTO kai_gmail_receipts (
+                    user_id,
+                    gmail_message_id,
+                    gmail_thread_id,
+                    gmail_internal_date,
+                    gmail_history_id,
+                    subject,
+                    snippet,
+                    from_name,
+                    from_email,
+                    merchant_name,
+                    order_id,
+                    currency,
+                    amount,
+                    receipt_date,
+                    classification_confidence,
+                    classification_source,
+                    receipt_checksum,
+                    raw_reference_json,
+                    updated_at
+                ) VALUES (
+                    :user_id,
+                    :gmail_message_id,
+                    :gmail_thread_id,
+                    :gmail_internal_date,
+                    :gmail_history_id,
+                    :subject,
+                    :snippet,
+                    :from_name,
+                    :from_email,
+                    :merchant_name,
+                    :order_id,
+                    :currency,
+                    :amount,
+                    :receipt_date,
+                    :classification_confidence,
+                    :classification_source,
+                    :receipt_checksum,
+                    CAST(:raw_reference_json AS jsonb),
+                    NOW()
+                )
+                ON CONFLICT (user_id, gmail_message_id)
+                DO UPDATE SET
+                    gmail_thread_id = EXCLUDED.gmail_thread_id,
+                    gmail_internal_date = EXCLUDED.gmail_internal_date,
+                    gmail_history_id = EXCLUDED.gmail_history_id,
+                    subject = EXCLUDED.subject,
+                    snippet = EXCLUDED.snippet,
+                    from_name = EXCLUDED.from_name,
+                    from_email = EXCLUDED.from_email,
+                    merchant_name = EXCLUDED.merchant_name,
+                    order_id = EXCLUDED.order_id,
+                    currency = EXCLUDED.currency,
+                    amount = EXCLUDED.amount,
+                    receipt_date = EXCLUDED.receipt_date,
+                    classification_confidence = EXCLUDED.classification_confidence,
+                    classification_source = EXCLUDED.classification_source,
+                    receipt_checksum = EXCLUDED.receipt_checksum,
+                    raw_reference_json = EXCLUDED.raw_reference_json,
+                    updated_at = NOW()
+                RETURNING user_id, (xmax = 0) AS inserted_new
+            ),
+            bumped AS (
+                UPDATE kai_gmail_connections
+                SET receipt_total = COALESCE(receipt_total, 0) + 1,
+                    status_refreshed_at = NOW(),
+                    updated_at = NOW()
+                WHERE user_id = :user_id
+                  AND EXISTS (
+                      SELECT 1
+                      FROM upserted
+                      WHERE inserted_new
+                  )
             )
-            ON CONFLICT (user_id, gmail_message_id)
-            DO UPDATE SET
-                gmail_thread_id = EXCLUDED.gmail_thread_id,
-                gmail_internal_date = EXCLUDED.gmail_internal_date,
-                gmail_history_id = EXCLUDED.gmail_history_id,
-                subject = EXCLUDED.subject,
-                snippet = EXCLUDED.snippet,
-                from_name = EXCLUDED.from_name,
-                from_email = EXCLUDED.from_email,
-                merchant_name = EXCLUDED.merchant_name,
-                order_id = EXCLUDED.order_id,
-                currency = EXCLUDED.currency,
-                amount = EXCLUDED.amount,
-                receipt_date = EXCLUDED.receipt_date,
-                classification_confidence = EXCLUDED.classification_confidence,
-                classification_source = EXCLUDED.classification_source,
-                receipt_checksum = EXCLUDED.receipt_checksum,
-                raw_reference_json = EXCLUDED.raw_reference_json,
-                updated_at = NOW()
-            RETURNING (xmax = 0) AS inserted_new
+            SELECT inserted_new
+            FROM upserted
             """,
             {
                 "user_id": user_id,
@@ -2042,7 +2237,21 @@ class GmailReceiptsService:
 
         return await self.get_status(user_id=user_id)
 
-    async def handle_push_notification(self, payload: dict[str, Any]) -> dict[str, Any]:
+    async def handle_push_notification(
+        self,
+        payload: dict[str, Any],
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise GmailApiError("Webhook payload must be a JSON object.", status_code=400)
+
+        if headers is not None:
+            await self.verify_webhook_ingress(headers=headers)
+        expected_subscription = self._webhook_subscription()
+        actual_subscription = _clean_text(payload.get("subscription"))
+        if expected_subscription and actual_subscription != expected_subscription:
+            raise GmailApiError("Gmail webhook subscription is invalid", status_code=401)
         envelope = payload.get("message") if isinstance(payload.get("message"), dict) else payload
         data_text = _clean_text(envelope.get("data")) if isinstance(envelope, dict) else ""
         decoded_payload: dict[str, Any] = {}
@@ -2069,30 +2278,51 @@ class GmailReceiptsService:
         ):
             return {"accepted": True, "handled": False, "reason": "inactive_connection"}
 
-        self.db.execute_raw(
-            """
-            UPDATE kai_gmail_connections
-            SET last_notification_at = NOW(),
-                status_refreshed_at = NOW(),
-                history_id = COALESCE(:history_id, history_id),
-                updated_at = NOW()
-            WHERE user_id = :user_id
-            """,
-            {"user_id": user_id, "history_id": history_id},
-        )
+        current_history_id = _history_id_text(row.get("history_id"))
+        if not self._watch_enabled():
+            return {"accepted": True, "handled": False, "reason": "watch_not_configured"}
+        if history_id and current_history_id:
+            current_numeric = _int_history_id(current_history_id)
+            incoming_numeric = _int_history_id(history_id)
+            if (
+                current_numeric is not None
+                and incoming_numeric is not None
+                and incoming_numeric <= current_numeric
+            ):
+                await self._execute_raw_async(
+                    """
+                    UPDATE kai_gmail_connections
+                    SET last_notification_at = NOW(),
+                        status_refreshed_at = NOW(),
+                        updated_at = NOW()
+                    WHERE user_id = :user_id
+                    """,
+                    {"user_id": user_id},
+                )
+                return {"accepted": True, "handled": False, "reason": "stale_history"}
 
-        sync_mode = "incremental" if _history_id_text(row.get("history_id")) else "recovery"
+        sync_mode = "incremental" if current_history_id else "recovery"
         queued = await self.queue_sync(
             user_id=user_id,
             trigger_source="webhook",
             sync_mode=sync_mode,
             end_history_id=history_id,
+            notification_history_id=history_id,
+            notification_received_at=_utcnow(),
         )
+        if not queued.get("accepted", False):
+            return {
+                "accepted": True,
+                "handled": False,
+                "reason": _clean_text(queued.get("reason")) or "queue_rejected",
+                "run": queued.get("run"),
+                "user_id": user_id,
+            }
         return {
             "accepted": True,
             "handled": True,
             "user_id": user_id,
-            "queued": queued.get("accepted", False),
+            "queued": True,
             "run": queued.get("run"),
         }
 
@@ -2138,6 +2368,8 @@ class GmailReceiptsService:
         sync_mode: str = "manual",
         start_history_id: str | None = None,
         end_history_id: str | None = None,
+        notification_history_id: str | None = None,
+        notification_received_at: datetime | None = None,
         window_start_at: datetime | None = None,
         window_end_at: datetime | None = None,
     ) -> dict[str, Any]:
@@ -2150,7 +2382,7 @@ class GmailReceiptsService:
             async with conn.transaction():
                 connection_row = await conn.fetchrow(
                     """
-                    SELECT user_id, status, auto_sync_enabled, revoked
+                    SELECT user_id, status, auto_sync_enabled, revoked, history_id
                     FROM kai_gmail_connections
                     WHERE user_id = $1
                     FOR UPDATE
@@ -2186,6 +2418,28 @@ class GmailReceiptsService:
                     if existing is None:
                         break
                     current_run = dict(existing)
+                    current_sync_mode = _clean_text(current_run.get("sync_mode"))
+                    can_preempt_backfill = (
+                        current_sync_mode == "backfill"
+                        and sync_mode != "backfill"
+                        and trigger_source not in {"backfill", "auto_daily"}
+                    )
+                    if can_preempt_backfill:
+                        await conn.execute(
+                            """
+                            UPDATE kai_gmail_sync_runs
+                            SET status = 'canceled',
+                                error_message = $2,
+                                completed_at = COALESCE(completed_at, NOW()),
+                                updated_at = NOW()
+                            WHERE run_id = $1
+                              AND status IN ('queued', 'running')
+                            """,
+                            _clean_text(current_run.get("run_id")),
+                            _RUN_PREEMPTED_MESSAGE,
+                        )
+                        self._cancel_local_sync_task(_clean_text(current_run.get("run_id")))
+                        continue
                     if not await self._recover_active_run_in_tx(conn=conn, run=current_run):
                         blocking_run = current_run
                         break
@@ -2195,6 +2449,32 @@ class GmailReceiptsService:
                         "reason": "sync_already_running",
                         "run": self._serialize_run(blocking_run),
                     }
+
+                effective_notification_history_id = notification_history_id
+                if effective_notification_history_id is None and trigger_source == "webhook":
+                    effective_notification_history_id = end_history_id
+
+                if (
+                    effective_notification_history_id is not None
+                    or notification_received_at is not None
+                ):
+                    advanced_history_id = _max_history_id_text(
+                        connection.get("history_id"),
+                        effective_notification_history_id,
+                    )
+                    await conn.execute(
+                        """
+                        UPDATE kai_gmail_connections
+                        SET history_id = COALESCE($2, history_id),
+                            last_notification_at = COALESCE($3, last_notification_at),
+                            status_refreshed_at = NOW(),
+                            updated_at = NOW()
+                        WHERE user_id = $1
+                        """,
+                        user_id,
+                        advanced_history_id,
+                        notification_received_at or _utcnow(),
+                    )
 
                 run_id = f"gmail_sync_{uuid.uuid4().hex}"
                 inserted = await conn.fetchrow(
@@ -2290,7 +2570,7 @@ class GmailReceiptsService:
                 payload["duration_ms"] = int((_utcnow() - started_at).total_seconds() * 1000)
             return payload
 
-        def _flush_progress(*, force: bool = False) -> None:
+        async def _flush_progress(*, force: bool = False) -> None:
             nonlocal progress_update_counter, progress_last_flush_monotonic
             progress_update_counter += 1
             now = time.monotonic()
@@ -2305,7 +2585,7 @@ class GmailReceiptsService:
             progress_update_counter = 0
             progress_last_flush_monotonic = now
             metrics = _build_progress_metrics(include_duration=True)
-            self.db.execute_raw(
+            await self._execute_raw_async(
                 """
                 UPDATE kai_gmail_sync_runs
                 SET query_since = :query_since,
@@ -2334,8 +2614,12 @@ class GmailReceiptsService:
                 },
             )
 
-        def _assert_connection_still_active() -> None:
-            if self._is_connection_sync_active(user_id=user_id):
+        async def _assert_sync_still_active() -> None:
+            connection_active, run_active = await asyncio.gather(
+                asyncio.to_thread(self._is_connection_sync_active, user_id=user_id),
+                asyncio.to_thread(self._is_run_sync_active, run_id=run_id),
+            )
+            if connection_active and run_active:
                 return
             raise asyncio.CancelledError()
 
@@ -2354,13 +2638,13 @@ class GmailReceiptsService:
                 messages_since_connection_check += 1
                 if messages_since_connection_check >= connection_check_interval_messages:
                     messages_since_connection_check = 0
-                    _assert_connection_still_active()
+                    await _assert_sync_still_active()
 
                 gmail_message_id = _clean_text(metadata.get("id"))
                 try:
                     candidate = self._candidate_from_message(metadata)
                     if not candidate.gmail_message_id:
-                        _flush_progress()
+                        await _flush_progress()
                         continue
 
                     det = self._classify_candidate(candidate)
@@ -2380,7 +2664,7 @@ class GmailReceiptsService:
                             }
 
                     if not classification.get("is_receipt"):
-                        _flush_progress()
+                        await _flush_progress()
                         continue
 
                     filtered_count += 1
@@ -2397,7 +2681,7 @@ class GmailReceiptsService:
                     if core_signal_present:
                         extracted_count += 1
 
-                    inserted = self._upsert_receipt(
+                    inserted = await self._upsert_receipt(
                         user_id=user_id,
                         candidate=candidate,
                         extracted=extracted,
@@ -2422,10 +2706,10 @@ class GmailReceiptsService:
                         gmail_message_id,
                         str(message_exc)[:_RUN_MESSAGE_FAILED_LOG_LIMIT],
                     )
-                _flush_progress()
+                await _flush_progress()
 
         try:
-            self.db.execute_raw(
+            await self._execute_raw_async(
                 """
                 UPDATE kai_gmail_sync_runs
                 SET status = 'running',
@@ -2436,7 +2720,7 @@ class GmailReceiptsService:
                 {"run_id": run_id},
             )
 
-            run_meta = self.db.execute_raw(
+            run_meta = await self._execute_raw_async(
                 """
                 SELECT
                     trigger_source,
@@ -2450,15 +2734,16 @@ class GmailReceiptsService:
                 LIMIT 1
                 """,
                 {"run_id": run_id},
-            ).data
-            if run_meta:
-                trigger_source = _clean_text(run_meta[0].get("trigger_source"), "unknown")
-                sync_mode = _clean_text(run_meta[0].get("sync_mode"), "manual")
-                start_history_id = _history_id_text(run_meta[0].get("start_history_id"))
-                target_history_id = _history_id_text(run_meta[0].get("end_history_id"))
-                run_window_start_at = _parse_iso(run_meta[0].get("window_start_at"))
-                run_window_end_at = _parse_iso(run_meta[0].get("window_end_at"))
-            self.db.execute_raw(
+            )
+            run_meta_rows = run_meta.data
+            if run_meta_rows:
+                trigger_source = _clean_text(run_meta_rows[0].get("trigger_source"), "unknown")
+                sync_mode = _clean_text(run_meta_rows[0].get("sync_mode"), "manual")
+                start_history_id = _history_id_text(run_meta_rows[0].get("start_history_id"))
+                target_history_id = _history_id_text(run_meta_rows[0].get("end_history_id"))
+                run_window_start_at = _parse_iso(run_meta_rows[0].get("window_start_at"))
+                run_window_end_at = _parse_iso(run_meta_rows[0].get("window_end_at"))
+            await self._execute_raw_async(
                 """
                 UPDATE kai_gmail_connections
                 SET last_sync_status = 'running',
@@ -2473,7 +2758,7 @@ class GmailReceiptsService:
                 {"user_id": user_id, "sync_mode": sync_mode},
             )
 
-            _assert_connection_still_active()
+            await _assert_sync_still_active()
             access_token, conn_row = await self._ensure_access_token(user_id=user_id)
             if sync_mode in {"incremental", "manual"} and not start_history_id:
                 start_history_id = _history_id_text(conn_row.get("history_id"))
@@ -2498,7 +2783,7 @@ class GmailReceiptsService:
                 )
             else:
                 query_text = f"history:start={start_history_id or 'missing'}"
-            _flush_progress(force=True)
+            await _flush_progress(force=True)
             remaining = self._max_messages_per_sync()
             if sync_mode in {"manual", "incremental"} and not start_history_id:
                 sync_mode = "recovery"
@@ -2516,7 +2801,7 @@ class GmailReceiptsService:
             if sync_mode in {"bootstrap", "recovery", "backfill"}:
                 page_token: str | None = None
                 while remaining > 0:
-                    _assert_connection_still_active()
+                    await _assert_sync_still_active()
                     page_size = min(100, remaining)
                     listing = await self._list_messages(
                         access_token=access_token,
@@ -2553,7 +2838,7 @@ class GmailReceiptsService:
             else:
                 page_token = None
                 while remaining > 0 and start_history_id:
-                    _assert_connection_still_active()
+                    await _assert_sync_still_active()
                     history_payload = await self._list_history(
                         access_token=access_token,
                         start_history_id=start_history_id,
@@ -2583,12 +2868,12 @@ class GmailReceiptsService:
                     if not page_token:
                         break
 
-            _flush_progress(force=True)
+            await _flush_progress(force=True)
             metrics = _build_progress_metrics(include_duration=True)
             extraction_success_rate = float(metrics["extraction_success_rate"])
             final_history_id = _max_history_id_text(max_history_id, target_history_id)
 
-            self.db.execute_raw(
+            await self._execute_raw_async(
                 """
                 UPDATE kai_gmail_sync_runs
                 SET status = 'completed',
@@ -2630,7 +2915,7 @@ class GmailReceiptsService:
                 },
             )
 
-            self.db.execute_raw(
+            await self._execute_raw_async(
                 """
                 UPDATE kai_gmail_connections
                 SET last_sync_at = NOW(),
@@ -2700,7 +2985,7 @@ class GmailReceiptsService:
             raise
         except GmailApiError as exc:
             if exc.status_code == 404 and sync_mode in {"manual", "incremental"}:
-                self.db.execute_raw(
+                await self._execute_raw_async(
                     """
                     UPDATE kai_gmail_sync_runs
                     SET status = 'failed',
@@ -2738,7 +3023,7 @@ class GmailReceiptsService:
                         "error_message": _RUN_HISTORY_GAP_MESSAGE,
                     },
                 )
-                self.db.execute_raw(
+                await self._execute_raw_async(
                     """
                     UPDATE kai_gmail_connections
                     SET bootstrap_state = 'queued',
@@ -2769,7 +3054,7 @@ class GmailReceiptsService:
             raise
         except Exception as exc:
             logger.exception("gmail.sync.failed user_id=%s run_id=%s", user_id, run_id)
-            self.db.execute_raw(
+            await self._execute_raw_async(
                 """
                 UPDATE kai_gmail_sync_runs
                 SET status = 'failed',
@@ -2811,7 +3096,7 @@ class GmailReceiptsService:
                     "error_message": str(exc),
                 },
             )
-            self.db.execute_raw(
+            await self._execute_raw_async(
                 """
                 UPDATE kai_gmail_connections
                 SET last_sync_status = 'failed',
@@ -2985,6 +3270,19 @@ class GmailReceiptsService:
             return
         self._schedule_loop_task = asyncio.create_task(self._schedule_loop())
 
+    async def stop_background_sync_loop(self) -> None:
+        task = self._schedule_loop_task
+        self._schedule_loop_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            logger.info("gmail.schedule.loop_stopped")
+        except Exception as exc:
+            logger.warning("gmail.schedule.loop_stop_failed reason=%s", exc)
+
 
 _gmail_receipts_service: GmailReceiptsService | None = None
 
@@ -2998,3 +3296,7 @@ def get_gmail_receipts_service() -> GmailReceiptsService:
 
 def start_gmail_receipts_background_sync() -> None:
     get_gmail_receipts_service().start_background_sync_loop()
+
+
+async def shutdown_gmail_receipts_background_sync() -> None:
+    await get_gmail_receipts_service().stop_background_sync_loop()

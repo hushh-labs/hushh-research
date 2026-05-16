@@ -31,7 +31,9 @@ import React, {
 } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 import { ConsentExportRefreshOrchestrator } from "@/lib/services/consent-export-refresh-orchestrator";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { VaultService } from "@/lib/services/vault-service";
@@ -151,6 +153,28 @@ export function VaultProvider({ children }: VaultProviderProps) {
     return () =>
       window.removeEventListener("vault-lock-requested", handleLockRequest);
   }, [lockVault]);
+
+  useEffect(() => {
+    const handleVaultRekeyed = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        userId?: string;
+        reason?: string;
+      }>;
+      if (customEvent.detail?.userId && customEvent.detail.userId !== user?.uid) {
+        return;
+      }
+      if (user?.uid) {
+        PersonalKnowledgeModelService.invalidateSessionStateAfterVaultRekey(user.uid);
+      }
+      console.log(
+        `[VaultProvider] Vault rekeyed; invalidating PKM session state: ${customEvent.detail?.reason ?? "vault_rekeyed"}`
+      );
+      lockVault();
+    };
+
+    window.addEventListener("vault-rekeyed", handleVaultRekeyed);
+    return () => window.removeEventListener("vault-rekeyed", handleVaultRekeyed);
+  }, [lockVault, user?.uid]);
 
   useEffect(() => {
     if (!user?.uid || !vaultKey || !vaultOwnerToken) {
@@ -292,11 +316,21 @@ export function VaultProvider({ children }: VaultProviderProps) {
       setVaultOwnerToken(token);
       setTokenExpiresAt(expiresAt);
 
+      const routePath =
+        typeof window !== "undefined" ? window.location.pathname : "";
+      if (!routePath.startsWith("/ria")) {
+        trackGrowthFunnelStepCompleted({
+          journey: "investor",
+          step: "vault_ready",
+          dedupeKey: "growth:investor:vault_ready",
+          dedupeWindowMs: 5_000,
+        });
+      }
+
       if (user?.uid) {
-        const routePath =
-          typeof window !== "undefined" ? window.location.pathname : undefined;
+        const warmRoutePath = routePath || undefined;
         const scheduleWarm = () => {
-          void prefetchDashboardData(user.uid, token, key, routePath);
+          void prefetchDashboardData(user.uid, token, key, warmRoutePath);
         };
 
         if (typeof window !== "undefined" && "requestIdleCallback" in window) {

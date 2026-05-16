@@ -5,7 +5,15 @@
 
 Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
-The Personal Knowledge Model (PKM) is Kai's canonical user-memory architecture.
+The Personal Knowledge Model (PKM) is the current checked-in encrypted user-memory architecture. Today, the implementation docs describe it through the Kai-first runtime because Kai is the shipped finance specialist and voice/action surface.
+
+The approved product direction is One-owned relationship memory with specialist slices beneath it:
+
+- One owns cross-domain relationship memory such as context, preferences, trusted people, decisions, and previously answered questions.
+- Kai owns finance memory and finance reasoning over the protected finance lane.
+- Nav owns privacy, consent, vault, deletion, and scope-review memory once Nav runtime surfaces are implemented.
+
+Until that migration lands, do not describe One-owned PKM as current-state runtime behavior. Use the One/Nav roadmap for future-state claims about portable One memory, user-private action receipts, BYO model execution, or no platform-controlled recovery.
 
 ## Canonical tables
 
@@ -28,6 +36,25 @@ The Personal Knowledge Model (PKM) is Kai's canonical user-memory architecture.
 - `pkm_upgrade_steps`
   Per-domain resumable checkpoints for generic PKM upgrades. No plaintext or key material is stored here.
 
+## Authority and sync model
+
+PKM is local-first and encrypted-first. The user-memory authority is:
+
+1. encrypted domain payloads in `pkm_blobs`
+2. per-domain structure and version truth in `pkm_manifests`
+3. append-only mutation history in `pkm_events`
+4. client-side cache write-through after vault unlock
+
+`pkm_index` is a cloud discovery projection. It can summarize available domains,
+safe counters, freshness, and coarse capability flags, but it is not the source
+of user memory truth. If local-only, offline, or on-device runtime paths are
+active, the app may read from local encrypted cache and reconcile cloud
+projection later.
+
+Cloud writes to `pkm_index.domain_summaries` must therefore be treated as sync
+projection updates. They should be atomic and repairable, but they must not make
+local saves fail solely because the cloud projection is temporarily unavailable.
+
 ## Storage rules
 
 - New writes are PKM-only.
@@ -42,6 +69,14 @@ The Personal Knowledge Model (PKM) is Kai's canonical user-memory architecture.
   - `size_bytes`
 - Exact raw JSON paths remain private to first-party authenticated tooling after vault unlock.
 - Public/runtime discovery must use scope handles and coarse metadata, not raw internal PKM paths.
+
+## Partner and CRM boundary
+
+PKM is not a partner CRM mirror.
+
+Enterprise systems such as Salesforce may store CRM-native contact or workflow metadata, consent receipt ids, scope labels, audit references, and narrowly approved fields when a workflow has a clear business or legal purpose. They should not receive raw PKM, KYC documents, full email bodies, vault data, user keys, or broad personal profiles by default.
+
+If plaintext PII is handed to a partner system, that copy is outside the Hussh zero-knowledge boundary. The handoff must be explicit, scoped, auditable, minimized, and covered by retention, encryption or masking, access control, and deletion policy. The canonical personal memory remains encrypted PKM unless a consented encrypted PKM write records a derived fact back into Hussh.
 
 ## Why JSONB is not the encrypted payload layer
 

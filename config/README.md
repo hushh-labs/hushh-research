@@ -5,6 +5,7 @@ This directory contains configuration files and data lists used across the proje
 ## Contents
 
 - `available_models.txt` - List of available Gemini 3 models
+- `ci-governance.json` - Canonical branch, merge queue, protected pipeline, and deploy-environment governance policy
 
 ## Usage
 

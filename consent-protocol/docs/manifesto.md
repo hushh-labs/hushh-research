@@ -1,4 +1,4 @@
-# 🌱 The Hushh Manifesto
+# 🌱 The Hussh Manifesto
 
 > Consent is not a checkbox.  
 > It’s a contract, a signal, and a programmable boundary.
@@ -12,7 +12,7 @@ Canonical visual owner: [consent-protocol](README.md). Use that map for the top-
 
 ## 🧠 Why We Exist
 
-HushhMCP was built to give **humans control over their data** in an AI-powered world.
+The Hussh Consent MCP surface was built to give **humans control over their data** in an AI-powered world.
 
 Most AI agents today are trained to maximize engagement, extract value, or serve the platform.  
 **We believe agents should serve the person** — and only when asked to.
@@ -68,7 +68,7 @@ Agents should be swappable. Behaviors should be composable.
 
 If your agent can’t show:
 
-- ✅ A signed `HushhConsentToken`
+- ✅ A signed consent token (`HushhConsentToken` in the compatibility type surface)
 - ✅ A matched `ConsentScope`
 - ✅ A validated `TrustLink` (if delegated)
 
@@ -95,5 +95,5 @@ Let’s build a world where humans own the keys, the scopes, and the outcomes.
 Consent-first. Privacy-native. Agent-ready.
 
 —
-Team Hushh
+Team Hussh
 ```

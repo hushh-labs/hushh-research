@@ -35,7 +35,7 @@ Convert these files into implementation docs only after all of the following are
 
 ## Purpose
 
-This section defines how Hushh keeps cloud AI as a first-class runtime while adding on-device AI as an optional offline mode.
+This section defines how Hussh keeps cloud AI as a first-class runtime while adding on-device AI as an optional offline mode.
 
 Scope:
 

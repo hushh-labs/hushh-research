@@ -3,10 +3,16 @@ import type {
   ObservabilityEventName,
   PrimitiveEventValue,
 } from "@/lib/observability/events";
+import { resolveAnalyticsMeasurementId } from "@/lib/observability/env";
 
 declare global {
   interface Window {
     dataLayer?: Array<Record<string, unknown>>;
+    gtag?: (
+      command: "event",
+      eventName: ObservabilityEventName,
+      payload: Record<string, unknown>
+    ) => void;
   }
 }
 
@@ -24,10 +30,24 @@ export const webGtmAdapter: ObservabilityAdapter = {
     if (typeof window === "undefined") return;
 
     window.dataLayer = window.dataLayer || [];
-    window.dataLayer.push({
+    const transportPayload = {
       event: eventName,
-      event_source: "observability_v1",
+      event_source: "observability_v2",
       ...payload,
-    });
+    };
+    window.dataLayer.push(transportPayload);
+
+    const measurementId = resolveAnalyticsMeasurementId();
+    if (!measurementId) {
+      return;
+    }
+
+    if (typeof window.gtag === "function") {
+      window.gtag("event", eventName, {
+        send_to: measurementId,
+        event_source: "observability_v2",
+        ...payload,
+      });
+    }
   },
 };

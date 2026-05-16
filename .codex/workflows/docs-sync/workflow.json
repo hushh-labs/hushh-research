@@ -47,19 +47,5 @@
     "documenting helper details in the wrong docs home",
     "leaving stale doc paths after refactor",
     "writing new docs instead of updating canonical docs"
-  ],
-  "scheduled_safe": true,
-  "maintenance_cadence": "weekly",
-  "maintenance_runner": [
-    "./bin/hushh docs verify"
-  ],
-  "maintenance_owner": "docs-governance",
-  "maintenance_issue_section": "docs-sync",
-  "maintenance_blockers": [
-    "docs verification fails",
-    "canonical docs references drift"
-  ],
-  "maintenance_prerequisites": [
-    "command:python3"
   ]
 }

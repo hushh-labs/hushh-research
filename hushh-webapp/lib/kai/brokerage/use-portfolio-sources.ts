@@ -36,6 +36,7 @@ import {
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 
@@ -177,6 +178,7 @@ export function usePortfolioSources({
   const reloadInflightRef = useRef<Promise<void> | null>(null);
   const lastReloadStartedAtRef = useRef(0);
   const plaidPollAttemptRef = useRef(0);
+  const growthPortfolioReadyKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (initialStatementPortfolio && hasPortfolioHoldings(initialStatementPortfolio)) {
@@ -459,6 +461,26 @@ export function usePortfolioSources({
     if (activeSource === "statement") return statementPortfolio;
     return plaidPortfolio;
   }, [activeSource, plaidPortfolio, statementPortfolio]);
+
+  useEffect(() => {
+    if (!userId || isLoading || !activePortfolio || !hasPortfolioHoldings(activePortfolio)) {
+      return;
+    }
+
+    const nextKey = `${activeSource}:${availableSources.join(",")}`;
+    if (growthPortfolioReadyKeyRef.current === nextKey) {
+      return;
+    }
+    growthPortfolioReadyKeyRef.current = nextKey;
+
+    trackGrowthFunnelStepCompleted({
+      journey: "investor",
+      step: "portfolio_ready",
+      portfolioSource: activeSource,
+      dedupeKey: `growth:investor:portfolio_ready:${nextKey}`,
+      dedupeWindowMs: 5_000,
+    });
+  }, [activePortfolio, activeSource, availableSources, isLoading, userId]);
 
   const changeActiveSource = useCallback(
     async (nextSource: PortfolioSource) => {
