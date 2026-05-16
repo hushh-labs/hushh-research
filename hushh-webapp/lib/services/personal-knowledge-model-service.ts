@@ -118,6 +118,21 @@ export interface PkmUpgradeContext {
   retryCount?: number;
 }
 
+export interface PkmSyncCheckpointMetadata {
+  schemaVersion: "pkm_sync_checkpoint.v1";
+  checkpointKey: string;
+  domain: string;
+  source: string;
+  attempt: number;
+  expectedDataVersion: number | null;
+  resultDataVersion?: number | null;
+  currentManifestVersion: number | null;
+  targetManifestVersion: number | null;
+  upgradedInSession: boolean;
+  conflictRetry: boolean;
+  upgradeRunId?: string | null;
+}
+
 type DecryptedFullBlobCacheEntry = {
   marker: string;
   blob: Record<string, unknown>;
@@ -1391,6 +1406,7 @@ export class PersonalKnowledgeModelService {
     portfolioData?: CachedPortfolioData;
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
   }): Promise<StoreDomainDataResult> {
     const metadataTimestamp = new Date().toISOString();
@@ -1456,6 +1472,7 @@ export class PersonalKnowledgeModelService {
         writeProjections: params.writeProjections,
         expectedDataVersion: params.expectedDataVersion,
         upgradeContext: params.upgradeContext,
+        syncCheckpoint: params.syncCheckpoint,
         vaultOwnerToken: this.getVaultOwnerToken(params.vaultOwnerToken),
       });
 
@@ -1520,6 +1537,22 @@ export class PersonalKnowledgeModelService {
         prior_readable_summary_version: params.upgradeContext.priorReadableSummaryVersion,
         new_readable_summary_version: params.upgradeContext.newReadableSummaryVersion,
         retry_count: params.upgradeContext.retryCount,
+      };
+    }
+    if (params.syncCheckpoint) {
+      payload.sync_checkpoint = {
+        schema_version: params.syncCheckpoint.schemaVersion,
+        checkpoint_key: params.syncCheckpoint.checkpointKey,
+        domain: params.syncCheckpoint.domain,
+        source: params.syncCheckpoint.source,
+        attempt: params.syncCheckpoint.attempt,
+        expected_data_version: params.syncCheckpoint.expectedDataVersion,
+        result_data_version: params.syncCheckpoint.resultDataVersion,
+        current_manifest_version: params.syncCheckpoint.currentManifestVersion,
+        target_manifest_version: params.syncCheckpoint.targetManifestVersion,
+        upgraded_in_session: params.syncCheckpoint.upgradedInSession,
+        conflict_retry: params.syncCheckpoint.conflictRetry,
+        upgrade_run_id: params.syncCheckpoint.upgradeRunId,
       };
     }
 
@@ -2267,6 +2300,7 @@ export class PersonalKnowledgeModelService {
     writeProjections?: PkmWriteProjection[];
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
     cacheFullBlob?: boolean;
   }): Promise<{
@@ -2319,6 +2353,7 @@ export class PersonalKnowledgeModelService {
       portfolioData,
       expectedDataVersion: params.expectedDataVersion,
       upgradeContext: params.upgradeContext,
+      syncCheckpoint: params.syncCheckpoint,
       vaultOwnerToken: params.vaultOwnerToken,
     });
 
@@ -2369,6 +2404,7 @@ export class PersonalKnowledgeModelService {
     writeProjections?: PkmWriteProjection[];
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
   }): Promise<{
     success: boolean;
@@ -2405,6 +2441,7 @@ export class PersonalKnowledgeModelService {
     writeProjections?: PkmWriteProjection[];
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
     cacheFullBlob?: boolean;
   }): Promise<{
@@ -2461,6 +2498,7 @@ export class PersonalKnowledgeModelService {
       portfolioData,
       expectedDataVersion: params.expectedDataVersion,
       upgradeContext: params.upgradeContext,
+      syncCheckpoint: params.syncCheckpoint,
       vaultOwnerToken: params.vaultOwnerToken,
     });
 
