@@ -28,8 +28,8 @@ Current implementation note:
 
 <p align="center">
   <img src="https://img.shields.io/badge/Agent-Kai-blueviolet?style=for-the-badge" alt="Agent Kai"/>
-  <img src="https://img.shields.io/badge/Target-UHNW_Investors-gold?style=for-the-badge" alt="UHNW"/>
-  <img src="https://img.shields.io/badge/Status-PRIMARY_FOCUS-success?style=for-the-badge" alt="Primary"/>
+  <img src="https://img.shields.io/badge/Role-Finance_Specialist-gold?style=for-the-badge" alt="Finance Specialist"/>
+  <img src="https://img.shields.io/badge/Runtime-Kai_First-success?style=for-the-badge" alt="Kai-first runtime"/>
 </p>
 
 ---
@@ -40,29 +40,28 @@ Current implementation note:
 
 ### Entity Structure
 
-Agent Kai documentation in this repository describes product behavior and technical architecture only.
-Specific operating-entity legal details are maintained outside this technical documentation set.
+This repository describes product behavior and technical architecture only.
+Specific operating-entity, fund, registration, and legal details are maintained outside this public technical documentation set.
 
 ### Educational Tool Disclaimer
 
-Agent Kai is provided as an **educational and informational tool**. It is NOT part of `Hushh Technology Fund L.P.`'s investment advisory or fund management services.
+Kai is provided as an **educational and informational tool**. It is not represented in this repository as an investment adviser, broker-dealer, or fiduciary service.
 
 **The information provided by Kai:**
 
 - Is for informational and educational purposes only
 - Does NOT constitute investment advice, recommendations, or offers to buy/sell securities
 - Should NOT be relied upon for making investment decisions
-- Is NOT a solicitation for `Hushh Technology Fund L.P.` or any investment product
+- Is NOT a solicitation for any investment product
 
 ### Regulatory Status
 
-| Aspect                         | Status                                               |
-| ------------------------------ | ---------------------------------------------------- |
-| **Agent Kai**                  | Educational tool, NOT investment advice              |
-| **Operating Entity**           | Not specified in this repository                     |
-| **`Hushh Technology Fund L.P.`** | SEC compliant (Reg D, ICA exemptions), Delaware L.P. |
+| Aspect               | Status                                  |
+| -------------------- | --------------------------------------- |
+| **Kai**              | Educational tool, NOT investment advice |
+| **Operating Entity** | Not specified in this repository        |
 
-Agent Kai's operating entity is NOT registered with the SEC or any state securities regulatory authority as an investment adviser.
+No operating-entity registration claim should be inferred from this repository.
 
 > **Always consult a licensed financial professional before making investment decisions.**
 
@@ -386,8 +385,8 @@ The culmination of the debate process is a comprehensive **Decision Card** that 
 │  This analysis is provided for EDUCATIONAL PURPOSES ONLY.                │
 │                                                                           │
 │  • This is NOT investment advice                                         │
-│  • Agent Kai operators are NOT a registered investment adviser           │
-│  • Agent Kai is NOT part of `Hushh Technology Fund L.P.`'s services       │
+│  • Kai operators are not represented here as registered advisers         │
+│  • This is not a solicitation for any investment product                 │
 │  • Past performance does not guarantee future results                    │
 │  • You may lose money; there is no assurance of profit                  │
 │  • Always consult a licensed financial advisor before investing         │
@@ -416,6 +415,8 @@ Kai personalizes recommendations based on user risk profiles:
 Agent Kai operates under the Hussh Consent Protocol:
 
 ### User Onboarding Experience
+
+The mock below is a vision target for consent and mode clarity. The current checked-in runtime remains cloud-primary unless a linked current-state reference proves a specific on-device path.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -446,7 +447,7 @@ Agent Kai operates under the Hussh Consent Protocol:
 │     │                                                          │     │
 │     │  ● On-Device Only (Maximum Privacy)                     │     │
 │     │    Analysis runs entirely on your iPhone.               │     │
-│     │    No data ever leaves your device.                     │     │
+│     │    No analysis data leaves your device in this mode.    │     │
 │     │    Uses cached/historical data.                         │     │
 │     │                                                          │     │
 │     │  ○ Hybrid Mode (Best Accuracy)                          │     │
@@ -530,15 +531,7 @@ class KaiConsentScope:
 
 ### Entity Structure
 
-Agent Kai is developed through a collaboration between entities in the Hussh ecosystem:
-
-| Entity                         | Role in Agent Kai                 | Regulatory Status                    |
-| ------------------------------ | --------------------------------- | ------------------------------------ |
-| **Agent Kai Operators**        | Develops and operates Agent Kai   | Not represented as licensed adviser in this repository |
-| **`Hushh Technology Fund L.P.`** | Related entity in Hussh ecosystem | SEC compliant (Reg D), Delaware L.P. |
-
-> [!IMPORTANT]
-> Agent Kai is NOT part of `Hushh Technology Fund L.P.`'s investment services. The fund's SEC registration relates to its own fund operations, not to Agent Kai.
+This repository intentionally does not publish operating-entity, fund, registration, or legal-status claims. Kai documentation should stay focused on product behavior, educational boundaries, consent, and technical architecture.
 
 ### SEC Considerations
 
@@ -549,7 +542,7 @@ Agent Kai is developed through a collaboration between entities in the Hussh eco
 | **Suitability**                    | Risk personas are user-selected, not Kai-determined |
 | **Disclosure**                     | Every decision card includes required disclaimers   |
 | **Audit Trail**                    | Complete debate history available for review        |
-| **Not a Solicitation**             | Kai does NOT solicit for `Hushh Technology Fund L.P.` |
+| **Not a Solicitation**             | Kai does NOT solicit for any investment product |
 
 ### FINRA Compliance Alignment
 
@@ -566,7 +559,7 @@ Agent Kai is developed through a collaboration between entities in the Hussh eco
 | --------------------- | -------------------------------------------- |
 | **Right to Know**     | User can view all stored data in vault       |
 | **Right to Delete**   | One-tap deletion of all decision history     |
-| **Data Minimization** | On-device mode collects no external data     |
+| **Data Minimization** | Future on-device mode collects no external data |
 | **Transparency**      | Every data access requires user consent      |
 | **ADMT Disclosure**   | Kai explains its reasoning (not a black box) |
 
@@ -579,8 +572,8 @@ Agent Kai is developed through a collaboration between entities in the Hussh eco
 | Goal                          | Description                                             |
 | ----------------------------- | ------------------------------------------------------- |
 | **Explainable Decisions**     | Visible agent debate and risk-persona alignment         |
-| **Trust by Design**           | Citations, on-device artifacts, reliability badges      |
-| **Privacy by Default**        | On-device processing, no cloud required                 |
+| **Trust by Design**           | Citations, decision receipts, and reliability badges     |
+| **Privacy by Default**        | Consent-scoped reads, ciphertext storage, and on-device paths where shipped |
 | **Unit Economics**            | ≤ $0.01/day average model/compute cost per DAU at scale |
 | **Frictionless Distribution** | Native iOS app, PWA, and App Clip                       |
 | **Regulatory Clarity**        | Clear disclaimers, no investment advice claims          |
@@ -758,11 +751,11 @@ The diagrams below describe the Kai vision target. Treat on-device inference, of
 
 Kai is successful when users trust it more than a single analyst — not to replace human judgment, but to augment it with:
 
-- **Perfect memory** (every debate preserved)
+- **Durable memory** (decision receipts and governed history)
 - **Tireless analysis** (three agents, always available)
 - **Explainable intelligence** (receipts for every decision)
 - **Consent-first access** (you control everything)
-- **Privacy by default** (on-device processing)
+- **Privacy by default** (consent-scoped, ciphertext-first, and on-device where shipped)
 
 ---
 
@@ -827,4 +820,4 @@ Kai becomes the trust layer between investors and fund managers. The consent pro
 
 > _"An agent should work for the person whose life it touches."_
 
-Kai is successful when investors trust it more than a single analyst -- not to replace human judgment, but to augment it with perfect memory, tireless analysis, and explainable intelligence.
+Kai is successful when investors trust it more than a single analyst -- not to replace human judgment, but to augment it with durable receipts, tireless analysis, and explainable intelligence.
