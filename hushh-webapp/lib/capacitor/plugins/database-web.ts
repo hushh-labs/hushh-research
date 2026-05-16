@@ -1,5 +1,5 @@
 /**
- * Hushh Local Database - IndexedDB Implementation
+ * Hussh Local Database - IndexedDB Implementation
  * 
  * Provides persistent storage for web platform using IndexedDB.
  * DEV: Data also syncs to cloud (useRemoteSync: true by default).

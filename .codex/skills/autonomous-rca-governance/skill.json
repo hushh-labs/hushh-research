@@ -1,0 +1,68 @@
+{
+  "id": "autonomous-rca-governance",
+  "role": "owner",
+  "owner_family": "autonomous-rca-governance",
+  "primary_scope": "autonomous-rca-governance-intake",
+  "description": "Use when a core runtime, CI, or UAT release surface is failing and the task is to classify the failure, choose the smallest safe remediation, rerun authoritative checks, and preserve machine-readable RCA artifacts.",
+  "owned_paths": [
+    ".codex/skills/autonomous-rca-governance",
+    "scripts/ops/verify-env-secrets-parity.py",
+    "scripts/ops/verify_uat_release.py",
+    "scripts/ci/verify-runtime-config-contract.py",
+    "scripts/ci/cloudrun-rollback.sh"
+  ],
+  "non_owned_paths": [
+    "repo-operations",
+    "backend-runtime-governance",
+    "quality-contracts",
+    "contributor-onboarding"
+  ],
+  "task_types": [
+    "autonomous-rca-governance"
+  ],
+  "required_reads": [
+    "docs/reference/operations/ci.md",
+    "docs/reference/operations/env-and-secrets.md",
+    ".codex/skills/repo-operations/SKILL.md",
+    ".codex/skills/quality-contracts/SKILL.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex rca --surface runtime --text",
+    "./bin/hushh codex rca --surface ci --text",
+    "./bin/hushh codex rca --surface uat --text",
+    "python3 -m py_compile .codex/skills/autonomous-rca-governance/scripts/rca_runner.py"
+  ],
+  "verification_bundles": [
+    {
+      "id": "autonomous-rca-governance",
+      "commands": [
+        "./bin/hushh codex rca --surface runtime --text",
+        "./bin/hushh codex rca --surface ci --text",
+        "./bin/hushh codex rca --surface uat --text",
+        "python3 -m py_compile .codex/skills/autonomous-rca-governance/scripts/rca_runner.py"
+      ],
+      "tests": [
+        "./bin/hushh codex rca --surface runtime --text",
+        "python3 -m py_compile .codex/skills/autonomous-rca-governance/scripts/rca_runner.py"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "repo-operations",
+    "backend-runtime-governance",
+    "quality-contracts",
+    "contributor-onboarding"
+  ],
+  "adjacent_skills": [
+    "repo-operations",
+    "backend-runtime-governance",
+    "quality-contracts",
+    "contributor-onboarding"
+  ],
+  "risk_tags": [
+    "rca-drift",
+    "runtime-authority-drift",
+    "uat-release-drift",
+    "semantic-gate-drift"
+  ]
+}

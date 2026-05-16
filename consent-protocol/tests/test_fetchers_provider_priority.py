@@ -269,6 +269,7 @@ async def test_market_data_allows_public_fetch_without_token(monkeypatch):
 @pytest.mark.asyncio
 async def test_market_news_allows_public_fetch_without_token(monkeypatch):
     monkeypatch.setattr(fetchers, "validate_token", _unexpected_validate)
+    monkeypatch.setenv("PMP_API_KEY", "pmp")
 
     async def _empty_finnhub(_ticker: str, _days_back: int):
         return []

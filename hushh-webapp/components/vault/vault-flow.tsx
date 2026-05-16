@@ -54,8 +54,7 @@ type VaultStep =
   | "create"
   | "unlock"
   | "recovery"
-  | "method"
-  | "success";
+  | "method";
 type VaultMode = "passphrase" | GeneratedVaultKeyMode;
 
 interface VaultFlowProps {
@@ -127,8 +126,7 @@ export function VaultFlow({
       const { token, expiresAt } = await VaultService.getOrIssueVaultOwnerToken(user.uid);
       VaultService.setVaultCheckCache(user.uid, true);
       unlockVault(decryptedKey, token, expiresAt);
-      setStep("success");
-      setTimeout(() => onSuccess({ mode: vaultMode }), 1000);
+      onSuccess({ mode: vaultMode });
       return true;
     } catch (tokenError) {
       console.error("Failed to issue VAULT_OWNER token:", tokenError);
@@ -201,7 +199,19 @@ export function VaultFlow({
         setStep("unlock");
       } catch (err) {
         console.error("Vault status check failed:", err);
-        setError(toInvestorMessage("VAULT_STATUS_UNAVAILABLE"));
+        const errorCode =
+          typeof (err as { code?: unknown } | null | undefined)?.code === "string"
+            ? (err as { code: string }).code
+            : null;
+        const errorHint =
+          typeof (err as { hint?: unknown } | null | undefined)?.hint === "string"
+            ? (err as { hint: string }).hint
+            : null;
+        if (errorCode === "DATABASE_UNAVAILABLE") {
+          setError(errorHint || toInvestorMessage("LOCAL_BACKEND_UNAVAILABLE"));
+        } else {
+          setError(toInvestorMessage("VAULT_STATUS_UNAVAILABLE"));
+        }
       }
     };
     checkStatus();
@@ -564,7 +574,7 @@ export function VaultFlow({
               <div className="space-y-2">
                 <h3 className="text-2xl font-bold tracking-tight">Secure Your Digital Vault</h3>
                 <p className="text-muted-foreground text-balance max-w-sm mx-auto">
-                  Hushh uses end-to-end encryption to protect your personal data.
+                  Hussh uses end-to-end encryption to protect your personal data.
                   Create your passphrase first, then optionally enable faster sign-in.
                 </p>
               </div>
@@ -898,16 +908,6 @@ export function VaultFlow({
             </div>
           )}
 
-          {/* Success */}
-          {step === "success" && (
-            <div className="text-center py-4">
-              <div className="text-4xl mb-4">✅</div>
-              <p className="text-muted-foreground">
-                Vault unlocked. Redirecting...
-              </p>
-            </div>
-          )}
-
           {step === "method" && (
             <div className="space-y-3">
               <div className="text-center">
@@ -947,7 +947,7 @@ export function VaultFlow({
                       const result = await VaultMethodService.switchMethod({
                         userId: user.uid,
                         currentVaultKey: pendingUnlockKey,
-                        displayName: user.displayName || user.email || "Hushh User",
+                        displayName: user.displayName || user.email || "Hussh User",
                         targetMethod: recommendedQuickMethod,
                       });
                       setVaultMode(result.method);
@@ -1075,7 +1075,7 @@ export function VaultFlow({
                 variant="none"
                 className="flex-1 border border-gray-200 dark:border-gray-700 whitespace-normal"
                 onClick={async () => {
-                  const content = `Hushh Recovery Key\n\n${recoveryKey}\n\nStore this file securely. This is the ONLY way to recover your vault if you lose your vault credentials.`;
+                  const content = `Hussh Recovery Key\n\n${recoveryKey}\n\nStore this file securely. This is the ONLY way to recover your vault if you lose your vault credentials.`;
                   await downloadTextFile(content, "hushh-recovery-key.txt");
                 }}
               >

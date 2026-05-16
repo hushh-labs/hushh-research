@@ -146,4 +146,64 @@ describe("PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob", () =
     expect(typeof payload.manifest.upgraded_at).toBe("string");
     expect(typeof payload.summary.upgraded_at).toBe("string");
   });
+
+  it("forwards sync checkpoint metadata in the normalized PKM store payload", async () => {
+    const apiFetchSpy = vi.spyOn(ApiService, "apiFetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data_version: 12,
+          updated_at: "2026-04-01T00:00:00Z",
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+
+    await PersonalKnowledgeModelService.storeDomainData({
+      userId: "user-1",
+      domain: "financial",
+      encryptedBlob: {
+        ciphertext: "cipher",
+        iv: "iv",
+        tag: "tag",
+      },
+      summary: {},
+      expectedDataVersion: 11,
+      syncCheckpoint: {
+        schemaVersion: "pkm_sync_checkpoint.v1",
+        checkpointKey:
+          "pkm_sync_checkpoint.v1|merged_domain|financial|attempt:0|expected:11|current_manifest:2|target_manifest:3|upgrade:none",
+        domain: "financial",
+        source: "merged_domain",
+        attempt: 0,
+        expectedDataVersion: 11,
+        currentManifestVersion: 2,
+        targetManifestVersion: 3,
+        upgradedInSession: false,
+        conflictRetry: false,
+        upgradeRunId: null,
+      },
+      vaultOwnerToken: "vault-owner-token",
+    });
+
+    const [, requestInit] = apiFetchSpy.mock.calls[0] || [];
+    const payload = JSON.parse(String((requestInit as RequestInit | undefined)?.body || "{}"));
+    expect(payload.sync_checkpoint).toEqual({
+      schema_version: "pkm_sync_checkpoint.v1",
+      checkpoint_key:
+        "pkm_sync_checkpoint.v1|merged_domain|financial|attempt:0|expected:11|current_manifest:2|target_manifest:3|upgrade:none",
+      domain: "financial",
+      source: "merged_domain",
+      attempt: 0,
+      expected_data_version: 11,
+      current_manifest_version: 2,
+      target_manifest_version: 3,
+      upgraded_in_session: false,
+      conflict_retry: false,
+      upgrade_run_id: null,
+    });
+  });
 });

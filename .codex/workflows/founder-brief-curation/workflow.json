@@ -1,0 +1,60 @@
+{
+  "id": "founder-brief-curation",
+  "title": "Founder Brief Curation",
+  "goal": "Draft and polish founder-facing architecture briefs, presentation-grade markdown/html/pdf artifacts, and shared technical papers that stay grounded in repo truth.",
+  "owner_skill": "docs-governance",
+  "default_spoke": "founder-brief-curation",
+  "task_type": "founder-brief-curation",
+  "affected_surfaces": [
+    "docs",
+    "consent-protocol/docs",
+    "hushh-webapp/docs",
+    "tmp"
+  ],
+  "required_reads": [
+    ".codex/skills/founder-brief-curation/references/brief-curation-rules.md",
+    ".codex/skills/docs-governance/references/founder-document-cadence.md",
+    "docs/reference/operations/documentation-architecture-map.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task founder-brief-curation",
+    "./bin/hushh docs verify",
+    "python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a"
+  ],
+  "verification_bundle": {
+    "id": "founder-brief-curation",
+    "commands": [
+      "./bin/hushh docs verify",
+      "python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a"
+    ],
+    "tests": [
+      "./bin/hushh docs verify"
+    ]
+  },
+  "deliverables": [
+    "founder-grade markdown or html artifact",
+    "rendered shareable pdf when requested",
+    "diagram verification note based on rendered output"
+  ],
+  "impact_fields": [
+    "Artifact paths updated",
+    "Rendered output verified",
+    "Canonical references linked"
+  ],
+  "handoff_chain": [
+    "docs-governance",
+    "founder-brief-curation",
+    "frontend",
+    "backend",
+    "iam-consent-governance",
+    "mcp-developer-surface",
+    "kai-voice-governance"
+  ],
+  "common_failures": [
+    "opening with defensive caveats instead of the platform thesis",
+    "leaving internal drafting provenance in a shared artifact",
+    "allowing diagram text to overflow or crowd box edges",
+    "using repo-relative references that are not clickable in the exported artifact",
+    "overstating unbuilt architecture as current truth"
+  ]
+}

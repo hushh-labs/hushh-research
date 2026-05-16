@@ -596,9 +596,9 @@ async def _run(args: argparse.Namespace) -> None:
     passphrase = str(args.passphrase or "").strip()
     pdf_path_raw = str(args.pdf_path or "").strip()
     if not user_id:
-        raise RuntimeError("Missing user id. Set --user-id or KAI_TEST_USER_ID.")
+        raise RuntimeError("Missing user id. Set --user-id or REVIEWER_UID.")
     if not passphrase:
-        raise RuntimeError("Missing passphrase. Set --passphrase or KAI_TEST_PASSPHRASE.")
+        raise RuntimeError("Missing passphrase. Set --passphrase or REVIEWER_VAULT_PASSPHRASE.")
     if not pdf_path_raw:
         raise RuntimeError("Missing PDF path. Set --pdf-path or KAI_TEST_BROKERAGE_PDF_PATH.")
 
@@ -890,19 +890,29 @@ def _default(value: str, env_key: str) -> str:
     return str(value or os.getenv(env_key, "")).strip()
 
 
+def _default_first(value: str, *env_keys: str) -> str:
+    if str(value or "").strip():
+        return str(value).strip()
+    for env_key in env_keys:
+        resolved = str(os.getenv(env_key, "")).strip()
+        if resolved:
+            return resolved
+    return ""
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Reset one user's PKM to finance-root and reimport brokerage data.",
     )
     parser.add_argument(
         "--user-id",
-        default=_default("", "KAI_TEST_USER_ID"),
-        help="Target user id (default: KAI_TEST_USER_ID env).",
+        default=_default_first("", "REVIEWER_UID", "KAI_TEST_USER_ID"),
+        help="Target user id (default: REVIEWER_UID env; KAI_TEST_USER_ID is a deprecated alias).",
     )
     parser.add_argument(
         "--passphrase",
-        default=_default("", "KAI_TEST_PASSPHRASE"),
-        help="Passphrase for wrapper unlock (default: KAI_TEST_PASSPHRASE env).",
+        default=_default_first("", "REVIEWER_VAULT_PASSPHRASE", "KAI_TEST_PASSPHRASE"),
+        help="Passphrase for wrapper unlock (default: REVIEWER_VAULT_PASSPHRASE env; KAI_TEST_PASSPHRASE is a deprecated alias).",
     )
     parser.add_argument(
         "--pdf-path",

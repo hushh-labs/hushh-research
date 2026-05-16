@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hushh MCP Server - Configuration Generator
+Hussh MCP Server - Configuration Generator
 
 Automatically generates the Claude Desktop configuration file
 with correct paths for the current system.
@@ -110,7 +110,7 @@ def install_config(config: dict) -> bool:
 
 def main():
     print("=" * 60)
-    print("🔐 Hushh MCP Server - Configuration Generator")
+    print("🔐 Hussh MCP Server - Configuration Generator")
     print("=" * 60)
     print()
 
@@ -157,7 +157,7 @@ def main():
             print("   1. Fully quit Claude Desktop (check system tray)")
             print("   2. Reopen Claude Desktop")
             print("   3. Look for 🔧 tool icon")
-            print("   4. Ask: 'What Hushh tools do you have?'")
+            print("   4. Ask: 'What Hussh tools do you have?'")
         else:
             print()
             print("⚠️  Could not auto-install. Please copy manually:")

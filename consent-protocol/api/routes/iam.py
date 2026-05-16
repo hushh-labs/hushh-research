@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/iam", tags=["IAM"])
 
 
 class PersonaSwitchRequest(BaseModel):
-    persona: str = Field(..., description="Target persona: investor | ria")
+    persona: str = Field(..., description="Target persona: investor | ria", max_length=32)
 
 
 class MarketplaceOptInRequest(BaseModel):
@@ -30,7 +30,7 @@ def _iam_schema_not_ready_response(message: str | None = None) -> JSONResponse:
         content={
             "error": message or "IAM schema is not ready",
             "code": "IAM_SCHEMA_NOT_READY",
-            "hint": "Run `python db/migrate.py --iam` and `python scripts/verify_iam_schema.py`.",
+            "hint": "Run `python db/migrate.py --iam` and `python db/verify/verify_iam_schema.py`.",
         },
     )
 
