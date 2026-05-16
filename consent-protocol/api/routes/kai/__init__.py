@@ -11,6 +11,7 @@ This package organizes Kai routes into logical modules:
 - decisions.py: Decision history (reads from domain_summaries; legacy CRUD returns 410)
 - consent.py: Kai-specific consent grants
 - support.py: Profile support and bug-report messaging via Gmail API
+- intelligence.py: Intelligence API layer — capabilities manifest + batch analysis
 
 All sub-routers are aggregated into `kai_router` for backward compatibility.
 """
@@ -19,6 +20,7 @@ from fastapi import APIRouter
 
 from .analyze import router as analyze_router
 from .chat import router as chat_router
+from .intelligence import router as intelligence_router
 from .consent import router as consent_router
 from .decisions import router as decisions_router
 from .gmail import router as gmail_router
@@ -105,6 +107,8 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/market/insights/baseline/{user_id}",
     "/market/insights/{user_id}",
     "/stock-preview/{user_id}",
+    "/intelligence/capabilities",
+    "/intelligence/batch",
 ]
 
 # Include all sub-routers (no prefix since main router has /api/kai)
@@ -121,6 +125,7 @@ kai_router.include_router(decisions_router)
 kai_router.include_router(losers_router)
 kai_router.include_router(market_insights_router)
 kai_router.include_router(support_router)
+kai_router.include_router(intelligence_router)
 
 # Export for server.py
 router = kai_router
