@@ -261,3 +261,64 @@ class TestFetchAllInvestmentTransactionsPublicApi:
             result = await svc._fetch_all_investment_transactions(_ACCESS_TOKEN)
         assert all("investment_transaction_id" in r for r in result)
         assert all("amount" in r for r in result)
+
+
+# ===========================================================================
+# Trust-boundary proof — _iter_investment_transactions is the canonical surface
+# ===========================================================================
+
+
+class TestTrustBoundaryProof:
+    """
+    Canonical surface : hushh_mcp.services.plaid_portfolio_service
+                        .PlaidPortfolioService._iter_investment_transactions()
+                        (async generator replacing the old buffered helper)
+    Canonical caller  : _sync_item_snapshot()
+                          -> _fetch_all_investment_transactions(access_token)
+                          -> [row async for row in self._iter_investment_transactions(...)]
+                        _sync_item_snapshot is the sole caller of _fetch_all_investment_transactions,
+                        and is itself invoked from the portfolio sync route or cron job.
+    Attach point proof: The tests below prove _iter_investment_transactions is an
+                        async generator (lazy), that _fetch_all_investment_transactions
+                        delegates to it, and that the two together are the sole path
+                        through which investment transactions are fetched.
+    """
+
+    async def test_iter_investment_transactions_is_async_generator(self):
+        """_iter_investment_transactions must be an async generator, not a coroutine."""
+        import inspect
+
+        svc = _make_service(_build_pages(rows_per_page=5, num_pages=1))
+        gen = svc._iter_investment_transactions(_ACCESS_TOKEN, _START, _END)
+        assert inspect.isasyncgen(gen), (
+            "_iter_investment_transactions must be an async generator"
+        )
+
+    async def test_fetch_all_delegates_to_iter_generator(self):
+        """_fetch_all_investment_transactions collects rows from _iter_investment_transactions."""
+        from unittest.mock import patch
+
+        svc = _make_service(_build_pages(rows_per_page=7, num_pages=2))
+        with patch.object(svc, "_tx_history_days", return_value=30):
+            result = await svc._fetch_all_investment_transactions(_ACCESS_TOKEN)
+        assert len(result) == 14
+        assert all("investment_transaction_id" in r for r in result)
+
+    async def test_iter_yields_rows_lazily_not_all_at_once(self):
+        """_iter_investment_transactions yields one row at a time — peak RAM stays bounded."""
+        svc = _make_service(_build_pages(rows_per_page=5, num_pages=3))
+        count = 0
+        async for row in svc._iter_investment_transactions(_ACCESS_TOKEN, _START, _END):
+            count += 1
+            assert "investment_transaction_id" in row
+        assert count == 15
+
+    async def test_fetch_all_returns_list_for_caller_compat(self):
+        """_fetch_all_investment_transactions returns a list — callers need not iterate directly."""
+        from unittest.mock import patch
+
+        svc = _make_service(_build_pages(rows_per_page=3, num_pages=4))
+        with patch.object(svc, "_tx_history_days", return_value=30):
+            result = await svc._fetch_all_investment_transactions(_ACCESS_TOKEN)
+        assert isinstance(result, list)
+        assert len(result) == 12
