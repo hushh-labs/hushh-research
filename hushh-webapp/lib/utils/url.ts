@@ -20,8 +20,10 @@ export function buildUrlWithQuery(
     const values = Array.isArray(value) ? value : [value];
 
     values.forEach((item) => {
-      if (item === null || item === undefined || item === "") return;
-      url.searchParams.append(key, String(item));
+      if (item === null || item === undefined) return;
+      const normalized = typeof item === "string" ? item.trim() : String(item);
+      if (normalized === "") return;
+      url.searchParams.append(key, normalized);
     });
   });
 

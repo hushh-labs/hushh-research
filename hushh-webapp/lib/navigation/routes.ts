@@ -3,6 +3,8 @@
  * Keep every app-level navigation target here to avoid drift.
  */
 
+import { buildUrlWithQuery, type UrlQueryParams } from "@/lib/utils/url";
+
 export const ROUTES = {
   HOME: "/",
   DEVELOPERS: "/developers",
@@ -40,18 +42,8 @@ export const ROUTES = {
   KAI_OPTIMIZE: "/kai/optimize",
 } as const;
 
-function withQuery(pathname: string, entries: Record<string, string | null | undefined>) {
-  const params = new URLSearchParams();
-
-  for (const [key, value] of Object.entries(entries)) {
-    const normalized = String(value ?? "").trim();
-    if (normalized) {
-      params.set(key, normalized);
-    }
-  }
-
-  const query = params.toString();
-  return query ? `${pathname}?${query}` : pathname;
+function withQuery(pathname: string, entries: UrlQueryParams) {
+  return buildUrlWithQuery(pathname, entries);
 }
 
 export function buildMarketplaceRiaProfileRoute(riaId?: string | null) {
