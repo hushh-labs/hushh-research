@@ -44,4 +44,51 @@ describe("PermissionGate", () => {
       "/consents"
     );
   });
+
+  it("keeps explicit restricted states behind the canonical gate", () => {
+    mockUseVault.mockReturnValue({
+      isVaultUnlocked: true,
+      vaultOwnerToken: "HCT:test-token",
+    });
+
+    render(
+      <PermissionGate permission="portfolio_valuation" state="restricted">
+        <button type="button">Connect Portfolio</button>
+      </PermissionGate>
+    );
+
+    expect(screen.queryByRole("button", { name: "Connect Portfolio" })).toBeNull();
+    expect(screen.getByTestId("permission-locked-state")).toBeTruthy();
+  });
+
+  it("uses privacy-safe copy when permission status is unavailable", () => {
+    mockUseVault.mockReturnValue({
+      isVaultUnlocked: true,
+      vaultOwnerToken: "HCT:test-token",
+    });
+
+    render(
+      <PermissionGate permission="portfolio_valuation" state="unavailable">
+        <button type="button">Connect Portfolio</button>
+      </PermissionGate>
+    );
+
+    expect(screen.queryByRole("button", { name: "Connect Portfolio" })).toBeNull();
+    expect(screen.getByText("Permission status is unavailable right now. Review permissions before continuing.")).toBeTruthy();
+  });
+
+  it("renders nothing while permission status is loading", () => {
+    mockUseVault.mockReturnValue({
+      isVaultUnlocked: true,
+      vaultOwnerToken: "HCT:test-token",
+    });
+
+    const { container } = render(
+      <PermissionGate permission="portfolio_valuation" state="loading">
+        <button type="button">Connect Portfolio</button>
+      </PermissionGate>
+    );
+
+    expect(container.innerHTML).toBe("");
+  });
 });
