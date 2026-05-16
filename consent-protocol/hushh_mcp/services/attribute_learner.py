@@ -62,19 +62,18 @@ class AttributeLearner:
     then stores it in the PKM for future context.
     """
 
+    _UNSET = object()  # sentinel — distinguishes "not yet initialised" from None (no API key)
+
     def __init__(self):
-        self._client = None
+        self._client = self._UNSET
         self._pkm_service = None
 
     @property
     def client(self):
         """Get the google.genai client (from google-adk)."""
-        if not hasattr(self, "_client") or self._client is None:
+        if self._client is self._UNSET:
             api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-            if api_key:
-                self._client = genai.Client(api_key=api_key)
-            else:
-                self._client = None
+            self._client = genai.Client(api_key=api_key) if api_key else None
         return self._client
 
     @property
