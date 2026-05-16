@@ -90,8 +90,6 @@ def test_vault_wrapper_delete_requires_vault_owner_unlock_proof_with_firebase_au
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Missing X-Hushh-Consent header"
-<<<<<<< HEAD
-=======
 
 
 def test_database_http_exception_helper_returns_generic_500_for_unknown_errors():
@@ -100,4 +98,3 @@ def test_database_http_exception_helper_returns_generic_500_for_unknown_errors()
 
     assert exc.value.status_code == 500
     assert exc.value.detail == "Database error"
->>>>>>> upstream/main
