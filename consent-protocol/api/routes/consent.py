@@ -211,54 +211,54 @@ async def _hydrate_pending_requester_labels(pending_items: list[dict]) -> list[d
 
 
 class CancelConsentRequest(BaseModel):
-    userId: str
-    requestId: str
+    userId: str = Field(min_length=1, max_length=128)
+    requestId: str = Field(min_length=1, max_length=128)
 
 
 class PendingConsentOpenedRequest(BaseModel):
-    userId: str
-    requestId: str | None = None
-    bundleId: str | None = None
-    openedVia: str | None = None
+    userId: str = Field(min_length=1, max_length=128)
+    requestId: str | None = Field(default=None, max_length=128)
+    bundleId: str | None = Field(default=None, max_length=128)
+    openedVia: str | None = Field(default=None, max_length=64)
 
 
 class GenericConsentRequestCreate(BaseModel):
-    subject_user_id: str
-    requester_actor_type: str = "ria"
-    subject_actor_type: str = "investor"
-    scope_template_id: str
-    selected_scope: str | None = None
-    duration_mode: str = "preset"
-    duration_hours: int | None = None
-    firm_id: str | None = None
-    reason: str | None = None
+    subject_user_id: str = Field(min_length=1, max_length=128)
+    requester_actor_type: str = Field(default="ria", max_length=64)
+    subject_actor_type: str = Field(default="investor", max_length=64)
+    scope_template_id: str = Field(min_length=1, max_length=256)
+    selected_scope: str | None = Field(default=None, max_length=256)
+    duration_mode: str = Field(default="preset", max_length=64)
+    duration_hours: int | None = Field(default=None, ge=1, le=8760)
+    firm_id: str | None = Field(default=None, max_length=128)
+    reason: str | None = Field(default=None, max_length=1000)
 
 
 class RelationshipDisconnectRequest(BaseModel):
-    investor_user_id: str | None = None
-    ria_profile_id: str | None = None
+    investor_user_id: str | None = Field(default=None, max_length=128)
+    ria_profile_id: str | None = Field(default=None, max_length=128)
 
 
 class RefreshExportUploadRequest(BaseModel):
-    userId: str
-    consentToken: str
-    encryptedData: str
-    encryptedIv: str
-    encryptedTag: str
-    wrappedExportKey: str
-    wrappedKeyIv: str
-    wrappedKeyTag: str
-    senderPublicKey: str
-    wrappingAlg: str | None = None
-    connectorKeyId: str | None = None
-    sourceContentRevision: int | None = None
-    sourceManifestRevision: int | None = None
+    userId: str = Field(min_length=1, max_length=128)
+    consentToken: str = Field(min_length=1, max_length=2048)
+    encryptedData: str = Field(min_length=1)
+    encryptedIv: str = Field(min_length=1, max_length=256)
+    encryptedTag: str = Field(min_length=1, max_length=256)
+    wrappedExportKey: str = Field(min_length=1, max_length=8192)
+    wrappedKeyIv: str = Field(min_length=1, max_length=256)
+    wrappedKeyTag: str = Field(min_length=1, max_length=256)
+    senderPublicKey: str = Field(min_length=1, max_length=8192)
+    wrappingAlg: str | None = Field(default=None, max_length=64)
+    connectorKeyId: str | None = Field(default=None, max_length=128)
+    sourceContentRevision: int | None = Field(default=None, ge=1)
+    sourceManifestRevision: int | None = Field(default=None, ge=1)
 
 
 class RefreshExportFailureRequest(BaseModel):
-    userId: str
-    consentToken: str
-    lastError: str | None = None
+    userId: str = Field(min_length=1, max_length=128)
+    consentToken: str = Field(min_length=1, max_length=2048)
+    lastError: str | None = Field(default=None, max_length=2000)
 
 
 @router.get("/pending")
