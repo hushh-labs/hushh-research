@@ -43,7 +43,13 @@ flowchart TB
 
 ## Overview
 
-The Hushh mobile app uses **Next.js static export** in a native WebView, with **native plugins** handling security-critical operations. Both iOS and Android achieve feature parity through aligned plugin implementations.
+The Hussh mobile app uses **Next.js static export** in a native WebView, with **native plugins** handling security-critical operations. Both iOS and Android achieve feature parity through aligned plugin implementations.
+
+Founder-language mapping:
+
+- `Separation of Duties` is implemented on mobile through the split between shared React runtime, native plugin boundary, and backend policy enforcement
+- `Cryptographic Primitives` are implemented through client-held vault control, secure native storage, and ciphertext-only backend persistence
+- `Capability Tokens` remain explicit in this guide as `VAULT_OWNER`, Firebase tokens, and consent tokens where the runtime contract requires them
 
 Program parity is enforced against the **entire visible route tree**, not only Kai core pages. The current source of truth is:
 
@@ -92,6 +98,8 @@ Required configuration:
 - `NEXT_PUBLIC_ANDROID_APP_ID` (default `com.hushh.app`)
 - Backend allowlist: `PASSKEY_ALLOWED_RP_IDS` in `consent-protocol/.env`
 
+These are deploy/native configuration inputs, not part of the canonical frontend runtime profile files under `hushh-webapp/.env.local*`.
+
 Notes:
 
 - For dual-domain migration, keep both production hosts in `PASSKEY_ALLOWED_RP_IDS`.
@@ -112,6 +120,7 @@ Before calling iOS/Android parity complete, run:
 
 That release gate includes:
 
+- native microphone permission metadata verification
 - full route-contract verification
 - native plugin parity verification
 - Capacitor route classification verification
@@ -129,10 +138,10 @@ Accepted parity exceptions currently documented in the registry:
 
 ### Firebase artifact safety (no secret leak in git)
 
-- `hushh-webapp/ios/App/App/GoogleService-Info.plist` is the tracked iOS template placeholder.
+- `hushh-webapp/ios/App/App/GoogleService-Info-README.md` documents the untracked iOS Firebase plist workflow.
 - Android Firebase config is treated as generated build input, not a committed source artifact.
-- `./bin/hushh bootstrap` hydrates the active profile and materializes native Firebase artifacts under `hushh-webapp/.env.local.d/`.
-- Native build wrappers apply the generated sidecar for the build and then restore tracked templates.
+- `./bin/hushh bootstrap` only hydrates the runtime profiles. It does not materialize native Firebase artifacts into the active frontend env files.
+- Native build/release flows should handle platform Firebase artifacts explicitly and keep them out of git.
 - Root-level local Firebase artifacts must remain untracked.
 
 ```
@@ -184,7 +193,7 @@ All 10 plugins exist on both platforms with matching methods:
 
 Visible page routes are governed through `hushh-webapp/lib/navigation/routes.ts` together with the architecture/mobile parity docs. That coverage includes:
 
-- product routes (`/kai`, `/consents`, `/profile`, `/marketplace`, `/ria`)
+- product routes (`/kai`, `/consents`, `/profile`, `/one/kyc`, `/marketplace`, `/ria`)
 - `/developers`
 - public/auth content pages (`/`, `/login`, `/logout`)
 - visible lab routes
@@ -633,7 +642,7 @@ const DEV_MODE = false; // Must be false for production builds
 
 const config: CapacitorConfig = {
   appId: "com.hushh.app",
-  appName: "Hushh",
+  appName: "Kai",
   webDir: "out",
   server: {
     cleartext: true,

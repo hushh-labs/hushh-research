@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -13,6 +14,8 @@ from mcp_modules.developer_context import (
     set_current_developer_principal,
 )
 from mcp_server import server as mcp_server
+
+logger = logging.getLogger(__name__)
 
 
 def _header_value(scope: dict[str, Any], header_name: bytes) -> str | None:
@@ -68,18 +71,18 @@ class AuthenticatedRemoteMCPApp:
             await _send_json(send, exc.status_code, exc.detail)
             return
 
-        raw_token = _parse_query_token(scope)
-        has_legacy_header = bool(_header_value(scope, b"authorization"))
-        if not raw_token and has_legacy_header:
-            await _send_json(
-                send,
-                400,
-                {
-                    "error_code": "DEVELOPER_TOKEN_QUERY_REQUIRED",
-                    "message": "Use /mcp/?token=<developer-token> instead of Authorization header.",
-                },
-            )
-            return
+        bearer_header = (_header_value(scope, b"authorization") or "").strip()
+        bearer_token = ""
+        if bearer_header.lower().startswith("bearer "):
+            bearer_token = bearer_header[7:].strip()
+
+        query_token = _parse_query_token(scope)
+
+        # Prefer the Authorization header. Tokens carried in URLs leak via
+        # Referer headers, server access logs, browser history, and CDN/proxy
+        # logs (CWE-598). Query parameters remain accepted for backward
+        # compatibility with existing MCP clients that cannot set headers.
+        raw_token = bearer_token or query_token
 
         if not raw_token:
             await _send_json(
@@ -87,10 +90,24 @@ class AuthenticatedRemoteMCPApp:
                 401,
                 {
                     "error_code": "DEVELOPER_TOKEN_REQUIRED",
-                    "message": "Developer token is required for remote MCP. Use /mcp/?token=<developer-token>.",
+                    "message": (
+                        "Developer token is required for remote MCP. Pass it as "
+                        "'Authorization: Bearer <token>' (preferred) or '?token=<token>' (legacy)."
+                    ),
                 },
             )
             return
+
+        if not bearer_token and query_token:
+            logger.warning(
+                "Remote MCP token received via query parameter; prefer Authorization: Bearer "
+                "header to avoid URL-leak vectors.",
+                extra={
+                    "event_type": "developer_token_query_param_use",
+                    "transport": "remote_mcp",
+                    "client_ip": _client_ip(scope) or "",
+                },
+            )
 
         principal = self._registry.authenticate_token(
             raw_token,

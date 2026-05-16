@@ -18,8 +18,6 @@ describe("ria-onboarding-flow", () => {
     expect(buildRiaOnboardingSteps(draft).map((step) => step.id)).toEqual([
       "capabilities",
       "display_name",
-      "legal_identity",
-      "advisory_firm",
       "broker_firm",
       "public_profile",
       "review",
@@ -46,7 +44,11 @@ describe("ria-onboarding-flow", () => {
     };
 
     expect(canContinueRiaOnboardingStep("capabilities", draft)).toBe(true);
-    expect(canContinueRiaOnboardingStep("display_name", draft)).toBe(true);
+    expect(
+      canContinueRiaOnboardingStep("display_name", draft, {
+        nameVerificationSatisfied: true,
+      })
+    ).toBe(true);
     expect(canContinueRiaOnboardingStep("legal_identity", draft)).toBe(true);
     expect(canContinueRiaOnboardingStep("advisory_firm", draft)).toBe(true);
     expect(canContinueRiaOnboardingStep("public_profile", draft)).toBe(true);
@@ -59,7 +61,11 @@ describe("ria-onboarding-flow", () => {
       individualCrd: "12345",
     });
 
-    expect(findFirstIncompleteRiaOnboardingStepId(draft)).toBe("advisory_firm");
+    expect(
+      findFirstIncompleteRiaOnboardingStepId(draft, {
+        nameVerificationSatisfied: true,
+      })
+    ).toBe("public_profile");
   });
 
   it("clamps removed steps when capabilities change", () => {
@@ -68,5 +74,18 @@ describe("ria-onboarding-flow", () => {
     });
 
     expect(resolveRiaOnboardingStepId(draft, "broker_firm")).toBe("capabilities");
+  });
+
+  it("blocks the default display-name step until explicit verification succeeds", () => {
+    const draft = normalizeRiaOnboardingDraft({
+      displayName: "Ana Roumenova Carter",
+    });
+
+    expect(canContinueRiaOnboardingStep("display_name", draft)).toBe(false);
+    expect(
+      canContinueRiaOnboardingStep("display_name", draft, {
+        nameVerificationSatisfied: true,
+      })
+    ).toBe(true);
   });
 });

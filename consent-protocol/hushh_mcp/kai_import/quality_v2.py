@@ -2,19 +2,30 @@
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from typing import Any
 
 
 def _to_num(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
     if isinstance(value, (int, float)):
-        return float(value)
+        f = float(value)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return f
     return None
 
 
 def _coerce_optional_number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
     if isinstance(value, (int, float)):
-        return float(value)
+        f = float(value)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return f
     if value is None:
         return None
     if isinstance(value, str):
@@ -22,9 +33,12 @@ def _coerce_optional_number(value: Any) -> float | None:
         if not text:
             return None
         try:
-            return float(text.replace(",", "").replace("$", ""))
+            f = float(text.replace(",", "").replace("$", ""))
         except ValueError:
             return None
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return f
     return None
 
 

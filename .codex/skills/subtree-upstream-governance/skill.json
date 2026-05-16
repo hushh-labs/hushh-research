@@ -1,0 +1,66 @@
+{
+  "id": "subtree-upstream-governance",
+  "role": "owner",
+  "owner_family": "subtree-upstream-governance",
+  "primary_scope": "subtree-upstream-governance-intake",
+  "description": "Use when changing upstream-first coordination, subtree sync policy, or maintainer-only subtree governance between consent-protocol and hushh-research.",
+  "owned_paths": [
+    "docs/reference/operations/subtree-maintainers.md",
+    "scripts/ci/subtree-sync-check.sh",
+    ".codex/skills/subtree-upstream-governance"
+  ],
+  "non_owned_paths": [
+    "repo-operations",
+    "docs-governance",
+    "backend",
+    "contributor-onboarding",
+    "oss-license-governance"
+  ],
+  "task_types": [
+    "subtree-upstream-governance"
+  ],
+  "required_reads": [
+    "docs/reference/operations/subtree-maintainers.md",
+    "scripts/ci/subtree-sync-check.sh",
+    "consent-protocol/README.md",
+    "contributing.md"
+  ],
+  "required_commands": [
+    "./scripts/ci/subtree-sync-check.sh",
+    "python3 scripts/licenses/verify_apache_surface.py",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundles": [
+    {
+      "id": "subtree-upstream-governance",
+      "commands": [
+        "./scripts/ci/subtree-sync-check.sh",
+        "python3 scripts/licenses/verify_apache_surface.py",
+        "./bin/hushh docs verify"
+      ],
+      "tests": [
+        "./scripts/ci/subtree-sync-check.sh",
+        "./bin/hushh docs verify"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "repo-operations",
+    "docs-governance",
+    "backend",
+    "contributor-onboarding",
+    "oss-license-governance"
+  ],
+  "adjacent_skills": [
+    "repo-operations",
+    "docs-governance",
+    "backend",
+    "contributor-onboarding",
+    "oss-license-governance"
+  ],
+  "risk_tags": [
+    "subtree-sync-drift",
+    "upstream-routing-drift",
+    "maintainer-doc-drift"
+  ]
+}

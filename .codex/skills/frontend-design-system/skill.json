@@ -3,7 +3,7 @@
   "role": "spoke",
   "owner_family": "frontend",
   "primary_scope": "frontend-design-system",
-  "description": "Use when changing Hushh UI architecture, shared components, shell chrome, or styling rules inside the frontend owner family.",
+  "description": "Use when changing Hussh UI architecture, shared components, shell chrome, or styling rules inside the frontend owner family.",
   "owned_paths": [
     "hushh-webapp/components/ui",
     "hushh-webapp/lib/morphy-ux",

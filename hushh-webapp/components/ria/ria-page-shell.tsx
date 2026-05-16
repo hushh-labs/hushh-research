@@ -2,7 +2,9 @@
 
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { BriefcaseBusiness, ShieldCheck, TriangleAlert } from "lucide-react";
+import { BriefcaseBusiness, ShieldAlert, ShieldCheck, TriangleAlert } from "lucide-react";
+
+import { usePersonaState } from "@/lib/persona/persona-context";
 
 import {
   AppPageContentRegion,
@@ -237,3 +239,38 @@ export function RiaStatusPanel({
     </RiaSurface>
   );
 }
+
+const _VERIFIED_STATUSES = new Set(["active", "verified", "finra_verified"]);
+
+export function isRiaVerified(status?: string | null): boolean {
+  return _VERIFIED_STATUSES.has(String(status || "").toLowerCase());
+}
+
+export function RiaVerificationGate({ children }: { children: ReactNode }) {
+  const { riaOnboardingStatus, loading } = usePersonaState();
+  const status = riaOnboardingStatus?.advisory_status || riaOnboardingStatus?.verification_status;
+
+  if (loading) return null;
+
+  if (!isRiaVerified(status)) {
+    return (
+      <section className="space-y-3">
+        <SectionHeader
+          eyebrow="Verification required"
+          title="Complete advisor verification first"
+          description="Non-verified advisors cannot access investor data. Finish the verification flow in onboarding, then come back."
+          icon={ShieldAlert}
+        />
+        <RiaSurface tone="warning" className="border-dashed">
+          <p className="text-sm leading-6 text-muted-foreground">
+            Investor data, client workspaces, and consent requests are locked until
+            regulatory verification is complete.
+          </p>
+        </RiaSurface>
+      </section>
+    );
+  }
+
+  return <>{children}</>;
+}
+

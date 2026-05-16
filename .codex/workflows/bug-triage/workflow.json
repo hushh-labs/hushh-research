@@ -57,14 +57,5 @@
     "jumping into a subsystem before bounding blast radius",
     "fixing symptoms without docs/tests updates",
     "running oversized verification instead of targeted checks"
-  ],
-  "scheduled_safe": false,
-  "maintenance_cadence": "manual",
-  "maintenance_runner": [],
-  "maintenance_owner": "repo-context",
-  "maintenance_issue_section": "bug-triage",
-  "maintenance_blockers": [
-    "workflow is manual-only and should not run unattended"
-  ],
-  "maintenance_prerequisites": []
+  ]
 }

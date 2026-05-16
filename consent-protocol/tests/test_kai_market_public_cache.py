@@ -136,3 +136,126 @@ def test_repair_quote_symbol_normalizes_known_provider_aliases():
     assert market_insights._repair_quote_symbol("BRKB") == ("BRK-B", True)
     assert market_insights._repair_quote_symbol("CMCS1") == ("CMCSA", True)
     assert market_insights._repair_quote_symbol("MSFT") == ("MSFT", False)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_public_module_failure_degrades_without_collapsing_home(monkeypatch):
+    async def _fake_resolve_pick_source_rows(*_args, **_kwargs):
+        return [], [market_insights._default_pick_source()], market_insights.DEFAULT_PICK_SOURCE_ID
+
+    async def _fake_public_module(**kwargs):
+        key = str(kwargs["key"])
+        if key.startswith("home:"):
+            return await kwargs["fetcher"](), False, 0, "live", False
+        if key.startswith("quotes:"):
+            raise RuntimeError("quote provider unavailable")
+        if key == "macro:us":
+            return (
+                {
+                    "vix": {
+                        "label": "Volatility",
+                        "value": None,
+                        "delta_pct": None,
+                        "as_of": None,
+                        "source": "Unavailable",
+                        "degraded": True,
+                    },
+                    "market_status": market_insights._scheduled_market_status_fallback(),
+                    "provider_status": {"volatility": "partial", "market_status": "partial"},
+                },
+                False,
+                0,
+                "live",
+                False,
+            )
+        if key == "movers:us":
+            return ({}, {"movers:gainers": "partial"}), False, 0, "live", False
+        if key == "sectors:us":
+            return ([], "partial"), False, 0, "live", False
+        if key.startswith("recommendation:"):
+            symbol = key.split(":", 1)[1]
+            return (
+                {
+                    "recommendation": market_insights._fallback_recommendation_from_quote(
+                        symbol, None
+                    ),
+                    "status": "partial",
+                    "provider_status": {f"recommendation:{symbol}": "partial"},
+                },
+                False,
+                0,
+                "live",
+                False,
+            )
+        if key.startswith("news:"):
+            return {"rows": [], "provider_status": {}}, False, 0, "live", False
+        raise AssertionError(f"unexpected cache key {key}")
+
+    monkeypatch.setattr(
+        market_insights,
+        "_resolve_pick_source_rows",
+        _fake_resolve_pick_source_rows,
+    )
+    monkeypatch.setattr(
+        market_insights,
+        "_get_or_refresh_public_module",
+        _fake_public_module,
+    )
+
+    payload = await market_insights._get_market_insights_payload(
+        user_id="test-user",
+        requested_watchlist_symbols=["AAPL"],
+        filtered_symbols=[],
+        watchlist_symbols=["AAPL"],
+        days_back=7,
+        active_pick_source=market_insights.DEFAULT_PICK_SOURCE_ID,
+        consent_token=None,
+        personalized=False,
+    )
+
+    assert payload["stale"] is True
+    assert payload["provider_status"]["quote:AAPL"] == "failed"
+    assert payload["watchlist"][0]["symbol"] == "AAPL"
+    assert payload["watchlist"][0]["degraded"] is True
+    assert payload["movers"]["degraded"] is True
+    assert payload["provider_status"]["sectors"] == "partial"
+
+
+@pytest.mark.asyncio
+async def test_startup_warm_seeds_shared_baseline_home_after_public_modules(monkeypatch):
+    call_order: list[str] = []
+    captured: dict[str, object] = {}
+
+    async def _fake_public_refresh():
+        call_order.append("public")
+
+    async def _fake_market_payload(**kwargs):
+        call_order.append("baseline")
+        captured.update(kwargs)
+        return {
+            "meta": {
+                "cache_tier": "memory",
+                "stale": False,
+                "cache_age_seconds": 0,
+            }
+        }
+
+    monkeypatch.setattr(market_insights, "_run_refresh_with_advisory_lock", _fake_public_refresh)
+    monkeypatch.setattr(market_insights, "_get_market_insights_payload", _fake_market_payload)
+    monkeypatch.setenv("KAI_MARKET_BACKGROUND_REFRESH", "true")
+    monkeypatch.setenv("KAI_MARKET_STARTUP_WARM_TIMEOUT_SECONDS", "2")
+
+    await market_insights.warm_market_insights_startup_once()
+
+    assert call_order == ["public", "baseline"]
+    assert captured == {
+        "user_id": "startup",
+        "requested_watchlist_symbols": list(market_insights.DEFAULT_SYMBOLS),
+        "filtered_symbols": [],
+        "watchlist_symbols": list(market_insights.DEFAULT_SYMBOLS),
+        "days_back": 7,
+        "active_pick_source": market_insights.DEFAULT_PICK_SOURCE_ID,
+        "consent_token": None,
+        "personalized": False,
+        "warm_source": "startup",
+    }

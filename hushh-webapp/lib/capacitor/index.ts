@@ -1,5 +1,5 @@
 /**
- * Hushh Consent Protocol - Capacitor Native Plugins
+ * Hussh Consent Protocol - Capacitor Native Plugins
  *
  * This file registers the native Swift plugins that implement the consent protocol.
  * The plugins provide:
