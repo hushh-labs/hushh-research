@@ -129,7 +129,5 @@ def test_signature_is_lowercase_hex_64_chars() -> None:
         assert len(signature) == 64, (
             f"vector {vec['name']!r} signature is {len(signature)} chars; expected 64"
         )
-        assert signature == signature.lower(), (
-            f"vector {vec['name']!r} signature has uppercase hex"
-        )
+        assert signature == signature.lower(), f"vector {vec['name']!r} signature has uppercase hex"
         int(signature, 16)  # raises ValueError if not hex

@@ -1,353 +1,211 @@
 # PR Train Review SOP
 
-Use this SOP whenever a developer is reviewing more than one PR, deciding the
-next merge batch, revisiting `changes_requested` PRs, or trying to increase PR
-throughput without weakening merge quality.
+Use this SOP when a reviewer handles more than one PR, chooses the next batch,
+revisits `changes_requested`, or scales throughput without weakening quality.
 
-The goal is not to merge more PRs blindly. The goal is to turn the open PR
-backlog into a deterministic graph where independent work can move in parallel
-and dependent work is sequenced only where the dependency is real.
+## Async Train Default
 
-## Operator Promise
+This SOP is the canonical behavior source for multi-PR governance.
+Canonical order for every backlog, batch, repass, decision-wave, or scale pass:
 
-Every trained reviewer should be able to:
+1. Refresh or verify the live report and record scan completeness.
+2. Move failing, missing, stale, or auxiliary-failing checks into
+   `Check Failure Holds` unless this is explicitly CI repair.
+3. Build the train graph from hard edges: files, lockfiles, generated
+   contracts, schema/migrations, sensitive runtimes, dirty-file overlap,
+   stacked/conflicting state, and queue/main dependencies.
+4. Identify all async trains from that graph, oldest PRs first, not only the next visible batch.
+5. Start one read-only evidence lane per independent train family before final train selection; the writer-lane exception does not make evidence lanes writable.
+6. Ask one Pre-Wave Operator Question for the whole reviewed train set before
+   any comment, close, patch, queue, merge, or deploy checkpoint.
+7. After a wave completes, treat PRs with current standardized maintainer
+   records as handled until their head SHA, CI state, mergeability, or
+   contributor response changes. Do not repeat them in the next operator wave.
+8. Run independent trains in parallel through a five-worker train pool; sequence hard-edge PRs oldest-first inside a train and refill a freed worker with the next oldest non-touching train.
+9. Treat PR Validation, Queue Validation, and Main Post-Merge Smoke as monitor lanes; while they run, prepare the next independent train or decision wave.
+10. Ingest every returned lane into queue, patch, comment/close, hold, or next-refill writes; do not call the set complete until every reviewed PR is linked as acted, terminal, blocked, or remaining.
 
-1. inventory the open PR backlog quickly
-2. identify queueable independent PRs
-3. separate hard collisions from soft theme similarity
-4. find maintainer-patch candidates with canonical attach points
-5. issue changes-requested or closure waves without blocking merges
-6. monitor queue and smoke asynchronously
-7. refresh reports after every state change
+If this order conflicts with another PR-governance reference, this section wins.
 
 ## Preflight
 
-Before scanning or acting:
+Fetch main, inspect worktree, confirm no dirty local file overlaps a PR under review, and use only a fresh scoped live report. High-volume (`>20` PRs scanned, `>5` acted on, mixed trains, repasses, or throughput maximization) requires the delegation router and read-only lanes.
 
-1. Fetch current main.
-2. Confirm the local worktree is clean or document every dirty file.
-3. Confirm no local dirty file overlaps an open PR under review.
-4. Use the latest live report only if it names scan scope and freshness.
-5. If the report is stale, regenerate it before giving train advice.
-6. For high-volume train work, start the read-only subagent taskforce before
-   selecting batches. High-volume means any one of:
-   - more than `20` PRs being scanned or discussed
-   - more than `5` PRs being acted on in one operator session
-   - any mixed frontend/backend/security/devex/observability train
-   - any repass of previous `changes_requested`, close, or harvest decisions
-   - any request to maximize throughput, scan the backlog, or run async trains
+Record the starting developer branch before any worktree, PR checkout, detached HEAD, or temporary review branch operation. If the parent session switches away, the train is not complete until it returns to that branch or reports the exact blocker.
 
-Commands:
+## Subagent Taskforce And Worker Pool
 
-```bash
-git fetch origin main
-git status --short --branch
-python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md
-```
+1. `frontend/UI reachability`
+2. `backend/runtime trust`
+3. `observability/security`
+4. `devex/repo operations`
+5. `decision-wave communications`
 
-## Required Subagent Taskforce
+Add a sixth lane only for a real independent surface such as mobile/native or founder/north-star direction. Every train maps to one evidence lane by default; the parent keeps branches, commits, code patches, secrets, deploys, report refreshes, and final synthesis.
 
-Mass PR train work must use specialist read-only evidence lanes when the runtime
-supports subagents. Do not treat subagents as optional for backlog-scale review.
-The parent session remains the only authority for branch switching, commits,
-GitHub comments, approvals, merges, queue decisions, deploys, report refreshes,
-and final recommendations.
+Default active pool size is `5`; when one lane finishes or blocks, immediately assign the next oldest non-touching train. Each lane returns direct PR links, head SHA, files, hard collisions, attach point or `no_attach_point`, accepted value, dropped/deferred pieces, proof, train placement, comment posture, risks, and stop conditions.
 
-Start these default lanes before producing the operator dossier:
+## N-Train Parallel Model
 
-1. `frontend/UI reachability`: route/component callers, app-ui ownership,
-   visible behavior, accessibility, Playwright-needed proof, and exact-file
-   collisions.
-2. `backend/runtime trust`: API routes, services, cache behavior, auth,
-   consent, vault, PKM, finance, KYC, schema, generated contracts, and runtime
-   collision groups.
-3. `observability/security`: diagnostic logging, analytics payload boundaries,
-   secret-scan risk, data minimization, and public-comment safety.
-4. `devex/repo operations`: hooks, setup paths, CI, workflow files, lockfiles,
-   docs verification, merge queue, and smoke/report refresh paths.
-5. `decision-wave communications`: existing maintainer records, edit-vs-new
-   comment posture, closure/request-changes headings, and public hyperlink
-   completeness.
+Identify every train in the reviewed scope before any state change:
 
-Add a sixth lane only when the batch has a real independent surface not covered
-above, such as mobile/native parity or founder/north-star product direction.
-Avoid one subagent per PR; the unit is an evidence family, not a ticket.
+1. One independent hard-edge component becomes one train.
+2. One train maps to one read-only evidence subagent lane.
+3. Train `1..n` run in parallel when files, runtime families, generated
+   contracts, lockfiles, schema, deploy, and dirty surfaces do not touch.
+4. Inside a train, process PRs one after another in ascending PR creation time;
+   fall back to ascending PR number when creation time is unavailable.
+5. The subagent owns train evidence and may use only the controlled writer envelope after approval; the parent owns patches, branches, deploys, merge policy, and final synthesis.
+6. A train can contain `20+` PRs when homogeneous and same-surface. High-risk
+   state-changing writes still use the dynamic wave caps.
+7. The handoff lists every train, PR links, sequence, lane/subagent, action,
+   patch/harvest possibility, attribution, and next stop condition.
 
-Default mapping: every async train gets its own read-only subagent lane. A
-train can contain multiple PRs when they share the same product/runtime family.
-Independent trains run at the same time; PRs inside a train are sequenced when
-they share files, generated contracts, schema, lockfiles, sensitive runtime, or
-queue/main dependencies. Do not collapse multiple independent trains into one
-subagent if doing so would hide collisions, comment posture, or proof gaps.
+## Controlled Writer-Lane Envelope
 
-Examples:
+Allowed after operator approval: edit/post standardized maintainer reviews or comments, request changes, close superseded PRs, acknowledge harvest, and queue exact-head PRs when green, clean, non-draft, and edge-free. Not allowed: branch switching, commits, pushes, code patches, secrets, deploys, direct merge to `main`, product-policy changes, or merging unsafe contributor heads. Drift, stale heads, new conflicts, failing checks, or lost attach points return to the parent/governor.
 
-1. frontend/UI hold or patch train -> one frontend/UI reachability subagent
-2. backend trust/cache train -> one backend/runtime trust subagent
-3. observability redaction train -> one observability/security subagent
-4. devex hook or dependency train -> one devex/repo-operations subagent
-5. changes-requested/closure wave -> one decision-wave communications subagent
+## Wave Means Checkpoint
 
-Each lane must return:
+`Wave` does not mean "only work on this small batch." It is the next
+operator-approved state-changing checkpoint across already running trains.
 
-1. direct PR hyperlinks
-2. head SHA and freshness
-3. changed files and hard collisions
-4. current canonical surface or explicit `no_attach_point`
-5. accepted value, dropped/deferred pieces, and smallest proof
-6. recommended lane: `queue_cohort`, `sequential_collision_train`,
-   `parallel_patch_train`, `decision_wave`, or `hold_rebase`
-7. public comment posture: edit existing maintainer record, new record, no
-   comment yet, or post-merge closeout
-8. unresolved risks and stop conditions
+1. `Train`: the full hard-edge PR sequence for one surface; one evidence lane,
+   oldest-first internally.
+2. `Parallel train set`: all non-touching trains running across lanes/subagents.
+3. `Wave`: bounded GitHub writes, maintainer patches, queue actions, closes, or
+   merges inside the already approved train set.
 
-If subagents are unavailable, the operator dossier must state
-`Subagent taskforce: unavailable` and manually cover the same lanes. If the work
-is high-volume and subagents are available, skipping them is a process violation
-unless the parent records a concrete blocker such as a runtime outage.
+Approval applies to the reviewed train set, not just the first train. Waves are state-changing checkpoints for safe GitHub writes while all lanes continue. While the operator answers, unrelated lanes keep scanning, proving attach points, drafting patch plans, and preparing the next checkpoint.
 
 ## Scan Modes
 
-Use the smallest scan that answers the question.
+1. `active`: latest window only.
+2. `hybrid`: default; all-open inventory plus latest `100` and up to `40`
+   older high-signal candidates.
+3. `full`: audit mode only; attempt every open PR with timeout.
 
-| Mode | Command Shape | Use When | Expected Output |
-| --- | --- | --- | --- |
-| Active | `--scan-mode active --limit 100` | latest-window triage or fast review | latest PRs only, no all-open inventory |
-| Hybrid | `--scan-mode hybrid --limit 100 --candidate-limit 40` | default operator train planning | all-open inventory plus active deep review and older high-signal PRs |
-| Wide Hybrid | `--scan-mode hybrid --limit 150 --candidate-limit 75 --per-pr-timeout-seconds 8` | backlog sweep when the operator asks for more trains | larger reviewed subset with bounded latency |
-| Full Audit | `--scan-mode full --per-pr-timeout-seconds 5` | scheduled audit, not interactive chat | every open PR attempted, with explicit failures/timeouts |
+If scanning fails, state inventoried/reviewed/failed PRs and whether the result
+is complete, partial, or fallback-only.
 
-If GitHub or a per-PR scan fails, the report must say:
+## Hundred-PR Active Pass Standard
 
-1. total open PRs inventoried, if known
-2. reviewed PRs
-3. failed PRs
-4. whether the result is complete, partial, or fallback-only
-
-Do not imply the whole backlog was audited when only a subset was reviewed.
+For 400+ PR backlogs, the default pass is the oldest `100` reviewable PRs plus hybrid high-signal candidates. A queue cohort is progress, not completion.
+Report open/reviewed counts, trains, terminal PRs by action, and non-terminal train/blocker/next action until all reviewed PRs are terminal or blocked.
 
 ## Check Failure Intake Filter
 
-Do not spend train-construction time on PRs whose current checks are not clean.
-This is the first filter before queue, patch, collision, or decision-wave
-planning.
-
-A PR is excluded from executable trains when any of these are true:
-
-1. required `CI Status Gate` is missing, pending, skipped, cancelled, failing, or unknown
-2. required `CI Status Gate` is green but a current auxiliary check is failing
-3. the PR is behind with failing checks and needs contributor rebase/regeneration
-4. the only actionable work is to repair CI, and the operator did not ask for a CI-fix train
-
-Excluded PRs go into `Check Failure Holds` or the blocked/waiting register. They
-do not appear in `Queue Cohort`, `Sequential Collision Train`, `Parallel Patch
-Trains`, `Decision Waves`, or `Recommended Operator Batches`. Revisit them only
-after checks are clean or after the operator explicitly asks to debug/fix CI.
+Exclude PRs from executable trains when `CI Status Gate` is missing, pending,
+skipped, cancelled, failing, unknown, or green while a current auxiliary check
+fails. Show them only in `Check Failure Holds` unless this is CI repair.
 
 ## Train Graph
-
-Build trains from hard dependency edges, not vibes.
-
-Hard edges force sequencing:
 
 1. exact file overlap
 2. lockfile overlap
 3. schema, migration, or generated-contract overlap
 4. same sensitive runtime family
-5. same public route, backend route, auth, consent, vault, PKM, voice, finance, KYC, deploy, or CI authority surface
+5. same public route, backend route, auth, consent, vault, PKM, voice, finance,
+   KYC, deploy, or CI authority surface
 6. local dirty-file overlap
-7. a PR that is stacked, conflicting, or stale against current main
+7. stacked, conflicting, or stale branch state
 
-Soft edges do not block parallelism by themselves:
-
-1. same author
-2. same broad theme
-3. similar title wording
-4. nearby UI area without file/runtime collision
-5. both being test-only changes with disjoint files
+Soft edges such as same author, broad theme, similar title, or nearby UI area
+do not block parallelism by themselves.
 
 ## Lanes
 
-Classify every reviewed PR into exactly one lane.
+This is the Merge Train Capacity Model.
 
-| Lane | Meaning | Can Run Async? |
-| --- | --- | --- |
-| Queue Cohort | independent `merge_now` PRs, max 4 at once | yes, as one cohort |
-| Sequential Collision Train | PRs with hard edges | no, one at a time |
-| Parallel Patch Train | maintainer patches with disjoint write sets and proven attach points | yes, up to 3 by default |
-| Decision Wave | changes-requested or closure comments for blocked PRs | yes, while queue validation runs |
-| Hold/Rebase | conflicts, stale branches, unclear product intent, or missing proof | no merge action |
-| Check Failure Hold | non-green required gate or failing current auxiliary check | no train action |
+1. `Queue Cohort`: independent `merge_now` PRs, default `4`; larger only when homogeneous, low-risk, and exact-head verified.
+2. `Sequential Collision Train`: hard-edge PRs, one at a time.
+3. `Parallel Patch Train`: disjoint maintainer patches with proven attach
+   points, max `3` by default.
+4. `Decision Wave`: changes-requested or closure comments while queue
+   validation runs.
+5. `Hold/Rebase`: conflicts, stale branches, unclear intent, or missing proof.
+6. `Check Failure Hold`: non-green required gate or failing auxiliary check.
 
-## Queue Cohort Rules
+## Pre-Wave Operator Question
 
-A PR can enter a queue cohort only when all are true:
+Before every state-changing checkpoint, ask one researched operator question:
 
-1. exact head SHA is locked
-2. required `CI Status Gate` is green on that head
-3. no current auxiliary check is failing
-4. PR is non-draft
-5. mergeability is clean
-6. no hard collision edge with another cohort PR
-7. no local dirty-file overlap
-8. no active requested-changes state that still matters
-9. no trust-boundary, generated-contract, schema, or reachability blocker
+1. `Current truth`: scan freshness, reviewed/open counts, wave type, exact PR
+   links, and excluded check-failure holds.
+2. `Recommended path`: running train set, checkpoint size, comment/edit posture,
+   and expected artifact.
+3. `Risk if accepted blindly`: stale heads, changed CI, unsafe record edits,
+   noisy bulk comments, or unfair attribution.
+4. `Decision needed`: approve the checkpoint, reduce/split it, or refresh
+   first.
 
-Queue cohorts are capped at 4. Do not wait for unrelated PRs just because one
-cohort member is in queue validation. While queue checks run, prepare the next
-independent cohort or a decision wave.
+Do not ask the operator to find facts Codex can verify.
+
+## Dynamic Decision Wave Sizing
+
+1. `5` PRs for high-risk mixed runtime, security, consent, vault, PKM, voice,
+   finance, or policy waves.
+2. `10` PRs for mixed-topic acknowledgement/comment waves.
+3. `20` PRs for normal homogeneous acknowledgement or changes-requested waves.
+4. `40` PRs only for low-risk, same-template, same-surface acknowledgement
+   waves with clean current evidence.
+5. `0` PRs when the live report is stale, the selected wave scan is incomplete,
+   or existing maintainer records cannot be edited safely.
 
 ## Maintainer Patch Gate
 
-Prefer maintainer patch over contributor round trip when the direction is
-aligned and the patch is bounded.
+Prefer maintainer patch over contributor round trip when direction is aligned
+and the patch is bounded. Patch is allowed only with accepted value, canonical
+attach point, exact write set, dropped/deferred pieces, and smallest proof.
+Before requesting changes, explicitly evaluate whether the useful contribution
+can be harvested or patched into a current canonical surface. Do not ask for
+changes when a maintainer can safely resolve the gap without inventing product
+intent.
+Standalone code used only by its own tests defaults to changes requested unless
+a reachable app/backend/package route, generated contract, test contract, or
+documented devex entrypoint is named. Treat app/backend reachability as a
+merge-readiness input.
 
-Patch is allowed only when the reviewer can name:
+If a PR title/body claims one contract but the changed files touch another,
+stop the merge path until it is retitled, rescoped, patched to the claim, or
+requested-changes.
 
-1. accepted value
-2. canonical attach point
-3. exact maintainer write set
-4. dropped or deferred pieces
-5. smallest proof command
+## Attribution Gate
 
-Patch is denied when:
+Prefer direct contributor PR merge when safe. For maintainer harvests, add
+`Co-authored-by:` only when code or tests are materially reused in the landing
+commit. Ideas/direction get public acknowledgement and internal dashboard
+credit, not official GitHub commit credit. When a maintainer patch materially
+uses a contributor's code direction, tests, or implementation shape, the landing
+commit must include the contributor as a co-author whenever GitHub identity is
+available. Never rewrite `main` for retroactive co-author credit.
 
-1. code is standalone and only used by its own tests
-2. the PR creates a parallel root for an existing capability
-3. no current app, backend, package, route, generated contract, test contract,
-   or documented devex entrypoint uses it
-4. the maintainer would need to invent product intent to save it
+## Operating Loop
 
-Denied patch candidates become `changes_requested`, `hold`, or
-`harvest_then_close`, depending on whether there is useful value to preserve.
+1. Refresh the live report with oldest-first selection unless explicitly asked for latest.
+2. Build the complete async train map and train-to-subagent map.
+3. Ignore `Check Failure Holds` unless this is CI repair.
+4. Read every queue cohort, collision group, patch train, and decision wave.
+5. Assign each independent train to its evidence lane and prepare trains in parallel.
+6. Convert each returned lane into executable writes by value, age, and collision risk.
+7. Produce the operator dossier from `operator-batch-output-contract.md`; one approval starts the full reviewed train set, not a single train.
+8. Execute approved GitHub writes by editing existing maintainer records first.
+9. Exclude PRs just handled by a current standardized maintainer record until fresh contributor or GitHub state changes.
+10. For merges, enqueue exact head SHA and monitor queue and smoke.
+11. Refresh live report and contributor-impact dashboard.
+12. Return the parent worktree to the recorded developer branch after temporary PR checkout, worktree, detached HEAD, or queue-monitoring branch changes.
+13. Report active-pass progress in chat: `reviewed`, `acted`, `terminal`, `blocked`, `remaining`, `merged`, `patched`, `commented`, and direct links.
+14. Start the next independent train while unrelated checks run; continue until every train in the approved set is terminal or blocked with links/reasons.
 
-## Contributor Attribution Gate
+## Queue Cancellation Handling
 
-Maintainer harvests must enable contributors, not erase them.
-
-Before opening or committing a maintainer-harvest PR:
-
-1. Prefer direct contributor PR merge when the PR is clean, scoped, green,
-   canonical, and safe.
-2. For every harvested source PR, classify the reused material as:
-   - `code_or_test_reused`: actual contributor implementation or test logic is
-     materially copied, translated, or normalized into the landing patch
-   - `idea_or_direction_used`: the PR helped identify the right fix, but the
-     landing implementation is independently authored by the maintainer
-   - `not_used`: reviewed but not part of the landing patch
-3. For `code_or_test_reused`, add valid `Co-authored-by:` trailers to the
-   actual landing commit before merge. Use public GitHub no-reply identities
-   only after verifying the contributor's public GitHub user id; never expose
-   private emails.
-4. For `idea_or_direction_used`, do not add co-author trailers. Add the source
-   PR to `## Contributor Acknowledgements` in the PR body and source-PR
-   closeout.
-5. For `not_used`, list the PR only under dropped/deferred/held work, not as a
-   credited harvest source.
-
-Maintainer-harvest PR bodies must include:
-
-1. `## Contributor Acknowledgements`
-2. direct source PR link
-3. source author
-4. accepted value
-5. attribution class: `code_or_test_reused`, `idea_or_direction_used`, or
-   `not_used`
-6. whether official GitHub commit credit is expected
-7. dropped or deferred pieces
-
-Past maintainer harvests must not rewrite `main` to backfill GitHub graph
-credit. The fair retroactive path is:
-
-1. preserve or add public acknowledgement on the landing PR
-2. keep source PR closeouts contributor-enabling
-3. update the contributor-impact dashboard with `harvested_source` internal
-   credit for source PRs whose value landed through a maintainer patch
-4. if the operator explicitly requests external GitHub credit, add a
-   transparent follow-up PR with a real, non-empty co-authored harvest replay or
-   supplemental harvest patch plus an auditable ledger entry; do not claim this
-   changes the original merge commit's authorship or additions/deletions
-
-## Developer Operating Loop
-
-Use this loop for every review session:
-
-1. Refresh or generate the live report.
-2. Convert the candidate batches into an async train map.
-3. Start one read-only subagent lane per async train/evidence family for
-   high-volume train work, or record why a lane is unavailable.
-4. Read `Check Failure Holds` first, then ignore those PRs for train planning
-   unless the session is explicitly a CI repair pass.
-5. Read `Queue Cohort`, `Collision Groups`, `Parallel Patch Trains`, and
-   `Decision Waves`.
-6. If the report found no executable batches, manually inspect the top blocked
-   PRs for possible maintainer-patch attach points.
-7. Pick the next executable train with the highest value and lowest collision.
-8. Produce the operator dossier from `operator-batch-output-contract.md`.
-9. Ask only decision questions that cannot be answered from repo or GitHub
-   truth.
-10. Execute approved GitHub writes by editing existing maintainer records first.
-11. For merges, enqueue with exact head SHA and monitor queue validation.
-12. After merge, monitor Main Post-Merge Smoke.
-13. Refresh the live report and contributor-impact dashboard.
-14. Start the next independent train while checks for unrelated work are still
-    running.
-
-## Required Dossier For Chat Handoffs
-
-Every developer-facing train recommendation must include:
-
-1. scan scope and completeness
-2. delegation router result, async train-to-subagent map, taskforce lanes
-   used/skipped/unavailable, lane handoff summaries, fallback evidence if a
-   lane was unavailable, and the parent-only authority statement
-3. queue cohort, even if empty
-4. collision groups and sequence
-5. parallel patch trains and exact write sets
-6. decision waves and comment posture
-7. check-failure holds that were excluded from train planning
-8. direct PR links for every PR mentioned
-9. per-PR head SHA, mergeability, CI gate, changed files, and lane
-10. accepted value, attach point, dropped/deferred pieces, and proof for every
-   maintainer patch
-11. stop conditions
-12. report refresh commands
-
-Do not give a train recommendation as only a list of PR numbers.
-
-## GitHub Write Rules
-
-1. Inspect existing maintainer-authored comments and reviews first.
-2. Edit the existing current-lane maintainer record when possible.
-3. Post a new comment only when no existing maintainer record exists, the old
-   record cannot be edited, or the new record is for a distinct state.
-4. Use direct PR hyperlinks in public and internal handoffs.
-5. After a merge, post exactly one closeout comment after Main Post-Merge Smoke
-   passes.
+Main-smoke cancellation from a newer main push is `superseded`; only the latest
+non-cancelled current-main smoke is authoritative. Runner/tool setup failures
+are `infra_transient`; rerun once after substantive jobs pass, then route to
+`repo-operations`. Test, type, secret, freshness, or mergeability failures stop
+the PR until corrected.
 
 ## Stop Conditions
 
-Stop, split the train, or re-run the scan when:
-
-1. any head SHA changes
-2. CI Status Gate changes from green to pending/failing/stale
-3. mergeability changes to dirty/conflicting
-4. a new hard edge appears
-5. a UI-visible change lacks required Playwright/browser evidence
-6. a trust boundary, schema, migration, generated contract, auth, consent,
-   vault, PKM, voice, finance, KYC, deploy, or CI surface is unclear
-7. the scanner reports incomplete scope that affects the proposed train
-8. the maintainer patch no longer has a canonical attach point
-
-## Post-State-Change Refresh
-
-After merge, close, request changes, maintainer patch, or revert:
-
-```bash
-python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md
-python3 .codex/skills/pr-governance-review/scripts/contributor_impact_report.py --repo hushh-labs/hushh-research --days 14 --text > tmp/contributor-impact-dashboard.md
-```
-
-If GitHub returns transient errors, retry once. If it still fails, run a bounded
-fallback scan, preserve the previous complete report, and state the failure in
-the handoff.
+Stop, split, or rescan on head SHA changes, CI loss, dirty mergeability, new hard edge, local worktree overlap, missing UI browser proof, unclear trust boundary, incomplete scan, or lost patch attach point.
+Green CI never overrides exact file overlap.

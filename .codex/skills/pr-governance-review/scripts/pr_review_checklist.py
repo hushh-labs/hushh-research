@@ -24,7 +24,14 @@ DEFAULT_CANDIDATE_LIMIT = 40
 DEFAULT_QUEUE_COHORT_SIZE = 4
 DEFAULT_PER_PR_TIMEOUT_SECONDS = 25
 DEFAULT_MAX_PARALLEL_PATCH_TRAINS = 3
+DEFAULT_TRAIN_POOL_SIZE = 5
+DEFAULT_SELECTION_ORDER = "oldest"
+DECISION_WAVE_HIGH_RISK_SIZE = 5
+DECISION_WAVE_MIXED_TOPIC_SIZE = 10
+DECISION_WAVE_DEFAULT_SIZE = 20
+DECISION_WAVE_LOW_RISK_SIZE = 40
 SCAN_MODES = {"active", "hybrid", "full"}
+SELECTION_ORDERS = {"oldest", "latest"}
 FAILED_CHECK_CONCLUSIONS = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED"}
 PATCH_ATTACHMENT_BLOCKER_FINDINGS = {
     "frontend_component_without_reachable_caller",
@@ -41,6 +48,11 @@ SENSITIVE_RUNTIME_CONTRACTS = {
     "kai-route",
     "frontend-error-safety",
 }
+HIGH_RISK_DECISION_WAVE_CONTRACTS = SENSITIVE_RUNTIME_CONTRACTS | {
+    "backend",
+    "frontend-error-safety",
+    "ops-governance",
+}
 SENSITIVE_RUNTIME_FINDING_CAPABILITIES = {
     "auth-token-session-runtime",
     "backend-api-contract-runtime",
@@ -52,6 +64,31 @@ SENSITIVE_RUNTIME_FINDING_CAPABILITIES = {
     "streaming-runtime",
     "voice-action-runtime",
     "voice-runtime",
+}
+TRAIN_SUBAGENT_DEFAULT = ("regression/proof", "reviewer")
+TRAIN_SUBAGENT_LANE_BY_CONTRACT = {
+    "account-export": ("security/consent/vault/pkm", "security_consent_auditor"),
+    "backend": ("backend/contracts", "backend_architect"),
+    "content": ("product/docs/founder-language", "product_docs_architect"),
+    "db-release-contract": ("data-model/schema/uat", "data_model_architect"),
+    "frontend": ("frontend/reachability", "frontend_architect"),
+    "frontend-error-safety": ("observability/security", "analytics_observability_architect"),
+    "kai-route": ("backend/contracts", "backend_architect"),
+    "ops-governance": ("ci/deploy/release", "repo_operator"),
+    "pkm-privacy": ("security/consent/vault/pkm", "security_consent_auditor"),
+    "voice": ("voice/action", "voice_systems_architect"),
+}
+TRAIN_SUBAGENT_LANE_BY_FAMILY = {
+    "auth-token-session-runtime": ("security/consent/vault/pkm", "security_consent_auditor"),
+    "backend-api-contract-runtime": ("backend/contracts", "backend_architect"),
+    "consent-iam-runtime": ("security/consent/vault/pkm", "security_consent_auditor"),
+    "db-release-contract": ("data-model/schema/uat", "data_model_architect"),
+    "kai-finance-runtime": ("security/consent/vault/pkm", "security_consent_auditor"),
+    "pkm-vault-runtime": ("security/consent/vault/pkm", "security_consent_auditor"),
+    "route-shell-onboarding-runtime": ("frontend/reachability", "frontend_architect"),
+    "streaming-runtime": ("backend/contracts", "backend_architect"),
+    "voice-action-runtime": ("voice/action", "voice_systems_architect"),
+    "voice-runtime": ("voice/action", "voice_systems_architect"),
 }
 HARD_COLLISION_PATH_MARKERS = (
     "/migrations/",
@@ -3241,6 +3278,7 @@ def _single_pr_live_assessment(report: dict[str, Any]) -> list[str]:
         f"- Findings: {_findings_summary(report)}",
         f"- Overlap: {_overlap_summary(report)}",
         f"- Train graph: collision `{report.get('collision_group_id') or 'none'}`; can queue with `{report.get('can_queue_with') or []}`; must wait for `{report.get('must_wait_for') or []}`; queue cohort `{report.get('queue_cohort_id') or 'none'}`; patch train `{report.get('parallel_patch_train_id') or 'none'}`",
+        f"- Reviewed state: `{report.get('reviewed_train_state') or 'remaining'}`; train terminal state `{report.get('train_terminal_state') or 'awaiting train action'}`",
         f"- Related surfaces: {_related_surface_summary(report)}",
         f"- Patch gate: attach `{report.get('canonical_attach_point') or 'none'}`; allowed `{report.get('patch_allowed_reason') or 'no'}`; denied `{report.get('patch_denied_reason') or 'no'}`",
         (
@@ -3333,6 +3371,14 @@ def _report_sort_key(report: dict[str, Any]) -> tuple[int, int, int]:
         pr["additions"] + pr["deletions"],
         pr["number"],
     )
+
+
+def _train_sequence_sort_key(report: dict[str, Any]) -> tuple[int, str, int]:
+    pr = report["pr"]
+    created_at = str(pr.get("created_at") or "")
+    if created_at:
+        return (0, created_at, int(pr["number"]))
+    return (1, "", int(pr["number"]))
 
 
 def _operator_component_sort_key(report: dict[str, Any]) -> tuple[int, int, int, int]:
@@ -3448,6 +3494,7 @@ def _operator_batch_solution(batch: dict[str, Any]) -> list[str]:
     lines.extend(
         [
             "  - Stop condition: if any PR changes head SHA, loses CI Status Gate, gains conflicts, or reveals a trust/runtime regression, pause that PR and continue only with independent safe items.",
+            "  - Branch return: record the developer branch before temporary PR checkout/worktree or detached-HEAD review, and return the parent worktree to that branch before closing the train.",
             "  - Reporting: refresh `tmp/pr-governance-live-report.md` and `tmp/contributor-impact-dashboard.md` after each merge, close, or requested-changes action.",
         ]
     )
@@ -3459,6 +3506,7 @@ def _operator_batch_after_merge_kickoff(batch: dict[str, Any]) -> list[str]:
         "  - After each merge, monitor Queue Validation and Main Post-Merge Smoke before treating dependent PRs as unblocked.",
         "  - While queue/smoke runs, start review preparation for the next independent `Recommended Operator Batches` item that does not share this train's files or runtime contract.",
         "  - After smoke passes, refresh `tmp/pr-governance-live-report.md` and `tmp/contributor-impact-dashboard.md`, then rerun the checklist for the next train before any GitHub write.",
+        "  - Before the final handoff, return the parent worktree to the recorded developer branch or report the exact blocker.",
         "  - Automatic next train means automatic discovery and review preparation; approval, merge, close, deploy, and maintainer patch actions still require explicit operator intent.",
     ]
 
@@ -3595,7 +3643,7 @@ def _operator_batches(
         seen |= component
         component_reports = sorted(
             (by_number[item] for item in component),
-            key=_operator_component_sort_key,
+            key=_train_sequence_sort_key,
         )
         preferred = component_reports[0]
         shared_files = sorted(
@@ -4273,6 +4321,209 @@ def _runtime_collision_families(report: dict[str, Any]) -> set[str]:
     return families
 
 
+def _subagent_lane_for_reports(reports: list[dict[str, Any]]) -> tuple[str, str, list[str]]:
+    contracts = sorted({str(report.get("contract_set") or "general") for report in reports})
+    families = sorted(
+        {
+            family
+            for report in reports
+            for family in _runtime_collision_families(report)
+        }
+    )
+    files_text = "\n".join(
+        path.lower()
+        for report in reports
+        for path in report.get("changed_files", [])
+    )
+
+    for family in families:
+        if family in TRAIN_SUBAGENT_LANE_BY_FAMILY:
+            lane, agent = TRAIN_SUBAGENT_LANE_BY_FAMILY[family]
+            return lane, agent, [f"runtime family `{family}`"]
+
+    if any(token in files_text for token in ("observability", "analytics", "logging", "logger", "redact")):
+        return (
+            "observability/security",
+            "analytics_observability_architect",
+            ["observability or logging surface"],
+        )
+
+    for contract in contracts:
+        if contract in TRAIN_SUBAGENT_LANE_BY_CONTRACT:
+            lane, agent = TRAIN_SUBAGENT_LANE_BY_CONTRACT[contract]
+            return lane, agent, [f"contract set `{contract}`"]
+
+    if "hushh-webapp/" in files_text:
+        return "frontend/reachability", "frontend_architect", ["frontend path"]
+    if "consent-protocol/" in files_text:
+        return "backend/contracts", "backend_architect", ["backend path"]
+    if any(token in files_text for token in (".codex/", "scripts/", "config/", ".github/")):
+        return "ci/deploy/release", "repo_operator", ["repo-governance or devex path"]
+    return (*TRAIN_SUBAGENT_DEFAULT, ["default regression/proof review"])
+
+
+def _train_subagent_map_entry(
+    *,
+    train_id: str,
+    train_type: str,
+    reports: list[dict[str, Any]],
+    hard_edge_reasons: list[str],
+    sequential_prs: list[int],
+) -> OrderedDict[str, Any]:
+    lane, agent, signals = _subagent_lane_for_reports(reports)
+    prs = [int(report["pr"]["number"]) for report in reports]
+    return OrderedDict(
+        id=train_id,
+        train_type=train_type,
+        subagent_lane=lane,
+        agent=agent,
+        prs=prs,
+        sequential_prs=sequential_prs,
+        parallel_with=[],
+        hard_edge_reasons=hard_edge_reasons,
+        routing_signals=signals,
+    )
+
+
+def _entry_train_sort_key(
+    entry: dict[str, Any],
+    reports_by_number: dict[int, dict[str, Any]],
+) -> tuple[int, str, int]:
+    numbers = [int(number) for number in entry.get("sequential_prs") or entry.get("prs") or []]
+    reports = [reports_by_number[number] for number in numbers if number in reports_by_number]
+    if not reports:
+        return (1, "", min(numbers) if numbers else 0)
+    return min(_train_sequence_sort_key(report) for report in reports)
+
+
+def _train_terminal_state(entry: dict[str, Any]) -> str:
+    train_type = str(entry.get("train_type") or "")
+    if train_type == "queue_cohort":
+        return "ready_to_queue"
+    if train_type == "parallel_patch_train":
+        return "ready_to_patch"
+    if train_type == "decision_wave":
+        return "ready_to_write_record"
+    if train_type == "sequential_collision_train":
+        return "sequential_pending"
+    return "needs_review"
+
+
+def _apply_train_pool_fields(
+    entries: list[OrderedDict[str, Any]],
+    *,
+    reports_by_number: dict[int, dict[str, Any]],
+    train_pool_size: int,
+) -> OrderedDict[str, Any]:
+    pool_size = max(1, train_pool_size)
+    entries.sort(key=lambda entry: _entry_train_sort_key(entry, reports_by_number))
+    active_entries: list[OrderedDict[str, Any]] = []
+    active_prs: set[int] = set()
+    queued_entries: list[OrderedDict[str, Any]] = []
+    for entry in entries:
+        entry_prs = {int(number) for number in entry.get("prs", [])}
+        if len(active_entries) < pool_size and not (entry_prs & active_prs):
+            active_entries.append(entry)
+            active_prs |= entry_prs
+        else:
+            queued_entries.append(entry)
+    active_ids = [str(entry["id"]) for entry in active_entries]
+    refill_entry = next(
+        (entry for entry in queued_entries if not ({int(number) for number in entry.get("prs", [])} & active_prs)),
+        queued_entries[0] if queued_entries else None,
+    )
+    next_refill = str(refill_entry["id"]) if refill_entry else ""
+    for index, entry in enumerate(entries):
+        entry["worker_slot"] = active_entries.index(entry) + 1 if entry in active_entries else None
+        entry["train_terminal_state"] = _train_terminal_state(entry)
+        entry["next_refill_train"] = next_refill if index < pool_size else ""
+    return OrderedDict(
+        train_pool_size=pool_size,
+        active_train_workers=active_ids,
+        worker_refill_policy=(
+            "keep five PR-governance train workers hot by default; when a worker "
+            "finishes or blocks a train, immediately assign the next oldest "
+            "non-touching train from the reviewed scope"
+        ),
+        next_refill_train=next_refill,
+    )
+
+
+def _build_train_to_subagent_map(
+    *,
+    reports_by_number: dict[int, dict[str, Any]],
+    queue_cohorts: list[OrderedDict[str, Any]],
+    collision_groups: list[OrderedDict[str, Any]],
+    parallel_patch_trains: list[OrderedDict[str, Any]],
+    decision_waves: list[OrderedDict[str, Any]],
+) -> list[OrderedDict[str, Any]]:
+    entries: list[OrderedDict[str, Any]] = []
+
+    for cohort in queue_cohorts:
+        reports = [reports_by_number[int(number)] for number in cohort.get("prs", []) if int(number) in reports_by_number]
+        if reports:
+            entry = _train_subagent_map_entry(
+                train_id=str(cohort["id"]),
+                train_type="queue_cohort",
+                reports=reports,
+                hard_edge_reasons=[],
+                sequential_prs=[],
+            )
+            entry["subagent_lane"] = "ci/deploy/release"
+            entry["agent"] = "repo_operator"
+            entry["routing_signals"] = ["queue validation and smoke monitor"]
+            entries.append(entry)
+
+    for group in collision_groups:
+        reports = [reports_by_number[int(number)] for number in group.get("prs", []) if int(number) in reports_by_number]
+        if reports:
+            entries.append(
+                _train_subagent_map_entry(
+                    train_id=str(group["id"]),
+                    train_type="sequential_collision_train",
+                    reports=reports,
+                    hard_edge_reasons=list(group.get("reasons", [])),
+                    sequential_prs=[int(number) for number in group.get("sequence", [])],
+                )
+            )
+
+    for train in parallel_patch_trains:
+        reports = [reports_by_number[int(number)] for number in train.get("prs", []) if int(number) in reports_by_number]
+        if reports:
+            entries.append(
+                _train_subagent_map_entry(
+                    train_id=str(train["id"]),
+                    train_type="parallel_patch_train",
+                    reports=reports,
+                    hard_edge_reasons=[],
+                    sequential_prs=[],
+                )
+            )
+
+    for wave in decision_waves:
+        reports = [reports_by_number[int(number)] for number in wave.get("prs", []) if int(number) in reports_by_number]
+        if reports:
+            entry = _train_subagent_map_entry(
+                train_id=str(wave["id"]),
+                train_type="decision_wave",
+                reports=reports,
+                hard_edge_reasons=[],
+                sequential_prs=[],
+            )
+            entry["subagent_lane"] = "decision-wave communications"
+            entry["agent"] = "reviewer"
+            entry["routing_signals"] = ["GitHub write posture and comment edit-vs-new review"]
+            entries.append(entry)
+
+    for entry in entries:
+        entry["parallel_with"] = [
+            str(other["id"])
+            for other in entries
+            if other is not entry and not (set(entry["prs"]) & set(other["prs"]))
+        ]
+    return entries
+
+
 def _hard_collision_reasons(left: dict[str, Any], right: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
     left_files = set(left.get("changed_files", []))
@@ -4319,6 +4570,125 @@ def _has_current_check_failure(report: dict[str, Any]) -> bool:
     return bool(_current_check_failure_reason(report))
 
 
+def _wave_top_roots(reports: list[dict[str, Any]]) -> set[str]:
+    roots: set[str] = set()
+    for report in reports:
+        roots.update(_top_roots(report.get("changed_files", [])))
+    return roots
+
+
+def _wave_finding_signatures(reports: list[dict[str, Any]]) -> set[tuple[str, ...]]:
+    signatures: set[tuple[str, ...]] = set()
+    for report in reports:
+        signatures.add(tuple(sorted(finding.get("id", "") for finding in report.get("findings", []))))
+    return signatures
+
+
+def _decision_wave_size_plan(
+    reports: list[dict[str, Any]],
+    *,
+    scan_complete: bool = True,
+    scan_fresh: bool = True,
+    editable_records_safe: bool = True,
+) -> OrderedDict[str, Any]:
+    if not reports:
+        return OrderedDict(size=0, reason="No PRs in this wave.", next_action="hold")
+    if not scan_fresh:
+        return OrderedDict(size=0, reason="Live report is stale; refresh before any GitHub write.", next_action="refresh_scan")
+    if not scan_complete:
+        return OrderedDict(size=0, reason="Scan is incomplete for this wave; refresh before any GitHub write.", next_action="refresh_scan")
+    if not editable_records_safe:
+        return OrderedDict(size=0, reason="Existing maintainer records cannot be safely edited.", next_action="hold")
+
+    contracts = {str(report.get("contract_set") or "general") for report in reports}
+    roots = _wave_top_roots(reports)
+    risks = {_lean_core_risk(report) for report in reports}
+    runtime_families = {
+        family
+        for report in reports
+        for family in _runtime_collision_families(report)
+    }
+    sensitive_surface = bool(
+        contracts & HIGH_RISK_DECISION_WAVE_CONTRACTS
+        or runtime_families
+        or any(
+            token in " ".join(report.get("surface_tags", [])).lower()
+            for report in reports
+            for token in ("security", "consent", "vault", "pkm", "voice", "finance", "policy")
+        )
+    )
+    mixed_topic = len(contracts) > 1 or len(roots) > 1
+    low_risk_same_template = (
+        len(contracts) == 1
+        and len(roots) <= 1
+        and len(_wave_finding_signatures(reports)) <= 1
+        and risks <= {"low", "low-medium", "non-runtime"}
+    )
+
+    if sensitive_surface or "high" in risks:
+        return OrderedDict(
+            size=DECISION_WAVE_HIGH_RISK_SIZE,
+            reason="High-risk or sensitive runtime/policy wave; keep the operator question small.",
+            next_action="ask_operator",
+        )
+    if mixed_topic:
+        return OrderedDict(
+            size=DECISION_WAVE_MIXED_TOPIC_SIZE,
+            reason="Mixed-topic acknowledgement/comment wave; cap for reviewability.",
+            next_action="ask_operator",
+        )
+    if low_risk_same_template:
+        return OrderedDict(
+            size=DECISION_WAVE_LOW_RISK_SIZE,
+            reason="Low-risk same-template same-surface acknowledgement wave with clean current evidence.",
+            next_action="ask_operator",
+        )
+    return OrderedDict(
+        size=DECISION_WAVE_DEFAULT_SIZE,
+        reason="Normal homogeneous acknowledgement or changes-requested wave.",
+        next_action="ask_operator",
+    )
+
+
+def _decision_wave_record(
+    *,
+    wave_id: str,
+    action: str,
+    reports: list[dict[str, Any]],
+    rule: str,
+) -> OrderedDict[str, Any]:
+    size_plan = _decision_wave_size_plan(reports)
+    candidate_prs = [int(report["pr"]["number"]) for report in reports]
+    selected_prs = candidate_prs[: int(size_plan["size"])]
+    remaining_prs = candidate_prs[len(selected_prs):]
+    return OrderedDict(
+        id=wave_id,
+        action=action,
+        prs=selected_prs,
+        candidate_prs=candidate_prs,
+        total_candidate_prs=len(candidate_prs),
+        remaining_prs=remaining_prs,
+        recommended_wave_size=int(size_plan["size"]),
+        why_this_size=size_plan["reason"],
+        next_action=size_plan["next_action"],
+        comment_edit_policy="inspect existing maintainer-authored records first; edit existing records when possible, otherwise post the lane-specific record",
+        question_before_wave=OrderedDict(
+            current_truth=(
+                f"{len(candidate_prs)} candidate PRs for `{action}`; "
+                f"recommended first wave is {len(selected_prs)} PRs."
+            ),
+            recommended_path=(
+                "Ask the operator before GitHub writes, then apply the lane-specific comment/edit policy "
+                f"to the selected PRs: {', '.join('#' + str(number) for number in selected_prs) or 'none'}."
+            ),
+            risk_if_accepted_blindly="Bulk comments can become noisy, stale, or unfair if head state, checks, or existing maintainer records changed.",
+            decision_needed="Approve the recommended wave, reduce/split it, or refresh before writing.",
+            recommended_option="approve_recommended_wave_after_comment_record_inspection",
+        ),
+        rule=rule,
+    )
+
+
 def _queue_eligible(report: dict[str, Any], hard_edges: dict[int, dict[int, list[str]]]) -> bool:
     pr = report["pr"]
     number = pr["number"]
@@ -4362,6 +4732,7 @@ def _build_train_graph(
     *,
     queue_cohort_size: int,
     max_parallel_patch_trains: int,
+    train_pool_size: int = DEFAULT_TRAIN_POOL_SIZE,
 ) -> OrderedDict[str, Any]:
     for report in reports:
         _initialize_train_fields(report)
@@ -4401,7 +4772,7 @@ def _build_train_graph(
         seen |= component
         component_reports = sorted(
             (by_number[item] for item in component),
-            key=_operator_component_sort_key,
+            key=_train_sequence_sort_key,
         )
         group_id = f"collision-group-{len(collision_groups) + 1}" if len(component) > 1 else f"independent-{number}"
         group_reasons = sorted(
@@ -4442,20 +4813,21 @@ def _build_train_graph(
     queue_cohorts: list[OrderedDict[str, Any]] = []
     if queue_candidates:
         cohort_reports = queue_candidates[: max(0, queue_cohort_size)]
-        cohort_id = "queue-cohort-1"
-        cohort_numbers = [report["pr"]["number"] for report in cohort_reports]
-        for report in cohort_reports:
-            report["queue_cohort_id"] = cohort_id
-        queue_cohorts.append(
-            OrderedDict(
-                id=cohort_id,
-                prs=cohort_numbers,
-                rule=(
-                    "independent merge_now PRs with exact head SHA, green CI Status Gate, "
-                    "MERGEABLE state, and no hard collision edges"
-                ),
+        if cohort_reports:
+            cohort_id = "queue-cohort-1"
+            cohort_numbers = [report["pr"]["number"] for report in cohort_reports]
+            for report in cohort_reports:
+                report["queue_cohort_id"] = cohort_id
+            queue_cohorts.append(
+                OrderedDict(
+                    id=cohort_id,
+                    prs=cohort_numbers,
+                    rule=(
+                        "independent merge_now PRs with exact head SHA, green CI Status Gate, "
+                        "MERGEABLE state, and no hard collision edges"
+                    ),
+                )
             )
-        )
 
     queue_number_set = {report["pr"]["number"] for report in queue_candidates}
     for report in train_reports:
@@ -4498,36 +4870,53 @@ def _build_train_graph(
         )
 
     decision_waves: list[OrderedDict[str, Any]] = []
-    closure = [
-        report["pr"]["number"]
-        for report in sorted(train_reports, key=_report_sort_key)
+    closure_reports = [
+        report
+        for report in sorted(train_reports, key=_train_sequence_sort_key)
         if report.get("lane") in {"harvest_then_close", "close_duplicate"}
     ]
-    changes_requested = [
-        report["pr"]["number"]
-        for report in sorted(train_reports, key=_report_sort_key)
+    changes_requested_reports = [
+        report
+        for report in sorted(train_reports, key=_train_sequence_sort_key)
         if report.get("lane") == "block"
     ]
-    if closure:
+    if closure_reports:
         decision_waves.append(
-            OrderedDict(
-                id="closure-wave-1",
+            _decision_wave_record(
+                wave_id="closure-wave-1",
                 action="close_or_harvest_then_close",
-                prs=closure,
                 rule="can run while queue validation is pending after duplicate/closure proof is confirmed",
+                reports=closure_reports,
             )
         )
-    if changes_requested:
+    if changes_requested_reports:
         decision_waves.append(
-            OrderedDict(
-                id="changes-requested-wave-1",
+            _decision_wave_record(
+                wave_id="changes-requested-wave-1",
                 action="request_changes_or_hold",
-                prs=changes_requested,
                 rule="can run while queue validation is pending; no branch mutation required",
+                reports=changes_requested_reports,
             )
         )
 
+    train_to_subagent_map = _build_train_to_subagent_map(
+        reports_by_number=by_number,
+        queue_cohorts=queue_cohorts,
+        collision_groups=collision_groups,
+        parallel_patch_trains=patch_trains,
+        decision_waves=decision_waves,
+    )
+    train_pool = _apply_train_pool_fields(
+        train_to_subagent_map,
+        reports_by_number=by_number,
+        train_pool_size=train_pool_size,
+    )
+
     return OrderedDict(
+        train_pool_size=train_pool["train_pool_size"],
+        active_train_workers=train_pool["active_train_workers"],
+        worker_refill_policy=train_pool["worker_refill_policy"],
+        next_refill_train=train_pool["next_refill_train"],
         hard_edges=OrderedDict(
             (
                 str(number),
@@ -4540,6 +4929,7 @@ def _build_train_graph(
         collision_groups=collision_groups,
         parallel_patch_trains=patch_trains,
         decision_waves=decision_waves,
+        train_to_subagent_map=train_to_subagent_map,
         check_failure_holds=check_failure_holds,
     )
 
@@ -4602,6 +4992,12 @@ def _scan_failure_report(repo: str, pr: int, error_kind: str, message: str) -> O
         scan_error=OrderedDict(kind=error_kind, message=message),
     )
     _refresh_report_decision(report)
+    report["public_comment_policy"] = "no_comment_review_only_scan_incomplete"
+    report["live_report_action"] = "hold_until_scan_refresh"
+    report["decision"]["rationale"] = (
+        "Scan incomplete; refresh this PR before posting public review, queueing, or closing."
+    )
+    report["communication_markdown"] = ""
     return report
 
 
@@ -4680,6 +5076,51 @@ def _scan_completeness(
     )
 
 
+def _reviewed_state_for_report(report: dict[str, Any]) -> tuple[str, str]:
+    if report.get("scan_error"):
+        return "blocked", "scan incomplete"
+    check_failure = _current_check_failure_reason(report)
+    if check_failure:
+        return "blocked", check_failure
+    pr = report.get("pr") or {}
+    if pr.get("review_decision") == "CHANGES_REQUESTED":
+        return "terminal", "current maintainer changes-requested record"
+    if pr.get("is_draft"):
+        return "blocked", "draft PR"
+    if pr.get("mergeable") not in {"MERGEABLE", "UNKNOWN"}:
+        return "blocked", f"mergeability `{pr.get('mergeable') or 'UNKNOWN'}`"
+    if report.get("must_wait_for"):
+        return "blocked", f"must wait for {report.get('must_wait_for')}"
+    return "remaining", str(report.get("live_report_action") or "awaiting train action")
+
+
+def _reviewed_state_summary(reports: list[dict[str, Any]]) -> OrderedDict[str, Any]:
+    buckets: dict[str, list[OrderedDict[str, Any]]] = {
+        "terminal": [],
+        "blocked": [],
+        "remaining": [],
+    }
+    for report in sorted(reports, key=_train_sequence_sort_key):
+        state, reason = _reviewed_state_for_report(report)
+        report["reviewed_train_state"] = state
+        report["train_terminal_state"] = reason
+        buckets.setdefault(state, []).append(
+            OrderedDict(
+                pr=int(report["pr"]["number"]),
+                url=report["pr"]["url"],
+                reason=reason,
+            )
+        )
+    return OrderedDict(
+        terminal_count=len(buckets["terminal"]),
+        blocked_count=len(buckets["blocked"]),
+        remaining_count=len(buckets["remaining"]),
+        terminal=buckets["terminal"],
+        blocked=buckets["blocked"],
+        remaining=buckets["remaining"],
+    )
+
+
 def build_batch_report(
     repo: str,
     prs: list[int],
@@ -4688,6 +5129,7 @@ def build_batch_report(
     per_pr_timeout_seconds: int = DEFAULT_PER_PR_TIMEOUT_SECONDS,
     queue_cohort_size: int = DEFAULT_QUEUE_COHORT_SIZE,
     max_parallel_patch_trains: int = DEFAULT_MAX_PARALLEL_PATCH_TRAINS,
+    train_pool_size: int = DEFAULT_TRAIN_POOL_SIZE,
 ) -> dict[str, Any]:
     raw_reports = [
         _build_report_guarded(repo, pr, per_pr_timeout_seconds)
@@ -4698,6 +5140,7 @@ def build_batch_report(
         reports,
         queue_cohort_size=queue_cohort_size,
         max_parallel_patch_trains=max_parallel_patch_trains,
+        train_pool_size=train_pool_size,
     )
     overlaps: list[dict[str, Any]] = []
     for left, right in combinations(reports, 2):
@@ -4731,29 +5174,55 @@ def build_batch_report(
         for root in _top_roots(report["changed_files"]):
             root_counts[root] = root_counts.get(root, 0) + 1
 
-    return OrderedDict(
-        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-        repo=repo,
-        prs=prs,
-        scan_scope=scan_scope or OrderedDict(
+    reviewed_state = _reviewed_state_summary(reports)
+    effective_scan_scope = OrderedDict(
+        scan_scope or OrderedDict(
             mode="explicit",
+            selection_order="explicit",
             reviewed_prs=prs,
             reviewed_count=len(prs),
             inventory_open_count=None,
             active_limit=None,
             candidate_limit=None,
             per_pr_timeout_seconds=per_pr_timeout_seconds,
-        ),
-        scan_completeness=_scan_completeness(scan_scope, reports),
+        )
+    )
+    effective_scan_scope["train_pool_size"] = train_graph["train_pool_size"]
+    effective_scan_scope["active_train_workers"] = train_graph["active_train_workers"]
+    effective_scan_scope["worker_refill_policy"] = train_graph["worker_refill_policy"]
+    effective_scan_scope["next_refill_train"] = train_graph["next_refill_train"]
+    effective_scan_scope["reviewed_terminal_count"] = reviewed_state["terminal_count"]
+    effective_scan_scope["reviewed_blocked_count"] = reviewed_state["blocked_count"]
+    effective_scan_scope["reviewed_remaining_count"] = reviewed_state["remaining_count"]
+
+    return OrderedDict(
+        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        repo=repo,
+        prs=prs,
+        scan_scope=effective_scan_scope,
+        scan_completeness=_scan_completeness(effective_scan_scope, reports),
         lane_counts=lane_counts,
         surface_counts=OrderedDict(sorted(surface_counts.items())),
         root_counts=OrderedDict(sorted(root_counts.items())),
         overlaps=overlaps,
         train_graph=train_graph,
+        train_pool_size=train_graph["train_pool_size"],
+        active_train_workers=train_graph["active_train_workers"],
+        worker_refill_policy=train_graph["worker_refill_policy"],
+        next_refill_train=train_graph["next_refill_train"],
+        reviewed_terminal_count=reviewed_state["terminal_count"],
+        reviewed_blocked_count=reviewed_state["blocked_count"],
+        reviewed_remaining_count=reviewed_state["remaining_count"],
+        train_terminal_state=OrderedDict(
+            (str(report["pr"]["number"]), report.get("train_terminal_state", "not_recorded"))
+            for report in reports
+        ),
+        reviewed_state=reviewed_state,
         queue_cohorts=train_graph["queue_cohorts"],
         collision_groups=train_graph["collision_groups"],
         parallel_patch_trains=train_graph["parallel_patch_trains"],
         decision_waves=train_graph["decision_waves"],
+        train_to_subagent_map=train_graph["train_to_subagent_map"],
         check_failure_holds=train_graph["check_failure_holds"],
         reports=reports,
         operator_batches=_operator_batches(actionable_reports, actionable_overlaps),
@@ -4763,7 +5232,7 @@ def build_batch_report(
 def _batch_text_report(batch: dict[str, Any]) -> str:
     lines: list[str] = []
     lines.append(
-        f"Batch PR review: {', '.join('#' + str(pr) for pr in batch['prs'])}"
+        f"Batch PR review: {_linked_prs(batch, [int(pr) for pr in batch['prs']])}"
     )
     if batch.get("operator_batches"):
         lines.append(
@@ -4779,8 +5248,9 @@ def _batch_text_report(batch: dict[str, Any]) -> str:
     if batch["overlaps"]:
         lines.append("Cross-PR file overlaps:")
         for overlap in batch["overlaps"]:
+            left, right = overlap["pair"]
             lines.append(
-                f"- #{overlap['pair'][0]} <-> #{overlap['pair'][1]}: "
+                f"- {_linked_prs(batch, [int(left)])} <-> {_linked_prs(batch, [int(right)])}: "
                 + ", ".join(overlap["shared_files"])
             )
     else:
@@ -4788,7 +5258,7 @@ def _batch_text_report(batch: dict[str, Any]) -> str:
     if batch.get("check_failure_holds"):
         lines.append("Check failure holds:")
         for hold in batch["check_failure_holds"]:
-            lines.append(f"- #{hold['pr']}: {hold['reason']}")
+            lines.append(f"- {_linked_prs(batch, [int(hold['pr'])])}: {hold['reason']}")
     lines.append("")
     for report in batch["reports"]:
         lines.append(_text_report(report))
@@ -4851,6 +5321,28 @@ def _open_pr_inventory(repo: str) -> list[OrderedDict[str, Any]]:
     return rows
 
 
+def _ordered_inventory(
+    inventory: list[OrderedDict[str, Any]],
+    selection_order: str,
+) -> list[OrderedDict[str, Any]]:
+    if selection_order == "oldest":
+        return sorted(
+            inventory,
+            key=lambda item: (
+                str(item.get("created_at") or ""),
+                int(item["number"]),
+            ),
+        )
+    return sorted(
+        inventory,
+        key=lambda item: (
+            str(item.get("updated_at") or item.get("created_at") or ""),
+            int(item["number"]),
+        ),
+        reverse=True,
+    )
+
+
 def _high_signal_inventory_numbers(
     inventory: list[OrderedDict[str, Any]],
     active_numbers: set[int],
@@ -4873,14 +5365,21 @@ def _select_live_scan_prs(
     repo: str,
     *,
     scan_mode: str,
+    selection_order: str = DEFAULT_SELECTION_ORDER,
     active_limit: int,
     candidate_limit: int,
     per_pr_timeout_seconds: int,
+    train_pool_size: int = DEFAULT_TRAIN_POOL_SIZE,
 ) -> tuple[list[int], OrderedDict[str, Any]]:
     active_limit = max(1, active_limit)
     candidate_limit = max(0, candidate_limit)
     scope = OrderedDict(
         mode=scan_mode,
+        selection_order=selection_order,
+        train_pool_size=train_pool_size,
+        active_train_workers=[],
+        worker_refill_policy="",
+        next_refill_train="",
         active_limit=active_limit,
         candidate_limit=candidate_limit,
         per_pr_timeout_seconds=per_pr_timeout_seconds,
@@ -4893,7 +5392,7 @@ def _select_live_scan_prs(
         subset_description="",
     )
 
-    if scan_mode == "active":
+    if scan_mode == "active" and selection_order == "latest":
         prs = _open_live_pr_numbers(repo, active_limit)
         scope["active_window_prs"] = prs
         scope["reviewed_prs"] = prs
@@ -4904,8 +5403,32 @@ def _select_live_scan_prs(
         )
         return prs, scope
 
+    if scan_mode == "active":
+        try:
+            inventory = _ordered_inventory(_open_pr_inventory(repo), selection_order)
+            prs = [int(row["number"]) for row in inventory[:active_limit]]
+            scope["inventory_open_count"] = len(inventory)
+            scope["active_window_prs"] = prs
+            scope["reviewed_prs"] = prs
+            scope["reviewed_count"] = len(prs)
+            scope["subset_description"] = (
+                f"active mode inventoried all {len(inventory)} open PRs to deep-review "
+                f"the {selection_order} {len(prs)} PRs"
+            )
+            return prs, scope
+        except Exception as exc:
+            prs = _open_live_pr_numbers(repo, active_limit)
+            scope["active_window_prs"] = prs
+            scope["reviewed_prs"] = prs
+            scope["reviewed_count"] = len(prs)
+            scope["inventory_error"] = str(exc)
+            scope["subset_description"] = (
+                f"oldest-first active inventory failed; fallback deep-reviewed latest {len(prs)} open PRs only"
+            )
+            return prs, scope
+
     try:
-        inventory = _open_pr_inventory(repo)
+        inventory = _ordered_inventory(_open_pr_inventory(repo), selection_order)
     except Exception as exc:
         prs = _open_live_pr_numbers(repo, active_limit)
         scope["active_window_prs"] = prs
@@ -4931,7 +5454,7 @@ def _select_live_scan_prs(
         prs = list(dict.fromkeys(active + candidates))
         subset = (
             f"hybrid mode inventoried all {len(inventory)} open PRs, deep-reviewed "
-            f"latest {len(active)} plus {len(candidates)} older high-signal candidates"
+            f"{selection_order} {len(active)} plus {len(candidates)} high-signal candidates"
         )
 
     scope["inventory_open_count"] = len(inventory)
@@ -4972,10 +5495,15 @@ def _scan_scope_lines(batch: dict[str, Any]) -> list[str]:
         "## Scan Scope",
         "",
         f"- Mode: `{scope.get('mode', 'explicit')}`.",
+        f"- Selection order: `{scope.get('selection_order', DEFAULT_SELECTION_ORDER)}`.",
         f"- Reviewed subset: {scope.get('subset_description') or completeness.get('subset_description') or 'explicit PR subset'}.",
         f"- Reviewed PRs: {_linked_prs(batch, [int(item) for item in scope.get('reviewed_prs', batch.get('prs', []))])}.",
         f"- Open PR inventory count: `{scope.get('inventory_open_count') if scope.get('inventory_open_count') is not None else 'not inventoried'}`.",
         f"- Per-PR timeout: `{scope.get('per_pr_timeout_seconds', DEFAULT_PER_PR_TIMEOUT_SECONDS)}s`.",
+        f"- Train pool size: `{scope.get('train_pool_size', batch.get('train_pool_size', DEFAULT_TRAIN_POOL_SIZE))}`.",
+        f"- Active train workers: `{scope.get('active_train_workers', batch.get('active_train_workers', []))}`.",
+        f"- Next refill train: `{scope.get('next_refill_train') or batch.get('next_refill_train') or 'none'}`.",
+        f"- Reviewed state counts: terminal `{scope.get('reviewed_terminal_count', batch.get('reviewed_terminal_count', 0))}`, blocked `{scope.get('reviewed_blocked_count', batch.get('reviewed_blocked_count', 0))}`, remaining `{scope.get('reviewed_remaining_count', batch.get('reviewed_remaining_count', 0))}`.",
         f"- Completeness: `{completeness.get('status', 'unknown')}` - {completeness.get('message', 'no completeness record')}",
     ]
     if scope.get("older_candidate_prs"):
@@ -4994,6 +5522,29 @@ def _queue_cohort_lines(batch: dict[str, Any]) -> list[str]:
     for cohort in cohorts:
         lines.append(
             f"- `{cohort['id']}`: {_linked_prs(batch, [int(item) for item in cohort['prs']])}. Rule: {cohort['rule']}."
+        )
+    return lines
+
+
+def _subagent_taskforce_lines(batch: dict[str, Any]) -> list[str]:
+    lines = ["", "## All Async Trains", ""]
+    entries = batch.get("train_to_subagent_map") or []
+    if not entries:
+        lines.append("- No executable train-to-subagent map from the reviewed subset. Use the delegation router before any manual GitHub write.")
+        return lines
+    lines.append("Subagent taskforce map: one independent train maps to one evidence lane; independent trains run in parallel and each train sequence runs oldest PR first.")
+    lines.append(f"Train worker pool: `{batch.get('train_pool_size', DEFAULT_TRAIN_POOL_SIZE)}` active slots; active workers `{batch.get('active_train_workers', [])}`; next refill train `{batch.get('next_refill_train') or 'none'}`.")
+    lines.append(f"Refill policy: {batch.get('worker_refill_policy') or 'refill the next oldest non-touching train after a worker finishes or blocks'}.")
+    lines.append("")
+    for entry in entries:
+        lines.append(
+            f"- `{entry['id']}` / `{entry['train_type']}`: {_linked_prs(batch, [int(item) for item in entry['prs']])}; "
+            f"lane `{entry['subagent_lane']}` via `{entry['agent']}`; "
+            f"worker slot `{entry.get('worker_slot') or 'queued'}`; "
+            f"terminal state `{entry.get('train_terminal_state') or 'needs_review'}`; "
+            f"oldest-first sequence `{entry.get('sequential_prs') or []}`; "
+            f"parallel with `{entry.get('parallel_with') or []}`; "
+            f"signals `{'; '.join(entry.get('routing_signals') or [])}`."
         )
     return lines
 
@@ -5033,8 +5584,30 @@ def _decision_wave_lines(batch: dict[str, Any]) -> list[str]:
         lines.append("- No closure or changes-requested wave detected in the reviewed subset.")
         return lines
     for wave in waves:
-        lines.append(
-            f"- `{wave['id']}` / `{wave['action']}`: {_linked_prs(batch, [int(item) for item in wave['prs']])}. {wave['rule']}."
+        selected = [int(item) for item in wave.get("prs", [])]
+        candidates = [int(item) for item in wave.get("candidate_prs", selected)]
+        remaining = [int(item) for item in wave.get("remaining_prs", [])]
+        question = wave.get("question_before_wave") or {}
+        lines.extend(
+            [
+                f"### `{wave['id']}` / `{wave['action']}`",
+                "",
+                f"- Exact PR links: {_linked_prs(batch, selected)}.",
+                f"- Candidate PRs: `{len(candidates)}`; remaining after this wave: `{len(remaining)}`.",
+                f"- Recommended Wave Size: `{wave.get('recommended_wave_size', len(selected))}`.",
+                f"- Why This Size: {wave.get('why_this_size') or 'not recorded'}.",
+                f"- Next action: `{wave.get('next_action') or 'ask_operator'}`.",
+                f"- Comment/Edit Policy: {wave.get('comment_edit_policy') or 'inspect existing maintainer records first'}.",
+                f"- Stop Conditions: head SHA change, CI state loss, incomplete scan, unsafe existing-record edit, or new hard collision.",
+                f"- Rule: {wave['rule']}.",
+                "- Question Before Wave:",
+                f"  - Current truth: {question.get('current_truth') or 'not recorded'}",
+                f"  - Recommended path: {question.get('recommended_path') or 'not recorded'}",
+                f"  - Risk if accepted blindly: {question.get('risk_if_accepted_blindly') or 'not recorded'}",
+                f"  - Decision needed: {question.get('decision_needed') or 'not recorded'}",
+                f"  - Recommended option: `{question.get('recommended_option') or 'approve_recommended_wave'}`",
+                "",
+            ]
         )
     return lines
 
@@ -5051,6 +5624,33 @@ def _check_failure_hold_lines(batch: dict[str, Any]) -> list[str]:
     for hold in holds:
         number = int(hold["pr"])
         lines.append(f"- {_linked_prs(batch, [number])}: {hold['reason']}.")
+    return lines
+
+
+def _reviewed_state_bucket_lines(batch: dict[str, Any]) -> list[str]:
+    state = batch.get("reviewed_state") or {}
+    lines = ["", "## Reviewed State Buckets", ""]
+    lines.append(
+        f"- Reviewed: `{len(batch.get('prs', []))}`; acted in this live report: `0`; "
+        f"terminal `{batch.get('reviewed_terminal_count', 0)}`; "
+        f"blocked `{batch.get('reviewed_blocked_count', 0)}`; "
+        f"remaining `{batch.get('reviewed_remaining_count', 0)}`."
+    )
+    lines.append("- `acted` is `0` in scanner output because GitHub writes happen after operator approval; final chat handoffs must replace it with actual merge/close/comment counts.")
+    for key, label in (
+        ("terminal", "Terminal / already handled"),
+        ("blocked", "Blocked"),
+        ("remaining", "Remaining train work"),
+    ):
+        rows = state.get(key) or []
+        if rows:
+            links = _linked_prs(batch, [int(row["pr"]) for row in rows])
+            reasons = "; ".join(f"#{int(row['pr'])}: {row.get('reason') or 'not recorded'}" for row in rows[:10])
+            if len(rows) > 10:
+                reasons += f"; +{len(rows) - 10} more"
+            lines.append(f"- {label}: {links}. Reasons: {reasons}.")
+        else:
+            lines.append(f"- {label}: none.")
     return lines
 
 
@@ -5078,11 +5678,13 @@ def _live_report_text(batch: dict[str, Any]) -> str:
         "- [Scan Scope](#scan-scope)",
         "- [Live Summary](#live-summary)",
         "- [Live Risk Matrix](#live-risk-matrix)",
+        "- [All Async Trains](#all-async-trains)",
         "- [Queue Cohort](#queue-cohort)",
         "- [Collision Groups](#collision-groups)",
         "- [Parallel Patch Trains](#parallel-patch-trains)",
         "- [Decision Waves](#decision-waves)",
         "- [Check Failure Holds](#check-failure-holds)",
+        "- [Reviewed State Buckets](#reviewed-state-buckets)",
         "- [Actionable Next Queue](#actionable-next-queue)",
         "- [Blocked / Waiting Register](#blocked--waiting-register)",
         "- [Contract Intake Sets](#contract-intake-sets)",
@@ -5114,6 +5716,8 @@ def _live_report_text(batch: dict[str, Any]) -> str:
             f"- Reviewed PRs: {len(batch['prs'])}.",
             f"- Required gate counts: `{json.dumps(_report_gate_counts(batch['reports']), sort_keys=True)}`.",
             f"- Actionable fresh-batch candidates: {len(actionable_reports)}.",
+            f"- Train pool: `{batch.get('train_pool_size', DEFAULT_TRAIN_POOL_SIZE)}` workers; active `{batch.get('active_train_workers', [])}`; next refill `{batch.get('next_refill_train') or 'none'}`.",
+            f"- Reviewed state: terminal `{batch.get('reviewed_terminal_count', 0)}`, blocked `{batch.get('reviewed_blocked_count', 0)}`, remaining `{batch.get('reviewed_remaining_count', 0)}`.",
             f"- Lane counts: `{json.dumps(batch['lane_counts'], sort_keys=True)}`.",
             "- Merge rule: green CI is intake only; merge requires contract-safe, non-duplicate, lean/core-aligned proof.",
             "",
@@ -5132,11 +5736,13 @@ def _live_report_text(batch: dict[str, Any]) -> str:
             f"`{_markdown_cell(_lean_core_risk(report))}` | {_markdown_cell(reason)} |"
         )
     lines.extend([""])
+    lines.extend(_subagent_taskforce_lines(batch))
     lines.extend(_queue_cohort_lines(batch))
     lines.extend(_collision_group_lines(batch))
     lines.extend(_parallel_patch_train_lines(batch))
     lines.extend(_decision_wave_lines(batch))
     lines.extend(_check_failure_hold_lines(batch))
+    lines.extend(_reviewed_state_bucket_lines(batch))
     lines.extend([""])
     lines.extend(_live_actionable_queue_lines(batch["reports"]))
     lines.extend(_blocked_live_register_lines(batch["reports"]))
@@ -5152,12 +5758,12 @@ def _live_report_text(batch: dict[str, Any]) -> str:
     if not actionable_grouped:
         lines.append("- none; every current open PR is blocked, failing checks, conflicting, draft-only, or waiting on contributor action.")
     for contract_set, reports in sorted(actionable_grouped.items()):
-        prs = ", ".join(f"#{report['pr']['number']}" for report in reports)
+        prs = _linked_prs(batch, [int(report["pr"]["number"]) for report in reports])
         lanes = ", ".join(
-            f"#{report['pr']['number']}={report['lane']}" for report in reports
+            f"{_linked_prs(batch, [int(report['pr']['number'])])}={report['lane']}" for report in reports
         )
         risks = ", ".join(
-            f"#{report['pr']['number']}={_lean_core_risk(report)}" for report in reports
+            f"{_linked_prs(batch, [int(report['pr']['number'])])}={_lean_core_risk(report)}" for report in reports
         )
         lines.append(f"- `{contract_set}`: {prs} ({lanes}; risk {risks})")
     lines.extend(
@@ -5235,8 +5841,9 @@ def _live_report_text(batch: dict[str, Any]) -> str:
     lines.extend(["", "## Cross-PR File Overlaps", ""])
     if batch["overlaps"]:
         for overlap in batch["overlaps"]:
+            left, right = overlap["pair"]
             lines.append(
-                f"- `#{overlap['pair'][0]}` <-> `#{overlap['pair'][1]}`: "
+                f"- {_linked_prs(batch, [int(left)])} <-> {_linked_prs(batch, [int(right)])}: "
                 f"{_compact_file_list(overlap['shared_files'], limit=8)}"
             )
     else:
@@ -5375,6 +5982,7 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
             "headRefOid",
             "headRefName",
             "baseRefName",
+            "createdAt",
             "isDraft",
             "mergeable",
             "mergeStateStatus",
@@ -5411,6 +6019,7 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
             head_sha=pr_view["headRefOid"],
             head_ref=pr_view["headRefName"],
             base_ref=pr_view["baseRefName"],
+            created_at=pr_view.get("createdAt") or "",
             is_draft=bool(pr_view.get("isDraft")),
             additions=pr_view.get("additions", 0),
             deletions=pr_view.get("deletions", 0),
@@ -5545,10 +6154,12 @@ def main() -> int:
     parser.add_argument("--live-report", action="store_true", help="Build a live-only report from current open PRs, including drafts.")
     parser.add_argument("--limit", type=int, default=DEFAULT_ACTIVE_LIMIT, help="Active-window PR limit for --live-report.")
     parser.add_argument("--scan-mode", choices=sorted(SCAN_MODES), default="hybrid", help="Live-report scan mode: active, hybrid, or full.")
+    parser.add_argument("--selection-order", choices=sorted(SELECTION_ORDERS), default=DEFAULT_SELECTION_ORDER, help="Live-report backlog selection order for active/hybrid windows.")
     parser.add_argument("--candidate-limit", type=int, default=DEFAULT_CANDIDATE_LIMIT, help="Older high-signal PR candidate limit for hybrid live reports.")
     parser.add_argument("--queue-cohort-size", type=int, default=DEFAULT_QUEUE_COHORT_SIZE, help="Maximum independent merge_now PRs in the first queue cohort.")
     parser.add_argument("--per-pr-timeout-seconds", type=int, default=DEFAULT_PER_PR_TIMEOUT_SECONDS, help="Maximum seconds to spend deep-scanning one PR before marking it incomplete.")
     parser.add_argument("--max-parallel-patch-trains", type=int, default=DEFAULT_MAX_PARALLEL_PATCH_TRAINS, help="Maximum disjoint maintainer patch trains to surface.")
+    parser.add_argument("--train-pool-size", type=int, default=DEFAULT_TRAIN_POOL_SIZE, help="Active async train worker slots for live reports.")
     parser.add_argument("--output", help="Write output atomically to this path instead of stdout.")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--text", action="store_true")
@@ -5563,9 +6174,11 @@ def main() -> int:
             prs, scan_scope = _select_live_scan_prs(
                 args.repo,
                 scan_mode=args.scan_mode,
+                selection_order=args.selection_order,
                 active_limit=args.limit,
                 candidate_limit=args.candidate_limit,
                 per_pr_timeout_seconds=args.per_pr_timeout_seconds,
+                train_pool_size=args.train_pool_size,
             )
             report = build_batch_report(
                 args.repo,
@@ -5574,6 +6187,7 @@ def main() -> int:
                 per_pr_timeout_seconds=args.per_pr_timeout_seconds,
                 queue_cohort_size=args.queue_cohort_size,
                 max_parallel_patch_trains=args.max_parallel_patch_trains,
+                train_pool_size=args.train_pool_size,
             )
             is_batch = True
             is_live_report = True
@@ -5585,6 +6199,7 @@ def main() -> int:
                 per_pr_timeout_seconds=args.per_pr_timeout_seconds,
                 queue_cohort_size=args.queue_cohort_size,
                 max_parallel_patch_trains=args.max_parallel_patch_trains,
+                train_pool_size=args.train_pool_size,
             )
             is_batch = True
             is_live_report = False
