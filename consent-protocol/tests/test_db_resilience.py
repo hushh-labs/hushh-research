@@ -335,7 +335,7 @@ class TestTrustBoundaryProof:
         original = dbc._engine
         dbc._engine = engine
         try:
-            with get_db_connection() as conn:
+            with get_db_connection():
                 conn_pool_id = id(engine.pool)
             with get_db_session() as _sess:
                 session_pool_id = id(engine.pool)
