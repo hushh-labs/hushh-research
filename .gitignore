@@ -133,6 +133,19 @@ Personal_Tasks/
 test_kai_endpoints.py
 /consent-protocol/test_kai_endpoints.py
 
+# Local debug artifacts — Hygiene Guard by Abdul Gaffar
+# Traps transient SQLite databases, WAL/journal side-files, and the
+# .hushh_debug/ scratch directory that local dev tooling writes at runtime.
+# These must never land in version control: they carry process-local state,
+# can embed query logs or partial credentials, and differ per developer machine.
+*.db
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+.hushh_debug/
+**/.hushh_debug/
+
 # OS generated files
 .DS_Store*
 ._*
