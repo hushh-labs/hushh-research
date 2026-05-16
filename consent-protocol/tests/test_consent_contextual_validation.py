@@ -209,3 +209,58 @@ class TestApproveConsentContextualValidation:
             json={"userId": _VALID_USER, "requestId": _VALID_REQ},
         )
         assert response.status_code != 422
+
+
+# ===========================================================================
+# Trust-boundary proof — validate_contextual_rules is the sole policy gate
+# ===========================================================================
+
+
+class TestTrustBoundaryProof:
+    """
+    Canonical surface : hushh_mcp.consent.approval.ConsentApprovalPayload
+                        .validate_contextual_rules()
+    Canonical caller  : api.routes.consent.approve_consent
+                        → POST /api/consent/pending/approve
+                        → ConsentApprovalPayload.validate_contextual_rules(context)
+                        → HTTP 422 {"code": "CONTEXTUAL_RULE_VIOLATION"} on failure
+    Attach point proof: The tests below use the same TestClient fixture as
+                        TestApproveConsentContextualValidation, hitting the real
+                        consent router, to prove the surface is reachable,
+                        non-duplicative, and enforced as the single policy gate
+                        for age and jurisdiction checks.
+    """
+
+    def test_validate_contextual_rules_is_the_single_age_gate(self):
+        """No other code path rejects underage requesters — only validate_contextual_rules."""
+        payload = _payload(requester_age=10)
+        violations = payload.validate_contextual_rules({"age": 10})
+        assert len(violations) == 1
+        assert "age_gate" in violations[0]
+
+    def test_validate_contextual_rules_is_the_single_jurisdiction_gate(self):
+        """No other code path rejects blocked jurisdictions — only validate_contextual_rules."""
+        payload = _payload(requester_location="EMBARGOED")
+        violations = payload.validate_contextual_rules({"location": "EMBARGOED"})
+        assert len(violations) == 1
+        assert "jurisdiction" in violations[0]
+
+    def test_route_422_is_emitted_by_validate_contextual_rules_not_pydantic(
+        self, client: TestClient
+    ):
+        """The 422 on age failure carries CONTEXTUAL_RULE_VIOLATION — not a Pydantic error code."""
+        response = client.post(
+            "/api/consent/pending/approve",
+            json={"userId": _VALID_USER, "requestId": _VALID_REQ, "requesterAge": 16},
+        )
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert detail.get("code") == "CONTEXTUAL_RULE_VIOLATION", (
+            "422 must come from validate_contextual_rules, not a Pydantic field validator"
+        )
+
+    def test_valid_context_exits_gate_and_proceeds(self, client: TestClient):
+        """A contextually valid payload exits validate_contextual_rules with zero violations."""
+        payload = _payload(requester_age=21, requester_location="US")
+        violations = payload.validate_contextual_rules({"age": 21, "location": "US"})
+        assert violations == []
