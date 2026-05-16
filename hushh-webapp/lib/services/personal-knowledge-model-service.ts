@@ -33,6 +33,7 @@ import {
   CURRENT_READABLE_SUMMARY_VERSION,
   currentDomainContractVersion,
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
+import { deepMerge } from "@/lib/utils/merge";
 
 // ==================== Types ====================
 
@@ -430,16 +431,7 @@ export class PersonalKnowledgeModelService {
     base: Record<string, unknown>,
     incoming: Record<string, unknown>
   ): Record<string, unknown> {
-    const merged: Record<string, unknown> = { ...base };
-    for (const [key, value] of Object.entries(incoming)) {
-      const current = merged[key];
-      if (this.isPlainObject(current) && this.isPlainObject(value)) {
-        merged[key] = this.deepMergeRecords(current, value);
-      } else {
-        merged[key] = value;
-      }
-    }
-    return merged;
+    return deepMerge(base, incoming);
   }
 
   private static normalizePathSegments(path: string | undefined | null): string[] {
