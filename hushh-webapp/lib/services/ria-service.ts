@@ -13,6 +13,7 @@ import {
 } from "@/lib/observability/growth";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { buildRiaClientQueryKey } from "@/lib/services/ria-cache-keys";
 
 export type Persona = "investor" | "ria";
 
@@ -1228,7 +1229,7 @@ export class RiaService {
     if (options?.status) query.set("status", options.status);
     query.set("page", String(options?.page || 1));
     query.set("limit", String(options?.limit || 50));
-    const queryKey = `${options?.q || ""}_${options?.status || ""}_${options?.page || 1}_${options?.limit || 50}`;
+    const queryKey = buildRiaClientQueryKey(options);
     const cacheKey = options?.userId
       ? CACHE_KEYS.RIA_CLIENTS(
           options.userId,

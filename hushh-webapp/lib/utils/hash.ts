@@ -1,13 +1,28 @@
-function sortObjectKeys(value: unknown): unknown {
+function normalizeStableValue(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (
+    value === undefined ||
+    typeof value === "function" ||
+    typeof value === "symbol" ||
+    typeof value === "bigint"
+  ) {
+    throw new TypeError("Unsupported value for stable hashing");
+  }
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    throw new TypeError("Unsupported non-finite number for stable hashing");
+  }
   if (Array.isArray(value)) {
-    return value.map(sortObjectKeys);
+    return value.map((item) => normalizeStableValue(item, seen));
   }
 
   if (value && typeof value === "object") {
+    if (seen.has(value)) {
+      throw new TypeError("Unsupported circular value for stable hashing");
+    }
+    seen.add(value);
     return Object.keys(value as Record<string, unknown>)
       .sort()
       .reduce<Record<string, unknown>>((acc, key) => {
-        acc[key] = sortObjectKeys(
+        acc[key] = normalizeStableValue(
           (value as Record<string, unknown>)[key]
         );
         return acc;
@@ -18,7 +33,7 @@ function sortObjectKeys(value: unknown): unknown {
 }
 
 export function stableStringify(value: unknown): string {
-  return JSON.stringify(sortObjectKeys(value));
+  return JSON.stringify(normalizeStableValue(value));
 }
 
 export function createStableHash(value: unknown): string {
