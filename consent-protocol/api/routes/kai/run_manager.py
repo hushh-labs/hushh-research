@@ -303,11 +303,13 @@ class KaiAnalyzeRunManager:
             return self._runs_by_id.get(run_id)
 
     async def cancel_run(self, *, run_id: str, user_id: str) -> Optional[AnalyzeRunRecord]:
-        run = await self.get_run(run_id)
-        if run is None or run.user_id != user_id:
-            return None
-        run.cancel_event.set()
-        run.updated_at = _now_iso()
+        async with self._lock:
+            await self._prune_locked()
+            run = self._runs_by_id.get(run_id)
+            if run is None or run.user_id != user_id:
+                return None
+            run.cancel_event.set()
+            run.updated_at = _now_iso()
         async with run.condition:
             run.condition.notify_all()
         return run
