@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { ThemeProvider } from "@/components/theme-provider";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
@@ -111,11 +112,13 @@ export default function RootLayout({
           />
         ) : null}
       </head>
-      <RootLayoutClient
-        fontClasses={`${geistSans.variable} ${geistMono.variable} ${headingSans.variable}`}
-      >
-        {children}
-      </RootLayoutClient>
+     <ThemeProvider>
+  <RootLayoutClient
+    fontClasses={`${geistSans.variable} ${geistMono.variable} ${headingSans.variable}`}
+  >
+    {children}
+  </RootLayoutClient>
+</ThemeProvider>
     </html>
   );
 }
