@@ -185,10 +185,16 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
   try {
     const headers = createUpstreamHeaders(requestId);
     
-    // Copy authorization header
+    // Copy authorization header or extract from token query param (for EventSource)
     if (authHeader) {
       headers.set("Authorization", authHeader);
+    } else {
+      const tokenParam = request.nextUrl.searchParams.get("token");
+      if (tokenParam) {
+        headers.set("Authorization", `Bearer ${tokenParam}`);
+      }
     }
+
     if (consentHeader) {
       headers.set("X-Hushh-Consent", consentHeader);
     }

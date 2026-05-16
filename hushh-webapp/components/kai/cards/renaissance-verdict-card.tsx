@@ -225,3 +225,77 @@ export function RenaissanceVerdictCard({
     </SurfaceInset>
   );
 }
+
+// Added for the AI Investment Jury Debate Dashboard
+export function DebateVerdictCard({
+  verdict,
+}: {
+  verdict: { final_score: number; label: string };
+}) {
+  const isBuy = verdict.final_score >= 70;
+  const isAvoid = verdict.final_score <= 40;
+
+  const tone = isBuy
+    ? {
+        container: "border-emerald-500/20 bg-emerald-500/8",
+        icon: "text-emerald-600 dark:text-emerald-400",
+        label: "text-emerald-700 dark:text-emerald-300",
+        bgIcon: "bg-emerald-500/10",
+      }
+    : isAvoid
+    ? {
+        container: "border-rose-500/20 bg-rose-500/8",
+        icon: "text-rose-600 dark:text-rose-400",
+        label: "text-rose-700 dark:text-rose-300",
+        bgIcon: "bg-rose-500/10",
+      }
+    : {
+        container: "border-amber-500/20 bg-amber-500/8",
+        icon: "text-amber-600 dark:text-amber-400",
+        label: "text-amber-700 dark:text-amber-300",
+        bgIcon: "bg-amber-500/10",
+      };
+
+  return (
+    <SurfaceInset className={cn("space-y-4 border p-6 rounded-2xl", tone.container)}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            Final Jury Verdict
+          </p>
+          <div className="flex items-center gap-3">
+            <div className={cn("p-2 rounded-lg", tone.bgIcon)}>
+              {isBuy ? (
+                <TrendingUp className={cn("h-6 w-6", tone.icon)} />
+              ) : isAvoid ? (
+                <TrendingDown className={cn("h-6 w-6", tone.icon)} />
+              ) : (
+                <Minus className={cn("h-6 w-6", tone.icon)} />
+              )}
+            </div>
+            <p className={cn("text-2xl font-black tracking-tight", tone.label)}>
+              {verdict.label}
+            </p>
+          </div>
+        </div>
+        
+        <div className="text-right flex flex-col items-end">
+          <div className="flex items-baseline gap-1">
+            <p className={cn("text-5xl font-black", tone.label)}>
+              {verdict.final_score.toFixed(1)}
+            </p>
+            <p className="text-lg font-bold text-muted-foreground">/100</p>
+          </div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mt-1">
+            Conviction Score
+          </p>
+        </div>
+      </div>
+      
+      <p className="pt-4 border-t border-current/10 text-sm leading-relaxed text-foreground/80">
+        The AI Jury has weighed the Renaissance free cash flow indicators against fundamental risk factors. 
+        A score above 70 indicates a consensus strong buy, while below 40 highlights critical risks.
+      </p>
+    </SurfaceInset>
+  );
+}
