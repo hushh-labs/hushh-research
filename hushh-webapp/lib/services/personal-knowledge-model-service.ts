@@ -257,6 +257,10 @@ export class PersonalKnowledgeModelService {
   private static tickerSyncSignatureByUser = new Map<string, string>();
   private static tickerSyncLastAt = new Map<string, number>();
   private static migrationInflight = new Map<string, Promise<void>>();
+  private static latestEncryptedDataReadIdentityByScope = new Map<string, string>();
+  private static latestDomainDataReadIdentityByScope = new Map<string, string>();
+  private static encryptedDataCacheIdentityByUser = new Map<string, string>();
+  private static domainDataCacheIdentityByScope = new Map<string, string>();
   private static readonly TICKER_SYNC_THROTTLE_MS = 5 * 60 * 1000;
 
   static invalidateSessionStateAfterVaultRekey(userId: string): void {
@@ -288,6 +292,78 @@ export class PersonalKnowledgeModelService {
     keyParts: Array<string | number | boolean | undefined | null>
   ): string {
     return keyParts.map((part) => (part ?? "null").toString()).join(":");
+  }
+
+  private static authTokenSignature(vaultOwnerToken?: string): string {
+    const input = String(vaultOwnerToken || "");
+    if (!input) {
+      return "anonymous";
+    }
+
+    let hash = 2166136261;
+    for (let index = 0; index < input.length; index += 1) {
+      hash ^= input.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `vault_owner:${input.length}:${(hash >>> 0).toString(36)}`;
+  }
+
+  private static rememberEncryptedDataReadIdentity(
+    userId: string,
+    vaultOwnerToken?: string
+  ): string {
+    const identity = this.inflightKey([
+      userId,
+      Capacitor.isNativePlatform() ? "native" : "web",
+      this.authTokenSignature(vaultOwnerToken),
+    ]);
+    this.latestEncryptedDataReadIdentityByScope.set(userId, identity);
+    return identity;
+  }
+
+  private static isCurrentEncryptedDataReadIdentity(
+    userId: string,
+    identity: string
+  ): boolean {
+    return this.latestEncryptedDataReadIdentityByScope.get(userId) === identity;
+  }
+
+  private static domainDataScopeKey(params: {
+    userId: string;
+    domain: string;
+    normalizedSegmentIds: string[];
+  }): string {
+    return this.inflightKey([
+      params.userId,
+      params.domain,
+      params.normalizedSegmentIds.join(",") || "all_segments",
+    ]);
+  }
+
+  private static rememberDomainDataReadIdentity(params: {
+    userId: string;
+    domain: string;
+    normalizedSegmentIds: string[];
+    vaultOwnerToken?: string;
+  }): string {
+    const scopeKey = this.domainDataScopeKey(params);
+    const identity = this.inflightKey([
+      scopeKey,
+      Capacitor.isNativePlatform() ? "native" : "web",
+      this.authTokenSignature(params.vaultOwnerToken),
+    ]);
+    this.latestDomainDataReadIdentityByScope.set(scopeKey, identity);
+    return identity;
+  }
+
+  private static isCurrentDomainDataReadIdentity(params: {
+    userId: string;
+    domain: string;
+    normalizedSegmentIds: string[];
+    identity: string;
+  }): boolean {
+    const scopeKey = this.domainDataScopeKey(params);
+    return this.latestDomainDataReadIdentityByScope.get(scopeKey) === params.identity;
   }
 
   private static cloneRecord<T extends Record<string, unknown>>(value: T): T {
@@ -1792,8 +1868,13 @@ export class PersonalKnowledgeModelService {
   ): Promise<EncryptedUserBlob | null> {
     const cache = CacheService.getInstance();
     const cacheKey = CACHE_KEYS.PKM_BLOB(userId);
+    const requestIdentity = this.rememberEncryptedDataReadIdentity(userId, vaultOwnerToken);
     const cached = cache.get<EncryptedUserBlob>(cacheKey);
-    if (cached) {
+    if (
+      cached &&
+      this.encryptedDataCacheIdentityByUser.get(userId) === requestIdentity &&
+      this.isCurrentEncryptedDataReadIdentity(userId, requestIdentity)
+    ) {
       return cached;
     }
 
@@ -1801,7 +1882,7 @@ export class PersonalKnowledgeModelService {
       "encrypted_blob",
       userId,
       Capacitor.isNativePlatform() ? "native" : "web",
-      vaultOwnerToken ? "vault_owner" : "anonymous",
+      this.authTokenSignature(vaultOwnerToken),
     ]);
     const existingRequest = this.encryptedDataInflight.get(dedupeKey);
     if (existingRequest) {
@@ -1863,10 +1944,21 @@ export class PersonalKnowledgeModelService {
         }
       }
 
+      if (!this.isCurrentEncryptedDataReadIdentity(userId, requestIdentity)) {
+        this.logMetadataRequest("identity_changed_skip", {
+          userId,
+          cacheKey,
+          readType: "encrypted_blob",
+        });
+        return null;
+      }
+
       if (result) {
         cache.set(cacheKey, result, CACHE_TTL.SESSION);
+        this.encryptedDataCacheIdentityByUser.set(userId, requestIdentity);
       } else {
         cache.invalidate(cacheKey);
+        this.encryptedDataCacheIdentityByUser.delete(userId);
       }
       return result;
     })();
@@ -2703,9 +2795,25 @@ export class PersonalKnowledgeModelService {
     const normalizedSegmentIds = this.normalizeSegmentIds(segmentIds);
     const canUseCache = normalizedSegmentIds.length === 0;
     const cacheKey = CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain);
+    const requestIdentity = this.rememberDomainDataReadIdentity({
+      userId,
+      domain,
+      normalizedSegmentIds,
+      vaultOwnerToken,
+    });
+    const scopeKey = this.domainDataScopeKey({ userId, domain, normalizedSegmentIds });
     if (canUseCache) {
       const cached = cache.get<EncryptedDomainBlob>(cacheKey);
-      if (cached) {
+      if (
+        cached &&
+        this.domainDataCacheIdentityByScope.get(scopeKey) === requestIdentity &&
+        this.isCurrentDomainDataReadIdentity({
+          userId,
+          domain,
+          normalizedSegmentIds,
+          identity: requestIdentity,
+        })
+      ) {
         return cached;
       }
     }
@@ -2716,7 +2824,7 @@ export class PersonalKnowledgeModelService {
       domain,
       normalizedSegmentIds.join(",") || "all_segments",
       Capacitor.isNativePlatform() ? "native" : "web",
-      vaultOwnerToken ? "vault_owner" : "anonymous",
+      this.authTokenSignature(vaultOwnerToken),
     ]);
     const existingRequest = this.domainDataInflight.get(dedupeKey);
     if (existingRequest) {
@@ -2830,10 +2938,30 @@ export class PersonalKnowledgeModelService {
         }
       }
 
+      if (
+        !this.isCurrentDomainDataReadIdentity({
+          userId,
+          domain,
+          normalizedSegmentIds,
+          identity: requestIdentity,
+        })
+      ) {
+        this.logMetadataRequest("identity_changed_skip", {
+          userId,
+          domain,
+          cacheKey,
+          readType: "domain_blob",
+          segmentIds: normalizedSegmentIds,
+        });
+        return null;
+      }
+
       if (encryptedBlob && canUseCache) {
         cache.set(cacheKey, encryptedBlob, CACHE_TTL.SESSION);
+        this.domainDataCacheIdentityByScope.set(scopeKey, requestIdentity);
       } else if (!encryptedBlob && canUseCache) {
         cache.invalidate(cacheKey);
+        this.domainDataCacheIdentityByScope.delete(scopeKey);
       }
 
       return encryptedBlob;

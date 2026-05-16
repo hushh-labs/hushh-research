@@ -191,6 +191,142 @@ describe("PKM cache behavior", () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("does not let a stale encrypted user blob response overwrite a newer vault identity", async () => {
+    let resolveFirst!: (response: Response) => void;
+    let resolveSecond!: (response: Response) => void;
+
+    apiFetchMock
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFirst = resolve;
+          })
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveSecond = resolve;
+          })
+      );
+
+    const first = PersonalKnowledgeModelService.getEncryptedData(
+      "user-1",
+      "vault-owner-token-a"
+    );
+    const second = PersonalKnowledgeModelService.getEncryptedData(
+      "user-1",
+      "vault-owner-token-b"
+    );
+
+    resolveSecond(
+      new Response(
+        JSON.stringify({
+          ciphertext: "ciphertext-new",
+          iv: "iv-new",
+          tag: "tag-new",
+          data_version: 2,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    await expect(second).resolves.toMatchObject({
+      ciphertext: "ciphertext-new",
+      dataVersion: 2,
+    });
+
+    resolveFirst(
+      new Response(
+        JSON.stringify({
+          ciphertext: "ciphertext-old",
+          iv: "iv-old",
+          tag: "tag-old",
+          data_version: 1,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    await expect(first).resolves.toBeNull();
+
+    expect(
+      CacheService.getInstance().peek(CACHE_KEYS.PKM_BLOB("user-1"))?.data
+    ).toMatchObject({
+      ciphertext: "ciphertext-new",
+      dataVersion: 2,
+    });
+  });
+
+  it("does not let a stale encrypted domain blob response overwrite a newer vault identity", async () => {
+    let resolveFirst!: (response: Response) => void;
+    let resolveSecond!: (response: Response) => void;
+
+    apiFetchMock
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFirst = resolve;
+          })
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveSecond = resolve;
+          })
+      );
+
+    const first = PersonalKnowledgeModelService.getDomainData(
+      "user-1",
+      "financial",
+      "vault-owner-token-a"
+    );
+    const second = PersonalKnowledgeModelService.getDomainData(
+      "user-1",
+      "financial",
+      "vault-owner-token-b"
+    );
+
+    resolveSecond(
+      new Response(
+        JSON.stringify({
+          encrypted_blob: {
+            ciphertext: "ciphertext-new",
+            iv: "iv-new",
+            tag: "tag-new",
+          },
+          data_version: 2,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    await expect(second).resolves.toMatchObject({
+      ciphertext: "ciphertext-new",
+      dataVersion: 2,
+    });
+
+    resolveFirst(
+      new Response(
+        JSON.stringify({
+          encrypted_blob: {
+            ciphertext: "ciphertext-old",
+            iv: "iv-old",
+            tag: "tag-old",
+          },
+          data_version: 1,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    await expect(first).resolves.toBeNull();
+
+    expect(
+      CacheService.getInstance().peek(
+        CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB("user-1", "financial")
+      )?.data
+    ).toMatchObject({
+      ciphertext: "ciphertext-new",
+      dataVersion: 2,
+    });
+  });
+
   it("supports targeted segment reads for manifest-backed paths", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
       if (url.includes("/api/pkm/domain-data/user-1/health")) {
