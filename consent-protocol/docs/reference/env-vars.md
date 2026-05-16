@@ -152,7 +152,7 @@ Notes:
 
 - These maintainer-only overlay vars are loaded by backend scripts and release verification at process start.
 - Changing them requires restarting the backend or rerunning the script; they are not hot-reloaded into an already running process.
-- `REVIEWER_UID` is the canonical non-production reviewer/test user id. The current fixture resolves to `s3xmA4lNSAQFrIaOytnSGAOzXlL2` from Firebase Auth email `jd77v9k4nx@privaterelay.appleid.com`.
+- `REVIEWER_UID` is the canonical non-production reviewer/test user id. The current fixture resolves to `UWHGeUyfUAbmEl5xwIPoWJ7Cyft2` from Firebase Auth email `kushaltrivedi1711@gmail.com`.
 - `REVIEWER_VAULT_PASSPHRASE` is the canonical vault unlock secret for reviewer smoke and must remain in ignored local env files or Secret Manager/runtime overlays.
 - `UAT_SMOKE_*` and `KAI_TEST_*` are deprecated one-release aliases for existing maintainer scripts.
 - UAT analytics smoke reuses the existing reviewer test fixture; do not create new Firebase users, reviewer users, app environments, or one-off analytics fixtures for validation.
@@ -248,15 +248,14 @@ This path requires Workspace domain-wide delegation for client ID `1090213248283
 recipient or visible alias only if Gmail send-as policy allows it; the delegated
 subject itself must be a real user mailbox.
 
-## One Email Intake Roadmap
+## One Email KYC
 
 `one@hushh.ai` is the inbound mailbox for One-led email workflows. The roadmap
-and rollout gates live in [One Email Intake Roadmap](../../../docs/future/one-email-intake-roadmap.md).
+and rollout gates live in [One Email KYC](../../../docs/reference/architecture/one-email-kyc.md).
 The repo now includes metadata-only Gmail Pub/Sub intake, watch renewal,
 workflow state, scoped KYC consent requests, `/one/kyc`, and approval-gated
-draft send. Hosted current-state still requires the database migration,
-Pub/Sub subscription, watch renewal schedule, connector key envs, and a real
-UAT smoke.
+same-thread send. Hosted current-state still requires Pub/Sub subscription,
+watch renewal schedule, strict client-side ZK env parity, and a real UAT smoke.
 
 Local runtime bootstrap:
 
