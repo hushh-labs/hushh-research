@@ -20,11 +20,11 @@ from fastapi import APIRouter
 
 from .analyze import router as analyze_router
 from .chat import router as chat_router
-from .intelligence import router as intelligence_router
 from .consent import router as consent_router
 from .decisions import router as decisions_router
 from .gmail import router as gmail_router
 from .health import router as health_router
+from .intelligence import router as intelligence_router
 from .losers import router as losers_router
 from .market_insights import router as market_insights_router
 from .plaid import router as plaid_router

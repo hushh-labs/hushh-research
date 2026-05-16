@@ -217,7 +217,7 @@ async def intelligence_batch_analyze(
                 error_code="invalid_ticker",
                 error_message="Invalid ticker or analysis parameters.",
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("[Intelligence] unexpected error for ticker %s", ticker)
             return BatchTickerResult(
                 ticker=ticker,
