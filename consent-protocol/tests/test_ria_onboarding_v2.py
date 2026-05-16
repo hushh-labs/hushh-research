@@ -173,6 +173,7 @@ def test_verify_license_passes_through_city_pin_zip_and_string_exams(monkeypatch
     assert result["status"] == "found"
     assert result["city"] == "Kennesaw"
     assert result["pin_zip"] == "30144"
+    assert result["certifications"] == ["Series 65"]
     assert result["exams_passed"] == ["Series 65"]
 
 
@@ -229,6 +230,7 @@ def test_verify_license_fills_missing_location_from_official_pdf(monkeypatch) ->
     assert result["status"] == "found"
     assert result["city"] == "Kennesaw"
     assert result["pin_zip"] == "30144"
+    assert result["certifications"] == ["Series 66"]
     assert result["exams_passed"] == ["Series 66"]
 
 

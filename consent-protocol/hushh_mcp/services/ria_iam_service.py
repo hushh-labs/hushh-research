@@ -896,6 +896,7 @@ class RIAIAMService:
                 city = city or official_location.get("city")
                 pin_zip = pin_zip or official_location.get("pin_zip")
 
+        broker_exams = _broker_exams(broker_data)
         response: dict[str, Any] = {
             "status": "found"
             if found
@@ -905,7 +906,7 @@ class RIAIAMService:
             "regulator": regulator or ("SEC" if found else None),
             "regulator_status": broker_data.get("status"),
             "license_expiry": None,
-            "certifications": [],
+            "certifications": broker_exams,
             "city": city,
             "pin_zip": pin_zip,
             "crd_number": broker_data.get("crdNumber") or normalized,
@@ -914,7 +915,7 @@ class RIAIAMService:
             "disclosures_count": broker_data.get("disclosures", {}).get("count", 0)
             if isinstance(broker_data.get("disclosures"), dict)
             else 0,
-            "exams_passed": _broker_exams(broker_data),
+            "exams_passed": broker_exams,
             "provider": "ria_intelligence_combined",
             "scrape_job_id": scrape_data.get("jobId"),
             "broker_intelligence_summary": broker_data.get("summary"),
