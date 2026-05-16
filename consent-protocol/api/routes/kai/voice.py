@@ -877,6 +877,8 @@ async def kai_voice_plan(
                 "transcript_chars": len(planner_transcript),
             },
         )
+        # canonical caller: plan_voice_response → _plan_intent_with_llm_v1
+        #   → _post_with_model_fallback (_SHARED_HTTP_CLIENT) + _intent_cache
         response, openai_http_ms, model_used = await voice_service.plan_voice_response(
             transcript=planner_transcript,
             user_id=body.user_id,
