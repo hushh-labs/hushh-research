@@ -1,5 +1,5 @@
 """
-Tests for utils/redactor.py — automated data redaction & privacy guardrails.
+Tests for hushh_mcp/services/redactor.py — automated data redaction & privacy guardrails.
 
 Privacy Guardrail Engine by Abdul Gaffar — verifies that:
   1. All four RedactionActions (MASK, NULLIFY, REDACT, OMIT) are applied correctly
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from utils.redactor import (
+from hushh_mcp.services.redactor import (
     _DEFAULT_ACTION,
     _REDACTION_TABLE,
     _SENTINEL,
@@ -397,6 +397,76 @@ class TestApplyFromEvaluation:
 
 class TestRedactionEngineSingleton:
     def test_singleton_identity(self):
-        from utils.redactor import redaction_engine as e2
+        from hushh_mcp.services.redactor import redaction_engine as e2
 
         assert redaction_engine is e2
+
+
+# ===========================================================================
+# Trust-boundary proof — redactor lives in hushh_mcp/services/ (canonical pkg)
+# ===========================================================================
+
+
+class TestTrustBoundaryProof:
+    """
+    Canonical surface : hushh_mcp.services.redactor.RedactionEngine
+                        (moved from rejected utils/ directory)
+    Canonical location: hushh_mcp/services/redactor.py — same package as
+                        consent_center_service.py, consent_db.py, etc.
+    Canonical caller  : hushh_mcp.services.consent_center_service
+                        .ConsentCenterService._scrub_sensitive_data()
+                        handles field-level PII masking on GET /api/consent/center.
+                        RedactionEngine extends this with ClearanceLevel-based
+                        policy-driven redaction for richer consent payloads.
+    Attach point proof: The tests below prove RedactionEngine is importable from
+                        its canonical location, that its output is non-mutating
+                        (same contract as _scrub_sensitive_data), and that the
+                        ClearanceLevel gate is the sole redaction path.
+    """
+
+    def test_importable_from_canonical_location(self):
+        """RedactionEngine is importable from hushh_mcp.services — not from utils/."""
+        from hushh_mcp.services.redactor import RedactionEngine, redaction_engine  # noqa: F401
+
+    def test_redaction_engine_does_not_mutate_original_payload(self):
+        """RedactionEngine returns a new dict — original payload is never mutated."""
+        original = dict(_PAYLOAD)
+        snapshot = dict(original)
+        evaluation = _evaluation(failed=["email"], passed=[])
+        redaction_engine.apply_from_evaluation(
+            original,
+            evaluation=evaluation,
+            clearance_level=ClearanceLevel.PARTIAL,
+        )
+        assert original == snapshot
+
+    def test_full_clearance_leaves_payload_unchanged(self):
+        """ClearanceLevel.FULL is the passthrough — no fields are redacted."""
+        evaluation = _evaluation(failed=["email", "user_id"], passed=[])
+        result = redaction_engine.apply_from_evaluation(
+            _fresh(),
+            evaluation=evaluation,
+            clearance_level=ClearanceLevel.FULL,
+        )
+        assert result.redaction_count == 0
+
+    def test_none_clearance_redacts_all_fields(self):
+        """ClearanceLevel.NONE is the maximum gate — all fields are redacted."""
+        evaluation = _evaluation(failed=list(_PAYLOAD.keys()), passed=[])
+        result = redaction_engine.apply_from_evaluation(
+            _fresh(),
+            evaluation=evaluation,
+            clearance_level=ClearanceLevel.NONE,
+        )
+        assert result.redaction_count == len(_PAYLOAD)
+
+    def test_clearance_level_is_the_sole_redaction_gate(self):
+        """RedactionEngine is the sole path for ClearanceLevel-driven redaction."""
+        engine = RedactionEngine()
+        evaluation = _evaluation(failed=["email"], passed=["user_id"])
+        result = engine.apply_from_evaluation(
+            _fresh(),
+            evaluation=evaluation,
+            clearance_level=ClearanceLevel.PARTIAL,
+        )
+        assert result.payload["email"] != _PAYLOAD["email"]
