@@ -681,6 +681,5 @@ describe("resolveGroundedVoicePlan", () => {
       type: "prompt",
     });
   });
-    });
-  });
 });
+
