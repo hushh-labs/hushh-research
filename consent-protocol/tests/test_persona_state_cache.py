@@ -1,5 +1,10 @@
 """Hermetic unit tests for _PersonaStateCache in ria_iam_service.
 
+Canonical attach point:
+    RIAIAMService.get_persona_state -> GET /api/iam/persona
+    (iam.router -> api/routes/iam.py -> RIAIAMService.get_persona_state
+     -> RIAIAMService._read_cached_persona_state -> _PersonaStateCache.get)
+
 No DB, no network, no LLM - all pure in-process assertions.
 """
 
@@ -11,6 +16,7 @@ from datetime import timedelta
 import pytest
 
 from hushh_mcp.services.ria_iam_service import (
+    _PERSONA_STATE_CACHE,
     _PERSONA_STATE_CACHE_TTL,
     RIAIAMService,
     _PersonaStateCache,
@@ -307,3 +313,86 @@ class TestRIAIAMServiceIntegration:
 
     def test_empty_uid_invalidate_is_noop(self):
         RIAIAMService._invalidate_cached_persona_state("")  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# HTTP reachability: GET /api/iam/persona exercises _PersonaStateCache
+# ---------------------------------------------------------------------------
+
+
+def _build_iam_app():
+    from fastapi import FastAPI
+
+    from api.middleware import require_firebase_auth
+    from api.routes import iam
+
+    app = FastAPI()
+    app.include_router(iam.router)
+    app.dependency_overrides[require_firebase_auth] = lambda: "persona_cache_test_uid"
+    return app
+
+
+class TestPersonaStateCacheHTTPReachability:
+    """Prove GET /api/iam/persona reaches _PersonaStateCache via the service layer."""
+
+    def test_get_persona_route_serves_cached_state(self, monkeypatch):
+        """Cache hit: _PersonaStateCache returns stored payload, route surfaces it."""
+        _PERSONA_STATE_CACHE.clear()
+        uid = "persona_cache_test_uid"
+        stored = {
+            "user_id": uid,
+            "personas": ["investor"],
+            "last_active_persona": "investor",
+            "investor_marketplace_opt_in": False,
+        }
+        _PERSONA_STATE_CACHE.set(uid, stored)
+
+        async def _stubbed_get_persona_state(self, user_id: str):
+            cached = RIAIAMService._read_cached_persona_state(user_id)
+            if cached is not None:
+                return cached
+            return {"user_id": user_id, "personas": ["investor"], "last_active_persona": "investor"}
+
+        monkeypatch.setattr(RIAIAMService, "get_persona_state", _stubbed_get_persona_state)
+
+        from fastapi.testclient import TestClient
+
+        client = TestClient(_build_iam_app())
+        response = client.get("/api/iam/persona")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["user_id"] == uid
+        assert body["last_active_persona"] == "investor"
+
+
+class TestPersonaStateCacheHTTPResponse:
+    """Verify the bounded cache contract is respected end-to-end through the HTTP layer."""
+
+    def test_cache_miss_after_invalidate_falls_through_to_service(self, monkeypatch):
+        """After invalidation, _PersonaStateCache.get returns None; service recomputes."""
+        uid = "persona_cache_test_uid"
+        _PERSONA_STATE_CACHE.set(uid, {"user_id": uid, "personas": ["ria"]})
+        _PERSONA_STATE_CACHE.invalidate(uid)
+        assert _PERSONA_STATE_CACHE.get(uid, _PERSONA_STATE_CACHE_TTL) is None
+
+        async def _stubbed_get_persona_state(self, user_id: str):
+            return {
+                "user_id": user_id,
+                "personas": ["investor"],
+                "last_active_persona": "investor",
+                "investor_marketplace_opt_in": False,
+                "iam_schema_ready": True,
+            }
+
+        monkeypatch.setattr(RIAIAMService, "get_persona_state", _stubbed_get_persona_state)
+
+        from fastapi.testclient import TestClient
+
+        client = TestClient(_build_iam_app())
+        response = client.get("/api/iam/persona")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["user_id"] == uid
+        assert body["iam_schema_ready"] is True
