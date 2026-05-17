@@ -60,4 +60,30 @@ describe("parseSSEBlocks", () => {
     const result = parseSSEBlocks(": ping\n\n\n");
     expect(result.events).toHaveLength(0);
   });
+    it("preserves SSE comment heartbeat isolation from valid events", () => {
+    const input =
+      ": heartbeat\n" +
+      ": keepalive\n\n" +
+      "event: stage\n" +
+      "id: 7\n" +
+      'data: {"schema_version":"1.0","stream_id":"strm_hb","stream_kind":"portfolio_import","seq":7,"event":"stage","terminal":false,"payload":{"stage":"syncing"}}\n\n';
+
+    const result = parseSSEBlocks(input);
+
+    expect(result.remainder).toBe("");
+    expect(result.events).toHaveLength(1);
+
+    expect(result.events[0]).toMatchObject({
+      event: "stage",
+      id: "7",
+    });
+
+    const parsed = JSON.parse(result.events[0]!.data) as unknown;
+
+    expect(isKaiStreamEnvelope(parsed)).toBe(true);
+
+    if (isKaiStreamEnvelope(parsed)) {
+      expect(parsed.payload.stage).toBe("syncing");
+    }
+  });
 });
