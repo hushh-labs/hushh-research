@@ -48,4 +48,4 @@ EXPOSE 8080
 
 # Run FastAPI with uvicornWorker via gunicorn
 # Cloud Run sets PORT env var, default to 8080
-CMD ["sh", "-c", "exec gunicorn server:app -w 2 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:${PORT:-8080}"]
+CMD ["sh", "-c", "exec gunicorn server:app -w 2 -k uvicorn.workers.UvicornWorker --timeout 120 -b 0.0.0.0:${PORT:-8080}"]

@@ -4,9 +4,12 @@ title = "hushh-research gitleaks config"
 useDefault = true
 
 [allowlist]
-description = "Documented backend env placeholders in the public example template"
+description = "Documented backend env placeholders + test fixtures"
 paths = [
   '''^consent-protocol/\.env\.example$''',
+  # HCT golden-vector fixture: deterministic test signing key used by
+  # apps/one-mac/Sources/OneConsent + consent-protocol/scripts/emit_hct_golden_vectors.py.
+  '''^consent-protocol/tests/fixtures/hct_golden_vectors\.json$''',
 ]
 regexes = [
   '''replace_with_64_char_hex_secret_key''',
@@ -16,4 +19,11 @@ regexes = [
   # False positive: route-state variable names in Kai layout matched Plaid client-id heuristic.
   '''onPlaidOauthReturnRoute''',
   '''onAlpacaOauthReturnRoute''',
+  # HCT golden-vector deterministic test key; never used in production.
+  '''golden_vector_signing_key_for_hct_parity_only_32\+''',
+  # OneConsent Keychain item account names — public, version-stable identifiers
+  # for the SE-bound wrapping key + wrapped data-key envelope. Documented in
+  # apps/one-mac/docs/threat-model.md.
+  '''ai\.hushh\.one\.consent\.wrapping\.v1''',
+  '''ai\.hushh\.one\.consent\.data-key\.v1''',
 ]
