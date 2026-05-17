@@ -42,6 +42,8 @@ from hushh_mcp.services.crd_scrape_proxy_service import (  # noqa: E402
 from hushh_mcp.services.ria_iam_service import (  # noqa: E402
     RIAIAMPolicyError,
     RIAIAMService,
+    _brokercheck_branch_location_from_text,
+    _firm_location_from_text,
     _official_location_from_text,
 )
 
@@ -729,6 +731,53 @@ def test_official_location_from_text_extracts_city_and_zip() -> None:
     }
 
 
+def test_brokercheck_branch_location_from_text_extracts_inactive_broker_city() -> None:
+    """Inactive broker reports expose branch city/state even without a full address."""
+
+    result = _brokercheck_branch_location_from_text(
+        (
+            "Registration Dates Firm Name CRD# Branch Location "
+            "B 09/2021 - 06/2022 LAZARD FRERES & CO. LLC 2528 NEW YORK, NY "
+            "Employment History"
+        ),
+        "https://files.brokercheck.finra.org/individual/individual_7265726.pdf",
+    )
+
+    assert result == {
+        "city": "New York",
+        "state": "NY",
+        "location": "New York, NY",
+        "firm_crd": "2528",
+        "firm_name": "LAZARD FRERES & CO. LLC",
+        "source_url": "https://files.brokercheck.finra.org/individual/individual_7265726.pdf",
+    }
+
+
+def test_firm_location_from_text_extracts_main_office_zip() -> None:
+    """Firm BrokerCheck PDFs can supply the ZIP missing from inactive individual reports."""
+
+    result = _firm_location_from_text(
+        "\n".join(
+            [
+                "Main Office Location Firm Profile Disclosure Events",
+                "30 ROCKEFELLER PLAZA This firm is classified as a limited liability company.",
+                "NEW YORK, NY 10020-5900",
+                "Mailing Address proceedings and financial matters",
+            ]
+        ),
+        "https://files.brokercheck.finra.org/firm/firm_2528.pdf",
+    )
+
+    assert result == {
+        "city": "New York",
+        "state": "NY",
+        "pin_zip": "10020-5900",
+        "address": "30 ROCKEFELLER PLAZA",
+        "location": "New York, NY",
+        "source_url": "https://files.brokercheck.finra.org/firm/firm_2528.pdf",
+    }
+
+
 def test_verify_license_invalid_number_422() -> None:
     """An empty license_number should be rejected by Pydantic validation (422)."""
     client = TestClient(_authed_app())
@@ -854,6 +903,96 @@ def test_verify_ria_license_exposes_summary_and_exams_as_prefill(monkeypatch) ->
     ]
     assert payload["exams_passed"] == payload["certifications"]
     assert payload["scrape_job_id"] == "crd_scrape_prefill"
+
+
+def test_verify_ria_license_fills_inactive_broker_location_from_official_fallback(
+    monkeypatch,
+) -> None:
+    """Inactive BrokerCheck rows should still prefill city, state, ZIP, and address."""
+
+    captured_audit: dict[str, Any] = {}
+
+    async def _mock_broker_intelligence(self, *, query, request_id=None):
+        assert query == "7265726"
+        return CrdScrapeProviderResponse(
+            status_code=200,
+            payload={
+                "status": "Not Currently Registered",
+                "verifiedName": "Ria Ashley Sen",
+                "currentFirm": "Not Currently Registered",
+                "crdNumber": "7265726",
+                "summary": "Former registered representative.",
+                "exams": [
+                    "Securities Industry Essentials Examination (SIE)",
+                    "Investment Banking Representative Examination (Series 79TO)",
+                ],
+            },
+        )
+
+    async def _mock_create_job(self, *, crd_number, request_id=None):
+        assert crd_number == "7265726"
+        return CrdScrapeProviderResponse(
+            status_code=202,
+            payload={"jobId": "crd_scrape_inactive", "status": "queued"},
+        )
+
+    async def _mock_official_location(crd_number: str):
+        assert crd_number == "7265726"
+        return {
+            "city": "New York",
+            "state": "NY",
+            "pin_zip": "10020-5900",
+            "address": "30 ROCKEFELLER PLAZA",
+            "location": "New York, NY",
+            "source_url": "https://files.brokercheck.finra.org/firm/firm_2528.pdf",
+            "individual_source_url": (
+                "https://files.brokercheck.finra.org/individual/individual_7265726.pdf"
+            ),
+            "firm_crd": "2528",
+            "firm_name": "LAZARD FRERES & CO. LLC",
+        }
+
+    class _FakeConn:
+        async def fetchrow(self, *_args):
+            return None
+
+        async def execute(self, _query: str, *args):
+            captured_audit["payload"] = json.loads(args[4])
+            captured_audit["status"] = args[5]
+
+    async def _mock_get_pool():
+        return _FakePool(_FakeConn())
+
+    monkeypatch.setattr(CrdScrapeProxyService, "broker_intelligence", _mock_broker_intelligence)
+    monkeypatch.setattr(CrdScrapeProxyService, "create_job", _mock_create_job)
+    monkeypatch.setattr(
+        ria_iam_service_module,
+        "_official_pdf_location_for_crd",
+        _mock_official_location,
+    )
+    monkeypatch.setattr(ria_iam_service_module, "get_pool", _mock_get_pool)
+
+    payload = asyncio.run(
+        RIAIAMService().verify_ria_license(
+            _TEST_UID,
+            license_number="7265726",
+            regulator="SEC",
+        )
+    )
+
+    assert payload["status"] == "found"
+    assert payload["advisor_name"] == "Ria Ashley Sen"
+    assert payload["firm_name"] == "Not Currently Registered"
+    assert payload["city"] == "New York"
+    assert payload["state"] == "NY"
+    assert payload["pin_zip"] == "10020-5900"
+    assert payload["full_street_address"] == "30 ROCKEFELLER PLAZA"
+    assert payload["business_address"] == "30 ROCKEFELLER PLAZA"
+    assert payload["official_location"]["individual_source_url"].endswith("individual_7265726.pdf")
+    assert payload["scrape_job_id"] == "crd_scrape_inactive"
+    assert captured_audit["status"] == "completed"
+    assert captured_audit["payload"]["city"] == "New York"
+    assert captured_audit["payload"]["pin_zip"] == "10020-5900"
 
 
 def test_verify_license_provider_timeout(monkeypatch) -> None:

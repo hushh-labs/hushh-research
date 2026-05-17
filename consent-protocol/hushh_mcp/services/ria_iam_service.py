@@ -145,6 +145,29 @@ _OFFICIAL_ADDRESS_RE = re.compile(
     r"(?P<pin_zip>\d{5}(?:-\d{4})?)\b",
     re.IGNORECASE,
 )
+_BROKERCHECK_BRANCH_ROW_RE = re.compile(
+    r"\b(?:B|IA)?\s*"
+    r"\d{2}/\d{4}\s+-\s+(?:Present|\d{2}/\d{4})\s+"
+    r"(?P<firm>[A-Z0-9][A-Z0-9 .,&'/-]{1,120}?)\s+"
+    r"(?P<firm_crd>\d{2,8})\s+"
+    r"(?P<city>[A-Z][A-Z .'-]{1,60}?),\s*"
+    r"(?P<state>AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\b",
+    re.IGNORECASE,
+)
+_BROKERCHECK_SUMMARY_BRANCH_RE = re.compile(
+    r"\b(?:B|IA)\s+"
+    r"(?P<firm>[A-Z0-9][A-Z0-9 .,&'/-]{1,120}?)\s+"
+    r"CRD#\s*(?P<firm_crd>\d{2,8})\s+"
+    r"(?P<city>[A-Z][A-Z .'-]{1,60}?),\s*"
+    r"(?P<state>AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\b",
+    re.IGNORECASE,
+)
+_FIRM_CITY_STATE_ZIP_RE = re.compile(
+    r"^(?P<city>[A-Z][A-Z .'-]{1,60}?),\s*"
+    r"(?P<state>AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\s+"
+    r"(?P<pin_zip>\d{5}(?:-\d{4})?)\b",
+    re.IGNORECASE,
+)
 _OFFICIAL_EXAM_LABELS = {
     "SIE": "SIE - Securities Industry Essentials Examination",
     "Series 7": "Series 7 - General Securities Representative Examination",
@@ -256,6 +279,82 @@ def _official_location_from_text(text: str, source_url: str) -> dict[str, str] |
         city = _title_case_city(match.group("city"))
         pin_zip = match.group("pin_zip")
         address = " ".join(match.group("address").split()).strip(" ,")
+        return {
+            "city": city,
+            "state": state,
+            "pin_zip": pin_zip,
+            "address": address,
+            "location": f"{city}, {state}",
+            "source_url": source_url,
+        }
+    return None
+
+
+def _same_location_part(left: str | None, right: str | None) -> bool:
+    normalized_left = re.sub(r"[^a-z0-9]+", " ", str(left or "").lower()).strip()
+    normalized_right = re.sub(r"[^a-z0-9]+", " ", str(right or "").lower()).strip()
+    return bool(normalized_left and normalized_right and normalized_left == normalized_right)
+
+
+def _brokercheck_branch_location_from_text(
+    text: str,
+    source_url: str,
+) -> dict[str, str] | None:
+    normalized = " ".join(str(text or "").replace("\xa0", " ").split())
+    if not normalized:
+        return None
+
+    for pattern in (_BROKERCHECK_SUMMARY_BRANCH_RE, _BROKERCHECK_BRANCH_ROW_RE):
+        match = pattern.search(normalized)
+        if not match:
+            continue
+        city = _title_case_city(match.group("city"))
+        state = match.group("state").upper()
+        if state not in _US_STATE_CODES:
+            continue
+        return {
+            "city": city,
+            "state": state,
+            "location": f"{city}, {state}",
+            "firm_crd": match.group("firm_crd"),
+            "firm_name": _clean_official_line(match.group("firm")),
+            "source_url": source_url,
+        }
+    return None
+
+
+def _trim_firm_address_line(line: str) -> str:
+    candidate = _clean_official_line(line)
+    for marker in (
+        " This firm ",
+        " Brokerage firms ",
+        " Regulated by ",
+        " Information ",
+        " Are there ",
+        " Business Telephone ",
+    ):
+        if marker in candidate:
+            candidate = candidate.split(marker, 1)[0]
+    return _clean_official_line(candidate)
+
+
+def _firm_location_from_text(text: str, source_url: str) -> dict[str, str] | None:
+    lines = _official_report_lines(text)
+    for idx, line in enumerate(lines):
+        match = _FIRM_CITY_STATE_ZIP_RE.search(line)
+        if not match:
+            continue
+        state = match.group("state").upper()
+        if state not in _US_STATE_CODES:
+            continue
+        address = ""
+        for previous in reversed(lines[max(0, idx - 4) : idx]):
+            previous_address = _trim_firm_address_line(previous)
+            if re.match(r"^\d{1,6}\s+", previous_address):
+                address = previous_address
+                break
+        city = _title_case_city(match.group("city"))
+        pin_zip = match.group("pin_zip")
         return {
             "city": city,
             "state": state,
@@ -397,6 +496,33 @@ def _official_location_from_pdf(content: bytes, source_url: str) -> dict[str, st
     return _official_location_from_text(" ".join(parts), source_url)
 
 
+def _brokercheck_branch_location_from_pdf(
+    content: bytes,
+    source_url: str,
+) -> dict[str, str] | None:
+    import pdfplumber
+
+    with pdfplumber.open(io.BytesIO(content)) as pdf:
+        parts: list[str] = []
+        for page in pdf.pages[:8]:
+            parts.append(page.extract_text() or "")
+            if sum(len(part) for part in parts) > 30_000:
+                break
+    return _brokercheck_branch_location_from_text("\n".join(parts), source_url)
+
+
+def _firm_location_from_pdf(content: bytes, source_url: str) -> dict[str, str] | None:
+    import pdfplumber
+
+    with pdfplumber.open(io.BytesIO(content)) as pdf:
+        parts: list[str] = []
+        for page in pdf.pages[:5]:
+            parts.append(page.extract_text() or "")
+            if sum(len(part) for part in parts) > 20_000:
+                break
+    return _firm_location_from_text("\n".join(parts), source_url)
+
+
 def _official_profile_from_pdf(content: bytes, source_url: str) -> dict[str, Any] | None:
     import pdfplumber
 
@@ -475,6 +601,52 @@ async def _official_pdf_location_for_crd(crd_number: str) -> dict[str, str] | No
                     response.content,
                     source_url,
                 )
+                if not location and "brokercheck.finra.org/individual/" in source_url:
+                    branch_location = await asyncio.to_thread(
+                        _brokercheck_branch_location_from_pdf,
+                        response.content,
+                        source_url,
+                    )
+                    location = branch_location
+                    firm_crd = branch_location.get("firm_crd") if branch_location else None
+                    if firm_crd:
+                        firm_source_url = (
+                            f"https://files.brokercheck.finra.org/firm/firm_{firm_crd}.pdf"
+                        )
+                        try:
+                            firm_response = await client.get(firm_source_url)
+                            firm_response.raise_for_status()
+                            firm_location = await asyncio.to_thread(
+                                _firm_location_from_pdf,
+                                firm_response.content,
+                                firm_source_url,
+                            )
+                        except Exception:
+                            logger.info(
+                                "verify_ria_license: firm PDF location fallback failed for %s",
+                                firm_crd,
+                                exc_info=True,
+                            )
+                            firm_location = None
+                        if (
+                            firm_location
+                            and _same_location_part(
+                                branch_location.get("city"),
+                                firm_location.get("city"),
+                            )
+                            and _same_location_part(
+                                branch_location.get("state"),
+                                firm_location.get("state"),
+                            )
+                        ):
+                            location = {
+                                **branch_location,
+                                **firm_location,
+                                "firm_crd": firm_crd,
+                                "firm_name": branch_location.get("firm_name", ""),
+                                "individual_source_url": source_url,
+                                "source_url": firm_source_url,
+                            }
             except Exception:
                 logger.info(
                     "verify_ria_license: official PDF location fallback failed for %s",
