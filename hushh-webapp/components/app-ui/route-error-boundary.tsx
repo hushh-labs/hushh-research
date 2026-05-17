@@ -70,6 +70,7 @@ export class RouteErrorBoundary extends Component<Props, State> {
                   variant="muted"
                   effect="glass"
                   size="sm"
+                  className="min-h-[44px]"
                   onClick={this.handleRetry}
                 >
                   Try again
@@ -78,6 +79,7 @@ export class RouteErrorBoundary extends Component<Props, State> {
                   variant="blue-gradient"
                   effect="fill"
                   size="sm"
+                  className="min-h-[44px]"
                   onClick={this.handleGoHome}
                 >
                   Go home
