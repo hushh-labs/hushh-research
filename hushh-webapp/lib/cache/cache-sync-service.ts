@@ -1,5 +1,9 @@
 import type { PortfolioData } from "@/lib/cache/cache-context";
-import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
+import {
+  CacheService,
+  CACHE_KEYS,
+  CACHE_TTL,
+} from "@/lib/services/cache-service";
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 
 type DomainSummaryPatch = Record<string, unknown>;
@@ -15,7 +19,7 @@ function toNumber(value: unknown): number | null {
 
 function deriveAttributeCount(
   domainSummary: DomainSummaryPatch | undefined,
-  portfolioData: PortfolioData | undefined
+  portfolioData: PortfolioData | undefined,
 ): number {
   const candidates = [
     domainSummary?.attribute_count,
@@ -29,11 +33,14 @@ function deriveAttributeCount(
     }
   }
 
-  const holdings = (Array.isArray(portfolioData?.holdings) && portfolioData?.holdings) || [];
+  const holdings =
+    (Array.isArray(portfolioData?.holdings) && portfolioData?.holdings) || [];
   return holdings.length;
 }
 
-function sanitizeDomainSummary(summary: DomainSummaryPatch): Record<string, unknown> {
+function sanitizeDomainSummary(
+  summary: DomainSummaryPatch,
+): Record<string, unknown> {
   const blocked = new Set([
     "holdings",
     "vault_key",
@@ -64,9 +71,7 @@ function sanitizeDomainSummary(summary: DomainSummaryPatch): Record<string, unkn
         "top_level_scope_count",
         "domain_contract_version",
         "readable_summary_version",
-      ].includes(
-        normalized
-      )
+      ].includes(normalized)
     ) {
       const parsed = toNumber(value);
       if (parsed !== null) {
@@ -118,7 +123,7 @@ function patchMetadataDomain(
     domainSummary?: DomainSummaryPatch;
     portfolioData?: PortfolioData;
     metadataTimestamp?: string;
-  }
+  },
 ): PersonalKnowledgeModelMetadata {
   const sanitizedSummary = sanitizeDomainSummary(options?.domainSummary ?? {});
   const metadataTimestamp =
@@ -137,12 +142,17 @@ function patchMetadataDomain(
           ? options.domainSummary.displayName
           : existing?.displayName) || domain,
     icon:
-      (typeof options?.domainSummary?.icon === "string" ? options.domainSummary.icon : existing?.icon) ||
-      "database",
+      (typeof options?.domainSummary?.icon === "string"
+        ? options.domainSummary.icon
+        : existing?.icon) || "database",
     color:
-      (typeof options?.domainSummary?.color === "string" ? options.domainSummary.color : existing?.color) ||
-      "var(--brand-500)",
-    attributeCount: deriveAttributeCount(options?.domainSummary, options?.portfolioData),
+      (typeof options?.domainSummary?.color === "string"
+        ? options.domainSummary.color
+        : existing?.color) || "var(--brand-500)",
+    attributeCount: deriveAttributeCount(
+      options?.domainSummary,
+      options?.portfolioData,
+    ),
     summary: sanitizedSummary,
     availableScopes: existing?.availableScopes ?? [],
     lastUpdated: metadataTimestamp,
@@ -175,14 +185,14 @@ function patchMetadataDomain(
         options?.domainSummary?.domain_contract_version ??
           options?.domainSummary?.domainContractVersion ??
           existing?.domainContractVersion ??
-          1
+          1,
       ) || 1,
     readableSummaryVersion:
       Number(
         options?.domainSummary?.readable_summary_version ??
           options?.domainSummary?.readableSummaryVersion ??
           existing?.readableSummaryVersion ??
-          0
+          0,
       ) || 0,
     upgradedAt:
       (typeof options?.domainSummary?.upgraded_at === "string"
@@ -201,7 +211,10 @@ function patchMetadataDomain(
   }
 
   const totalAttributes = domains.reduce((sum, current) => {
-    return sum + (Number.isFinite(current.attributeCount) ? current.attributeCount : 0);
+    return (
+      sum +
+      (Number.isFinite(current.attributeCount) ? current.attributeCount : 0)
+    );
   }, 0);
 
   return {
@@ -228,7 +241,9 @@ export class CacheSyncService {
     cache.invalidate(CACHE_KEYS.KAI_FINANCIAL_RESOURCE(userId));
     void import("@/lib/kai/kai-financial-resource")
       .then(({ KaiFinancialResourceService }) => {
-        KaiFinancialResourceService.invalidate(userId, { includeDevice: false });
+        KaiFinancialResourceService.invalidate(userId, {
+          includeDevice: false,
+        });
       })
       .catch(() => undefined);
     void import("@/lib/pkm/pkm-domain-resource")
@@ -246,7 +261,9 @@ export class CacheSyncService {
     cache.invalidatePattern(`kai_dashboard_profile_picks_${userId}_`);
     void import("@/lib/kai/kai-market-home-resource")
       .then(({ KaiMarketHomeResourceService }) => {
-        KaiMarketHomeResourceService.invalidateUser(userId, { includeDevice: false });
+        KaiMarketHomeResourceService.invalidateUser(userId, {
+          includeDevice: false,
+        });
       })
       .catch(() => undefined);
     void import("@/lib/services/unlock-warm-orchestrator")
@@ -272,7 +289,7 @@ export class CacheSyncService {
       domainSummary?: DomainSummaryPatch;
       metadataTimestamp?: string;
       writeThroughMetadata?: boolean;
-    }
+    },
   ): void {
     const emitDomainStoredEvent = () => {
       if (typeof window === "undefined") return;
@@ -282,9 +299,12 @@ export class CacheSyncService {
             userId,
             domain,
             dataVersion: options?.encryptedBlob?.dataVersion ?? null,
-            updatedAt: options?.encryptedBlob?.updatedAt ?? options?.metadataTimestamp ?? null,
+            updatedAt:
+              options?.encryptedBlob?.updatedAt ??
+              options?.metadataTimestamp ??
+              null,
           },
-        })
+        }),
       );
     };
     const cache = CacheService.getInstance();
@@ -294,11 +314,15 @@ export class CacheSyncService {
 
     if (domain === "financial") {
       if (options?.portfolioData) {
-        cache.set(CACHE_KEYS.PORTFOLIO_DATA(userId), options.portfolioData, CACHE_TTL.SESSION);
+        cache.set(
+          CACHE_KEYS.PORTFOLIO_DATA(userId),
+          options.portfolioData,
+          CACHE_TTL.SESSION,
+        );
         cache.set(
           CACHE_KEYS.DOMAIN_DATA(userId, "financial"),
           options.portfolioData,
-          CACHE_TTL.SESSION
+          CACHE_TTL.SESSION,
         );
       }
       this.invalidateKaiFinancialResource(userId);
@@ -321,7 +345,7 @@ export class CacheSyncService {
       cache.set(
         CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain),
         options.encryptedBlob,
-        CACHE_TTL.SESSION
+        CACHE_TTL.SESSION,
       );
       cache.invalidate(CACHE_KEYS.PKM_BLOB(userId));
     } else {
@@ -334,7 +358,9 @@ export class CacheSyncService {
       return;
     }
 
-    const cachedMetadata = cache.get<PersonalKnowledgeModelMetadata>(CACHE_KEYS.PKM_METADATA(userId));
+    const cachedMetadata = cache.get<PersonalKnowledgeModelMetadata>(
+      CACHE_KEYS.PKM_METADATA(userId),
+    );
     if (!cachedMetadata || !options?.domainSummary) {
       cache.invalidate(CACHE_KEYS.PKM_METADATA(userId));
       emitDomainStoredEvent();
@@ -376,11 +402,19 @@ export class CacheSyncService {
     portfolioData: PortfolioData,
     options?: {
       invalidateMetadata?: boolean;
-    }
+    },
   ): void {
     const cache = CacheService.getInstance();
-    cache.set(CACHE_KEYS.PORTFOLIO_DATA(userId), portfolioData, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.DOMAIN_DATA(userId, "financial"), portfolioData, CACHE_TTL.SESSION);
+    cache.set(
+      CACHE_KEYS.PORTFOLIO_DATA(userId),
+      portfolioData,
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.DOMAIN_DATA(userId, "financial"),
+      portfolioData,
+      CACHE_TTL.SESSION,
+    );
     this.invalidateKaiFinancialResource(userId);
     this.onKaiMarketContextChanged(userId);
     if (options?.invalidateMetadata !== false) {
@@ -397,11 +431,15 @@ export class CacheSyncService {
     userId: string,
     options?: {
       hasVault?: boolean;
-    }
+    },
   ): void {
     const cache = CacheService.getInstance();
     if (typeof options?.hasVault === "boolean") {
-      cache.set(CACHE_KEYS.VAULT_CHECK(userId), options.hasVault, CACHE_TTL.SESSION);
+      cache.set(
+        CACHE_KEYS.VAULT_CHECK(userId),
+        options.hasVault,
+        CACHE_TTL.SESSION,
+      );
     } else {
       cache.invalidate(CACHE_KEYS.VAULT_CHECK(userId));
     }
@@ -409,6 +447,28 @@ export class CacheSyncService {
     if (options?.hasVault === false) {
       this.invalidateKaiFinancialResource(userId);
     }
+  }
+
+  static onVaultRekeyed(userId: string): void {
+    const cache = CacheService.getInstance();
+    cache.invalidateMany([
+      CACHE_KEYS.VAULT_CHECK(userId),
+      CACHE_KEYS.VAULT_STATUS(userId),
+      CACHE_KEYS.PKM_METADATA(userId),
+      CACHE_KEYS.PKM_BLOB(userId),
+      CACHE_KEYS.PKM_DECRYPTED_BLOB(userId),
+      CACHE_KEYS.PKM_UPGRADE_STATUS(userId),
+      CACHE_KEYS.PORTFOLIO_DATA(userId),
+      CACHE_KEYS.ANALYSIS_HISTORY(userId),
+      CACHE_KEYS.KAI_FINANCIAL_RESOURCE(userId),
+    ]);
+    cache.invalidatePattern(`domain_manifest_${userId}_`);
+    cache.invalidatePattern(`domain_data_${userId}_`);
+    cache.invalidatePattern(`domain_blob_${userId}_`);
+    cache.invalidatePattern(`pkm_domain_resource_${userId}_`);
+    cache.invalidatePattern(`stock_context_${userId}_`);
+    this.invalidateKaiFinancialResource(userId);
+    this.onKaiMarketContextChanged(userId);
   }
 
   static onConsentMutated(userId: string): void {
@@ -419,6 +479,8 @@ export class CacheSyncService {
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER(userId, "all"));
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "investor"));
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "ria"));
+    cache.invalidatePattern(`consent_center_${userId}_`);
+    cache.invalidatePattern(`consent_center_summary_${userId}_`);
     cache.invalidatePattern(`consent_center_preview_${userId}_`);
     cache.invalidate(CACHE_KEYS.RIA_HOME(userId));
     cache.invalidate(CACHE_KEYS.RIA_ROSTER_SUMMARY(userId));
@@ -434,7 +496,7 @@ export class CacheSyncService {
     userId: string,
     options?: {
       preservePersonaState?: boolean;
-    }
+    },
   ): void {
     const cache = CacheService.getInstance();
     if (!options?.preservePersonaState) {
@@ -444,6 +506,8 @@ export class CacheSyncService {
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER(userId, "all"));
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "investor"));
     cache.invalidate(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "ria"));
+    cache.invalidatePattern(`consent_center_${userId}_`);
+    cache.invalidatePattern(`consent_center_summary_${userId}_`);
     cache.invalidatePattern(`consent_center_preview_${userId}_`);
     cache.invalidate(CACHE_KEYS.RIA_HOME(userId));
     cache.invalidate(CACHE_KEYS.RIA_ROSTER_SUMMARY(userId));
@@ -470,7 +534,7 @@ export class CacheSyncService {
   static onAnalysisHistoryMutated(
     userId: string,
     ticker?: string,
-    options?: { preserveHistoryCache?: boolean }
+    options?: { preserveHistoryCache?: boolean },
   ): void {
     const cache = CacheService.getInstance();
     if (!options?.preserveHistoryCache) {
@@ -488,19 +552,27 @@ export class CacheSyncService {
   }
 
   static getAnalysisHistorySnapshot(
-    userId: string
+    userId: string,
   ): Record<string, unknown[]> | null {
     const cache = CacheService.getInstance();
-    return cache.get<Record<string, unknown[]>>(CACHE_KEYS.ANALYSIS_HISTORY(userId)) ?? null;
+    return (
+      cache.get<Record<string, unknown[]>>(
+        CACHE_KEYS.ANALYSIS_HISTORY(userId),
+      ) ?? null
+    );
   }
 
   static onAnalysisHistoryStored(
     userId: string,
     historyMap: Record<string, unknown[]>,
-    ticker?: string
+    ticker?: string,
   ): void {
     const cache = CacheService.getInstance();
-    cache.set(CACHE_KEYS.ANALYSIS_HISTORY(userId), historyMap, CACHE_TTL.SESSION);
+    cache.set(
+      CACHE_KEYS.ANALYSIS_HISTORY(userId),
+      historyMap,
+      CACHE_TTL.SESSION,
+    );
     // Local write-through path:
     // keep history cache warm and avoid broad invalidation/refetch churn.
     if (ticker) {
