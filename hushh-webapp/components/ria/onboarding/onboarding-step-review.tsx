@@ -14,13 +14,13 @@ interface OnboardingStepReviewProps {
   servicesOffered: string[];
   feeStructure: string[];
   minEngagementAmount: string;
-  contactEmail: string;
-  contactPhone: string;
+  bio: string;
   city: string;
+  pinZip: string;
   areaLocality: string;
   fullStreetAddress: string;
   advisoryAccessReady: boolean;
-  onEditSection: (section: "license" | "services" | "contact") => void;
+  onEditSection: (section: "license" | "services") => void;
 }
 
 function SectionCard({
@@ -61,10 +61,10 @@ function ReviewRow({
 }) {
   return (
     <div className="flex items-baseline justify-between gap-4 py-1.5">
-      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className="shrink-0 text-sm text-muted-foreground">{label}</span>
       <span
         className={cn(
-          "text-sm text-right",
+          "min-w-0 max-w-[70%] break-words text-right text-sm",
           value ? "text-foreground" : "text-muted-foreground/50"
         )}
       >
@@ -104,9 +104,9 @@ export function OnboardingStepReview({
   servicesOffered,
   feeStructure,
   minEngagementAmount,
-  contactEmail,
-  contactPhone,
+  bio,
   city,
+  pinZip,
   areaLocality,
   fullStreetAddress,
   advisoryAccessReady,
@@ -135,19 +135,6 @@ export function OnboardingStepReview({
       </SectionCard>
 
       <SectionCard
-        label="Location & Contact"
-        onEdit={() => onEditSection("contact")}
-      >
-        <div className="space-y-1">
-          <ReviewRow label="City" value={city} />
-          <ReviewRow label="Area" value={areaLocality} />
-          <ReviewRow label="Address" value={fullStreetAddress} />
-          <ReviewRow label="Email" value={contactEmail} />
-          <ReviewRow label="Phone" value={contactPhone} />
-        </div>
-      </SectionCard>
-
-      <SectionCard
         label="Services"
         onEdit={() => onEditSection("services")}
       >
@@ -163,6 +150,19 @@ export function OnboardingStepReview({
             <ChipList items={feeStructure} />
           </div>
           <ReviewRow label="Min Engagement" value={minEngagementAmount} />
+          <ReviewRow label="Bio" value={bio} />
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        label="Business Location"
+        onEdit={() => onEditSection("services")}
+      >
+        <div className="space-y-1">
+          <ReviewRow label="Address" value={fullStreetAddress} />
+          <ReviewRow label="Area" value={areaLocality} />
+          <ReviewRow label="City" value={city} />
+          <ReviewRow label="Pin / ZIP" value={pinZip} />
         </div>
       </SectionCard>
 

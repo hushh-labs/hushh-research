@@ -9,7 +9,6 @@ export type RiaOnboardingStepId =
   | "license_number"
   | "license_details"
   | "services"
-  | "contact_location"
   | "review";
 
 export type RiaOnboardingDraft = {
@@ -66,9 +65,10 @@ const STEP_ORDER: RiaOnboardingStepId[] = [
   "license_number",
   "license_details",
   "services",
-  "contact_location",
   "review",
 ];
+
+const LEGACY_CONTACT_LOCATION_STEP_ID = "contact_location";
 
 function sanitizeText(value: unknown): string {
   return typeof value === "string" ? value : "";
@@ -76,6 +76,12 @@ function sanitizeText(value: unknown): string {
 
 export function isRiaOnboardingStepId(value: unknown): value is RiaOnboardingStepId {
   return typeof value === "string" && STEP_ORDER.includes(value as RiaOnboardingStepId);
+}
+
+function normalizeRiaOnboardingStepId(value: unknown): RiaOnboardingStepId | null {
+  if (isRiaOnboardingStepId(value)) return value;
+  if (value === LEGACY_CONTACT_LOCATION_STEP_ID) return "services";
+  return null;
 }
 
 export function normalizeRiaCapabilities(value: unknown): RiaCapability[] {
@@ -143,9 +149,8 @@ export function normalizeRiaOnboardingDraft(
   const base = createEmptyRiaOnboardingDraft();
   const v = value as Record<string, unknown> | null | undefined;
   return {
-    currentStepId: isRiaOnboardingStepId(v?.currentStepId)
-      ? (v.currentStepId as RiaOnboardingStepId)
-      : base.currentStepId,
+    currentStepId:
+      normalizeRiaOnboardingStepId(v?.currentStepId) || base.currentStepId,
     onboardingType:
       typeof v?.onboardingType === "string" && VALID_ONBOARDING_TYPES.includes(v.onboardingType)
         ? (v.onboardingType as RiaOnboardingType)
@@ -224,14 +229,7 @@ export function buildRiaOnboardingSteps(
       eyebrow: "Services",
       title: "What do you offer?",
       description:
-        "List the services you provide and how you charge so investors know what to expect.",
-    },
-    {
-      id: "contact_location",
-      eyebrow: "Contact",
-      title: "Contact & location",
-      description:
-        "Let potential clients know how to reach you and where you are located.",
+        "List the services you provide, how you charge, and where your business is located.",
     },
     {
       id: "review",
@@ -260,10 +258,6 @@ export function canContinueRiaOnboardingStep(
       return draft.advisorName.trim().length > 0;
     case "services":
       return draft.servicesOffered.length > 0 && draft.feeStructure.length > 0;
-    case "contact_location":
-      return (
-        draft.contactEmail.trim().length > 0 || draft.contactPhone.trim().length > 0
-      );
     case "review":
       return true;
     default:
@@ -281,8 +275,12 @@ export function resolveRiaOnboardingStepId(
   options?: RiaOnboardingFlowOptions
 ): RiaOnboardingStepId {
   const steps = buildRiaOnboardingSteps(draft, options);
-  if (preferredStepId && steps.some((step) => step.id === preferredStepId)) {
-    return preferredStepId;
+  const normalizedPreferredStepId = normalizeRiaOnboardingStepId(preferredStepId);
+  if (
+    normalizedPreferredStepId &&
+    steps.some((step) => step.id === normalizedPreferredStepId)
+  ) {
+    return normalizedPreferredStepId;
   }
   if (preferredStepId) {
     return steps[0]?.id || "welcome";

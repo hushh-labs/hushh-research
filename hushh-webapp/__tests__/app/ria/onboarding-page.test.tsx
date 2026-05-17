@@ -189,11 +189,24 @@ vi.mock("@/components/ria/onboarding/onboarding-step-license-details", () => ({
 }));
 
 vi.mock("@/components/ria/onboarding/onboarding-step-services", () => ({
-  OnboardingStepServices: () => <div data-testid="step-services" />,
-}));
-
-vi.mock("@/components/ria/onboarding/onboarding-step-contact", () => ({
-  OnboardingStepContact: () => <div data-testid="step-contact" />,
+  OnboardingStepServices: ({
+    city,
+    areaLocality,
+    fullStreetAddress,
+    pinZip,
+  }: {
+    city: string;
+    areaLocality: string;
+    fullStreetAddress: string;
+    pinZip: string;
+  }) => (
+    <div data-testid="step-services">
+      <span data-testid="services-city">{city}</span>
+      <span data-testid="services-area">{areaLocality}</span>
+      <span data-testid="services-address">{fullStreetAddress}</span>
+      <span data-testid="services-pin-zip">{pinZip}</span>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/ria/onboarding/onboarding-step-review", () => ({
@@ -220,12 +233,6 @@ vi.mock("@/components/ria/onboarding/onboarding-step-review", () => ({
         onClick={() => onEditSection("services")}
       >
         Edit Services
-      </button>
-      <button
-        data-testid="edit-contact"
-        onClick={() => onEditSection("contact")}
-      >
-        Edit Contact
       </button>
     </div>
   ),
@@ -275,8 +282,11 @@ describe("RiaOnboardingPage", () => {
     mocks.useAuth.mockReturnValue({
       user: {
         uid: "user-ria-1",
+        email: "ria-user@example.com",
+        phoneNumber: "+16505550101",
         getIdToken: vi.fn().mockResolvedValue("token-ria-1"),
       },
+      phoneNumber: "+16505550101",
     });
     mocks.usePersonaState.mockReturnValue({
       refresh: mocks.refreshPersonaState,
@@ -349,10 +359,10 @@ describe("RiaOnboardingPage", () => {
       regulator: "SEC",
       regulator_status: "ACTIVE",
       certifications: [],
-      exams_passed: ["Series 66", "SIE"],
+      crd_number: "123456",
       city: "Kennesaw",
       pin_zip: "30144",
-      crd_number: "123456",
+      exams_passed: ["Series 66", "SIE"],
       scrape_job_id: null,
     });
 

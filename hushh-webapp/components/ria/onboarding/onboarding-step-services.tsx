@@ -4,6 +4,7 @@ import {
   BarChart3,
   FileText,
   Landmark,
+  MapPin,
   ScrollText,
   Sparkles,
 } from "lucide-react";
@@ -24,20 +25,49 @@ export function OnboardingStepServices({
   feeStructure,
   minEngagementAmount,
   bio,
+  city,
+  areaLocality,
+  fullStreetAddress,
+  pinZip,
   onServicesChange,
   onFeeStructureChange,
   onMinEngagementChange,
   onBioChange,
+  onCityChange,
+  onAreaLocalityChange,
+  onFullStreetAddressChange,
+  onPinZipChange,
 }: {
   servicesOffered: string[];
   feeStructure: string[];
   minEngagementAmount: string;
   bio: string;
+  city: string;
+  areaLocality: string;
+  fullStreetAddress: string;
+  pinZip: string;
   onServicesChange: (services: string[]) => void;
   onFeeStructureChange: (fees: string[]) => void;
   onMinEngagementChange: (value: string) => void;
   onBioChange: (value: string) => void;
+  onCityChange: (value: string) => void;
+  onAreaLocalityChange: (value: string) => void;
+  onFullStreetAddressChange: (value: string) => void;
+  onPinZipChange: (value: string) => void;
 }) {
+  const mapAddress = [
+    fullStreetAddress,
+    areaLocality,
+    city,
+    pinZip,
+  ]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(", ");
+  const mapPreviewSrc = mapAddress
+    ? `https://www.google.com/maps?q=${encodeURIComponent(mapAddress)}&output=embed`
+    : "";
+
   function toggleService(label: string) {
     if (servicesOffered.includes(label)) {
       onServicesChange(servicesOffered.filter((s) => s !== label));
@@ -153,6 +183,84 @@ export function OnboardingStepServices({
           <Sparkles className="h-3.5 w-3.5" />
           Ask Kai to generate a bio based on your self...
         </button>
+      </div>
+
+      <div className="space-y-4">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+          Business Location
+        </p>
+
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+            Full Street Address
+          </label>
+          <input
+            type="text"
+            value={fullStreetAddress}
+            onChange={(e) => onFullStreetAddressChange(e.target.value)}
+            placeholder="Building, floor, street"
+            className="h-11 w-full rounded-[22px] border border-border/70 bg-background/75 px-4 text-sm text-foreground outline-none focus:border-[#0071E3] focus:ring-1 focus:ring-[#0071E3]/30 transition-colors"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+              Area / Locality
+            </label>
+            <input
+              type="text"
+              value={areaLocality}
+              onChange={(e) => onAreaLocalityChange(e.target.value)}
+              placeholder="Downtown, Mission District"
+              className="h-11 w-full rounded-[22px] border border-border/70 bg-background/75 px-4 text-sm text-foreground outline-none focus:border-[#0071E3] focus:ring-1 focus:ring-[#0071E3]/30 transition-colors"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+              Business Location
+            </label>
+            <input
+              type="text"
+              value={city}
+              onChange={(e) => onCityChange(e.target.value)}
+              placeholder="City"
+              className="h-11 w-full rounded-[22px] border border-border/70 bg-background/75 px-4 text-sm text-foreground outline-none focus:border-[#0071E3] focus:ring-1 focus:ring-[#0071E3]/30 transition-colors"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+            Pin / ZIP
+          </label>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={pinZip}
+            onChange={(e) => onPinZipChange(e.target.value)}
+            placeholder="30144"
+            className="h-11 w-full rounded-[22px] border border-border/70 bg-background/75 px-4 text-sm text-foreground outline-none focus:border-[#0071E3] focus:ring-1 focus:ring-[#0071E3]/30 transition-colors"
+          />
+        </div>
+
+        <div className="relative h-44 overflow-hidden rounded-[22px] border border-border/70 bg-muted/30">
+          {mapPreviewSrc ? (
+            <iframe
+              title="Business location map preview"
+              src={mapPreviewSrc}
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              className="h-full w-full border-0"
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+              <MapPin className="h-4 w-4" />
+              <span>Map preview</span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
