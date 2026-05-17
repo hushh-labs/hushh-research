@@ -48,6 +48,69 @@ def test_verify_firebase_bearer_returns_500_when_auth_admin_missing(monkeypatch)
     assert exc.value.detail == "Firebase Admin not configured"
 
 
+def test_verify_firebase_bearer_certificate_fetch_returns_503(monkeypatch):
+    import firebase_admin.auth as firebase_auth
+
+    monkeypatch.setattr(
+        "api.utils.firebase_auth.ensure_firebase_auth_admin",
+        lambda: (True, "test-project"),
+    )
+    monkeypatch.setattr("api.utils.firebase_auth.get_firebase_auth_app", lambda: object())
+
+    def _raise_cert(*_args, **_kwargs):
+        raise firebase_auth.CertificateFetchError("fetch failed", cause=RuntimeError("network"))
+
+    monkeypatch.setattr(firebase_auth, "verify_id_token", _raise_cert)
+
+    with pytest.raises(HTTPException) as exc:
+        verify_firebase_bearer("Bearer some-token")
+
+    assert exc.value.status_code == 503
+    assert "temporarily unavailable" in exc.value.detail.lower()
+
+
+def test_verify_firebase_bearer_invalid_id_token_returns_401(monkeypatch):
+    import firebase_admin.auth as firebase_auth
+
+    monkeypatch.setattr(
+        "api.utils.firebase_auth.ensure_firebase_auth_admin",
+        lambda: (True, "test-project"),
+    )
+    monkeypatch.setattr("api.utils.firebase_auth.get_firebase_auth_app", lambda: object())
+
+    def _raise_invalid(*_args, **_kwargs):
+        raise firebase_auth.InvalidIdTokenError("bad token")
+
+    monkeypatch.setattr(firebase_auth, "verify_id_token", _raise_invalid)
+
+    with pytest.raises(HTTPException) as exc:
+        verify_firebase_bearer("Bearer some-token")
+
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "Invalid Firebase ID token"
+
+
+def test_verify_firebase_bearer_unexpected_error_returns_500(monkeypatch):
+    import firebase_admin.auth as firebase_auth
+
+    monkeypatch.setattr(
+        "api.utils.firebase_auth.ensure_firebase_auth_admin",
+        lambda: (True, "test-project"),
+    )
+    monkeypatch.setattr("api.utils.firebase_auth.get_firebase_auth_app", lambda: object())
+
+    def _raise_runtime(*_args, **_kwargs):
+        raise RuntimeError("surprise")
+
+    monkeypatch.setattr(firebase_auth, "verify_id_token", _raise_runtime)
+
+    with pytest.raises(HTTPException) as exc:
+        verify_firebase_bearer("Bearer some-token")
+
+    assert exc.value.status_code == 500
+    assert exc.value.detail == "Internal server error"
+
+
 def test_ensure_firebase_admin_uses_default_service_account(monkeypatch):
     import firebase_admin
     from firebase_admin import credentials

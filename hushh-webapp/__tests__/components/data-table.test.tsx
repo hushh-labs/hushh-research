@@ -56,4 +56,20 @@ describe("DataTable", () => {
     expect(screen.queryByRole("navigation", { name: "pagination" })).toBeNull();
     expect(screen.queryByText(/showing/i)).toBeNull();
   });
+
+  it("preserves accessible search input behavior", () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={makeRows(3)}
+        searchPlaceholder="Search records"
+      />
+    );
+
+    const searchInput = screen.getByRole("textbox", { name: "Search table" });
+
+    expect(searchInput).toBeTruthy();
+    expect(searchInput.getAttribute("placeholder")).toBe("Search records");
+    expect(searchInput.getAttribute("aria-hidden")).toBeNull();
+  });
 });
