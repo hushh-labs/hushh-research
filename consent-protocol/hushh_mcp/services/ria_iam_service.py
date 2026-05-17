@@ -1160,7 +1160,10 @@ class RIAIAMService:
 
         # Store audit trail
         try:
-            audit_payload = dict(broker_data)
+            audit_payload = self._license_verification_cache_payload(
+                broker_data=broker_data,
+                response=response,
+            )
             if official_profile:
                 audit_payload["official_profile"] = official_profile
                 audit_payload["broker_status_code"] = broker_status_code
@@ -1183,6 +1186,58 @@ class RIAIAMService:
             logger.warning("verify_ria_license: failed to store audit for %s", normalized)
 
         return response
+
+    @staticmethod
+    def _has_usable_license_location(response: dict[str, Any]) -> bool:
+        official_location = response.get("official_location")
+        official_address = (
+            official_location.get("address") if isinstance(official_location, dict) else None
+        )
+        return bool(
+            _first_text_value(response.get("city"))
+            and _first_text_value(response.get("pin_zip"))
+            and _first_text_value(response.get("state"), response.get("area_locality"))
+            and _first_text_value(response.get("full_street_address"), official_address)
+        )
+
+    @classmethod
+    def _license_verification_cache_payload(
+        cls,
+        *,
+        broker_data: dict[str, Any],
+        response: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = dict(broker_data if isinstance(broker_data, dict) else {})
+        alias_pairs = (
+            ("advisor_name", "verifiedName"),
+            ("firm_name", "currentFirm"),
+            ("regulator_status", "status"),
+            ("crd_number", "crdNumber"),
+            ("city", "city"),
+            ("pin_zip", "pin_zip"),
+            ("state", "state"),
+            ("area_locality", "area_locality"),
+            ("full_street_address", "full_street_address"),
+            ("business_address", "business_address"),
+            ("official_location", "official_location"),
+        )
+        for response_key, payload_key in alias_pairs:
+            value = response.get(response_key)
+            if value and not payload.get(payload_key):
+                payload[payload_key] = value
+
+        certifications = response.get("certifications")
+        if isinstance(certifications, list) and certifications and not payload.get("exams"):
+            payload["exams"] = certifications
+
+        summary = _first_text_value(
+            response.get("broker_intelligence_summary"),
+            response.get("bio"),
+        )
+        if summary and not payload.get("summary"):
+            payload["summary"] = summary
+
+        return payload
 
     @staticmethod
     def _coerce_utc_datetime(value: Any) -> datetime | None:
@@ -1399,6 +1454,13 @@ class RIAIAMService:
             allow_slow_fallbacks=False,
         )
         if response.get("status") != "found":
+            return None
+        if not self._has_usable_license_location(response):
+            logger.info(
+                "ria.verify_license_cache_incomplete_location user_id=%s license_number=%s",
+                user_id,
+                license_number,
+            )
             return None
         return self._add_license_cache_metadata(
             response,
