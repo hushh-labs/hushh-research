@@ -418,6 +418,86 @@ describe("RiaOnboardingPage", () => {
     expect(screen.getByTestId("pin-zip").textContent).toBe("30144");
   });
 
+  it("clears stale regulator fields before applying a fresh verification result", async () => {
+    mocks.draftService.load.mockResolvedValue({
+      currentStepId: "license_number",
+      onboardingType: "individual",
+      licenseNumber: "7413463",
+      licenseVerificationStatus: "error",
+      advisorName: "Old Advisor",
+      firmName: "Old Firm",
+      city: "Pune",
+      areaLocality: "Downtown, Mission District",
+      pinZip: "30144",
+      fullStreetAddress: "Army Institute of Technology, Pune",
+      bio: "Old stale bio",
+      servicesOffered: ["Portfolio Management"],
+      feeStructure: ["Fee-only"],
+    });
+    mocks.riaService.verifyOnboardingLicense.mockResolvedValue({
+      status: "found",
+      advisor_name: "Andrew Garrett Kirkland",
+      firm_name: "Eissman Wealth Management",
+      regulator: "SEC",
+      regulator_status: "Active (Investment Adviser Representative)",
+      certifications: [
+        "Series 66 - Uniform Combined State Law Examination",
+      ],
+      crd_number: "7413463",
+      city: "Kennesaw",
+      state: "GA",
+      area_locality: "GA",
+      pin_zip: "30144",
+      full_street_address: "114 Townpark Drive, Ste. 175",
+      official_location: {
+        city: "Kennesaw",
+        state: "GA",
+        pin_zip: "30144",
+        address: "114 Townpark Drive, Ste. 175",
+      },
+      bio: "Investment professional at Eissman Wealth Management.",
+      scrape_job_id: null,
+    });
+
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-license")).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("verify-btn"));
+    });
+
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("step-license-details")).toBeTruthy();
+      },
+      { timeout: 3000 },
+    );
+
+    expect(screen.getByTestId("advisor-name").textContent).toBe(
+      "Andrew Garrett Kirkland",
+    );
+    expect(screen.getByTestId("city").textContent).toBe("Kennesaw");
+    expect(screen.getByTestId("pin-zip").textContent).toBe("30144");
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("continue-btn"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-services")).toBeTruthy();
+    });
+
+    expect(screen.getByTestId("services-city").textContent).toBe("Kennesaw");
+    expect(screen.getByTestId("services-area").textContent).toBe("GA");
+    expect(screen.getByTestId("services-address").textContent).toBe(
+      "114 Townpark Drive, Ste. 175",
+    );
+    expect(screen.getByTestId("services-pin-zip").textContent).toBe("30144");
+  });
+
   it("handles not_found and stays on license step", async () => {
     mocks.riaService.verifyOnboardingLicense.mockResolvedValue({
       status: "not_found",

@@ -42,6 +42,32 @@ import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 
 const LICENSE_VERIFICATION_TIMEOUT_MS = 90_000;
 const SCRAPE_POLL_INTERVAL_MS = 5_000;
+const REGULATOR_PREFILL_RESET: Partial<RiaOnboardingDraft> = {
+  advisorName: "",
+  firmName: "",
+  regulatorStatus: "",
+  licenseExpiry: "",
+  certifications: [],
+  city: "",
+  pinZip: "",
+  crdNumber: "",
+  secNumber: "",
+  areaLocality: "",
+  fullStreetAddress: "",
+  latitude: null,
+  longitude: null,
+  bio: "",
+  scrapeJobId: null,
+  displayName: "",
+  individualLegalName: "",
+  individualCrd: "",
+  advisoryFirmName: "",
+  advisoryFirmIapdNumber: "",
+  brokerFirmName: "",
+  brokerFirmCrd: "",
+  headline: "",
+  strategySummary: "",
+};
 
 function isAdvisoryAccessReady(status?: string | null): boolean {
   return status === "active" || status === "verified";
@@ -314,7 +340,10 @@ export default function RiaOnboardingPage() {
     verificationAbortRef.current = controller;
 
     setError(null);
-    updateDraft({ licenseVerificationStatus: "verifying" });
+    updateDraft({
+      ...REGULATOR_PREFILL_RESET,
+      licenseVerificationStatus: "verifying",
+    });
 
     try {
       const idToken = await user.getIdToken();
