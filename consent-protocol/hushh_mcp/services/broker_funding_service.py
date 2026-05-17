@@ -108,6 +108,30 @@ def _utcnow_iso() -> str:
     return _utcnow().isoformat().replace("+00:00", "Z")
 
 
+_TRADE_IDEMPOTENCY_WINDOW_SECONDS = 300  # 5-minute dedup window for retries
+
+
+def _deterministic_trade_idempotency_key(
+    user_id: str,
+    symbol: str,
+    side: str,
+    notional_text: str,
+    *,
+    window_seconds: int = _TRADE_IDEMPOTENCY_WINDOW_SECONDS,
+) -> str:
+    """Generate a stable idempotency key from trade request fields + a time bucket.
+
+    Retries within `window_seconds` produce the same key and are deduplicated.
+    New requests after the window produce a different key and are treated as
+    distinct orders. This replaces the uuid4() fallback which generated a new key
+    on every call, defeating deduplication for callers that omit the key.
+    """
+    bucket = int(_utcnow().timestamp()) // window_seconds
+    raw = f"{user_id}:{symbol}:{side}:{notional_text}:{bucket}"
+    digest = hashlib.sha256(raw.encode()).hexdigest()[:32]
+    return f"funded_trade_{digest}"
+
+
 def _clean_text(value: Any, *, default: str = "") -> str:
     if not isinstance(value, str):
         return default
@@ -3791,8 +3815,13 @@ class BrokerFundingService:
             account_id=funding_account_id,
         )
 
-        resolved_trade_idempotency = (
-            _clean_text(trade_idempotency_key) or f"funded_trade_{uuid.uuid4().hex}"
+        resolved_trade_idempotency = _clean_text(trade_idempotency_key) or (
+            _deterministic_trade_idempotency_key(
+                user_id,
+                cleaned_symbol,
+                cleaned_side,
+                notional_text,
+            )
         )
         deduped_intent = self._fetch_trade_intent_by_idempotency(
             user_id=user_id,
