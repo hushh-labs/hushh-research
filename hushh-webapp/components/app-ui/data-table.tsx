@@ -317,7 +317,28 @@ export function DataTable<TData, TValue>({
                       header.column.getCanSort() ? "cursor-pointer" : ""
                     )}
                     onClick={header.column.getToggleSortingHandler()}
-                  >
+                    tabIndex={header.column.getCanSort() ? 0 : undefined}
+                    role={header.column.getCanSort() ? "button" : undefined}
+                    aria-sort={
+                      header.column.getIsSorted() === "asc"
+                        ? "ascending"
+                        : header.column.getIsSorted() === "desc"
+                          ? "descending"
+                          : undefined
+                    }
+                    onKeyDown={(e) => {
+                      if (
+                        header.column.getCanSort() &&
+                        (e.key === "Enter" || e.key === " ")
+                      ) {
+                        e.preventDefault();
+
+                        header.column.toggleSorting(
+                          header.column.getIsSorted() === "asc"
+                        );
+                      }
+                    }}
+                    >
                     {header.isPlaceholder
                       ? null
                       : flexRender(
