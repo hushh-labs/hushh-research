@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/pkm", tags=["pkm"])
 
 _COMPACT_SCOPE_SOURCE_KINDS = {"pkm_index", "pkm_manifests.top_level_scope_paths"}
+_INTERNAL_ONLY_PKM_DOMAINS = {"kyc_connector", "kyc_workflow"}
 
 
 def _isoformat_or_none(value):
@@ -141,25 +142,42 @@ class StockContextResponse(BaseModel):
 def _summary_attribute_count(summary: dict | None) -> int:
     if not isinstance(summary, dict):
         return 0
-    for key in ("attribute_count", "holdings_count", "item_count"):
+    for key in (
+        "attribute_count",
+        "holdings_count",
+        "item_count",
+        "externalizable_path_count",
+        "path_count",
+    ):
         value = summary.get(key)
         if isinstance(value, bool) or value is None:
             continue
         if isinstance(value, int):
-            return max(0, value)
+            if value > 0:
+                return value
+            continue
         if isinstance(value, float):
             if value != value:
                 continue
-            return max(0, int(value))
+            parsed = int(value)
+            if parsed > 0:
+                return parsed
+            continue
         if isinstance(value, str):
             text = value.strip()
             if not text:
                 continue
             try:
-                return max(0, int(float(text)))
+                parsed = int(float(text))
+                if parsed > 0:
+                    return parsed
             except Exception:
                 continue
     return 0
+
+
+def _is_internal_only_pkm_domain(domain: str | None) -> bool:
+    return str(domain or "").strip().lower() in _INTERNAL_ONLY_PKM_DOMAINS
 
 
 def _summary_text(summary: dict | None, key: str) -> Optional[str]:
@@ -969,6 +987,8 @@ async def get_metadata(
             degraded_domains: List[DomainMetadata] = []
             for row in domain_rows:
                 domain_key = str(row.get("domain") or "")
+                if _is_internal_only_pkm_domain(domain_key):
+                    continue
                 manifest = await pkm_service.get_domain_manifest(user_id, domain_key)
                 degraded_domains.append(
                     DomainMetadata(
@@ -1035,6 +1055,8 @@ async def get_metadata(
 
         domains: List[DomainMetadata] = []
         for domain in metadata.domains:
+            if _is_internal_only_pkm_domain(domain.domain_key):
+                continue
             domains.append(
                 DomainMetadata(
                     key=domain.domain_key,
@@ -1055,7 +1077,7 @@ async def get_metadata(
                 )
             )
 
-        total_attrs = metadata.total_attributes or sum(d.attribute_count for d in domains)
+        total_attrs = sum(d.attribute_count for d in domains)
 
         common_domains = {"financial", "health", "travel", "subscriptions", "food"}
         user_domain_keys = {domain.key for domain in domains}

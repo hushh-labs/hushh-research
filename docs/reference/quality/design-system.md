@@ -138,3 +138,5 @@ Reference:
 5. [App Surface Audit Matrix](./app-surface-audit-matrix.md)
 
 Use that companion doc when building any Apple-like settings surface so spacing, grouping, responsive behavior, and action-row semantics stay consistent.
+
+Body section headings are not page headers. `SectionHeader` and `SettingsGroup` must use compact accessible headings above row text, below page-title scale, and independent from global `h1`/`h2` element rules. `SettingsGroup` must keep eyebrow text inline with the section title and avoid a separate eyebrow/title/description three-line stack inside page content.
