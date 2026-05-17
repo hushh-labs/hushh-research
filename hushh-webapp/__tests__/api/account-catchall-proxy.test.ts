@@ -53,6 +53,36 @@ describe("/api/account/[...path] proxy", () => {
     expect(headers.get("Authorization")).toBe("Bearer firebase-token");
   });
 
+  it("forwards phone claim requests through the account proxy", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ success: true, phone_verified: true })
+    );
+    const body = { phone_id_token: "phone-id-token" };
+    const request = new NextRequest("http://localhost:3000/api/account/phone/claim", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer firebase-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    const response = await route.POST(request, {
+      params: Promise.resolve({ path: ["phone", "claim"] }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://backend.test/api/account/phone/claim",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify(body),
+      })
+    );
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(headers.get("Authorization")).toBe("Bearer firebase-token");
+  });
+
   it("forwards alias list query parameters", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       Response.json({ success: true, aliases: [] })

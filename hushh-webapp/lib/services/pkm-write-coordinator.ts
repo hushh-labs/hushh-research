@@ -11,6 +11,7 @@ import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import type {
   EncryptedDomainBlob,
   PkmMergeDecision,
+  PkmSyncCheckpointMetadata,
   PkmUpgradeContext,
   PkmWriteProjection,
 } from "@/lib/services/personal-knowledge-model-service";
@@ -57,8 +58,55 @@ export type PkmWriteCoordinatorResult = {
   message?: string;
   dataVersion?: number;
   updatedAt?: string;
+  syncCheckpoint?: PkmSyncCheckpointMetadata;
   fullBlob: Record<string, unknown>;
 };
+
+function toNullableVersion(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function buildSyncCheckpoint(params: {
+  source: "merged_domain" | "prepared_domain";
+  domain: string;
+  attempt: number;
+  context: BaseContext;
+  plan: MergedWritePlan | PreparedWritePlan;
+  resultDataVersion?: number;
+  conflictRetry: boolean;
+}): PkmSyncCheckpointMetadata {
+  const expectedDataVersion = toNullableVersion(
+    params.context.currentEncryptedDomain?.dataVersion ?? params.context.expectedDataVersion
+  );
+  const currentManifestVersion = toNullableVersion(params.context.currentManifest?.manifest_version);
+  const targetManifestVersion = toNullableVersion(params.plan.manifest?.manifest_version);
+  const upgradeRunId = params.context.upgradeContext?.runId || null;
+
+  return {
+    schemaVersion: "pkm_sync_checkpoint.v1",
+    checkpointKey: [
+      "pkm_sync_checkpoint.v1",
+      params.source,
+      params.domain,
+      `attempt:${params.attempt}`,
+      `expected:${expectedDataVersion ?? "none"}`,
+      `current_manifest:${currentManifestVersion ?? "none"}`,
+      `target_manifest:${targetManifestVersion ?? "none"}`,
+      `upgrade:${upgradeRunId ?? "none"}`,
+    ].join("|"),
+    domain: params.domain,
+    source: params.source,
+    attempt: params.attempt,
+    expectedDataVersion,
+    resultDataVersion: toNullableVersion(params.resultDataVersion),
+    currentManifestVersion,
+    targetManifestVersion,
+    upgradedInSession: params.context.upgradedInSession,
+    conflictRetry: params.conflictRetry,
+    upgradeRunId,
+  };
+}
 
 function emptyResult(
   saveState: PkmWriteCoordinatorSaveState,
@@ -221,6 +269,14 @@ export class PkmWriteCoordinator {
         upgradeContext,
       });
       const plan = await params.build(context);
+      const syncCheckpoint = buildSyncCheckpoint({
+        source: "merged_domain",
+        domain: params.domain,
+        attempt,
+        context,
+        plan,
+        conflictRetry: retryingAfterConflict,
+      });
       const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
         userId: params.userId,
         vaultKey: params.vaultKey,
@@ -233,8 +289,13 @@ export class PkmWriteCoordinator {
         baseFullBlob: context.baseFullBlob,
         expectedDataVersion: context.currentEncryptedDomain?.dataVersion ?? context.expectedDataVersion,
         upgradeContext: context.upgradeContext,
+        syncCheckpoint,
         cacheFullBlob: false,
       });
+      const resultCheckpoint = {
+        ...syncCheckpoint,
+        resultDataVersion: toNullableVersion(result.dataVersion),
+      };
 
       if (result.success) {
         return {
@@ -248,6 +309,7 @@ export class PkmWriteCoordinator {
           message: result.message,
           dataVersion: result.dataVersion,
           updatedAt: result.updatedAt,
+          syncCheckpoint: resultCheckpoint,
           fullBlob: result.fullBlob,
         };
       }
@@ -259,6 +321,7 @@ export class PkmWriteCoordinator {
           message: result.message,
           dataVersion: result.dataVersion,
           updatedAt: result.updatedAt,
+          syncCheckpoint: resultCheckpoint,
           fullBlob: result.fullBlob,
         };
       }
@@ -305,6 +368,14 @@ export class PkmWriteCoordinator {
         upgradeContext,
       });
       const plan = await params.build(context);
+      const syncCheckpoint = buildSyncCheckpoint({
+        source: "prepared_domain",
+        domain: params.domain,
+        attempt,
+        context,
+        plan,
+        conflictRetry: retryingAfterConflict,
+      });
       const result = await PersonalKnowledgeModelService.storePreparedDomainWithPreparedBlob({
         userId: params.userId,
         vaultKey: params.vaultKey,
@@ -319,8 +390,13 @@ export class PkmWriteCoordinator {
         baseFullBlob: context.baseFullBlob,
         expectedDataVersion: context.currentEncryptedDomain?.dataVersion ?? context.expectedDataVersion,
         upgradeContext: context.upgradeContext,
+        syncCheckpoint,
         cacheFullBlob: false,
       });
+      const resultCheckpoint = {
+        ...syncCheckpoint,
+        resultDataVersion: toNullableVersion(result.dataVersion),
+      };
 
       if (result.success) {
         return {
@@ -334,6 +410,7 @@ export class PkmWriteCoordinator {
           message: result.message,
           dataVersion: result.dataVersion,
           updatedAt: result.updatedAt,
+          syncCheckpoint: resultCheckpoint,
           fullBlob: result.fullBlob,
         };
       }
@@ -345,6 +422,7 @@ export class PkmWriteCoordinator {
           message: result.message,
           dataVersion: result.dataVersion,
           updatedAt: result.updatedAt,
+          syncCheckpoint: resultCheckpoint,
           fullBlob: result.fullBlob,
         };
       }

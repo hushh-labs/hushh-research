@@ -31,6 +31,11 @@ from hushh_mcp.types import UserID
 
 logger = logging.getLogger(__name__)
 _PROVIDER_COOLDOWNS: dict[str, float] = {}
+_PROVIDER_COOLDOWNS_LOCK = threading.RLock()
+_PROVIDER_COOLDOWNS_MAX = max(
+    1,
+    int(os.getenv("KAI_PROVIDER_COOLDOWNS_MAX", "1000") or "1000"),
+)
 _PROVIDER_COOLDOWN_BY_STATUS: dict[int, int] = {
     401: 15 * 60,
     402: 15 * 60,
@@ -41,6 +46,14 @@ _PROVIDER_COOLDOWN_BY_STATUS: dict[int, int] = {
 _MARKET_DATA_CACHE: dict[str, tuple[float, Dict[str, Any]]] = {}
 _MARKET_DATA_LOCKS: dict[str, asyncio.Lock] = {}
 _MARKET_DATA_CACHE_LOCK = threading.RLock()
+_MARKET_DATA_CACHE_MAX = max(
+    1,
+    int(os.getenv("KAI_MARKET_DATA_CACHE_MAX", "5000") or "5000"),
+)
+_MARKET_DATA_LOCKS_MAX = max(
+    1,
+    int(os.getenv("KAI_MARKET_DATA_LOCKS_MAX", "10000") or "10000"),
+)
 _MARKET_DATA_CACHE_TTL_SECONDS = max(
     60,
     int(os.getenv("KAI_MARKET_DATA_CACHE_TTL_SECONDS", "600") or "600"),
@@ -59,15 +72,34 @@ _YAHOO_FAST_TIMEOUT_COOLDOWN_SECONDS = max(
 )
 
 
+def _drop_expired_provider_cooldowns_locked(now: float) -> None:
+    expired_keys = [key for key, until in _PROVIDER_COOLDOWNS.items() if until <= now]
+    for key in expired_keys:
+        _PROVIDER_COOLDOWNS.pop(key, None)
+
+
 def _provider_in_cooldown(key: str) -> bool:
     now = time.time()
-    until = _PROVIDER_COOLDOWNS.get(key)
-    if until is None:
-        return False
-    if until <= now:
-        _PROVIDER_COOLDOWNS.pop(key, None)
-        return False
-    return True
+    with _PROVIDER_COOLDOWNS_LOCK:
+        until = _PROVIDER_COOLDOWNS.get(key)
+        if until is None:
+            return False
+        if until <= now:
+            _PROVIDER_COOLDOWNS.pop(key, None)
+            return False
+        return True
+
+
+def _set_provider_cooldown(key: str, duration_seconds: int) -> None:
+    if duration_seconds <= 0:
+        return
+    now = time.time()
+    with _PROVIDER_COOLDOWNS_LOCK:
+        _drop_expired_provider_cooldowns_locked(now)
+        if key not in _PROVIDER_COOLDOWNS:
+            while len(_PROVIDER_COOLDOWNS) >= _PROVIDER_COOLDOWNS_MAX:
+                _PROVIDER_COOLDOWNS.pop(next(iter(_PROVIDER_COOLDOWNS)), None)
+        _PROVIDER_COOLDOWNS[key] = now + int(duration_seconds)
 
 
 def _mark_provider_cooldown(key: str, status_code: int | None) -> None:
@@ -76,13 +108,11 @@ def _mark_provider_cooldown(key: str, status_code: int | None) -> None:
     duration = _PROVIDER_COOLDOWN_BY_STATUS.get(int(status_code))
     if not duration:
         return
-    _PROVIDER_COOLDOWNS[key] = time.time() + duration
+    _set_provider_cooldown(key, duration)
 
 
 def _mark_provider_cooldown_for_duration(key: str, duration_seconds: int) -> None:
-    if duration_seconds <= 0:
-        return
-    _PROVIDER_COOLDOWNS[key] = time.time() + int(duration_seconds)
+    _set_provider_cooldown(key, duration_seconds)
 
 
 def _provider_cooldown_key(provider_name: str, symbol: str) -> str | None:
@@ -105,6 +135,27 @@ def _get_market_data_lock(cache_key: str) -> asyncio.Lock:
     with _MARKET_DATA_CACHE_LOCK:
         lock = _MARKET_DATA_LOCKS.get(cache_key)
         if lock is None:
+            now = time.time()
+            stale_keys = []
+            for key, existing_lock in _MARKET_DATA_LOCKS.items():
+                cached = _MARKET_DATA_CACHE.get(key)
+                expired = cached is not None and cached[0] <= now
+                if not existing_lock.locked() and (cached is None or expired):
+                    stale_keys.append(key)
+            for key in stale_keys:
+                _MARKET_DATA_LOCKS.pop(key, None)
+                cached = _MARKET_DATA_CACHE.get(key)
+                if cached is not None and cached[0] <= now:
+                    _MARKET_DATA_CACHE.pop(key, None)
+            while len(_MARKET_DATA_LOCKS) >= _MARKET_DATA_LOCKS_MAX:
+                evicted = False
+                for key, existing_lock in list(_MARKET_DATA_LOCKS.items()):
+                    if not existing_lock.locked():
+                        _MARKET_DATA_LOCKS.pop(key, None)
+                        evicted = True
+                        break
+                if not evicted:
+                    break
             lock = asyncio.Lock()
             _MARKET_DATA_LOCKS[cache_key] = lock
         return lock
@@ -123,10 +174,23 @@ def _get_cached_market_data(cache_key: str) -> Dict[str, Any] | None:
         return dict(payload)
 
 
+def _drop_expired_market_data_locked(now: float) -> None:
+    expired_keys = [
+        key for key, (expires_at, _payload) in _MARKET_DATA_CACHE.items() if expires_at <= now
+    ]
+    for key in expired_keys:
+        _MARKET_DATA_CACHE.pop(key, None)
+
+
 def _set_cached_market_data(cache_key: str, payload: Dict[str, Any], ttl_seconds: int) -> None:
     ttl = max(60, int(ttl_seconds))
     with _MARKET_DATA_CACHE_LOCK:
-        _MARKET_DATA_CACHE[cache_key] = (time.time() + ttl, dict(payload))
+        now = time.time()
+        if cache_key not in _MARKET_DATA_CACHE:
+            _drop_expired_market_data_locked(now)
+            while len(_MARKET_DATA_CACHE) >= _MARKET_DATA_CACHE_MAX:
+                _MARKET_DATA_CACHE.pop(next(iter(_MARKET_DATA_CACHE)), None)
+        _MARKET_DATA_CACHE[cache_key] = (now + ttl, dict(payload))
 
 
 class RealtimeDataUnavailable(RuntimeError):
