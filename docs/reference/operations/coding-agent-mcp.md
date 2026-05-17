@@ -73,11 +73,11 @@ Required env vars:
 
 Do not inline these values in committed config.
 
-### 3. Hushh Consent MCP
+### 3. Hussh Consent MCP
 
 Purpose:
 
-1. Access Hushh consent/data tools and internal self-documentation.
+1. Access Hussh consent/data tools and internal self-documentation.
 2. Verify the same dynamic scope discovery, consent, and encrypted scoped export contract shipped through `@hushh/mcp`.
 
 Public onboarding source:
@@ -118,7 +118,7 @@ enabled = true
 [mcp_servers.hushh_consent.env]
 PYTHONPATH = "/absolute/path/to/consent-protocol"
 CONSENT_API_URL = "http://localhost:8000"
-FRONTEND_URL = "http://localhost:3000"
+APP_FRONTEND_ORIGIN = "http://localhost:3000"
 ```
 
 ## Where to configure MCP servers
@@ -132,6 +132,27 @@ Rules:
 2. Store credentials in shell env vars or a local secret store.
 3. Treat the examples in this doc as templates, not committed project config.
 
+Repo-scoped exception:
+
+1. Project-scoped custom-agent defaults may live in `.codex/config.toml` and `.codex/agents/`.
+2. Keep that repo config non-secret. MCP credentials and user-local server config still belong in the machine-local Codex config, not the repo.
+
+## Repo-scoped custom agents
+
+Codex supports project-scoped custom agents under `.codex/agents/`. In this repo, that surface is intentionally bounded:
+
+1. Subagent use follows the root `AGENTS.md` delegation checkpoint: user-approved delegation, explicit workflow policy, or repo-global read-only evidence policy may authorize bounded lanes.
+2. Do not add uncontrolled fan-out. Every non-trivial task should run the checkpoint before choosing a local-only path.
+3. Use subagents for independent evidence lanes, not for final authority, branch operations, approval, merge, deploy, push, or credential handling.
+4. Most repo custom agents should stay `read-only`.
+5. Repo custom agents inherit the parent-session model family. Repo-scoped `default_reasoning_effort` pins are allowed only for curated high-risk evidence lanes and must stay visible in `.codex/agents/`.
+6. The parent session or the built-in `worker` owns edits unless a narrower workflow says otherwise.
+7. Repo-level fan-out stays capped in `.codex/config.toml`:
+   - `max_threads = 6`
+   - `max_depth = 1`
+8. Govern repo-scoped agent files, limits, and handoff rules through `.codex/skills/agent-orchestration-governance/`.
+9. The self-maintenance model is validation plus CI enforcement through the existing `Governance` job, not autonomous rewrite or scheduled mutation.
+
 ## How to verify the servers are working
 
 ### `shadcn`
@@ -144,7 +165,7 @@ Rules:
 1. Confirm the agent can query Plaid docs.
 2. Try a sandbox question like “What are the default sandbox credentials?”
 
-### Hushh Consent MCP
+### Hussh Consent MCP
 
 1. Confirm the server starts locally with:
 
@@ -152,7 +173,7 @@ Rules:
 npx -y @hushh/mcp --help
 ```
 
-2. Confirm the host can discover Hushh tools/resources after attaching it.
+2. Confirm the host can discover Hussh tools/resources after attaching it.
 3. For hosted UAT, use the slash-safe mount URL: `/mcp/?token=<developer-token>`.
 4. `@hushh/mcp` is the default stdio install surface.
 5. If you are working contributor-local instead, use the repo-local fallback:
@@ -162,30 +183,80 @@ cd consent-protocol
 python mcp_server.py
 ```
 
+### 4. Hussh Founder Wiki MCP
+
+Purpose:
+
+1. Use the founder wiki as a north-star evidence lane for Hussh product direction, founder language, One/Kai/Nav ontology, PCHP/BYOA/on-device posture, and future-state alignment.
+2. Compare wiki product canon against current repo truth when reviewing material PRs, planning future work, or drafting founder/community language.
+3. Detect direction drift without treating future-state wiki notes as current implementation proof.
+
+Codex streamable HTTP config:
+
+```bash
+codex mcp add hussh_founder_wiki --url "https://hussh-mcp-ci75e66ukq-ue.a.run.app/mcp" --bearer-token-env-var <LOCAL_FOUNDER_WIKI_TOKEN_ENV>
+```
+
+Equivalent config key: `bearer_token_env_var = "HUSSH_FOUNDER_WIKI_MCP_TOKEN"`.
+
+Required local secret:
+
+1. A machine-local bearer-token environment variable chosen by the operator.
+2. OAuth client ID/secret are connector credentials for an authorization-code + PKCE flow. They are not enough by themselves to mint private MCP access; the user must authorize through the wiki reader so the token endpoint can exchange an authorization code for a bearer token.
+
+Rules:
+
+1. Keep the token in a local secret store or shell environment, never in repo config.
+2. Do not commit OAuth client secrets, bearer tokens, or private wiki auth state.
+3. Use the founder wiki as a direction lens. Current code, generated contracts, tests, CI, schemas, and checked repo docs still define what exists today.
+4. Private wiki evidence stays local-only. Do not cite private wiki pages in public GitHub comments or community replies.
+5. Default to read-only. Do not write or capture wiki pages unless the user explicitly asks in that task.
+6. If Codex cannot complete OAuth directly, inspect the private source repo only through authenticated GitHub or a temporary local clone, and remove that clone after the audit.
+
+Private workspace audit:
+
+```bash
+HUSSH_FOUNDER_WIKI_MCP_TOKEN="$(pbpaste)" \
+  python3 .codex/skills/codex-skill-authoring/scripts/founder_wiki_workspace_audit.py \
+  --output tmp/founder-wiki-workspace-audit-$(date +%F).md
+```
+
+The audit confirms the authenticated tool/page surface, reads Product Canon pages, compares them with repo docs and skills, and writes only classifications plus page names. It must not write raw HCTs or private wiki page bodies.
+
 ## Developer instructions
 
 When working in this repo:
 
 1. Use `shadcn` MCP before adding or modifying registry-backed UI components.
 2. Use `plaid` MCP before guessing on Plaid flows, sandbox behavior, webhooks, or OAuth.
-3. Use Hushh Consent MCP when you need internal consent/data-access guidance or machine-readable internal documentation.
+3. Use Hussh Consent MCP when you need internal consent/data-access guidance or machine-readable internal documentation.
 4. Start with `./bin/hushh codex onboard` for first-run contributor or agent orientation.
 5. Use `./bin/hushh codex list-workflows`, `route-task <workflow-id>`, and `impact <workflow-id>` for recurring repo workflows before improvising a route.
 6. Use `./bin/hushh codex ci-status --watch` when the task depends on live PR checks or GitHub Actions state.
-7. Use the repo-owned skill `.codex/skills/repo-context/` when the task starts with "scan the repo", "establish context", "map the codebase", or is otherwise cross-domain.
-8. Use owner skills for broad domain intake:
+7. Use `./bin/hushh codex rca --surface <uat|runtime|ci>` when the task starts from a core runtime, deploy, or semantic verification failure and needs a resume-safe RCA artifact.
+8. Use the repo-owned skill `.codex/skills/repo-context/` when the task starts with "scan the repo", "establish context", "map the codebase", or is otherwise cross-domain.
+9. Use owner skills for broad domain intake:
    - `.codex/skills/frontend/`
    - `.codex/skills/mobile-native/`
    - `.codex/skills/backend/`
    - `.codex/skills/security-audit/`
    - `.codex/skills/docs-governance/`
    - `.codex/skills/repo-operations/`
-9. Use spoke skills only after the domain is narrowed to a specific frontend, backend, mobile, or security workflow.
-10. Use `.codex/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
-11. Use `.codex/skills/planning-board/` for `Hushh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
+   - `.codex/skills/autonomous-rca-governance/`
+   - `.codex/skills/oss-license-governance/`
+   - `.codex/skills/contributor-onboarding/`
+   - `.codex/skills/subtree-upstream-governance/`
+10. Use spoke skills only after the domain is narrowed to a specific frontend, backend, mobile, security, or repo-operations workflow.
+11. Use `.codex/skills/github-contribution-governance/` for GitHub contribution attribution, author-email checks, PR targeting, and green-dot eligibility.
+12. Use `.codex/skills/frontend-native-surface-mapper/` before route/API/native/plugin/voice mapping work.
+13. Use `.codex/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
+14. Use `.codex/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
+15. Use `.codex/skills/planning-board/` for `Hussh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
+16. Use `.codex/skills/agent-orchestration-governance/` when changing repo-scoped custom agents, `.codex/config.toml` agent limits, or delegation authority and handoff rules.
 
 If a developer has not configured MCP yet:
 
-1. Start with `shadcn` and Hushh Consent MCP first.
+1. Start with `shadcn` and Hussh Consent MCP first.
 2. Add `plaid` only after setting local `PLAID_CLIENT_ID` and `PLAID_SECRET`.
 3. Verify each server independently before relying on it inside coding-agent flows.
+4. Add `hussh_founder_wiki` when the task involves founder language, north-star PR governance, One/Kai/Nav ontology, PCHP/BYOA posture, PKM/World Model authority, or future-state planning.

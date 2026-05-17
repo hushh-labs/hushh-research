@@ -22,6 +22,36 @@ import os
 
 import pytest
 
+from hushh_mcp.runtime_settings import clear_runtime_settings_caches
+
+os.environ.setdefault("TESTING", "true")
+os.environ.setdefault("APP_SIGNING_KEY", "test_secret_key_for_pytest_only_32chars_min")
+os.environ.setdefault(
+    "VAULT_DATA_KEY",
+    "0000000000000000000000000000000000000000000000000000000000000000",
+)
+
+
+@pytest.fixture(autouse=True)
+def isolate_runtime_env(monkeypatch: pytest.MonkeyPatch):
+    clear_runtime_settings_caches()
+    monkeypatch.setenv("TESTING", "true")
+    monkeypatch.setenv("APP_SIGNING_KEY", "test_secret_key_for_pytest_only_32chars_min")
+    monkeypatch.setenv(
+        "VAULT_DATA_KEY",
+        "0000000000000000000000000000000000000000000000000000000000000000",
+    )
+    for key in (
+        "FIREBASE_ADMIN_CREDENTIALS_JSON",
+        "APP_FRONTEND_ORIGIN",
+        "VOICE_RUNTIME_CONFIG_JSON",
+        "BACKEND_RUNTIME_CONFIG_JSON",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    yield
+    clear_runtime_settings_caches()
+
+
 # ============================================================================
 # BYOK Key Fixtures
 # ============================================================================
@@ -78,7 +108,7 @@ def mock_consent_token(test_vault_key: str) -> str:
     """
     Generate a valid mock consent token for testing.
 
-    Uses the test SECRET_KEY environment variable to issue a real token
+    Uses the test APP_SIGNING_KEY environment variable to issue a real token
     that will pass validation in the test environment.
     """
     from hushh_mcp.consent.token import issue_token
@@ -184,14 +214,13 @@ def isolate_test_environment(monkeypatch):
     This fixture runs automatically for ALL tests in this directory.
     It sets test-specific environment variables and clears production ones.
     """
-    # Set test-specific SECRET_KEY for token generation
-    monkeypatch.setenv("SECRET_KEY", "test_secret_key_for_testing_only_do_not_use_in_production")
-
-    # Clear any production VAULT_ENCRYPTION_KEY to force tests to use fixtures
-    # This prevents accidental use of production keys
-    monkeypatch.delenv("VAULT_ENCRYPTION_KEY", raising=False)
-
-    # Set testing mode flag
+    # Keep the canonical runtime keys available for tests that resolve the
+    # typed settings layer directly.
+    monkeypatch.setenv("APP_SIGNING_KEY", "test_secret_key_for_pytest_only_32chars_min")
+    monkeypatch.setenv(
+        "VAULT_DATA_KEY",
+        "0000000000000000000000000000000000000000000000000000000000000000",
+    )
     monkeypatch.setenv("TESTING", "true")
 
 

@@ -3,7 +3,7 @@ name: mobile-plugin-contracts
 description: Use when implementing or reviewing Capacitor plugin contracts, native plugin registration, or platform bridge alignment across iOS and Android.
 ---
 
-# Hushh Mobile Plugin Contracts Skill
+# Hussh Mobile Plugin Contracts Skill
 
 ## Purpose and Trigger
 

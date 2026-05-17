@@ -1,0 +1,77 @@
+{
+  "id": "agent-orchestration-governance",
+  "title": "Agent Orchestration Governance",
+  "goal": "Define or tighten repo-scoped Codex custom agents, bounded subagent limits, inheritance-first model behavior, delegation authority, and verification rules without duplicating the existing skills and workflow system.",
+  "owner_skill": "agent-orchestration-governance",
+  "default_spoke": null,
+  "task_type": "agent-orchestration-governance",
+  "affected_surfaces": [
+    ".codex/agents",
+    ".codex/config.toml",
+    ".codex/skills/agent-orchestration-governance",
+    ".codex/workflows/agent-orchestration-governance",
+    "docs/reference/operations/README.md",
+    "docs/reference/operations/coding-agent-mcp.md"
+  ],
+  "required_reads": [
+    ".codex/skills/agent-orchestration-governance/references/delegation-contract.md",
+    ".codex/skills/codex-skill-authoring/references/skill-contract.md",
+    "docs/reference/operations/coding-agent-mcp.md"
+  ],
+  "required_commands": [
+    "python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+    "./scripts/ci/repo-governance-check.sh",
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+    "./bin/hushh codex list-workflows",
+    "./bin/hushh codex audit",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundle": {
+    "id": "agent-orchestration-governance",
+      "commands": [
+        "python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+        "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+        "./scripts/ci/repo-governance-check.sh",
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "./bin/hushh codex list-workflows",
+        "./bin/hushh codex audit",
+      "./bin/hushh docs verify"
+    ],
+      "tests": [
+        "python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+        "python3 -m py_compile .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+        "./scripts/ci/repo-governance-check.sh",
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "./bin/hushh codex audit",
+        "./bin/hushh docs verify"
+    ]
+  },
+  "deliverables": [
+    "repo-scoped custom-agent baseline",
+    "bounded subagent config",
+    "delegation and authority contract",
+    "validation report"
+  ],
+  "impact_fields": [
+    "Agents added or changed",
+    "Global limits",
+    "Docs updated",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "agent-orchestration-governance",
+    "codex-skill-authoring",
+    "repo-context",
+    "repo-operations",
+    "future-planner"
+  ],
+  "common_failures": [
+    "duplicating broad skill guidance into agent files instead of keeping agents thin",
+    "pinning model and reasoning in baseline agent files instead of inheriting the parent runtime choice",
+    "making wave-1 custom agents write-capable without an explicit need and review",
+    "raising max_depth above 1 without proving the recursion need",
+    "failing to wire the orchestration validator into the existing governance path",
+    "letting child agents self-authorize merge, deploy, or governance outcomes",
+    "adding a skill manifest without a matching workflow pack or docs discoverability update"
+  ]
+}

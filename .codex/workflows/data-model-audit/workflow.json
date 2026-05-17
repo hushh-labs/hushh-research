@@ -1,0 +1,72 @@
+{
+  "id": "data-model-audit",
+  "title": "Data Model Audit",
+  "goal": "Verify runtime DB table families, migration-created tables, data classes, retention posture, access paths, and legacy memory write drift before data-model work is treated as production-ready.",
+  "owner_skill": "repo-context",
+  "default_spoke": null,
+  "task_type": "data-model-audit",
+  "affected_surfaces": [
+    "consent-protocol/db/migrations",
+    "docs/reference/architecture/runtime-db-fact-sheet.md",
+    "docs/reference/architecture/runtime-db-data-plane-contract.json",
+    "scripts/ops/data_model_audit.py",
+    ".codex/skills",
+    ".codex/workflows/data-model-audit"
+  ],
+  "required_reads": [
+    "docs/project_context_map.md",
+    "docs/reference/architecture/data-model-governance.md",
+    "docs/reference/architecture/runtime-db-fact-sheet.md",
+    "docs/reference/operations/migration-governance.md",
+    "consent-protocol/docs/reference/personal-knowledge-model.md"
+  ],
+  "required_commands": [
+    "./bin/hushh codex route-task data-model-audit",
+    "./bin/hushh codex data-model-audit",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundle": {
+    "id": "data-model-audit",
+    "commands": [
+      "python3 -m py_compile scripts/ops/data_model_audit.py",
+      "./bin/hushh codex data-model-audit",
+      "./bin/hushh codex route-task data-model-audit",
+      "./bin/hushh codex audit",
+      "./bin/hushh docs verify"
+    ],
+    "tests": [
+      "python3 -m py_compile scripts/ops/data_model_audit.py",
+      "./bin/hushh codex data-model-audit",
+      "./bin/hushh codex audit"
+    ]
+  },
+  "deliverables": [
+    "table-family classification report",
+    "unclassified-table and legacy-write findings",
+    "data-plane docs or contract updates",
+    "verification summary"
+  ],
+  "impact_fields": [
+    "Tables or migrations touched",
+    "Data classes changed",
+    "Retention or deletion behavior changed",
+    "Legacy memory write posture",
+    "Docs updated",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "repo-context",
+    "backend-runtime-governance",
+    "vault-pkm-governance",
+    "iam-consent-governance",
+    "quality-contracts",
+    "docs-governance"
+  ],
+  "common_failures": [
+    "adding a table without a data-plane family",
+    "using vault_keys as a generic user parent for non-vault tables",
+    "reintroducing legacy world-model or pkm_data writes",
+    "treating provider caches as durable PKM memory",
+    "adding indexes or retention policy without a real access path"
+  ]
+}

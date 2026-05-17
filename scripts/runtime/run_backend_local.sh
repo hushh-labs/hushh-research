@@ -202,7 +202,7 @@ verify_iam_readiness() {
   echo "Verifying IAM schema readiness for ${profile}..."
   (
     cd "$REPO_ROOT/consent-protocol"
-    PYTHONPATH=. "$BACKEND_VENV_PYTHON" scripts/verify_iam_schema.py
+    PYTHONPATH=. "$BACKEND_VENV_PYTHON" db/verify/verify_iam_schema.py
   )
 }
 
@@ -216,7 +216,12 @@ run_preflight() {
 }
 
 PROXY_PID=""
+UVICORN_PID=""
 cleanup() {
+  if [ -n "$UVICORN_PID" ] && kill -0 "$UVICORN_PID" >/dev/null 2>&1; then
+    kill "$UVICORN_PID" >/dev/null 2>&1 || true
+    wait "$UVICORN_PID" >/dev/null 2>&1 || true
+  fi
   if [ -n "$PROXY_PID" ] && kill -0 "$PROXY_PID" >/dev/null 2>&1; then
     kill "$PROXY_PID" >/dev/null 2>&1 || true
     wait "$PROXY_PID" >/dev/null 2>&1 || true
@@ -232,7 +237,7 @@ INSTANCE="$(read_env_value "$BACKEND_ENV_FILE" 'CLOUDSQL_INSTANCE_CONNECTION_NAM
 PROXY_PORT="$(read_env_value "$BACKEND_ENV_FILE" 'CLOUDSQL_PROXY_PORT')"
 PROXY_PORT="${PROXY_PORT:-$DB_PORT}"
 PROXY_CREDENTIALS_FILE="$(read_env_value "$BACKEND_ENV_FILE" 'CLOUDSQL_PROXY_CREDENTIALS_FILE')"
-PROXY_CREDENTIALS_JSON="$(read_env_value "$BACKEND_ENV_FILE" 'FIREBASE_SERVICE_ACCOUNT_JSON')"
+PROXY_CREDENTIALS_JSON="$(read_env_value "$BACKEND_ENV_FILE" 'FIREBASE_ADMIN_CREDENTIALS_JSON')"
 PROXY_CREDENTIALS_TEMP=""
 
 cleanup_proxy_credentials() {
@@ -275,7 +280,7 @@ PY
       PROXY_CREDENTIALS_FILE="$PROXY_CREDENTIALS_TEMP"
     fi
     if [ -z "$PROXY_CREDENTIALS_FILE" ]; then
-      echo "local requires Cloud SQL proxy credentials from FIREBASE_SERVICE_ACCOUNT_JSON or CLOUDSQL_PROXY_CREDENTIALS_FILE." >&2
+      echo "local requires Cloud SQL proxy credentials from FIREBASE_ADMIN_CREDENTIALS_JSON or CLOUDSQL_PROXY_CREDENTIALS_FILE." >&2
       echo "Refusing to fall back to local gcloud/ADC credentials." >&2
       exit 1
     fi
@@ -326,4 +331,6 @@ case "$reload_mode" in
     echo "Uvicorn autoreload disabled (faster local runtime). Use --reload to enable watch mode."
     ;;
 esac
-"$BACKEND_VENV_PYTHON" -m uvicorn "${uvicorn_args[@]}"
+"$BACKEND_VENV_PYTHON" -m uvicorn "${uvicorn_args[@]}" &
+UVICORN_PID=$!
+wait "$UVICORN_PID"

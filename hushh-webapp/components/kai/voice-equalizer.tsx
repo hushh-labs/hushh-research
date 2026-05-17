@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 
 type VoiceEqualizerProps = {
@@ -17,13 +17,31 @@ function clamp01(value: number): number {
 }
 
 export function VoiceEqualizer({ state, level, bars = 14 }: VoiceEqualizerProps) {
+  const [animationTick, setAnimationTick] = useState(0);
+
+  useEffect(() => {
+    let frame = 0;
+    let lastUpdate = 0;
+    const tick = (now: number) => {
+      if (now - lastUpdate > 80) {
+        lastUpdate = now;
+        setAnimationTick((value) => value + 1);
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
   const heights = useMemo(() => {
-    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const now = animationTick * 80;
     const phase = now / 170;
     const minHeight = 6;
     const maxHeight = state === "processing" ? 24 : 34;
 
-    const effectiveLevel = clamp01(state === "processing" ? Math.max(0.18, level * 0.45) : level);
+    const effectiveLevel = clamp01(
+      state === "processing" ? Math.max(0.18, level * 0.45) : Math.max(0.1, level)
+    );
 
     return Array.from({ length: bars }, (_, index) => {
       const wave = 0.6 + 0.4 * Math.sin(phase + index * 0.7);
@@ -31,7 +49,7 @@ export function VoiceEqualizer({ state, level, bars = 14 }: VoiceEqualizerProps)
       const barNorm = clamp01(effectiveLevel * wave * jitter + 0.03);
       return Math.round(minHeight + barNorm * (maxHeight - minHeight));
     });
-  }, [bars, level, state]);
+  }, [animationTick, bars, level, state]);
 
   return (
     <div className="flex h-full w-full items-center justify-center gap-1.5 px-4">

@@ -18,7 +18,7 @@ const args = process.argv.slice(2);
 function printUsage() {
   console.log(`${packageName} ${packageVersion}`);
   console.log("");
-  console.log("Bootstrap and run the existing Hushh Python MCP server.");
+  console.log("Bootstrap and run the existing Hussh Python MCP server.");
   console.log("");
   console.log("Usage:");
   console.log("  hushh-mcp");

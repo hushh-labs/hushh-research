@@ -15,3 +15,4 @@ This folder is the canonical entrypoint for platform-aware data access and route
 1. Components do not call raw backend endpoints directly; they go through the service layer.
 2. Cache policy and token-refresh behavior should be solved here, not inside route UI.
 3. New service contracts must stay aligned with route contracts, mobile parity docs, and the relevant domain README.
+4. `npm run verify:service-boundary` must stay green; API route proxies and service modules own network calls, feature UI does not.

@@ -244,8 +244,201 @@ def test_approve_consent_does_not_reuse_broken_developer_token(monkeypatch):
     assert issued, "Expected broken strict export state to force a fresh token issuance"
 
 
+def test_approve_consent_reused_developer_token_records_current_request(monkeypatch):
+    events: list[dict] = []
+
+    class _FakeConsentDBService:
+        async def get_pending_by_request_id(self, user_id: str, request_id: str):
+            assert user_id == "user_123"
+            assert request_id == "req_one_kyc_reuse"
+            return {
+                "request_id": request_id,
+                "developer": "agent_kyc",
+                "scope": "attr.identity.*",
+                "metadata": {
+                    "request_source": "one_email_kyc_v1",
+                    "requester_actor_type": "developer",
+                    "connector_public_key": "connector_public_key_demo",
+                    "connector_key_id": "one-kyc-key",
+                    "connector_wrapping_alg": "X25519-AES256-GCM",
+                },
+            }
+
+        async def find_covering_active_token(self, *_args, **_kwargs):
+            return {
+                "token_id": "existing_one_kyc_token",  # noqa: S106
+                "scope": "attr.identity.*",
+                "expires_at": 123456789,
+            }
+
+        async def get_consent_export_metadata(self, token_id: str):
+            assert token_id == "existing_one_kyc_token"  # noqa: S105
+            return {
+                "scope": "attr.identity.*",
+                "refresh_status": "current",
+                "connector_key_id": "one-kyc-key",
+                "connector_wrapping_alg": "X25519-AES256-GCM",
+                "is_strict_zero_knowledge": True,
+            }
+
+        async def insert_event(self, **kwargs):
+            events.append(kwargs)
+            return len(events)
+
+    monkeypatch.setattr(consent, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(
+        consent.RIAIAMService,
+        "sync_relationship_from_consent_action",
+        lambda self, **_kwargs: None,
+    )
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/consent/pending/approve",
+        json={
+            "userId": "user_123",
+            "requestId": "req_one_kyc_reuse",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["consent_token"] == "existing_one_kyc_token"  # noqa: S105
+    assert events[0]["action"] == "CONSENT_GRANTED"
+    assert events[0]["request_id"] == "req_one_kyc_reuse"
+    assert events[0]["metadata"]["reused_consent_token"] is True
+
+
+def test_approve_consent_rejects_connector_key_mismatch(monkeypatch):
+    class _FakeConsentDBService:
+        async def get_pending_by_request_id(self, user_id: str, request_id: str):
+            return {
+                "request_id": request_id,
+                "developer": "agent_kyc",
+                "scope": "attr.identity.*",
+                "metadata": {
+                    "request_source": "one_email_kyc_v1",
+                    "requester_actor_type": "developer",
+                    "connector_public_key": "connector_public_key_demo",
+                    "connector_key_id": "one-kyc-key",
+                    "connector_wrapping_alg": "X25519-AES256-GCM",
+                },
+            }
+
+        async def find_covering_active_token(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(consent, "ConsentDBService", _FakeConsentDBService)
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/consent/pending/approve",
+        json={
+            "userId": "user_123",
+            "requestId": "req_bad_connector",
+            "encryptedData": "ciphertext",
+            "encryptedIv": "iv",
+            "encryptedTag": "tag",
+            "wrappedExportKey": "wrapped_key",
+            "wrappedKeyIv": "wrapped_iv",
+            "wrappedKeyTag": "wrapped_tag",
+            "senderPublicKey": "sender_public",
+            "connectorKeyId": "other-key",
+            "wrappingAlg": "X25519-AES256-GCM",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Connector key id does not match request."
+
+
+def test_approve_consent_rejects_missing_connector_key_id(monkeypatch):
+    class _FakeConsentDBService:
+        async def get_pending_by_request_id(self, user_id: str, request_id: str):
+            return {
+                "request_id": request_id,
+                "developer": "agent_kyc",
+                "scope": "attr.identity.*",
+                "metadata": {
+                    "request_source": "one_email_kyc_v1",
+                    "requester_actor_type": "developer",
+                    "connector_public_key": "connector_public_key_demo",
+                    "connector_key_id": "one-kyc-key",
+                    "connector_wrapping_alg": "X25519-AES256-GCM",
+                },
+            }
+
+        async def find_covering_active_token(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(consent, "ConsentDBService", _FakeConsentDBService)
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/consent/pending/approve",
+        json={
+            "userId": "user_123",
+            "requestId": "req_missing_connector_key",
+            "encryptedData": "ciphertext",
+            "encryptedIv": "iv",
+            "encryptedTag": "tag",
+            "wrappedExportKey": "wrapped_key",
+            "wrappedKeyIv": "wrapped_iv",
+            "wrappedKeyTag": "wrapped_tag",
+            "senderPublicKey": "sender_public",
+            "wrappingAlg": "X25519-AES256-GCM",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Connector key id is required."
+
+
+def test_approve_consent_rejects_incomplete_encrypted_export_payload(monkeypatch):
+    class _FakeConsentDBService:
+        async def get_pending_by_request_id(self, user_id: str, request_id: str):
+            return {
+                "request_id": request_id,
+                "developer": "agent_kyc",
+                "scope": "attr.identity.*",
+                "metadata": {
+                    "request_source": "one_email_kyc_v1",
+                    "requester_actor_type": "developer",
+                    "connector_public_key": "connector_public_key_demo",
+                    "connector_key_id": "one-kyc-key",
+                    "connector_wrapping_alg": "X25519-AES256-GCM",
+                },
+            }
+
+        async def find_covering_active_token(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(consent, "ConsentDBService", _FakeConsentDBService)
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/consent/pending/approve",
+        json={
+            "userId": "user_123",
+            "requestId": "req_missing_export_iv",
+            "encryptedData": "ciphertext",
+            "encryptedIv": "",
+            "encryptedTag": "tag",
+            "wrappedExportKey": "wrapped_key",
+            "wrappedKeyIv": "wrapped_iv",
+            "wrappedKeyTag": "wrapped_tag",
+            "senderPublicKey": "sender_public",
+            "connectorKeyId": "one-kyc-key",
+            "wrappingAlg": "X25519-AES256-GCM",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "encryptedIv is required."
+
+
 def test_approve_consent_reused_token_still_syncs_ria_relationship(monkeypatch):
     sync_calls: list[dict] = []
+    events: list[dict] = []
 
     class _FakeConsentDBService:
         async def get_pending_by_request_id(self, user_id: str, request_id: str):
@@ -269,6 +462,10 @@ def test_approve_consent_reused_token_still_syncs_ria_relationship(monkeypatch):
                 "expires_at": 123456789,
             }
 
+        async def insert_event(self, **kwargs):
+            events.append(kwargs)
+            return len(events)
+
     async def _mock_sync(self, **kwargs):  # noqa: ANN001
         sync_calls.append(kwargs)
 
@@ -290,6 +487,8 @@ def test_approve_consent_reused_token_still_syncs_ria_relationship(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["consent_token"] == "existing_ria_token"  # noqa: S105
+    assert events[0]["action"] == "CONSENT_GRANTED"
+    assert events[0]["request_id"] == "req_ria_reuse"
     assert sync_calls == [
         {
             "user_id": "user_123",

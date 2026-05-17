@@ -3,6 +3,7 @@ import type {
   VoiceCancelActiveAnalysisCall,
   VoiceExecuteKaiCommandCall,
   VoiceResumeActiveAnalysisCall,
+  VoiceSwitchPersonaCall,
 } from "@/lib/voice/voice-types";
 
 export type VoiceDebugStage =
@@ -26,11 +27,16 @@ export type VoiceDebugEvent = {
 
 export type PendingVoiceConfirmation =
   | {
-      kind: "cancel_active_analysis" | "execute_kai_command" | "resume_active_analysis";
+      kind:
+        | "cancel_active_analysis"
+        | "execute_kai_command"
+        | "resume_active_analysis"
+        | "switch_persona";
       toolCall:
         | VoiceCancelActiveAnalysisCall
         | VoiceExecuteKaiCommandCall
-        | VoiceResumeActiveAnalysisCall;
+        | VoiceResumeActiveAnalysisCall
+        | VoiceSwitchPersonaCall;
       prompt: string;
       transcript: string;
       turnId: string | null;

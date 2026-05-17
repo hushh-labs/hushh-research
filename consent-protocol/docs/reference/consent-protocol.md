@@ -13,13 +13,20 @@ Canonical visual owner: [consent-protocol](../README.md). Use that map for the t
 
 ## Overview
 
-The Hushh platform enforces a **consent-first architecture** where all data access is gated by consent tokens. This document is the authoritative reference for the consent protocol implementation.
+The Hussh platform enforces a **consent-first architecture** where all data access is gated by consent tokens. This document is the authoritative reference for the consent protocol implementation.
 
-**Core Principle**: All data access requires a consent token. Vault owners are NOT special - they use VAULT_OWNER tokens.
+Founder-language mapping:
+
+- `Capability Tokens` are implemented here as `VAULT_OWNER`, agent scoped tokens, and developer-token-backed grants
+- `PCHP` is implemented today through the consent request, approval, status, and encrypted scoped export flow
+- `Cryptographic Primitives` are implemented through BYOK, local unlock, ciphertext storage, and wrapped export keys
+- `Tamper-Evident History` is implemented through audit tables and export revisions, not a Merkle-sealed ledger
+
+**Core Principle**: All data access requires a consent token. In founder language this is the current Capability Token model. Vault owners are NOT special - they use `VAULT_OWNER` tokens.
 
 ```
 Traditional     ❌  if (userOwnsVault) { allow(); }
-Hushh Approach  ✅  if (validateToken(VAULT_OWNER)) { allow(); }
+Hussh Approach  ✅  if (validateToken(VAULT_OWNER)) { allow(); }
 ```
 
 ---
@@ -450,6 +457,7 @@ CREATE INDEX idx_consent_audit_pending ON consent_audit(user_id) WHERE action = 
 - No data access without valid VAULT_OWNER token
 - Token proves user has unlocked their vault (consented)
 - All routes enforce token validation at middleware level
+- Async MCP tool auth paths and async ADK tools use DB-backed validation (`validate_token_with_db`) to reject revoked tokens consistently across Cloud Run instances. Sync-decorated tools remain memory-only until they migrate to async execution.
 
 ### 2. BYOK (Bring Your Own Key)
 

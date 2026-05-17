@@ -50,21 +50,5 @@
     "adding markdown-only skills without manifest metadata",
     "creating overlapping task types",
     "forgetting onboarding or audit updates"
-  ],
-  "scheduled_safe": true,
-  "maintenance_cadence": "weekly",
-  "maintenance_runner": [
-    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
-    "./bin/hushh codex audit --json"
-  ],
-  "maintenance_owner": "codex-skill-authoring",
-  "maintenance_issue_section": "skill-authoring",
-  "maintenance_blockers": [
-    "skill lint fails",
-    "codex audit reports high findings",
-    "workflow or skill manifests drift"
-  ],
-  "maintenance_prerequisites": [
-    "command:python3"
   ]
 }

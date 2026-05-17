@@ -3,7 +3,7 @@ name: backend-agents-operons
 description: Use when changing backend agents, operons, ADK surfaces, or orchestration contracts inside the consent-protocol runtime.
 ---
 
-# Hushh Backend Agents Operons Skill
+# Hussh Backend Agents Operons Skill
 
 ## Purpose and Trigger
 

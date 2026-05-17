@@ -1,0 +1,81 @@
+{
+  "id": "kai-voice-governance",
+  "title": "Kai Voice Governance",
+  "goal": "Author, generate, verify, and review Kai action contracts so voice, typed search, UI actionables, persona gating, and durable memory boundaries stay aligned under one shared gateway.",
+  "owner_skill": "kai-voice-governance",
+  "default_spoke": null,
+  "task_type": "kai-voice-governance",
+  "affected_surfaces": [
+    "contracts/kai",
+    "consent-protocol/hushh_mcp/services/voice_action_manifest.py",
+    "docs/reference/kai",
+    "hushh-webapp/lib/voice",
+    "hushh-webapp/scripts/voice",
+    "hushh-webapp/components/kai",
+    "hushh-webapp/components/consent",
+    "hushh-webapp/app/kai",
+    "hushh-webapp/app/profile",
+    "hushh-webapp/app/ria",
+    ".codex/skills/kai-voice-governance"
+  ],
+  "required_reads": [
+    "docs/reference/kai/kai-action-gateway-vnext.md",
+    "docs/reference/kai/kai-voice-runtime-architecture.md",
+    ".codex/skills/kai-voice-governance/references/voice-review-checklist.md"
+  ],
+  "required_commands": [
+    "cd hushh-webapp && npm run build:voice-gateway",
+    "cd hushh-webapp && npm run verify:voice-gateway",
+    "cd hushh-webapp && npm run typecheck",
+    "cd hushh-webapp && npm run test -- __tests__/voice/kai-action-gateway.test.ts __tests__/voice/voice-action-manifest.test.ts __tests__/voice/investor-kai-action-registry.test.ts __tests__/voice/voice-grounding.test.ts __tests__/voice/voice-turn-orchestrator.test.ts",
+    "cd consent-protocol && python3 -m pytest tests/test_kai_voice_contract.py -q",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundle": {
+    "id": "kai-voice-governance",
+    "commands": [
+      "cd hushh-webapp && npm run build:voice-gateway",
+      "cd hushh-webapp && npm run verify:voice-gateway",
+      "cd hushh-webapp && npm run typecheck",
+      "cd hushh-webapp && npm run test -- __tests__/voice/kai-action-gateway.test.ts __tests__/voice/voice-action-manifest.test.ts __tests__/voice/investor-kai-action-registry.test.ts __tests__/voice/voice-grounding.test.ts __tests__/voice/voice-turn-orchestrator.test.ts",
+      "cd consent-protocol && python3 -m pytest tests/test_kai_voice_contract.py -q",
+      "./bin/hushh docs verify"
+    ],
+    "tests": [
+      "cd hushh-webapp && npm run verify:voice-gateway",
+      "cd hushh-webapp && npm run test -- __tests__/voice/kai-action-gateway.test.ts __tests__/voice/voice-action-manifest.test.ts __tests__/voice/investor-kai-action-registry.test.ts __tests__/voice/voice-grounding.test.ts __tests__/voice/voice-turn-orchestrator.test.ts",
+      "cd consent-protocol && python3 -m pytest tests/test_kai_voice_contract.py -q",
+      "./bin/hushh docs verify"
+    ]
+  },
+  "deliverables": [
+    "local Kai action contracts",
+    "generated shared gateway and compatibility manifest",
+    "updated runtime and contributor docs",
+    "verification report"
+  ],
+  "impact_fields": [
+    "Actions added or changed",
+    "Persona and guard impacts",
+    "Search and voice parity impact",
+    "Memory boundary changes",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "kai-voice-governance",
+    "frontend",
+    "backend-api-contracts",
+    "vault-pkm-governance",
+    "docs-governance",
+    "quality-contracts"
+  ],
+  "common_failures": [
+    "adding voice-discoverable behavior without a local action contract",
+    "treating runtime surface metadata as the source of capability existence",
+    "allowing voice and search to mint different action ids for the same capability",
+    "authoring persona-sensitive actions without central guard coverage",
+    "guessing multi-step flows instead of explicitly authoring workflows",
+    "letting durable voice memory fall back to plaintext browser storage",
+    "changing the gateway without rebuilding generated artifacts or updating targeted tests"
+  ]
+}

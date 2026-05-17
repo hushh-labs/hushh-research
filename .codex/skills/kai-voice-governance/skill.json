@@ -1,0 +1,85 @@
+{
+  "id": "kai-voice-governance",
+  "role": "owner",
+  "owner_family": "kai-voice-governance",
+  "primary_scope": "kai-voice-governance",
+  "description": "Use when changing Kai voice capability authoring, generated action gateway contracts, typed-search and voice parity, persona/workspace gating, or BYOK-safe durable voice memory.",
+  "owned_paths": [
+    "contracts/kai",
+    "consent-protocol/hushh_mcp/services/voice_action_manifest.py",
+    "docs/reference/kai",
+    "hushh-webapp/lib/voice",
+    "hushh-webapp/scripts/voice",
+    "hushh-webapp/components/kai",
+    "hushh-webapp/components/consent",
+    "hushh-webapp/app/kai",
+    "hushh-webapp/app/profile",
+    "hushh-webapp/app/ria",
+    ".codex/skills/kai-voice-governance"
+  ],
+  "non_owned_paths": [
+    "frontend",
+    "backend-api-contracts",
+    "vault-pkm-governance",
+    "docs-governance",
+    "quality-contracts"
+  ],
+  "task_types": [
+    "kai-voice-governance",
+    "new-feature-tri-flow",
+    "bug-triage"
+  ],
+  "required_reads": [
+    "docs/reference/kai/kai-action-gateway-vnext.md",
+    "docs/reference/kai/kai-voice-runtime-architecture.md",
+    ".codex/skills/kai-voice-governance/references/voice-review-checklist.md"
+  ],
+  "required_commands": [
+    "cd hushh-webapp && npm run build:voice-gateway",
+    "cd hushh-webapp && npm run verify:voice-gateway",
+    "cd hushh-webapp && npm run typecheck",
+    "cd hushh-webapp && npm run test -- __tests__/voice/kai-action-gateway.test.ts __tests__/voice/voice-action-manifest.test.ts __tests__/voice/investor-kai-action-registry.test.ts __tests__/voice/voice-grounding.test.ts __tests__/voice/voice-turn-orchestrator.test.ts",
+    "cd consent-protocol && python3 -m pytest tests/test_kai_voice_contract.py -q",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundles": [
+    {
+      "id": "kai-voice-governance",
+      "commands": [
+        "cd hushh-webapp && npm run build:voice-gateway",
+        "cd hushh-webapp && npm run verify:voice-gateway",
+        "cd hushh-webapp && npm run typecheck",
+        "cd hushh-webapp && npm run test -- __tests__/voice/kai-action-gateway.test.ts __tests__/voice/voice-action-manifest.test.ts __tests__/voice/investor-kai-action-registry.test.ts __tests__/voice/voice-grounding.test.ts __tests__/voice/voice-turn-orchestrator.test.ts",
+        "cd consent-protocol && python3 -m pytest tests/test_kai_voice_contract.py -q",
+        "./bin/hushh docs verify"
+      ],
+      "tests": [
+        "cd hushh-webapp && npm run verify:voice-gateway",
+        "cd hushh-webapp && npm run test -- __tests__/voice/kai-action-gateway.test.ts __tests__/voice/voice-action-manifest.test.ts __tests__/voice/investor-kai-action-registry.test.ts __tests__/voice/voice-grounding.test.ts __tests__/voice/voice-turn-orchestrator.test.ts",
+        "cd consent-protocol && python3 -m pytest tests/test_kai_voice_contract.py -q",
+        "./bin/hushh docs verify"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "frontend",
+    "backend-api-contracts",
+    "vault-pkm-governance",
+    "docs-governance",
+    "quality-contracts"
+  ],
+  "adjacent_skills": [
+    "frontend",
+    "backend-api-contracts",
+    "vault-pkm-governance",
+    "docs-governance",
+    "quality-contracts",
+    "repo-context"
+  ],
+  "risk_tags": [
+    "voice-contract-drift",
+    "persona-gating-drift",
+    "search-voice-parity-drift",
+    "durable-memory-boundary-drift"
+  ]
+}

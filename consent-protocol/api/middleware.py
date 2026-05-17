@@ -1,4 +1,3 @@
-# api/middleware.py
 """
 FastAPI middleware and dependencies for authentication.
 
@@ -8,9 +7,10 @@ Provides reusable dependency functions for route protection:
 """
 
 import logging
-from typing import Optional
+from typing import Optional, cast
 
-from fastapi import Header, HTTPException, status
+from fastapi import BackgroundTasks, Header, HTTPException, Request, status
+from fastapi.concurrency import run_in_threadpool
 
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.consent.token import validate_token_with_db
@@ -19,30 +19,43 @@ from hushh_mcp.services.actor_identity_service import ActorIdentityService
 
 logger = logging.getLogger(__name__)
 
+_CONSENT_SCOPE_CACHE_ATTR = "_hushh_validated_consent_scopes"
+_NO_REQUEST = cast(Request, None)
 
-def _extract_bearer_token(authorization: Optional[str]) -> str:
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization header",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
 
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Authorization header format. Expected: Bearer <token>",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+def _auth_error(detail: str) -> HTTPException:
+    """Helper to ensure consistent 401 Unauthorized responses across all routes."""
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
-    token = authorization.removeprefix("Bearer ").strip()
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing bearer token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return token
+
+def _extract_token(
+    value: Optional[str],
+    *,
+    allow_raw: bool = False,
+    missing_detail: str = "Missing Authorization header",
+) -> str:
+    """
+    Centralized token extraction. Forces strict 'Bearer ' compliance by default,
+    but allows raw JWTs for custom headers when explicitly requested.
+    """
+    if not value or not value.strip():
+        raise _auth_error(missing_detail)
+
+    stripped = value.strip()
+    if stripped.startswith("Bearer "):
+        token = stripped.removeprefix("Bearer ").strip()
+        if not token:
+            raise _auth_error("Missing bearer token")
+        return token
+
+    if not allow_raw:
+        raise _auth_error("Invalid Authorization header format. Expected: Bearer <token>")
+
+    return stripped
 
 
 def _token_data_dict(token: str, token_obj) -> dict:
@@ -58,7 +71,43 @@ def _token_data_dict(token: str, token_obj) -> dict:
     }
 
 
+def _scope_cache_key(token: str, required_scope: str | ConsentScope) -> tuple[str, str]:
+    scope = (
+        required_scope.value if isinstance(required_scope, ConsentScope) else str(required_scope)
+    )
+    return token, scope
+
+
+def _request_scope_cache(request: Request | None) -> dict | None:
+    if request is None:
+        return None
+
+    cache = getattr(request.state, _CONSENT_SCOPE_CACHE_ATTR, None)
+    if cache is None:
+        cache = {}
+        setattr(request.state, _CONSENT_SCOPE_CACHE_ATTR, cache)
+    return cache
+
+
+async def _validate_token_with_scope_cache(
+    token: str,
+    required_scope: str | ConsentScope,
+    request: Request | None,
+):
+    cache = _request_scope_cache(request)
+    cache_key = _scope_cache_key(token, required_scope)
+    if cache is not None and cache_key in cache:
+        return cache[cache_key]
+
+    result = await validate_token_with_db(token, required_scope)
+    valid, _reason, token_obj = result
+    if cache is not None and valid and token_obj:
+        cache[cache_key] = result
+    return result
+
+
 async def require_firebase_auth(
+    background_tasks: BackgroundTasks,
     authorization: Optional[str] = Header(None, description="Bearer token with Firebase ID token"),
 ) -> str:
     """
@@ -78,36 +127,30 @@ async def require_firebase_auth(
     Raises:
         HTTPException 401 if token is missing or invalid
     """
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization header",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Authorization header format. Expected: Bearer <token>",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    # Fail fast on bad formatting (Strict Mode)
+    _extract_token(authorization, allow_raw=False)
 
     try:
-        firebase_uid = verify_firebase_bearer(authorization)
-        try:
-            ActorIdentityService().schedule_sync_from_firebase(firebase_uid)
-        except Exception as identity_error:
-            logger.debug("Actor identity warmup skipped for %s: %s", firebase_uid, identity_error)
+        # Pass the original authorization string to avoid breaking downstream parsers.
+        # Run in threadpool to protect the asyncio event loop from synchronous I/O.
+        firebase_uid = await run_in_threadpool(verify_firebase_bearer, authorization)
+
+        # Safe, logged background execution for side-effects
+        def background_sync(uid: str):
+            try:
+                ActorIdentityService().schedule_sync_from_firebase(uid)
+            except Exception as identity_error:
+                logger.debug("Actor identity warmup skipped for %s: %s", uid, identity_error)
+
+        background_tasks.add_task(background_sync, firebase_uid)
+
         return firebase_uid
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.warning(f"Firebase auth failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Firebase ID token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        logger.warning("Firebase auth failed: %s", e)
+        raise _auth_error("Invalid Firebase ID token")
 
 
 def verify_user_id_match(firebase_uid: str, requested_user_id: str) -> None:
@@ -118,7 +161,7 @@ def verify_user_id_match(firebase_uid: str, requested_user_id: str) -> None:
         HTTPException 403 if user_id doesn't match
     """
     if firebase_uid != requested_user_id:
-        logger.warning(f"User ID mismatch: token={firebase_uid}, request={requested_user_id}")
+        logger.warning("User ID mismatch: token=%s, request=%s", firebase_uid, requested_user_id)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User ID does not match authenticated user",
@@ -126,8 +169,14 @@ def verify_user_id_match(firebase_uid: str, requested_user_id: str) -> None:
 
 
 async def require_vault_owner_token(
+    request: Request = _NO_REQUEST,
     authorization: Optional[str] = Header(
         None, description="Bearer token for vault owner authentication"
+    ),
+    hushh_consent: Optional[str] = Header(
+        None,
+        alias="X-Hushh-Consent",
+        description="Optional VAULT_OWNER token header for dual-auth surfaces",
     ),
 ) -> dict:
     """
@@ -148,18 +197,21 @@ async def require_vault_owner_token(
         HTTPException 401 if token is missing or invalid
         HTTPException 403 if token scope is insufficient
     """
-    token = _extract_bearer_token(authorization)
+    header_value = hushh_consent if hushh_consent is not None else authorization
+
+    # Explicitly allow raw tokens here to support the custom X-Hushh-Consent header
+    token = _extract_token(
+        header_value, allow_raw=True, missing_detail="Missing Authorization header"
+    )
 
     # Validate token with VAULT_OWNER scope and DB-backed revocation check.
-    valid, reason, token_obj = await validate_token_with_db(token, ConsentScope.VAULT_OWNER)
+    valid, reason, token_obj = await _validate_token_with_scope_cache(
+        token, ConsentScope.VAULT_OWNER, request
+    )
 
     if not valid or not token_obj:
-        logger.warning(f"Token validation failed: {reason}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {reason}",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        logger.warning("Token validation failed: %s", reason)
+        raise _auth_error(f"Invalid token: {reason}")
 
     return _token_data_dict(token, token_obj)
 
@@ -172,20 +224,21 @@ def require_consent_scope(required_scope: str | ConsentScope):
     """
 
     async def _require_scope_token(
+        request: Request = _NO_REQUEST,
         authorization: Optional[str] = Header(
             None, description="Bearer token for scoped consent authentication"
         ),
     ) -> dict:
-        token = _extract_bearer_token(authorization)
-        valid, reason, token_obj = await validate_token_with_db(token, required_scope)
+
+        token = _extract_token(authorization, allow_raw=False)
+        valid, reason, token_obj = await _validate_token_with_scope_cache(
+            token, required_scope, request
+        )
 
         if not valid or not token_obj:
             logger.warning("Scoped token validation failed for %s: %s", required_scope, reason)
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Invalid token: {reason}",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+            raise _auth_error(f"Invalid token: {reason}")
+
         return _token_data_dict(token, token_obj)
 
     return _require_scope_token
