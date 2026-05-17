@@ -145,6 +145,14 @@ _OFFICIAL_ADDRESS_RE = re.compile(
     r"(?P<pin_zip>\d{5}(?:-\d{4})?)\b",
     re.IGNORECASE,
 )
+_OFFICIAL_EXAM_LABELS = {
+    "SIE": "SIE - Securities Industry Essentials Examination",
+    "Series 7": "Series 7 - General Securities Representative Examination",
+    "Series 7TO": "Series 7TO - General Securities Representative Examination",
+    "Series 63": "Series 63 - Uniform Securities Agent State Law Examination",
+    "Series 65": "Series 65 - Uniform Investment Adviser Law Examination",
+    "Series 66": "Series 66 - Uniform Combined State Law Examination",
+}
 DEFAULT_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS = 75.0
 
 
@@ -259,6 +267,124 @@ def _official_location_from_text(text: str, source_url: str) -> dict[str, str] |
     return None
 
 
+def _clean_official_line(value: str) -> str:
+    return " ".join(str(value or "").replace("\xa0", " ").split()).strip(" ,-")
+
+
+def _official_report_lines(text: str) -> list[str]:
+    return [
+        _clean_official_line(line)
+        for line in str(text or "").replace("\xa0", " ").splitlines()
+        if _clean_official_line(line)
+    ]
+
+
+def _official_advisor_name(lines: list[str], normalized: str) -> str | None:
+    for idx, line in enumerate(lines):
+        if line == "IAPD Report" and idx + 1 < len(lines):
+            candidate = lines[idx + 1]
+            if candidate and not candidate.startswith("CRD#"):
+                return candidate
+    match = re.search(r"Report Summary\s+(?P<name>.+?)\s+\(CRD#", normalized)
+    return _clean_official_line(match.group("name")) if match else None
+
+
+def _official_crd_number(lines: list[str], normalized: str) -> str | None:
+    for line in lines:
+        match = re.search(r"\bCRD#\s*(?P<crd>\d+)\b", line)
+        if match:
+            return match.group("crd")
+    match = re.search(r"\bCRD#\s*(?P<crd>\d+)\b", normalized)
+    return match.group("crd") if match else None
+
+
+def _official_current_firm(lines: list[str]) -> str | None:
+    for line in lines:
+        match = re.match(r"^\d+\.\s+(?P<firm>.+?)\s+-\s+", line)
+        if match:
+            return _clean_official_line(match.group("firm"))
+
+    present_row = re.compile(
+        r"^\d{2}/\d{4}\s+-\s+Present\s+"
+        r"(?P<firm>.+?)\s+"
+        r"(?:Insurance Agent|Investment Advisor|Client Acquisition|Financial Advisor|"
+        r"Registered Representative|Wealth Advisor|Advisor|Representative)\b",
+        re.IGNORECASE,
+    )
+    for line in lines:
+        match = present_row.search(line)
+        if match:
+            return _clean_official_line(match.group("firm"))
+    return None
+
+
+def _canonical_official_exam(value: str) -> str:
+    compact = re.sub(r"\s+", " ", value.strip().upper())
+    if compact == "SIE":
+        return "SIE"
+    match = re.match(r"SERIES\s+(?P<number>\d+[A-Z]*)", compact)
+    if not match:
+        return _clean_official_line(value)
+    return f"Series {match.group('number')}"
+
+
+def _official_exams(lines: list[str]) -> list[str]:
+    exams: list[str] = []
+    for line in lines:
+        for raw_exam in re.findall(r"\b(?:Series\s+\d+[A-Z]*|SIE)\b", line, flags=re.IGNORECASE):
+            canonical = _canonical_official_exam(raw_exam)
+            label = _OFFICIAL_EXAM_LABELS.get(canonical, canonical)
+            if label not in exams:
+                exams.append(label)
+    return exams
+
+
+def _official_profile_from_text(text: str, source_url: str) -> dict[str, Any] | None:
+    normalized = " ".join(str(text or "").replace("\xa0", " ").split())
+    if not normalized:
+        return None
+
+    lines = _official_report_lines(text)
+    location = _official_location_from_text(text, source_url)
+    profile: dict[str, Any] = {
+        "advisor_name": _official_advisor_name(lines, normalized),
+        "crd_number": _official_crd_number(lines, normalized),
+        "firm_name": _official_current_firm(lines),
+        "certifications": _official_exams(lines),
+        "official_location": location,
+        "source_url": source_url,
+        "regulator_status": None,
+        "summary": None,
+    }
+
+    if (
+        "This individual is not currently registered as an Investment Adviser Representative."
+        in normalized
+    ):
+        profile["regulator_status"] = (
+            "Not currently registered as an Investment Adviser Representative"
+        )
+    elif "currently registered as an Investment Adviser Representative" in normalized:
+        profile["regulator_status"] = "Investment Adviser Representative"
+
+    if profile["advisor_name"]:
+        profile["summary"] = f"Official IAPD records list {profile['advisor_name']}" + (
+            f" under CRD {profile['crd_number']}." if profile["crd_number"] else "."
+        )
+
+    if not any(
+        (
+            profile["advisor_name"],
+            profile["crd_number"],
+            profile["firm_name"],
+            profile["certifications"],
+            profile["official_location"],
+        )
+    ):
+        return None
+    return profile
+
+
 def _official_location_from_pdf(content: bytes, source_url: str) -> dict[str, str] | None:
     import pdfplumber
 
@@ -269,6 +395,57 @@ def _official_location_from_pdf(content: bytes, source_url: str) -> dict[str, st
             if sum(len(part) for part in parts) > 20_000:
                 break
     return _official_location_from_text(" ".join(parts), source_url)
+
+
+def _official_profile_from_pdf(content: bytes, source_url: str) -> dict[str, Any] | None:
+    import pdfplumber
+
+    with pdfplumber.open(io.BytesIO(content)) as pdf:
+        parts: list[str] = []
+        for page in pdf.pages[:8]:
+            parts.append(page.extract_text() or "")
+            if sum(len(part) for part in parts) > 30_000:
+                break
+    return _official_profile_from_text("\n".join(parts), source_url)
+
+
+async def _official_pdf_profile_for_crd(crd_number: str) -> dict[str, Any] | None:
+    import httpx
+
+    normalized = re.sub(r"\D+", "", str(crd_number or ""))
+    if not normalized:
+        return None
+
+    timeout = httpx.Timeout(connect=6.0, read=24.0, write=6.0, pool=6.0)
+    headers = {
+        "User-Agent": "hushh-ria-onboarding/1.0 (+https://hushh.ai)",
+        "Accept": "application/pdf,*/*",
+    }
+    async with httpx.AsyncClient(
+        timeout=timeout,
+        follow_redirects=True,
+        headers=headers,
+    ) as client:
+        for template in _OFFICIAL_LOCATION_REPORT_URLS:
+            source_url = template.format(crd=normalized)
+            try:
+                response = await client.get(source_url)
+                response.raise_for_status()
+                profile = await asyncio.to_thread(
+                    _official_profile_from_pdf,
+                    response.content,
+                    source_url,
+                )
+            except Exception:
+                logger.info(
+                    "verify_ria_license: official PDF profile fallback failed for %s",
+                    normalized,
+                    exc_info=True,
+                )
+                continue
+            if profile:
+                return profile
+    return None
 
 
 async def _official_pdf_location_for_crd(crd_number: str) -> dict[str, str] | None:
@@ -947,16 +1124,37 @@ class RIAIAMService:
         ) or {}
 
         broker_status = str(broker_data.get("status", "")).upper()
+        broker_status_code = broker_result.status_code if broker_result else None
         found = (
             bool(broker_data.get("verifiedName") or broker_data.get("crdNumber"))
             and broker_status != "NOT_FOUND"
         )
+        official_profile: dict[str, Any] | None = None
+        if (
+            not found
+            and not scrape_data.get("jobId")
+            and (broker_status in {"", "NOT_FOUND"} or (broker_status_code or 0) >= 400)
+        ):
+            official_profile = await _official_pdf_profile_for_crd(normalized)
+            if official_profile:
+                found = bool(
+                    official_profile.get("advisor_name")
+                    or official_profile.get("crd_number")
+                    or official_profile.get("official_location")
+                )
+
         city = _broker_city(broker_data)
         pin_zip = _broker_pin_zip(broker_data)
         state = _broker_state(broker_data)
         area_locality = _broker_area_locality(broker_data)
         full_street_address = _broker_street_address(broker_data)
         official_location: dict[str, Any] | None = _broker_official_location(broker_data)
+        if official_profile and isinstance(official_profile.get("official_location"), dict):
+            official_location = {
+                **official_profile["official_location"],
+                **(official_location or {}),
+            }
+
         if official_location:
             city = city or official_location.get("city")
             pin_zip = pin_zip or official_location.get("pin_zip") or official_location.get("pinZip")
@@ -992,16 +1190,35 @@ class RIAIAMService:
                 full_street_address = full_street_address or pdf_location.get("address")
 
         broker_exams = _broker_exams(broker_data)
+        official_exams = (
+            official_profile.get("certifications", [])
+            if isinstance(official_profile, dict)
+            and isinstance(official_profile.get("certifications"), list)
+            else []
+        )
+        certifications = broker_exams or [str(item) for item in official_exams if str(item).strip()]
+        advisor_name = broker_data.get("verifiedName") or (
+            official_profile.get("advisor_name") if official_profile else None
+        )
+        firm_name = broker_data.get("currentFirm") or (
+            official_profile.get("firm_name") if official_profile else None
+        )
+        regulator_status = broker_data.get("status") or (
+            official_profile.get("regulator_status") if official_profile else None
+        )
+        broker_summary = broker_data.get("summary") or (
+            official_profile.get("summary") if official_profile else None
+        )
         response: dict[str, Any] = {
             "status": "found"
             if found
             else ("pending" if scrape_data.get("jobId") else "not_found"),
-            "advisor_name": broker_data.get("verifiedName"),
-            "firm_name": broker_data.get("currentFirm"),
+            "advisor_name": advisor_name,
+            "firm_name": firm_name,
             "regulator": regulator or ("SEC" if found else None),
-            "regulator_status": broker_data.get("status"),
+            "regulator_status": regulator_status,
             "license_expiry": None,
-            "certifications": broker_exams,
+            "certifications": certifications,
             "city": city,
             "pin_zip": pin_zip,
             "state": state,
@@ -1009,21 +1226,27 @@ class RIAIAMService:
             "full_street_address": full_street_address,
             "business_address": full_street_address,
             "official_location": official_location,
-            "crd_number": broker_data.get("crdNumber") or normalized,
+            "crd_number": broker_data.get("crdNumber")
+            or (official_profile.get("crd_number") if official_profile else None)
+            or normalized,
             "sec_number": None,
             "employment_history": broker_data.get("employmentHistory", []),
             "disclosures_count": broker_data.get("disclosures", {}).get("count", 0)
             if isinstance(broker_data.get("disclosures"), dict)
             else 0,
-            "exams_passed": broker_exams,
+            "exams_passed": certifications,
             "provider": "ria_intelligence_combined",
             "scrape_job_id": scrape_data.get("jobId"),
-            "broker_intelligence_summary": broker_data.get("summary"),
-            "bio": broker_data.get("summary"),
+            "broker_intelligence_summary": broker_summary,
+            "bio": broker_summary,
         }
 
         # Store audit trail
         try:
+            audit_payload = broker_data or {
+                "official_profile": official_profile,
+                "broker_status_code": broker_status_code,
+            }
             pool = await get_pool()
             async with pool.acquire() as conn:
                 await conn.execute(
@@ -1036,7 +1259,7 @@ class RIAIAMService:
                     normalized,
                     regulator,
                     "broker_intelligence",
-                    json.dumps(broker_data),
+                    json.dumps(audit_payload),
                     "completed" if found else "pending",
                 )
         except Exception:

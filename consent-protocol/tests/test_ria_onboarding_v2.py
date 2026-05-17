@@ -260,6 +260,70 @@ def test_verify_license_fills_missing_location_from_official_pdf(monkeypatch) ->
     assert result["exams_passed"] == ["Series 66"]
 
 
+def test_verify_license_falls_back_to_official_pdf_when_provider_5xx(monkeypatch) -> None:
+    """A transient broker-intelligence 5xx should not become an empty not_found result."""
+
+    class _FakeProxy:
+        async def broker_intelligence(self, *, query: str, request_id: str | None = None):
+            assert query == "7413463"
+            return CrdScrapeProviderResponse(502, {"error": "Bad Gateway"})
+
+        async def create_job(self, *, crd_number: str, request_id: str | None = None):
+            assert crd_number == "7413463"
+            return CrdScrapeProviderResponse(404, {"detail": "Not Found"})
+
+    async def _mock_official_profile(crd_number: str):
+        assert crd_number == "7413463"
+        return {
+            "advisor_name": "Andrew Garrett Kirkland",
+            "crd_number": "7413463",
+            "firm_name": "Eissman Wealth Management",
+            "regulator_status": "Not currently registered as an Investment Adviser Representative",
+            "certifications": ["Series 66 - Uniform Combined State Law Examination"],
+            "summary": "Official IAPD records list Andrew Garrett Kirkland under CRD 7413463.",
+            "official_location": {
+                "city": "Kennesaw",
+                "state": "GA",
+                "pin_zip": "30144",
+                "address": "114 Townpark Drive, Ste. 175",
+                "location": "Kennesaw, GA",
+                "source_url": (
+                    "https://reports.adviserinfo.sec.gov/reports/individual/individual_7413463.pdf"
+                ),
+            },
+            "source_url": (
+                "https://reports.adviserinfo.sec.gov/reports/individual/individual_7413463.pdf"
+            ),
+        }
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.crd_scrape_proxy_service.CrdScrapeProxyService",
+        lambda: _FakeProxy(),
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.ria_iam_service._official_pdf_profile_for_crd",
+        _mock_official_profile,
+    )
+
+    result = asyncio.run(
+        RIAIAMService().verify_ria_license(
+            _TEST_UID,
+            license_number="7413463",
+            regulator="SEC",
+        )
+    )
+
+    assert result["status"] == "found"
+    assert result["advisor_name"] == "Andrew Garrett Kirkland"
+    assert result["firm_name"] == "Eissman Wealth Management"
+    assert result["city"] == "Kennesaw"
+    assert result["pin_zip"] == "30144"
+    assert result["full_street_address"] == "114 Townpark Drive, Ste. 175"
+    assert result["certifications"] == ["Series 66 - Uniform Combined State Law Examination"]
+    assert result["exams_passed"] == result["certifications"]
+    assert result["broker_intelligence_summary"].startswith("Official IAPD records")
+
+
 def test_official_location_from_text_extracts_city_and_zip() -> None:
     """The fallback parser extracts address fields from official report text."""
 
