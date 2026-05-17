@@ -212,7 +212,7 @@ export function OnboardingStepServices({
               type="text"
               value={areaLocality}
               onChange={(e) => onAreaLocalityChange(e.target.value)}
-              placeholder="Downtown, Mission District"
+              placeholder="Area or state"
               className="h-11 w-full rounded-[22px] border border-border/70 bg-background/75 px-4 text-sm text-foreground outline-none focus:border-[#0071E3] focus:ring-1 focus:ring-[#0071E3]/30 transition-colors"
             />
           </div>
@@ -240,7 +240,7 @@ export function OnboardingStepServices({
             inputMode="numeric"
             value={pinZip}
             onChange={(e) => onPinZipChange(e.target.value)}
-            placeholder="30144"
+            placeholder="PIN / ZIP"
             className="h-11 w-full rounded-[22px] border border-border/70 bg-background/75 px-4 text-sm text-foreground outline-none focus:border-[#0071E3] focus:ring-1 focus:ring-[#0071E3]/30 transition-colors"
           />
         </div>

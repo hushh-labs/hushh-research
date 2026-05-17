@@ -90,6 +90,96 @@ function pickExistingOrNext(existing: string, next: string): string {
   return existing.trim() || next.trim();
 }
 
+type LocationPrefill = {
+  city: string;
+  areaLocality: string;
+  pinZip: string;
+  fullStreetAddress: string;
+};
+
+function emptyLocationPrefill(): LocationPrefill {
+  return { city: "", areaLocality: "", pinZip: "", fullStreetAddress: "" };
+}
+
+function hasLocationPrefill(location: LocationPrefill): boolean {
+  return Boolean(
+    location.city ||
+      location.areaLocality ||
+      location.pinZip ||
+      location.fullStreetAddress
+  );
+}
+
+function normalizeLocationPart(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function locationValueConflicts(existing: string, next: string): boolean {
+  const current = normalizeLocationPart(existing);
+  const incoming = normalizeLocationPart(next);
+  return Boolean(current && incoming && current !== incoming);
+}
+
+function shouldReplaceDraftLocation(
+  draft: RiaOnboardingDraft,
+  location: LocationPrefill,
+  crdNumber: string
+): boolean {
+  if (!hasLocationPrefill(location)) return false;
+
+  const currentCrd = (draft.crdNumber || draft.individualCrd || "").trim();
+  const hasDraftLocation = Boolean(
+    draft.city.trim() ||
+      draft.areaLocality.trim() ||
+      draft.pinZip.trim() ||
+      draft.fullStreetAddress.trim()
+  );
+
+  if (hasDraftLocation && currentCrd && crdNumber && currentCrd !== crdNumber) {
+    return true;
+  }
+
+  return (
+    locationValueConflicts(draft.city, location.city) ||
+    locationValueConflicts(draft.areaLocality, location.areaLocality) ||
+    locationValueConflicts(draft.pinZip, location.pinZip) ||
+    locationValueConflicts(draft.fullStreetAddress, location.fullStreetAddress)
+  );
+}
+
+function buildLocationPatch(
+  draft: RiaOnboardingDraft,
+  location: LocationPrefill,
+  crdNumber: string
+): Pick<
+  Partial<RiaOnboardingDraft>,
+  "city" | "areaLocality" | "pinZip" | "fullStreetAddress"
+> {
+  if (!hasLocationPrefill(location)) return {};
+  const replace = shouldReplaceDraftLocation(draft, location, crdNumber);
+  if (replace) {
+    return {
+      city: location.city,
+      areaLocality: location.areaLocality,
+      pinZip: location.pinZip,
+      fullStreetAddress: location.fullStreetAddress,
+    };
+  }
+
+  return {
+    city: pickExistingOrNext(draft.city, location.city),
+    areaLocality: pickExistingOrNext(draft.areaLocality, location.areaLocality),
+    pinZip: pickExistingOrNext(draft.pinZip, location.pinZip),
+    fullStreetAddress: pickExistingOrNext(
+      draft.fullStreetAddress,
+      location.fullStreetAddress
+    ),
+  };
+}
+
 function collectText(value: unknown, depth = 0, output: string[] = []): string[] {
   if (output.length > 80 || depth > 4 || value == null) return output;
   if (typeof value === "string") {
@@ -219,15 +309,12 @@ function extractBestFirmHistory(
     )[0] || null;
 }
 
-function extractOfficialLocation(scrapeResult: CrdScrapeJobResult | null | undefined): {
-  city: string;
-  areaLocality: string;
-  pinZip: string;
-  fullStreetAddress: string;
-} {
+function extractOfficialLocation(
+  scrapeResult: CrdScrapeJobResult | null | undefined
+): LocationPrefill {
   const official = scrapeResult?.report?.officialLocation;
   if (!official || typeof official !== "object" || Array.isArray(official)) {
-    return { city: "", areaLocality: "", pinZip: "", fullStreetAddress: "" };
+    return emptyLocationPrefill();
   }
   const record = official as Record<string, unknown>;
   const city = cleanString(record.city as Textish);
@@ -244,6 +331,42 @@ function extractOfficialLocation(scrapeResult: CrdScrapeJobResult | null | undef
       cleanString(record.address as Textish) ||
       cleanString(record.streetAddress as Textish) ||
       cleanString(record.fullStreetAddress as Textish),
+  };
+}
+
+function extractLicenseLocation(
+  result: RiaLicenseVerificationResult
+): LocationPrefill {
+  const official =
+    result.official_location &&
+    typeof result.official_location === "object" &&
+    !Array.isArray(result.official_location)
+      ? (result.official_location as Record<string, unknown>)
+      : {};
+  const city =
+    cleanString(result.city) ||
+    cleanString(official.city as Textish) ||
+    cleanString(official.businessCity as Textish);
+  const state = cleanString(result.state) || cleanString(official.state as Textish);
+  return {
+    city,
+    areaLocality:
+      cleanString(result.area_locality) ||
+      state ||
+      cleanString(official.areaLocality as Textish) ||
+      cleanString(official.location as Textish),
+    pinZip:
+      cleanString(result.pin_zip) ||
+      cleanString(official.pin_zip as Textish) ||
+      cleanString(official.pinZip as Textish) ||
+      cleanString(official.zip as Textish) ||
+      cleanString(official.postalCode as Textish),
+    fullStreetAddress:
+      cleanString(result.full_street_address) ||
+      cleanString(result.business_address) ||
+      cleanString(official.address as Textish) ||
+      cleanString(official.streetAddress as Textish) ||
+      cleanString(official.fullStreetAddress as Textish),
   };
 }
 
@@ -295,6 +418,13 @@ export function buildRiaLicensePrefillPatch(
   const firmName = cleanString(result.firm_name) || draft.firmName;
   const regulatorStatus = cleanString(result.regulator_status) || draft.regulatorStatus;
   const crdNumber = cleanString(result.crd_number) || submittedLicense || draft.crdNumber;
+  const locationPatch = buildLocationPatch(
+    draft,
+    extractLicenseLocation(result),
+    crdNumber
+  );
+  const prefillCity = locationPatch.city ?? draft.city;
+  const prefillAreaLocality = locationPatch.areaLocality ?? draft.areaLocality;
   const certifications = uniqueStrings([
     ...draft.certifications,
     ...extractCertifications(result, null),
@@ -325,8 +455,8 @@ export function buildRiaLicensePrefillPatch(
       firmName,
       crdNumber,
       regulatorStatus,
-      city: draft.city,
-      areaLocality: draft.areaLocality,
+      city: prefillCity,
+      areaLocality: prefillAreaLocality,
       certifications,
       summary:
         cleanString(result.bio) ||
@@ -343,8 +473,7 @@ export function buildRiaLicensePrefillPatch(
     regulatorStatus,
     licenseExpiry: cleanString(result.license_expiry) || draft.licenseExpiry,
     certifications,
-    city: pickExistingOrNext(draft.city, cleanString(result.city)),
-    pinZip: pickExistingOrNext(draft.pinZip, cleanString(result.pin_zip)),
+    ...locationPatch,
     crdNumber,
     secNumber: cleanString(result.sec_number) || draft.secNumber,
     servicesOffered: services,
@@ -372,19 +501,30 @@ export function buildRiaScrapePrefillPatch(
 
   const bestFirm = extractBestFirmHistory(result, draft.firmName);
   const officialLocation = extractOfficialLocation(result);
+  const scrapedLocation: LocationPrefill = {
+    city: officialLocation.city || cleanString(bestFirm?.city as Textish),
+    areaLocality:
+      officialLocation.areaLocality || cleanString(bestFirm?.state as Textish),
+    pinZip: officialLocation.pinZip,
+    fullStreetAddress: officialLocation.fullStreetAddress,
+  };
+  const crdNumber = draft.crdNumber || cleanString(result.crdNumber);
+  const locationPatch = buildLocationPatch(draft, scrapedLocation, crdNumber);
+  const hasLocationPatchField = (
+    key: "city" | "areaLocality" | "pinZip" | "fullStreetAddress"
+  ) => Object.prototype.hasOwnProperty.call(locationPatch, key);
   const city =
-    officialLocation.city ||
-    cleanString(bestFirm?.city as Textish) ||
-    draft.city;
+    hasLocationPatchField("city")
+      ? locationPatch.city || ""
+      : scrapedLocation.city || draft.city;
   const areaLocality =
-    officialLocation.areaLocality ||
-    cleanString(bestFirm?.state as Textish) ||
-    draft.areaLocality;
+    hasLocationPatchField("areaLocality")
+      ? locationPatch.areaLocality || ""
+      : scrapedLocation.areaLocality || draft.areaLocality;
   const firmName =
     draft.firmName ||
     cleanString(bestFirm?.firmName as Textish) ||
     cleanString(bestFirm?.firm as Textish);
-  const crdNumber = draft.crdNumber || cleanString(result.crdNumber);
   const certifications = uniqueStrings([
     ...draft.certifications,
     ...extractCertifications(null, result),
@@ -416,13 +556,7 @@ export function buildRiaScrapePrefillPatch(
     advisorName: draft.advisorName || cleanString(report.fullName),
     firmName,
     certifications,
-    city: pickExistingOrNext(draft.city, city),
-    areaLocality: pickExistingOrNext(draft.areaLocality, areaLocality),
-    pinZip: pickExistingOrNext(draft.pinZip, officialLocation.pinZip),
-    fullStreetAddress: pickExistingOrNext(
-      draft.fullStreetAddress,
-      officialLocation.fullStreetAddress
-    ),
+    ...locationPatch,
     servicesOffered: services,
     feeStructure: fees,
     minEngagementAmount:
