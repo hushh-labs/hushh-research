@@ -176,6 +176,42 @@ def _broker_pin_zip(payload: dict[str, Any]) -> str | None:
     )
 
 
+def _broker_state(payload: dict[str, Any]) -> str | None:
+    return _first_text_value(
+        payload.get("state"),
+        payload.get("businessState"),
+        payload.get("business_state"),
+        payload.get("region"),
+    )
+
+
+def _broker_area_locality(payload: dict[str, Any]) -> str | None:
+    return _first_text_value(
+        payload.get("areaLocality"),
+        payload.get("area_locality"),
+        payload.get("businessArea"),
+        payload.get("business_area"),
+        payload.get("locality"),
+    )
+
+
+def _broker_street_address(payload: dict[str, Any]) -> str | None:
+    return _first_text_value(
+        payload.get("fullStreetAddress"),
+        payload.get("full_street_address"),
+        payload.get("streetAddress"),
+        payload.get("street_address"),
+        payload.get("businessAddress"),
+        payload.get("business_address"),
+        payload.get("address"),
+    )
+
+
+def _broker_official_location(payload: dict[str, Any]) -> dict[str, Any] | None:
+    value = payload.get("officialLocation") or payload.get("official_location")
+    return value if isinstance(value, dict) else None
+
+
 def _title_case_city(value: str) -> str:
     small_words = {"of", "and", "the"}
     parts: list[str] = []
@@ -897,13 +933,43 @@ class RIAIAMService:
         )
         city = _broker_city(broker_data)
         pin_zip = _broker_pin_zip(broker_data)
-        if found and (not city or not pin_zip):
-            official_location = await _official_pdf_location_for_crd(
+        state = _broker_state(broker_data)
+        area_locality = _broker_area_locality(broker_data)
+        full_street_address = _broker_street_address(broker_data)
+        official_location: dict[str, Any] | None = _broker_official_location(broker_data)
+        if official_location:
+            city = city or official_location.get("city")
+            pin_zip = pin_zip or official_location.get("pin_zip") or official_location.get("pinZip")
+            state = state or official_location.get("state")
+            area_locality = (
+                area_locality
+                or official_location.get("area_locality")
+                or official_location.get("areaLocality")
+                or official_location.get("state")
+                or official_location.get("location")
+            )
+            full_street_address = (
+                full_street_address
+                or official_location.get("address")
+                or official_location.get("streetAddress")
+                or official_location.get("fullStreetAddress")
+            )
+        if found and (not city or not pin_zip or not state or not full_street_address):
+            pdf_location = await _official_pdf_location_for_crd(
                 str(broker_data.get("crdNumber") or normalized)
             )
-            if official_location:
-                city = city or official_location.get("city")
-                pin_zip = pin_zip or official_location.get("pin_zip")
+            if pdf_location:
+                official_location = {**pdf_location, **(official_location or {})}
+                city = city or pdf_location.get("city")
+                pin_zip = pin_zip or pdf_location.get("pin_zip")
+                state = state or pdf_location.get("state")
+                area_locality = (
+                    area_locality
+                    or pdf_location.get("area_locality")
+                    or pdf_location.get("state")
+                    or pdf_location.get("location")
+                )
+                full_street_address = full_street_address or pdf_location.get("address")
 
         broker_exams = _broker_exams(broker_data)
         response: dict[str, Any] = {
@@ -918,6 +984,11 @@ class RIAIAMService:
             "certifications": broker_exams,
             "city": city,
             "pin_zip": pin_zip,
+            "state": state,
+            "area_locality": area_locality,
+            "full_street_address": full_street_address,
+            "business_address": full_street_address,
+            "official_location": official_location,
             "crd_number": broker_data.get("crdNumber") or normalized,
             "sec_number": None,
             "employment_history": broker_data.get("employmentHistory", []),

@@ -121,6 +121,11 @@ export interface RiaLicenseVerificationResult {
   certifications?: string[];
   city?: string | null;
   pin_zip?: string | null;
+  state?: string | null;
+  area_locality?: string | null;
+  full_street_address?: string | null;
+  business_address?: string | null;
+  official_location?: Record<string, unknown> | null;
   crd_number?: string | null;
   sec_number?: string | null;
   employment_history?: Array<Record<string, unknown>>;
