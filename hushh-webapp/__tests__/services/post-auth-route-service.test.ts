@@ -182,4 +182,24 @@ describe("PostAuthRouteService", () => {
       })
     ).resolves.toBe(ROUTES.KAI_HOME);
   });
+     it("preserves localhost bypass stability for uppercase development hosts", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
+
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: false,
+      preOnboardingCompleted: true,
+      preOnboardingCompletedAt: 1,
+      preOnboardingSkipped: false,
+    });
+
+    loadPendingOnboardingMock.mockResolvedValue(null);
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        phoneNumber: null,
+        hostname: "LOCALHOST",
+      })
+    ).resolves.toBe(ROUTES.KAI_HOME);
+  });
 });
