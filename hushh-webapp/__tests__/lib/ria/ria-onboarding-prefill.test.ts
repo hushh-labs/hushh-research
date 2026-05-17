@@ -42,6 +42,78 @@ describe("ria-onboarding-prefill", () => {
     expect(patch.individualCrd).toBe("7413463");
   });
 
+  it("prepopulates official PDF-backed location from the license verification response", () => {
+    const draft = createEmptyRiaOnboardingDraft();
+    const result: RiaLicenseVerificationResult = {
+      status: "found",
+      advisor_name: "Andrew Garrett Kirkland",
+      firm_name: "Financial Advocates Advisory Services",
+      regulator: "SEC",
+      regulator_status: "Investment Adviser Representative",
+      crd_number: "7413463",
+      provider: "ria_intelligence_combined",
+      city: "Kennesaw",
+      state: "GA",
+      area_locality: "GA",
+      pin_zip: "30144",
+      full_street_address: "114 Townpark Drive, Ste. 175",
+      official_location: {
+        city: "Kennesaw",
+        state: "GA",
+        pin_zip: "30144",
+        address: "114 Townpark Drive, Ste. 175",
+        source_url:
+          "https://reports.adviserinfo.sec.gov/reports/individual/individual_7413463.pdf",
+      },
+    };
+
+    const patch = buildRiaLicensePrefillPatch(draft, result, "7413463");
+
+    expect(patch.city).toBe("Kennesaw");
+    expect(patch.areaLocality).toBe("GA");
+    expect(patch.pinZip).toBe("30144");
+    expect(patch.fullStreetAddress).toBe("114 Townpark Drive, Ste. 175");
+    expect(patch.bio).toContain("Primary location: Kennesaw, GA.");
+  });
+
+  it("replaces stale draft location as one set when official scrape data disagrees", () => {
+    const draft = {
+      ...createEmptyRiaOnboardingDraft(),
+      advisorName: "Andrew Garrett Kirkland",
+      firmName: "Financial Advocates Advisory Services",
+      regulatorStatus: "Active",
+      crdNumber: "7413463",
+      city: "Pune",
+      areaLocality: "Maharashtra",
+      pinZip: "411015",
+      fullStreetAddress: "Army Institute of Technology, Pune",
+    };
+    const result: CrdScrapeJobResult = {
+      jobId: "crd_scrape_test",
+      status: "completed",
+      crdNumber: "7413463",
+      reportAvailable: true,
+      report: {
+        fullName: "Andrew Garrett Kirkland",
+        registrationStatus: "active",
+        officialLocation: {
+          city: "Kennesaw",
+          state: "GA",
+          pinZip: "30144",
+          address: "114 Townpark Drive, Ste. 175",
+        },
+      },
+    };
+
+    const patch = buildRiaScrapePrefillPatch(draft, result);
+
+    expect(patch.city).toBe("Kennesaw");
+    expect(patch.areaLocality).toBe("GA");
+    expect(patch.pinZip).toBe("30144");
+    expect(patch.fullStreetAddress).toBe("114 Townpark Drive, Ste. 175");
+    expect(patch.bio).toContain("Primary location: Kennesaw, GA.");
+  });
+
   it("prepopulates official scrape location, exams, fees, minimums, and bio fallback", () => {
     const draft = {
       ...createEmptyRiaOnboardingDraft(),
