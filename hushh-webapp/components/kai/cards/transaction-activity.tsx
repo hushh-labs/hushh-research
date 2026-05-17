@@ -1,219 +1,98 @@
 // components/kai/cards/transaction-activity.tsx
 
-/**
- * Transaction Activity Card - Recent trades and activity
- * 
- * Features:
- * - Shows recent BUY, SELL, DIVIDEND, REINVEST transactions
- * - Color-coded by transaction type
- * - Shows realized gain/loss for sells
- * - Responsive and mobile-friendly
- */
-
 "use client";
 
-import { 
-  ArrowDownLeft, 
-  ArrowUpRight, 
-  Coins, 
-  RefreshCw,
-  ArrowRightLeft,
-  Activity,
-} from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
+// Updated to match the exact exported name from the file
+import { RelativeTime } from "@/components/app-ui/relative-time"; 
+import { ArrowDownRight, ArrowUpRight, Clock, Receipt } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  SurfaceCard,
-  SurfaceCardContent,
-  SurfaceCardHeader,
-  SurfaceCardTitle,
-  SurfaceInset,
-} from "@/components/app-ui/surfaces";
-import { Icon } from "@/lib/morphy-ux/ui";
-
-// =============================================================================
-// TYPES
-// =============================================================================
-
-export interface Transaction {
-  trade_date?: string;
-  date?: string;
-  settle_date?: string;
-  type: string;
-  symbol: string;
-  description?: string;
-  quantity?: number;
-  price?: number;
-  amount: number;
-  cost_basis?: number;
-  realized_gain_loss?: number;
-  fees?: number;
-}
 
 interface TransactionActivityProps {
-  transactions?: Transaction[];
-  maxItems?: number;
+  // Accepts NormalizedPortfolioTransaction arrays from the master views without strict type clashing
+  transactions?: any[];
+  maxItems?: number; // Added to satisfy TS and master views
   className?: string;
 }
 
-// =============================================================================
-// HELPER FUNCTIONS
-// =============================================================================
+export function TransactionActivity({ transactions = [], maxItems, className }: TransactionActivityProps) {
+  // Apply maxItems limit if provided by the parent view
+  const displayTransactions = maxItems ? transactions.slice(0, maxItems) : transactions;
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
-function formatDate(dateStr?: string): string {
-  if (!dateStr) return "";
-  // Handle various date formats
-  try {
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) {
-      // If parsing fails, return as-is (might be "29 Mar 2021" format)
-      return dateStr;
-    }
-    return date.toLocaleDateString("en-US", { 
-      month: "short", 
-      day: "numeric",
-      year: "numeric"
-    });
-  } catch {
-    return dateStr;
-  }
-}
-
-// =============================================================================
-// TRANSACTION ICON
-// =============================================================================
-
-interface TransactionIconProps {
-  type: string;
-}
-
-function TransactionIcon({ type }: TransactionIconProps) {
-  const normalizedType = type.toUpperCase();
-  
-  const iconConfig: Record<string, { icon: LucideIcon; color: string; bg: string }> = {
-    BUY: { icon: ArrowDownLeft, color: "text-blue-500", bg: "bg-blue-500/10" },
-    SELL: { icon: ArrowUpRight, color: "text-emerald-500", bg: "bg-emerald-500/10" },
-    DIVIDEND: { icon: Coins, color: "text-amber-500", bg: "bg-amber-500/10" },
-    REINVEST: { icon: RefreshCw, color: "text-purple-500", bg: "bg-purple-500/10" },
-    TRANSFER: { icon: ArrowRightLeft, color: "text-gray-500", bg: "bg-gray-500/10" },
-  };
-  
-  const config = iconConfig[normalizedType] || iconConfig.TRANSFER;
-  if (!config) return null;
-  
   return (
-    <div className={cn("w-8 h-8 rounded-full flex items-center justify-center", config.bg)}>
-      <Icon icon={config.icon} size="sm" className={config.color} />
-    </div>
-  );
-}
-
-// =============================================================================
-// TRANSACTION ROW
-// =============================================================================
-
-interface TransactionRowProps {
-  transaction: Transaction;
-}
-
-function TransactionRow({ transaction }: TransactionRowProps) {
-  const date = transaction.trade_date || transaction.date;
-  const normalizedType = transaction.type.toUpperCase();
-  const isSell = normalizedType === "SELL";
-  const isDividend = normalizedType === "DIVIDEND";
-  const hasGainLoss = transaction.realized_gain_loss !== undefined && transaction.realized_gain_loss !== null;
-  const isGain = hasGainLoss && transaction.realized_gain_loss! >= 0;
-  
-  return (
-    <div className="flex items-center justify-between p-3 hover:bg-muted/30 transition-colors">
-      <div className="flex items-center gap-3">
-        <TransactionIcon type={transaction.type} />
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-sm">{transaction.symbol}</span>
-            <span className="text-xs text-muted-foreground uppercase">
-              {transaction.type}
-            </span>
+    <Card variant="none" effect="glass" className={cn("border border-border/50", className)}>
+      <CardHeader className="pb-3 border-b border-border/30">
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 rounded-md bg-primary/10 text-primary">
+            <Clock size={16} />
           </div>
-          <p className="text-xs text-muted-foreground truncate">
-            {date && formatDate(date)}
-            {transaction.quantity && transaction.price && (
-              <span className="ml-1">
-                • {transaction.quantity.toLocaleString()} @ {formatCurrency(transaction.price)}
-              </span>
-            )}
-          </p>
+          <CardTitle className="text-sm font-semibold tracking-wide uppercase text-muted-foreground">
+            Recent Activity
+          </CardTitle>
         </div>
-      </div>
-      
-      <div className="text-right shrink-0">
-        <p className={cn(
-          "font-medium text-sm",
-          isSell || isDividend ? "text-emerald-500" : ""
-        )}>
-          {isSell || isDividend ? "+" : "-"}{formatCurrency(Math.abs(transaction.amount))}
-        </p>
-        {hasGainLoss && (
-          <p className={cn(
-            "text-xs",
-            isGain ? "text-emerald-500" : "text-red-500"
-          )}>
-            {isGain ? "+" : ""}{formatCurrency(transaction.realized_gain_loss!)}
-          </p>
-        )}
-      </div>
-    </div>
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="divide-y divide-border/30">
+          {displayTransactions.map((tx, index) => {
+            // Dynamically map properties safely from NormalizedPortfolioTransaction
+            const id = tx.id || tx.transactionId || tx.uuid || index.toString();
+            const type = String(tx.type || tx.action || tx.transactionType || "transaction");
+            const asset = tx.asset || tx.symbol || tx.ticker || "";
+            const amount = Number(tx.amount || tx.total || tx.value || 0);
+            const timestamp = tx.timestamp || tx.date || tx.createdAt || new Date().toISOString();
+            const status = String(tx.status || tx.state || "completed").toLowerCase();
+
+            const isPositive = type.toLowerCase() === "deposit" || type.toLowerCase() === "sell" || type.toLowerCase().includes("credit");
+            const Icon = isPositive ? ArrowDownRight : ArrowUpRight;
+            const iconColor = isPositive ? "text-emerald-500 bg-emerald-500/10" : "text-amber-500 bg-amber-500/10";
+
+            return (
+              <div key={id} className="flex items-center justify-between p-4 hover:bg-muted/10 transition-colors">
+                <div className="flex items-center gap-3">
+                  <div className={cn("w-9 h-9 rounded-full flex items-center justify-center shrink-0", iconColor)}>
+                    <Icon size={18} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold capitalize leading-none mb-1 text-foreground">
+                      {type} <span className="text-muted-foreground font-medium">{asset}</span>
+                    </p>
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Receipt size={12} />
+                      {/* HARVESTED HYDRATION-SAFE RELATIVE TIME COMPONENT */}
+                      <RelativeTime date={timestamp} className="font-medium" />
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="text-right">
+                  <p className={cn("text-sm font-black tracking-tight", isPositive ? "text-emerald-500" : "text-foreground")}>
+                    {isPositive ? "+" : "-"}${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                  <Badge status={status} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
-// =============================================================================
-// MAIN COMPONENT
-// =============================================================================
-
-export function TransactionActivity({ 
-  transactions, 
-  maxItems = 5,
-  className 
-}: TransactionActivityProps) {
-  // Filter out invalid transactions and limit to maxItems
-  const validTransactions = (transactions || [])
-    .filter(tx => tx.symbol && tx.amount !== undefined)
-    .slice(0, maxItems);
+function Badge({ status }: { status: string }) {
+  const isCompleted = status === "completed" || status === "settled" || status === "success";
+  const isFailed = status === "failed" || status === "cancelled" || status === "error";
   
-  if (validTransactions.length === 0) {
-    return null;
-  }
-
+  const styles = isCompleted 
+    ? "text-emerald-600 bg-emerald-500/10 border-emerald-500/20"
+    : isFailed 
+    ? "text-red-600 bg-red-500/10 border-red-500/20" 
+    : "text-amber-600 bg-amber-500/10 border-amber-500/20";
+  
   return (
-    <SurfaceCard className={className}>
-      <SurfaceCardHeader>
-        <SurfaceCardTitle className="flex items-center gap-2">
-          <Icon icon={Activity} size="sm" />
-          Recent Activity
-        </SurfaceCardTitle>
-      </SurfaceCardHeader>
-      <SurfaceCardContent className="space-y-0">
-        <SurfaceInset className="overflow-hidden p-0">
-          <div className="divide-y divide-border/70">
-            {validTransactions.map((tx, index) => (
-              <TransactionRow
-                key={`${tx.symbol}-${tx.trade_date || tx.date}-${index}`}
-                transaction={tx}
-              />
-            ))}
-          </div>
-        </SurfaceInset>
-      </SurfaceCardContent>
-    </SurfaceCard>
+    <span className={cn("inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider border", styles)}>
+      {status}
+    </span>
   );
 }
 
