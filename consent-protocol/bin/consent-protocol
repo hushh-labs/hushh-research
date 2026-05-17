@@ -20,7 +20,7 @@ Commands:
   format-check
   fix
   typecheck
-  test
+  test [pytest args...]   # default: whole tests/ tree
   test-ci
   security
   accuracy
@@ -107,10 +107,16 @@ case "$COMMAND" in
     exec "$PYTHON_BIN" -m mypy --config-file pyproject.toml --ignore-missing-imports "$@"
     ;;
   test)
-    if command -v uv >/dev/null 2>&1; then
-      run_test_env uv run pytest tests/ -v --tb=short "$@"
+    pytest_targets=()
+    if [ "$#" -eq 0 ]; then
+      pytest_targets=(tests/)
     else
-      run_test_env "$PYTHON_BIN" -m pytest tests/ -v --tb=short "$@"
+      pytest_targets=("$@")
+    fi
+    if command -v uv >/dev/null 2>&1; then
+      run_test_env uv run pytest -v --tb=short "${pytest_targets[@]}"
+    else
+      run_test_env "$PYTHON_BIN" -m pytest -v --tb=short "${pytest_targets[@]}"
     fi
     ;;
   test-ci)

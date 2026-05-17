@@ -4,6 +4,8 @@ import {
   buildPkmDomainPresentation,
   buildPkmDomainPermissionPresentation,
   buildPkmDomainUpgradePresentation,
+  buildPkmProfileSummaryPresentation,
+  isConsumerVisiblePkmDomain,
 } from "@/lib/profile/pkm-profile-presentation";
 
 const domain = {
@@ -162,5 +164,44 @@ describe("pkm profile presentation", () => {
     });
 
     expect(presentation.highlights).toEqual(["Latest import synced from brokerage statement"]);
+  });
+
+  it("hides internal runtime domains and uses manifest-backed counts for consumer rows", () => {
+    expect(
+      isConsumerVisiblePkmDomain({
+        ...domain,
+        key: "kyc_workflow",
+        displayName: "Kyc Workflow",
+      })
+    ).toBe(false);
+
+    const presentation = buildPkmDomainPresentation({
+      domain: {
+        ...domain,
+        key: "travel",
+        displayName: "Travel",
+        attributeCount: 0,
+        summary: {
+          path_count: 18,
+          last_content_at: "2026-04-16T05:54:38Z",
+          readable_source_label: "PKM Upgrade",
+        },
+        readableSourceLabel: "PKM Upgrade",
+      },
+      activeGrants: [],
+      manifest: null,
+      upgradeState: null,
+    });
+
+    expect(presentation.detailCount).toBe(18);
+    expect(presentation.sourceLabels).toEqual(["Saved memory"]);
+
+    const summary = buildPkmProfileSummaryPresentation({
+      metadata: null,
+      domains: [presentation],
+      activeGrants: [],
+    });
+    expect(summary.totalDomains).toBe(1);
+    expect(summary.totalAttributes).toBe(18);
   });
 });
