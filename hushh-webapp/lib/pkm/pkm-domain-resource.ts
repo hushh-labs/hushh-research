@@ -48,6 +48,10 @@ interface PreparedDomainWriteContext {
   expectedDataVersion: number | undefined;
 }
 
+function hasUserConsent(params: { vaultOwnerToken?: string | null }): boolean {
+  return Boolean(String(params.vaultOwnerToken || "").trim());
+}
+
 function normalizeSegmentIds(segmentIds?: string[]): string[] {
   return [...new Set((segmentIds || []).map((segmentId) => String(segmentId || "").trim().toLowerCase()).filter(Boolean))];
 }
@@ -125,7 +129,11 @@ function hydrateMemory(params: {
   domain: string;
   segmentIds?: string[];
   snapshot: PkmDomainResourceSnapshot;
+  canWriteCache?: boolean;
 }): PkmDomainResourceSnapshot {
+  if (params.canWriteCache === false) {
+    return params.snapshot;
+  }
   const cache = CacheService.getInstance();
   const cacheKey = toCacheKey(params);
   cache.set(cacheKey, params.snapshot, CACHE_TTL.SESSION);
@@ -169,6 +177,7 @@ export class PkmDomainResourceService {
       userId: params.userId,
       domain: params.domain,
       segmentIds: params.segmentIds,
+      canWriteCache: hasUserConsent(params),
       snapshot: {
         ...snapshot,
         audit: {
@@ -347,15 +356,18 @@ export class PkmDomainResourceService {
           userId: params.userId,
           domain: params.domain,
           segmentIds: params.segmentIds,
+          canWriteCache: hasUserConsent(params),
           snapshot,
         });
-        await SecureResourceCacheService.write({
-          userId: params.userId,
-          resourceKey: toDeviceResourceKey(params),
-          value: snapshot,
-          ttlMs: DEVICE_TTL_MS,
-          vaultKey: params.vaultKey!,
-        });
+        if (hasUserConsent(params)) {
+          await SecureResourceCacheService.write({
+            userId: params.userId,
+            resourceKey: toDeviceResourceKey(params),
+            value: snapshot,
+            ttlMs: DEVICE_TTL_MS,
+            vaultKey: params.vaultKey!,
+          });
+        }
         return snapshot;
       })
       .catch((error) => {

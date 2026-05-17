@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
 
-const { replace, checkVaultMock } = vi.hoisted(() => ({
+const { replace, checkVaultMock, refreshCurrentUserIdentityMock } = vi.hoisted(() => ({
   replace: vi.fn(),
   checkVaultMock: vi.fn(),
+  refreshCurrentUserIdentityMock: vi.fn(),
 }));
 
 let pathnameValue = "/profile";
@@ -38,11 +39,21 @@ vi.mock("@/lib/services/vault-service", () => ({
   },
 }));
 
+vi.mock("@/lib/services/account-identity-service", () => ({
+  AccountIdentityService: {
+    refreshCurrentUserIdentity: refreshCurrentUserIdentityMock,
+    hasVerifiedPhone: (identity: { phone_verified?: boolean } | null | undefined) =>
+      identity?.phone_verified === true,
+  },
+}));
+
 describe("PhoneMandateGuard", () => {
   beforeEach(() => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
     replace.mockReset();
     checkVaultMock.mockReset();
+    refreshCurrentUserIdentityMock.mockReset();
+    refreshCurrentUserIdentityMock.mockResolvedValue(null);
     pathnameValue = "/profile";
     searchValue = "";
     authValue = {
@@ -102,6 +113,51 @@ describe("PhoneMandateGuard", () => {
 
     await waitFor(() => {
       expect(screen.getByText("kai content")).toBeTruthy();
+    });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("does not redirect users with a backend-verified phone claim", async () => {
+    authValue = {
+      user: { uid: "user-4" },
+      loading: false,
+      phoneNumber: null,
+    };
+    checkVaultMock.mockResolvedValue(false);
+    refreshCurrentUserIdentityMock.mockResolvedValue({
+      phone_verified: true,
+      phone_number: "+16505550101",
+    });
+
+    render(
+      <PhoneMandateGuard>
+        <div>kai content</div>
+      </PhoneMandateGuard>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("kai content")).toBeTruthy();
+    });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("keeps RIA onboarding reachable without asking for phone verification again", async () => {
+    pathnameValue = "/ria/onboarding";
+    authValue = {
+      user: { uid: "ria-user" },
+      loading: false,
+      phoneNumber: null,
+    };
+    checkVaultMock.mockResolvedValue(false);
+
+    render(
+      <PhoneMandateGuard>
+        <div>ria onboarding content</div>
+      </PhoneMandateGuard>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("ria onboarding content")).toBeTruthy();
     });
     expect(replace).not.toHaveBeenCalled();
   });
