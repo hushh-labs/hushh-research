@@ -78,6 +78,7 @@ export type ObservabilityEventName =
   | "growth_funnel_step_completed"
   | "investor_activation_completed"
   | "ria_activation_completed"
+  | "ria_setup_started"
   | "api_request_completed"
   | "startup_readiness_warmup_completed";
 
@@ -140,6 +141,7 @@ const EVENT_CATEGORY_BY_NAME: Record<
   phone_verification_started: "system",
   phone_verification_completed: "system",
   persona_switched: "system",
+  ria_setup_started: "system",
   ria_onboarding_submitted: "system",
   ria_verification_status_changed: "system",
   marketplace_profile_viewed: "feature",
@@ -265,7 +267,13 @@ export interface EventPayloadMap {
     result: EventResult;
   };
   persona_switched: {
-    action: "investor" | "ria";
+    action: GrowthJourney | "switch" | "persona";
+    from: GrowthJourney;
+    result: EventResult;
+  };
+  ria_setup_started: {
+    action: "ria" | "setup";
+    from: "investor";
     result: EventResult;
   };
   ria_onboarding_submitted: {

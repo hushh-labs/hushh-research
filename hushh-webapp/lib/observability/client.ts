@@ -16,6 +16,17 @@ import type {
   ObservabilityPlatform,
   StatusBucket,
 } from "@/lib/observability/events";
+
+export type {
+  DurationBucket,
+  EventPayloadFor,
+  EventPayloadWithContextFor,
+  EventResult,
+  ObservabilityAdapter,
+  ObservabilityEventName,
+  ObservabilityPlatform,
+  StatusBucket,
+};
 import { resolveObservabilityEventCategory } from "@/lib/observability/events";
 import { nativeFirebaseAdapter } from "@/lib/observability/adapters/native-firebase";
 import { webGtmAdapter } from "@/lib/observability/adapters/web-gtm";
