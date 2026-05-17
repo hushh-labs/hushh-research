@@ -70,6 +70,7 @@ xcodebuild -scheme OneMac -configuration Release archive
 | PR-5 | OneMCPServer: Hummingbird + 3 tools + OpenClaw conformance | pending |
 | PR-6 | OneMac UI: Nav 5-tab + handshake + AppIntents + design tokens + xcstrings | pending |
 | PR-7 | OneDaemon: SMAppService lifecycle + idle RSS budget + notarize dry-run | pending |
+> Contributor note: this README tracks the active One Mac Phase 1 implementation plan.
 
 ## License
 
