@@ -3,7 +3,7 @@
   "role": "spoke",
   "owner_family": "frontend",
   "primary_scope": "frontend-design-system",
-  "description": "Use when changing Hushh UI architecture, shared components, shell chrome, or styling rules inside the frontend owner family.",
+  "description": "Use when changing Hussh UI architecture, shared components, shell chrome, or styling rules inside the frontend owner family.",
   "owned_paths": [
     "hushh-webapp/components/ui",
     "hushh-webapp/lib/morphy-ux",
@@ -24,7 +24,8 @@
     "docs/reference/quality/design-system.md",
     "docs/reference/quality/frontend-ui-architecture-map.md",
     "docs/reference/quality/app-surface-design-system.md",
-    "docs/reference/quality/frontend-pattern-catalog.md"
+    "docs/reference/quality/frontend-pattern-catalog.md",
+    ".codex/skills/frontend-design-system/references/design-review-kernel.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run verify:design-system",

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Hushh
+
 from __future__ import annotations
 
 import argparse
@@ -11,7 +14,9 @@ POLICY_PATH = REPO_ROOT / "config" / "ci-governance.json"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Assert that a GitHub actor is allowed to dispatch a governed workflow.")
+    parser = argparse.ArgumentParser(
+        description="Assert that a GitHub actor is allowed to dispatch a governed workflow."
+    )
     parser.add_argument("--surface", choices=("uat", "production"), required=True)
     parser.add_argument("--actor", required=True)
     args = parser.parse_args()

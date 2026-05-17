@@ -22,32 +22,36 @@ from mcp_modules.developer_context import get_developer_request_query
 logger = logging.getLogger("hushh-mcp-server")
 
 
-async def resolve_email_to_uid(user_id: str) -> str:
-    """If user_id is an email, resolve to Firebase UID."""
-    if not user_id or "@" not in user_id:
-        return user_id
-    token_query = get_developer_request_query()
-    if not token_query:
-        logger.warning("⚠️ Email lookup skipped: developer token not configured")
-        return user_id
+async def resolve_user_identifier_to_uid(
+    user_id: str,
+    *,
+    country_iso2: str | None = None,
+    country: str | None = None,
+) -> str:
+    """If user_id is an email or phone number, resolve it to Firebase UID."""
+    from mcp_modules.tools.consent_tools import resolve_user_identifier_to_uid as _resolve
 
-    try:
-        async with httpx.AsyncClient() as client:
-            lookup_response = await client.get(
-                f"{FASTAPI_URL}/api/user/lookup",
-                params={"email": user_id, **token_query},
-                timeout=5.0,
-            )
-            if lookup_response.status_code == 200:
-                lookup_data = lookup_response.json()
-                if lookup_data.get("exists"):
-                    resolved = lookup_data["user_id"]
-                    logger.info(f"✅ Resolved email to UID: {resolved}")
-                    return resolved
-    except Exception as e:
-        logger.warning(f"⚠️ Email lookup failed: {e}")
+    resolved_uid, _email, _display_name = await _resolve(
+        user_id,
+        country_iso2=country_iso2,
+        country=country,
+    )
+    if resolved_uid is None:
+        return user_id
+    return resolved_uid
 
-    return user_id
+
+async def resolve_email_to_uid(
+    user_id: str,
+    *,
+    country_iso2: str | None = None,
+    country: str | None = None,
+) -> str:
+    return await resolve_user_identifier_to_uid(
+        user_id,
+        country_iso2=country_iso2,
+        country=country,
+    )
 
 
 async def _fetch_encrypted_export_package(
@@ -102,13 +106,19 @@ async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent]:
     """
     Get the encrypted wrapped-key export package for any approved consent token.
 
-    Hushh never decrypts the payload inside the hosted MCP runtime.
+    Hussh never decrypts the payload inside the hosted MCP runtime.
     """
     user_id = args.get("user_id")
+    country_iso2 = str(args.get("country_iso2") or "").strip() or None
+    country = str(args.get("country") or "").strip() or None
     consent_token = args.get("consent_token")
     expected_scope = args.get("expected_scope")
 
-    user_id = await resolve_email_to_uid(user_id)
+    user_id = await resolve_email_to_uid(
+        user_id,
+        country_iso2=country_iso2,
+        country=country,
+    )
 
     valid, reason, token_obj = await validate_token_with_db(
         consent_token,
@@ -125,7 +135,7 @@ async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent]:
                         "status": "access_denied",
                         "error": f"Consent validation failed: {reason}",
                         **({"required_scope": expected_scope} if expected_scope else {}),
-                        "privacy_notice": "Hushh requires explicit scoped consent before accessing personal data.",
+                        "privacy_notice": "Hussh requires explicit scoped consent before accessing personal data.",
                         "remedy": "Call discover_user_domains first, then request_consent with one of the discovered scopes.",
                     }
                 ),
@@ -183,7 +193,7 @@ async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent]:
                     "wrapped_key_bundle": export_payload.get("wrapped_key_bundle"),
                     "message": export_payload.get("message"),
                     "privacy_note": (
-                        "This payload is encrypted. Hushh returns ciphertext plus wrapped key metadata only; "
+                        "This payload is encrypted. Hussh returns ciphertext plus wrapped key metadata only; "
                         "the external connector decrypts and narrows it client-side."
                     ),
                     "zero_knowledge": True,
@@ -205,13 +215,19 @@ async def handle_get_financial(args: dict) -> list[TextContent]:
     ✅ Scope Isolation: Financial token can ONLY access financial data
     """
     user_id = args.get("user_id")
+    country_iso2 = str(args.get("country_iso2") or "").strip() or None
+    country = str(args.get("country") or "").strip() or None
     consent_token = args.get("consent_token")
 
-    # Email resolution - returns (user_id, email, display_name)
+    # Identifier resolution - returns (user_id, email, display_name)
     from mcp_modules.tools.consent_tools import resolve_email_to_uid
 
     original_identifier = user_id
-    user_id, user_email, user_display_name = await resolve_email_to_uid(user_id)
+    user_id, user_email, user_display_name = await resolve_email_to_uid(
+        user_id,
+        country_iso2=country_iso2,
+        country=country,
+    )
 
     if user_id is None:
         return [
@@ -220,8 +236,8 @@ async def handle_get_financial(args: dict) -> list[TextContent]:
                 text=json.dumps(
                     {
                         "status": "user_not_found",
-                        "email": original_identifier,
-                        "message": f"No Hushh account found for {original_identifier}",
+                        "identifier": original_identifier,
+                        "message": f"No Hussh account found for {original_identifier}",
                     }
                 ),
             )
@@ -244,7 +260,7 @@ async def handle_get_financial(args: dict) -> list[TextContent]:
                         "status": "access_denied",
                         "error": f"Consent validation failed: {reason}",
                         "required_scope": "attr.financial.*",
-                        "privacy_notice": "Hushh requires explicit consent before accessing any personal data.",
+                        "privacy_notice": "Hussh requires explicit consent before accessing any personal data.",
                         "remedy": "Call request_consent with scope='attr.financial.*' first",
                     }
                 ),
@@ -357,7 +373,7 @@ async def handle_get_financial(args: dict) -> list[TextContent]:
                         "scope": "attr.financial.*",
                         "consent_verified": True,
                         "message": "The user has not saved any financial data yet, or the data export was not included with consent approval.",
-                        "suggestion": "Ask the user to import their portfolio in the Hushh app and re-approve consent.",
+                        "suggestion": "Ask the user to import their portfolio in the Hussh app and re-approve consent.",
                     }
                 ),
             )
@@ -395,10 +411,16 @@ async def handle_get_food(args: dict) -> list[TextContent]:
     ✅ Privacy: Denied without valid consent
     """
     user_id = args.get("user_id")
+    country_iso2 = str(args.get("country_iso2") or "").strip() or None
+    country = str(args.get("country") or "").strip() or None
     consent_token = args.get("consent_token")
 
-    # Email resolution
-    user_id = await resolve_email_to_uid(user_id)
+    # Identifier resolution
+    user_id = await resolve_email_to_uid(
+        user_id,
+        country_iso2=country_iso2,
+        country=country,
+    )
 
     # Compliance check with cross-instance revocation
     # NOTE: Legacy VAULT_READ_FOOD scope has been removed.
@@ -416,7 +438,7 @@ async def handle_get_food(args: dict) -> list[TextContent]:
                         "status": "access_denied",
                         "error": f"Consent validation failed: {reason}",
                         "required_scope": "pkm.read",
-                        "privacy_notice": "Hushh requires explicit consent before accessing any personal data.",
+                        "privacy_notice": "Hussh requires explicit consent before accessing any personal data.",
                         "remedy": "Call request_consent with scope='pkm.read' first",
                     }
                 ),
@@ -500,7 +522,7 @@ async def handle_get_food(args: dict) -> list[TextContent]:
                         "compatibility_wrapper": "get_food_preferences",
                         "consent_verified": True,
                         "message": "The user has not saved any food preferences yet, or the data export was not included with consent approval.",
-                        "suggestion": "Ask the user to update their food preferences in the Hushh app and re-approve consent.",
+                        "suggestion": "Ask the user to update their food preferences in the Hussh app and re-approve consent.",
                     }
                 ),
             )
@@ -538,10 +560,16 @@ async def handle_get_professional(args: dict) -> list[TextContent]:
     ✅ HushhMCP: Scope isolation remains enforced by the consent token
     """
     user_id = args.get("user_id")
+    country_iso2 = str(args.get("country_iso2") or "").strip() or None
+    country = str(args.get("country") or "").strip() or None
     consent_token = args.get("consent_token")
 
-    # Email resolution
-    user_id = await resolve_email_to_uid(user_id)
+    # Identifier resolution
+    user_id = await resolve_email_to_uid(
+        user_id,
+        country_iso2=country_iso2,
+        country=country,
+    )
 
     # Compliance check with cross-instance revocation - must have PKM full-read scope
     valid, reason, token_obj = await validate_token_with_db(
@@ -633,7 +661,7 @@ async def handle_get_professional(args: dict) -> list[TextContent]:
                         "compatibility_wrapper": "get_professional_profile",
                         "consent_verified": True,
                         "message": "The user has not saved any professional profile yet, or the data export was not included with consent approval.",
-                        "suggestion": "Ask the user to update their professional profile in the Hushh app and re-approve consent.",
+                        "suggestion": "Ask the user to update their professional profile in the Hussh app and re-approve consent.",
                     }
                 ),
             )

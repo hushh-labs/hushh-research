@@ -29,7 +29,7 @@ def build_skill_markdown(
     owned_paths: list[str],
     title: str | None = None,
 ) -> str:
-    heading = title or f"Hushh {name.replace('-', ' ').title()} Skill"
+    heading = title or f"Hussh {name.replace('-', ' ').title()} Skill"
     owned_lines = "\n".join(
         f"{index}. `{path}`" for index, path in enumerate(owned_paths or ["TODO"], start=1)
     )

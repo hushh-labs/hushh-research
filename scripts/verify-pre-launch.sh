@@ -21,7 +21,8 @@ if [ -d ".venv" ]; then
 elif [ -d "venv" ]; then
   source venv/bin/activate
 fi
-SECRET_KEY="test_key_32chars_minimum_length!" \
+APP_SIGNING_KEY="test_key_32chars_minimum_length!" \
+VAULT_DATA_KEY="0000000000000000000000000000000000000000000000000000000000000000" \
 TESTING="true" \
 python3 -m pytest tests/ -v --tb=short || { FAIL=1; echo "❌ Backend tests failed"; }
 cd "$REPO_ROOT"

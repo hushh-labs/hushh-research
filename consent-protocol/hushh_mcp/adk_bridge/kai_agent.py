@@ -5,12 +5,11 @@ from python_a2a.models.content import ErrorContent, TextContent
 from python_a2a.models.message import Message, MessageRole
 from python_a2a.server.a2a_server import A2AServer
 
+from hushh_mcp.adk_bridge.delegation import validate_a2a_consent_token
 from hushh_mcp.agents.kai.debate_engine import DebateEngine
 from hushh_mcp.agents.kai.fundamental_agent import FundamentalAgent
 from hushh_mcp.agents.kai.sentiment_agent import SentimentAgent
 from hushh_mcp.agents.kai.valuation_agent import ValuationAgent
-from hushh_mcp.consent.token import validate_token
-from hushh_mcp.constants import ConsentScope
 from hushh_mcp.hushh_adk.context import HushhContext
 from hushh_mcp.services.consent_db import ConsentDBService
 
@@ -55,17 +54,16 @@ class KaiA2AServer(A2AServer):
                 )
 
             # 2. VALIDATION
-            # Validate token using direct helper (CPU bound, fast)
-            # Scope: VAULT_OWNER for full access, similar to /analyze/stream
-            valid, reason, payload = validate_token(consent_token, ConsentScope.VAULT_OWNER)
+            # Validate token using the least-privilege Kai A2A specialist scope.
+            validation = validate_a2a_consent_token("agent_kai", consent_token)
 
-            if not valid or not payload:
-                logger.warning(f"A2A Request rejected: Invalid Token ({reason})")
+            if not validation.ok or not validation.user_id:
+                logger.warning(f"A2A Request rejected: Invalid Token ({validation.reason})")
                 return self._create_error_response(
-                    message, f"Access Denied: Invalid Consent Token. {reason}"
+                    message, f"Access Denied: Invalid Consent Token. {validation.reason}"
                 )
 
-            user_id = payload.user_id
+            user_id = validation.user_id
 
             # 2.1 Audit Logging
             try:

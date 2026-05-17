@@ -11,7 +11,7 @@
  * - Material 3 spring-based ripple animations
  * - Morphy-UX variant color mapping
  * - Effect-based opacity control (glass/fade = subtle, fill = standard)
- * - Dark mode: Silver accents for Hushh brand
+ * - Dark mode: Silver accents for Hussh brand
  */
 
 import React, { useEffect, useRef, useState } from "react";
@@ -56,7 +56,7 @@ export const getMaterialRippleColors = (
     };
   }
 
-  // Dark mode uses silver for Hushh brand (glass/fade only).
+  // Dark mode uses silver for Hussh brand (glass/fade only).
   if (isDarkMode) {
     return {
       hoverColor: "#c0c0c0",

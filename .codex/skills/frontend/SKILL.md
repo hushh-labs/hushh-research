@@ -1,9 +1,9 @@
 ---
 name: frontend
-description: Use when the request is broadly about the Hushh web frontend and the correct frontend specialist skill is not yet clear.
+description: Use when the request is broadly about the Hussh web frontend and the correct frontend specialist skill is not yet clear.
 ---
 
-# Hushh Frontend Skill
+# Hussh Frontend Skill
 
 ## Purpose and Trigger
 
@@ -33,8 +33,8 @@ Non-owned surfaces:
 ## Do Use
 
 1. Broad frontend intake before the correct spoke is clear.
-2. Requests that cut across route contracts, UI ownership, service boundaries, and frontend verification.
-3. Choosing whether work belongs in design-system, architecture, or surface-placement specialists.
+2. Cross-route, component, service, UI ownership, or frontend verification work.
+3. Choosing between architecture, design-system, and surface-placement spokes.
 
 ## Do Not Use
 
@@ -48,23 +48,26 @@ Non-owned surfaces:
 2. `docs/reference/quality/design-system.md`
 3. `hushh-webapp/components/README.md`
 4. `hushh-webapp/lib/services/README.md`
+5. `.codex/skills/frontend/references/browser-ux-runtime.md`
 
 ## Workflow
 
-1. Read the frontend architecture and design-system docs before narrowing the task.
-2. Decide whether the work belongs to `frontend-design-system`, `frontend-architecture`, or `frontend-surface-placement`.
+1. Read the frontend architecture and design-system docs before narrowing ownership.
+2. Route shared UI to `frontend-design-system`, route/package conventions to `frontend-architecture`, and placement/layer questions to `frontend-surface-placement`.
 3. Route native-only concerns to `mobile-native`.
 4. Keep route and verification changes aligned with existing package scripts and contracts.
-5. If the user explicitly wants a visible OS terminal window, prefer `./bin/hushh terminal web --mode <mode>` as the primary frontend path.
-6. Use `./bin/hushh terminal stack --mode <mode>` only when one combined visible terminal is explicitly preferred over separate backend/frontend terminals.
+5. Choose the smallest authoritative proof; use browser proof only for browser-only behavior or explicit user request.
+6. For protected routes, distinguish same-session client navigation from cold-entry/re-unlock behavior.
+7. Use canonical frontend runtime launch and phone-auth triage rules from `browser-ux-runtime.md`.
+8. Apply the UX review kernel before finalizing visible routes, cards, sheets, modals, and actionables.
 
 ## Handoff Rules
 
-1. Route shared visual-system work to `frontend-design-system`.
-2. Route route contracts, package conventions, and verification ownership to `frontend-architecture`.
-3. Route file-placement and layer-boundary work to `frontend-surface-placement`.
-4. If the task becomes native-only, route it to `mobile-native`.
-5. If the task begins as a cross-domain scan, start with `repo-context`.
+1. Shared visual-system work routes to `frontend-design-system`.
+2. Route contracts, package conventions, and verification ownership route to `frontend-architecture`.
+3. File-placement and layer-boundary work routes to `frontend-surface-placement`.
+4. Native-only work routes to `mobile-native`.
+5. Cross-domain scans start with `repo-context`.
 
 ## Required Checks
 

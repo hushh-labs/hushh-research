@@ -13,6 +13,8 @@ from typing import Literal, Optional
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 
+from hushh_mcp.runtime_settings import get_firebase_credential_settings
+
 logger = logging.getLogger(__name__)
 
 SupportMessageKind = Literal["bug_report", "support_request", "developer_reachout"]
@@ -20,6 +22,7 @@ SupportDeliveryMode = Literal["live", "test"]
 
 _GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 _GMAIL_SEND_ENDPOINT = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+_DEFAULT_ONE_EMAIL_ADDRESS = "one@hushh.ai"
 
 
 def _clean_text(value: str | None) -> str:
@@ -97,9 +100,10 @@ class SupportEmailConfig:
 
     @classmethod
     def from_env(cls) -> "SupportEmailConfig":
+        firebase_credentials = get_firebase_credential_settings()
         service_account_info = _load_service_account_json(
             os.getenv("SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON")
-        ) or _load_service_account_json(os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"))
+        ) or _load_service_account_json(firebase_credentials.admin_credentials_json)
         service_account_email = (
             _clean_text(service_account_info.get("client_email"))
             if service_account_info
@@ -110,11 +114,12 @@ class SupportEmailConfig:
             if service_account_info
             else _normalize_private_key(os.getenv("GOOGLE_PRIVATE_KEY"))
         )
-        delegated_user = (
-            _clean_text(os.getenv("SUPPORT_EMAIL_DELEGATED_USER")) or "support@hushh.ai"
+        one_email_address = (
+            _clean_text(os.getenv("ONE_EMAIL_ADDRESS")) or _DEFAULT_ONE_EMAIL_ADDRESS
         )
+        delegated_user = _clean_text(os.getenv("SUPPORT_EMAIL_DELEGATED_USER")) or one_email_address
         from_email = _clean_text(os.getenv("SUPPORT_EMAIL_FROM")) or delegated_user
-        support_to_email = _clean_text(os.getenv("SUPPORT_EMAIL_TO")) or delegated_user
+        support_to_email = _clean_text(os.getenv("SUPPORT_EMAIL_TO")) or one_email_address
         test_to_email = _clean_text(os.getenv("SUPPORT_EMAIL_TEST_TO")) or None
 
         delivery_mode_raw = _clean_text(os.getenv("SUPPORT_EMAIL_MODE")).lower()
@@ -195,7 +200,8 @@ class SupportEmailService:
         if not cfg.configured:
             raise SupportEmailNotConfiguredError(
                 "Support email is not configured. Provide SUPPORT_EMAIL_SERVICE_ACCOUNT_JSON "
-                "or FIREBASE_SERVICE_ACCOUNT_JSON, plus SUPPORT_EMAIL_* variables."
+                "or FIREBASE_ADMIN_CREDENTIALS_JSON / FIREBASE_SERVICE_ACCOUNT_JSON, plus "
+                "SUPPORT_EMAIL_* variables."
             )
         if self._session is None:
             credentials = service_account.Credentials.from_service_account_info(
@@ -237,7 +243,7 @@ class SupportEmailService:
         cfg = self.config
         msg = EmailMessage()
         msg["To"] = cfg.effective_recipient
-        msg["From"] = f"Hushh Support <{cfg.from_email}>"
+        msg["From"] = f"Hussh Support <{cfg.from_email}>"
         msg["Subject"] = self._build_subject(
             kind=kind,
             subject=subject,

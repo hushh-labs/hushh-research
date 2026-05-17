@@ -1,6 +1,6 @@
 # api/middlewares/rate_limit.py
 """
-Rate Limiting Middleware for Hushh Consent Protocol
+Rate Limiting Middleware for Hussh Consent Protocol
 
 Implements safe rate limits for the 2-step consent flow:
 1. Step 1 (consent_request): 10/min per user
@@ -14,20 +14,34 @@ from fastapi import Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from hushh_mcp.consent.token import validate_token
+
 logger = logging.getLogger(__name__)
 
 
 def get_rate_limit_key(request: Request) -> str:
     """
     Extract rate limit key from request.
-    Uses user_id if authenticated, otherwise falls back to IP.
+
+    Reads the user_id decoded by ``observability_middleware`` from
+    ``request.state.rate_limit_user_id`` on the normal request path, avoiding
+    a second JWT decode. If a caller reaches this function without middleware
+    state, validate the bearer token here so authenticated traffic still gets
+    the signed user bucket instead of silently falling back to the IP bucket.
     """
-    # Try to get user_id from request body or headers
-    user_id = request.headers.get("X-User-ID")
+    state = getattr(request, "state", None)
+    user_id = getattr(state, "rate_limit_user_id", None)
     if user_id:
         return f"user:{user_id}"
 
-    # Fallback to IP address
+    authorization = request.headers.get("Authorization") or request.headers.get("authorization")
+    if authorization and authorization.startswith("Bearer "):
+        consent_token = authorization.removeprefix("Bearer ").strip()
+        if consent_token:
+            valid, _reason, payload = validate_token(consent_token)
+            if valid and payload and payload.user_id:
+                return f"user:{payload.user_id}"
+
     return get_remote_address(request)
 
 
