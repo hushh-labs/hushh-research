@@ -1080,6 +1080,7 @@ class RIAIAMService:
         *,
         license_number: str,
         regulator: str | None = None,
+        force_live_verification: bool = False,
     ) -> dict[str, Any]:
         from hushh_mcp.services.crd_scrape_proxy_service import (
             CrdScrapeProxyService,
@@ -1087,6 +1088,15 @@ class RIAIAMService:
         )
 
         normalized = normalize_crd_number(license_number)
+        if not force_live_verification:
+            cached_response = await self._lookup_recent_license_verification_response(
+                user_id=user_id,
+                license_number=normalized,
+                regulator=regulator,
+            )
+            if cached_response is not None:
+                return cached_response
+
         proxy = CrdScrapeProxyService()
 
         broker_task = asyncio.create_task(proxy.broker_intelligence(query=normalized))
@@ -1123,25 +1133,121 @@ class RIAIAMService:
             scrape_result.payload if scrape_result and scrape_result.status_code < 400 else None
         ) or {}
 
-        broker_status = str(broker_data.get("status", "")).upper()
         broker_status_code = broker_result.status_code if broker_result else None
-        found = (
+        official_profile: dict[str, Any] | None = None
+        broker_status = str(broker_data.get("status", "")).upper()
+        found_from_broker = (
             bool(broker_data.get("verifiedName") or broker_data.get("crdNumber"))
             and broker_status != "NOT_FOUND"
         )
-        official_profile: dict[str, Any] | None = None
         if (
-            not found
+            not found_from_broker
             and not scrape_data.get("jobId")
             and (broker_status in {"", "NOT_FOUND"} or (broker_status_code or 0) >= 400)
         ):
             official_profile = await _official_pdf_profile_for_crd(normalized)
+
+        response = await self._build_ria_license_verification_response(
+            broker_data=broker_data,
+            scrape_data=scrape_data,
+            normalized_license=normalized,
+            regulator=regulator,
+            official_profile=official_profile,
+            allow_slow_fallbacks=True,
+        )
+        found = response["status"] == "found"
+        response = self._add_license_cache_metadata(response, cache_hit=False)
+
+        # Store audit trail
+        try:
+            audit_payload = dict(broker_data)
             if official_profile:
-                found = bool(
-                    official_profile.get("advisor_name")
-                    or official_profile.get("crd_number")
-                    or official_profile.get("official_location")
+                audit_payload["official_profile"] = official_profile
+                audit_payload["broker_status_code"] = broker_status_code
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO ria_license_verifications
+                      (user_id, license_number, regulator, verification_source, raw_response, status)
+                    VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+                    """,
+                    user_id,
+                    normalized,
+                    regulator,
+                    "broker_intelligence",
+                    json.dumps(audit_payload),
+                    "completed" if found else "pending",
                 )
+        except Exception:
+            logger.warning("verify_ria_license: failed to store audit for %s", normalized)
+
+        return response
+
+    @staticmethod
+    def _coerce_utc_datetime(value: Any) -> datetime | None:
+        if isinstance(value, datetime):
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        if isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        return None
+
+    @classmethod
+    def _isoformat_utc(cls, value: Any) -> str | None:
+        parsed = cls._coerce_utc_datetime(value)
+        if parsed is None:
+            return None
+        return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    @classmethod
+    def _add_license_cache_metadata(
+        cls,
+        response: dict[str, Any],
+        *,
+        cache_hit: bool,
+        cached_at: Any = None,
+    ) -> dict[str, Any]:
+        response["cache_hit"] = cache_hit
+        response["cache_ttl_seconds"] = int(_RIA_LICENSE_VERIFICATION_REUSE_TTL.total_seconds())
+        cached_at_dt = cls._coerce_utc_datetime(cached_at)
+        if cached_at_dt is not None:
+            response["cached_at"] = cls._isoformat_utc(cached_at_dt)
+            response["cache_expires_at"] = cls._isoformat_utc(
+                cached_at_dt + _RIA_LICENSE_VERIFICATION_REUSE_TTL
+            )
+        return response
+
+    async def _build_ria_license_verification_response(
+        self,
+        *,
+        broker_data: dict[str, Any],
+        scrape_data: dict[str, Any],
+        normalized_license: str,
+        regulator: str | None,
+        official_profile: dict[str, Any] | None = None,
+        allow_slow_fallbacks: bool = False,
+    ) -> dict[str, Any]:
+        broker_data = broker_data if isinstance(broker_data, dict) else {}
+        scrape_data = scrape_data if isinstance(scrape_data, dict) else {}
+        if official_profile is None and isinstance(broker_data.get("official_profile"), dict):
+            official_profile = broker_data.get("official_profile")
+            broker_data = {}
+
+        broker_status = str(broker_data.get("status", "")).upper()
+        found = (
+            bool(broker_data.get("verifiedName") or broker_data.get("crdNumber"))
+            and broker_status != "NOT_FOUND"
+        )
+        if official_profile:
+            found = found or bool(
+                official_profile.get("advisor_name")
+                or official_profile.get("crd_number")
+                or official_profile.get("official_location")
+            )
 
         city = _broker_city(broker_data)
         pin_zip = _broker_pin_zip(broker_data)
@@ -1172,9 +1278,13 @@ class RIAIAMService:
                 or official_location.get("streetAddress")
                 or official_location.get("fullStreetAddress")
             )
-        if found and (not city or not pin_zip or not state or not full_street_address):
+        if (
+            allow_slow_fallbacks
+            and found
+            and (not city or not pin_zip or not state or not full_street_address)
+        ):
             pdf_location = await _official_pdf_location_for_crd(
-                str(broker_data.get("crdNumber") or normalized)
+                str(broker_data.get("crdNumber") or normalized_license)
             )
             if pdf_location:
                 official_location = {**pdf_location, **(official_location or {})}
@@ -1209,7 +1319,7 @@ class RIAIAMService:
         broker_summary = broker_data.get("summary") or (
             official_profile.get("summary") if official_profile else None
         )
-        response: dict[str, Any] = {
+        return {
             "status": "found"
             if found
             else ("pending" if scrape_data.get("jobId") else "not_found"),
@@ -1228,7 +1338,7 @@ class RIAIAMService:
             "official_location": official_location,
             "crd_number": broker_data.get("crdNumber")
             or (official_profile.get("crd_number") if official_profile else None)
-            or normalized,
+            or normalized_license,
             "sec_number": None,
             "employment_history": broker_data.get("employmentHistory", []),
             "disclosures_count": broker_data.get("disclosures", {}).get("count", 0)
@@ -1241,31 +1351,60 @@ class RIAIAMService:
             "bio": broker_summary,
         }
 
-        # Store audit trail
+    async def _lookup_recent_license_verification_response(
+        self,
+        *,
+        user_id: str,
+        license_number: str,
+        regulator: str | None = None,
+    ) -> dict[str, Any] | None:
         try:
-            audit_payload = broker_data or {
-                "official_profile": official_profile,
-                "broker_status_code": broker_status_code,
-            }
             pool = await get_pool()
             async with pool.acquire() as conn:
-                await conn.execute(
+                row = await conn.fetchrow(
                     """
-                    INSERT INTO ria_license_verifications
-                      (user_id, license_number, regulator, verification_source, raw_response, status)
-                    VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+                    SELECT raw_response, regulator, created_at
+                    FROM ria_license_verifications
+                    WHERE user_id = $1
+                      AND license_number = $2
+                      AND verification_source = 'broker_intelligence'
+                      AND status = 'completed'
+                      AND created_at >= $3
+                    ORDER BY created_at DESC
+                    LIMIT 1
                     """,
                     user_id,
-                    normalized,
-                    regulator,
-                    "broker_intelligence",
-                    json.dumps(audit_payload),
-                    "completed" if found else "pending",
+                    license_number,
+                    datetime.now(timezone.utc) - _RIA_LICENSE_VERIFICATION_REUSE_TTL,
                 )
         except Exception:
-            logger.warning("verify_ria_license: failed to store audit for %s", normalized)
+            logger.warning(
+                "ria.verify_license_cache_lookup_failed user_id=%s",
+                user_id,
+                exc_info=True,
+            )
+            return None
 
-        return response
+        if row is None:
+            return None
+
+        raw_response = row["raw_response"] if "raw_response" in row else None
+        payload = self._parse_json_mapping(raw_response)
+        cached_regulator = regulator or (row["regulator"] if "regulator" in row else None)
+        response = await self._build_ria_license_verification_response(
+            broker_data=payload,
+            scrape_data={},
+            normalized_license=license_number,
+            regulator=cached_regulator,
+            allow_slow_fallbacks=False,
+        )
+        if response.get("status") != "found":
+            return None
+        return self._add_license_cache_metadata(
+            response,
+            cache_hit=True,
+            cached_at=row["created_at"] if "created_at" in row else None,
+        )
 
     @staticmethod
     def _parse_json_mapping(value: Any) -> dict[str, Any]:

@@ -6,6 +6,7 @@ import asyncio
 import json
 import sys
 import types
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -64,6 +65,25 @@ def _authed_app() -> FastAPI:
     return app
 
 
+class _FakeAcquire:
+    def __init__(self, conn: Any) -> None:
+        self._conn = conn
+
+    async def __aenter__(self):
+        return self._conn
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class _FakePool:
+    def __init__(self, conn: Any) -> None:
+        self._conn = conn
+
+    def acquire(self):
+        return _FakeAcquire(self._conn)
+
+
 # ===================================================================
 # Route: POST /api/ria/onboarding/verify-license
 # ===================================================================
@@ -72,9 +92,17 @@ def _authed_app() -> FastAPI:
 def test_verify_license_found(monkeypatch) -> None:
     """Happy path: broker intelligence returns a verified advisor."""
 
-    async def _mock_verify(self, user_id, *, license_number, regulator=None):
+    async def _mock_verify(
+        self,
+        user_id,
+        *,
+        license_number,
+        regulator=None,
+        force_live_verification=False,
+    ):
         assert user_id == _TEST_UID
         assert license_number == "7413463"
+        assert force_live_verification is False
         return {
             "status": "found",
             "advisor_name": "Andrew Garrett Kirkland",
@@ -106,7 +134,15 @@ def test_verify_license_found(monkeypatch) -> None:
 def test_verify_license_not_found(monkeypatch) -> None:
     """Broker intelligence finds no matching advisor for the given license."""
 
-    async def _mock_verify(self, user_id, *, license_number, regulator=None):
+    async def _mock_verify(
+        self,
+        user_id,
+        *,
+        license_number,
+        regulator=None,
+        force_live_verification=False,
+    ):
+        assert force_live_verification is False
         return {
             "status": "not_found",
             "advisor_name": None,
@@ -127,6 +163,234 @@ def test_verify_license_not_found(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "not_found"
+
+
+def test_verify_license_passes_force_live_verification(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    async def _mock_verify(
+        self,
+        user_id,
+        *,
+        license_number,
+        regulator=None,
+        force_live_verification=False,
+    ):
+        captured.update(
+            {
+                "user_id": user_id,
+                "license_number": license_number,
+                "regulator": regulator,
+                "force_live_verification": force_live_verification,
+            }
+        )
+        return {
+            "status": "found",
+            "advisor_name": "Andrew Garrett Kirkland",
+            "firm_name": "Renaissance Advisory Group",
+            "crd_number": license_number,
+            "regulator": regulator,
+            "provider": "ria_intelligence_combined",
+        }
+
+    monkeypatch.setattr(RIAIAMService, "verify_ria_license", _mock_verify)
+
+    client = TestClient(_authed_app())
+    response = client.post(
+        "/api/ria/onboarding/verify-license",
+        json={
+            "license_number": "7413463",
+            "regulator": "SEC",
+            "force_live_verification": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured == {
+        "user_id": _TEST_UID,
+        "license_number": "7413463",
+        "regulator": "SEC",
+        "force_live_verification": True,
+    }
+
+
+def test_verify_ria_license_returns_recent_cache_without_provider(monkeypatch) -> None:
+    cached_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    cached_payload = {
+        "verifiedName": "Andrew Garrett Kirkland",
+        "currentFirm": "Eissman Wealth Management",
+        "status": "Investment Adviser Representative",
+        "crdNumber": "7413463",
+        "city": "Kennesaw",
+        "pinZip": "30144",
+        "exams": ["Series 65"],
+        "disclosures": {"count": 1},
+        "employmentHistory": [],
+        "summary": "Cached official source-backed profile.",
+    }
+
+    class _FakeConn:
+        async def fetchrow(self, query: str, *args):
+            assert "status = 'completed'" in query
+            assert "created_at >= $3" in query
+            assert args[0] == _TEST_UID
+            assert args[1] == "7413463"
+            assert args[2] > datetime.now(timezone.utc) - timedelta(hours=25)
+            return {
+                "raw_response": json.dumps(cached_payload),
+                "regulator": "SEC",
+                "created_at": cached_at,
+            }
+
+        async def execute(self, *_args):
+            raise AssertionError("cache hit must not insert a new audit row")
+
+    async def _fake_get_pool():
+        return _FakePool(_FakeConn())
+
+    class _UnexpectedProxy:
+        async def broker_intelligence(self, **_kwargs):
+            raise AssertionError("cache hit must not call broker intelligence")
+
+        async def create_job(self, **_kwargs):
+            raise AssertionError("cache hit must not create a scrape job")
+
+    monkeypatch.setattr(ria_iam_service_module, "get_pool", _fake_get_pool)
+    monkeypatch.setattr(
+        "hushh_mcp.services.crd_scrape_proxy_service.CrdScrapeProxyService",
+        lambda: _UnexpectedProxy(),
+    )
+
+    result = asyncio.run(
+        RIAIAMService().verify_ria_license(
+            _TEST_UID,
+            license_number="7413463",
+            regulator=None,
+        )
+    )
+
+    assert result["status"] == "found"
+    assert result["advisor_name"] == "Andrew Garrett Kirkland"
+    assert result["firm_name"] == "Eissman Wealth Management"
+    assert result["cache_hit"] is True
+    assert result["cached_at"].endswith("Z")
+    assert result["cache_expires_at"].endswith("Z")
+    assert result["cache_ttl_seconds"] == 24 * 60 * 60
+
+
+def test_verify_ria_license_force_live_bypasses_recent_cache(monkeypatch) -> None:
+    calls = {"broker": 0, "scrape": 0, "fetchrow": 0, "execute": 0}
+
+    class _FakeConn:
+        async def fetchrow(self, *_args):
+            calls["fetchrow"] += 1
+            raise AssertionError("force_live_verification must skip cache lookup")
+
+        async def execute(self, *_args):
+            calls["execute"] += 1
+            return "INSERT 0 1"
+
+    async def _fake_get_pool():
+        return _FakePool(_FakeConn())
+
+    class _FakeProxy:
+        async def broker_intelligence(self, *, query: str, request_id: str | None = None):
+            _ = request_id
+            calls["broker"] += 1
+            assert query == "7413463"
+            return CrdScrapeProviderResponse(
+                200,
+                {
+                    "verifiedName": "Andrew Garrett Kirkland",
+                    "currentFirm": "Eissman Wealth Management",
+                    "status": "Investment Adviser Representative",
+                    "crdNumber": "7413463",
+                    "exams": ["Series 65"],
+                },
+            )
+
+        async def create_job(self, *, crd_number: str, request_id: str | None = None):
+            _ = request_id
+            calls["scrape"] += 1
+            assert crd_number == "7413463"
+            return CrdScrapeProviderResponse(202, {"jobId": "crd_scrape_live"})
+
+    monkeypatch.setattr(ria_iam_service_module, "get_pool", _fake_get_pool)
+    monkeypatch.setattr(
+        "hushh_mcp.services.crd_scrape_proxy_service.CrdScrapeProxyService",
+        lambda: _FakeProxy(),
+    )
+
+    result = asyncio.run(
+        RIAIAMService().verify_ria_license(
+            _TEST_UID,
+            license_number="7413463",
+            regulator="SEC",
+            force_live_verification=True,
+        )
+    )
+
+    assert result["status"] == "found"
+    assert result["cache_hit"] is False
+    assert result["scrape_job_id"] == "crd_scrape_live"
+    assert calls == {"broker": 1, "scrape": 1, "fetchrow": 0, "execute": 1}
+
+
+def test_verify_ria_license_cache_miss_uses_completed_fresh_cutoff(monkeypatch) -> None:
+    calls = {"broker": 0, "scrape": 0, "execute": 0}
+
+    class _FakeConn:
+        async def fetchrow(self, query: str, *args):
+            assert "status = 'completed'" in query
+            assert "created_at >= $3" in query
+            assert args[2] > datetime.now(timezone.utc) - timedelta(hours=25)
+            return None
+
+        async def execute(self, *_args):
+            calls["execute"] += 1
+            return "INSERT 0 1"
+
+    async def _fake_get_pool():
+        return _FakePool(_FakeConn())
+
+    class _FakeProxy:
+        async def broker_intelligence(self, *, query: str, request_id: str | None = None):
+            _ = request_id
+            calls["broker"] += 1
+            assert query == "7413463"
+            return CrdScrapeProviderResponse(
+                200,
+                {
+                    "verifiedName": "Andrew Garrett Kirkland",
+                    "status": "Investment Adviser Representative",
+                    "crdNumber": "7413463",
+                },
+            )
+
+        async def create_job(self, *, crd_number: str, request_id: str | None = None):
+            _ = request_id
+            calls["scrape"] += 1
+            assert crd_number == "7413463"
+            return CrdScrapeProviderResponse(202, {"jobId": "crd_scrape_miss"})
+
+    monkeypatch.setattr(ria_iam_service_module, "get_pool", _fake_get_pool)
+    monkeypatch.setattr(
+        "hushh_mcp.services.crd_scrape_proxy_service.CrdScrapeProxyService",
+        lambda: _FakeProxy(),
+    )
+
+    result = asyncio.run(
+        RIAIAMService().verify_ria_license(
+            _TEST_UID,
+            license_number="7413463",
+            regulator="SEC",
+        )
+    )
+
+    assert result["status"] == "found"
+    assert result["cache_hit"] is False
+    assert result["scrape_job_id"] == "crd_scrape_miss"
+    assert calls == {"broker": 1, "scrape": 1, "execute": 1}
 
 
 def test_verify_license_passes_through_city_pin_zip_and_string_exams(monkeypatch) -> None:
@@ -262,6 +526,7 @@ def test_verify_license_fills_missing_location_from_official_pdf(monkeypatch) ->
 
 def test_verify_license_falls_back_to_official_pdf_when_provider_5xx(monkeypatch) -> None:
     """A transient broker-intelligence 5xx should not become an empty not_found result."""
+    captured_audit: dict[str, Any] = {}
 
     class _FakeProxy:
         async def broker_intelligence(self, *, query: str, request_id: str | None = None):
@@ -305,6 +570,20 @@ def test_verify_license_falls_back_to_official_pdf_when_provider_5xx(monkeypatch
         _mock_official_profile,
     )
 
+    class _FakeConn:
+        async def fetchrow(self, *_args):
+            return None
+
+        async def execute(self, _query, *args):
+            captured_audit["payload"] = json.loads(args[4])
+            captured_audit["status"] = args[5]
+            return "INSERT 0 1"
+
+    async def _fake_get_pool():
+        return _FakePool(_FakeConn())
+
+    monkeypatch.setattr(ria_iam_service_module, "get_pool", _fake_get_pool)
+
     result = asyncio.run(
         RIAIAMService().verify_ria_license(
             _TEST_UID,
@@ -322,6 +601,10 @@ def test_verify_license_falls_back_to_official_pdf_when_provider_5xx(monkeypatch
     assert result["certifications"] == ["Series 66 - Uniform Combined State Law Examination"]
     assert result["exams_passed"] == result["certifications"]
     assert result["broker_intelligence_summary"].startswith("Official IAPD records")
+    assert captured_audit["status"] == "completed"
+    assert captured_audit["payload"]["official_profile"]["advisor_name"] == (
+        "Andrew Garrett Kirkland"
+    )
 
 
 def test_official_location_from_text_extracts_city_and_zip() -> None:
@@ -368,7 +651,15 @@ def test_verify_license_requires_auth() -> None:
 def test_verify_license_partial_data(monkeypatch) -> None:
     """Broker intelligence returns advisor name only, no CRD number."""
 
-    async def _mock_verify(self, user_id, *, license_number, regulator=None):
+    async def _mock_verify(
+        self,
+        user_id,
+        *,
+        license_number,
+        regulator=None,
+        force_live_verification=False,
+    ):
+        assert force_live_verification is False
         return {
             "status": "found",
             "advisor_name": "Jane Doe",
@@ -464,7 +755,15 @@ def test_verify_ria_license_exposes_summary_and_exams_as_prefill(monkeypatch) ->
 def test_verify_license_provider_timeout(monkeypatch) -> None:
     """Service raises RIAIAMPolicyError(status_code=503) on provider timeout."""
 
-    async def _mock_verify(self, user_id, *, license_number, regulator=None):
+    async def _mock_verify(
+        self,
+        user_id,
+        *,
+        license_number,
+        regulator=None,
+        force_live_verification=False,
+    ):
+        assert force_live_verification is False
         raise RIAIAMPolicyError("Provider timed out", status_code=503)
 
     monkeypatch.setattr(RIAIAMService, "verify_ria_license", _mock_verify)
