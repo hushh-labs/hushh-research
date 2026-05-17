@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth
+from api.middlewares.rate_limit import limiter
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
@@ -49,12 +50,34 @@ class RIAOnboardingSubmitRequest(BaseModel):
     primary_firm_name: str | None = None
     primary_firm_role: str | None = None
     force_live_verification: bool = False
+    # Onboarding v2: license-first fields
+    license_number: str | None = None
+    regulator: str | None = None
+    onboarding_type: str = "individual"
+    services_offered: list[str] = Field(default_factory=list)
+    fee_structure: list[str] = Field(default_factory=list)
+    min_engagement_amount: float | None = None
+    min_engagement_currency: str = "USD"
+    certifications: list[str] = Field(default_factory=list)
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    business_city: str | None = None
+    business_area: str | None = None
+    business_address: str | None = None
+    business_pin_zip: str | None = None
+    business_latitude: float | None = None
+    business_longitude: float | None = None
 
 
 class RIAOnboardingVerifyNameRequest(BaseModel):
     query: str = Field(..., min_length=1)
     crd_number: str | None = None
     force_live_verification: bool = False
+
+
+class RIAOnboardingVerifyLicenseRequest(BaseModel):
+    license_number: str = Field(..., min_length=1)
+    regulator: str | None = None
 
 
 class RIAConsentRequestCreate(BaseModel):
@@ -193,6 +216,22 @@ async def submit_onboarding(
             disclosures_url=payload.disclosures_url,
             primary_firm_role=payload.primary_firm_role,
             force_live_verification=payload.force_live_verification,
+            license_number=payload.license_number,
+            regulator=payload.regulator,
+            onboarding_type=payload.onboarding_type,
+            services_offered=payload.services_offered,
+            fee_structure=payload.fee_structure,
+            min_engagement_amount=payload.min_engagement_amount,
+            min_engagement_currency=payload.min_engagement_currency,
+            certifications=payload.certifications,
+            contact_email=payload.contact_email,
+            contact_phone=payload.contact_phone,
+            business_city=payload.business_city,
+            business_area=payload.business_area,
+            business_address=payload.business_address,
+            business_pin_zip=payload.business_pin_zip,
+            business_latitude=payload.business_latitude,
+            business_longitude=payload.business_longitude,
         )
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
@@ -213,6 +252,26 @@ async def verify_onboarding_name(
             crd_number=payload.crd_number,
             use_cache=not payload.force_live_verification,
         )
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/onboarding/verify-license")
+@limiter.limit("10/minute")
+async def verify_onboarding_license(
+    payload: RIAOnboardingVerifyLicenseRequest,
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    service = RIAIAMService()
+    try:
+        return await service.verify_ria_license(
+            firebase_uid,
+            license_number=payload.license_number,
+            regulator=payload.regulator,
+        )
+    except IAMSchemaNotReadyError as exc:
+        return _iam_schema_not_ready_response(str(exc))
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -246,8 +305,8 @@ async def ria_firms(firebase_uid: str = Depends(require_firebase_auth)):
 
 @router.get("/clients")
 async def ria_clients(
-    q: str | None = Query(default=None),
-    status: str | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=200),
+    status: str | None = Query(default=None, max_length=50),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=50, ge=1, le=100),
     firebase_uid: str = Depends(_require_ria_verified),
