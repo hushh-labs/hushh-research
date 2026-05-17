@@ -1,3 +1,4 @@
+// components/kai/views/streaming-progress-view.tsx
 "use client";
 
 import { useMemo, useState } from "react";
@@ -22,6 +23,9 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Icon } from "@/lib/morphy-ux/ui";
+
+// HARVESTED LIVE DATA INDICATOR
+import { LiveDataIndicator } from "@/components/app-ui/live-data-indicator";
 
 export type StreamingStage = "idle" | "active" | "complete" | "error";
 
@@ -371,13 +375,18 @@ export function StreamingProgressView({
       {/* Status line - compact, no redundant title */}
       <div className="flex items-center gap-2">
         <div className={cn("transition-colors duration-200 shrink-0", isActive ? accentColor : isComplete ? "text-emerald-500" : isError ? "text-red-500" : "text-muted-foreground")}>
-          {isComplete ? (
+          
+          {/* HARVESTED LIVE DATA INDICATOR REPLACES GENERIC LOADER */}
+          {isActive && !disableStreaming ? (
+            <LiveDataIndicator status="live" />
+          ) : isComplete ? (
             <Icon icon={CheckCircle2} size="sm" />
           ) : isError ? (
             <Icon icon={AlertCircle} size="sm" />
           ) : (
-            icon || <Icon icon={Loader2} size="sm" className={cn(isActive && "animate-spin")} />
+            icon || <Icon icon={Loader2} size="sm" />
           )}
+
         </div>
         <span className="text-xs text-muted-foreground">
           {statusMessage || (isActive ? "Live update..." : isComplete ? "Complete" : isError ? "Failed" : "Waiting...")}
