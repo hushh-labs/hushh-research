@@ -486,14 +486,14 @@ function OneKycWorkspace() {
         .slice(0, 10);
       const syncResults = syncCandidates.length
         ? await Promise.allSettled(
-            syncCandidates.map((workflow) =>
-              OneKycService.refreshWorkflow({
-                userId,
-                vaultOwnerToken,
-                workflowId: workflow.workflow_id,
-              }),
-            ),
-          )
+          syncCandidates.map((workflow) =>
+            OneKycService.refreshWorkflow({
+              userId,
+              vaultOwnerToken,
+              workflowId: workflow.workflow_id,
+            }),
+          ),
+        )
         : [];
       const syncedWorkflows = syncResults
         .filter(
@@ -761,24 +761,22 @@ function OneKycWorkspace() {
             clientDraftHash: localDraft.draftHash,
             consentExportRevision:
               Array.isArray(workflow.consent_exports) &&
-              workflow.consent_exports.length > 1
+                workflow.consent_exports.length > 1
                 ? null
                 : typeof workflow.consent_export?.export_revision === "number"
                   ? workflow.consent_export.export_revision
                   : typeof workflow.metadata?.consent_export === "object" &&
-                      workflow.metadata.consent_export !== null &&
-                      typeof (
-                        workflow.metadata.consent_export as Record<
-                          string,
-                          unknown
-                        >
-                      ).export_revision === "number"
+                    workflow.metadata.consent_export !== null &&
+                    typeof (
+                      workflow.metadata.consent_export as Record<
+                        string,
+                        unknown>
+                    ).export_revision === "number"
                     ? ((
-                        workflow.metadata.consent_export as Record<
-                          string,
-                          unknown
-                        >
-                      ).export_revision as number)
+                      workflow.metadata.consent_export as Record<
+                        string,
+                        unknown>
+                    ).export_revision as number)
                     : null,
             pkmWritebackArtifactHash: artifactHash,
           });
@@ -819,8 +817,7 @@ function OneKycWorkspace() {
             updateWorkflow(next);
             clearLocalWorkflowState(workflow.workflow_id);
             setError(
-              `Approved reply sent, but encrypted PKM writeback failed: ${
-                writeback.message || "PKM writeback failed."
+              `Approved reply sent, but encrypted PKM writeback failed: ${writeback.message || "PKM writeback failed."
               }`,
             );
             return;
@@ -1115,11 +1112,11 @@ function OneKycWorkspace() {
                   title={workflow.subject || "Email request"}
                   description={[
                     workflow.counterparty_label ||
-                      workflow.sender_email ||
-                      "Counterparty",
+                    workflow.sender_email ||
+                    "Counterparty",
                     selectedScopeLabels(workflow).join(", ") ||
-                      workflow.requested_scope ||
-                      "Scope pending",
+                    workflow.requested_scope ||
+                    "Scope pending",
                   ].join(" / ")}
                   trailing={
                     <Badge variant={statusVariant(workflow.status)}>
@@ -1506,7 +1503,7 @@ function OneKycWorkspace() {
               </SettingsGroup>
 
               {selected.status === "needs_scope" &&
-              workflowConsentRequestIds(selected).length > 0 ? (
+                workflowConsentRequestIds(selected).length > 0 ? (
                 <Button asChild variant="ghost" size="sm">
                   <Link href={consentCenterHrefForWorkflow(selected)}>
                     Open Access Center

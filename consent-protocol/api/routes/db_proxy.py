@@ -271,8 +271,6 @@ class VaultIntegrityResponse(BaseModel):
 # Vault Endpoints (Minimal SQL Operations)
 # ============================================================================
 
-# NOTE: /food/get and /professional/get removed; domain data is via PKM.
-
 
 @router.post("/vault/check", response_model=VaultCheckResponse)
 async def vault_check(
@@ -281,12 +279,8 @@ async def vault_check(
 ):
     """
     Check if a vault exists for the user.
-
     ⚠️ DEPRECATED: Use modern vault endpoints instead.
-
-    SECURITY: Requires Firebase authentication. User can only check their own vault.
     """
-    # Verify user is checking their own vault
     verify_user_id_match(firebase_uid, request.userId)
 
     try:
@@ -305,8 +299,7 @@ async def vault_bootstrap_state(
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     """
-    Ensure authenticated user has placeholder/active entry and return DB-first
-    pre-vault onboarding/tour state.
+    Ensure authenticated user has placeholder entry and return onboarding state.
     """
     user_id = request.userId or firebase_uid
     verify_user_id_match(firebase_uid, user_id)
@@ -345,7 +338,7 @@ async def vault_pre_vault_state(
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     """
-    Update DB-first pre-vault onboarding/tour state for the authenticated user.
+    Update onboarding state for the authenticated user.
     """
     user_id = request.userId or firebase_uid
     verify_user_id_match(firebase_uid, user_id)
@@ -392,12 +385,8 @@ async def vault_get(
 ):
     """
     Get encrypted vault key data for the user.
-
     ⚠️ DEPRECATED: Use modern vault endpoints instead.
-
-    SECURITY: Requires Firebase authentication. User can only get their own vault.
     """
-    # Verify user is getting their own vault
     verify_user_id_match(firebase_uid, request.userId)
 
     try:
@@ -424,12 +413,8 @@ async def vault_setup(
 ):
     """
     Store encrypted vault key data.
-
     ⚠️ DEPRECATED: Use modern vault endpoints instead.
-
-    SECURITY: Requires Firebase authentication. User can only setup their own vault.
     """
-    # Verify user is setting up their own vault
     verify_user_id_match(firebase_uid, request.userId)
     _check_client_version_or_raise(http_request)
     methods = [wrapper.method for wrapper in request.wrappers]
@@ -595,6 +580,7 @@ async def vault_wrapper_delete(
             e,
         )
         _raise_database_http_exception(e)
+        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.post("/vault/primary/set", response_model=SuccessResponse)
@@ -646,10 +632,7 @@ async def vault_integrity(
     request: VaultGetRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """
-    Validate vault invariants for the authenticated user.
-    Intended for internal/dev diagnostics.
-    """
+    """Validate vault invariants for internal diagnostics."""
     verify_user_id_match(firebase_uid, request.userId)
 
     try:
@@ -744,12 +727,7 @@ async def get_vault_status(
     request: Request,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """
-    Get status for all vault domains.
-    Returns metadata without encrypted data.
-
-    SECURITY: Requires Firebase authentication AND VAULT_OWNER token.
-    """
+    """Get status for all vault domains."""
     try:
         body = await request.json()
         user_id = body.get("userId")
@@ -758,10 +736,8 @@ async def get_vault_status(
         if not user_id:
             raise HTTPException(status_code=400, detail="userId is required")
 
-        # Verify user is getting their own vault status
         verify_user_id_match(firebase_uid, user_id)
 
-        # Use VaultKeysService (handles consent validation internally)
         service = VaultKeysService()
         await validate_vault_owner_token(consent_token, user_id)
         status = await service.get_vault_status(user_id, consent_token)
@@ -769,7 +745,6 @@ async def get_vault_status(
         return status
 
     except ValueError as e:
-        # Consent validation errors
         raise HTTPException(status_code=401, detail=str(e))
     except HTTPException:
         raise
