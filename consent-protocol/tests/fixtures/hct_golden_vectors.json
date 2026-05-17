@@ -1,0 +1,162 @@
+{
+  "version": 1,
+  "description": "Hushh Consent Token (HCT) golden vectors. Source of truth: consent-protocol/hushh_mcp/consent/token.py. Re-emit with consent-protocol/scripts/emit_hct_golden_vectors.py.",
+  "vectors": [
+    {
+      "name": "01_legacy_vault_owner",
+      "input": {
+        "user_id": "user_alice",
+        "agent_id": "agent_one",
+        "scope": "vault.owner",
+        "issued_at": 1767225600000,
+        "expires_at": 1767830400000,
+        "commercial": false,
+        "signing_key": "golden_vector_signing_key_for_hct_parity_only_32+"
+      },
+      "expected_token": "HCT:dXNlcl9hbGljZXxhZ2VudF9vbmV8dmF1bHQub3duZXJ8MTc2NzIyNTYwMDAwMHwxNzY3ODMwNDAwMDAw.c535a03f4b9d46329a8731cfa29e8b2490e61a92325f1f509b96c85bbd663916"
+    },
+    {
+      "name": "02_legacy_pkm_read",
+      "input": {
+        "user_id": "user_bob",
+        "agent_id": "agent_kai",
+        "scope": "pkm.read",
+        "issued_at": 1767225600000,
+        "expires_at": 1767830400000,
+        "commercial": false,
+        "signing_key": "golden_vector_signing_key_for_hct_parity_only_32+"
+      },
+      "expected_token": "HCT:dXNlcl9ib2J8YWdlbnRfa2FpfHBrbS5yZWFkfDE3NjcyMjU2MDAwMDB8MTc2NzgzMDQwMDAwMA==.e830a1bfafa31885b7c3efb8e9aef11cb27b3f0ff0c72bcce2af322bc6bc3497"
+    },
+    {
+      "name": "03_legacy_attr_dynamic",
+      "input": {
+        "user_id": "user_carol",
+        "agent_id": "agent_one",
+        "scope": "attr.financial.gmail",
+        "issued_at": 1767225600000,
+        "expires_at": 1767830400000,
+        "commercial": false,
+        "signing_key": "golden_vector_signing_key_for_hct_parity_only_32+"
+      },
+      "expected_token": "HCT:dXNlcl9jYXJvbHxhZ2VudF9vbmV8YXR0ci5maW5hbmNpYWwuZ21haWx8MTc2NzIyNTYwMDAwMHwxNzY3ODMwNDAwMDAw.3fa8f18ddf1cd2c250957f0efb1fa4a0eeb7e2e7ecc6d668d42678501c142b4e"
+    },
+    {
+      "name": "04_legacy_attr_wildcard",
+      "input": {
+        "user_id": "user_dave",
+        "agent_id": "agent_kai",
+        "scope": "attr.financial.*",
+        "issued_at": 1767225600000,
+        "expires_at": 1767830400000,
+        "commercial": false,
+        "signing_key": "golden_vector_signing_key_for_hct_parity_only_32+"
+      },
+      "expected_token": "HCT:dXNlcl9kYXZlfGFnZW50X2thaXxhdHRyLmZpbmFuY2lhbC4qfDE3NjcyMjU2MDAwMDB8MTc2NzgzMDQwMDAwMA==.07fc177c935410d3a0bdc0b57699fe89ca06f423774dd8df86cd68f05e7fa51b"
+    },
+    {
+      "name": "05_legacy_kai_analyze",
+      "input": {
+        "user_id": "user_erin",
+        "agent_id": "agent_kai",
+        "scope": "agent.kai.analyze",
+        "issued_at": 1767225600000,
+        "expires_at": 1767830400000,
+        "commercial": false,
+        "signing_key": "golden_vector_signing_key_for_hct_parity_only_32+"
+      },
+      "expected_token": "HCT:dXNlcl9lcmlufGFnZW50X2thaXxhZ2VudC5rYWkuYW5hbHl6ZXwxNzY3MjI1NjAwMDAwfDE3Njc4MzA0MDAwMDA=.85bf1c53ffe82385d61c05dcf05b997d79ea288adef19d775811a27821e34818"
+    },
+    {
+      "name": "06_commercial_vault_owner",
+      "input": {
+        "user_id": "user_frank",
+        "agent_id": "agent_one",
+        "scope": "vault.owner",
+        "issued_at": 1767225600000,
+        "expires_at": 1767830400000,
+        "commercial": true,
+        "signing_key": "golden_vector_signing_key_for_hct_parity_only_32+"
+      },
+      "expected_token": "HCT:dXNlcl9mcmFua3xhZ2VudF9vbmV8dmF1bHQub3duZXJ8MTc2NzIyNTYwMDAwMHwxNzY3ODMwNDAwMDAwfGNvbW1lcmNpYWw=.87b1d89b391e616ade9332f5aa4afa0af59ab7bee69fc2a7e53a99bc7ae4ab47"
+    },
+    {
+      "name": "07_commercial_attr_holdings",
+      "input": {
+        "user_id": "user_grace",
+        "agent_id": "agent_kai",
+        "scope": "attr.financial.holdings",
+        "issued_at": 1767225600000,
+        "expires_at": 1767830400000,
+        "commercial": true,
+        "signing_key": "golden_vector_signing_key_for_hct_parity_only_32+"
+      },
+      "expected_token": "HCT:dXNlcl9ncmFjZXxhZ2VudF9rYWl8YXR0ci5maW5hbmNpYWwuaG9sZGluZ3N8MTc2NzIyNTYwMDAwMHwxNzY3ODMwNDAwMDAwfGNvbW1lcmNpYWw=.4f2782754bd7e134fe7a51dc0e7cf055dbee83ab295cc0e808b059226f07f76e"
+    },
+    {
+      "name": "08_commercial_portfolio_analyze",
+      "input": {
+        "user_id": "user_heidi",
+        "agent_id": "agent_kai",
+        "scope": "portfolio.analyze",
+        "issued_at": 1767225600000,
+        "expires_at": 1767830400000,
+        "commercial": true,
+        "signing_key": "golden_vector_signing_key_for_hct_parity_only_32+"
+      },
+      "expected_token": "HCT:dXNlcl9oZWlkaXxhZ2VudF9rYWl8cG9ydGZvbGlvLmFuYWx5emV8MTc2NzIyNTYwMDAwMHwxNzY3ODMwNDAwMDAwfGNvbW1lcmNpYWw=.8434a071f1db8d4e3fcd30cf9de85180a9daa7c90efc2d601093d80428dace8f"
+    },
+    {
+      "name": "09_edge_empty_agent_id",
+      "input": {
+        "user_id": "user_ivan",
+        "agent_id": "",
+        "scope": "vault.owner",
+        "issued_at": 1767225600000,
+        "expires_at": 1767830400000,
+        "commercial": false,
+        "signing_key": "golden_vector_signing_key_for_hct_parity_only_32+"
+      },
+      "expected_token": "HCT:dXNlcl9pdmFufHx2YXVsdC5vd25lcnwxNzY3MjI1NjAwMDAwfDE3Njc4MzA0MDAwMDA=.f768cdffc8446a7c319de43c288f0b668cf1965bd18f5bf6c01c7e3b8ecb15e7"
+    },
+    {
+      "name": "10_uuid_user_id",
+      "input": {
+        "user_id": "550e8400-e29b-41d4-a716-446655440000",
+        "agent_id": "agent_one",
+        "scope": "pkm.read",
+        "issued_at": 1767225600000,
+        "expires_at": 1767830400000,
+        "commercial": false,
+        "signing_key": "golden_vector_signing_key_for_hct_parity_only_32+"
+      },
+      "expected_token": "HCT:NTUwZTg0MDAtZTI5Yi00MWQ0LWE3MTYtNDQ2NjU1NDQwMDAwfGFnZW50X29uZXxwa20ucmVhZHwxNzY3MjI1NjAwMDAwfDE3Njc4MzA0MDAwMDA=.4aa1cca2e33260aba3bd03cfdfc1a3b094a3f9904dee54ff8686f80a5819fbc3"
+    },
+    {
+      "name": "11_long_path_scope",
+      "input": {
+        "user_id": "user_judy",
+        "agent_id": "agent_one",
+        "scope": "attr.financial.brokerages.fidelity.portfolios.retirement.401k",
+        "issued_at": 1767225600000,
+        "expires_at": 1767830400000,
+        "commercial": false,
+        "signing_key": "golden_vector_signing_key_for_hct_parity_only_32+"
+      },
+      "expected_token": "HCT:dXNlcl9qdWR5fGFnZW50X29uZXxhdHRyLmZpbmFuY2lhbC5icm9rZXJhZ2VzLmZpZGVsaXR5LnBvcnRmb2xpb3MucmV0aXJlbWVudC40MDFrfDE3NjcyMjU2MDAwMDB8MTc2NzgzMDQwMDAwMA==.5c108f3b23e08ae1189c97f787ebce9087fc6bf4f41d9a9d85c1699e34e65063"
+    },
+    {
+      "name": "12_day_boundary_plus_one",
+      "input": {
+        "user_id": "user_kim",
+        "agent_id": "agent_kai",
+        "scope": "agent.kai.analyze",
+        "issued_at": 1767225600001,
+        "expires_at": 1767225660001,
+        "commercial": false,
+        "signing_key": "golden_vector_signing_key_for_hct_parity_only_32+"
+      },
+      "expected_token": "HCT:dXNlcl9raW18YWdlbnRfa2FpfGFnZW50LmthaS5hbmFseXplfDE3NjcyMjU2MDAwMDF8MTc2NzIyNTY2MDAwMQ==.d4b9b2ff4de07b250c40e2cc174fe3ab8f9ca0859bebccbd5e286397d43d4279"
+    }
+  ]
+}
