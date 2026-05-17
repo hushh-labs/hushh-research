@@ -193,4 +193,13 @@ describe("error-sanitizer", () => {
       expect(getErrorMessage(undefined)).toBe("undefined");
     });
   });
+    it("preserves localhost redaction for mixed-case backend origins", () => {
+    const result = sanitizeErrorMessage(
+      "Request failed at HTTP://LOCALHOST:8000/internal/debug"
+    );
+
+    expect(result.message).not.toContain("LOCALHOST");
+    expect(result.message).not.toContain("localhost");
+    expect(result.message).toBe("Something went wrong. Please try again.");
+  });
 });
