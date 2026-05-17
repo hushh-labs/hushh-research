@@ -67,6 +67,7 @@ const REGULATOR_PREFILL_RESET: Partial<RiaOnboardingDraft> = {
   brokerFirmCrd: "",
   headline: "",
   strategySummary: "",
+  verifiedLicensePrefillKey: "",
 };
 
 function isAdvisoryAccessReady(status?: string | null): boolean {
@@ -76,11 +77,32 @@ function isAdvisoryAccessReady(status?: string | null): boolean {
 function shouldRepairVerifiedPrefill(draft: RiaOnboardingDraft): boolean {
   if (draft.licenseVerificationStatus !== "found") return false;
   if (!draft.licenseNumber.trim() || !draft.advisorName.trim()) return false;
-  return !(
-    draft.city.trim() &&
-    draft.pinZip.trim() &&
-    draft.fullStreetAddress.trim()
-  );
+  return draft.verifiedLicensePrefillKey !== buildVerifiedPrefillKey(draft);
+}
+
+function buildVerifiedPrefillKey(
+  draft: Pick<RiaOnboardingDraft, "regulator" | "licenseNumber">,
+): string {
+  const regulator = draft.regulator.trim().toLowerCase() || "auto";
+  return `${regulator}:${draft.licenseNumber.trim()}`;
+}
+
+function buildVerifiedLicensePrefillPatch(
+  current: RiaOnboardingDraft,
+  result: RiaLicenseVerificationResult,
+  licenseNumber: string,
+): Partial<RiaOnboardingDraft> {
+  const patch = buildRiaLicensePrefillPatch(current, result, licenseNumber);
+  return {
+    ...patch,
+    verifiedLicensePrefillKey:
+      result.status === "found"
+        ? buildVerifiedPrefillKey({
+            regulator: patch.regulator || current.regulator,
+            licenseNumber,
+          })
+        : current.verifiedLicensePrefillKey,
+  };
 }
 
 export default function RiaOnboardingPage() {
@@ -353,7 +375,7 @@ export default function RiaOnboardingPage() {
     const currentUser = user;
     const licenseNumber = draft.licenseNumber.trim();
     const regulator = draft.regulator.trim();
-    const repairKey = `${regulator || "auto"}:${licenseNumber}`;
+    const repairKey = buildVerifiedPrefillKey(draft);
     if (
       stalePrefillRepairRef.current.inFlight ||
       stalePrefillRepairRef.current.lastKey === repairKey
@@ -389,7 +411,7 @@ export default function RiaOnboardingPage() {
 
         if (result.status === "found") {
           applyPrefill((current) =>
-            buildRiaLicensePrefillPatch(current, result, licenseNumber),
+            buildVerifiedLicensePrefillPatch(current, result, licenseNumber),
           );
 
           if (result.scrape_job_id) {
@@ -456,7 +478,7 @@ export default function RiaOnboardingPage() {
 
       if (result.status === "found") {
         applyPrefill((current) =>
-          buildRiaLicensePrefillPatch(
+          buildVerifiedLicensePrefillPatch(
             current,
             result,
             draft.licenseNumber.trim(),
@@ -472,7 +494,7 @@ export default function RiaOnboardingPage() {
         }, 600);
       } else if (result.status === "pending" && result.scrape_job_id) {
         applyPrefill((current) =>
-          buildRiaLicensePrefillPatch(
+          buildVerifiedLicensePrefillPatch(
             current,
             result,
             draft.licenseNumber.trim(),

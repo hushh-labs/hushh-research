@@ -35,7 +35,12 @@ export type RiaOnboardingDraft = {
   fullStreetAddress: string;
   latitude: number | null;
   longitude: number | null;
-  licenseVerificationStatus: "idle" | "verifying" | "found" | "not_found" | "error";
+  licenseVerificationStatus:
+    | "idle"
+    | "verifying"
+    | "found"
+    | "not_found"
+    | "error";
   scrapeJobId: string | null;
   requestedCapabilities: RiaCapability[];
   displayName: string;
@@ -47,6 +52,7 @@ export type RiaOnboardingDraft = {
   brokerFirmCrd: string;
   headline: string;
   strategySummary: string;
+  verifiedLicensePrefillKey: string;
 };
 
 export type RiaOnboardingStep = {
@@ -74,11 +80,18 @@ function sanitizeText(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-export function isRiaOnboardingStepId(value: unknown): value is RiaOnboardingStepId {
-  return typeof value === "string" && STEP_ORDER.includes(value as RiaOnboardingStepId);
+export function isRiaOnboardingStepId(
+  value: unknown,
+): value is RiaOnboardingStepId {
+  return (
+    typeof value === "string" &&
+    STEP_ORDER.includes(value as RiaOnboardingStepId)
+  );
 }
 
-function normalizeRiaOnboardingStepId(value: unknown): RiaOnboardingStepId | null {
+function normalizeRiaOnboardingStepId(
+  value: unknown,
+): RiaOnboardingStepId | null {
   if (isRiaOnboardingStepId(value)) return value;
   if (value === LEGACY_CONTACT_LOCATION_STEP_ID) return "services";
   return null;
@@ -132,10 +145,17 @@ export function createEmptyRiaOnboardingDraft(): RiaOnboardingDraft {
     brokerFirmCrd: "",
     headline: "",
     strategySummary: "",
+    verifiedLicensePrefillKey: "",
   };
 }
 
-const VALID_VERIFICATION_STATUSES = ["idle", "verifying", "found", "not_found", "error"];
+const VALID_VERIFICATION_STATUSES = [
+  "idle",
+  "verifying",
+  "found",
+  "not_found",
+  "error",
+];
 const VALID_ONBOARDING_TYPES = ["", "individual", "firm"];
 
 function sanitizeStringArray(value: unknown): string[] {
@@ -144,7 +164,7 @@ function sanitizeStringArray(value: unknown): string[] {
 }
 
 export function normalizeRiaOnboardingDraft(
-  value: Partial<RiaOnboardingDraft> | null | undefined
+  value: Partial<RiaOnboardingDraft> | null | undefined,
 ): RiaOnboardingDraft {
   const base = createEmptyRiaOnboardingDraft();
   const v = value as Record<string, unknown> | null | undefined;
@@ -152,7 +172,8 @@ export function normalizeRiaOnboardingDraft(
     currentStepId:
       normalizeRiaOnboardingStepId(v?.currentStepId) || base.currentStepId,
     onboardingType:
-      typeof v?.onboardingType === "string" && VALID_ONBOARDING_TYPES.includes(v.onboardingType)
+      typeof v?.onboardingType === "string" &&
+      VALID_ONBOARDING_TYPES.includes(v.onboardingType)
         ? (v.onboardingType as RiaOnboardingType)
         : base.onboardingType,
     licenseNumber: sanitizeText(v?.licenseNumber),
@@ -195,12 +216,13 @@ export function normalizeRiaOnboardingDraft(
     brokerFirmCrd: sanitizeText(v?.brokerFirmCrd),
     headline: sanitizeText(v?.headline),
     strategySummary: sanitizeText(v?.strategySummary),
+    verifiedLicensePrefillKey: sanitizeText(v?.verifiedLicensePrefillKey),
   };
 }
 
 export function buildRiaOnboardingSteps(
   _draft: RiaOnboardingDraft,
-  _options?: RiaOnboardingFlowOptions
+  _options?: RiaOnboardingFlowOptions,
 ): RiaOnboardingStep[] {
   return [
     {
@@ -244,7 +266,7 @@ export function buildRiaOnboardingSteps(
 export function canContinueRiaOnboardingStep(
   stepId: RiaOnboardingStepId,
   draft: RiaOnboardingDraft,
-  options?: RiaOnboardingFlowOptions
+  options?: RiaOnboardingFlowOptions,
 ): boolean {
   switch (stepId) {
     case "welcome":
@@ -272,10 +294,11 @@ export function getOnboardingTypeLabel(type: RiaOnboardingType): string {
 export function resolveRiaOnboardingStepId(
   draft: RiaOnboardingDraft,
   preferredStepId?: RiaOnboardingStepId | null,
-  options?: RiaOnboardingFlowOptions
+  options?: RiaOnboardingFlowOptions,
 ): RiaOnboardingStepId {
   const steps = buildRiaOnboardingSteps(draft, options);
-  const normalizedPreferredStepId = normalizeRiaOnboardingStepId(preferredStepId);
+  const normalizedPreferredStepId =
+    normalizeRiaOnboardingStepId(preferredStepId);
   if (
     normalizedPreferredStepId &&
     steps.some((step) => step.id === normalizedPreferredStepId)
@@ -290,12 +313,13 @@ export function resolveRiaOnboardingStepId(
 
 export function findFirstIncompleteRiaOnboardingStepId(
   draft: RiaOnboardingDraft,
-  options?: RiaOnboardingFlowOptions
+  options?: RiaOnboardingFlowOptions,
 ): RiaOnboardingStepId {
   const steps = buildRiaOnboardingSteps(draft, options);
   const incomplete = steps.find(
     (step) =>
-      step.id !== "review" && !canContinueRiaOnboardingStep(step.id, draft, options)
+      step.id !== "review" &&
+      !canContinueRiaOnboardingStep(step.id, draft, options),
   );
   return incomplete?.id || "review";
 }
@@ -303,8 +327,10 @@ export function findFirstIncompleteRiaOnboardingStepId(
 export function getRiaOnboardingStepIndex(
   draft: RiaOnboardingDraft,
   currentStepId: RiaOnboardingStepId,
-  options?: RiaOnboardingFlowOptions
+  options?: RiaOnboardingFlowOptions,
 ): number {
-  const index = buildRiaOnboardingSteps(draft, options).findIndex((step) => step.id === currentStepId);
+  const index = buildRiaOnboardingSteps(draft, options).findIndex(
+    (step) => step.id === currentStepId,
+  );
   return index >= 0 ? index : 0;
 }
