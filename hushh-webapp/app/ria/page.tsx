@@ -373,6 +373,7 @@ export default function RiaHomePage() {
                         {item.title}
                       </span>
                       <Badge className={cn("capitalize", queueToneClass(item.status))}>
+                        <span className="sr-only">Status: </span>
                         {formatStatusLabel(item.status)}
                       </Badge>
                     </div>
