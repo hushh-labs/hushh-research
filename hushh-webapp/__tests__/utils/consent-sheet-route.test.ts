@@ -59,4 +59,11 @@ describe("consent sheet route helpers", () => {
       href: "https://example.com/disclosures/request-123",
     });
   });
+  it("preserves consent request ordering across normalized internal routes", () => {
+  expect(
+    normalizeInternalAppHref(
+      "http://localhost:3000/consents?tab=pending&requestId=req_123&audit=latest"
+    )
+  ).toBe("/consents?tab=pending&requestId=req_123&audit=latest");
+});
 });
