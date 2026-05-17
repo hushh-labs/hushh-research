@@ -73,6 +73,16 @@ function isAdvisoryAccessReady(status?: string | null): boolean {
   return status === "active" || status === "verified";
 }
 
+function shouldRepairVerifiedPrefill(draft: RiaOnboardingDraft): boolean {
+  if (draft.licenseVerificationStatus !== "found") return false;
+  if (!draft.licenseNumber.trim() || !draft.advisorName.trim()) return false;
+  return !(
+    draft.city.trim() &&
+    draft.pinZip.trim() &&
+    draft.fullStreetAddress.trim()
+  );
+}
+
 export default function RiaOnboardingPage() {
   const router = useRouter();
   const { user, phoneNumber } = useAuth();
@@ -91,6 +101,10 @@ export default function RiaOnboardingPage() {
 
   const verificationAbortRef = useRef<AbortController | null>(null);
   const scrapePollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stalePrefillRepairRef = useRef<{
+    inFlight: boolean;
+    lastKey: string | null;
+  }>({ inFlight: false, lastKey: null });
 
   const advisoryVerificationStatus =
     status?.advisory_status || status?.verification_status || "draft";
@@ -331,6 +345,81 @@ export default function RiaOnboardingPage() {
     },
     [applyPrefill],
   );
+
+  useEffect(() => {
+    if (!user || !draftReady || iamUnavailable || loading) return;
+    if (!shouldRepairVerifiedPrefill(draft)) return;
+
+    const currentUser = user;
+    const licenseNumber = draft.licenseNumber.trim();
+    const regulator = draft.regulator.trim();
+    const repairKey = `${regulator || "auto"}:${licenseNumber}`;
+    if (
+      stalePrefillRepairRef.current.inFlight ||
+      stalePrefillRepairRef.current.lastKey === repairKey
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      LICENSE_VERIFICATION_TIMEOUT_MS,
+    );
+
+    stalePrefillRepairRef.current = {
+      inFlight: true,
+      lastKey: repairKey,
+    };
+
+    async function repairStalePrefill() {
+      try {
+        const idToken = await currentUser.getIdToken();
+        const result = await RiaService.verifyOnboardingLicense(
+          idToken,
+          {
+            license_number: licenseNumber,
+            regulator: regulator || undefined,
+          },
+          { signal: controller.signal },
+        );
+
+        if (cancelled || controller.signal.aborted) return;
+
+        if (result.status === "found") {
+          applyPrefill((current) =>
+            buildRiaLicensePrefillPatch(current, result, licenseNumber),
+          );
+
+          if (result.scrape_job_id) {
+            startScrapePolling(result.scrape_job_id);
+          }
+        }
+      } catch {
+        // Background repair is best-effort; the user can still edit or re-verify.
+      } finally {
+        clearTimeout(timeoutId);
+        stalePrefillRepairRef.current.inFlight = false;
+      }
+    }
+
+    void repairStalePrefill();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [
+    applyPrefill,
+    draft,
+    draftReady,
+    iamUnavailable,
+    loading,
+    startScrapePolling,
+    user,
+  ]);
 
   async function handleVerifyLicense() {
     if (!user || !draft.licenseNumber.trim()) return;
