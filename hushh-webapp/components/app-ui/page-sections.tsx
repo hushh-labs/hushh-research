@@ -279,9 +279,13 @@ export function SectionHeader({
                   {eyebrow}
                 </p>
               ) : null}
-              <h2 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">
+              <div
+                role="heading"
+                aria-level={2}
+                className="text-[15px] font-semibold leading-tight tracking-tight text-foreground sm:text-[16px]"
+              >
                 {title}
-              </h2>
+              </div>
               {description ? (
                 <div
                   className="line-clamp-2 text-sm leading-6 text-muted-foreground sm:line-clamp-none"
