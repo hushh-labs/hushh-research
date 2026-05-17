@@ -48,6 +48,7 @@ _Every feature must be implemented across all three layers or explicitly marked 
 - [ ] Tested on Web (Chrome/Safari)
 - [ ] Tested on iOS Simulator/Device
 - [ ] Tested on Android Emulator/Device
+- [ ] Commits are signed off (`git commit -s`)
 
 ## 📸 Screenshots / Video
 
@@ -57,3 +58,8 @@ _Attach proof of work here._
 
 - [ ] Does this change access user data?
 - [ ] If yes, have you implemented `checkConsentToken()`?
+
+## 📜 Licensing
+
+- [ ] First-party changes remain Apache-2.0 compatible
+- [ ] Third-party notice impact reviewed when dependencies changed

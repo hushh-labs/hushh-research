@@ -11,6 +11,7 @@ Normal contributors should not need subtree knowledge to clone the repo, boot th
 ## What Stays True
 
 - `consent-protocol/` still has an upstream synchronization contract.
+- upstream-first routing remains the default when the same policy must exist in both repos.
 - day-to-day contributors work monorepo-first
 - subtree sync and push behavior is a maintainer concern
 

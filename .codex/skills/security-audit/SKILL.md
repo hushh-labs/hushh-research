@@ -3,7 +3,7 @@ name: security-audit
 description: Use when the request is broadly about IAM, consent, trust, vault, PKM, streaming safety, verification, or audit workflows and the correct security specialist skill is not yet clear.
 ---
 
-# Hushh Security Audit Skill
+# Hussh Security Audit Skill
 
 ## Purpose and Trigger
 

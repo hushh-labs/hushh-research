@@ -18,9 +18,18 @@ vi.mock("@/lib/services/api-service", () => ({
   },
 }));
 
+vi.mock("@/lib/firebase/config", () => ({
+  auth: {
+    currentUser: null,
+  },
+}));
+
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
-import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
+import {
+  PersonalKnowledgeModelService,
+  PkmScopeExposureError,
+} from "@/lib/services/personal-knowledge-model-service";
 
 describe("PKM cache behavior", () => {
   beforeEach(() => {
@@ -51,6 +60,87 @@ describe("PKM cache behavior", () => {
     expect(a.userId).toBe("user-1");
     expect(b.userId).toBe("user-1");
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to stale metadata instead of caching an empty state on unauthorized responses", async () => {
+    const userId = "user-1";
+    const cache = CacheService.getInstance();
+    const staleMetadata = {
+      userId,
+      domains: [
+        {
+          key: "financial",
+          displayName: "Financial",
+          icon: "wallet",
+          color: "#123456",
+          attributeCount: 12,
+          summary: { readable_summary: "Portfolio imported" },
+          availableScopes: ["attr.financial.*"],
+          lastUpdated: "2026-04-14T12:00:00Z",
+        },
+      ],
+      totalAttributes: 12,
+      modelCompleteness: 20,
+      modelVersion: 4,
+      storedModelVersion: 4,
+      effectiveModelVersion: 4,
+      targetModelVersion: 4,
+      upgradeStatus: "current",
+      upgradableDomains: [],
+      lastUpgradedAt: null,
+      suggestedDomains: [],
+      lastUpdated: "2026-04-14T12:00:00Z",
+    };
+    cache.set(CACHE_KEYS.PKM_METADATA(userId), staleMetadata, -1);
+
+    apiFetchMock.mockResolvedValue(new Response("unauthorized", { status: 401 }));
+
+    const result = await PersonalKnowledgeModelService.getMetadata(userId, false, "vault-owner-token");
+
+    expect(result).toEqual(staleMetadata);
+    expect(CacheService.getInstance().peek(CACHE_KEYS.PKM_METADATA(userId))?.data).toEqual(staleMetadata);
+  });
+
+  it("does not trust a fresh empty metadata cache entry when a network fetch can return real domains", async () => {
+    const userId = "user-1";
+    const cache = CacheService.getInstance();
+    cache.set(CACHE_KEYS.PKM_METADATA(userId), PersonalKnowledgeModelService.emptyMetadata(userId), 60_000);
+
+    apiFetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          user_id: userId,
+          domains: [
+            {
+              domain_key: "financial",
+              display_name: "Financial",
+              icon_name: "wallet",
+              color_hex: "#D4AF37",
+              attribute_count: 19,
+              summary: { item_count: 19 },
+              available_scopes: ["attr.financial.*"],
+              last_updated: "2026-04-15T10:00:00Z",
+            },
+          ],
+          total_attributes: 19,
+          model_completeness: 80,
+          model_version: 4,
+          target_model_version: 4,
+          upgrade_status: "current",
+          upgradable_domains: [],
+          suggested_domains: [],
+          last_updated: "2026-04-15T10:00:00Z",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const result = await PersonalKnowledgeModelService.getMetadata(userId, false, "vault-owner-token");
+
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    expect(result.domains).toHaveLength(1);
+    expect(result.domains[0]?.key).toBe("financial");
+    expect(result.totalAttributes).toBe(19);
   });
 
   it("reads encrypted user/domain blobs from cache on subsequent calls", async () => {
@@ -166,6 +256,165 @@ describe("PKM cache behavior", () => {
       expect.stringContaining("segment_ids=activities"),
       expect.any(Object)
     );
+  });
+
+  it("caches domain manifests, including missing manifests, and supports forced refresh", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            domain: "financial",
+            manifest_version: 3,
+            summary_projection: {},
+            top_level_scope_paths: ["portfolio"],
+            externalizable_paths: [],
+            paths: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(new Response("not found", { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            domain: "financial",
+            manifest_version: 4,
+            summary_projection: {},
+            top_level_scope_paths: ["portfolio", "documents"],
+            externalizable_paths: [],
+            paths: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+    const first = await PersonalKnowledgeModelService.getDomainManifest(
+      "user-1",
+      "financial",
+      "vault-owner-token"
+    );
+    const second = await PersonalKnowledgeModelService.getDomainManifest(
+      "user-1",
+      "financial",
+      "vault-owner-token"
+    );
+    expect(first?.manifest_version).toBe(3);
+    expect(second?.manifest_version).toBe(3);
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+
+    CacheService.getInstance().invalidate(CACHE_KEYS.DOMAIN_MANIFEST("user-1", "financial"));
+    const missing = await PersonalKnowledgeModelService.getDomainManifest(
+      "user-1",
+      "financial",
+      "vault-owner-token"
+    );
+    expect(missing).toBeNull();
+    expect(apiFetchMock).toHaveBeenCalledTimes(2);
+
+    const cachedMissing = await PersonalKnowledgeModelService.getDomainManifest(
+      "user-1",
+      "financial",
+      "vault-owner-token"
+    );
+    expect(cachedMissing).toBeNull();
+    expect(apiFetchMock).toHaveBeenCalledTimes(2);
+
+    const refreshed = await PersonalKnowledgeModelService.getDomainManifest(
+      "user-1",
+      "financial",
+      "vault-owner-token",
+      true
+    );
+    expect(refreshed?.manifest_version).toBe(4);
+    expect(apiFetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("writes returned manifests through cache after scope exposure updates", async () => {
+    apiFetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          manifest_version: 9,
+          revoked_grant_count: 1,
+          revoked_grant_ids: ["grant-1"],
+          manifest: {
+            domain: "financial",
+            manifest_version: 9,
+            summary_projection: {},
+            top_level_scope_paths: ["portfolio"],
+            externalizable_paths: [],
+            paths: [],
+            scope_registry: [
+              {
+                scope_handle: "financial.portfolio",
+                scope_label: "Portfolio",
+                segment_ids: ["portfolio"],
+                exposure_enabled: false,
+                summary_projection: {
+                  top_level_scope_path: "portfolio",
+                },
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const result = await PersonalKnowledgeModelService.updateScopeExposure({
+      userId: "user-1",
+      domain: "financial",
+      vaultOwnerToken: "vault-owner-token",
+      expectedManifestVersion: 8,
+      changes: [
+        {
+          scopeHandle: "financial.portfolio",
+          topLevelScopePath: "portfolio",
+          exposureEnabled: false,
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.manifestVersion).toBe(9);
+    expect(
+      CacheService.getInstance().get(CACHE_KEYS.DOMAIN_MANIFEST("user-1", "financial"))
+    ).toEqual(result.manifest);
+  });
+
+  it("throws a typed conflict error for manifest version mismatches", async () => {
+    apiFetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail: {
+            code: "PKM_MANIFEST_CONFLICT",
+            message: "PKM manifest changed. Refresh and retry.",
+            current_manifest_version: 12,
+          },
+        }),
+        { status: 409, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    await expect(
+      PersonalKnowledgeModelService.updateScopeExposure({
+        userId: "user-1",
+        domain: "financial",
+        vaultOwnerToken: "vault-owner-token",
+        expectedManifestVersion: 11,
+        changes: [
+          {
+            scopeHandle: "financial.portfolio",
+            topLevelScopePath: "portfolio",
+            exposureEnabled: false,
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      name: "PkmScopeExposureError",
+      status: 409,
+      currentManifestVersion: 12,
+    } satisfies Partial<PkmScopeExposureError>);
   });
 
   it("writes through and invalidates cache keys on PKM CRUD sync hooks", () => {

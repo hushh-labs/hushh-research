@@ -55,23 +55,5 @@
     "updating web path without native parity review",
     "forgetting plugin registration",
     "allowing docs/runtime/native route drift"
-  ],
-  "scheduled_safe": true,
-  "maintenance_cadence": "monthly",
-  "maintenance_runner": [
-    "./bin/hushh native ios --mode uat",
-    "./bin/hushh native android --mode uat",
-    "cd hushh-webapp && npm run verify:routes"
-  ],
-  "maintenance_owner": "mobile-native",
-  "maintenance_issue_section": "mobile-parity-check",
-  "maintenance_blockers": [
-    "iOS parity command fails",
-    "Android parity command fails",
-    "route parity verification fails"
-  ],
-  "maintenance_prerequisites": [
-    "command:xcodebuild",
-    "command:adb"
   ]
 }

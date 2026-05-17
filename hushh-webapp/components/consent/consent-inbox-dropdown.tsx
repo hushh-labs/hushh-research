@@ -42,7 +42,8 @@ function entrySummary(entry: ConsentCenterEntry) {
   if (entry.additional_access_summary) return entry.additional_access_summary;
   if (entry.scope_description) return entry.scope_description;
   if (entry.reason) return entry.reason;
-  if (entry.kind === "invite") return "Invitation waiting for investor approval.";
+  if (entry.kind === "invite")
+    return "Invitation waiting for investor approval.";
   return entry.scope || "Consent request";
 }
 
@@ -90,16 +91,25 @@ export function ConsentInboxDropdown({
 }) {
   const { user } = useAuth();
   const { activePersona } = usePersonaState();
-  const actor: ConsentCenterActor = activePersona === "ria" ? "ria" : "investor";
+  const actor: ConsentCenterActor =
+    activePersona === "ria" ? "ria" : "investor";
+  const mode = "consents";
   const [open, setOpen] = useState(false);
   const [mutationTick, setMutationTick] = useState(0);
   const pendingPreviewLimit = 5;
 
   const summaryCacheKey = user?.uid
-    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(user.uid, actor)
+    ? CACHE_KEYS.CONSENT_CENTER_SUMMARY(user.uid, `${actor}:${mode}`)
     : "consent_center_summary_guest";
   const pendingListCacheKey = user?.uid
-    ? CACHE_KEYS.CONSENT_CENTER_LIST(user.uid, actor, "pending", "", 1, CONSENT_CENTER_PAGE_SIZE)
+    ? CACHE_KEYS.CONSENT_CENTER_LIST(
+        user.uid,
+        `${actor}:${mode}`,
+        "pending",
+        "",
+        1,
+        CONSENT_CENTER_PAGE_SIZE,
+      )
     : "consent_center_list_guest";
 
   const [retainedSummary, setRetainedSummary] = useState<{
@@ -123,7 +133,7 @@ export function ConsentInboxDropdown({
 
   const summaryResource = useStaleResource({
     cacheKey: summaryCacheKey,
-    refreshKey: `${actor}:${mutationTick}`,
+    refreshKey: `${actor}:${mode}:${mutationTick}`,
     enabled: Boolean(user?.uid),
     load: async () => {
       const idToken = await user?.getIdToken();
@@ -134,6 +144,7 @@ export function ConsentInboxDropdown({
         idToken,
         userId: user.uid,
         actor,
+        mode,
         force: mutationTick > 0,
       });
     },
@@ -146,7 +157,7 @@ export function ConsentInboxDropdown({
 
   const pendingListResource = useStaleResource({
     cacheKey: pendingListCacheKey,
-    refreshKey: `${actor}:${mutationTick}:${pendingCount}`,
+    refreshKey: `${actor}:${mode}:${mutationTick}:${pendingCount}`,
     enabled: Boolean(user?.uid) && pendingCount > 0,
     load: async () => {
       const idToken = await user?.getIdToken();
@@ -157,6 +168,7 @@ export function ConsentInboxDropdown({
         idToken,
         userId: user.uid,
         actor,
+        mode,
         surface: "pending",
         page: 1,
         limit: CONSENT_CENTER_PAGE_SIZE,
@@ -173,19 +185,27 @@ export function ConsentInboxDropdown({
 
   useEffect(() => {
     if (pendingListResource.data) {
-      setRetainedPendingList({ key: pendingListCacheKey, data: pendingListResource.data });
+      setRetainedPendingList({
+        key: pendingListCacheKey,
+        data: pendingListResource.data,
+      });
     }
   }, [pendingListCacheKey, pendingListResource.data]);
 
   const pendingListData =
     pendingListResource.data ??
-    (retainedPendingList?.key === pendingListCacheKey ? retainedPendingList.data : null);
+    (retainedPendingList?.key === pendingListCacheKey
+      ? retainedPendingList.data
+      : null);
 
   const items =
-    pendingCount > 0 ? (pendingListData?.items || []).slice(0, pendingPreviewLimit) : [];
+    pendingCount > 0
+      ? (pendingListData?.items || []).slice(0, pendingPreviewLimit)
+      : [];
   const hasAdditionalPending = (pendingListData?.total ?? 0) > items.length;
   const isInitialSummaryLoad = summaryResource.loading && !summaryData;
-  const isInitialPendingListLoad = pendingCount > 0 && pendingListResource.loading && items.length === 0;
+  const isInitialPendingListLoad =
+    pendingCount > 0 && pendingListResource.loading && items.length === 0;
   const primaryHref = useMemo(() => managerHref(actor), [actor]);
 
   return (
@@ -216,7 +236,9 @@ export function ConsentInboxDropdown({
         <div className={TOP_SHELL_DROPDOWN_HEADER_CLASSNAME}>
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground">Pending consents</p>
+              <p className="text-sm font-semibold text-foreground">
+                Pending consents
+              </p>
               <p className="text-[11px] text-muted-foreground">
                 {actor === "ria"
                   ? "Open requests and invites for your active advisor persona."
@@ -236,7 +258,9 @@ export function ConsentInboxDropdown({
             </div>
           ) : null}
 
-          {!isInitialSummaryLoad && !isInitialPendingListLoad && items.length === 0 ? (
+          {!isInitialSummaryLoad &&
+          !isInitialPendingListLoad &&
+          items.length === 0 ? (
             <div className="px-2 py-6 text-sm text-muted-foreground">
               No pending consents right now.
             </div>
@@ -277,13 +301,21 @@ export function ConsentInboxDropdown({
         <div className={TOP_SHELL_DROPDOWN_FOOTER_CLASSNAME}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <Button asChild variant="none" effect="fade" size="sm">
-              <Link href={primaryHref} prefetch={false} onClick={() => setOpen(false)}>
+              <Link
+                href={primaryHref}
+                prefetch={false}
+                onClick={() => setOpen(false)}
+              >
                 Open consent manager
               </Link>
             </Button>
             {hasAdditionalPending ? (
               <Button asChild variant="none" effect="fade" size="sm">
-                <Link href={primaryHref} prefetch={false} onClick={() => setOpen(false)}>
+                <Link
+                  href={primaryHref}
+                  prefetch={false}
+                  onClick={() => setOpen(false)}
+                >
                   View all pending
                   <ExternalLink className="ml-2 h-4 w-4" />
                 </Link>

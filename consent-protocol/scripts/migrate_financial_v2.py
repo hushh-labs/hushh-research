@@ -432,8 +432,12 @@ async def main() -> None:
     if args.index_only:
         return
 
-    user_id = args.user_id or os.getenv("KAI_TEST_USER_ID")
-    passphrase = args.passphrase or os.getenv("KAI_TEST_PASSPHRASE")
+    user_id = args.user_id or os.getenv("REVIEWER_UID") or os.getenv("KAI_TEST_USER_ID")
+    passphrase = (
+        args.passphrase
+        or os.getenv("REVIEWER_VAULT_PASSPHRASE")
+        or os.getenv("KAI_TEST_PASSPHRASE")
+    )
 
     if not user_id or not passphrase:
         print(
@@ -442,7 +446,7 @@ async def main() -> None:
                     "stage": "deep_migration",
                     "status": "skipped",
                     "reason": "missing_user_or_passphrase",
-                    "hint": "Provide --user-id and --passphrase (or KAI_TEST_USER_ID/KAI_TEST_PASSPHRASE).",
+                    "hint": "Provide --user-id and --passphrase (or REVIEWER_UID/REVIEWER_VAULT_PASSPHRASE; KAI_TEST_* aliases are deprecated).",
                 },
                 indent=2,
             )

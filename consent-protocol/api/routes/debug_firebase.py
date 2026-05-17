@@ -6,7 +6,7 @@ import os
 
 from fastapi import APIRouter, Header, HTTPException
 
-from api.utils.firebase_admin import ensure_firebase_admin
+from api.utils.firebase_admin import ensure_firebase_auth_admin
 from api.utils.firebase_auth import verify_firebase_bearer
 
 router = APIRouter(prefix="/api/_debug", tags=["Debug"])
@@ -26,7 +26,7 @@ async def debug_firebase(authorization: str = Header(..., description="Bearer Fi
     if not _is_dev():
         raise HTTPException(status_code=404, detail="Not found")
 
-    configured, project_id = ensure_firebase_admin()
+    configured, project_id = ensure_firebase_auth_admin()
     if not configured:
         raise HTTPException(status_code=500, detail="Firebase Admin not configured")
 
