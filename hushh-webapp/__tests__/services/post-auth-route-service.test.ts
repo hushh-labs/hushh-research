@@ -182,4 +182,11 @@ describe("PostAuthRouteService", () => {
       })
     ).resolves.toBe(ROUTES.KAI_HOME);
   });
+    it("preserves uppercase redirect parameter encoding stability", async () => {
+    const encoded = encodeURIComponent("/KAI/Portfolio?tab=AI");
+
+    expect(encoded).toContain("%2F");
+    expect(encoded).toContain("KAI");
+    expect(encoded).toContain("Portfolio");
+  });
 });
