@@ -2,11 +2,10 @@
 
 /**
  * Portfolio Metrics Card
- * 
- * Features:
+ * * Features:
  * - Diversification score based on concentration
  * - Average yield from holdings
- * - Weighted average cost basis
+ * - Weighted average cost basis (SECURE MASKED)
  * - Number of sectors represented
  */
 
@@ -17,6 +16,9 @@ import { BarChart3, Percent, DollarSign, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
+
+// HARVESTED SECURE VALUE MASK
+import { SecureValueMask } from "@/components/app-ui/secure-value-mask";
 
 interface Holding {
   symbol: string;
@@ -53,19 +55,14 @@ export function PortfolioMetricsCard({
   className,
 }: PortfolioMetricsCardProps) {
   // Calculate diversification score (0-100)
-  // Based on Herfindahl-Hirschman Index (HHI)
   const diversificationScore = useMemo(() => {
     if (holdings.length === 0 || totalValue === 0) return 0;
     
-    // Calculate HHI (sum of squared market share percentages)
     const hhi = holdings.reduce((sum, h) => {
       const share = (h.market_value / totalValue) * 100;
       return sum + share * share;
     }, 0);
     
-    // Convert HHI to a 0-100 score (lower HHI = more diversified)
-    // HHI ranges from 10000/n (perfectly diversified) to 10000 (single holding)
-    // We normalize: 100 = perfectly diversified, 0 = single holding
     const minHHI = 10000 / Math.max(holdings.length, 1);
     const maxHHI = 10000;
     const score = Math.max(0, Math.min(100, ((maxHHI - hhi) / (maxHHI - minHHI)) * 100));
@@ -78,7 +75,6 @@ export function PortfolioMetricsCard({
     const holdingsWithYield = holdings.filter((h) => h.est_yield !== undefined && h.est_yield > 0);
     if (holdingsWithYield.length === 0) return null;
     
-    // Weighted average by market value
     const totalWeight = holdingsWithYield.reduce((sum, h) => sum + h.market_value, 0);
     if (totalWeight === 0) return null;
     
@@ -182,16 +178,20 @@ export function PortfolioMetricsCard({
             </div>
           )}
 
-          {/* Total Cost Basis */}
+          {/* Total Cost Basis (SECURE MASKED) */}
           {weightedCostBasis !== null && (
             <div className="space-y-1">
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Icon icon={DollarSign} size="md" />
                 <span>Cost Basis</span>
               </div>
-              <span className="text-lg font-bold">
-                {formatCurrency(weightedCostBasis)}
-              </span>
+              
+              <SecureValueMask 
+                value={formatCurrency(weightedCostBasis)} 
+                maskChar="•"
+                className="text-lg font-bold"
+              />
+              
             </div>
           )}
         </div>
