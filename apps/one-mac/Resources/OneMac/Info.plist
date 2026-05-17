@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 Hushh
+SPDX-License-Identifier: Apache-2.0
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>$(DEVELOPMENT_LANGUAGE)</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundleDisplayName</key>
+    <string>One</string>
+    <key>CFBundlePackageType</key>
+    <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 Hushh. Licensed under Apache-2.0.</string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSSupportsAutomaticTermination</key>
+    <true/>
+    <key>NSSupportsSuddenTermination</key>
+    <true/>
+
+    <!--
+    TCC purpose strings. macOS surfaces these to the user the first time we
+    request the corresponding permission. Each string must accurately describe
+    what One does with the data and never overpromise.
+    -->
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>One indexes the files you add to your knowledge sources so your agents can search them — under your consent. We never read other files on your Desktop.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>One indexes the files you add to your knowledge sources so your agents can search them — under your consent. We never read other files in your Documents folder.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>One indexes the files you add to your knowledge sources so your agents can search them — under your consent. We never read other files in your Downloads folder.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>One uses AppleScript to read titles and bodies from Apple Notes when you connect Notes as a knowledge source. Notes are encrypted on your Mac with your Secure Enclave key.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>One reads your Calendar so your agents can answer scheduling questions — under your consent. Calendar data is encrypted on your Mac with your Secure Enclave key.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>One reads your Contacts only when you grant a per-person consent token, so your agents can resolve people by name. Contacts are encrypted on your Mac.</string>
+    <key>NSRemindersUsageDescription</key>
+    <string>One reads your Reminders when you connect Reminders as a knowledge source — under your consent.</string>
+
+    <!--
+    No URL types in PR-1. URL handlers for pair-iOS QR + Claude/Cursor MCP
+    deeplinks land in Phase 1 PR-6 once the consent surface ships.
+    -->
+</dict>
+</plist>
