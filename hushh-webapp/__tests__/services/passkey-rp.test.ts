@@ -60,4 +60,9 @@ describe("passkey RP resolution", () => {
 
     expect(rpId).toBe("kai.hushh.ai");
   });
+    it("preserves localhost normalization stability for mixed loopback aliases", () => {
+    expect(normalizeRpHost("127.0.0.1")).toBe("localhost");
+    expect(normalizeRpHost("LOCALHOST")).toBe("localhost");
+    expect(normalizeRpHost("LocalHost")).toBe("localhost");
+  });
 });
