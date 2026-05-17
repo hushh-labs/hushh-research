@@ -34,16 +34,14 @@
   ],
   "required_commands": [
     "./bin/hushh docs verify",
-    "cd consent-protocol && python3 -m pytest tests/quality -q",
-    "./bin/hushh codex maintenance daily --no-issue-update --text"
+    "cd consent-protocol && python3 -m pytest tests/quality -q"
   ],
   "verification_bundles": [
     {
       "id": "security-audit-core",
       "commands": [
         "./bin/hushh docs verify",
-        "cd consent-protocol && python3 -m pytest tests/quality -q",
-        "./bin/hushh codex maintenance daily --no-issue-update --text"
+        "cd consent-protocol && python3 -m pytest tests/quality -q"
       ],
       "tests": [
         "./bin/hushh docs verify",

@@ -5,6 +5,8 @@ MCP Server configuration.
 
 import os
 
+from hushh_mcp.runtime_settings import get_app_runtime_settings
+
 
 def _env_truthy(name: str, fallback: str = "false") -> bool:
     raw = str(os.environ.get(name, fallback)).strip().lower()
@@ -12,19 +14,15 @@ def _env_truthy(name: str, fallback: str = "false") -> bool:
 
 
 def _read_developer_token() -> str:
-    """Resolve the developer token with backwards-compatible env fallback."""
-    hushh_token = str(os.environ.get("HUSHH_DEVELOPER_TOKEN", "")).strip()
-    if hushh_token:
-        return hushh_token
-    return str(os.environ.get("MCP_DEVELOPER_TOKEN", "")).strip()
+    return str(os.environ.get("HUSHH_DEVELOPER_TOKEN", "")).strip()
 
 
 # FastAPI backend URL (for consent API calls)
 _DEFAULT_PORT = str(os.environ.get("PORT", "8000")).strip() or "8000"
 FASTAPI_URL = os.environ.get("CONSENT_API_URL", f"http://127.0.0.1:{_DEFAULT_PORT}")
 
-# Optional frontend URL used only for internal/backend-generated app links.
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+# Optional frontend origin used only for internal/backend-generated app links.
+APP_FRONTEND_ORIGIN = get_app_runtime_settings().app_frontend_origin or "http://localhost:3000"
 
 # Production mode: requires user approval via dashboard
 PRODUCTION_MODE = os.environ.get("PRODUCTION_MODE", "true").lower() == "true"
@@ -34,9 +32,7 @@ DEVELOPER_API_ENABLED = (
 )
 
 # Developer token used by the stdio launcher and local MCP hosts.
-# `MCP_DEVELOPER_TOKEN` is kept as a compatibility alias for older imports/envs.
 HUSHH_DEVELOPER_TOKEN = _read_developer_token()
-MCP_DEVELOPER_TOKEN = HUSHH_DEVELOPER_TOKEN
 
 # How long to wait for user to approve consent (in seconds)
 CONSENT_TIMEOUT_SECONDS = int(os.environ.get("CONSENT_TIMEOUT_SECONDS", "120"))

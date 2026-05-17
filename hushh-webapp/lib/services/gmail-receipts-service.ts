@@ -156,6 +156,13 @@ async function extractError(response: Response, fallback: string): Promise<strin
   }
 }
 
+function buildSealedHeaders(idToken: string, vaultOwnerToken: string): HeadersInit {
+  return {
+    Authorization: `Bearer ${idToken}`,
+    "X-Hushh-Consent": `Bearer ${vaultOwnerToken}`,
+  };
+}
+
 export class GmailReceiptsService {
   static async getStatus(params: {
     idToken: string;
@@ -356,6 +363,7 @@ export class GmailReceiptsService {
 
   static async listReceipts(params: {
     idToken: string;
+    vaultOwnerToken: string;
     userId: string;
     page?: number;
     perPage?: number;
@@ -368,9 +376,7 @@ export class GmailReceiptsService {
       `${buildGmailReceiptsPath(params.userId)}?${query}`,
       {
         method: "GET",
-        headers: {
-          Authorization: `Bearer ${params.idToken}`,
-        },
+        headers: buildSealedHeaders(params.idToken, params.vaultOwnerToken),
       }
     );
 

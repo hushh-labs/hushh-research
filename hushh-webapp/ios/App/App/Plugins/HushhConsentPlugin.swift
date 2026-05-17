@@ -41,7 +41,7 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
     private static var revokedTokens = Set<String>()
     
     private var secretKey: String {
-        ProcessInfo.processInfo.environment["SECRET_KEY"] ?? "development_secret_key_32_chars!"
+        ProcessInfo.processInfo.environment["APP_SIGNING_KEY"] ?? "development_secret_key_32_chars!"
     }
     
     private lazy var urlSession: URLSession = {

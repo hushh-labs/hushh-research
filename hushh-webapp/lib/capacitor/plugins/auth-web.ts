@@ -1,5 +1,5 @@
 /**
- * Hushh Auth - Web Implementation
+ * Hussh Auth - Web Implementation
  * 
  * Web fallback for HushhAuthPlugin that uses Firebase signInWithPopup.
  * This is used on web browsers where native authentication is not available.
@@ -49,7 +49,7 @@ export class HushhAuthWeb implements HushhAuthPlugin {
       this.currentIdToken = idToken;
       this.currentAccessToken = accessToken;
       
-      console.log("✅ [HushhAuthWeb] Google Sign-in successful:", user.email);
+      console.log("✅ [HushhAuthWeb] Google Sign-in successful");
       
       return { idToken, accessToken, user };
     } catch (error: unknown) {
@@ -85,7 +85,7 @@ export class HushhAuthWeb implements HushhAuthPlugin {
       this.currentUser = user;
       this.currentIdToken = idToken;
       
-      console.log("✅ [HushhAuthWeb] Apple Sign-in successful:", user.email || "(hidden email)");
+      console.log("✅ [HushhAuthWeb] Apple Sign-in successful");
       
       return { idToken, user };
     } catch (error: unknown) {

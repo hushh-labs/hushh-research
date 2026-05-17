@@ -2,23 +2,15 @@
  * Firebase Configuration
  * ======================
  * 
- * Production-grade Firebase setup for Hushh webapp.
+ * Production-grade Firebase setup for Hussh webapp.
  * Uses Phone Authentication for consent-first user identification.
  */
 
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, RecaptchaVerifier } from "firebase/auth";
-import { resolveObservabilityEnvironment } from "@/lib/observability/env";
+import { resolveAnalyticsMeasurementId } from "@/lib/observability/env";
 
-const observabilityEnv = resolveObservabilityEnvironment();
-const nonProdMeasurementId =
-  process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_UAT ||
-  process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING;
-const firebaseMeasurementId =
-  process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID ||
-  (observabilityEnv === "production"
-    ? process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_PRODUCTION
-    : nonProdMeasurementId);
+const firebaseMeasurementId = resolveAnalyticsMeasurementId();
 
 // Primary Firebase configuration (non-auth app behaviors).
 const firebaseConfig = {
@@ -31,23 +23,6 @@ const firebaseConfig = {
   ...(firebaseMeasurementId ? { measurementId: firebaseMeasurementId } : {}),
 };
 
-// Optional auth-only Firebase configuration (supports prod-auth on UAT web).
-// Falls back to primary config when auth-specific keys are not provided.
-const authFirebaseConfig = {
-  apiKey:
-    process.env.NEXT_PUBLIC_AUTH_FIREBASE_API_KEY ||
-    process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain:
-    process.env.NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN ||
-    process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId:
-    process.env.NEXT_PUBLIC_AUTH_FIREBASE_PROJECT_ID ||
-    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  appId:
-    process.env.NEXT_PUBLIC_AUTH_FIREBASE_APP_ID ||
-    process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-};
-
 // Log warning if running with dummy or missing config (common in CI/builds)
 if (
   (!firebaseConfig.apiKey || firebaseConfig.apiKey === "dummy-api-key") &&
@@ -58,29 +33,33 @@ if (
 
 // Initialize Firebase (singleton pattern for Next.js)
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+const auth = getAuth(app);
 
-const shouldUseSeparateAuthApp =
-  !!authFirebaseConfig.projectId &&
-  !!authFirebaseConfig.appId &&
-  (authFirebaseConfig.projectId !== firebaseConfig.projectId ||
-    authFirebaseConfig.appId !== firebaseConfig.appId);
+const disablePhoneAuthAppVerificationForTesting =
+  process.env.NEXT_PUBLIC_APP_ENV === "development" &&
+  process.env.NEXT_PUBLIC_FIREBASE_PHONE_AUTH_DISABLE_APP_VERIFICATION === "true";
 
-const authApp = shouldUseSeparateAuthApp
-  ? getApps().find((candidate) => candidate.name === "auth")
-    ? getApp("auth")
-    : initializeApp(authFirebaseConfig, "auth")
-  : app;
-
-const auth = getAuth(authApp);
+if (disablePhoneAuthAppVerificationForTesting) {
+  auth.settings.appVerificationDisabledForTesting = true;
+}
 
 // Store reCAPTCHA verifier
 let recaptchaVerifier: RecaptchaVerifier | null = null;
+let recaptchaWidgetId: number | null = null;
+
+function getWindowWithRecaptcha() {
+  return window as typeof window & {
+    grecaptcha?: {
+      reset: (widgetId?: number) => void;
+    };
+  };
+}
 
 export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
   if (typeof window === "undefined") {
     throw new Error("RecaptchaVerifier can only be used in browser");
   }
-  
+
   // Always create a new verifier to avoid stale state
   if (recaptchaVerifier) {
     try {
@@ -89,6 +68,7 @@ export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
       // Ignore clear errors
     }
     recaptchaVerifier = null;
+    recaptchaWidgetId = null;
   }
 
   // Make sure the container exists
@@ -96,7 +76,21 @@ export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
   if (!container) {
     throw new Error(`reCAPTCHA container '${containerId}' not found in DOM`);
   }
-  
+
+  // Replace the container element entirely with a fresh node.
+  // Google's reCAPTCHA library tracks which DOM elements have been rendered
+  // in an internal registry keyed by element reference. Clearing children
+  // or calling .clear() does not remove the element from that registry,
+  // so re-rendering on the same element throws
+  // "reCAPTCHA has already been rendered in this element".
+  // Swapping in a brand-new element with the same id sidesteps the registry.
+  const freshContainer = document.createElement("div");
+  freshContainer.id = containerId;
+  for (const cls of Array.from(container.classList)) {
+    freshContainer.classList.add(cls);
+  }
+  container.replaceWith(freshContainer);
+
   recaptchaVerifier = new RecaptchaVerifier(auth, containerId, {
     size: "invisible",
     callback: () => {
@@ -107,18 +101,40 @@ export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
       resetRecaptcha();
     },
   });
-  
+
   return recaptchaVerifier;
+}
+
+export async function prepareRecaptchaVerifier(containerId: string): Promise<RecaptchaVerifier> {
+  const verifier = getRecaptchaVerifier(containerId);
+  recaptchaWidgetId = await verifier.render();
+  return verifier;
 }
 
 export function resetRecaptcha() {
   if (recaptchaVerifier) {
     try {
+      if (recaptchaWidgetId !== null) {
+        getWindowWithRecaptcha().grecaptcha?.reset(recaptchaWidgetId);
+      }
       recaptchaVerifier.clear();
     } catch {
       // Ignore errors
     }
     recaptchaVerifier = null;
+    recaptchaWidgetId = null;
+  }
+
+  // Also replace the container element so Google's internal registry
+  // does not retain a reference to the old element.
+  const container = document.getElementById("recaptcha-container");
+  if (container) {
+    const freshContainer = document.createElement("div");
+    freshContainer.id = "recaptcha-container";
+    for (const cls of Array.from(container.classList)) {
+      freshContainer.classList.add(cls);
+    }
+    container.replaceWith(freshContainer);
   }
 }
 

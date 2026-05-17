@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Hushh Settings Service
+ * Hussh Settings Service
  *
  * Manages user preferences for local vs remote operation.
  *

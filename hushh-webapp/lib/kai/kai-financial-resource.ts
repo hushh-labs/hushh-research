@@ -4,6 +4,7 @@ import { useMemo } from "react";
 
 import type { PortfolioData } from "@/components/kai/types/portfolio";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { logRequestAudit } from "@/lib/cache/request-audit-log";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import {
   buildFinancialDomainSummary,
@@ -71,7 +72,7 @@ export interface KaiFinancialResource {
 }
 
 function logRequest(stage: string, detail: Record<string, unknown>): void {
-  console.info(`[RequestAudit:${REQUEST_LABEL}] ${stage}`, detail);
+  logRequestAudit(REQUEST_LABEL, stage, detail);
 }
 
 function toFinancialDomain(value: unknown): Record<string, unknown> | null {

@@ -1,8 +1,8 @@
 """
-Hushh Orchestrator Agent (ADK Port)
+Agent One Orchestrator (ADK Port)
 
 Central routing agent that uses LLM semantic understanding to delegate tasks.
-Replaces legacy regex/classifier logic.
+Keeps the legacy orchestrator package path while One becomes the product owner.
 """
 
 import logging
@@ -13,14 +13,14 @@ from hushh_mcp.hushh_adk.core import HushhAgent
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 
 # Import tools for registration
-from .tools import delegate_to_food_agent, delegate_to_kai_agent, delegate_to_professional_agent
+from .tools import delegate_to_kai_agent, delegate_to_kyc_agent, delegate_to_nav_agent
 
 logger = logging.getLogger(__name__)
 
 
 class OrchestratorAgent(HushhAgent):
     """
-    Semantic Router for Hushh Ecosystem.
+    Compatibility wrapper for Agent One.
     """
 
     def __init__(self):
@@ -33,7 +33,7 @@ class OrchestratorAgent(HushhAgent):
             name=self.manifest.name,
             model=self.manifest.model,
             system_prompt=self.manifest.system_instruction,
-            tools=[delegate_to_food_agent, delegate_to_professional_agent, delegate_to_kai_agent],
+            tools=[delegate_to_kai_agent, delegate_to_nav_agent, delegate_to_kyc_agent],
             required_scopes=self.manifest.required_scopes,
         )
 
@@ -44,15 +44,12 @@ class OrchestratorAgent(HushhAgent):
         Args:
             message: User input
             user_id: User identifier
-            consent_token: (Optional) Token, though Orchestrator is often public entry
+            consent_token: Token with `agent.one.orchestrate` for delegated work
 
         Returns:
             Dict containing response text and optional delegation info.
         """
-        # Orchestrator often runs without a strict token at entry (public gatekeeper)
-        # But if we pass specific user data, we might need one.
-        # For now, we allow empty token for routing only.
-        token = consent_token or "public_access_token"
+        token = consent_token
 
         try:
             # Run the agent (this invokes the LLM + Tools)
