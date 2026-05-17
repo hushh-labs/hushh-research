@@ -10,7 +10,6 @@ import { OnboardingStepWelcome } from "@/components/ria/onboarding/onboarding-st
 import { OnboardingStepLicense } from "@/components/ria/onboarding/onboarding-step-license";
 import { OnboardingStepLicenseDetails } from "@/components/ria/onboarding/onboarding-step-license-details";
 import { OnboardingStepServices } from "@/components/ria/onboarding/onboarding-step-services";
-import { OnboardingStepContact } from "@/components/ria/onboarding/onboarding-step-contact";
 import { OnboardingStepReview } from "@/components/ria/onboarding/onboarding-step-review";
 import { useAuth } from "@/hooks/use-auth";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -25,12 +24,15 @@ import {
   type RiaOnboardingFlowOptions,
   type RiaOnboardingStepId,
 } from "@/lib/ria/ria-onboarding-flow";
+import {
+  buildRiaLicensePrefillPatch,
+  buildRiaScrapePrefillPatch,
+} from "@/lib/ria/ria-onboarding-prefill";
 import { RiaOnboardingDraftLocalService } from "@/lib/services/ria-onboarding-draft-local-service";
 import {
   isIAMSchemaNotReadyError,
   RiaApiError,
   RiaService,
-  type CrdScrapeJobResult,
   type RiaLicenseVerificationResult,
   type RiaOnboardingStatus,
 } from "@/lib/services/ria-service";
@@ -41,50 +43,13 @@ import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 const LICENSE_VERIFICATION_TIMEOUT_MS = 90_000;
 const SCRAPE_POLL_INTERVAL_MS = 5_000;
 
-function textValue(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function textArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.map(textValue).filter((item): item is string => item.length > 0)
-    : [];
-}
-
-function certificationsFromVerificationResult(
-  result: RiaLicenseVerificationResult,
-): string[] {
-  return Array.from(
-    new Set([
-      ...textArray(result.certifications),
-      ...textArray(result.exams_passed),
-    ]),
-  );
-}
-
-function locationPatchFromCrdReport(
-  report: NonNullable<CrdScrapeJobResult["report"]>,
-): Pick<RiaOnboardingDraft, "city" | "pinZip"> {
-  const officialLocation = report.officialLocation;
-  const firmHistoryLocation = (report.firmHistory?.find(
-    (entry) =>
-      typeof entry?.city === "string" && typeof entry?.state === "string",
-  ) ?? {}) as Record<string, unknown>;
-
-  return {
-    city:
-      textValue(officialLocation?.city) || textValue(firmHistoryLocation.city),
-    pinZip: textValue(officialLocation?.pinZip),
-  };
-}
-
 function isAdvisoryAccessReady(status?: string | null): boolean {
   return status === "active" || status === "verified";
 }
 
 export default function RiaOnboardingPage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, phoneNumber } = useAuth();
   const { refresh: refreshPersonaState } = usePersonaState();
 
   const [status, setStatus] = useState<RiaOnboardingStatus | null>(null);
@@ -157,6 +122,12 @@ export default function RiaOnboardingPage() {
 
         const seeded = normalizeRiaOnboardingDraft({
           ...localDraft,
+          contactEmail: localDraft?.contactEmail?.trim() || user.email || "",
+          contactPhone:
+            localDraft?.contactPhone?.trim() ||
+            phoneNumber ||
+            user.phoneNumber ||
+            "",
         });
 
         const alreadyVerified =
@@ -221,7 +192,7 @@ export default function RiaOnboardingPage() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [phoneNumber, user]);
 
   useEffect(() => {
     if (!user || !draftReady || iamUnavailable || !shouldPersistDraft) return;
@@ -243,6 +214,28 @@ export default function RiaOnboardingPage() {
       setError(null);
       setShouldPersistDraft(true);
       setDraft((current) => {
+        const next = normalizeRiaOnboardingDraft({ ...current, ...patch });
+        return {
+          ...next,
+          currentStepId: resolveRiaOnboardingStepId(
+            next,
+            next.currentStepId,
+            flowOptions,
+          ),
+        };
+      });
+    },
+    [flowOptions],
+  );
+
+  const applyPrefill = useCallback(
+    (
+      buildPatch: (current: RiaOnboardingDraft) => Partial<RiaOnboardingDraft>,
+    ) => {
+      setError(null);
+      setShouldPersistDraft(true);
+      setDraft((current) => {
+        const patch = buildPatch(current);
         const next = normalizeRiaOnboardingDraft({ ...current, ...patch });
         return {
           ...next,
@@ -292,18 +285,9 @@ export default function RiaOnboardingPage() {
               scrapePollingRef.current = null;
             }
             if (result.report) {
-              const locationPatch = locationPatchFromCrdReport(result.report);
-              updateDraft({
-                firmName:
-                  draft.firmName ||
-                  (result.report.firmHistory?.[0] as Record<string, string>)
-                    ?.firmName ||
-                  "",
-                city: draft.city || locationPatch.city,
-                pinZip: draft.pinZip || locationPatch.pinZip,
-                certifications:
-                  draft.certifications.length > 0 ? draft.certifications : [],
-              });
+              applyPrefill((current) =>
+                buildRiaScrapePrefillPatch(current, result),
+              );
             }
           } else if (result.status === "failed") {
             if (scrapePollingRef.current) {
@@ -319,13 +303,7 @@ export default function RiaOnboardingPage() {
         }
       }, SCRAPE_POLL_INTERVAL_MS);
     },
-    [
-      draft.firmName,
-      draft.city,
-      draft.pinZip,
-      draft.certifications,
-      updateDraft,
-    ],
+    [applyPrefill],
   );
 
   async function handleVerifyLicense() {
@@ -359,25 +337,13 @@ export default function RiaOnboardingPage() {
       if (controller.signal.aborted) return;
 
       if (result.status === "found") {
-        const certifications = certificationsFromVerificationResult(result);
-        updateDraft({
-          licenseVerificationStatus: "found",
-          advisorName: result.advisor_name || "",
-          firmName: result.firm_name || "",
-          regulator: result.regulator || draft.regulator || "",
-          regulatorStatus: result.regulator_status || "",
-          licenseExpiry: result.license_expiry || "",
-          certifications,
-          city: result.city || "",
-          pinZip: result.pin_zip || "",
-          crdNumber: result.crd_number || draft.licenseNumber.trim(),
-          secNumber: result.sec_number || "",
-          scrapeJobId: result.scrape_job_id || null,
-          displayName: result.advisor_name || "",
-          individualLegalName: result.advisor_name || "",
-          individualCrd: result.crd_number || "",
-          advisoryFirmName: result.firm_name || "",
-        });
+        applyPrefill((current) =>
+          buildRiaLicensePrefillPatch(
+            current,
+            result,
+            draft.licenseNumber.trim(),
+          ),
+        );
 
         if (result.scrape_job_id) {
           startScrapePolling(result.scrape_job_id);
@@ -387,13 +353,13 @@ export default function RiaOnboardingPage() {
           moveToStep("license_details");
         }, 600);
       } else if (result.status === "pending" && result.scrape_job_id) {
-        updateDraft({
-          licenseVerificationStatus: "found",
-          crdNumber: result.crd_number || draft.licenseNumber.trim(),
-          scrapeJobId: result.scrape_job_id,
-          advisorName: result.advisor_name || "",
-          firmName: result.firm_name || "",
-        });
+        applyPrefill((current) =>
+          buildRiaLicensePrefillPatch(
+            current,
+            result,
+            draft.licenseNumber.trim(),
+          ),
+        );
         startScrapePolling(result.scrape_job_id);
       } else {
         updateDraft({ licenseVerificationStatus: "not_found" });
@@ -552,16 +518,13 @@ export default function RiaOnboardingPage() {
     }
   }
 
-  function handleEditSection(section: "license" | "services" | "contact") {
+  function handleEditSection(section: "license" | "services") {
     switch (section) {
       case "license":
         moveToStep("license_details");
         break;
       case "services":
         moveToStep("services");
-        break;
-      case "contact":
-        moveToStep("contact_location");
         break;
     }
   }
@@ -646,6 +609,10 @@ export default function RiaOnboardingPage() {
             feeStructure={draft.feeStructure}
             minEngagementAmount={draft.minEngagementAmount}
             bio={draft.bio}
+            city={draft.city}
+            areaLocality={draft.areaLocality}
+            fullStreetAddress={draft.fullStreetAddress}
+            pinZip={draft.pinZip}
             onServicesChange={(services: string[]) =>
               updateDraft({ servicesOffered: services })
             }
@@ -656,22 +623,6 @@ export default function RiaOnboardingPage() {
               updateDraft({ minEngagementAmount: value })
             }
             onBioChange={(value: string) => updateDraft({ bio: value })}
-          />
-        );
-      case "contact_location":
-        return (
-          <OnboardingStepContact
-            contactEmail={draft.contactEmail}
-            contactPhone={draft.contactPhone}
-            city={draft.city}
-            areaLocality={draft.areaLocality}
-            fullStreetAddress={draft.fullStreetAddress}
-            onEmailChange={(value: string) =>
-              updateDraft({ contactEmail: value })
-            }
-            onPhoneChange={(value: string) =>
-              updateDraft({ contactPhone: value })
-            }
             onCityChange={(value: string) => updateDraft({ city: value })}
             onAreaLocalityChange={(value: string) =>
               updateDraft({ areaLocality: value })
@@ -679,6 +630,7 @@ export default function RiaOnboardingPage() {
             onFullStreetAddressChange={(value: string) =>
               updateDraft({ fullStreetAddress: value })
             }
+            onPinZipChange={(value: string) => updateDraft({ pinZip: value })}
           />
         );
       case "review":
@@ -693,9 +645,9 @@ export default function RiaOnboardingPage() {
             servicesOffered={draft.servicesOffered}
             feeStructure={draft.feeStructure}
             minEngagementAmount={draft.minEngagementAmount}
-            contactEmail={draft.contactEmail}
-            contactPhone={draft.contactPhone}
+            bio={draft.bio}
             city={draft.city}
+            pinZip={draft.pinZip}
             areaLocality={draft.areaLocality}
             fullStreetAddress={draft.fullStreetAddress}
             advisoryAccessReady={advisoryAccessReady}

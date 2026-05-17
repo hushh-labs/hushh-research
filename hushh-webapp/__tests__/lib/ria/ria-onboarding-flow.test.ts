@@ -16,16 +16,15 @@ import {
 
 describe("ria-onboarding-flow", () => {
   describe("buildRiaOnboardingSteps", () => {
-    it("returns exactly 6 steps in order", () => {
+    it("returns exactly 5 steps in order", () => {
       const draft = createEmptyRiaOnboardingDraft();
       const steps = buildRiaOnboardingSteps(draft);
-      expect(steps).toHaveLength(6);
+      expect(steps).toHaveLength(5);
       expect(steps.map((s) => s.id)).toEqual([
         "welcome",
         "license_number",
         "license_details",
         "services",
-        "contact_location",
         "review",
       ]);
     });
@@ -106,25 +105,6 @@ describe("ria-onboarding-flow", () => {
       expect(canContinueRiaOnboardingStep("services", withBoth)).toBe(true);
     });
 
-    it("contact_location: requires email or phone", () => {
-      const draft = createEmptyRiaOnboardingDraft();
-      expect(canContinueRiaOnboardingStep("contact_location", draft)).toBe(false);
-
-      expect(
-        canContinueRiaOnboardingStep("contact_location", {
-          ...draft,
-          contactEmail: "a@b.com",
-        })
-      ).toBe(true);
-
-      expect(
-        canContinueRiaOnboardingStep("contact_location", {
-          ...draft,
-          contactPhone: "+1234567890",
-        })
-      ).toBe(true);
-    });
-
     it("review: always allows continue", () => {
       expect(
         canContinueRiaOnboardingStep("review", createEmptyRiaOnboardingDraft())
@@ -180,6 +160,13 @@ describe("ria-onboarding-flow", () => {
       expect(normalized.servicesOffered).toEqual(["Tax Planning"]);
       expect(normalized.feeStructure).toEqual(["AUM %"]);
       expect(normalized.contactEmail).toBe("john@acme.com");
+    });
+
+    it("migrates the removed contact_location step into services", () => {
+      const result = normalizeRiaOnboardingDraft({
+        currentStepId: "contact_location" as any,
+      });
+      expect(result.currentStepId).toBe("services");
     });
 
     it("rejects invalid stepId", () => {
@@ -280,11 +267,11 @@ describe("ria-onboarding-flow", () => {
       expect(isRiaOnboardingStepId("license_number")).toBe(true);
       expect(isRiaOnboardingStepId("license_details")).toBe(true);
       expect(isRiaOnboardingStepId("services")).toBe(true);
-      expect(isRiaOnboardingStepId("contact_location")).toBe(true);
       expect(isRiaOnboardingStepId("review")).toBe(true);
     });
 
     it("rejects invalid values", () => {
+      expect(isRiaOnboardingStepId("contact_location")).toBe(false);
       expect(isRiaOnboardingStepId("intro")).toBe(false);
       expect(isRiaOnboardingStepId("")).toBe(false);
       expect(isRiaOnboardingStepId(null)).toBe(false);
@@ -312,7 +299,6 @@ describe("ria-onboarding-flow", () => {
         advisorName: "Jane Doe",
         servicesOffered: ["Portfolio Management"],
         feeStructure: ["Fee-only"],
-        contactEmail: "jane@example.com",
       };
       expect(
         findFirstIncompleteRiaOnboardingStepId(draft, {
@@ -326,6 +312,13 @@ describe("ria-onboarding-flow", () => {
     it("returns preferred step if valid", () => {
       const draft = createEmptyRiaOnboardingDraft();
       expect(resolveRiaOnboardingStepId(draft, "services")).toBe("services");
+    });
+
+    it("routes legacy contact_location preference to services", () => {
+      const draft = createEmptyRiaOnboardingDraft();
+      expect(resolveRiaOnboardingStepId(draft, "contact_location" as any)).toBe(
+        "services"
+      );
     });
 
     it("falls back to first step if preferred is invalid", () => {
@@ -346,8 +339,7 @@ describe("ria-onboarding-flow", () => {
       expect(getRiaOnboardingStepIndex(draft, "license_number")).toBe(1);
       expect(getRiaOnboardingStepIndex(draft, "license_details")).toBe(2);
       expect(getRiaOnboardingStepIndex(draft, "services")).toBe(3);
-      expect(getRiaOnboardingStepIndex(draft, "contact_location")).toBe(4);
-      expect(getRiaOnboardingStepIndex(draft, "review")).toBe(5);
+      expect(getRiaOnboardingStepIndex(draft, "review")).toBe(4);
     });
 
     it("returns 0 for unknown step", () => {

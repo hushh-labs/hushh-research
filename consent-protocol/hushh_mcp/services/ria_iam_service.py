@@ -866,13 +866,22 @@ class RIAIAMService:
         broker_result = None
         scrape_result = None
         try:
-            broker_result = await broker_task
-        except Exception:
-            logger.warning("verify_ria_license: broker_intelligence failed for %s", normalized)
-        try:
-            scrape_result = await scrape_task
-        except Exception:
-            logger.warning("verify_ria_license: create_job failed for %s", normalized)
+            results = await asyncio.wait_for(
+                asyncio.gather(broker_task, scrape_task, return_exceptions=True),
+                timeout=45,
+            )
+            if isinstance(results[0], BaseException):
+                logger.warning("verify_ria_license: broker_intelligence failed for %s", normalized)
+            else:
+                broker_result = results[0]
+            if isinstance(results[1], BaseException):
+                logger.warning("verify_ria_license: create_job failed for %s", normalized)
+            else:
+                scrape_result = results[1]
+        except asyncio.TimeoutError:
+            broker_task.cancel()
+            scrape_task.cancel()
+            logger.warning("verify_ria_license: combined lookup timed out for %s", normalized)
 
         broker_data = (
             broker_result.payload if broker_result and broker_result.status_code < 400 else None
@@ -919,6 +928,7 @@ class RIAIAMService:
             "provider": "ria_intelligence_combined",
             "scrape_job_id": scrape_data.get("jobId"),
             "broker_intelligence_summary": broker_data.get("summary"),
+            "bio": broker_data.get("summary"),
         }
 
         # Store audit trail

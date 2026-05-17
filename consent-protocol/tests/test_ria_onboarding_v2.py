@@ -31,6 +31,7 @@ class _NoopLimiter:
 rate_limit_module.limiter = _NoopLimiter()
 sys.modules.setdefault("api.middlewares.rate_limit", rate_limit_module)
 
+import hushh_mcp.services.ria_iam_service as ria_iam_service_module  # noqa: E402
 from api.middleware import require_firebase_auth  # noqa: E402
 from api.routes import ria as ria_module  # noqa: E402
 from hushh_mcp.services.crd_scrape_proxy_service import (  # noqa: E402
@@ -302,6 +303,64 @@ def test_verify_license_partial_data(monkeypatch) -> None:
     assert payload["advisor_name"] == "Jane Doe"
     assert payload["crd_number"] is None
     assert payload["firm_name"] is None
+
+
+def test_verify_ria_license_exposes_summary_and_exams_as_prefill(monkeypatch) -> None:
+    """The service should not discard source-backed bio and qualification data."""
+
+    async def _mock_broker_intelligence(self, *, query, request_id=None):
+        assert query == "7413463"
+        return CrdScrapeProviderResponse(
+            status_code=200,
+            payload={
+                "status": "Investment Adviser Representative",
+                "verifiedName": "Andrew Garrett Kirkland",
+                "currentFirm": "Eissman Wealth Management",
+                "crdNumber": "7413463",
+                "city": "Kennesaw",
+                "pinZip": "30144",
+                "summary": (
+                    "Andrew Garrett Kirkland is a financial professional "
+                    "serving clients at Eissman Wealth Management."
+                ),
+                "exams": [
+                    "Securities Industry Essentials Examination (SIE)",
+                    "Uniform Combined State Law Examination (Series 66)",
+                ],
+            },
+        )
+
+    async def _mock_create_job(self, *, crd_number, request_id=None):
+        assert crd_number == "7413463"
+        return CrdScrapeProviderResponse(
+            status_code=202,
+            payload={"jobId": "crd_scrape_prefill", "status": "queued"},
+        )
+
+    async def _mock_get_pool():
+        raise RuntimeError("no database in unit test")
+
+    monkeypatch.setattr(CrdScrapeProxyService, "broker_intelligence", _mock_broker_intelligence)
+    monkeypatch.setattr(CrdScrapeProxyService, "create_job", _mock_create_job)
+    monkeypatch.setattr(ria_iam_service_module, "get_pool", _mock_get_pool)
+
+    payload = asyncio.run(
+        RIAIAMService().verify_ria_license(
+            _TEST_UID,
+            license_number="7413463",
+            regulator=None,
+        )
+    )
+
+    assert payload["status"] == "found"
+    assert payload["advisor_name"] == "Andrew Garrett Kirkland"
+    assert payload["bio"].startswith("Andrew Garrett Kirkland is a financial professional")
+    assert payload["certifications"] == [
+        "Securities Industry Essentials Examination (SIE)",
+        "Uniform Combined State Law Examination (Series 66)",
+    ]
+    assert payload["exams_passed"] == payload["certifications"]
+    assert payload["scrape_job_id"] == "crd_scrape_prefill"
 
 
 def test_verify_license_provider_timeout(monkeypatch) -> None:

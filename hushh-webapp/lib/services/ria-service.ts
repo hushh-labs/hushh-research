@@ -1,6 +1,10 @@
 import { ApiService } from "@/lib/services/api-service";
 import { logRequestAudit } from "@/lib/cache/request-audit-log";
-import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
+import {
+  CacheService,
+  CACHE_KEYS,
+  CACHE_TTL,
+} from "@/lib/services/cache-service";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 import {
   trackEvent,
@@ -125,6 +129,11 @@ export interface RiaLicenseVerificationResult {
   provider: string;
   scrape_job_id?: string | null;
   broker_intelligence_summary?: string | null;
+  bio?: string | null;
+  strategy_summary?: string | null;
+  services_offered?: string[];
+  fee_structure?: string[];
+  min_engagement_amount?: number | string | null;
 }
 
 export interface CrdScrapeJobResult {
@@ -135,20 +144,19 @@ export interface CrdScrapeJobResult {
   errors?: string[];
   report?: {
     fullName?: string;
+    aliases?: string[];
     barredStatus?: string;
     registrationStatus?: string;
     disclosuresCount?: number;
-    officialLocation?: {
-      city?: string | null;
-      state?: string | null;
-      pinZip?: string | null;
-      location?: string | null;
-      address?: string | null;
-    } | null;
+    currentEmployments?: Array<Record<string, unknown>>;
     firmHistory?: Array<Record<string, unknown>>;
+    exams?: Array<Record<string, unknown> | string>;
     officialReports?: Array<Record<string, unknown>>;
+    officialLocation?: Record<string, unknown> | null;
+    openWeb?: Record<string, unknown>;
     sources?: Array<Record<string, unknown>>;
     rawSources?: Record<string, unknown>;
+    attribution?: Record<string, unknown>;
     warnings?: string[];
   } | null;
 }
@@ -242,7 +250,9 @@ export interface RiaKaiSpecializedBundle {
   pending_account_ids: string[];
   selected_account_ids: string[];
   legacy_grant_compatible: boolean;
-  scopes: Array<RiaAvailableScopeMetadata & { status: "available" | "pending" | "active" }>;
+  scopes: Array<
+    RiaAvailableScopeMetadata & { status: "available" | "pending" | "active" }
+  >;
 }
 
 export interface RiaClientRequestSummary {
@@ -578,7 +588,9 @@ function emptyRiaPickPackage(): RiaPickPackage {
   };
 }
 
-function countScreeningRows(sections: RiaScreeningSection[] | null | undefined): number {
+function countScreeningRows(
+  sections: RiaScreeningSection[] | null | undefined,
+): number {
   if (!Array.isArray(sections)) return 0;
   return sections.reduce((total, section) => {
     if (!section || !Array.isArray(section.rows)) return total;
@@ -586,21 +598,32 @@ function countScreeningRows(sections: RiaScreeningSection[] | null | undefined):
   }, 0);
 }
 
-function normalizePickPackage(input: Partial<RiaPickPackage> | null | undefined): RiaPickPackage {
+function normalizePickPackage(
+  input: Partial<RiaPickPackage> | null | undefined,
+): RiaPickPackage {
   const empty = emptyRiaPickPackage();
   const packageValue = input && typeof input === "object" ? input : {};
   const screeningSections = Array.isArray(packageValue.screening_sections)
     ? packageValue.screening_sections
-        .filter((section): section is RiaScreeningSection => Boolean(section) && typeof section === "object")
+        .filter(
+          (section): section is RiaScreeningSection =>
+            Boolean(section) && typeof section === "object",
+        )
         .map((section) => ({
           section: String(section.section || "").trim(),
           rows: Array.isArray(section.rows)
             ? section.rows
-                .filter((row): row is RiaScreeningRow => Boolean(row) && typeof row === "object")
+                .filter(
+                  (row): row is RiaScreeningRow =>
+                    Boolean(row) && typeof row === "object",
+                )
                 .map((row) => ({
-                  section: String(row.section || section.section || "").trim() || undefined,
+                  section:
+                    String(row.section || section.section || "").trim() ||
+                    undefined,
                   rule_index:
-                    typeof row.rule_index === "number" && Number.isFinite(row.rule_index)
+                    typeof row.rule_index === "number" &&
+                    Number.isFinite(row.rule_index)
                       ? row.rule_index
                       : undefined,
                   title: String(row.title || "").trim(),
@@ -614,33 +637,50 @@ function normalizePickPackage(input: Partial<RiaPickPackage> | null | undefined)
   return {
     top_picks: Array.isArray(packageValue.top_picks)
       ? packageValue.top_picks
-          .filter((row): row is RiaPickRow => Boolean(row) && typeof row === "object")
+          .filter(
+            (row): row is RiaPickRow => Boolean(row) && typeof row === "object",
+          )
           .map((row) => ({
-            ticker: String(row.ticker || "").trim().toUpperCase(),
+            ticker: String(row.ticker || "")
+              .trim()
+              .toUpperCase(),
             company_name: String(row.company_name || "").trim() || null,
             sector: String(row.sector || "").trim() || null,
-            tier: String(row.tier || "").trim().toUpperCase() || null,
+            tier:
+              String(row.tier || "")
+                .trim()
+                .toUpperCase() || null,
             tier_rank:
-              typeof row.tier_rank === "number" && Number.isFinite(row.tier_rank)
+              typeof row.tier_rank === "number" &&
+              Number.isFinite(row.tier_rank)
                 ? row.tier_rank
                 : null,
             conviction_weight:
-              typeof row.conviction_weight === "number" && Number.isFinite(row.conviction_weight)
+              typeof row.conviction_weight === "number" &&
+              Number.isFinite(row.conviction_weight)
                 ? row.conviction_weight
                 : null,
-            recommendation_bias: String(row.recommendation_bias || "").trim() || null,
-            investment_thesis: String(row.investment_thesis || "").trim() || null,
+            recommendation_bias:
+              String(row.recommendation_bias || "").trim() || null,
+            investment_thesis:
+              String(row.investment_thesis || "").trim() || null,
             fcf_billions:
-              typeof row.fcf_billions === "number" && Number.isFinite(row.fcf_billions)
+              typeof row.fcf_billions === "number" &&
+              Number.isFinite(row.fcf_billions)
                 ? row.fcf_billions
                 : null,
           }))
       : [],
     avoid_rows: Array.isArray(packageValue.avoid_rows)
       ? packageValue.avoid_rows
-          .filter((row): row is RiaAvoidRow => Boolean(row) && typeof row === "object")
+          .filter(
+            (row): row is RiaAvoidRow =>
+              Boolean(row) && typeof row === "object",
+          )
           .map((row) => ({
-            ticker: String(row.ticker || "").trim().toUpperCase(),
+            ticker: String(row.ticker || "")
+              .trim()
+              .toUpperCase(),
             company_name: String(row.company_name || "").trim() || null,
             sector: String(row.sector || "").trim() || null,
             category: String(row.category || "").trim() || null,
@@ -649,25 +689,35 @@ function normalizePickPackage(input: Partial<RiaPickPackage> | null | undefined)
           }))
       : [],
     screening_sections:
-      screeningSections.length > 0 ? screeningSections : empty.screening_sections,
+      screeningSections.length > 0
+        ? screeningSections
+        : empty.screening_sections,
     package_note: String(packageValue.package_note || "").trim() || null,
   };
 }
 
 function buildRiaPickSummary(
   pkg: RiaPickPackage,
-  metadata?: Partial<RiaPicksRevisionMetadata> | null
+  metadata?: Partial<RiaPicksRevisionMetadata> | null,
 ): RiaPicksRevisionMetadata {
   return {
     has_package:
       metadata?.has_package ??
-      Boolean(pkg.top_picks.length || pkg.avoid_rows.length || countScreeningRows(pkg.screening_sections)),
+      Boolean(
+        pkg.top_picks.length ||
+        pkg.avoid_rows.length ||
+        countScreeningRows(pkg.screening_sections),
+      ),
     storage_source: metadata?.storage_source || "pkm",
     package_revision: Number(metadata?.package_revision || 0),
     top_pick_count:
-      typeof metadata?.top_pick_count === "number" ? metadata.top_pick_count : pkg.top_picks.length,
+      typeof metadata?.top_pick_count === "number"
+        ? metadata.top_pick_count
+        : pkg.top_picks.length,
     avoid_count:
-      typeof metadata?.avoid_count === "number" ? metadata.avoid_count : pkg.avoid_rows.length,
+      typeof metadata?.avoid_count === "number"
+        ? metadata.avoid_count
+        : pkg.avoid_rows.length,
     screening_row_count:
       typeof metadata?.screening_row_count === "number"
         ? metadata.screening_row_count
@@ -678,12 +728,18 @@ function buildRiaPickSummary(
   };
 }
 
-function parseRiaPicksDomain(domainData: Record<string, unknown> | null | undefined): {
+function parseRiaPicksDomain(
+  domainData: Record<string, unknown> | null | undefined,
+): {
   package: RiaPickPackage;
   revision: number;
   updatedAt: string | null;
 } | null {
-  if (!domainData || typeof domainData !== "object" || Array.isArray(domainData)) {
+  if (
+    !domainData ||
+    typeof domainData !== "object" ||
+    Array.isArray(domainData)
+  ) {
     return null;
   }
   const raw = domainData[RIA_PICKS_PATH];
@@ -692,17 +748,23 @@ function parseRiaPicksDomain(domainData: Record<string, unknown> | null | undefi
   }
   const payload = raw as Record<string, unknown>;
   const packageValue = normalizePickPackage({
-    top_picks: Array.isArray(payload.top_picks) ? (payload.top_picks as RiaPickRow[]) : [],
-    avoid_rows: Array.isArray(payload.avoid_rows) ? (payload.avoid_rows as RiaAvoidRow[]) : [],
+    top_picks: Array.isArray(payload.top_picks)
+      ? (payload.top_picks as RiaPickRow[])
+      : [],
+    avoid_rows: Array.isArray(payload.avoid_rows)
+      ? (payload.avoid_rows as RiaAvoidRow[])
+      : [],
     screening_sections: Array.isArray(payload.screening_sections)
       ? (payload.screening_sections as RiaScreeningSection[])
       : [],
-    package_note: typeof payload.package_note === "string" ? payload.package_note : null,
+    package_note:
+      typeof payload.package_note === "string" ? payload.package_note : null,
   });
   return {
     package: packageValue,
     revision: Number(payload.revision || 0),
-    updatedAt: typeof payload.updated_at === "string" ? payload.updated_at : null,
+    updatedAt:
+      typeof payload.updated_at === "string" ? payload.updated_at : null,
   };
 }
 
@@ -755,10 +817,8 @@ function normalizeMarketplaceRia(payload: MarketplaceRia): MarketplaceRia {
   }
   const firms = Array.isArray(rawFirms)
     ? rawFirms.filter(
-        (
-          firm
-        ): firm is NonNullable<MarketplaceRia["firms"]>[number] =>
-          Boolean(firm) && typeof firm === "object"
+        (firm): firm is NonNullable<MarketplaceRia["firms"]>[number] =>
+          Boolean(firm) && typeof firm === "object",
       )
     : [];
 
@@ -796,7 +856,9 @@ async function toJsonOrThrow<T>(response: Response): Promise<T> {
             }
             return null;
           })
-          .filter((message): message is string => Boolean(message && message.trim()));
+          .filter((message): message is string =>
+            Boolean(message && message.trim()),
+          );
         return messages[0] || null;
       }
       return null;
@@ -812,7 +874,10 @@ async function toJsonOrThrow<T>(response: Response): Promise<T> {
   return payload;
 }
 
-async function authFetch(path: string, options: FetchOptions): Promise<Response> {
+async function authFetch(
+  path: string,
+  options: FetchOptions,
+): Promise<Response> {
   const headers: HeadersInit = {
     "Content-Type": "application/json",
   };
@@ -833,7 +898,10 @@ export class RiaService {
   private static inflight = new Map<string, Promise<unknown>>();
   private static readonly DEVICE_TTL_MS = CACHE_TTL.MEDIUM;
 
-  private static logRequest(stage: string, detail: Record<string, unknown>): void {
+  private static logRequest(
+    stage: string,
+    detail: Record<string, unknown>,
+  ): void {
     logRequestAudit("ria_resource", stage, detail);
   }
 
@@ -842,12 +910,19 @@ export class RiaService {
     return CacheService.getInstance().get<T>(key);
   }
 
-  private static writeCached<T>(key: string, value: T, ttl: number = CACHE_TTL.SHORT): T {
+  private static writeCached<T>(
+    key: string,
+    value: T,
+    ttl: number = CACHE_TTL.SHORT,
+  ): T {
     CacheService.getInstance().set(key, value, ttl);
     return value;
   }
 
-  private static async runDeduped<T>(key: string, factory: () => Promise<T>): Promise<T> {
+  private static async runDeduped<T>(
+    key: string,
+    factory: () => Promise<T>,
+  ): Promise<T> {
     const inflight = this.inflight.get(key) as Promise<T> | undefined;
     if (inflight) {
       return inflight;
@@ -905,7 +980,9 @@ export class RiaService {
     loader: () => Promise<T>;
   }): Promise<T> {
     if (params.cacheKey) {
-      const snapshot = params.force ? null : CacheService.getInstance().peek<T>(params.cacheKey);
+      const snapshot = params.force
+        ? null
+        : CacheService.getInstance().peek<T>(params.cacheKey);
       if (snapshot?.isFresh) {
         this.logRequest("cache_hit", {
           label: params.resourceLabel,
@@ -927,7 +1004,7 @@ export class RiaService {
           CacheService.getInstance().set(
             params.cacheKey,
             stored,
-            params.ttl ?? CACHE_TTL.SHORT
+            params.ttl ?? CACHE_TTL.SHORT,
           );
         }
         this.logRequest("device_hit", {
@@ -953,13 +1030,17 @@ export class RiaService {
 
   static async getPersonaState(
     idToken: string,
-    options?: CachedReadOptions
+    options?: CachedReadOptions,
   ): Promise<PersonaState> {
-    const cacheKey = options?.userId ? CACHE_KEYS.PERSONA_STATE(options.userId) : null;
+    const cacheKey = options?.userId
+      ? CACHE_KEYS.PERSONA_STATE(options.userId)
+      : null;
     return this.readCachedOrFetch({
       cacheKey,
       userId: options?.userId,
-      deviceResourceKey: options?.userId ? `ria:persona_state:${options.userId}` : undefined,
+      deviceResourceKey: options?.userId
+        ? `ria:persona_state:${options.userId}`
+        : undefined,
       force: options?.force,
       ttl: CACHE_TTL.SESSION,
       inflightKey: cacheKey || "ria_persona_state",
@@ -974,7 +1055,10 @@ export class RiaService {
     });
   }
 
-  static async switchPersona(idToken: string, persona: Persona): Promise<PersonaState> {
+  static async switchPersona(
+    idToken: string,
+    persona: Persona,
+  ): Promise<PersonaState> {
     const response = await authFetch("/api/iam/persona/switch", {
       method: "POST",
       idToken,
@@ -985,14 +1069,17 @@ export class RiaService {
 
   static async setInvestorMarketplaceOptIn(
     idToken: string,
-    enabled: boolean
+    enabled: boolean,
   ): Promise<{ user_id: string; investor_marketplace_opt_in: boolean }> {
     const response = await authFetch("/api/iam/marketplace/opt-in", {
       method: "POST",
       idToken,
       body: { enabled },
     });
-    return toJsonOrThrow<{ user_id: string; investor_marketplace_opt_in: boolean }>(response);
+    return toJsonOrThrow<{
+      user_id: string;
+      investor_marketplace_opt_in: boolean;
+    }>(response);
   }
 
   static async searchRias(params: {
@@ -1008,17 +1095,27 @@ export class RiaService {
     if (params.verification_status) {
       query.set("verification_status", params.verification_status);
     }
-    if (typeof params.limit === "number") query.set("limit", String(params.limit));
+    if (typeof params.limit === "number")
+      query.set("limit", String(params.limit));
     const queryKey = query.toString() || "all";
-    const cached = cache.get<MarketplaceRia[]>(CACHE_KEYS.MARKETPLACE_RIAS_SEARCH(queryKey));
+    const cached = cache.get<MarketplaceRia[]>(
+      CACHE_KEYS.MARKETPLACE_RIAS_SEARCH(queryKey),
+    );
     if (cached) return cached;
 
-    const response = await ApiService.apiFetch(`/api/marketplace/rias?${query.toString()}`, {
-      method: "GET",
-    });
+    const response = await ApiService.apiFetch(
+      `/api/marketplace/rias?${query.toString()}`,
+      {
+        method: "GET",
+      },
+    );
     const payload = await toJsonOrThrow<{ items: MarketplaceRia[] }>(response);
     const normalized = payload.items.map(normalizeMarketplaceRia);
-    cache.set(CACHE_KEYS.MARKETPLACE_RIAS_SEARCH(queryKey), normalized, CACHE_TTL.MEDIUM);
+    cache.set(
+      CACHE_KEYS.MARKETPLACE_RIAS_SEARCH(queryKey),
+      normalized,
+      CACHE_TTL.MEDIUM,
+    );
     return normalized;
   }
 
@@ -1029,24 +1126,41 @@ export class RiaService {
     const cache = CacheService.getInstance();
     const query = new URLSearchParams();
     if (params.query) query.set("query", params.query);
-    if (typeof params.limit === "number") query.set("limit", String(params.limit));
+    if (typeof params.limit === "number")
+      query.set("limit", String(params.limit));
     const queryKey = query.toString() || "all";
-    const cached = cache.get<MarketplaceInvestor[]>(CACHE_KEYS.MARKETPLACE_INVESTORS_SEARCH(queryKey));
+    const cached = cache.get<MarketplaceInvestor[]>(
+      CACHE_KEYS.MARKETPLACE_INVESTORS_SEARCH(queryKey),
+    );
     if (cached) return cached;
 
-    const response = await ApiService.apiFetch(`/api/marketplace/investors?${query.toString()}`, {
-      method: "GET",
-    });
-    const payload = await toJsonOrThrow<{ items: MarketplaceInvestor[] }>(response);
-    cache.set(CACHE_KEYS.MARKETPLACE_INVESTORS_SEARCH(queryKey), payload.items, CACHE_TTL.MEDIUM);
+    const response = await ApiService.apiFetch(
+      `/api/marketplace/investors?${query.toString()}`,
+      {
+        method: "GET",
+      },
+    );
+    const payload = await toJsonOrThrow<{ items: MarketplaceInvestor[] }>(
+      response,
+    );
+    cache.set(
+      CACHE_KEYS.MARKETPLACE_INVESTORS_SEARCH(queryKey),
+      payload.items,
+      CACHE_TTL.MEDIUM,
+    );
     return payload.items;
   }
 
   static async getRiaPublicProfile(riaId: string): Promise<MarketplaceRia> {
-    const response = await ApiService.apiFetch(`/api/marketplace/ria/${encodeURIComponent(riaId)}`, {
-      method: "GET",
-    });
-    return normalizeMarketplaceRia(await toJsonOrThrow<MarketplaceRia>(response));
+    const response = await ApiService.apiFetch(
+      `/api/marketplace/ria/${encodeURIComponent(riaId)}`,
+      {
+        method: "GET",
+      },
+    );
+    return normalizeMarketplaceRia(
+      await toJsonOrThrow<MarketplaceRia>(response),
+    );
   }
 
   static async submitOnboarding(
@@ -1081,7 +1195,7 @@ export class RiaService {
       business_pin_zip?: string;
       business_latitude?: number;
       business_longitude?: number;
-    }
+    },
   ): Promise<{
     ria_profile_id: string;
     verification_status: string;
@@ -1112,7 +1226,7 @@ export class RiaService {
   static async verifyOnboardingName(
     idToken: string,
     payload: { query: string },
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal },
   ): Promise<RiaNameVerificationResult> {
     const response = await authFetch("/api/ria/onboarding/verify-name", {
       method: "POST",
@@ -1126,7 +1240,7 @@ export class RiaService {
   static async verifyOnboardingLicense(
     idToken: string,
     payload: { license_number: string; regulator?: string },
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal },
   ): Promise<RiaLicenseVerificationResult> {
     const response = await authFetch("/api/ria/onboarding/verify-license", {
       method: "POST",
@@ -1139,20 +1253,22 @@ export class RiaService {
 
   static async getCrdScrapeJobStatus(
     jobId: string,
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal },
   ): Promise<CrdScrapeJobResult> {
     const response = await ApiService.apiFetch(
       `/api/ria/crd-scrape-jobs/${encodeURIComponent(jobId)}`,
-      { method: "GET", signal: options?.signal }
+      { method: "GET", signal: options?.signal },
     );
     return toJsonOrThrow<CrdScrapeJobResult>(response);
   }
 
   static async getOnboardingStatus(
     idToken: string,
-    options?: CachedReadOptions
+    options?: CachedReadOptions,
   ): Promise<RiaOnboardingStatus> {
-    const cacheKey = options?.userId ? CACHE_KEYS.RIA_ONBOARDING_STATUS(options.userId) : null;
+    const cacheKey = options?.userId
+      ? CACHE_KEYS.RIA_ONBOARDING_STATUS(options.userId)
+      : null;
     return this.readCachedOrFetch({
       cacheKey,
       userId: options?.userId,
@@ -1178,7 +1294,9 @@ export class RiaService {
       method: "GET",
       idToken,
     });
-    const payload = await toJsonOrThrow<{ items: RiaFirmMembership[] }>(response);
+    const payload = await toJsonOrThrow<{ items: RiaFirmMembership[] }>(
+      response,
+    );
     return payload.items;
   }
 
@@ -1188,8 +1306,12 @@ export class RiaService {
       enabled: boolean;
       headline?: string;
       strategy_summary?: string;
-    }
-  ): Promise<{ user_id: string; is_discoverable: boolean; verification_status: string }> {
+    },
+  ): Promise<{
+    user_id: string;
+    is_discoverable: boolean;
+    verification_status: string;
+  }> {
     const response = await authFetch("/api/ria/marketplace/discoverability", {
       method: "POST",
       idToken,
@@ -1200,7 +1322,7 @@ export class RiaService {
 
   static async getHome(
     idToken: string,
-    options: CachedReadOptions & { userId: string }
+    options: CachedReadOptions & { userId: string },
   ): Promise<RiaHomeResponse> {
     const cacheKey = CACHE_KEYS.RIA_HOME(options.userId);
     return this.readCachedOrFetch({
@@ -1228,7 +1350,7 @@ export class RiaService {
       status?: string;
       page?: number;
       limit?: number;
-    }
+    },
   ): Promise<RiaClientListResponse> {
     const query = new URLSearchParams();
     if (options?.q) query.set("q", options.q);
@@ -1242,7 +1364,7 @@ export class RiaService {
           options.q || "",
           options.status || "",
           options?.page || 1,
-          options?.limit || 50
+          options?.limit || 50,
         )
       : null;
     return this.readCachedOrFetch({
@@ -1256,10 +1378,13 @@ export class RiaService {
       inflightKey: cacheKey || `ria_clients_${queryKey}`,
       resourceLabel: "ria_clients",
       loader: async () => {
-        const response = await authFetch(`/api/ria/clients?${query.toString()}`, {
-          method: "GET",
-          idToken,
-        });
+        const response = await authFetch(
+          `/api/ria/clients?${query.toString()}`,
+          {
+            method: "GET",
+            idToken,
+          },
+        );
         return toJsonOrThrow<RiaClientListResponse>(response);
       },
     });
@@ -1268,10 +1393,11 @@ export class RiaService {
   static async getClientDetail(
     idToken: string,
     investorUserId: string,
-    options?: CachedReadOptions
+    options?: CachedReadOptions,
   ): Promise<RiaClientDetail> {
-    const cacheKey =
-      options?.userId ? CACHE_KEYS.RIA_CLIENT_DETAIL(options.userId, investorUserId) : null;
+    const cacheKey = options?.userId
+      ? CACHE_KEYS.RIA_CLIENT_DETAIL(options.userId, investorUserId)
+      : null;
     return this.readCachedOrFetch({
       cacheKey,
       userId: options?.userId,
@@ -1283,10 +1409,13 @@ export class RiaService {
       inflightKey: cacheKey || `ria_client_detail_${investorUserId}`,
       resourceLabel: "ria_client_detail",
       loader: async () => {
-        const response = await authFetch(`/api/ria/clients/${encodeURIComponent(investorUserId)}`, {
-          method: "GET",
-          idToken,
-        });
+        const response = await authFetch(
+          `/api/ria/clients/${encodeURIComponent(investorUserId)}`,
+          {
+            method: "GET",
+            idToken,
+          },
+        );
         return toJsonOrThrow<RiaClientDetail>(response);
       },
     });
@@ -1297,15 +1426,19 @@ export class RiaService {
       method: "GET",
       idToken,
     });
-    const payload = await toJsonOrThrow<{ items: RiaRequestRecord[] }>(response);
+    const payload = await toJsonOrThrow<{ items: RiaRequestRecord[] }>(
+      response,
+    );
     return payload.items;
   }
 
   static async listRequestBundles(
     idToken: string,
-    options?: CachedReadOptions
+    options?: CachedReadOptions,
   ): Promise<RiaRequestBundleRecord[]> {
-    const cacheKey = options?.userId ? `ria_request_bundles_${options.userId}` : null;
+    const cacheKey = options?.userId
+      ? `ria_request_bundles_${options.userId}`
+      : null;
     return this.readCachedOrFetch({
       cacheKey,
       userId: options?.userId,
@@ -1321,27 +1454,38 @@ export class RiaService {
           method: "GET",
           idToken,
         });
-        const payload = await toJsonOrThrow<{ items: RiaRequestBundleRecord[] }>(response);
+        const payload = await toJsonOrThrow<{
+          items: RiaRequestBundleRecord[];
+        }>(response);
         return payload.items;
       },
     });
   }
 
-  static async listRequestScopes(idToken: string): Promise<RiaRequestScopeTemplate[]> {
+  static async listRequestScopes(
+    idToken: string,
+  ): Promise<RiaRequestScopeTemplate[]> {
     const response = await authFetch("/api/ria/request-scopes", {
       method: "GET",
       idToken,
     });
-    const payload = await toJsonOrThrow<{ items: RiaRequestScopeTemplate[] }>(response);
+    const payload = await toJsonOrThrow<{ items: RiaRequestScopeTemplate[] }>(
+      response,
+    );
     return payload.items;
   }
 
-  static async listInvites(idToken: string, options?: CachedReadOptions): Promise<RiaInviteRecord[]> {
+  static async listInvites(
+    idToken: string,
+    options?: CachedReadOptions,
+  ): Promise<RiaInviteRecord[]> {
     const cacheKey = options?.userId ? `ria_invites_${options.userId}` : null;
     return this.readCachedOrFetch({
       cacheKey,
       userId: options?.userId,
-      deviceResourceKey: options?.userId ? `ria:invites:${options.userId}` : undefined,
+      deviceResourceKey: options?.userId
+        ? `ria:invites:${options.userId}`
+        : undefined,
       force: options?.force,
       ttl: CACHE_TTL.SHORT,
       inflightKey: cacheKey || "ria_invites",
@@ -1351,7 +1495,9 @@ export class RiaService {
           method: "GET",
           idToken,
         });
-        const payload = await toJsonOrThrow<{ items: RiaInviteRecord[] }>(response);
+        const payload = await toJsonOrThrow<{ items: RiaInviteRecord[] }>(
+          response,
+        );
         return payload.items;
       },
     });
@@ -1373,7 +1519,7 @@ export class RiaService {
         source?: string;
         delivery_channel?: string;
       }>;
-    }
+    },
   ): Promise<{ items: RiaInviteRecord[] }> {
     const response = await authFetch("/api/ria/invites", {
       method: "POST",
@@ -1395,7 +1541,7 @@ export class RiaService {
       subject_actor_type?: "investor";
       firm_id?: string;
       reason?: string;
-    }
+    },
   ): Promise<{
     request_id: string;
     scope: string;
@@ -1410,7 +1556,7 @@ export class RiaService {
     const statusBucket = toStatusBucket(
       response.status,
       "POST",
-      "/api/ria/requests"
+      "/api/ria/requests",
     );
     if (response.ok) {
       trackEvent("ria_request_created", {
@@ -1421,7 +1567,7 @@ export class RiaService {
         journey: "ria",
         step: "request_created",
         workspaceSource: resolveGrowthWorkspaceSource(
-          typeof window !== "undefined" ? window.location.pathname : ""
+          typeof window !== "undefined" ? window.location.pathname : "",
         ),
       });
     } else {
@@ -1442,7 +1588,7 @@ export class RiaService {
       selected_account_ids?: string[];
       firm_id?: string;
       reason?: string;
-    }
+    },
   ): Promise<{
     bundle_id: string;
     bundle_label: string;
@@ -1461,7 +1607,7 @@ export class RiaService {
     const statusBucket = toStatusBucket(
       response.status,
       "POST",
-      "/api/ria/request-bundles"
+      "/api/ria/request-bundles",
     );
     if (response.ok) {
       trackEvent("ria_request_created", {
@@ -1472,7 +1618,7 @@ export class RiaService {
         journey: "ria",
         step: "request_created",
         workspaceSource: resolveGrowthWorkspaceSource(
-          typeof window !== "undefined" ? window.location.pathname : ""
+          typeof window !== "undefined" ? window.location.pathname : "",
         ),
       });
     } else {
@@ -1487,12 +1633,16 @@ export class RiaService {
   static async getWorkspace(
     idToken: string,
     investorUserId: string,
-    options?: CachedReadOptions
+    options?: CachedReadOptions,
   ): Promise<RiaClientWorkspace> {
-    const cacheKey =
-      options?.userId ? CACHE_KEYS.RIA_WORKSPACE(options.userId, investorUserId) : null;
+    const cacheKey = options?.userId
+      ? CACHE_KEYS.RIA_WORKSPACE(options.userId, investorUserId)
+      : null;
     if (cacheKey) {
-      const cached = this.readCached<RiaClientWorkspace>(cacheKey, options?.force);
+      const cached = this.readCached<RiaClientWorkspace>(
+        cacheKey,
+        options?.force,
+      );
       if (cached) return cached;
     }
     const response = await authFetch(
@@ -1500,10 +1650,12 @@ export class RiaService {
       {
         method: "GET",
         idToken,
-      }
+      },
     );
     const payload = await toJsonOrThrow<RiaClientWorkspace>(response);
-    return cacheKey ? this.writeCached(cacheKey, payload, CACHE_TTL.SHORT) : payload;
+    return cacheKey
+      ? this.writeCached(cacheKey, payload, CACHE_TTL.SHORT)
+      : payload;
   }
 
   static async listPicks(params: {
@@ -1523,7 +1675,10 @@ export class RiaService {
     });
     const bootstrap = await toJsonOrThrow<RiaPicksResponse>(bootstrapResponse);
     const bootstrapPackage = normalizePickPackage(bootstrap.package);
-    const bootstrapMetadata = buildRiaPickSummary(bootstrapPackage, bootstrap.metadata);
+    const bootstrapMetadata = buildRiaPickSummary(
+      bootstrapPackage,
+      bootstrap.metadata,
+    );
 
     if (!params.vaultKey || !params.vaultOwnerToken) {
       const lockedPayload: RiaPicksResponse = {
@@ -1544,9 +1699,11 @@ export class RiaService {
         vaultOwnerToken: params.vaultOwnerToken,
       });
       const parsed = parseRiaPicksDomain(
-        domainData && typeof domainData === "object" && !Array.isArray(domainData)
+        domainData &&
+          typeof domainData === "object" &&
+          !Array.isArray(domainData)
           ? (domainData as Record<string, unknown>)
-          : null
+          : null,
       );
       if (parsed) {
         const payload: RiaPicksResponse = {
@@ -1570,7 +1727,7 @@ export class RiaService {
         package: bootstrapPackage,
         metadata: bootstrapMetadata,
       },
-      CACHE_TTL.SHORT
+      CACHE_TTL.SHORT,
     );
   }
 
@@ -1603,9 +1760,11 @@ export class RiaService {
       vaultOwnerToken: params.vaultOwnerToken,
     }).catch(() => null);
     const currentParsed = parseRiaPicksDomain(
-      currentDomain && typeof currentDomain === "object" && !Array.isArray(currentDomain)
+      currentDomain &&
+        typeof currentDomain === "object" &&
+        !Array.isArray(currentDomain)
         ? (currentDomain as Record<string, unknown>)
-        : null
+        : null,
     );
     const nextRevision = Math.max(1, Number(currentParsed?.revision || 0) + 1);
     const result = await PkmWriteCoordinator.saveMergedDomain({
@@ -1624,7 +1783,9 @@ export class RiaService {
           package_revision: nextRevision,
           top_pick_count: nextPackage.top_picks.length,
           avoid_count: nextPackage.avoid_rows.length,
-          screening_row_count: countScreeningRows(nextPackage.screening_sections),
+          screening_row_count: countScreeningRows(
+            nextPackage.screening_sections,
+          ),
           last_updated: nextUpdatedAt,
         },
       }),
@@ -1657,7 +1818,11 @@ export class RiaService {
         last_updated: result.updatedAt || nextUpdatedAt,
       }),
     };
-    return this.writeCached(CACHE_KEYS.RIA_PICKS(params.userId), payload, CACHE_TTL.SHORT);
+    return this.writeCached(
+      CACHE_KEYS.RIA_PICKS(params.userId),
+      payload,
+      CACHE_TTL.SHORT,
+    );
   }
 
   static async importPickCsv(params: {
@@ -1744,7 +1909,7 @@ export class RiaService {
 
   static async getRenaissanceUniverse(
     idToken: string,
-    tier?: string
+    tier?: string,
   ): Promise<{ items: RiaPickRow[]; total: number }> {
     const params = tier ? `?tier=${encodeURIComponent(tier)}` : "";
     const response = await authFetch(`/api/ria/universe${params}`, {
@@ -1755,8 +1920,16 @@ export class RiaService {
   }
 
   static async getRenaissanceAvoid(
-    idToken: string
-  ): Promise<{ items: Array<{ ticker: string; company_name?: string; sector?: string; category?: string; why_avoid?: string }> }> {
+    idToken: string,
+  ): Promise<{
+    items: Array<{
+      ticker: string;
+      company_name?: string;
+      sector?: string;
+      category?: string;
+      why_avoid?: string;
+    }>;
+  }> {
     const response = await authFetch("/api/ria/universe/avoid", {
       method: "GET",
       idToken,
@@ -1765,8 +1938,16 @@ export class RiaService {
   }
 
   static async getRenaissanceScreening(
-    idToken: string
-  ): Promise<{ items: Array<{ section: string; rule_index: number; title: string; detail: string; value_text?: string }> }> {
+    idToken: string,
+  ): Promise<{
+    items: Array<{
+      section: string;
+      rule_index: number;
+      title: string;
+      detail: string;
+      value_text?: string;
+    }>;
+  }> {
     const response = await authFetch("/api/ria/universe/screening", {
       method: "GET",
       idToken,
@@ -1774,10 +1955,15 @@ export class RiaService {
     return toJsonOrThrow(response);
   }
 
-  static async resolveInvite(inviteToken: string): Promise<RiaInviteResolution> {
-    const response = await ApiService.apiFetch(`/api/invites/${encodeURIComponent(inviteToken)}`, {
-      method: "GET",
-    });
+  static async resolveInvite(
+    inviteToken: string,
+  ): Promise<RiaInviteResolution> {
+    const response = await ApiService.apiFetch(
+      `/api/invites/${encodeURIComponent(inviteToken)}`,
+      {
+        method: "GET",
+      },
+    );
     const payload = await toJsonOrThrow<RiaInviteResolution>(response);
     return {
       ...payload,
@@ -1787,7 +1973,7 @@ export class RiaService {
 
   static async acceptInvite(
     idToken: string,
-    inviteToken: string
+    inviteToken: string,
   ): Promise<{
     invite_token: string;
     request_id?: string;
@@ -1796,10 +1982,13 @@ export class RiaService {
     expires_at?: number;
     ria: MarketplaceRia;
   }> {
-    const response = await authFetch(`/api/invites/${encodeURIComponent(inviteToken)}/accept`, {
-      method: "POST",
-      idToken,
-    });
+    const response = await authFetch(
+      `/api/invites/${encodeURIComponent(inviteToken)}/accept`,
+      {
+        method: "POST",
+        idToken,
+      },
+    );
     const payload = await toJsonOrThrow<{
       invite_token: string;
       request_id?: string;

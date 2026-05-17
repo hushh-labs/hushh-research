@@ -63,7 +63,7 @@ class CrdScrapeProxyService:
             else os.getenv("RIA_INTELLIGENCE_CRD_SCRAPER_API_KEY", "")
         ).strip()
         self._timeout_seconds = timeout_seconds or float(
-            os.getenv("RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS", "60")
+            os.getenv("RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS", "20")
         )
         self._transport = transport
 

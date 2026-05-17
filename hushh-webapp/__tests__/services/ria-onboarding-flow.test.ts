@@ -10,14 +10,13 @@ import {
 } from "@/lib/ria/ria-onboarding-flow";
 
 describe("ria-onboarding-flow", () => {
-  it("builds 6-step license-first flow", () => {
+  it("builds 5-step license-first flow", () => {
     const draft = createEmptyRiaOnboardingDraft();
     expect(buildRiaOnboardingSteps(draft).map((step) => step.id)).toEqual([
       "welcome",
       "license_number",
       "license_details",
       "services",
-      "contact_location",
       "review",
     ]);
   });
@@ -39,7 +38,6 @@ describe("ria-onboarding-flow", () => {
       advisorName: "Manish Sainani",
       servicesOffered: ["Portfolio Management"],
       feeStructure: ["Fee-only"],
-      contactEmail: "manish@example.com",
     };
 
     expect(canContinueRiaOnboardingStep("welcome", draft)).toBe(true);
@@ -50,7 +48,6 @@ describe("ria-onboarding-flow", () => {
     ).toBe(true);
     expect(canContinueRiaOnboardingStep("license_details", draft)).toBe(true);
     expect(canContinueRiaOnboardingStep("services", draft)).toBe(true);
-    expect(canContinueRiaOnboardingStep("contact_location", draft)).toBe(true);
     expect(canContinueRiaOnboardingStep("review", draft)).toBe(true);
   });
 
