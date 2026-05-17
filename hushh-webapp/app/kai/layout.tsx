@@ -11,6 +11,7 @@ import { KaiOnboardingGuard } from "@/components/kai/onboarding/kai-onboarding-g
 import { KaiNavTour } from "@/components/kai/onboarding/kai-nav-tour";
 import { VaultMethodPrompt } from "@/components/vault/vault-method-prompt";
 import { RouteErrorBoundary } from "@/components/app-ui/route-error-boundary";
+import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -100,7 +101,9 @@ export default function KaiLayout({
 
   return (
     <VaultLockGuard>
-      <KaiOnboardingGuard>{shell}</KaiOnboardingGuard>
+      <PhoneMandateGuard>
+        <KaiOnboardingGuard>{shell}</KaiOnboardingGuard>
+      </PhoneMandateGuard>
     </VaultLockGuard>
   );
 }

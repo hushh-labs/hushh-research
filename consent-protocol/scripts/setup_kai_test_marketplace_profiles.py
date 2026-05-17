@@ -38,6 +38,14 @@ def _require(config: dict[str, str | None], key: str) -> str:
     return value
 
 
+def _require_first(config: dict[str, str | None], canonical_key: str, *deprecated_keys: str) -> str:
+    for key in (canonical_key, *deprecated_keys):
+        value = str(config.get(key) or os.getenv(key) or "").strip()
+        if value:
+            return value
+    raise RuntimeError(f"Missing required config: {canonical_key}")
+
+
 def log(msg: str) -> None:
     print(f"[setup-profiles] {msg}")
 
@@ -46,9 +54,9 @@ def authenticate(
     config: dict[str, str | None], backend_url: str, timeout: int = 30
 ) -> dict[str, str]:
     """Authenticate as the Kai test user and return auth headers."""
-    user_id = _require(config, "KAI_TEST_USER_ID")
-    firebase_auth_sa = json.loads(_require(config, "FIREBASE_SERVICE_ACCOUNT_JSON"))
-    firebase_api_key = _require(config, "NEXT_PUBLIC_AUTH_FIREBASE_API_KEY")
+    user_id = _require_first(config, "REVIEWER_UID", "KAI_TEST_USER_ID")
+    firebase_auth_sa = json.loads(_require(config, "FIREBASE_ADMIN_CREDENTIALS_JSON"))
+    firebase_api_key = _require(config, "NEXT_PUBLIC_FIREBASE_API_KEY")
 
     now = int(time.time())
     custom_token = jwt.encode(
@@ -103,7 +111,7 @@ def _enrich_investor_marketplace_profile(config: dict[str, str | None]) -> None:
 
     import asyncpg
 
-    user_id = _require(config, "KAI_TEST_USER_ID")
+    user_id = _require_first(config, "REVIEWER_UID", "KAI_TEST_USER_ID")
     db_host = str(config.get("DB_HOST") or "127.0.0.1").strip()
     db_port = int(config.get("DB_PORT") or "6543")
     db_name = str(config.get("DB_NAME") or "postgres").strip()
@@ -173,18 +181,18 @@ def main() -> int:
     log("Step 2: Enriching investor marketplace profile via DB...")
     _enrich_investor_marketplace_profile(config)
 
-    # ─── Step 3: Ensure RIA profile via dev-activate ───
+    # ─── Step 3: Ensure RIA profile via onboarding submit ───
     log("Step 3: Checking RIA onboarding status...")
     ria_status = api("GET", backend_url, "/api/ria/onboarding/status", auth_headers)
     verification_status = str(ria_status.get("verification_status") or "")
     log(f"  Current RIA verification_status={verification_status}")
 
-    if verification_status not in {"active", "finra_verified", "bypassed"}:
-        log("  Activating RIA profile via dev-activate...")
+    if verification_status not in {"active", "finra_verified", "verified"}:
+        log("  Submitting RIA profile via onboarding/submit...")
         ria_activate = api(
             "POST",
             backend_url,
-            "/api/ria/onboarding/dev-activate",
+            "/api/ria/onboarding/submit",
             auth_headers,
             {
                 "display_name": "Kai Advisory Partners",
@@ -195,6 +203,7 @@ def main() -> int:
                 "advisory_firm_iapd_number": "801-99999",
                 "bio": "Full-service advisory practice focused on high-conviction quality compounders and tax-aware portfolio management.",
                 "strategy": "Long-term quality compounders with disciplined position sizing and downside protection through diversification.",
+                "force_live_verification": True,
             },
         )
         log(f"  RIA activation: verification_status={ria_activate.get('verification_status')}")
@@ -245,7 +254,7 @@ def main() -> int:
 
     # ─── Step 6: Verify persona state ───
     log("Step 6: Checking persona state...")
-    persona = api("GET", backend_url, "/api/iam/persona-state", auth_headers)
+    persona = api("GET", backend_url, "/api/iam/persona", auth_headers)
     log(f"  personas={persona.get('personas')}")
     log(f"  active_persona={persona.get('active_persona')}")
     log(f"  ria_switch_available={persona.get('ria_switch_available')}")

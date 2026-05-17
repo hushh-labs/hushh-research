@@ -43,42 +43,6 @@ steps:
       - "-c"
       - |
         set -euo pipefail
-        env_file="$(mktemp)"
-        trap 'rm -f "${env_file}"' EXIT
-
-        append_env_var() {
-          local key="$1"
-          local value="${2-}"
-          if [[ -z "${value}" ]]; then
-            return
-          fi
-          python3 -c 'import json, sys; print(f"{sys.argv[1]}: {json.dumps(sys.argv[2])}")' \
-            "${key}" \
-            "${value}" >>"${env_file}"
-        }
-
-        append_env_var "ENVIRONMENT" "${_ENVIRONMENT}"
-        append_env_var "GOOGLE_GENAI_USE_VERTEXAI" "True"
-        append_env_var "DB_HOST" "${_DB_HOST}"
-        append_env_var "DB_PORT" "${_DB_PORT}"
-        append_env_var "DB_NAME" "${_DB_NAME}"
-        append_env_var "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
-        append_env_var "SYNC_REMOTE_ENABLED" "${_SYNC_REMOTE_ENABLED}"
-        append_env_var "DEVELOPER_API_ENABLED" "${_DEVELOPER_API_ENABLED}"
-        append_env_var "REMOTE_MCP_ENABLED" "${_REMOTE_MCP_ENABLED}"
-        append_env_var "CORS_ALLOWED_ORIGINS" "${_CORS_ALLOWED_ORIGINS}"
-        append_env_var "OBS_DATA_STALE_RATIO_THRESHOLD" "${_OBS_DATA_STALE_RATIO_THRESHOLD}"
-        append_env_var "PASSKEY_ALLOWED_RP_IDS" "${_PASSKEY_ALLOWED_RP_IDS}"
-        append_env_var "DB_UNIX_SOCKET" "${_DB_UNIX_SOCKET}"
-        append_env_var "PLAID_ENV" "${_PLAID_ENV}"
-        append_env_var "PLAID_CLIENT_NAME" "${_PLAID_CLIENT_NAME}"
-        append_env_var "PLAID_COUNTRY_CODES" "${_PLAID_COUNTRY_CODES}"
-        append_env_var "PLAID_WEBHOOK_URL" "${_PLAID_WEBHOOK_URL}"
-        append_env_var "PLAID_REDIRECT_PATH" "${_PLAID_REDIRECT_PATH}"
-        append_env_var "PLAID_REDIRECT_URI" "${_PLAID_REDIRECT_URI}"
-        append_env_var "PLAID_TX_HISTORY_DAYS" "${_PLAID_TX_HISTORY_DAYS}"
-        append_env_var "RIA_DEV_BYPASS_ENABLED" "${_RIA_DEV_BYPASS_ENABLED}"
-
         append_optional_secret() {
           local secret_name="$1"
           local env_name="$2"
@@ -92,19 +56,58 @@ steps:
           fi
         }
 
-        secrets="SECRET_KEY=SECRET_KEY:latest,VAULT_ENCRYPTION_KEY=VAULT_ENCRYPTION_KEY:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest,FIREBASE_SERVICE_ACCOUNT_JSON=${_FIREBASE_SERVICE_ACCOUNT_SECRET}:latest,FRONTEND_URL=FRONTEND_URL:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,APP_REVIEW_MODE=APP_REVIEW_MODE:latest,REVIEWER_UID=REVIEWER_UID:latest"
+        secrets="APP_SIGNING_KEY=${_APP_SIGNING_KEY_SECRET}:latest,VAULT_DATA_KEY=${_VAULT_DATA_KEY_SECRET}:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=${_FIREBASE_ADMIN_CREDENTIALS_SECRET}:latest,APP_FRONTEND_ORIGIN=${_APP_FRONTEND_ORIGIN_SECRET}:latest,BACKEND_RUNTIME_CONFIG_JSON=${_BACKEND_RUNTIME_CONFIG_JSON_SECRET}:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest"
         if [[ -n "${_PLAID_CLIENT_ID_SECRET}" ]]; then
           secrets="${secrets},PLAID_CLIENT_ID=${_PLAID_CLIENT_ID_SECRET}:latest"
         fi
         if [[ -n "${_PLAID_SECRET_SECRET}" ]]; then
           secrets="${secrets},PLAID_SECRET=${_PLAID_SECRET_SECRET}:latest"
         fi
-        if [[ -n "${_PLAID_TOKEN_ENCRYPTION_KEY_SECRET}" ]]; then
-          secrets="${secrets},PLAID_TOKEN_ENCRYPTION_KEY=${_PLAID_TOKEN_ENCRYPTION_KEY_SECRET}:latest"
+        if [[ -n "${_PLAID_ACCESS_TOKEN_KEY_SECRET}" ]]; then
+          secrets="${secrets},PLAID_ACCESS_TOKEN_KEY=${_PLAID_ACCESS_TOKEN_KEY_SECRET}:latest"
         fi
         append_optional_secret "${_FINNHUB_API_KEY_SECRET}" "FINNHUB_API_KEY"
         append_optional_secret "${_PMP_API_KEY_SECRET}" "PMP_API_KEY"
         append_optional_secret "${_NEWSAPI_KEY_SECRET}" "NEWSAPI_KEY"
+        append_optional_secret "${_GMAIL_OAUTH_CLIENT_ID_SECRET}" "GMAIL_OAUTH_CLIENT_ID"
+        append_optional_secret "${_GMAIL_OAUTH_CLIENT_SECRET_SECRET}" "GMAIL_OAUTH_CLIENT_SECRET"
+        append_optional_secret "${_GMAIL_OAUTH_REDIRECT_URI_SECRET}" "GMAIL_OAUTH_REDIRECT_URI"
+        append_optional_secret "${_GMAIL_OAUTH_TOKEN_KEY_SECRET}" "GMAIL_OAUTH_TOKEN_KEY"
+        append_optional_secret "${_OPENAI_API_KEY_SECRET}" "OPENAI_API_KEY"
+        append_optional_secret "${_VOICE_RUNTIME_CONFIG_JSON_SECRET}" "VOICE_RUNTIME_CONFIG_JSON"
+        append_optional_secret "${_HUSHH_DEVELOPER_TOKEN_SECRET}" "HUSHH_DEVELOPER_TOKEN"
+        append_optional_secret "${_REVIEWER_UID_SECRET}" "REVIEWER_UID"
+        append_optional_secret "${_REVIEWER_VAULT_PASSPHRASE_SECRET}" "REVIEWER_VAULT_PASSPHRASE"
+        append_optional_secret "${_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET}" "RIA_INTELLIGENCE_VERIFY_BASE_URL"
+        append_optional_secret "${_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET}" "ONE_EMAIL_WATCH_RENEW_TOKEN"
+
+        env_vars=(
+          "ENVIRONMENT=${_DEPLOY_ENV}"
+          "HUSHH_DEPLOY_ENV=${_DEPLOY_ENV}"
+          "HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE}"
+          "HUSHH_DEPLOY_SHA=${_DEPLOY_SHA}"
+          "HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID}"
+        )
+        append_optional_env() {
+          local env_name="$1"
+          local env_value="$2"
+          if [[ -n "${env_value}" ]]; then
+            env_vars+=("${env_name}=${env_value}")
+          fi
+        }
+        append_optional_env "ONE_EMAIL_ADDRESS" "${_ONE_EMAIL_ADDRESS}"
+        append_optional_env "ONE_EMAIL_DELEGATED_USER" "${_ONE_EMAIL_DELEGATED_USER}"
+        append_optional_env "ONE_EMAIL_PUBSUB_TOPIC" "${_ONE_EMAIL_PUBSUB_TOPIC}"
+        append_optional_env "ONE_EMAIL_WEBHOOK_AUDIENCE" "${_ONE_EMAIL_WEBHOOK_AUDIENCE}"
+        append_optional_env "ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL" "${_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL}"
+        append_optional_env "ONE_EMAIL_WEBHOOK_AUTH_ENABLED" "${_ONE_EMAIL_WEBHOOK_AUTH_ENABLED}"
+        append_optional_env "ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED" "${_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED}"
+        append_optional_env "ONE_EMAIL_KYC_DEFAULT_SCOPE" "${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
+        append_optional_env "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED" "${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
+        append_optional_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
+
+        env_var_string="$(IFS=,; echo "${env_vars[*]}")"
+        deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
 
         cmd=(
           gcloud run deploy "${_BACKEND_SERVICE}"
@@ -118,9 +121,14 @@ steps:
           "--timeout=300"
           "--max-instances=10"
           "--min-instances=1"
-          "--env-vars-file=${env_file}"
+          "--labels=${deploy_labels}"
+          "--set-env-vars=${env_var_string}"
           "--set-secrets=${secrets}"
         )
+
+        if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then
+          cmd+=("--no-traffic")
+        fi
 
         if [[ -n "${_CLOUDSQL_INSTANCES}" ]]; then
           cmd+=("--add-cloudsql-instances=${_CLOUDSQL_INSTANCES}")
@@ -141,35 +149,45 @@ timeout: "1200s"
 substitutions:
   _BACKEND_SERVICE: consent-protocol
   _REGION: us-central1
-  _ENVIRONMENT: production
-  _DB_HOST: aws-1-us-east-1.pooler.supabase.com
-  _DB_PORT: "5432"
-  _DB_NAME: postgres
-  _DB_UNIX_SOCKET: ""
   _CLOUDSQL_INSTANCES: ""
-  _CORS_ALLOWED_ORIGINS: https://hushh-webapp-XXXXXXXXXX-uc.a.run.app
-  _OBS_DATA_STALE_RATIO_THRESHOLD: "0.25"
-  _CONSENT_SSE_ENABLED: "false"
-  _SYNC_REMOTE_ENABLED: "false"
-  _DEVELOPER_API_ENABLED: "false"
-  _REMOTE_MCP_ENABLED: "false"
-  _PASSKEY_ALLOWED_RP_IDS: ""
-  _PLAID_ENV: ""
-  _PLAID_CLIENT_NAME: ""
-  _PLAID_COUNTRY_CODES: ""
-  _PLAID_WEBHOOK_URL: ""
-  _PLAID_REDIRECT_PATH: ""
-  _PLAID_REDIRECT_URI: ""
-  _PLAID_TX_HISTORY_DAYS: ""
-  _RIA_DEV_BYPASS_ENABLED: ""
   _PLAID_CLIENT_ID_SECRET: ""
   _PLAID_SECRET_SECRET: ""
-  _PLAID_TOKEN_ENCRYPTION_KEY_SECRET: ""
+  _APP_SIGNING_KEY_SECRET: APP_SIGNING_KEY
+  _VAULT_DATA_KEY_SECRET: VAULT_DATA_KEY
+  _APP_FRONTEND_ORIGIN_SECRET: APP_FRONTEND_ORIGIN
+  _FIREBASE_ADMIN_CREDENTIALS_SECRET: FIREBASE_ADMIN_CREDENTIALS_JSON
+  _BACKEND_RUNTIME_CONFIG_JSON_SECRET: BACKEND_RUNTIME_CONFIG_JSON
+  _PLAID_ACCESS_TOKEN_KEY_SECRET: ""
   _FINNHUB_API_KEY_SECRET: ""
   _PMP_API_KEY_SECRET: ""
   _NEWSAPI_KEY_SECRET: ""
-  _FIREBASE_SERVICE_ACCOUNT_SECRET: FIREBASE_SERVICE_ACCOUNT_JSON
+  _GMAIL_OAUTH_CLIENT_ID_SECRET: ""
+  _GMAIL_OAUTH_CLIENT_SECRET_SECRET: ""
+  _GMAIL_OAUTH_REDIRECT_URI_SECRET: ""
+  _GMAIL_OAUTH_TOKEN_KEY_SECRET: ""
+  _OPENAI_API_KEY_SECRET: ""
+  _VOICE_RUNTIME_CONFIG_JSON_SECRET: ""
+  _HUSHH_DEVELOPER_TOKEN_SECRET: ""
+  _REVIEWER_UID_SECRET: ""
+  _REVIEWER_VAULT_PASSPHRASE_SECRET: ""
+  _RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET: ""
+  _ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET: ""
+  _ONE_EMAIL_ADDRESS: ""
+  _ONE_EMAIL_DELEGATED_USER: ""
+  _ONE_EMAIL_PUBSUB_TOPIC: ""
+  _ONE_EMAIL_WEBHOOK_AUDIENCE: ""
+  _ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL: ""
+  _ONE_EMAIL_WEBHOOK_AUTH_ENABLED: "true"
+  _ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED: "true"
+  _ONE_EMAIL_KYC_DEFAULT_SCOPE: ""
+  _ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED: "true"
+  _APP_REVIEW_MODE: ""
+  _CLOUD_RUN_NO_TRAFFIC: "false"
   _IMAGE_TAG: v2.1.0
+  _DEPLOY_ENV: manual
+  _DEPLOY_SOURCE: manual
+  _DEPLOY_SHA: unknown
+  _GITHUB_RUN_ID: unknown
 
 # Options
 options:

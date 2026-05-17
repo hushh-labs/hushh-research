@@ -1,63 +1,58 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 vi.mock("lucide-react", () => ({
   Bug: () => null,
-  Loader2: () => null,
-  Mic: () => null,
-  Search: () => null,
 }));
 
 vi.mock("@/components/kai/kai-command-palette", () => ({
   KaiCommandPalette: () => null,
 }));
 
-vi.mock("@/components/kai/voice/voice-compact-status", () => ({
-  VoiceCompactStatus: ({
+vi.mock("@/components/kai/voice/voice-ambient-search-surface", () => ({
+  VoiceAmbientSearchSurface: ({
     mode,
-    label,
+    transcriptPreview,
     stageText,
+    onMicToggle,
+    onEnd,
   }: {
     mode: string;
-    label?: string;
+    transcriptPreview?: string | null;
     stageText?: string | null;
+    onMicToggle: (event: unknown) => void;
+    onEnd: () => void;
   }) =>
     createElement(
       "div",
-      { "data-testid": "voice-compact-status", "data-mode": mode },
-      label || "",
-      stageText || ""
+      { "data-testid": "voice-ambient-search-surface", "data-mode": mode },
+      createElement(
+        "div",
+        { "data-testid": "voice-ambient-preview" },
+        transcriptPreview || stageText || "",
+      ),
+      createElement(
+        "button",
+        {
+          type: "button",
+          "aria-label": "Toggle voice microphone",
+          onClick: onMicToggle,
+        },
+        "mic",
+      ),
+      createElement(
+        "button",
+        { type: "button", onClick: onEnd },
+        "cancel voice",
+      ),
     ),
-}));
-
-vi.mock("@/components/kai/voice/voice-console-sheet", () => ({
-  VoiceConsoleSheet: ({
-    open,
-    paused,
-    transcriptPreview,
-    onCancel,
-  }: {
-    open: boolean;
-    paused: boolean;
-    transcriptPreview: string;
-    onCancel: () => void;
-  }) =>
-    open
-      ? createElement(
-          "div",
-          {
-            "data-testid": "voice-console-sheet",
-            "data-paused": paused ? "true" : "false",
-          },
-          createElement("div", { "data-testid": "voice-console-preview" }, transcriptPreview),
-          createElement(
-            "button",
-            { type: "button", onClick: onCancel },
-            "cancel voice"
-          )
-        )
-      : null,
 }));
 
 vi.mock("@/components/kai/voice/voice-debug-drawer", () => ({
@@ -65,8 +60,13 @@ vi.mock("@/components/kai/voice/voice-debug-drawer", () => ({
 }));
 
 vi.mock("@/lib/morphy-ux/button", () => ({
-  Button: ({ children, onClick }: { children: ReactNode; onClick?: () => void }) =>
-    createElement("button", { type: "button", onClick }, children),
+  Button: ({
+    children,
+    onClick,
+  }: {
+    children: ReactNode;
+    onClick?: () => void;
+  }) => createElement("button", { type: "button", onClick }, children),
 }));
 
 vi.mock("@/lib/morphy-ux/morphy", () => ({
@@ -93,7 +93,14 @@ vi.mock("@/lib/navigation/kai-command-bar-events", () => ({
 }));
 
 vi.mock("@/lib/utils", () => ({
-  cn: (...values: Array<string | boolean | null | undefined>) => values.filter(Boolean).join(" "),
+  cn: (...values: Array<string | boolean | null | undefined>) =>
+    values.filter(Boolean).join(" "),
+}));
+
+vi.mock("@/lib/vault/vault-context", () => ({
+  useVault: () => ({
+    getVaultOwnerToken: () => "vault_token",
+  }),
 }));
 
 vi.mock("@/lib/voice/use-amplitude-meter", () => ({
@@ -114,8 +121,9 @@ const mockVoiceSessionStore = {
 };
 
 vi.mock("@/lib/voice/voice-session-store", () => ({
-  useVoiceSession: (selector: (store: typeof mockVoiceSessionStore) => unknown) =>
-    selector(mockVoiceSessionStore),
+  useVoiceSession: (
+    selector: (store: typeof mockVoiceSessionStore) => unknown,
+  ) => selector(mockVoiceSessionStore),
 }));
 
 vi.mock("@/lib/voice/voice-telemetry", () => ({
@@ -208,6 +216,9 @@ const {
   clearClientVadFallbackTimer,
   runAutoTurnDispatchSafely,
   scheduleClientVadFallbackCommit,
+  scheduleClientVadSpeechStopCommit,
+  shouldShowAmbientListeningStatus,
+  shouldTriggerVoiceBargeIn,
 } = await import("@/components/kai/kai-search-bar");
 
 describe("kai-search-bar helpers", () => {
@@ -279,11 +290,38 @@ describe("kai-search-bar helpers", () => {
     });
 
     sessionMutedRef.current = true;
-    voiceUiStateRef.current = "sheet_paused";
+    voiceUiStateRef.current = "sheet_muted";
     vi.advanceTimersByTime(1200);
 
     expect(commitInputAudio).not.toHaveBeenCalled();
     expect(emitDebug).not.toHaveBeenCalled();
+  });
+
+  it("commits after speech stops when no final transcript has cleared the fallback", () => {
+    const commitInputAudio = vi.fn();
+    const emitDebug = vi.fn();
+    const timerRef = { current: null as number | null };
+    const sessionMutedRef = { current: false };
+    const voiceUiStateRef = { current: "sheet_listening" as const };
+
+    scheduleClientVadSpeechStopCommit({
+      timerRef,
+      sessionMutedRef,
+      voiceUiStateRef,
+      commitInputAudio,
+      emitDebug,
+      getCurrentTurnId: () => "turn_1",
+    });
+
+    vi.advanceTimersByTime(180);
+
+    expect(commitInputAudio).toHaveBeenCalledTimes(1);
+    expect(emitDebug).toHaveBeenCalledWith(
+      "stt",
+      "client_vad_speech_stop_commit",
+      {},
+      "turn_1",
+    );
   });
 
   it("catches auto-turn dispatch failures and routes them into recovery", async () => {
@@ -301,6 +339,20 @@ describe("kai-search-bar helpers", () => {
     expect(recover.mock.calls[0]?.[0]?.message).toBe("autoturn_failed");
   });
 
+  it("only treats meaningful partial transcripts as a barge-in signal", () => {
+    expect(shouldTriggerVoiceBargeIn("uh")).toBe(false);
+    expect(shouldTriggerVoiceBargeIn("hm")).toBe(false);
+    expect(shouldTriggerVoiceBargeIn("stop")).toBe(true);
+    expect(shouldTriggerVoiceBargeIn("open profile")).toBe(true);
+    expect(shouldTriggerVoiceBargeIn("NVDA today")).toBe(true);
+  });
+
+  it("does not overwrite a real transcript with ambient listening copy", () => {
+    expect(shouldShowAmbientListeningStatus("Listening...")).toBe(true);
+    expect(shouldShowAmbientListeningStatus("Audio detected...")).toBe(true);
+    expect(shouldShowAmbientListeningStatus("Analyze Nvidia")).toBe(false);
+  });
+
   it("does not acquire a realtime session on mount", () => {
     vi.useRealTimers();
     render(
@@ -309,7 +361,7 @@ describe("kai-search-bar helpers", () => {
         onVoiceResponse: vi.fn(),
         userId: "user_1",
         vaultOwnerToken: "vault_token",
-      })
+      }),
     );
 
     expect(acquireMock).not.toHaveBeenCalled();
@@ -323,7 +375,7 @@ describe("kai-search-bar helpers", () => {
         onVoiceResponse: vi.fn(),
         userId: "user_1",
         vaultOwnerToken: "vault_token",
-      })
+      }),
     );
 
     fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
@@ -334,12 +386,12 @@ describe("kai-search-bar helpers", () => {
           userId: "user_1",
           vaultOwnerToken: "vault_token",
           activate: true,
-        })
+        }),
       );
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("voice-console-sheet")).toBeTruthy();
+      expect(screen.getByTestId("voice-ambient-search-surface")).toBeTruthy();
     });
 
     fireEvent.click(screen.getByText("cancel voice"));
@@ -351,7 +403,9 @@ describe("kai-search-bar helpers", () => {
 
   it("does not surface retry UI when voice connect is cancelled", async () => {
     vi.useRealTimers();
-    acquireMock.mockRejectedValueOnce(new Error("VOICE_SESSION_CONNECT_ABORTED"));
+    acquireMock.mockRejectedValueOnce(
+      new Error("VOICE_SESSION_CONNECT_ABORTED"),
+    );
 
     render(
       createElement(KaiSearchBar, {
@@ -359,7 +413,7 @@ describe("kai-search-bar helpers", () => {
         onVoiceResponse: vi.fn(),
         userId: "user_1",
         vaultOwnerToken: "vault_token",
-      })
+      }),
     );
 
     fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
@@ -369,12 +423,18 @@ describe("kai-search-bar helpers", () => {
     });
 
     await waitFor(() => {
-      expect(screen.queryByTestId("voice-compact-status")).toBeNull();
-      expect(screen.queryByText("Connection failed. Tap retry to try again.")).toBeNull();
+      expect(
+        screen
+          .getByTestId("voice-ambient-search-surface")
+          .getAttribute("data-mode"),
+      ).toBe("idle");
+      expect(
+        screen.queryByText("Connection failed. Tap retry to try again."),
+      ).toBeNull();
     });
   });
 
-  it("shows the voice sheet immediately while the session is still connecting", async () => {
+  it("shows inline ambient voice immediately while the session is still connecting", async () => {
     vi.useRealTimers();
     Object.defineProperty(global.navigator, "permissions", {
       configurable: true,
@@ -386,7 +446,7 @@ describe("kai-search-bar helpers", () => {
       () =>
         new Promise<void>(() => {
           // keep pending to simulate a slow live connect
-        })
+        }),
     );
 
     render(
@@ -395,17 +455,17 @@ describe("kai-search-bar helpers", () => {
         onVoiceResponse: vi.fn(),
         userId: "user_1",
         vaultOwnerToken: "vault_token",
-      })
+      }),
     );
 
     fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
 
     await waitFor(() => {
-      const sheet = screen.getByTestId("voice-console-sheet");
-      expect(sheet).toBeTruthy();
-      expect(sheet.getAttribute("data-paused")).toBe("false");
-      expect(screen.getByTestId("voice-console-preview").textContent).toContain(
-        "Waiting for microphone access"
+      const surface = screen.getByTestId("voice-ambient-search-surface");
+      expect(surface).toBeTruthy();
+      expect(surface.getAttribute("data-mode")).toBe("connecting");
+      expect(screen.getByTestId("voice-ambient-preview").textContent).toContain(
+        "Waiting for microphone access",
       );
     });
   });
@@ -416,7 +476,7 @@ describe("kai-search-bar helpers", () => {
       () =>
         new Promise<void>(() => {
           // keep pending to simulate a live connect
-        })
+        }),
     );
     connectedMock.mockReturnValue(false);
     getSnapshotMock.mockReturnValue({
@@ -435,13 +495,13 @@ describe("kai-search-bar helpers", () => {
         onVoiceResponse: vi.fn(),
         userId: "user_1",
         vaultOwnerToken: "vault_token",
-      })
+      }),
     );
 
     fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
 
     await waitFor(() => {
-      expect(screen.getByTestId("voice-console-sheet")).toBeTruthy();
+      expect(screen.getByTestId("voice-ambient-search-surface")).toBeTruthy();
     });
 
     await act(async () => {
@@ -453,8 +513,8 @@ describe("kai-search-bar helpers", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("voice-console-preview").textContent).toContain(
-        "Opening realtime voice connection"
+      expect(screen.getByTestId("voice-ambient-preview").textContent).toContain(
+        "Opening realtime voice connection",
       );
     });
   });
@@ -478,7 +538,7 @@ describe("kai-search-bar helpers", () => {
         onVoiceResponse: vi.fn(),
         userId: "user_1",
         vaultOwnerToken: "vault_token",
-      })
+      }),
     );
 
     await act(async () => {
@@ -502,7 +562,9 @@ describe("kai-search-bar helpers", () => {
     await waitFor(() => {
       expect(setMutedMock).toHaveBeenCalledWith(false);
       expect(acquireMock).not.toHaveBeenCalled();
-      expect(screen.getByTestId("voice-console-preview").textContent).toContain("Listening");
+      expect(screen.getByTestId("voice-ambient-preview").textContent).toContain(
+        "Listening",
+      );
     });
   });
 
@@ -525,7 +587,7 @@ describe("kai-search-bar helpers", () => {
         onVoiceResponse: vi.fn(),
         userId: "user_1",
         vaultOwnerToken: "vault_token",
-      })
+      }),
     );
 
     fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
@@ -535,8 +597,14 @@ describe("kai-search-bar helpers", () => {
     });
 
     await waitFor(() => {
-      expect(screen.queryByTestId("voice-compact-status")).toBeNull();
-      expect(screen.queryByText("Connection failed. Tap retry to try again.")).toBeNull();
+      expect(
+        screen
+          .getByTestId("voice-ambient-search-surface")
+          .getAttribute("data-mode"),
+      ).toBe("idle");
+      expect(
+        screen.queryByText("Connection failed. Tap retry to try again."),
+      ).toBeNull();
     });
   });
 });

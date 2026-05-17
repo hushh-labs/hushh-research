@@ -14,12 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "24"
   PYTHON_VERSION: "3.13"
-  WEB_LINT_WARNING_BUDGET: "161"
-  WEB_AUDIT_MODERATE_BUDGET: "0"
-  WEB_AUDIT_HIGH_BUDGET: "0"
-  WEB_AUDIT_CRITICAL_BUDGET: "0"
   CI_NATIVE_PARITY_REQUIRED: "0"
   CI_DOCS_PARITY_REQUIRED: "0"
   GITLEAKS_VERSION: "8.24.2"
@@ -70,6 +66,27 @@ jobs:
           REQUIRE_GITHUB_SECRET_ALERTS_CLEAN: "1"
           REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN: "0"
 
+  repo-governance:
+    name: "Governance"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          protocol-dir: ./consent-protocol
+
+      - name: Run repo governance checks
+        run: bash scripts/ci/orchestrate.sh governance
+
   web-check:
     name: "Web (Next.js)"
     runs-on: ubuntu-latest
@@ -86,10 +103,6 @@ jobs:
       - name: Run full web check
         run: bash scripts/ci/orchestrate.sh web
         env:
-          WEB_LINT_WARNING_BUDGET: ${{ env.WEB_LINT_WARNING_BUDGET }}
-          WEB_AUDIT_MODERATE_BUDGET: ${{ env.WEB_AUDIT_MODERATE_BUDGET }}
-          WEB_AUDIT_HIGH_BUDGET: ${{ env.WEB_AUDIT_HIGH_BUDGET }}
-          WEB_AUDIT_CRITICAL_BUDGET: ${{ env.WEB_AUDIT_CRITICAL_BUDGET }}
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
           NEXT_PUBLIC_BACKEND_URL: https://api.example.com
           NEXT_PUBLIC_DEVELOPER_API_URL: https://api.example.com
@@ -102,10 +115,11 @@ jobs:
 
       - name: Upload security audit artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: web-npm-audit-report
           path: hushh-webapp/npm-audit-report.json
+          if-no-files-found: ignore
 
   protocol-check:
     name: "Protocol (Python)"
@@ -114,19 +128,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v6
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: consent-protocol/requirements.txt
+          protocol-dir: ./consent-protocol
 
       - name: Run full protocol check
         timeout-minutes: 22
         run: bash scripts/ci/orchestrate.sh protocol
         env:
           TESTING: "true"
-          SECRET_KEY: "test_secret_key_for_ci_only_32chars_min"
-          VAULT_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+          APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
+          VAULT_DATA_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
           HUSHH_DEVELOPER_TOKEN: "test_hushh_developer_token_for_ci"
 
   integration-check:
@@ -142,17 +155,10 @@ jobs:
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
 
-      - uses: actions/setup-python@v6
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: consent-protocol/requirements.txt
-
-      - name: Install protocol deps for PKM gate
-        run: |
-          python3 -m pip install --disable-pip-version-check \
-            -r consent-protocol/requirements.txt \
-            -r consent-protocol/requirements-dev.txt
+          protocol-dir: ./consent-protocol
 
       - name: Run cross-surface integration gate
         run: bash scripts/ci/orchestrate.sh integration
@@ -195,6 +201,7 @@ jobs:
     name: "CI Status Gate"
     needs:
       - secret-scan
+      - repo-governance
       - web-check
       - protocol-check
       - integration-check
@@ -207,19 +214,21 @@ jobs:
         shell: bash
         run: |
           SECRET_SCAN="${{ needs['secret-scan'].result }}"
+          REPO_GOVERNANCE="${{ needs['repo-governance'].result }}"
           WEB="${{ needs['web-check'].result }}"
           PROTOCOL="${{ needs['protocol-check'].result }}"
           INTEGRATION="${{ needs['integration-check'].result }}"
           MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
 
           printf 'secret-scan=%s\n' "$SECRET_SCAN"
+          printf 'repo-governance=%s\n' "$REPO_GOVERNANCE"
           printf 'web-check=%s\n' "$WEB"
           printf 'protocol-check=%s\n' "$PROTOCOL"
           printf 'integration-check=%s\n' "$INTEGRATION"
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
           fail=0
-          for result in "$SECRET_SCAN" "$WEB" "$PROTOCOL" "$INTEGRATION" "$MAIN_FRESHNESS"; do
+          for result in "$SECRET_SCAN" "$REPO_GOVERNANCE" "$WEB" "$PROTOCOL" "$INTEGRATION" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi

@@ -10,10 +10,15 @@ Use this reference after the initial scan to choose the correct owner skill firs
 4. `backend`: backend runtime, API routes, services, agents, and protocol package surfaces.
 5. `security-audit`: IAM, consent, trust, vault, PKM, streaming, and quality/audit workflows.
 6. `docs-governance`: documentation homes, consolidation, and docs verification policy.
-7. `repo-operations`: CI/CD, env parity, deploy, branch protection, and repo operational tooling.
-8. `planning-board`: GitHub board workflows.
-9. `comms-community`: public/community explanation workflows.
-10. `codex-skill-authoring`: local skill creation, linting, scaffolding, and taxonomy maintenance.
+7. `analytics-observability-governance`: GA4/Firebase/BigQuery observability topology, dashboard verification, and shared-auth versus analytics-plane governance.
+8. `repo-operations`: CI/CD, env parity, deploy, branch protection, and repo operational tooling.
+9. `oss-license-governance`: Apache-2.0 surface, SPDX/REUSE, package license metadata, and third-party notice governance.
+10. `contributor-onboarding`: bootstrap, devcontainer, doctor, and contributor-first-run experience ownership.
+11. `subtree-upstream-governance`: upstream-first coordination, subtree sync policy, and maintainer-only subtree contract ownership.
+12. `planning-board`: GitHub board workflows.
+13. `future-planner`: future-state roadmap planning, R&D filtering, and promotion-boundary decisions.
+14. `comms-community`: public/community explanation workflows.
+15. `codex-skill-authoring`: local skill creation, linting, scaffolding, and taxonomy maintenance.
 
 ## Spoke skills by owner
 
@@ -22,6 +27,7 @@ Use this reference after the initial scan to choose the correct owner skill firs
 1. `frontend-design-system`
 2. `frontend-architecture`
 3. `frontend-surface-placement`
+4. `frontend-native-surface-mapper`
 
 ### `mobile-native`
 
@@ -42,6 +48,10 @@ Use this reference after the initial scan to choose the correct owner skill firs
 3. `quality-contracts`
 4. `streaming-contracts`
 
+### `repo-operations`
+
+1. `github-contribution-governance`
+
 ## Canonical workflow packs
 
 1. `repo-orientation`
@@ -52,7 +62,16 @@ Use this reference after the initial scan to choose the correct owner skill firs
 6. `mobile-parity-check`
 7. `release-readiness`
 8. `docs-sync`
-9. `skill-authoring`
-10. `board-update`
-11. `community-response`
-12. `mcp-surface-change`
+9. `founder-brief-curation`
+10. `skill-authoring`
+11. `board-update`
+12. `community-response`
+13. `future-roadmap-plan`
+14. `mcp-surface-change`
+15. `analytics-observability-review`
+16. `oss-license-governance`
+17. `contributor-onboarding`
+18. `subtree-upstream-governance`
+19. `github-contribution-governance`
+20. `data-model-audit`
+21. `frontend-native-surface-map`

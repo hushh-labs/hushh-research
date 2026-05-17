@@ -2,7 +2,9 @@
 
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { BriefcaseBusiness, ShieldCheck, TriangleAlert } from "lucide-react";
+import { BriefcaseBusiness, ShieldAlert, ShieldCheck, TriangleAlert } from "lucide-react";
+
+import { usePersonaState } from "@/lib/persona/persona-context";
 
 import {
   AppPageContentRegion,
@@ -217,7 +219,7 @@ export function RiaStatusPanel({
         {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {items.map((item) => (
           <div
             key={`${item.label}-${item.value}`}
@@ -236,4 +238,38 @@ export function RiaStatusPanel({
       </div>
     </RiaSurface>
   );
+}
+
+const _VERIFIED_STATUSES = new Set(["active", "verified", "finra_verified"]);
+
+export function isRiaVerified(status?: string | null): boolean {
+  return _VERIFIED_STATUSES.has(String(status || "").toLowerCase());
+}
+
+export function RiaVerificationGate({ children }: { children: ReactNode }) {
+  const { riaOnboardingStatus, loading } = usePersonaState();
+  const status = riaOnboardingStatus?.advisory_status || riaOnboardingStatus?.verification_status;
+
+  if (loading) return null;
+
+  if (!isRiaVerified(status)) {
+    return (
+      <section className="space-y-3">
+        <SectionHeader
+          eyebrow="Verification required"
+          title="Complete advisor verification first"
+          description="Non-verified advisors cannot access investor data. Finish the verification flow in onboarding, then come back."
+          icon={ShieldAlert}
+        />
+        <RiaSurface tone="warning" className="border-dashed">
+          <p className="text-sm leading-6 text-muted-foreground">
+            Investor data, client workspaces, and consent requests are locked until
+            regulatory verification is complete.
+          </p>
+        </RiaSurface>
+      </section>
+    );
+  }
+
+  return <>{children}</>;
 }

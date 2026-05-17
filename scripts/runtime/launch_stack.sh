@@ -40,7 +40,13 @@ bash "$REPO_ROOT/scripts/env/use_profile.sh" "$PROFILE"
 BACKEND_PID=""
 cleanup() {
   if [ -n "$BACKEND_PID" ] && kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
-    kill "$BACKEND_PID" >/dev/null 2>&1 || true
+    local backend_pgid
+    backend_pgid="$(ps -o pgid= -p "$BACKEND_PID" 2>/dev/null | tr -d '[:space:]')"
+    if [ -n "$backend_pgid" ]; then
+      kill -TERM -- "-$backend_pgid" >/dev/null 2>&1 || true
+    else
+      kill "$BACKEND_PID" >/dev/null 2>&1 || true
+    fi
     wait "$BACKEND_PID" >/dev/null 2>&1 || true
   fi
 }

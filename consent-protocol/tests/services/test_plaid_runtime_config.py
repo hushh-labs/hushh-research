@@ -19,7 +19,7 @@ def _clear_plaid_env(monkeypatch) -> None:
         "PLAID_TX_HISTORY_DAYS",
         "PLAID_INVESTMENTS_MANUAL_ENTRY_ENABLED",
         "PLAID_INVESTMENTS_CRYPTO_WALLET_ENABLED",
-        "FRONTEND_URL",
+        "APP_FRONTEND_ORIGIN",
     ]
     for key in keys:
         monkeypatch.delenv(key, raising=False)
@@ -27,7 +27,7 @@ def _clear_plaid_env(monkeypatch) -> None:
 
 def test_from_env_ignores_placeholder_webhook_and_derives_from_https_frontend(monkeypatch):
     _clear_plaid_env(monkeypatch)
-    monkeypatch.setenv("FRONTEND_URL", "https://kai.hushh.ai")
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://kai.hushh.ai")
     monkeypatch.setenv("PLAID_WEBHOOK_URL", "https://<your-tunnel>/api/kai/plaid/webhook")
 
     config = PlaidRuntimeConfig.from_env()
@@ -59,7 +59,7 @@ def test_from_env_invalid_webhook_without_frontend_falls_back_to_none(monkeypatc
 def test_from_env_invalid_webhook_with_http_frontend_falls_back_to_none(monkeypatch):
     _clear_plaid_env(monkeypatch)
     monkeypatch.setenv("PLAID_WEBHOOK_URL", "https://<your-tunnel>/api/kai/plaid/webhook")
-    monkeypatch.setenv("FRONTEND_URL", "http://localhost:3000")
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "http://localhost:3000")
 
     config = PlaidRuntimeConfig.from_env()
 
@@ -68,7 +68,7 @@ def test_from_env_invalid_webhook_with_http_frontend_falls_back_to_none(monkeypa
 
 def test_from_env_http_frontend_does_not_derive_redirect_uri(monkeypatch):
     _clear_plaid_env(monkeypatch)
-    monkeypatch.setenv("FRONTEND_URL", "http://localhost:3000")
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "http://localhost:3000")
 
     config = PlaidRuntimeConfig.from_env()
 
@@ -77,7 +77,7 @@ def test_from_env_http_frontend_does_not_derive_redirect_uri(monkeypatch):
 
 def test_from_env_https_frontend_derives_redirect_uri(monkeypatch):
     _clear_plaid_env(monkeypatch)
-    monkeypatch.setenv("FRONTEND_URL", "https://kai.hushh.ai")
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://kai.hushh.ai")
     monkeypatch.setenv("PLAID_REDIRECT_PATH", "/kai/plaid/oauth/return")
 
     config = PlaidRuntimeConfig.from_env()

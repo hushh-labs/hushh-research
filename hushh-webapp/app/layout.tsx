@@ -1,9 +1,13 @@
+import { NetworkStatusBanner } from "@/components/system/network-status-banner";
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { RootLayoutClient } from "./layout-client";
-import { resolveGtmContainerId } from "@/lib/observability/env";
+import {
+  resolveAnalyticsMeasurementId,
+  resolveGtmContainerId,
+} from "@/lib/observability/env";
 
 const geistSans = Geist({
   subsets: ["latin"],
@@ -24,15 +28,26 @@ const headingSans = Inter({
 });
 
 const gtmContainerId = resolveGtmContainerId();
+const analyticsMeasurementId = resolveAnalyticsMeasurementId();
 
 export const metadata: Metadata = {
-  title: "Kai: Your Personal Agent",
+  title: "One: Your Personal Agent",
   description:
     "Personal AI agents with consent at the core. Your data, your control.",
-  keywords: ["AI agents", "personal AI", "Kai", "consent-first", "privacy"],
-  authors: [{ name: "Hushh Labs" }],
+  keywords: ["AI agents", "personal AI", "One", "consent-first", "privacy"],
+  authors: [{ name: "Hussh Labs" }],
+  icons: {
+    icon: [
+      { url: "/quiet-emoji-icon.svg", type: "image/svg+xml" },
+      { url: "/quiet-emoji-icon.png", type: "image/png", sizes: "512x512" },
+      { url: "/favicon.ico", sizes: "any" },
+    ],
+    shortcut: "/quiet-emoji-icon.svg",
+    apple: "/quiet-emoji-icon.png",
+  },
+  manifest: "/manifest.webmanifest",
   openGraph: {
-    title: "Kai: Your Personal Agent",
+    title: "One: Your Personal Agent",
     description: "Personal AI agents with consent at the core.",
     type: "website",
   },
@@ -71,6 +86,22 @@ export default function RootLayout({
             background-image: none !important;
           }
         `}</style>
+        {analyticsMeasurementId ? (
+          <>
+            <Script
+              id="ga-base"
+              strategy="afterInteractive"
+              dangerouslySetInnerHTML={{
+                __html: `window.dataLayer = window.dataLayer || []; window.gtag = window.gtag || function(){window.dataLayer.push(arguments);}; window.gtag('js', new Date()); window.gtag('config', '${analyticsMeasurementId}', { send_page_view: false });`,
+              }}
+            />
+            <Script
+              id="ga-loader"
+              strategy="afterInteractive"
+              src={`https://www.googletagmanager.com/gtag/js?id=${analyticsMeasurementId}`}
+            />
+          </>
+        ) : null}
         {gtmContainerId ? (
           <Script
             id="gtm-base"
@@ -84,6 +115,7 @@ export default function RootLayout({
       <RootLayoutClient
         fontClasses={`${geistSans.variable} ${geistMono.variable} ${headingSans.variable}`}
       >
+        <NetworkStatusBanner />
         {children}
       </RootLayoutClient>
     </html>

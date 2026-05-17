@@ -1,0 +1,74 @@
+{
+  "id": "contributor-onboarding",
+  "role": "owner",
+  "owner_family": "contributor-onboarding",
+  "primary_scope": "contributor-onboarding-intake",
+  "description": "Use when changing bootstrap, devcontainer, doctor, or contributor-first-run setup across the monorepo and the standalone consent-protocol path.",
+  "owned_paths": [
+    "README.md",
+    "contributing.md",
+    ".devcontainer",
+    "docs/guides/getting-started.md",
+    "scripts/env",
+    "consent-protocol/README.md",
+    "consent-protocol/CONTRIBUTING.md",
+    ".codex/skills/contributor-onboarding"
+  ],
+  "non_owned_paths": [
+    "docs-governance",
+    "repo-operations",
+    "backend",
+    "subtree-upstream-governance"
+  ],
+  "task_types": [
+    "contributor-onboarding"
+  ],
+  "required_reads": [
+    "README.md",
+    "contributing.md",
+    "docs/guides/getting-started.md",
+    "scripts/env/bootstrap.sh",
+    "scripts/env/bootstrap_profiles.sh",
+    "scripts/env/doctor.sh",
+    "consent-protocol/CONTRIBUTING.md"
+  ],
+  "required_commands": [
+    "./bin/hushh bootstrap --help",
+    "./bin/hushh env bootstrap",
+    "./bin/hushh doctor --mode local --json",
+    "./bin/hushh docs verify"
+  ],
+  "verification_bundles": [
+    {
+      "id": "contributor-onboarding",
+      "commands": [
+        "./bin/hushh bootstrap --help",
+        "./bin/hushh env bootstrap",
+        "./bin/hushh doctor --mode local --json",
+        "./bin/hushh docs verify"
+      ],
+      "tests": [
+        "./bin/hushh doctor --mode local --json",
+        "./bin/hushh docs verify"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "docs-governance",
+    "repo-operations",
+    "backend",
+    "subtree-upstream-governance"
+  ],
+  "adjacent_skills": [
+    "docs-governance",
+    "repo-operations",
+    "backend",
+    "subtree-upstream-governance"
+  ],
+  "risk_tags": [
+    "bootstrap-drift",
+    "devcontainer-drift",
+    "doctor-drift",
+    "contributor-path-drift"
+  ]
+}
