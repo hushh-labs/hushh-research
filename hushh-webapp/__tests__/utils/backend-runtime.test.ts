@@ -70,4 +70,12 @@ describe("backend runtime resolution", () => {
     const helper = await loadHelper();
     expect(helper.getDeveloperApiUrl()).toBe("https://consent-protocol-uat.example.com");
   });
+    it("preserves localhost canonicalization stability for uppercase loopback hosts", async () => {
+    process.env.BACKEND_URL = "http://LOCALHOST:8000";
+    process.env.NEXT_PUBLIC_BACKEND_URL = "http://LOCALHOST:8000";
+
+    const helper = await import("@/app/api/_utils/backend");
+
+    expect(helper.getPythonApiUrl()).toContain("127.0.0.1");
+  });
 });
