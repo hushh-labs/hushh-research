@@ -13,7 +13,7 @@ const BRAND_MARK_SIZE_CLASSES = {
 export type BrandMarkSize = keyof typeof BRAND_MARK_SIZE_CLASSES;
 
 export function BrandMark({
-  label = "Kai",
+  label = "🤫",
   size = "md",
   className,
 }: {
@@ -28,7 +28,7 @@ export function BrandMark({
         "grid place-items-center bg-black text-white dark:bg-white dark:text-black",
         "font-black tracking-tight shadow-[0_18px_50px_rgba(0,0,0,0.18)]",
         BRAND_MARK_SIZE_CLASSES[size],
-        className
+        className,
       )}
     >
       <span className="leading-none">{label}</span>

@@ -291,7 +291,7 @@
         "app_page_shell": false,
         "page_header": false,
         "settings_ui": false,
-        "shared_loader": true,
+        "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": null,
@@ -800,6 +800,7 @@
       },
       "voice_action_contract_file": "app/one/kyc/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "kyc.aliases.manage",
         "kyc.draft.approve_send",
         "kyc.draft.reject",
         "kyc.draft.request_redraft",
