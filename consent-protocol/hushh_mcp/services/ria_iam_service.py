@@ -145,6 +145,7 @@ _OFFICIAL_ADDRESS_RE = re.compile(
     r"(?P<pin_zip>\d{5}(?:-\d{4})?)\b",
     re.IGNORECASE,
 )
+DEFAULT_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS = 75.0
 
 
 def _first_text_value(*values: Any) -> str | None:
@@ -155,6 +156,21 @@ def _first_text_value(*values: Any) -> str | None:
         if normalized:
             return normalized
     return None
+
+
+def _positive_float_env(name: str, default: float) -> float:
+    raw_value = str(os.getenv(name) or "").strip()
+    if not raw_value:
+        return default
+    try:
+        value = float(raw_value)
+    except ValueError:
+        logger.warning("Invalid %s=%r; using default %.1fs", name, raw_value, default)
+        return default
+    if value <= 0:
+        logger.warning("Invalid %s=%r; using default %.1fs", name, raw_value, default)
+        return default
+    return value
 
 
 def _broker_city(payload: dict[str, Any]) -> str | None:
@@ -902,9 +918,13 @@ class RIAIAMService:
         broker_result = None
         scrape_result = None
         try:
+            provider_timeout = _positive_float_env(
+                "RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS",
+                DEFAULT_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS,
+            )
             results = await asyncio.wait_for(
                 asyncio.gather(broker_task, scrape_task, return_exceptions=True),
-                timeout=45,
+                timeout=provider_timeout,
             )
             if isinstance(results[0], BaseException):
                 logger.warning("verify_ria_license: broker_intelligence failed for %s", normalized)
