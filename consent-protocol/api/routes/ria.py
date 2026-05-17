@@ -78,6 +78,7 @@ class RIAOnboardingVerifyNameRequest(BaseModel):
 class RIAOnboardingVerifyLicenseRequest(BaseModel):
     license_number: str = Field(..., min_length=1)
     regulator: str | None = None
+    force_live_verification: bool = False
 
 
 class RIAConsentRequestCreate(BaseModel):
@@ -269,6 +270,7 @@ async def verify_onboarding_license(
             firebase_uid,
             license_number=payload.license_number,
             regulator=payload.regulator,
+            force_live_verification=payload.force_live_verification,
         )
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
