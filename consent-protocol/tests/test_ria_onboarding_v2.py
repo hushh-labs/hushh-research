@@ -222,7 +222,9 @@ def test_verify_ria_license_returns_recent_cache_without_provider(monkeypatch) -
         "status": "Investment Adviser Representative",
         "crdNumber": "7413463",
         "city": "Kennesaw",
+        "state": "GA",
         "pinZip": "30144",
+        "fullStreetAddress": "114 Townpark Drive, Ste. 175",
         "exams": ["Series 65"],
         "disclosures": {"count": 1},
         "employmentHistory": [],
@@ -272,10 +274,112 @@ def test_verify_ria_license_returns_recent_cache_without_provider(monkeypatch) -
     assert result["status"] == "found"
     assert result["advisor_name"] == "Andrew Garrett Kirkland"
     assert result["firm_name"] == "Eissman Wealth Management"
+    assert result["city"] == "Kennesaw"
+    assert result["pin_zip"] == "30144"
+    assert result["full_street_address"] == "114 Townpark Drive, Ste. 175"
     assert result["cache_hit"] is True
     assert result["cached_at"].endswith("Z")
     assert result["cache_expires_at"].endswith("Z")
     assert result["cache_ttl_seconds"] == 24 * 60 * 60
+
+
+def test_verify_ria_license_ignores_incomplete_location_cache(monkeypatch) -> None:
+    cached_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    cached_payload = {
+        "verifiedName": "Andrew Garrett Kirkland",
+        "currentFirm": "Eissman Wealth Management",
+        "status": "Investment Adviser Representative",
+        "crdNumber": "7413463",
+        "exams": ["Series 66"],
+        "summary": "Cached profile without a source-backed business location.",
+    }
+    calls = {"broker": 0, "scrape": 0, "execute": 0}
+    captured_audit: dict[str, Any] = {}
+
+    class _FakeConn:
+        async def fetchrow(self, query: str, *args):
+            assert "status = 'completed'" in query
+            assert args[0] == _TEST_UID
+            assert args[1] == "7413463"
+            return {
+                "raw_response": json.dumps(cached_payload),
+                "regulator": "SEC",
+                "created_at": cached_at,
+            }
+
+        async def execute(self, _query, *args):
+            calls["execute"] += 1
+            captured_audit["payload"] = json.loads(args[4])
+            captured_audit["status"] = args[5]
+            return "INSERT 0 1"
+
+    async def _fake_get_pool():
+        return _FakePool(_FakeConn())
+
+    class _FakeProxy:
+        async def broker_intelligence(self, *, query: str, request_id: str | None = None):
+            _ = request_id
+            calls["broker"] += 1
+            assert query == "7413463"
+            return CrdScrapeProviderResponse(
+                200,
+                {
+                    "verifiedName": "Andrew Garrett Kirkland",
+                    "currentFirm": "Eissman Wealth Management",
+                    "status": "Investment Adviser Representative",
+                    "crdNumber": "7413463",
+                    "exams": ["Series 66"],
+                },
+            )
+
+        async def create_job(self, *, crd_number: str, request_id: str | None = None):
+            _ = request_id
+            calls["scrape"] += 1
+            assert crd_number == "7413463"
+            return CrdScrapeProviderResponse(202, {"jobId": "crd_scrape_location_refresh"})
+
+    async def _mock_official_location(crd_number: str):
+        assert crd_number == "7413463"
+        return {
+            "city": "Kennesaw",
+            "state": "GA",
+            "pin_zip": "30144",
+            "address": "114 Townpark Drive, Ste. 175",
+            "location": "Kennesaw, GA",
+            "source_url": "https://reports.adviserinfo.sec.gov/reports/individual/individual_7413463.pdf",
+        }
+
+    monkeypatch.setattr(ria_iam_service_module, "get_pool", _fake_get_pool)
+    monkeypatch.setattr(
+        "hushh_mcp.services.crd_scrape_proxy_service.CrdScrapeProxyService",
+        lambda: _FakeProxy(),
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.ria_iam_service._official_pdf_location_for_crd",
+        _mock_official_location,
+    )
+
+    result = asyncio.run(
+        RIAIAMService().verify_ria_license(
+            _TEST_UID,
+            license_number="7413463",
+            regulator="SEC",
+        )
+    )
+
+    assert result["status"] == "found"
+    assert result["cache_hit"] is False
+    assert result["city"] == "Kennesaw"
+    assert result["pin_zip"] == "30144"
+    assert result["full_street_address"] == "114 Townpark Drive, Ste. 175"
+    assert calls == {"broker": 1, "scrape": 1, "execute": 1}
+    assert captured_audit["status"] == "completed"
+    assert captured_audit["payload"]["city"] == "Kennesaw"
+    assert captured_audit["payload"]["pin_zip"] == "30144"
+    assert captured_audit["payload"]["full_street_address"] == "114 Townpark Drive, Ste. 175"
+    assert captured_audit["payload"]["official_location"]["source_url"].endswith(
+        "individual_7413463.pdf"
+    )
 
 
 def test_verify_ria_license_force_live_bypasses_recent_cache(monkeypatch) -> None:
