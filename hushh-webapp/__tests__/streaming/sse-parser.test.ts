@@ -60,7 +60,77 @@ describe("parseSSEBlocks", () => {
     const result = parseSSEBlocks(": ping\n\n\n");
     expect(result.events).toHaveLength(0);
   });
-    it("preserves SSE comment heartbeat isolation from valid events", () => {
+  it("ignores whitespace-only SSE separator frames", () => {
+    const input =
+      "\n \n\t\n\n" +
+      'event: complete\n' +
+      'id: 9\n' +
+      'data: {"schema_version":"1.0","stream_id":"strm_ws","stream_kind":"portfolio_import","seq":9,"event":"complete","terminal":true,"payload":{"status":"ok"}}\n\n';
+
+    const result = parseSSEBlocks(input);
+
+    expect(result.remainder).toBe("");
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      event: "complete",
+      id: "9",
+    });
+  });
+
+  it("recovers valid frames after malformed SSE blocks", () => {
+    const input =
+      "event: broken\n" +
+      "id: bad-1\n" +
+      "retry: 1000\n\n" +
+      ": heartbeat\n\n" +
+      "data: orphan payload\n\n" +
+      "event: stage\n" +
+      "id: 4\n" +
+      'data: {"schema_version":"1.0","stream_id":"strm_3","stream_kind":"portfolio_import","seq":4,"event":"stage","terminal":false,"payload":{"stage":"recovered"}}\n\n';
+
+    const result = parseSSEBlocks(input);
+
+    expect(result.remainder).toBe("");
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      event: "stage",
+      id: "4",
+    });
+
+    const parsed = JSON.parse(result.events[0]!.data) as unknown;
+    expect(isKaiStreamEnvelope(parsed)).toBe(true);
+
+    if (isKaiStreamEnvelope(parsed)) {
+      expect(parsed.payload.stage).toBe("recovered");
+    }
+  });
+
+  it("preserves SSE event ordering across fragmented chunks", () => {
+    const first =
+      'event: stage\nid: 1\ndata: {"schema_version":"1.0","stream_id":"strm_order","stream_kind":"portfolio_import","seq":1,"event":"stage","terminal":false,"payload":{"stage":"one"}}\n\n' +
+      'event: chunk\nid: 2\ndata: {"schema_version":"1.0","stream_id":"strm_order","stream_kind":"portfolio_import","seq":2,';
+
+    const firstResult = parseSSEBlocks(first);
+
+    expect(firstResult.events).toHaveLength(1);
+    expect(firstResult.events[0]?.event).toBe("stage");
+    expect(firstResult.remainder).toContain("event: chunk");
+
+    const second =
+      '"event":"chunk","terminal":false,"payload":{"text":"two"}}\n\n' +
+      'event: done\nid: 3\ndata: {"schema_version":"1.0","stream_id":"strm_order","stream_kind":"portfolio_import","seq":3,"event":"done","terminal":true,"payload":{"status":"complete"}}\n\n';
+
+    const secondResult = parseSSEBlocks(second, firstResult.remainder);
+
+    expect(secondResult.remainder).toBe("");
+    expect(secondResult.events.map((event) => event.id)).toEqual(["2", "3"]);
+    expect(secondResult.events.map((event) => event.event)).toEqual([
+      "chunk",
+      "done",
+    ]);
+  });
+
+  it("preserves SSE comment heartbeat isolation across keepalive frames", () => {
     const input =
       ": heartbeat\n" +
       ": keepalive\n\n" +
@@ -72,12 +142,10 @@ describe("parseSSEBlocks", () => {
 
     expect(result.remainder).toBe("");
     expect(result.events).toHaveLength(1);
-
     expect(result.events[0]).toMatchObject({
       event: "stage",
       id: "7",
     });
-
     const parsed = JSON.parse(result.events[0]!.data) as unknown;
 
     expect(isKaiStreamEnvelope(parsed)).toBe(true);
@@ -87,3 +155,4 @@ describe("parseSSEBlocks", () => {
     }
   });
 });
+
