@@ -182,4 +182,18 @@ describe("PostAuthRouteService", () => {
       })
     ).resolves.toBe(ROUTES.KAI_HOME);
   });
+    it("falls back to the default home route when redirectPath is empty", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: true,
+      preOnboardingCompleted: true,
+      preOnboardingCompletedAt: 1,
+    });
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        redirectPath: "",
+      })
+    ).resolves.toBe(ROUTES.KAI_HOME);
+  });
 });
