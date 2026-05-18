@@ -25,6 +25,7 @@ import {
   type RouteId,
 } from "@/lib/observability/route-map";
 import { validateAndSanitizeEvent } from "@/lib/observability/schema";
+import { redactObservabilityLogValue } from "@/lib/observability/log-redactor";
 
 interface TrackOptions {
   dedupeKey?: string;
@@ -72,7 +73,7 @@ function shouldSample(sampleRate: number): boolean {
 
 function debugLog(...args: unknown[]) {
   if (!isObservabilityDebugEnabled()) return;
-  console.info("[observability]", ...args);
+  console.info("[observability]", ...args.map(redactObservabilityLogValue));
 }
 
 export function trackEvent<T extends ObservabilityEventName>(
