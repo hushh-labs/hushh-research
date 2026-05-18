@@ -108,6 +108,18 @@ def test_ria_clients_schema_not_ready_returns_503(monkeypatch):
     assert payload["code"] == "IAM_SCHEMA_NOT_READY"
 
 
+def test_ria_clients_query_filters_are_bounded(monkeypatch):
+    async def _mock_require(self, user_id: str):
+        return
+
+    monkeypatch.setattr(RIAIAMService, "require_ria_verified", _mock_require)
+
+    client = TestClient(_build_app())
+    response = client.get("/api/ria/clients", params={"q": "x" * 201})
+
+    assert response.status_code == 422
+
+
 def test_marketplace_rias_public_read(monkeypatch):
     async def _mock_search(self, **kwargs):  # noqa: ANN003
         assert kwargs.get("limit") == 20
@@ -128,6 +140,16 @@ def test_marketplace_rias_public_read(monkeypatch):
     data = response.json()
     assert len(data["items"]) == 1
     assert data["items"][0]["display_name"] == "RIA Alpha"
+
+
+def test_marketplace_query_filters_are_bounded():
+    client = TestClient(_build_app())
+
+    ria_response = client.get("/api/marketplace/rias", params={"query": "x" * 201})
+    investor_response = client.get("/api/marketplace/investors", params={"query": "x" * 201})
+
+    assert ria_response.status_code == 422
+    assert investor_response.status_code == 422
 
 
 def test_ria_onboarding_submit_maps_professional_capabilities(monkeypatch):

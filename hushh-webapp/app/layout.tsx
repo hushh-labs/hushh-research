@@ -1,3 +1,4 @@
+import { NetworkStatusBanner } from "@/components/system/network-status-banner";
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
 import Script from "next/script";
@@ -30,13 +31,23 @@ const gtmContainerId = resolveGtmContainerId();
 const analyticsMeasurementId = resolveAnalyticsMeasurementId();
 
 export const metadata: Metadata = {
-  title: "Kai: Your Personal Agent",
+  title: "One: Your Personal Agent",
   description:
     "Personal AI agents with consent at the core. Your data, your control.",
-  keywords: ["AI agents", "personal AI", "Kai", "consent-first", "privacy"],
+  keywords: ["AI agents", "personal AI", "One", "consent-first", "privacy"],
   authors: [{ name: "Hussh Labs" }],
+  icons: {
+    icon: [
+      { url: "/quiet-emoji-icon.svg", type: "image/svg+xml" },
+      { url: "/quiet-emoji-icon.png", type: "image/png", sizes: "512x512" },
+      { url: "/favicon.ico", sizes: "any" },
+    ],
+    shortcut: "/quiet-emoji-icon.svg",
+    apple: "/quiet-emoji-icon.png",
+  },
+  manifest: "/manifest.webmanifest",
   openGraph: {
-    title: "Kai: Your Personal Agent",
+    title: "One: Your Personal Agent",
     description: "Personal AI agents with consent at the core.",
     type: "website",
   },
@@ -104,6 +115,7 @@ export default function RootLayout({
       <RootLayoutClient
         fontClasses={`${geistSans.variable} ${geistMono.variable} ${headingSans.variable}`}
       >
+        <NetworkStatusBanner />
         {children}
       </RootLayoutClient>
     </html>

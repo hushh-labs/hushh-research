@@ -139,6 +139,31 @@ describe("OneKycClientZkService", () => {
     expect(draft.scopeSummaries).toHaveLength(2);
   });
 
+  it("builds drafts from dynamic non-identity scopes without forcing identity fields", async () => {
+    const workflow: OneKycWorkflow = {
+      ...baseWorkflow,
+      required_fields: ["favorite_locations"],
+      requested_scope: "attr.travel.*",
+      subject: "Favorite locations",
+    };
+
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow,
+      exportPayload: {
+        travel: {
+          favorite_locations: ["Seattle", "Tokyo"],
+          travel_style: "quiet cafes and walkable neighborhoods",
+        },
+      },
+    });
+
+    expect(draft.subject).toBe("Re: Favorite locations");
+    expect(draft.approvedValues).toEqual({ favorite_locations: "Seattle, Tokyo" });
+    expect(draft.missingFields).toEqual([]);
+    expect(draft.body).toContain("favorite locations: Seattle, Tokyo");
+    expect(draft.body).not.toContain("identity profile");
+  });
+
   it("rejects consent exports wrapped to a different connector before decrypting", async () => {
     await expect(
       OneKycClientZkService.decryptScopedExport({
