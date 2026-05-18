@@ -1,0 +1,54 @@
+{
+  "id": "desktop-mac-connectors",
+  "role": "spoke",
+  "owner_family": "desktop-mac",
+  "primary_scope": "desktop-mac-connectors",
+  "description": "Use when implementing or reviewing Mac-side knowledge connectors (local filesystem, Spotlight, Apple Notes, Apple Mail, Calendar, Obsidian, Notion, Google Drive, Slack) inside the desktop-mac owner family.",
+  "owned_paths": [
+    "apps/one-mac/Sources/OneIndexer"
+  ],
+  "non_owned_paths": [
+    "desktop-mac",
+    "mobile-native",
+    "backend"
+  ],
+  "task_types": [
+    "new-feature-tri-flow"
+  ],
+  "required_reads": [
+    "docs/future/one-mac-knowledge-base-app.md",
+    "apps/one-mac/README.md",
+    "hushh-webapp/ios/App/CapApp-SPM/Package.swift"
+  ],
+  "required_commands": [
+    "./bin/hushh native mac build",
+    "./bin/hushh native mac test"
+  ],
+  "verification_bundles": [
+    {
+      "id": "desktop-mac-connectors-core",
+      "commands": [
+        "./bin/hushh native mac build",
+        "./bin/hushh native mac test"
+      ],
+      "tests": [
+        "./bin/hushh native mac test"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "desktop-mac",
+    "desktop-mac-mcp-host",
+    "vault-pkm-governance"
+  ],
+  "adjacent_skills": [
+    "desktop-mac",
+    "vault-pkm-governance",
+    "mobile-native"
+  ],
+  "risk_tags": [
+    "connector-permission-drift",
+    "oauth-refresh-drift",
+    "applescript-bridge-drift"
+  ]
+}
