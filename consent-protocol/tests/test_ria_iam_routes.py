@@ -145,6 +145,9 @@ def test_marketplace_rias_public_read(monkeypatch):
 def test_marketplace_investors_exposes_public_sec_discovery_contract(monkeypatch):
     async def _mock_search(self, **kwargs):  # noqa: ANN003
         assert kwargs.get("limit") == 20
+        assert kwargs.get("persona") == "ria"
+        assert kwargs.get("deck") == "qualified"
+        assert kwargs.get("location") is None
         return [
             {
                 "id": "public_sec:42",
@@ -156,6 +159,10 @@ def test_marketplace_investors_exposes_public_sec_discovery_contract(monkeypatch
                 "location_hint": "Kirkland, WA 98033",
                 "strategy_summary": "Public investor profile assembled from public filings.",
                 "connectable": False,
+                "admission_status": "qualified",
+                "curation_tier": "showcase",
+                "quality_score": 95,
+                "actions": ["shortlist", "view_more"],
                 "evidence": {
                     "confidence": "official_public_records",
                     "sources": ["SEC EDGAR", "Form 13F"],
@@ -175,8 +182,39 @@ def test_marketplace_investors_exposes_public_sec_discovery_contract(monkeypatch
     assert item["source_type"] == "public_sec"
     assert item["user_id"] is None
     assert item["connectable"] is False
+    assert item["admission_status"] == "qualified"
+    assert item["actions"] == ["shortlist", "view_more"]
     assert item["location_hint"] == "Kirkland, WA 98033"
     assert item["evidence"]["confidence"] == "official_public_records"
+
+
+def test_marketplace_investors_forwards_deck_and_location_filters(monkeypatch):
+    async def _mock_search(self, **kwargs):  # noqa: ANN003
+        assert kwargs == {
+            "query": "98033",
+            "limit": 32,
+            "persona": "ria",
+            "deck": "showcase",
+            "location": "Kirkland",
+        }
+        return []
+
+    monkeypatch.setattr(RIAIAMService, "search_marketplace_investors", _mock_search)
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/marketplace/investors",
+        params={
+            "query": "98033",
+            "limit": "32",
+            "persona": "ria",
+            "deck": "showcase",
+            "location": "Kirkland",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
 
 
 def test_marketplace_query_filters_are_bounded():

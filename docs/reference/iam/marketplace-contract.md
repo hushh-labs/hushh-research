@@ -28,8 +28,27 @@ Public cards may include:
 2. verification badge/status
 3. firm attribution
 4. strategy/disclosure summary
+5. qualified-deck admission status and curation tier
+6. official SEC evidence links for public investor profiles
 
 Public cards must not include private portfolio or sensitive personal fields.
+
+## RIA Investor Deck Contract
+
+The default RIA-facing investor deck is curated, not a raw signed-in user
+directory.
+
+1. Public SEC investor rows must have `marketplace_eligible=true`,
+   `admission_status=qualified`, curation tier `showcase` or `qualified`, a
+   non-empty public summary, CIK, source URLs, and latest official filing
+   evidence.
+2. Public SEC rows are discovery leads only. They return
+   `connectable=false` and actions `shortlist` plus `view_more`.
+3. hussh investor users only appear in the default RIA deck when their public
+   marketplace metadata explicitly marks them as qualified. Login, investor
+   persona, and marketplace opt-in alone are not enough.
+4. Qualified hussh investor rows may return `connectable=true` and actions
+   `connect` plus `view_more`.
 
 ## Relationship Lifecycle
 
