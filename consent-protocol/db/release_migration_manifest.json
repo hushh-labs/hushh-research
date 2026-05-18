@@ -29,7 +29,10 @@
     "049_one_email_kyc_workflows.sql",
     "050_one_kyc_client_connector_registry.sql",
     "051_one_kyc_metadata_token_redaction.sql",
-    "052_actor_verified_email_aliases.sql"
+    "052_actor_verified_email_aliases.sql",
+    "053_ria_onboarding_v2_fields.sql",
+    "054_ria_license_verification_cache_index.sql",
+    "055_agent_chat_encrypted_store.sql"
   ],
   "groups": {
     "iam": [
@@ -48,7 +51,9 @@
       "052_actor_verified_email_aliases.sql",
       "041_ria_pick_package_metadata.sql",
       "042_ria_pick_single_active_record.sql",
-      "043_ria_pick_share_artifacts.sql"
+      "043_ria_pick_share_artifacts.sql",
+      "053_ria_onboarding_v2_fields.sql",
+      "054_ria_license_verification_cache_index.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

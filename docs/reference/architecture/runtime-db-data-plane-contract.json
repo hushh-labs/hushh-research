@@ -13,6 +13,7 @@
     "pkm_events",
     "pkm_manifest_paths",
     "kai_gmail_sync_runs",
+    "agent_chat_messages",
     "kai_funding_webhook_events",
     "kai_funding_transfer_events",
     "kai_funding_trade_events",
@@ -89,6 +90,19 @@
       "trust_boundary": "Ciphertext segments only; backend does not inspect plaintext PKM payloads.",
       "plaintext_posture": "ciphertext_only",
       "expected_row_growth": "medium_per_user_domain"
+    },
+    {
+      "id": "agent_chat_encrypted_memory",
+      "owner": "backend-agents-operons",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "current",
+      "exact_tables": ["agent_chat_conversations", "agent_chat_messages"],
+      "primary_access_path": "Gemini-backed Agent text chat streaming, encrypted chat history restore, and LLM context assembly",
+      "retention_policy": "Retain while account exists or until a future user-facing Agent chat deletion/export flow is introduced.",
+      "deletion_behavior": "Delete all user rows on account deletion; do not persist transient tool debug events.",
+      "trust_boundary": "Message titles and content persist as AES-GCM ciphertext. Backend may decrypt only with vault service key for current Agent LLM context; frontend tool debug events remain live-only and are not stored.",
+      "plaintext_posture": "ciphertext_and_metadata",
+      "expected_row_growth": "high_per_user_chat"
     },
     {
       "id": "pkm_metadata_and_scope",
