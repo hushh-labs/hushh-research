@@ -106,13 +106,29 @@ Common high-signal lanes:
 4. `security-consent-audit`: security consent auditor first, with backend/frontend lanes when caller or route contracts are implicated.
 5. `kai-voice-governance`: voice systems architect plus reviewer when generated contracts, planner/executor flow, or UI action parity changes.
 6. `pr-governance-review`: data model architect when migrations, schema contracts, UAT parity, cache coherence, or local-first/cloud projection authority is implicated.
-7. Product/docs/founder-language tasks: product docs architect when founder language, roadmap claims, One/Kai/Nav role clarity, durable docs placement, or community copy is implicated.
+7. Product/docs/founder-language tasks: product docs architect when founder language, founder wiki north-star review, roadmap claims, One/Kai/Nav role clarity, durable docs placement, or community copy is implicated.
 8. Analytics/observability tasks: analytics observability architect when GA4, Firebase Analytics, BigQuery, event taxonomy, route ids, or dashboard contracts are implicated.
 9. Mobile/native tasks: mobile native architect when iOS, Android, Capacitor, native bridge, plugin registration, or device parity is implicated.
 
 Automatic here means the parent may spawn the lane without asking the user again. It does not mean child agents can approve, merge, deploy, push, or mutate branches.
 
+PR governance has one narrow workflow-local writer-lane exception for pre-approved train execution. It is separate from repo-scoped custom agents: evidence lanes stay read-only, while the exception may only edit/post standardized maintainer records, request changes, close superseded PRs, acknowledge harvest, or enqueue exact-head queue candidates under the PR train SOP gates. Branch switching, code patches, commits, pushes, deploys, secrets, product-policy changes, and final merge policy stay with the parent/governor.
+
 The router is advisory, not authority. If it recommends a lane that the runtime does not expose in the current session, record that runtime availability gap and continue locally or with the closest available read-only agent.
+
+Founder wiki evidence lanes use the Founder Wiki North-Star Probe and are read-only by default. They may use product/architecture/non-negotiable pages for north-star alignment, but private wiki evidence must stay local-only and public GitHub comments must not cite private wiki pages. When repo truth and wiki canon disagree, classify the gap as `current_state_vs_north_star_drift`.
+
+## Skill Activation Detection
+
+Use these sources to detect how a skill can activate agents or subagents:
+
+1. `skill.json`: role, owner family, task types, reads, checks, and handoff targets.
+2. `.codex/workflows/*/workflow.json`: `owner_skill`, `default_spoke`, `task_type`, and explicit `delegation_policy` lanes.
+3. `.codex/agents/*.toml`: the skill block that says which skills each read-only agent can support.
+4. `delegation_router.py`: repo-global prompt/path lane matches for workflows without explicit delegation policy.
+5. `skill_fleet_audit.py`: compact fleet table that reports each skill as `master <skill-id>` or `spoke <skill-id>` with agents, workflows, and detection mechanisms.
+
+Report owner skills as master lanes in operator-facing output, but do not rename the manifest role from `owner`.
 
 ## Authority rules
 

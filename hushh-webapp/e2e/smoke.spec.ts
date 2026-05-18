@@ -21,7 +21,7 @@ test.describe("Application Boot", () => {
     await page.goto("/");
     await expect(
       page.getByRole("heading", {
-        name: /Meet Kai,\s*Your Personal Financial Advisor/i,
+        name: /Meet One,\s*Your Personal Financial Advisor/i,
       }),
     ).toBeVisible({ timeout: 15_000 });
     await expect(
@@ -58,7 +58,7 @@ test.describe("Login Page", () => {
   test("login page renders auth step", async ({ page }) => {
     await page.goto("/login");
     await expect(
-      page.getByRole("heading", { name: /Sign in to Kai/i }),
+      page.getByRole("heading", { name: /Sign in to One/i }),
     ).toBeVisible({ timeout: 15_000 });
     await expect(
       page.getByRole("button", { name: /Continue with Google/i }),
@@ -69,7 +69,7 @@ test.describe("Login Page", () => {
     await page.goto("/login?redirect=/portfolio");
     // Page should load without errors even with redirect param
     await expect(
-      page.getByRole("heading", { name: /Sign in to Kai/i }),
+      page.getByRole("heading", { name: /Sign in to One/i }),
     ).toBeVisible({ timeout: 15_000 });
   });
 });

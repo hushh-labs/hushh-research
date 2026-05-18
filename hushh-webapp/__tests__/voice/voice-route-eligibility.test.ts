@@ -8,6 +8,7 @@ describe("voice-route-eligibility", () => {
     expect(isVoiceEligibleRouteScreen("profile", false)).toBe(true);
     expect(isVoiceEligibleRouteScreen("profile_receipts", false)).toBe(true);
     expect(isVoiceEligibleRouteScreen("consents", false)).toBe(true);
+    expect(isVoiceEligibleRouteScreen("one_kyc", false)).toBe(true);
   });
 
   it("rejects hidden chrome and unknown app surfaces", () => {

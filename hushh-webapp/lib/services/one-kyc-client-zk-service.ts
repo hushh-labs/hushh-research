@@ -34,6 +34,7 @@ export type KycScopedExportPackage = {
     connector_key_id?: string;
   };
   scope?: string;
+  request_id?: string;
   export_revision?: number;
   export_generated_at?: string;
   export_refresh_status?: string;
@@ -44,7 +45,17 @@ export type KycDraftBuildResult = {
   body: string;
   approvedValues: Record<string, string>;
   missingFields: string[];
+  scopeSummaries: Array<{
+    scope: string;
+    approvedFields: string[];
+    missingFields: string[];
+  }>;
   draftHash: string;
+};
+
+type KycDraftExportPayload = {
+  scope?: string | null;
+  payload: Record<string, unknown>;
 };
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -120,6 +131,30 @@ function formatApprovedValue(value: unknown): string | null {
   return null;
 }
 
+function scopeDomain(scope: string | null | undefined): string | null {
+  const parts = String(scope || "").split(".");
+  return parts.length >= 2 && parts[0] === "attr" && parts[1] ? parts[1] : null;
+}
+
+function flattenApprovedValues(
+  value: unknown,
+  prefix = "",
+  result: Record<string, string> = {}
+): Record<string, string> {
+  if (!value || typeof value !== "object") return result;
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (key === "__export_metadata") continue;
+    const field = prefix ? `${prefix}_${key}` : key;
+    if (item && typeof item === "object" && !Array.isArray(item)) {
+      flattenApprovedValues(item, field, result);
+      continue;
+    }
+    const formatted = formatApprovedValue(item);
+    if (formatted) result[field] = formatted;
+  }
+  return result;
+}
+
 function findApprovedValue(value: unknown, aliases: string[]): string | null {
   const normalizedAliases = new Set(aliases.map(normalizeFieldKey));
   if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -148,6 +183,7 @@ function findApprovedValue(value: unknown, aliases: string[]): string | null {
 function extractApprovedValues(params: {
   payload: Record<string, unknown>;
   requiredFields: string[];
+  scope?: string | null;
 }): { approvedValues: Record<string, string>; missingFields: string[] } {
   const aliases: Record<string, string[]> = {
     full_name: ["full_name", "fullName", "legal_name", "legalName", "name", "display_name"],
@@ -161,19 +197,87 @@ function extractApprovedValues(params: {
     source_of_funds: ["source_of_funds", "sourceOfFunds", "source_of_wealth"],
     brokerage_profile: ["brokerage_profile", "brokerageProfile", "trading_experience"],
     identity_profile: ["identity", "profile", "identity_profile", "identityProfile"],
+    financial_profile: [
+      "financial_profile",
+      "financialProfile",
+      "financial_information",
+      "financialInformation",
+      "net_worth",
+      "netWorth",
+      "assets",
+      "liabilities",
+    ],
+    portfolio: ["portfolio", "holdings", "investment_holdings", "investments", "positions"],
+    financial_documents: ["financial_documents", "financialDocuments", "statements", "documents"],
+    favorite_locations: [
+      "favorite_locations",
+      "favoriteLocations",
+      "favourite_locations",
+      "favouriteLocations",
+      "favorite_places",
+      "favourite_places",
+      "locations",
+      "places",
+      "destinations",
+    ],
+    locations: ["locations", "places", "destinations", "favorite_locations"],
+    seat_preferences: [
+      "seat_preferences",
+      "seatPreferences",
+      "seat_preference",
+      "seatPreference",
+      "preferred_seat",
+      "preferredSeat",
+      "preferred_seats",
+      "preferredSeats",
+      "travel_preference_seat",
+      "travelPreferenceSeat",
+      "summary",
+      "observations",
+    ],
+    preferences: ["preferences", "favorites", "favourites"],
   };
+  const domain = scopeDomain(params.scope);
+  const sourceKey =
+    domain === "financial" ? "financial" : domain === "identity" ? "identity" : domain;
   const source =
-    params.payload.identity && typeof params.payload.identity === "object"
-      ? (params.payload.identity as Record<string, unknown>)
+    sourceKey && params.payload[sourceKey] && typeof params.payload[sourceKey] === "object"
+      ? (params.payload[sourceKey] as Record<string, unknown>)
       : params.payload;
   const approvedValues: Record<string, string> = {};
   const missingFields: string[] = [];
-  for (const field of params.requiredFields.length ? params.requiredFields : ["identity_profile"]) {
+  const fields = fieldsForScope(params.scope, params.requiredFields);
+  if (!fields.length) {
+    return { approvedValues: flattenApprovedValues(source), missingFields };
+  }
+  for (const field of fields) {
     const value = findApprovedValue(source, aliases[field] || [field]);
     if (value) approvedValues[field] = value;
     else missingFields.push(field);
   }
   return { approvedValues, missingFields };
+}
+
+const FINANCIAL_FIELDS = new Set(["financial_profile", "portfolio", "financial_documents"]);
+
+function fieldsForScope(scope: string | null | undefined, requiredFields: string[]): string[] {
+  const normalizedScope = String(scope || "");
+  const domain = scopeDomain(scope);
+  const requested = requiredFields.length ? requiredFields : [];
+  if (normalizedScope.startsWith("attr.financial")) {
+    const financialRequested = requested.filter((field) => FINANCIAL_FIELDS.has(field));
+    if (financialRequested.length) return financialRequested;
+    if (normalizedScope.includes("portfolio")) return ["portfolio"];
+    if (normalizedScope.includes("documents")) return ["financial_documents"];
+    return ["financial_profile"];
+  }
+  if (domain && domain !== "identity") {
+    return requested.filter(
+      (field) => !FINANCIAL_FIELDS.has(field) && field !== "identity_profile"
+    );
+  }
+  const identityRequested = requested.filter((field) => !FINANCIAL_FIELDS.has(field));
+  return identityRequested.length ? identityRequested : ["identity_profile"];
 }
 
 function replySubject(subject: string | null | undefined): string {
@@ -399,27 +503,61 @@ export class OneKycClientZkService {
 
   static async buildDraft(params: {
     workflow: OneKycWorkflow;
-    exportPayload: Record<string, unknown>;
+    exportPayload?: Record<string, unknown>;
+    exportPayloads?: KycDraftExportPayload[];
     instructions?: string;
   }): Promise<KycDraftBuildResult> {
-    const { approvedValues, missingFields } = extractApprovedValues({
-      payload: params.exportPayload,
-      requiredFields: params.workflow.required_fields,
-    });
+    const payloads =
+      params.exportPayloads && params.exportPayloads.length
+        ? params.exportPayloads
+        : params.exportPayload
+          ? [{ scope: params.workflow.requested_scope, payload: params.exportPayload }]
+          : [];
+    const approvedValues: Record<string, string> = {};
+    const missingFields: string[] = [];
+    const scopeSummaries: KycDraftBuildResult["scopeSummaries"] = [];
+    for (const item of payloads) {
+      const scope = item.scope || params.workflow.requested_scope || "attr.identity.*";
+      const extracted = extractApprovedValues({
+        payload: item.payload,
+        requiredFields: params.workflow.required_fields,
+        scope,
+      });
+      Object.assign(approvedValues, extracted.approvedValues);
+      for (const field of extracted.missingFields) {
+        if (!missingFields.includes(field)) missingFields.push(field);
+      }
+      scopeSummaries.push({
+        scope,
+        approvedFields: Object.keys(extracted.approvedValues),
+        missingFields: extracted.missingFields,
+      });
+    }
     const counterparty = params.workflow.counterparty_label || "there";
     const fieldLines = Object.entries(approvedValues)
       .map(([field, value]) => `- ${field.replaceAll("_", " ")}: ${value}`)
       .join("\n");
-    const instructionText = params.instructions?.trim()
-      ? `\nUser requested adjustment: ${params.instructions.trim()}\n`
-      : "";
-    const body = `Hi ${counterparty},
+    const missingLines = missingFields
+      .map((field) => `- ${field.replaceAll("_", " ")}`)
+      .join("\n");
+    const compact = params.instructions?.toLowerCase().includes("shorter");
+    const body = compact
+      ? `Hi ${counterparty},
 
 I am replying on behalf of the account holder through One.
 
-The user approved a scoped KYC workflow for this request. One prepared the following approved information for your review:
-${fieldLines || "- Approved identity export available for review."}
-${instructionText}
+Approved scoped information:
+${fieldLines || "- No requested values were present in the approved export."}
+${missingLines ? `\nApproved export did not contain:\n${missingLines}\n` : ""}
+Best,
+One`
+      : `Hi ${counterparty},
+
+I am replying on behalf of the account holder through One.
+
+The account holder approved the following scoped information through One:
+${fieldLines || "- No requested values were present in the approved export."}
+${missingLines ? `\nThe approved export did not contain these requested fields:\n${missingLines}\n` : ""}
 Please let us know if you need anything else for this KYC review.
 
 Best,
@@ -429,6 +567,7 @@ One`.slice(0, 6000);
       body,
       approvedValues,
       missingFields,
+      scopeSummaries,
       draftHash: await sha256Hex(body),
     };
   }
