@@ -117,7 +117,7 @@ export class VaultService {
         JSON.stringify({
           exists,
           cachedAt: Date.now(),
-        })
+        }),
       );
     } catch {
       // Ignore session persistence failures.
@@ -126,13 +126,15 @@ export class VaultService {
 
   private static readBootstrapVaultCheck(userId: string): boolean | null {
     const cached = CacheService.getInstance().get<{ hasVault?: unknown }>(
-      CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId)
+      CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId),
     );
     if (!cached) return null;
     return typeof cached.hasVault === "boolean" ? cached.hasVault : null;
   }
 
-  private static async resolveVaultCheckFallback(userId: string): Promise<boolean | null> {
+  private static async resolveVaultCheckFallback(
+    userId: string,
+  ): Promise<boolean | null> {
     const cached = this.readBootstrapVaultCheck(userId);
     if (cached !== null) {
       return cached;
@@ -152,7 +154,11 @@ export class VaultService {
     const trimmed = value.trim();
     if (!trimmed) return undefined;
     const normalized = trimmed.toLowerCase();
-    if (normalized === "null" || normalized === "undefined" || normalized === "none") {
+    if (
+      normalized === "null" ||
+      normalized === "undefined" ||
+      normalized === "none"
+    ) {
       return undefined;
     }
     return trimmed;
@@ -205,7 +211,9 @@ export class VaultService {
     return "passphrase";
   }
 
-  private static normalizeWrapper(wrapper: Partial<VaultWrapper>): VaultWrapper {
+  private static normalizeWrapper(
+    wrapper: Partial<VaultWrapper>,
+  ): VaultWrapper {
     const maybeWrapper = wrapper as Partial<VaultWrapper> & {
       encrypted_vault_key?: string;
       wrapper_id?: string;
@@ -219,32 +227,36 @@ export class VaultService {
     const passkeyLastUsedAtRaw =
       wrapper.passkeyLastUsedAt ?? maybeWrapper.passkey_last_used_at;
     const passkeyLastUsedAt =
-      typeof passkeyLastUsedAtRaw === "number" ? passkeyLastUsedAtRaw : undefined;
+      typeof passkeyLastUsedAtRaw === "number"
+        ? passkeyLastUsedAtRaw
+        : undefined;
     return {
       method: this.normalizeMethod(wrapper.method),
       wrapperId:
-        this.normalizeNullableString(wrapper.wrapperId ?? maybeWrapper.wrapper_id) ??
-        "default",
+        this.normalizeNullableString(
+          wrapper.wrapperId ?? maybeWrapper.wrapper_id,
+        ) ?? "default",
       encryptedVaultKey:
         this.normalizeNullableString(
-          wrapper.encryptedVaultKey ?? maybeWrapper.encrypted_vault_key
+          wrapper.encryptedVaultKey ?? maybeWrapper.encrypted_vault_key,
         ) ?? "",
-      salt: this.normalizeNullableString(wrapper.salt ?? maybeWrapper.salt) ?? "",
+      salt:
+        this.normalizeNullableString(wrapper.salt ?? maybeWrapper.salt) ?? "",
       iv: this.normalizeNullableString(wrapper.iv ?? maybeWrapper.iv) ?? "",
       passkeyCredentialId: this.normalizeNullableString(
-        wrapper.passkeyCredentialId ?? maybeWrapper.passkey_credential_id
+        wrapper.passkeyCredentialId ?? maybeWrapper.passkey_credential_id,
       ),
       passkeyPrfSalt: this.normalizeNullableString(
-        wrapper.passkeyPrfSalt ?? maybeWrapper.passkey_prf_salt
+        wrapper.passkeyPrfSalt ?? maybeWrapper.passkey_prf_salt,
       ),
       passkeyRpId: this.normalizeNullableString(
-        wrapper.passkeyRpId ?? maybeWrapper.passkey_rp_id
+        wrapper.passkeyRpId ?? maybeWrapper.passkey_rp_id,
       ),
       passkeyProvider: this.normalizeNullableString(
-        wrapper.passkeyProvider ?? maybeWrapper.passkey_provider
+        wrapper.passkeyProvider ?? maybeWrapper.passkey_provider,
       ),
       passkeyDeviceLabel: this.normalizeNullableString(
-        wrapper.passkeyDeviceLabel ?? maybeWrapper.passkey_device_label
+        wrapper.passkeyDeviceLabel ?? maybeWrapper.passkey_device_label,
       ),
       passkeyLastUsedAt,
     };
@@ -296,7 +308,9 @@ export class VaultService {
       try {
         const iterated = Array.from(input as Iterable<unknown>);
         if (iterated.length) {
-          return iterated.filter((value) => value && typeof value === "object") as Partial<VaultWrapper>[];
+          return iterated.filter(
+            (value) => value && typeof value === "object",
+          ) as Partial<VaultWrapper>[];
         }
       } catch {
         // continue to object heuristics
@@ -341,7 +355,7 @@ export class VaultService {
 
     // Map/object fallback: { passphrase: {...}, generated_default_web_prf: {...} }.
     const objectValues = Object.values(record).filter(
-      (value) => value && typeof value === "object"
+      (value) => value && typeof value === "object",
     ) as Partial<VaultWrapper>[];
 
     return objectValues;
@@ -349,15 +363,20 @@ export class VaultService {
 
   private static normalizeVaultState(vault: Partial<VaultState>): VaultState {
     const wrappers = this.extractWrappers(vault.wrappers).map((wrapper) =>
-      this.normalizeWrapper(wrapper)
+      this.normalizeWrapper(wrapper),
     );
     const normalizedWrappers = wrappers.filter(
-      (wrapper) => !!wrapper.encryptedVaultKey && !!wrapper.salt && !!wrapper.iv
+      (wrapper) =>
+        !!wrapper.encryptedVaultKey && !!wrapper.salt && !!wrapper.iv,
     );
-    if (!normalizedWrappers.some((wrapper) => wrapper.method === "passphrase")) {
-      const methods = Array.from(new Set(normalizedWrappers.map((wrapper) => wrapper.method)));
+    if (
+      !normalizedWrappers.some((wrapper) => wrapper.method === "passphrase")
+    ) {
+      const methods = Array.from(
+        new Set(normalizedWrappers.map((wrapper) => wrapper.method)),
+      );
       throw new Error(
-        `Vault state is invalid: passphrase wrapper missing (wrappers=${normalizedWrappers.length}, methods=${methods.join(",") || "none"}).`
+        `Vault state is invalid: passphrase wrapper missing (wrappers=${normalizedWrappers.length}, methods=${methods.join(",") || "none"}).`,
       );
     }
 
@@ -376,7 +395,7 @@ export class VaultService {
 
   private static findWrapperByMethod(
     state: VaultState,
-    method: VaultMethod
+    method: VaultMethod,
   ): VaultWrapper | null {
     return state.wrappers.find((wrapper) => wrapper.method === method) ?? null;
   }
@@ -390,7 +409,7 @@ export class VaultService {
 
   private static async buildApiError(
     response: Response,
-    fallbackMessage: string
+    fallbackMessage: string,
   ): Promise<Error> {
     let message = fallbackMessage;
     let code: string | undefined;
@@ -405,16 +424,18 @@ export class VaultService {
               ? (parsed.detail as Record<string, unknown>)
               : null;
           const directCode = this.normalizeNullableString(
-            typeof parsed.code === "string" ? parsed.code : undefined
+            typeof parsed.code === "string" ? parsed.code : undefined,
           );
           const directError = this.normalizeNullableString(
-            typeof parsed.error === "string" ? parsed.error : undefined
+            typeof parsed.error === "string" ? parsed.error : undefined,
           );
           const detailCode = this.normalizeNullableString(
-            detail && typeof detail.code === "string" ? detail.code : undefined
+            detail && typeof detail.code === "string" ? detail.code : undefined,
           );
           const detailError = this.normalizeNullableString(
-            detail && typeof detail.error === "string" ? detail.error : undefined
+            detail && typeof detail.error === "string"
+              ? detail.error
+              : undefined,
           );
 
           code = detailCode || directCode || undefined;
@@ -436,39 +457,44 @@ export class VaultService {
     options?: {
       wrapperId?: string;
       preferCurrentRpId?: boolean;
-    }
+    },
   ): VaultWrapper | null {
     const all = state.wrappers.filter((wrapper) => wrapper.method === method);
     if (!all.length) return null;
 
-    const shouldPreferRp =
-      this.isPasskeyMethod(method) ? (options?.preferCurrentRpId ?? true) : false;
+    const shouldPreferRp = this.isPasskeyMethod(method)
+      ? (options?.preferCurrentRpId ?? true)
+      : false;
     const rpId = shouldPreferRp ? this.getCurrentRpId() : null;
 
     const requestedWrapperId = this.normalizeNullableString(options?.wrapperId);
     if (requestedWrapperId) {
       const requested =
-        all.find((wrapper) => (wrapper.wrapperId ?? "default") === requestedWrapperId) ??
-        null;
+        all.find(
+          (wrapper) => (wrapper.wrapperId ?? "default") === requestedWrapperId,
+        ) ?? null;
       if (!requested) return null;
       if (!shouldPreferRp || !rpId) return requested;
       const wrapperRpId = this.normalizeNullableString(requested.passkeyRpId);
       if (!wrapperRpId || wrapperRpId === rpId) return requested;
       return (
-        all.find((wrapper) => this.normalizeNullableString(wrapper.passkeyRpId) === rpId) ?? null
+        all.find(
+          (wrapper) =>
+            this.normalizeNullableString(wrapper.passkeyRpId) === rpId,
+        ) ?? null
       );
     }
 
     if (shouldPreferRp && rpId) {
       const rpMatch = all.find(
-        (wrapper) => this.normalizeNullableString(wrapper.passkeyRpId) === rpId
+        (wrapper) => this.normalizeNullableString(wrapper.passkeyRpId) === rpId,
       );
       if (rpMatch) return rpMatch;
 
       // If wrappers are explicitly pinned to other RP IDs, fail closed and fall
       // back to passphrase/recovery rather than triggering cross-device QR UX.
       const hasExplicitRpIds = all.some(
-        (wrapper) => !!this.normalizeNullableString(wrapper.passkeyRpId)
+        (wrapper) => !!this.normalizeNullableString(wrapper.passkeyRpId),
       );
       if (hasExplicitRpIds) {
         return null;
@@ -498,7 +524,7 @@ export class VaultService {
     }
     const digest = await crypto.subtle.digest(
       "SHA-256",
-      new TextEncoder().encode(normalized)
+      new TextEncoder().encode(normalized),
     );
     return Array.from(new Uint8Array(digest))
       .map((byte) => byte.toString(16).padStart(2, "0"))
@@ -517,7 +543,7 @@ export class VaultService {
       params.secretMaterial,
       wrapper.encryptedVaultKey,
       wrapper.salt,
-      wrapper.iv
+      wrapper.iv,
     );
     if (!decrypted) return null;
 
@@ -527,7 +553,7 @@ export class VaultService {
 
   static async assertVaultKeyMatchesState(
     state: VaultState,
-    vaultKeyHex: string
+    vaultKeyHex: string,
   ): Promise<void> {
     const normalizedKey = this.normalizeVaultKeyHex(vaultKeyHex);
     if (!normalizedKey) {
@@ -562,10 +588,13 @@ export class VaultService {
     const hasPrimaryWrapper = state.wrappers.some(
       (wrapper) =>
         wrapper.method === state.primaryMethod &&
-        (wrapper.wrapperId ?? "default") === (state.primaryWrapperId ?? "default")
+        (wrapper.wrapperId ?? "default") ===
+          (state.primaryWrapperId ?? "default"),
     );
     if (!hasPrimaryWrapper) {
-      throw new Error("primaryMethod + primaryWrapperId must reference an enrolled wrapper.");
+      throw new Error(
+        "primaryMethod + primaryWrapperId must reference an enrolled wrapper.",
+      );
     }
   }
 
@@ -637,7 +666,7 @@ export class VaultService {
   static async getOrIssueVaultOwnerToken(
     userId: string,
     currentToken: string | null = null,
-    currentExpiresAt: number | null = null
+    currentExpiresAt: number | null = null,
   ): Promise<{
     token: string;
     expiresAt: number;
@@ -651,7 +680,7 @@ export class VaultService {
         console.log(
           "[VaultService] Reusing valid VAULT_OWNER token (expires in",
           Math.round((currentExpiresAt - now) / 1000 / 60),
-          "minutes)"
+          "minutes)",
         );
         return {
           token: currentToken,
@@ -660,7 +689,7 @@ export class VaultService {
         };
       }
       console.log(
-        "[VaultService] Cached token expired or expiring soon, issuing new one"
+        "[VaultService] Cached token expired or expiring soon, issuing new one",
       );
     }
 
@@ -671,7 +700,7 @@ export class VaultService {
     if (this.shouldDebugVaultOwner()) {
       console.log(
         "[VaultService] VAULT_OWNER debug snapshot (before token acquisition):",
-        await this.debugAuthSnapshot()
+        await this.debugAuthSnapshot(),
       );
     }
 
@@ -687,7 +716,9 @@ export class VaultService {
       if (fallback) return fallback;
 
       // 3) Native plugin fallback
-      const hushh = await HushhAuth.getIdToken().catch(() => ({ idToken: null }));
+      const hushh = await HushhAuth.getIdToken().catch(() => ({
+        idToken: null,
+      }));
       if (hushh?.idToken) return hushh.idToken;
 
       return undefined;
@@ -707,9 +738,7 @@ export class VaultService {
       const hint = snapshot
         ? ` Debug: ${JSON.stringify(snapshot)}`
         : " Enable debug by setting localStorage.debug_vault_owner=true";
-      throw new Error(
-        `No Firebase ID token available (native).${hint}`
-      );
+      throw new Error(`No Firebase ID token available (native).${hint}`);
     }
 
     return this.issueVaultOwnerToken(userId, firebaseIdToken);
@@ -726,7 +755,7 @@ export class VaultService {
    */
   static async issueVaultOwnerToken(
     userId: string,
-    firebaseIdToken: string
+    firebaseIdToken: string,
   ): Promise<{
     token: string;
     expiresAt: number;
@@ -793,7 +822,7 @@ export class VaultService {
           const authToken = await this.getFirebaseToken();
           console.log(
             "🔐 [VaultService] Got auth token:",
-            authToken ? "yes" : "no"
+            authToken ? "yes" : "no",
           );
           const result = await HushhVault.hasVault({ userId, authToken });
           console.log("🔐 [VaultService] hasVault result:", result);
@@ -821,17 +850,20 @@ export class VaultService {
           if (!response.ok) {
             const payload = await response.json().catch(() => undefined);
             const message =
-              typeof (payload as { error?: unknown } | undefined)?.error === "string"
+              typeof (payload as { error?: unknown } | undefined)?.error ===
+              "string"
                 ? (payload as { error: string }).error
                 : `Vault check failed: ${response.status}`;
             const error = Object.assign(new Error(message), {
               status: response.status,
               code:
-                typeof (payload as { code?: unknown } | undefined)?.code === "string"
+                typeof (payload as { code?: unknown } | undefined)?.code ===
+                "string"
                   ? (payload as { code: string }).code
                   : undefined,
               hint:
-                typeof (payload as { hint?: unknown } | undefined)?.hint === "string"
+                typeof (payload as { hint?: unknown } | undefined)?.hint ===
+                "string"
                   ? (payload as { hint: string }).hint
                   : undefined,
             });
@@ -846,7 +878,7 @@ export class VaultService {
             throw error;
           }
           console.warn(
-            "⚠️ [VaultService] checkVault served via bootstrap-state fallback"
+            "⚠️ [VaultService] checkVault served via bootstrap-state fallback",
           );
           hasVault = fallbackHasVault;
         }
@@ -907,21 +939,26 @@ export class VaultService {
             console.warn(
               "[VaultService] Native getVault returned wrapper payload with zero extractable wrappers",
               {
-                wrapperType: wrapperProbe == null ? "nullish" : typeof wrapperProbe,
+                wrapperType:
+                  wrapperProbe == null ? "nullish" : typeof wrapperProbe,
                 wrapperShape,
                 hasVault: hasVaultCheckResult,
-              }
+              },
             );
           }
           try {
-            const normalized = this.normalizeVaultState(result as Partial<VaultState>);
+            const normalized = this.normalizeVaultState(
+              result as Partial<VaultState>,
+            );
             this.setCachedVaultState(userId, normalized);
             return normalized;
           } catch (error) {
             const message =
-              error instanceof Error ? error.message : "Vault state normalization failed.";
+              error instanceof Error
+                ? error.message
+                : "Vault state normalization failed.";
             throw new Error(
-              `${message} [platform=${Capacitor.getPlatform()} source=native wrapperShape=${wrapperShape} extracted=${extractedCount} hasVault=${hasVaultCheckResult}]`
+              `${message} [platform=${Capacitor.getPlatform()} source=native wrapperShape=${wrapperShape} extracted=${extractedCount} hasVault=${hasVaultCheckResult}]`,
             );
           }
         } catch (error) {
@@ -941,12 +978,14 @@ export class VaultService {
       if (!response.ok) {
         const errorPayload = (await response
           .json()
-          .catch(async () => ({ error: await response.text().catch(() => "") }))) as {
+          .catch(async () => ({
+            error: await response.text().catch(() => ""),
+          }))) as {
           error?: string;
           message?: string;
         };
         throw new Error(
-          errorPayload.error || errorPayload.message || "Failed to get vault"
+          errorPayload.error || errorPayload.message || "Failed to get vault",
         );
       }
       const payload = (await response.json()) as Partial<VaultState>;
@@ -960,10 +999,13 @@ export class VaultService {
         } catch {
           hasVaultCheckResult = "error";
         }
-        console.warn("[VaultService] Web getVault payload has zero extractable wrappers", {
-          wrapperShape,
-          hasVault: hasVaultCheckResult,
-        });
+        console.warn(
+          "[VaultService] Web getVault payload has zero extractable wrappers",
+          {
+            wrapperShape,
+            hasVault: hasVaultCheckResult,
+          },
+        );
       }
       try {
         const normalized = this.normalizeVaultState(payload);
@@ -972,9 +1014,11 @@ export class VaultService {
         return normalized;
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : "Vault state normalization failed.";
+          error instanceof Error
+            ? error.message
+            : "Vault state normalization failed.";
         throw new Error(
-          `${message} [platform=web source=api wrapperShape=${wrapperShape} extracted=${extractedCount} hasVault=${hasVaultCheckResult}]`
+          `${message} [platform=web source=api wrapperShape=${wrapperShape} extracted=${extractedCount} hasVault=${hasVaultCheckResult}]`,
         );
       }
     })();
@@ -997,7 +1041,10 @@ export class VaultService {
   /**
    * Create or replace full vault state (breaking contract v5.0).
    */
-  static async setupVaultState(userId: string, vaultState: VaultState): Promise<void> {
+  static async setupVaultState(
+    userId: string,
+    vaultState: VaultState,
+  ): Promise<void> {
     const normalized = this.normalizeVaultState(vaultState);
     this.assertVaultStateForSetup(normalized);
 
@@ -1031,7 +1078,8 @@ export class VaultService {
     const authToken = await this.getFirebaseToken();
     const headers: HeadersInit = {
       "Content-Type": "application/json",
-      "x-hushh-client-version": process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+      "x-hushh-client-version":
+        process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
     };
     if (authToken) {
       headers.Authorization = `Bearer ${authToken}`;
@@ -1096,7 +1144,8 @@ export class VaultService {
     const authToken = await this.getFirebaseToken();
     const headers: HeadersInit = {
       "Content-Type": "application/json",
-      "x-hushh-client-version": process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+      "x-hushh-client-version":
+        process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
     };
     if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
@@ -1120,7 +1169,83 @@ export class VaultService {
       }),
     });
     if (!response.ok) {
-      throw await this.buildApiError(response, "Failed to upsert vault wrapper.");
+      throw await this.buildApiError(
+        response,
+        "Failed to upsert vault wrapper.",
+      );
+    }
+    this.invalidateVaultStateCache(params.userId);
+  }
+
+  static async deleteVaultWrapper(params: {
+    userId: string;
+    vaultKeyHash: string;
+    method: VaultMethod;
+    vaultOwnerToken: string;
+    wrapperId?: string;
+    fallbackPrimaryMethod?: VaultMethod;
+    fallbackPrimaryWrapperId?: string;
+  }): Promise<void> {
+    const normalizedMethod = this.normalizeMethod(params.method);
+    const normalizedWrapperId =
+      this.normalizeNullableString(params.wrapperId) ?? "default";
+    const fallbackPrimaryMethod = this.normalizeMethod(
+      params.fallbackPrimaryMethod ?? "passphrase",
+    );
+    const fallbackPrimaryWrapperId =
+      this.normalizeNullableString(params.fallbackPrimaryWrapperId) ??
+      "default";
+
+    if (normalizedMethod === "passphrase") {
+      throw new Error("Passphrase unlock cannot be removed.");
+    }
+
+    if (Capacitor.isNativePlatform()) {
+      const authToken = await this.getFirebaseToken();
+      const result = await HushhVault.deleteVaultWrapper({
+        userId: params.userId,
+        vaultKeyHash: params.vaultKeyHash,
+        method: normalizedMethod,
+        wrapperId: normalizedWrapperId,
+        fallbackPrimaryMethod,
+        fallbackPrimaryWrapperId,
+        authToken,
+        vaultOwnerToken: params.vaultOwnerToken,
+      });
+      if (!result?.success) {
+        throw new Error("Native vault wrapper removal failed.");
+      }
+      this.invalidateVaultStateCache(params.userId);
+      return;
+    }
+
+    const url = this.getApiUrl("/api/vault/wrapper/delete");
+    const authToken = await this.getFirebaseToken();
+    const headers: HeadersInit = {
+      "Content-Type": "application/json",
+      "x-hushh-client-version":
+        process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+    };
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    headers["X-Hushh-Consent"] = `Bearer ${params.vaultOwnerToken}`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        userId: params.userId,
+        vaultKeyHash: params.vaultKeyHash,
+        method: normalizedMethod,
+        wrapperId: normalizedWrapperId,
+        fallbackPrimaryMethod,
+        fallbackPrimaryWrapperId,
+      }),
+    });
+    if (!response.ok) {
+      throw await this.buildApiError(
+        response,
+        "Failed to remove vault wrapper.",
+      );
     }
     this.invalidateVaultStateCache(params.userId);
   }
@@ -1128,7 +1253,7 @@ export class VaultService {
   static async setPrimaryVaultMethod(
     userId: string,
     primaryMethod: VaultMethod,
-    primaryWrapperId?: string
+    primaryWrapperId?: string,
   ): Promise<void> {
     const normalizedMethod = this.normalizeMethod(primaryMethod);
     const normalizedWrapperId =
@@ -1153,7 +1278,8 @@ export class VaultService {
     const authToken = await this.getFirebaseToken();
     const headers: HeadersInit = {
       "Content-Type": "application/json",
-      "x-hushh-client-version": process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+      "x-hushh-client-version":
+        process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
     };
     if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
@@ -1169,7 +1295,7 @@ export class VaultService {
     if (!response.ok) {
       throw await this.buildApiError(
         response,
-        "Failed to set primary vault method."
+        "Failed to set primary vault method.",
       );
     }
     this.invalidateVaultStateCache(userId);
@@ -1194,7 +1320,7 @@ export class VaultService {
     passphrase: string,
     encryptedKey: string,
     salt: string,
-    iv: string
+    iv: string,
   ): Promise<string> {
     // Always use the web-crypto unlock path for deterministic cross-platform
     // vault-key decoding (native plugin decrypt is UTF-8 text-oriented).
@@ -1211,7 +1337,7 @@ export class VaultService {
     key: string,
     encryptedKey: string,
     salt: string,
-    iv: string
+    iv: string,
   ): Promise<string> {
     const decrypted = await webUnlockRecall(key, encryptedKey, salt, iv);
     const normalized = this.normalizeVaultKeyHex(decrypted);
@@ -1223,9 +1349,8 @@ export class VaultService {
   }
 
   static async canUseGeneratedDefaultVault(): Promise<GeneratedVaultSupport> {
-    const { VaultBootstrapService } = await import(
-      "@/lib/services/vault-bootstrap-service"
-    );
+    const { VaultBootstrapService } =
+      await import("@/lib/services/vault-bootstrap-service");
     return VaultBootstrapService.canUseGeneratedDefaultVault();
   }
 
@@ -1233,19 +1358,18 @@ export class VaultService {
     userId: string;
     displayName: string;
   }): Promise<GeneratedVaultProvisionResult> {
-    const { VaultBootstrapService } = await import(
-      "@/lib/services/vault-bootstrap-service"
-    );
+    const { VaultBootstrapService } =
+      await import("@/lib/services/vault-bootstrap-service");
     return VaultBootstrapService.provisionGeneratedDefaultVault(params);
   }
 
   static async unlockGeneratedDefaultVault(
-    input: GeneratedVaultUnlockInput
+    input: GeneratedVaultUnlockInput,
   ): Promise<string | null> {
-    const { VaultBootstrapService } = await import(
-      "@/lib/services/vault-bootstrap-service"
-    );
-    const decrypted = await VaultBootstrapService.unlockGeneratedDefaultVault(input);
+    const { VaultBootstrapService } =
+      await import("@/lib/services/vault-bootstrap-service");
+    const decrypted =
+      await VaultBootstrapService.unlockGeneratedDefaultVault(input);
     if (!decrypted) return null;
     const normalized = this.normalizeVaultKeyHex(decrypted);
     if (!normalized) {
