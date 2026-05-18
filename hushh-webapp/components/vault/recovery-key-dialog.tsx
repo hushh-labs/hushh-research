@@ -13,10 +13,12 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/lib/morphy-ux/morphy';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Copy, Check, Download, AlertTriangle } from 'lucide-react';
+import { Download, AlertTriangle } from 'lucide-react';
 import { downloadTextFile } from '@/lib/utils/native-download';
 import { Icon } from '@/lib/morphy-ux/ui';
-import { copyToClipboard } from '@/lib/utils/clipboard';
+
+// HARVESTED CLIPBOARD MICROINTERACTION
+import { ClipboardCopy } from "@/components/app-ui/clipboard-copy";
 
 interface RecoveryKeyDialogProps {
   open: boolean;
@@ -29,27 +31,19 @@ export function RecoveryKeyDialog({
   recoveryKey,
   onContinue,
 }: RecoveryKeyDialogProps) {
-  const [copied, setCopied] = useState(false);
+  // We removed the manual 'copied' state; the ClipboardCopy component manages its own feedback loop!
   const [downloaded, setDownloaded] = useState(false);
-
-  const handleCopy = async () => {
-    try {
-      const copiedToClipboard = await copyToClipboard(recoveryKey);
-      if (!copiedToClipboard) {
-        throw new Error("clipboard_unavailable");
-      }
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (error) {
-      console.error('Failed to copy:', error);
-    }
-  };
+  
+  // To keep the "Continue" button safely disabled until they interact with one of the options,
+  // we add a simple interaction tracker
+  const [hasInteracted, setHasInteracted] = useState(false);
 
   const handleDownload = async () => {
     const content = `Hushh Vault Recovery Key\n\n${recoveryKey}\n\nKeep this safe! You'll need it if you forget your passphrase.`;
     const success = await downloadTextFile(content, 'hushh-recovery-key.txt');
     if (success) {
       setDownloaded(true);
+      setHasInteracted(true);
     }
   };
 
@@ -76,36 +70,29 @@ export function RecoveryKeyDialog({
             </AlertDescription>
           </Alert>
 
-          <div className="p-4 bg-muted rounded-lg border-2 border-dashed">
-            <code className="text-sm font-mono break-all">
+          <div className="p-4 bg-muted rounded-lg border-2 border-dashed relative">
+            <code className="text-sm font-mono break-all pr-12 block">
               {recoveryKey}
             </code>
+            
+            {/* HARVESTED CLIPBOARD COMPONENT */}
+            {/* Positioned absolutely inside the key block for a clean UI */}
+            <div className="absolute top-3 right-3">
+              <ClipboardCopy 
+                value={recoveryKey} 
+                onCopy={() => setHasInteracted(true)} 
+              />
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              onClick={handleCopy}
-              className="w-full"
-            >
-              {copied ? (
-                <>
-                  <Icon icon={Check} size="sm" className="mr-2" />
-                  Copied!
-                </>
-              ) : (
-                <>
-                  <Icon icon={Copy} size="sm" className="mr-2" />
-                  Copy Key
-                </>
-              )}
-            </Button>
-
+          <div className="grid grid-cols-1 gap-2">
+            {/* The old manual copy button was completely removed from here */}
             <Button
               onClick={handleDownload}
               className="w-full"
             >
               <Icon icon={Download} size="sm" className="mr-2" />
-              {downloaded ? 'Downloaded' : 'Download'}
+              {downloaded ? 'Downloaded' : 'Download Backup File'}
             </Button>
           </div>
         </div>
@@ -116,7 +103,7 @@ export function RecoveryKeyDialog({
             variant="gradient"
             effect="glass"
             className="w-full"
-            disabled={!copied && !downloaded}
+            disabled={!hasInteracted}
           >
             I've Saved My Recovery Key
           </Button>
