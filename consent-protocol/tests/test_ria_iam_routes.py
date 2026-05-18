@@ -142,6 +142,41 @@ def test_marketplace_rias_public_read(monkeypatch):
     assert data["items"][0]["display_name"] == "RIA Alpha"
 
 
+def test_marketplace_investors_exposes_public_sec_discovery_contract(monkeypatch):
+    async def _mock_search(self, **kwargs):  # noqa: ANN003
+        assert kwargs.get("limit") == 20
+        return [
+            {
+                "id": "public_sec:42",
+                "source_type": "public_sec",
+                "user_id": None,
+                "public_profile_id": "42",
+                "display_name": "Morgan Public",
+                "headline": "Managing Partner at Public Capital Partners",
+                "location_hint": None,
+                "strategy_summary": "Public investor profile assembled from public filings.",
+                "connectable": False,
+                "evidence": {
+                    "confidence": "official_public_records",
+                    "sources": ["SEC EDGAR", "Form 13F"],
+                },
+                "is_test_profile": False,
+            }
+        ]
+
+    monkeypatch.setattr(RIAIAMService, "search_marketplace_investors", _mock_search)
+
+    client = TestClient(_build_app())
+    response = client.get("/api/marketplace/investors")
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["source_type"] == "public_sec"
+    assert item["user_id"] is None
+    assert item["connectable"] is False
+    assert item["evidence"]["confidence"] == "official_public_records"
+
+
 def test_marketplace_query_filters_are_bounded():
     client = TestClient(_build_app())
 

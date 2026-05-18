@@ -53,11 +53,28 @@ export interface MarketplaceRia {
 }
 
 export interface MarketplaceInvestor {
-  user_id: string;
+  id?: string | null;
+  source_type?: "hushh_user" | "public_sec" | string | null;
+  user_id?: string | null;
+  public_profile_id?: string | number | null;
   display_name: string;
   headline?: string | null;
   location_hint?: string | null;
   strategy_summary?: string | null;
+  connectable?: boolean | null;
+  evidence?: {
+    source_type?: string | null;
+    confidence?: string | null;
+    sources?: string[];
+    source_urls?: string[];
+    forms?: Array<{ form?: string | null; last_filed_at?: string | null }>;
+    cik?: string | null;
+    investor_type?: string | null;
+    is_insider?: boolean | null;
+    insider_company_ticker?: string | null;
+    updated_at?: string | null;
+    metadata?: Record<string, unknown>;
+  } | null;
   is_test_profile?: boolean;
 }
 
