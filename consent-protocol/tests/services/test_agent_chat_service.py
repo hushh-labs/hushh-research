@@ -118,6 +118,17 @@ def test_agent_chat_plans_safe_navigation_actions(test_vault_key):
     assert action_plan.slots == {}
 
 
+def test_agent_chat_prefers_import_over_dashboard_for_portfolio_import(test_vault_key):
+    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+
+    action_plan = service.plan_action("Please open portfolio import")
+
+    assert action_plan is not None
+    assert action_plan.action_id == "route.kai_import"
+    assert action_plan.execution == "frontend"
+    assert action_plan.slots == {}
+
+
 def test_agent_chat_blocks_destructive_actions(test_vault_key):
     service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
 

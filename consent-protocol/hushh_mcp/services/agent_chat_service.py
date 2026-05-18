@@ -88,19 +88,19 @@ _NAVIGATION_ACTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     ),
     (
         re.compile(
-            r"\b(?:open|go to|show|take me to|navigate to)\b.*\b(?:portfolio|holdings|dashboard)\b",
-            re.IGNORECASE,
-        ),
-        "route.kai_dashboard",
-        "Open Portfolio Dashboard",
-    ),
-    (
-        re.compile(
             r"\b(?:open|go to|show|take me to|navigate to|upload|import)\b.*\b(?:import|statement|portfolio upload)\b",
             re.IGNORECASE,
         ),
         "route.kai_import",
         "Open Portfolio Import",
+    ),
+    (
+        re.compile(
+            r"\b(?:open|go to|show|take me to|navigate to)\b.*\b(?:portfolio|holdings|dashboard)\b",
+            re.IGNORECASE,
+        ),
+        "route.kai_dashboard",
+        "Open Portfolio Dashboard",
     ),
     (
         re.compile(

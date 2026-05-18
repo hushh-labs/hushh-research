@@ -17,6 +17,7 @@ class _FakeAgentChatService:
         self.saved_messages: list[dict] = []
         self.next_action_plan: AgentChatActionPlan | None = None
         self.stream_action_plans: list[AgentChatActionPlan | None] = []
+        self.stream_tokens = ["Hello", " from Gemini"]
         self.conversation = AgentChatConversation(
             id="conversation-1",
             user_id="user-1",
@@ -74,8 +75,8 @@ class _FakeAgentChatService:
         assert user_message == "Hello Agent"
         assert history == []
         self.stream_action_plans.append(action_plan)
-        yield "Hello"
-        yield " from Gemini"
+        for token in self.stream_tokens:
+            yield token
 
     def plan_action(self, message: str):
         assert message == "Hello Agent"
@@ -179,6 +180,22 @@ def test_agent_chat_stream_sends_live_tool_events_without_saving_tool_messages(m
     assert service.stream_action_plans == [service.next_action_plan]
     assert [message["role"] for message in service.saved_messages] == ["assistant"]
     assert service.saved_messages[0]["content"] == "Hello from Gemini"
+
+
+def test_agent_chat_stream_does_not_save_empty_assistant_message(monkeypatch):
+    service = _FakeAgentChatService()
+    service.stream_tokens = []
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+    client = _client(service)
+
+    response = client.post(
+        "/agent/chat/stream",
+        json={"user_id": "user-1", "message": "Hello Agent"},
+    )
+
+    assert response.status_code == 200
+    assert 'event: complete\ndata: {"conversation_id": "conversation-1"' in response.text
+    assert service.saved_messages == []
 
 
 async def test_agent_chat_stream_saves_partial_interrupted_response(monkeypatch):

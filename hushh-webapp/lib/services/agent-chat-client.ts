@@ -114,6 +114,7 @@ export async function streamAgentChat(input: {
   let conversationId = response.headers.get("X-Agent-Conversation-Id");
   let model = response.headers.get("X-Agent-Model");
   let text = "";
+  let streamError: string | null = null;
 
   const handleFrame = (event: string, data: string) => {
     const payload = parseJsonPayload(data);
@@ -155,7 +156,8 @@ export async function streamAgentChat(input: {
       return;
     }
     if (event === "error") {
-      input.handlers?.onError?.(readString(payload, "message") || "Agent chat failed.");
+      streamError = readString(payload, "message") || "Agent chat failed.";
+      input.handlers?.onError?.(streamError);
     }
   };
 
@@ -174,11 +176,24 @@ export async function streamAgentChat(input: {
     }
   }
 
+  const flushed = decoder.decode();
+  if (flushed) {
+    const parsed = parseSSEBlocks(flushed, buffer);
+    buffer = parsed.remainder;
+    for (const frame of parsed.events) {
+      handleFrame(frame.event, frame.data);
+    }
+  }
+
   if (buffer.trim()) {
     const parsed = parseSSEBlocks("\n\n", buffer);
     for (const frame of parsed.events) {
       handleFrame(frame.event, frame.data);
     }
+  }
+
+  if (streamError) {
+    throw new Error(streamError);
   }
 
   return { conversationId, model, text };

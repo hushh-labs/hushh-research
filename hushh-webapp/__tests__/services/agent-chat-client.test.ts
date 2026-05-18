@@ -135,6 +135,29 @@ describe("agent chat client", () => {
     ).rejects.toThrow("Vault locked");
   });
 
+  it("throws streamed backend error events after notifying the handler", async () => {
+    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
+      sseResponse([
+        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-2.5-pro"}\n\n',
+        'event: token\ndata: {"token":"Partial"}\n\n',
+        'event: error\ndata: {"message":"Agent chat failed. Please try again."}\n\n',
+      ])
+    );
+    const errors: string[] = [];
+
+    await expect(
+      streamAgentChat({
+        userId: "user-1",
+        message: "Hello",
+        vaultOwnerToken: "vault-token",
+        handlers: {
+          onError: (message) => errors.push(message),
+        },
+      })
+    ).rejects.toThrow("Agent chat failed. Please try again.");
+    expect(errors).toEqual(["Agent chat failed. Please try again."]);
+  });
+
   it("reads recent conversations and history", async () => {
     vi.spyOn(ApiService, "listAgentChatConversations").mockResolvedValue(
       new Response(

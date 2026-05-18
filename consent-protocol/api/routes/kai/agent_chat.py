@@ -110,7 +110,7 @@ async def _save_assistant_message(
     status_value: Literal["complete", "interrupted", "error"],
     error_code: str | None = None,
 ) -> None:
-    if not text and status_value == "interrupted":
+    if not text.strip():
         return
     await service.add_message(
         conversation_id=turn.conversation_id,

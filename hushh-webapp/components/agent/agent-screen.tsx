@@ -20,6 +20,7 @@ import {
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
+import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import {
   AgentRealtimeClient,
   type AgentRealtimeVoiceState,
@@ -198,6 +199,10 @@ export function AgentScreen() {
   const [debugEvents, setDebugEvents] = useState<AgentDebugEvent[]>([]);
   const [latestDebugTurnId, setLatestDebugTurnId] = useState<string | null>(null);
   const [voiceState, setVoiceState] = useState<AgentRealtimeVoiceState>("idle");
+  const [hasPortfolioData, setHasPortfolioData] = useState(false);
+  const [backgroundTaskState, setBackgroundTaskState] = useState(() =>
+    AppBackgroundTaskService.getState()
+  );
   const voiceClientRef = useRef<AgentRealtimeClient | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const voiceUserMessageIdRef = useRef<string | null>(null);
@@ -213,24 +218,34 @@ export function AgentScreen() {
     () => deriveVoiceRouteScreen(pathname || "", routeQuery),
     [pathname, routeQuery]
   );
-  const hasPortfolioData = useMemo(() => {
-    if (!user?.uid) return false;
-    const cache = CacheService.getInstance();
-    const cachedPortfolio =
-      cache.get<Record<string, unknown>>(CACHE_KEYS.PORTFOLIO_DATA(user.uid)) ??
-      cache.get<Record<string, unknown>>(CACHE_KEYS.DOMAIN_DATA(user.uid, "financial"));
-    const nestedPortfolio =
-      cachedPortfolio?.portfolio &&
-      typeof cachedPortfolio.portfolio === "object" &&
-      !Array.isArray(cachedPortfolio.portfolio)
-        ? (cachedPortfolio.portfolio as Record<string, unknown>)
-        : null;
-    const holdings =
-      (Array.isArray(cachedPortfolio?.holdings) && cachedPortfolio.holdings) ||
-      (Array.isArray(nestedPortfolio?.holdings) && nestedPortfolio.holdings) ||
-      [];
-    return holdings.length > 0;
-  }, [user?.uid]);
+  const activeAnalysisTask = useMemo(() => {
+    if (!user?.uid) return null;
+    return (
+      backgroundTaskState.tasks.find(
+        (task) =>
+          task.userId === user.uid &&
+          task.kind === "stock_analysis_stream" &&
+          task.status === "running" &&
+          !task.dismissedAt
+      ) || null
+    );
+  }, [backgroundTaskState.tasks, user?.uid]);
+  const runningImportTask = useMemo(() => {
+    if (!user?.uid) return null;
+    return (
+      backgroundTaskState.tasks.find(
+        (task) =>
+          task.userId === user.uid &&
+          task.kind === "portfolio_import_stream" &&
+          task.status === "running" &&
+          !task.dismissedAt
+      ) || null
+    );
+  }, [backgroundTaskState.tasks, user?.uid]);
+  const activeAnalysisTicker = useMemo(() => {
+    const ticker = activeAnalysisTask?.metadata?.ticker;
+    return typeof ticker === "string" && ticker.trim() ? ticker.trim() : null;
+  }, [activeAnalysisTask]);
   const hasChatAccess = Boolean(
     !authLoading && user?.uid && isVaultUnlocked && vaultOwnerToken && tokenIsFresh
   );
@@ -257,11 +272,15 @@ export function AgentScreen() {
         subview: routeInfo.subview ?? null,
       },
       runtime: {
-        analysis_active: Boolean(busyOperations["stock_analysis_active"] || analysisParams),
-        analysis_ticker: analysisParams?.ticker ?? null,
-        analysis_run_id: null,
-        import_active: Boolean(busyOperations["portfolio_import_active"]),
-        import_run_id: null,
+        analysis_active:
+          Boolean(busyOperations["stock_analysis_active"]) ||
+          Boolean(busyOperations["stock_analysis_stream"]) ||
+          Boolean(activeAnalysisTask),
+        analysis_ticker: activeAnalysisTicker || analysisParams?.ticker || null,
+        analysis_run_id: activeAnalysisTask?.taskId || null,
+        import_active:
+          Boolean(busyOperations["portfolio_import_stream"]) || Boolean(runningImportTask),
+        import_run_id: runningImportTask?.taskId || null,
         busy_operations: Object.keys(busyOperations).filter((key) => busyOperations[key]),
       },
       portfolio: {
@@ -284,6 +303,8 @@ export function AgentScreen() {
     }),
     [
       activePersona,
+      activeAnalysisTask,
+      activeAnalysisTicker,
       analysisParams,
       availablePersonas,
       busyOperations,
@@ -294,6 +315,7 @@ export function AgentScreen() {
       primaryNavPersona,
       riaSetupAvailable,
       riaSwitchAvailable,
+      runningImportTask,
       routeInfo.screen,
       routeInfo.subview,
       tokenIsFresh,
@@ -356,6 +378,51 @@ export function AgentScreen() {
       voiceClientRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = AppBackgroundTaskService.subscribe((state) => {
+      setBackgroundTaskState(state);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setHasPortfolioData(false);
+      return;
+    }
+
+    const cache = CacheService.getInstance();
+    const computeHasPortfolioData = () => {
+      const cachedPortfolio =
+        cache.get<Record<string, unknown>>(CACHE_KEYS.PORTFOLIO_DATA(user.uid)) ??
+        cache.get<Record<string, unknown>>(CACHE_KEYS.DOMAIN_DATA(user.uid, "financial"));
+      const nestedPortfolio =
+        cachedPortfolio?.portfolio &&
+        typeof cachedPortfolio.portfolio === "object" &&
+        !Array.isArray(cachedPortfolio.portfolio)
+          ? (cachedPortfolio.portfolio as Record<string, unknown>)
+          : null;
+      const holdings =
+        (Array.isArray(cachedPortfolio?.holdings) && cachedPortfolio.holdings) ||
+        (Array.isArray(nestedPortfolio?.holdings) && nestedPortfolio.holdings) ||
+        [];
+      setHasPortfolioData(holdings.length > 0);
+    };
+
+    computeHasPortfolioData();
+    const unsubscribe = cache.subscribe((event) => {
+      if (
+        event.type === "set" ||
+        event.type === "invalidate" ||
+        event.type === "invalidate_user" ||
+        event.type === "clear"
+      ) {
+        computeHasPortfolioData();
+      }
+    });
+    return () => unsubscribe();
+  }, [user?.uid]);
 
   useEffect(() => {
     voiceClientRef.current?.close();
