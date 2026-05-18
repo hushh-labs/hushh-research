@@ -12,13 +12,17 @@
  */
 
 import { Capacitor } from "@capacitor/core";
+import { getApps, initializeApp } from "firebase/app";
 import {
   type ApplicationVerifier,
   type ConfirmationResult,
   GoogleAuthProvider,
+  getAuth,
+  inMemoryPersistence,
   OAuthProvider,
   PhoneAuthProvider,
   linkWithCredential,
+  setPersistence,
   signInWithCredential,
   signInWithCustomToken as firebaseSignInWithCustomToken,
   signInWithPopup,
@@ -27,7 +31,7 @@ import {
   User,
   onAuthStateChanged,
 } from "firebase/auth";
-import { auth } from "@/lib/firebase/config";
+import { app, auth } from "@/lib/firebase/config";
 import { FirebaseAuthentication, ProviderId } from "@capacitor-firebase/authentication";
 import { HushhAuth, type AuthUser } from "@/lib/capacitor";
 import { toast } from "sonner";
@@ -46,6 +50,7 @@ export interface PhoneVerificationStartResult {
 }
 
 type PhoneVerificationIntent = "link" | "replace";
+const PHONE_CLAIM_APP_NAME = "hushh-phone-claim";
 
 /**
  * Platform-aware authentication service
@@ -825,6 +830,47 @@ export class AuthService {
     verificationId?: string | null;
   }): Promise<User> {
     return this.confirmPhoneVerification("link", params);
+  }
+
+  static async getPhoneClaimIdToken(params: {
+    verificationCode: string;
+    verificationId?: string | null;
+  }): Promise<string> {
+    const verificationCode = String(params.verificationCode ?? "").trim();
+    if (!verificationCode) {
+      throw new Error("Verification code is required.");
+    }
+
+    if (Capacitor.isNativePlatform()) {
+      throw new Error("Phone claim token minting is only supported on web.");
+    }
+
+    const verificationId = String(params.verificationId ?? "").trim();
+    if (!verificationId) {
+      throw new Error("Verification ID is required.");
+    }
+
+    const credential = PhoneAuthProvider.credential(verificationId, verificationCode);
+    const secondaryApp =
+      getApps().find((firebaseApp) => firebaseApp.name === PHONE_CLAIM_APP_NAME) ||
+      initializeApp(app.options, PHONE_CLAIM_APP_NAME);
+    const phoneClaimAuth = getAuth(secondaryApp);
+
+    await setPersistence(phoneClaimAuth, inMemoryPersistence);
+
+    let claimToken = "";
+    try {
+      const result = await signInWithCredential(phoneClaimAuth, credential);
+      claimToken = await result.user.getIdToken(true);
+    } finally {
+      await firebaseSignOut(phoneClaimAuth).catch(() => undefined);
+    }
+
+    if (!claimToken) {
+      throw new Error("Phone verification completed but no claim token was returned.");
+    }
+
+    return claimToken;
   }
 
   static async confirmPhoneReplacementVerification(params: {
