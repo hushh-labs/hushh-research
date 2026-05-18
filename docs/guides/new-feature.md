@@ -108,6 +108,7 @@ If you add a new `.swift` file (e.g. a new plugin or helper) and need to edit `i
 ## Documentation
 
 - [ ] Add route to `hushh-webapp/lib/navigation/routes.ts` when it is part of the app navigation contract
+- [ ] Update `hushh-webapp/native-route-inventory.json` and run `cd hushh-webapp && npm run verify:capacitor:static` for native-visible routes
 - [ ] Update `docs/reference/architecture/api-contracts.md` if needed
 - [ ] Add JSDoc comments to service methods
 - [ ] Add/update PR impact map using `docs/reference/quality/pr-impact-checklist.md`

@@ -82,7 +82,8 @@ The router must also support:
 2. `route-task <workflow-id>`
 3. `impact <workflow-id> [--path <repo-path>]...`
 4. `onboard`
-5. `audit`
+5. `data-model-audit`
+6. `audit`
 
 These commands must use `.codex/workflows/*/workflow.json` plus the per-skill `skill.json` manifests.
 

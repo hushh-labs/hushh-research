@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`[API] User ${userId} approving consent request: ${requestId}`);
+    console.log(`[API] Approving consent request: ${requestId}`);
     console.log(`[API] Export data present: ${!!encryptedData}`);
 
     // Forward to FastAPI with encrypted export

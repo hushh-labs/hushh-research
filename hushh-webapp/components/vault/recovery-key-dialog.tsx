@@ -39,7 +39,7 @@ export function RecoveryKeyDialog({
   const [hasInteracted, setHasInteracted] = useState(false);
 
   const handleDownload = async () => {
-    const content = `Hushh Vault Recovery Key\n\n${recoveryKey}\n\nKeep this safe! You'll need it if you forget your passphrase.`;
+    const content = `Hussh Vault Recovery Key\n\n${recoveryKey}\n\nKeep this safe! You'll need it if you forget your passphrase.`;
     const success = await downloadTextFile(content, 'hushh-recovery-key.txt');
     if (success) {
       setDownloaded(true);

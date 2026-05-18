@@ -1,6 +1,6 @@
 # api/exceptions.py
 """
-Custom Exception Hierarchy for Hushh Consent Protocol
+Custom Exception Hierarchy for Hussh Consent Protocol
 
 Provides structured error responses with consistent error codes.
 """
@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 
 
 class HushhBaseException(Exception):
-    """Base exception for all Hushh errors."""
+    """Base exception for all Hussh errors."""
 
     status_code: int = 500
     error_code: str = "HUSHH_ERROR"

@@ -1,0 +1,62 @@
+{
+  "id": "future-planner",
+  "role": "owner",
+  "owner_family": "future-planner",
+  "primary_scope": "future-roadmap-plan-intake",
+  "description": "Use when evaluating future roadmap ideas, creating planning-only architecture docs, or assessing R&D concepts against Hussh north stars, trust boundaries, and current repo reality.",
+  "owned_paths": [
+    "docs/future",
+    ".codex/skills/future-planner",
+    ".codex/workflows/future-roadmap-plan"
+  ],
+  "non_owned_paths": [
+    "docs-governance",
+    "planning-board",
+    "repo-context",
+    "docs/vision"
+  ],
+  "task_types": [
+    "future-roadmap-plan"
+  ],
+  "required_reads": [
+    "docs/vision/README.md",
+    "docs/future/README.md",
+    "docs/reference/operations/documentation-architecture-map.md",
+    "consent-protocol/docs/reference/personal-knowledge-model.md"
+  ],
+  "required_commands": [
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+    "./bin/hushh docs verify",
+    "./bin/hushh codex audit"
+  ],
+  "verification_bundles": [
+    {
+      "id": "future-roadmap-plan",
+      "commands": [
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "./bin/hushh docs verify",
+        "./bin/hushh codex audit"
+      ],
+      "tests": [
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "./bin/hushh codex audit"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "repo-context",
+    "docs-governance",
+    "planning-board"
+  ],
+  "adjacent_skills": [
+    "repo-context",
+    "docs-governance",
+    "planning-board",
+    "security-audit"
+  ],
+  "risk_tags": [
+    "future-planning-drift",
+    "vision-boundary-drift",
+    "trust-model-overreach"
+  ]
+}

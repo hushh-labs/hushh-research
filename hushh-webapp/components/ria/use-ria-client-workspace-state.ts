@@ -1,10 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
+import { trackEvent } from "@/lib/observability/client";
+import {
+  resolveGrowthWorkspaceSource,
+  trackGrowthFunnelStepCompleted,
+  trackRiaActivationCompleted,
+} from "@/lib/observability/growth";
 import {
   isIAMSchemaNotReadyError,
   RiaService,
@@ -50,12 +56,41 @@ export function useRiaClientWorkspaceState({
   );
   const [detailError, setDetailError] = useState<string | null>(null);
   const [iamUnavailable, setIamUnavailable] = useState(false);
+  const growthWorkspaceEventKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!clientId) return;
     setDetail(cachedDetail?.data ?? null);
     setWorkspace(cachedWorkspace?.data ?? null);
   }, [cachedDetail?.data, cachedWorkspace?.data, clientId]);
+
+  useEffect(() => {
+    if (!clientId || !workspace?.workspace_ready) return;
+    const workspaceSource = resolveGrowthWorkspaceSource(
+      typeof window !== "undefined" ? window.location.pathname : ""
+    );
+    const nextKey = `${clientId}:${workspaceSource}`;
+    if (growthWorkspaceEventKeyRef.current === nextKey) {
+      return;
+    }
+    growthWorkspaceEventKeyRef.current = nextKey;
+    trackEvent("ria_workspace_opened", {
+      result: "success",
+      status_bucket: "2xx",
+    });
+    trackGrowthFunnelStepCompleted({
+      journey: "ria",
+      step: "workspace_ready",
+      workspaceSource,
+      dedupeKey: `growth:ria:workspace_ready:${nextKey}`,
+      dedupeWindowMs: 5_000,
+    });
+    trackRiaActivationCompleted({
+      workspaceSource,
+      dedupeKey: `growth:ria:activation:${nextKey}`,
+      dedupeWindowMs: 10_000,
+    });
+  }, [clientId, workspace?.workspace_ready]);
 
   useEffect(() => {
     if (!clientId) {

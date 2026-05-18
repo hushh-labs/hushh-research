@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth
+from api.middlewares.rate_limit import limiter
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
@@ -15,6 +16,20 @@ from hushh_mcp.services.ria_iam_service import (
 )
 
 router = APIRouter(prefix="/api/ria", tags=["RIA"])
+
+
+async def _require_ria_verified(
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> str:
+    """Fail-closed dependency: 403 if the caller is not a verified RIA."""
+    service = RIAIAMService()
+    try:
+        await service.require_ria_verified(firebase_uid)
+    except IAMSchemaNotReadyError as exc:
+        raise HTTPException(status_code=503, detail="Verification service unavailable") from exc
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return firebase_uid
 
 
 class RIAOnboardingSubmitRequest(BaseModel):
@@ -34,6 +49,35 @@ class RIAOnboardingSubmitRequest(BaseModel):
     disclosures_url: str | None = None
     primary_firm_name: str | None = None
     primary_firm_role: str | None = None
+    force_live_verification: bool = False
+    # Onboarding v2: license-first fields
+    license_number: str | None = None
+    regulator: str | None = None
+    onboarding_type: str = "individual"
+    services_offered: list[str] = Field(default_factory=list)
+    fee_structure: list[str] = Field(default_factory=list)
+    min_engagement_amount: float | None = None
+    min_engagement_currency: str = "USD"
+    certifications: list[str] = Field(default_factory=list)
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    business_city: str | None = None
+    business_area: str | None = None
+    business_address: str | None = None
+    business_pin_zip: str | None = None
+    business_latitude: float | None = None
+    business_longitude: float | None = None
+
+
+class RIAOnboardingVerifyNameRequest(BaseModel):
+    query: str = Field(..., min_length=1)
+    crd_number: str | None = None
+    force_live_verification: bool = False
+
+
+class RIAOnboardingVerifyLicenseRequest(BaseModel):
+    license_number: str = Field(..., min_length=1)
+    regulator: str | None = None
     force_live_verification: bool = False
 
 
@@ -146,7 +190,7 @@ def _iam_schema_not_ready_response(message: str | None = None) -> JSONResponse:
         content={
             "error": message or "IAM schema is not ready",
             "code": "IAM_SCHEMA_NOT_READY",
-            "hint": "Run `python db/migrate.py --iam` and `python scripts/verify_iam_schema.py`.",
+            "hint": "Run `python db/migrate.py --iam` and `python db/verify/verify_iam_schema.py`.",
         },
     )
 
@@ -173,6 +217,22 @@ async def submit_onboarding(
             disclosures_url=payload.disclosures_url,
             primary_firm_role=payload.primary_firm_role,
             force_live_verification=payload.force_live_verification,
+            license_number=payload.license_number,
+            regulator=payload.regulator,
+            onboarding_type=payload.onboarding_type,
+            services_offered=payload.services_offered,
+            fee_structure=payload.fee_structure,
+            min_engagement_amount=payload.min_engagement_amount,
+            min_engagement_currency=payload.min_engagement_currency,
+            certifications=payload.certifications,
+            contact_email=payload.contact_email,
+            contact_phone=payload.contact_phone,
+            business_city=payload.business_city,
+            business_area=payload.business_area,
+            business_address=payload.business_address,
+            business_pin_zip=payload.business_pin_zip,
+            business_latitude=payload.business_latitude,
+            business_longitude=payload.business_longitude,
         )
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
@@ -180,27 +240,37 @@ async def submit_onboarding(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
-@router.post("/onboarding/dev-activate")
-async def dev_activate_onboarding(
-    payload: RIAOnboardingSubmitRequest,
+@router.post("/onboarding/verify-name")
+async def verify_onboarding_name(
+    payload: RIAOnboardingVerifyNameRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     service = RIAIAMService()
     try:
-        return await service.activate_ria_dev_onboarding(
+        _ = firebase_uid
+        return await service.verify_ria_name(
+            payload.query,
+            crd_number=payload.crd_number,
+            use_cache=not payload.force_live_verification,
+        )
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/onboarding/verify-license")
+@limiter.limit("10/minute")
+async def verify_onboarding_license(
+    payload: RIAOnboardingVerifyLicenseRequest,
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    service = RIAIAMService()
+    try:
+        return await service.verify_ria_license(
             firebase_uid,
-            display_name=payload.display_name,
-            requested_capabilities=payload.requested_capabilities,
-            individual_legal_name=payload.individual_legal_name or payload.legal_name,
-            individual_crd=payload.individual_crd or payload.finra_crd,
-            advisory_firm_legal_name=payload.advisory_firm_legal_name or payload.primary_firm_name,
-            advisory_firm_iapd_number=payload.advisory_firm_iapd_number or payload.sec_iard,
-            broker_firm_legal_name=payload.broker_firm_legal_name,
-            broker_firm_crd=payload.broker_firm_crd,
-            bio=payload.bio,
-            strategy=payload.strategy,
-            disclosures_url=payload.disclosures_url,
-            primary_firm_role=payload.primary_firm_role,
+            license_number=payload.license_number,
+            regulator=payload.regulator,
+            force_live_verification=payload.force_live_verification,
         )
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
@@ -237,11 +307,11 @@ async def ria_firms(firebase_uid: str = Depends(require_firebase_auth)):
 
 @router.get("/clients")
 async def ria_clients(
-    q: str | None = Query(default=None),
-    status: str | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=200),
+    status: str | None = Query(default=None, max_length=50),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=50, ge=1, le=100),
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(_require_ria_verified),
 ):
     service = RIAIAMService()
     try:
@@ -262,7 +332,7 @@ async def ria_clients(
 @router.get("/clients/{investor_user_id}", response_model=RIAClientDetailResponse)
 async def ria_client_detail(
     investor_user_id: str,
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(_require_ria_verified),
 ):
     service = RIAIAMService()
     try:
@@ -314,7 +384,7 @@ async def ria_invites(firebase_uid: str = Depends(require_firebase_auth)):
 @router.post("/invites")
 async def create_ria_invites(
     payload: RIAInviteCreateRequest,
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(_require_ria_verified),
 ):
     service = RIAIAMService()
     try:
@@ -355,7 +425,7 @@ async def update_ria_marketplace_discoverability(
 @router.post("/requests")
 async def create_ria_request(
     payload: RIAConsentRequestCreate,
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(_require_ria_verified),
 ):
     service = RIAIAMService()
     try:
@@ -380,7 +450,7 @@ async def create_ria_request(
 @router.post("/request-bundles")
 async def create_ria_request_bundle(
     payload: RIAConsentBundleCreate,
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(_require_ria_verified),
 ):
     service = RIAIAMService()
     try:
@@ -525,7 +595,7 @@ async def upload_ria_picks(
 @router.get("/workspace/{investor_user_id}")
 async def ria_workspace(
     investor_user_id: str,
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(_require_ria_verified),
 ):
     service = RIAIAMService()
     try:
@@ -540,7 +610,7 @@ async def ria_workspace(
 async def set_ria_client_picks_share(
     investor_user_id: str,
     payload: RIAPicksShareStateRequest,
-    firebase_uid: str = Depends(require_firebase_auth),
+    firebase_uid: str = Depends(_require_ria_verified),
 ):
     service = RIAIAMService()
     try:

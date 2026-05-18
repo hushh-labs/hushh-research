@@ -80,6 +80,10 @@ describe("dispatchVoiceToolCall", () => {
     expect(result).toMatchObject({
       status: "executed",
       toolName: "execute_kai_command",
+      actionResult: {
+        status: "succeeded",
+        resultSummary: "Executed the requested Kai command.",
+      },
     });
   });
 
@@ -98,6 +102,10 @@ describe("dispatchVoiceToolCall", () => {
       status: "blocked",
       toolName: "resume_active_analysis",
       reason: "missing_vault_token",
+      actionResult: {
+        status: "blocked",
+        resultSummary: "Unlock the vault before using this Kai voice action.",
+      },
     });
   });
 
@@ -107,6 +115,7 @@ describe("dispatchVoiceToolCall", () => {
       status: "invalid" as const,
       reason: "missing_symbol",
     }));
+
 
     const result = await dispatchVoiceToolCall({
       ...input,
@@ -123,6 +132,37 @@ describe("dispatchVoiceToolCall", () => {
       status: "invalid",
       toolName: "execute_kai_command",
       reason: "missing_symbol",
+      actionResult: {
+        status: "invalid",
+        resultSummary: "The requested Kai command was invalid.",
+      },
+    });
+  });
+
+  it("keeps execute_kai_command ownership inside the canonical gateway executor", async () => {
+    const input = baseInput();
+    const toolCall = {
+      tool_name: "execute_kai_command" as const,
+      args: {
+        command: "open_dashboard",
+      },
+    };
+
+    input.executeKaiCommand.mockReturnValue({
+      status: "invalid",
+      reason: "Unknown Kai command",
+    });
+
+    const result = await dispatchVoiceToolCall({
+      ...input,
+      toolCall,
+    });
+
+    expect(input.executeKaiCommand).toHaveBeenCalledTimes(1);
+    expect(input.executeKaiCommand).toHaveBeenCalledWith(toolCall);
+    expect(result).toMatchObject({
+      status: "invalid",
+      toolName: "execute_kai_command",
     });
   });
 
@@ -144,6 +184,69 @@ describe("dispatchVoiceToolCall", () => {
       status: "failed",
       toolName: "resume_active_analysis",
       reason: "resume_failed",
+      actionResult: {
+        status: "failed",
+        resultSummary: "Could not resume the active analysis run.",
+      },
     });
+  });
+
+  it("returns route-aware action results for resume_active_analysis success", async () => {
+    mocks.resumeActiveRun.mockResolvedValueOnce({
+      runId: "run_123",
+    });
+
+    const result = await dispatchVoiceToolCall({
+      ...baseInput(),
+      currentRoute: "/kai/dashboard",
+      currentScreen: "dashboard",
+      toolCall: {
+        tool_name: "resume_active_analysis",
+        args: {},
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "executed",
+      toolName: "resume_active_analysis",
+      actionResult: {
+        status: "succeeded",
+        routeBefore: "/kai/dashboard",
+        routeAfter: "/kai/analysis?focus=active&run_id=run_123",
+        screenBefore: "dashboard",
+        screenAfter: "kai_analysis",
+        resultSummary: "Resumed the active analysis run.",
+      },
+    });
+  });
+
+  it("rejects malformed execute_kai_command payload variants", async () => {
+    const malformedToolCalls = [
+      "execute_kai_comman",
+      " execute_kai_command ",
+      "EXECUTE_KAI_COMMAND",
+      "execute-kai-command",
+    ] as const;
+
+    for (const toolName of malformedToolCalls) {
+      const input = baseInput();
+
+      const result = await dispatchVoiceToolCall({
+        ...input,
+        toolCall: {
+          tool_name: toolName,
+          args: {
+            command: "dashboard",
+          },
+        },
+      });
+
+      expect(input.executeKaiCommand).not.toHaveBeenCalled();
+
+      expect(result).toMatchObject({
+        status: "invalid",
+        reason: "unsupported_tool_call",
+      });
+    }
   });
 });
