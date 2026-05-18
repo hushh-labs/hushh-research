@@ -33,7 +33,7 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `APP_FRONTEND_ORIGIN` | `server.py` | Yes (prod) | Backend-owned app origin for CORS and user-facing links. Not part of the public MCP host setup. |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `api/utils/firebase_admin.py`, `hushh_mcp/runtime_settings.py` | Yes | Canonical Firebase Admin credential for server operations, Workspace-delegated Gmail send, and future One mailbox tasks. The approved Workspace DWD client is `109021324828349644970`. |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `hushh_mcp/runtime_settings.py` | Optional alias | Runtime compatibility alias for `FIREBASE_ADMIN_CREDENTIALS_JSON`. Prefer the canonical name for new config. |
-| `GOOGLE_API_KEY` | `hushh_mcp/config.py`, services | Yes | Gemini / Vertex AI API key. |
+| `GOOGLE_API_KEY` | `hushh_mcp/config.py`, `hushh_mcp/services/agent_chat_service.py`, services | Yes | Gemini / Vertex AI API key. Required for Agent text chat. |
 | `ONE_EMAIL_ADDRESS` | `hushh_mcp/services/support_email_service.py`, `hushh_mcp/services/one_email_kyc_service.py` | Optional | Canonical One mailbox identity. Default: `one@hushh.ai`. |
 | `ONE_EMAIL_SERVICE_ACCOUNT_JSON` | `hushh_mcp/services/one_email_kyc_service.py` | Optional override | Dedicated service account JSON for One mailbox intake. Prefer `FIREBASE_ADMIN_CREDENTIALS_JSON` unless an explicit exception is approved. |
 | `ONE_EMAIL_DELEGATED_USER` | `hushh_mcp/services/one_email_kyc_service.py` | Optional override | Workspace mailbox to impersonate for One intake. Default: `ONE_EMAIL_ADDRESS`. Must be a real user mailbox. |
@@ -56,7 +56,7 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `GMAIL_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth client secret. Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_REDIRECT_URI` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth redirect URI. Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_TOKEN_KEY` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Encryption key for persisted Gmail OAuth tokens. Same key name across local, UAT, and production. |
-| `OPENAI_API_KEY` | `hushh_mcp/services/voice_intent_service.py` | Yes (voice) | Required for realtime voice transcription, planning/composition, TTS, and realtime session creation. |
+| `OPENAI_API_KEY` | `api/routes/kai/agent_realtime.py`, `hushh_mcp/services/voice_intent_service.py` | Yes (voice/agent) | Required for Agent Realtime text sessions and realtime voice transcription, planning/composition, TTS, and session creation. |
 | `VOICE_RUNTIME_CONFIG_JSON` | `hushh_mcp/runtime_settings.py`, `api/routes/kai/voice.py`, `hushh_mcp/services/voice_intent_service.py` | Yes (voice) | Structured runtime config for rollout, allowlists/canary, fail-fast policy, and model defaults. |
 | `DEFAULT_CONSENT_TOKEN_EXPIRY_MS` | `hushh_mcp/config.py` | No | Token TTL (default: 24h). |
 | `DEFAULT_TRUST_LINK_EXPIRY_MS` | `hushh_mcp/config.py` | No | TrustLink TTL. |
@@ -70,6 +70,7 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `SYNC_REMOTE_ENABLED` | deploy/runtime env contract | No | Legacy deploy flag; keep false unless the runtime reintroduces an active reader. |
 | `HUSHH_DEVELOPER_TOKEN` | `api/routes/session.py`, `mcp_server.py` | Optional | Self-serve developer token used by stdio MCP and token-auth `/api/user/lookup`. It is not part of the normal hosted runtime contract. |
 | `ROOT_PATH` | `server.py` | No | FastAPI root path for reverse proxy. |
+| `AGENT_GEMINI_MODEL` | `hushh_mcp/services/agent_chat_service.py` | No | Optional Agent text chat model override. Defaults to stable `gemini-2.5-pro`. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | Cloud Run env | No | Set `True` for Vertex AI in production. |
 | `PLAID_ENV` / `PLAID_ENVIRONMENT` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Plaid environment. Defaults to `sandbox`. |
 | `PLAID_CLIENT_ID` | `hushh_mcp/services/plaid_portfolio_service.py` | If Plaid enabled | Plaid client ID. |
@@ -299,6 +300,7 @@ Local runtime bootstrap:
 | `DB_PORT` | No | Cloud Run env var |
 | `DB_NAME` | No | Cloud Run env var |
 | `ENVIRONMENT` | No | Cloud Run env var |
+| `AGENT_GEMINI_MODEL` | No | Cloud Run env var |
 | `GOOGLE_GENAI_USE_VERTEXAI` | No | Cloud Run env var |
 
 ---

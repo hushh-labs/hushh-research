@@ -54,6 +54,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/profile/pkm-agent-lab")).toBe("profile_pkm_agent_lab");
     expect(resolveRouteId("/profile/receipts")).toBe("profile_receipts");
     expect(resolveRouteId("/profile/gmail/oauth/return")).toBe("profile_gmail_oauth_return");
+    expect(resolveRouteId("/agent")).toBe("agent");
     expect(resolveRouteId("/portfolio/shared")).toBe("portfolio_shared");
     expect(resolveRouteId("/ria/clients")).toBe("ria_clients");
     expect(resolveRouteId("/ria/clients/user_123")).toBe("ria_workspace");
@@ -81,6 +82,15 @@ describe("observability route map", () => {
     );
     expect(normalizeApiPathToTemplate("/api/kai/market/insights/user_123")).toBe(
       "/api/kai/market/insights/{user_id}"
+    );
+    expect(normalizeApiPathToTemplate("/api/kai/agent/chat/stream")).toBe(
+      "/api/kai/agent/chat/stream"
+    );
+    expect(normalizeApiPathToTemplate("/api/kai/agent/chat/conversations/user_123?limit=1")).toBe(
+      "/api/kai/agent/chat/conversations/{user_id}"
+    );
+    expect(normalizeApiPathToTemplate("/api/kai/agent/chat/history/conversation_123")).toBe(
+      "/api/kai/agent/chat/history/{conversation_id}"
     );
     expect(normalizeApiPathToTemplate("/api/kai/analyze/run/run_987/stream?cursor=0")).toBe(
       "/api/kai/analyze/run/{run_id}/stream"
