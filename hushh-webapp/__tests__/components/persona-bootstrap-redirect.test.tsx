@@ -80,4 +80,16 @@ describe("PersonaBootstrapRedirect", () => {
       screen.queryByText("Your active role and current route are out of sync")
     ).toBeNull();
   });
+    it("keeps mismatch dialog visible when persona transition target is empty", () => {
+    personaStateValue = {
+      ...personaStateValue,
+      personaTransitionTarget: "",
+    };
+
+    render(<PersonaBootstrapRedirect />);
+
+    expect(
+      screen.getByText("Your active role and current route are out of sync")
+    ).toBeTruthy();
+  });
 });
