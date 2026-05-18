@@ -229,17 +229,26 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     const responseContentType = response.headers.get("content-type");
     if (responseContentType?.includes("text/event-stream")) {
       console.log(`[Kai API] request_id=${requestId} sse_pass_through=true`);
+      const headers: Record<string, string> = {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "Content-Encoding": "none",
+        "X-Accel-Buffering": "no",
+        "x-request-id": requestId,
+      };
+      const agentConversationId = response.headers.get("x-agent-conversation-id");
+      const agentModel = response.headers.get("x-agent-model");
+      if (agentConversationId) {
+        headers["X-Agent-Conversation-Id"] = agentConversationId;
+      }
+      if (agentModel) {
+        headers["X-Agent-Model"] = agentModel;
+      }
       // Return SSE stream directly without parsing
       return new Response(response.body, {
         status: response.status,
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
-          "Content-Encoding": "none",
-          "X-Accel-Buffering": "no",
-          "x-request-id": requestId,
-        },
+        headers,
       });
     }
 
