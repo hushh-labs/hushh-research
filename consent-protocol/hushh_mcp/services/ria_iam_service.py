@@ -7805,6 +7805,8 @@ class RIAIAMService:
                   firm,
                   title,
                   investor_type,
+                  location_hint,
+                  business_address,
                   aum_billions,
                   investment_style,
                   risk_tolerance,
@@ -7814,6 +7816,8 @@ class RIAIAMService:
                   is_insider,
                   insider_company_ticker,
                   data_sources,
+                  source_urls,
+                  evidence,
                   last_13f_date,
                   last_form4_date,
                   updated_at
@@ -7885,7 +7889,7 @@ class RIAIAMService:
             "public_profile_id": public_profile_id,
             "display_name": display_name,
             "headline": headline,
-            "location_hint": None,
+            "location_hint": cls._clean_public_investor_text(payload.get("location_hint")),
             "strategy_summary": cls._public_investor_strategy_summary(payload),
             "connectable": False,
             "evidence": cls._public_investor_evidence(payload),
@@ -7951,6 +7955,15 @@ class RIAIAMService:
         data_sources = payload.get("data_sources")
         if not isinstance(data_sources, list):
             data_sources = []
+        source_urls = payload.get("source_urls")
+        if not isinstance(source_urls, list):
+            source_urls = []
+        evidence = payload.get("evidence")
+        if not isinstance(evidence, dict):
+            evidence = {}
+        business_address = payload.get("business_address")
+        if not isinstance(business_address, dict):
+            business_address = {}
         forms: list[dict[str, str]] = []
         last_13f_date = cls._serialize_marketplace_date(payload.get("last_13f_date"))
         last_form4_date = cls._serialize_marketplace_date(payload.get("last_form4_date"))
@@ -7962,7 +7975,9 @@ class RIAIAMService:
             "source_type": "public_sec",
             "confidence": "official_public_records",
             "sources": data_sources or ["SEC EDGAR public filings"],
-            "source_urls": [source_url] if source_url else [],
+            "source_urls": list(
+                dict.fromkeys([*source_urls, *([source_url] if source_url else [])])
+            ),
             "forms": forms,
             "cik": cik,
             "investor_type": cls._clean_public_investor_text(payload.get("investor_type")),
@@ -7970,6 +7985,8 @@ class RIAIAMService:
             "insider_company_ticker": cls._clean_public_investor_text(
                 payload.get("insider_company_ticker")
             ),
+            "business_address": business_address,
+            "metadata": evidence,
             "updated_at": cls._serialize_marketplace_date(payload.get("updated_at")),
         }
 

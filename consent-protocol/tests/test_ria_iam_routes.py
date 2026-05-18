@@ -153,12 +153,13 @@ def test_marketplace_investors_exposes_public_sec_discovery_contract(monkeypatch
                 "public_profile_id": "42",
                 "display_name": "Morgan Public",
                 "headline": "Managing Partner at Public Capital Partners",
-                "location_hint": None,
+                "location_hint": "Kirkland, WA 98033",
                 "strategy_summary": "Public investor profile assembled from public filings.",
                 "connectable": False,
                 "evidence": {
                     "confidence": "official_public_records",
                     "sources": ["SEC EDGAR", "Form 13F"],
+                    "business_address": {"city": "KIRKLAND", "state": "WA", "zip": "98033"},
                 },
                 "is_test_profile": False,
             }
@@ -174,6 +175,7 @@ def test_marketplace_investors_exposes_public_sec_discovery_contract(monkeypatch
     assert item["source_type"] == "public_sec"
     assert item["user_id"] is None
     assert item["connectable"] is False
+    assert item["location_hint"] == "Kirkland, WA 98033"
     assert item["evidence"]["confidence"] == "official_public_records"
 
 

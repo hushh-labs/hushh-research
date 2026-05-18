@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 55,
+  "expected_migration_version": 56,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -424,6 +424,27 @@
       "last_error_code",
       "last_error_message",
       "metadata",
+      "created_at",
+      "updated_at"
+    ],
+    "investor_profiles": [
+      "id",
+      "name",
+      "name_normalized",
+      "cik",
+      "firm",
+      "title",
+      "investor_type",
+      "location_hint",
+      "business_address",
+      "aum_billions",
+      "investment_style",
+      "biography",
+      "data_sources",
+      "source_urls",
+      "evidence",
+      "last_13f_date",
+      "last_form4_date",
       "created_at",
       "updated_at"
     ]
