@@ -31,7 +31,8 @@
     "051_one_kyc_metadata_token_redaction.sql",
     "052_actor_verified_email_aliases.sql",
     "053_ria_onboarding_v2_fields.sql",
-    "054_ria_license_verification_cache_index.sql"
+    "054_ria_license_verification_cache_index.sql",
+    "055_agent_chat_encrypted_store.sql"
   ],
   "groups": {
     "iam": [
