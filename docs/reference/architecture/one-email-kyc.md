@@ -15,9 +15,12 @@ flowchart TD
   mailbox --> intake --> scopes --> export --> draft --> send --> pkm
 ```
 
-This is the current implementation contract for One-led KYC intake through
-`one@hushh.ai`. KYC is a bounded identity workflow specialist under One; it is
-not a broad email agent and does not own platform consent policy.
+This is the current implementation contract for One-led, approval-gated email
+intake through `one@hushh.ai`. The current `/one/kyc` surface owns the KYC
+review workflow, but the mailbox helper can recommend any consumer-visible
+dynamic `attr.*` scope that already exists in the vault owner's shareable scope
+inventory. It is not a free-form email agent and does not own platform consent
+policy.
 
 ## Current Runtime
 
@@ -40,8 +43,9 @@ draft generation, user review, and encrypted PKM writeback.
    required-field labels, candidate scopes, hashes, and workflow state.
 3. Raw email bodies, consent tokens, connector private keys, decrypted exports,
    final approved bodies, and draft plaintext are not durable backend state.
-4. One detects candidate scopes from text only. The vault owner must confirm or
-   narrow selected scopes in `/one/kyc` before consent requests are created.
+4. One detects candidate scopes from text against the resolved vault owner's
+   consumer-visible scope inventory. The vault owner must confirm or narrow
+   selected scopes in `/one/kyc` before consent requests are created.
 5. Each selected workflow scope becomes its own consent request under one bundle
    id. Draft generation may use all selected and granted workflow scopes, not
    just identity scope, but must not read every globally available user scope.
