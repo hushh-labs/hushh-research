@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, ArrowRight, Trash2, Eye } from "lucide-react";
+import { MoreHorizontal, ArrowRight, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, isValid, parseISO } from "date-fns";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -26,7 +26,6 @@ export type HistoryEntryWithVersion = AnalysisHistoryEntry & {
 };
 
 interface ColumnsProps {
-  onView: (entry: AnalysisHistoryEntry) => void;
   onDelete: (entry: AnalysisHistoryEntry) => void;
   onDeleteTicker: (ticker: string) => void;
   onViewVersions?: (ticker: string) => void;
@@ -68,7 +67,6 @@ function formatHistoryTimestamp(value: unknown): string {
 }
 
 export const getColumns = ({
-  onView,
   onDelete,
   onDeleteTicker,
   onViewVersions,
@@ -96,10 +94,6 @@ export const getColumns = ({
           </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
             <DropdownMenuLabel>Actions</DropdownMenuLabel>
-            <DropdownMenuItem onSelect={() => onView(entry)}>
-              <Icon icon={Eye} size="sm" className="mr-2" />
-              View Analysis
-            </DropdownMenuItem>
             {onViewVersions && (
               <DropdownMenuItem onSelect={() => onViewVersions(entry.ticker)}>
                 <Icon icon={ArrowRight} size="sm" className="mr-2" />

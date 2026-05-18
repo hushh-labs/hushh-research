@@ -1,0 +1,57 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "kai_market",
+  "surface_title": "Kai Market Home",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "investor"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.kai_home",
+      "label": "Open Market Home",
+      "meaning": "Navigates to the Investor Kai market home surface.",
+      "aliases": [
+        "open kai home",
+        "open market home",
+        "go to market home"
+      ],
+      "search_keywords": [
+        "kai",
+        "market",
+        "home"
+      ],
+      "reachability": {
+        "routes": [
+          "/kai",
+          "/kai/home"
+        ],
+        "screens": [
+          "kai_market"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "kai_command",
+        "target": "home"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-voice-runtime-architecture.md"
+      ],
+      "speaker_persona": "kai"
+    }
+  ]
+}

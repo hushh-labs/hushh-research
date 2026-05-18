@@ -12,6 +12,7 @@
   ],
   "required_reads": [
     ".codex/skills/comms-community/references/reply-rules.md",
+    ".codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md",
     "docs/reference/iam/README.md",
     "consent-protocol/docs/reference/developer-api.md"
   ],
@@ -26,12 +27,18 @@
     "tests": []
   },
   "deliverables": [
-    "public reply draft",
+    "Brief reply",
+    "Detailed reply",
+    "optional firmer reply variant when correction is needed",
     "shipped-vs-future distinction",
-    "repo-backed citations"
+    "claim classification for material premise corrections",
+    "repo-backed GitHub doc citations"
   ],
   "impact_fields": [
-    "Docs updated"
+    "Docs updated",
+    "GitHub doc links used",
+    "Claim classification used",
+    "Reply variants provided"
   ],
   "handoff_chain": [
     "comms-community",
@@ -40,15 +47,9 @@
   ],
   "common_failures": [
     "overstating shipped functionality",
-    "mixing roadmap with runtime truth"
-  ],
-  "scheduled_safe": false,
-  "maintenance_cadence": "manual",
-  "maintenance_runner": [],
-  "maintenance_owner": "comms-community",
-  "maintenance_issue_section": "community-response",
-  "maintenance_blockers": [
-    "workflow is manual-only and should not run unattended"
-  ],
-  "maintenance_prerequisites": []
+    "mixing roadmap with runtime truth",
+    "repo-relative paths instead of canonical GitHub doc links",
+    "accepting contributor wording as repo truth",
+    "bloated drafted-reply variants beyond Brief/Detailed without need"
+  ]
 }

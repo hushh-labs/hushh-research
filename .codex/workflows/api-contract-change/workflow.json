@@ -56,14 +56,5 @@
     "changing backend response shape without proxy/service updates",
     "updating runtime without contract docs",
     "missing auth or consent boundary review"
-  ],
-  "scheduled_safe": false,
-  "maintenance_cadence": "manual",
-  "maintenance_runner": [],
-  "maintenance_owner": "backend",
-  "maintenance_issue_section": "api-contract-change",
-  "maintenance_blockers": [
-    "workflow is manual-only and should not run unattended"
-  ],
-  "maintenance_prerequisites": []
+  ]
 }

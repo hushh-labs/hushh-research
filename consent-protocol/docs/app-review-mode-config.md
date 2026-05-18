@@ -15,7 +15,8 @@ Move app-review-mode control from frontend build-time variables to backend runti
 ## Environment Variables (backend)
 - `APP_REVIEW_MODE` (or `HUSHH_APP_REVIEW_MODE`)  
   Truthy values: `1`, `true`, `yes`, `on`
-- `REVIEWER_UID` (required only when app review mode is enabled)
+- `REVIEWER_UID`
+- `REVIEWER_VAULT_PASSPHRASE` (non-production reviewer smoke bypass only)
 
 ## Response
 - When disabled:
@@ -47,4 +48,6 @@ Move app-review-mode control from frontend build-time variables to backend runti
 - Frontend web requests can proxy through Next API routes.
 - Native iOS/Android clients can call backend directly.
 - No reviewer password is exposed to clients.
+- The passphrase bypass is ignored in production and exists only so UAT/browser smoke can mint the same reviewer token without creating another user.
+- `UAT_SMOKE_*` and `KAI_TEST_*` are deprecated one-release aliases.
 - Production deploy uses backend secrets/env only (no frontend build-time reviewer env).

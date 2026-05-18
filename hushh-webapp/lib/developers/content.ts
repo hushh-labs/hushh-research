@@ -178,7 +178,7 @@ export const CONSENT_FLOW_STEPS: ConsentFlowStep[] = [
   {
     title: "Request",
     detail:
-      "Send one discovered scope at a time to POST /api/v1/request-consent?token=... with your developer token and connector public-key bundle so Hushh can wrap the export key for client-side decryption.",
+      "Send one discovered scope at a time to POST /api/v1/request-consent?token=... with your developer token and connector public-key bundle so Hussh can wrap the export key for client-side decryption.",
   },
   {
     title: "Approve",
@@ -251,12 +251,12 @@ export const FAQ_ITEMS: DeveloperFaqItem[] = [
   {
     question: "What is the one scalable read path?",
     answer:
-      "Use get_encrypted_scoped_export after approval. Hushh returns ciphertext plus wrapped-key metadata, and your connector decrypts locally.",
+      "Use get_encrypted_scoped_export after approval. Hussh returns ciphertext plus wrapped-key metadata, and your connector decrypts locally.",
   },
   {
     question: "What happens if I ask for a narrower scope while I already have a broader one?",
     answer:
-      "Hushh reuses the existing broader active grant and returns it immediately, but the exported package remains the canonical broader encrypted export. Pass the narrower scope as expected_scope and narrow it locally after decrypting.",
+      "Hussh reuses the existing broader active grant and returns it immediately, but the exported package remains the canonical broader encrypted export. Pass the narrower scope as expected_scope and narrow it locally after decrypting.",
   },
   {
     question: "What happens if I ask for a broader scope while I already have a narrower one?",
@@ -266,12 +266,12 @@ export const FAQ_ITEMS: DeveloperFaqItem[] = [
   {
     question: "Where does consent approval happen?",
     answer:
-      "Inside Kai. Your external agent requests consent, but the user approves or denies it in the Hushh product surface.",
+      "Inside Kai. Your external agent requests consent, but the user approves or denies it in the Hussh product surface.",
   },
   {
     question: "Do raw REST callers need to send a connector key?",
     answer:
-      "Yes. Raw HTTP and MCP callers both provide connector_public_key, connector_key_id, and connector_wrapping_alg. Hushh wraps the export key to your public key and never manages your private key.",
+      "Yes. Raw HTTP and MCP callers both provide connector_public_key, connector_key_id, and connector_wrapping_alg. Hussh wraps the export key to your public key and never manages your private key.",
   },
   {
     question: "When should I use remote MCP versus npm?",
@@ -359,7 +359,7 @@ export const DEVELOPER_SAMPLE_PAYLOADS: DeveloperSamplePayload[] = [
   {
     title: "Generate connector keypair locally",
     description:
-      "Create the X25519 connector keypair on your own client or runtime. Only the base64 public key is shared with Hushh.",
+      "Create the X25519 connector keypair on your own client or runtime. Only the base64 public key is shared with Hussh.",
     code: `const keyPair = await crypto.subtle.generateKey(
   { name: "X25519" },
   true,

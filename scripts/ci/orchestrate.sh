@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/ci/orchestrate.sh <secret|web|protocol|integration|smoke|all|advisory>
+  scripts/ci/orchestrate.sh <secret|governance|web|protocol|integration|smoke|all|advisory>
 
 Environment flags:
   INCLUDE_ADVISORY_CHECKS=1   Also run advisory checks when stage=all
@@ -29,6 +29,9 @@ run_stage() {
   case "$stage" in
     secret)
       scripts/ci/secret-scan.sh
+      ;;
+    governance)
+      scripts/ci/repo-governance-check.sh
       ;;
     web)
       scripts/ci/web-check.sh
@@ -58,13 +61,14 @@ run_stage() {
 }
 
 case "$STAGE" in
-  secret|web|protocol|integration|smoke|advisory)
+  secret|governance|web|protocol|integration|smoke|advisory)
     run_stage "$STAGE"
     ;;
   all)
     echo "== CI Parity (Local) =="
-    echo "Running blocking CI stages: secret, web, protocol, integration."
+    echo "Running blocking CI stages: secret, governance, web, protocol, integration."
     run_stage secret
+    run_stage governance
     run_stage web
     run_stage protocol
     run_stage integration

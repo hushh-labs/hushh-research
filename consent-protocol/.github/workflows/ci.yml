@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -69,6 +69,37 @@ jobs:
       - name: Run gitleaks scan
         run: gitleaks git --redact --no-banner --exit-code 1 --log-opts="${{ steps.scan-range.outputs.log_opts }}"
 
+  dco-check:
+    name: "DCO"
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate DCO signoff
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/ci/check-dco-signoff.sh
+
+  repo-governance:
+    name: "Governance"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-python-uv
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          protocol-dir: .
+
+      - name: Verify Apache and onboarding surface
+        run: bash scripts/ci/repo-governance-check.sh
+
   # ============================================================================
   # Backend checks (single source of truth script)
   # ============================================================================
@@ -77,26 +108,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/setup-python-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: requirements.txt
+          protocol-dir: .
 
       - name: Run backend check script
         run: bash scripts/ci/backend-check.sh
         env:
           TESTING: "true"
-          SECRET_KEY: "test_secret_key_for_ci_only_32chars_min"
-          VAULT_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+          APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
+          VAULT_DATA_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
           HUSHH_DEVELOPER_TOKEN: "test_hushh_developer_token_for_ci"
 
   ci-status:
     name: "CI Status Gate"
     needs:
       - secret-scan
+      - dco-check
+      - repo-governance
       - backend-check
     if: always()
     runs-on: ubuntu-latest
@@ -106,13 +138,17 @@ jobs:
         shell: bash
         run: |
           SECRET_SCAN="${{ needs['secret-scan'].result }}"
+          DCO="${{ needs['dco-check'].result }}"
+          GOVERNANCE="${{ needs['repo-governance'].result }}"
           BACKEND_CHECK="${{ needs['backend-check'].result }}"
 
           printf 'secret-scan=%s\n' "$SECRET_SCAN"
+          printf 'dco-check=%s\n' "$DCO"
+          printf 'repo-governance=%s\n' "$GOVERNANCE"
           printf 'backend-check=%s\n' "$BACKEND_CHECK"
 
           fail=0
-          for result in "$SECRET_SCAN" "$BACKEND_CHECK"; do
+          for result in "$SECRET_SCAN" "$DCO" "$GOVERNANCE" "$BACKEND_CHECK"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi

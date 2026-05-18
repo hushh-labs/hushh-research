@@ -1,6 +1,7 @@
 // lib/config.ts
 
 import { resolveAppEnvironment } from "./app-env";
+import { resolveRuntimeBackendUrl, resolveRuntimeFrontendUrl } from "./runtime/settings";
 
 /**
  * Environment Configuration
@@ -29,13 +30,12 @@ export const isProduction = () => getEnvironmentMode() === "production";
 
 // Backend URL for Python consent-protocol server
 export const BACKEND_URL =
-  normalizeUrl(process.env.BACKEND_URL) ||
-  normalizeUrl(process.env.NEXT_PUBLIC_BACKEND_URL) ||
+  normalizeUrl(resolveRuntimeBackendUrl()) ||
   resolveBrowserDefaultBackendUrl();
 
-// Frontend URL
-export const FRONTEND_URL =
-  normalizeUrl(process.env.NEXT_PUBLIC_FRONTEND_URL) ||
+// Frontend origin
+export const APP_FRONTEND_ORIGIN =
+  normalizeUrl(resolveRuntimeFrontendUrl()) ||
   (getEnvironmentMode() === "development" ? "http://localhost:3000" : "");
 
 // ============================================================================
