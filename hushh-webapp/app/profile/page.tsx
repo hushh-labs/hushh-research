@@ -104,6 +104,7 @@ import {
   resolveGmailStatusSummary,
   sanitizeGmailUserMessage,
 } from "@/lib/profile/mail-flow";
+import { resolveProfileVaultSettingsRow } from "@/lib/profile/profile-vault-settings-row";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Button } from "@/lib/morphy-ux/morphy";
@@ -555,6 +556,7 @@ function ProfilePageContent() {
     mode: "push" | "replace";
   } | null>(null);
   const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const [showVaultCreation, setShowVaultCreation] = useState(false);
   const [pkmMetadata, setPkmMetadata] =
     useState<PersonalKnowledgeModelMetadata | null>(null);
   const [loadingPkmMetadata, setLoadingPkmMetadata] = useState(true);
@@ -1372,7 +1374,7 @@ function ProfilePageContent() {
     panel: Extract<ProfilePanel, "my-data" | "access" | "gmail" | "security">,
   ) {
     if (vaultAccess.needsVaultCreation) {
-      router.push(ROUTES.KAI_IMPORT);
+      setShowVaultCreation(true);
       return;
     }
     if (hasVault && vaultAccess.needsUnlock) {
@@ -1826,6 +1828,7 @@ function ProfilePageContent() {
       : vaultAccess.needsUnlock
         ? "Locked"
         : readableMethod(displayedUnlockMethod);
+  const vaultSettingsRow = resolveProfileVaultSettingsRow(vaultAccess);
   const profileVoiceSurfaceMetadata = useMemo(() => {
     const controls = [
       {
@@ -1844,6 +1847,20 @@ function ProfilePageContent() {
         actionId: "route.profile_access",
         role: "card",
         voiceAliases: ["access", "sharing", "consent access"],
+      },
+      {
+        id: "profile_vault",
+        label: vaultSettingsRow.title,
+        purpose: vaultSettingsRow.voicePurpose,
+        actionId: "route.profile_security",
+        role: "card",
+        voiceAliases: [
+          "vault",
+          "create your vault",
+          "unlock vault",
+          "manage vault",
+          "vault security",
+        ],
       },
       {
         id: "profile_account",
@@ -1921,6 +1938,7 @@ function ProfilePageContent() {
         ]
       : [
           "Account",
+          "Vault",
           "Personal Knowledge Model",
           "Access & sharing",
           "Preferences",
@@ -1954,6 +1972,7 @@ function ProfilePageContent() {
                 ]
               : [
                   "Open Account",
+                  vaultSettingsRow.title,
                   "Open Personal Knowledge Model",
                   "Open Access & sharing",
                   "Open Gmail receipts",
@@ -2112,6 +2131,8 @@ function ProfilePageContent() {
     supportComposeKind,
     switchingVaultMethod,
     emailVerified,
+    vaultSettingsRow.title,
+    vaultSettingsRow.voicePurpose,
     vaultAccess.needsVaultCreation,
   ]);
   usePublishVoiceSurfaceMetadata(profileVoiceSurfaceMetadata);
@@ -2212,6 +2233,14 @@ function ProfilePageContent() {
   const openPreferencesPanel = () =>
     updateProfileView({ panel: "preferences", detail: null }, "push");
   const openSecurityPanel = () => openVaultBackedPanel("security");
+  const openVaultSettingsRow = () => {
+    if (vaultSettingsRow.action === "wait") return;
+    if (vaultSettingsRow.action === "create") {
+      setShowVaultCreation(true);
+      return;
+    }
+    openSecurityPanel();
+  };
 
   const handlePreviewDomainPermission = async (
     domainKey: string,
@@ -2743,13 +2772,11 @@ function ProfilePageContent() {
       <SettingsGroup title="Vault">
         {vaultAccess.needsVaultCreation ? (
           <SettingsRow
-            icon={Folder}
+            icon={KeyRound}
             title="Create your vault"
-            description="Start from import to enable passphrase or passkey unlock for this account."
+            description="Set up a passphrase to secure your personal data."
             chevron
-            onClick={() => {
-              router.push(ROUTES.KAI_IMPORT);
-            }}
+            onClick={() => setShowVaultCreation(true)}
           />
         ) : null}
 
@@ -3447,8 +3474,7 @@ function ProfilePageContent() {
                           : "Domains, counts, and sharing."
                 }
                 trailing={<Badge variant="secondary">{myDataRootBadge}</Badge>}
-                chevron={!vaultAccess.needsVaultCreation}
-                disabled={vaultAccess.needsVaultCreation}
+                chevron
                 stackTrailingOnMobile
                 onClick={openMyDataPanel}
               />
@@ -3467,8 +3493,7 @@ function ProfilePageContent() {
                           : "Who can read what."
                 }
                 trailing={<Badge variant="secondary">{accessRootBadge}</Badge>}
-                chevron={!vaultAccess.needsVaultCreation}
-                disabled={vaultAccess.needsVaultCreation}
+                chevron
                 stackTrailingOnMobile
                 onClick={openAccessPanel}
               />
@@ -3483,8 +3508,7 @@ function ProfilePageContent() {
                       : "Connection, sync, and receipts."
                 }
                 trailing={<Badge variant="secondary">{gmailStatusLabel}</Badge>}
-                chevron={!vaultAccess.needsVaultCreation}
-                disabled={vaultAccess.needsVaultCreation}
+                chevron
                 stackTrailingOnMobile
                 onClick={openGmailPanel}
               />
@@ -3499,14 +3523,31 @@ function ProfilePageContent() {
                       : "Requests and approval drafts."
                 }
                 trailing={<Badge variant="secondary">Preview</Badge>}
-                chevron={!vaultAccess.needsVaultCreation}
-                disabled={vaultAccess.needsVaultCreation}
+                chevron
                 stackTrailingOnMobile
-                onClick={() => router.push(ROUTES.ONE_KYC)}
+                onClick={() => {
+                  if (vaultAccess.needsVaultCreation) {
+                    setShowVaultCreation(true);
+                    return;
+                  }
+                  router.push(ROUTES.ONE_KYC);
+                }}
               />
             </SettingsGroup>
 
             <SettingsGroup title="Settings">
+              <SettingsRow
+                icon={KeyRound}
+                title={vaultSettingsRow.title}
+                description={vaultSettingsRow.description}
+                chevron={vaultSettingsRow.chevron}
+                disabled={vaultSettingsRow.disabled}
+                voiceControlId="profile_vault"
+                voiceActionId="route.profile_security"
+                voiceLabel={vaultSettingsRow.voiceLabel}
+                voicePurpose={vaultSettingsRow.voicePurpose}
+                onClick={openVaultSettingsRow}
+              />
               <SettingsRow
                 icon={Phone}
                 title="Account"
@@ -3626,6 +3667,22 @@ function ProfilePageContent() {
               vaultUnlockCompletingRef.current = false;
             }, 0);
             toast.success("Vault unlocked.");
+          }}
+        />
+      )}
+
+      {hasVault === false && (
+        <VaultUnlockDialog
+          user={user}
+          open={showVaultCreation}
+          onOpenChange={setShowVaultCreation}
+          title="Create your vault"
+          description="Set up a passphrase to secure your personal data."
+          onSuccess={() => {
+            setShowVaultCreation(false);
+            setHasVault(true);
+            VaultService.setVaultCheckCache(user.uid, true);
+            toast.success("Vault created and unlocked.");
           }}
         />
       )}
