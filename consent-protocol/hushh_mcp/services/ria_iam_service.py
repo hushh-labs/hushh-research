@@ -7741,6 +7741,7 @@ class RIAIAMService:
         try:
             await self._ensure_iam_schema_ready(conn)
             limit_safe = max(1, min(limit, 50))
+            normalized_query = (query or "").strip() or None
             rows = await conn.fetch(
                 """
                 SELECT
@@ -7749,6 +7750,7 @@ class RIAIAMService:
                   mp.headline,
                   mp.location_hint,
                   mp.strategy_summary,
+                  mp.metadata,
                   CASE
                     WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
                     THEN (mp.metadata ->> 'is_test_profile')::boolean
@@ -7766,11 +7768,216 @@ class RIAIAMService:
                 ORDER BY mp.display_name ASC
                 LIMIT $2
                 """,
-                (query or "").strip() or None,
+                normalized_query,
                 limit_safe,
             )
-            return [dict(row) for row in rows]
+            items = [self._marketplace_hushh_investor_row(row) for row in rows]
+            remaining = max(0, limit_safe - len(items))
+            if remaining <= 0:
+                return items
+
+            public_rows = await self._search_public_sec_investor_profiles(
+                conn,
+                query=normalized_query,
+                limit=remaining,
+            )
+            items.extend(self._marketplace_public_sec_investor_row(row) for row in public_rows)
+            return items
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
             await conn.close()
+
+    async def _search_public_sec_investor_profiles(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        query: str | None,
+        limit: int,
+    ) -> list[Any]:
+        try:
+            return await conn.fetch(
+                """
+                SELECT
+                  id,
+                  name,
+                  cik,
+                  firm,
+                  title,
+                  investor_type,
+                  aum_billions,
+                  investment_style,
+                  risk_tolerance,
+                  time_horizon,
+                  portfolio_turnover,
+                  biography,
+                  is_insider,
+                  insider_company_ticker,
+                  data_sources,
+                  last_13f_date,
+                  last_form4_date,
+                  updated_at
+                FROM investor_profiles
+                WHERE
+                  ($1::text IS NULL OR (
+                    name ILIKE ('%' || $1 || '%')
+                    OR COALESCE(firm, '') ILIKE ('%' || $1 || '%')
+                    OR COALESCE(title, '') ILIKE ('%' || $1 || '%')
+                    OR COALESCE(biography, '') ILIKE ('%' || $1 || '%')
+                  ))
+                ORDER BY
+                  COALESCE(aum_billions, 0) DESC,
+                  COALESCE(last_13f_date, last_form4_date, updated_at::date) DESC NULLS LAST,
+                  name ASC
+                LIMIT $2
+                """,
+                query,
+                max(1, min(limit, 50)),
+            )
+        except asyncpg.exceptions.UndefinedTableError:
+            logger.info("marketplace.public_investors.unavailable reason=investor_profiles_missing")
+            return []
+
+    @staticmethod
+    def _marketplace_hushh_investor_row(row: Any) -> dict[str, Any]:
+        payload = dict(row)
+        user_id = str(payload.get("user_id") or "").strip()
+        metadata = payload.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        return {
+            "id": user_id,
+            "source_type": "hushh_user",
+            "user_id": user_id,
+            "public_profile_id": None,
+            "display_name": payload.get("display_name"),
+            "headline": payload.get("headline"),
+            "location_hint": payload.get("location_hint"),
+            "strategy_summary": payload.get("strategy_summary"),
+            "connectable": True,
+            "evidence": {
+                "source_type": "hushh_user",
+                "confidence": "user_opt_in",
+                "metadata": metadata,
+            },
+            "is_test_profile": bool(payload.get("is_test_profile")),
+        }
+
+    @classmethod
+    def _marketplace_public_sec_investor_row(cls, row: Any) -> dict[str, Any]:
+        payload = dict(row)
+        public_profile_id = str(payload.get("id") or "").strip()
+        display_name = cls._clean_public_investor_text(payload.get("name")) or (
+            f"Public investor {public_profile_id}" if public_profile_id else "Public investor"
+        )
+        firm = cls._clean_public_investor_text(payload.get("firm"))
+        title = cls._clean_public_investor_text(payload.get("title"))
+        investor_type = cls._clean_public_investor_text(payload.get("investor_type"))
+        headline = cls._public_investor_headline(
+            title=title,
+            firm=firm,
+            investor_type=investor_type,
+        )
+        return {
+            "id": f"public_sec:{public_profile_id}",
+            "source_type": "public_sec",
+            "user_id": None,
+            "public_profile_id": public_profile_id,
+            "display_name": display_name,
+            "headline": headline,
+            "location_hint": None,
+            "strategy_summary": cls._public_investor_strategy_summary(payload),
+            "connectable": False,
+            "evidence": cls._public_investor_evidence(payload),
+            "is_test_profile": False,
+        }
+
+    @staticmethod
+    def _clean_public_investor_text(value: Any) -> str | None:
+        normalized = str(value or "").strip()
+        return normalized or None
+
+    @classmethod
+    def _public_investor_headline(
+        cls,
+        *,
+        title: str | None,
+        firm: str | None,
+        investor_type: str | None,
+    ) -> str:
+        if title and firm:
+            return f"{title} at {firm}"
+        if firm:
+            return firm
+        if title:
+            return title
+        if investor_type:
+            return investor_type.replace("_", " ").title()
+        return "Public SEC investor profile"
+
+    @classmethod
+    def _public_investor_strategy_summary(cls, payload: dict[str, Any]) -> str:
+        biography = cls._clean_public_investor_text(payload.get("biography"))
+        if biography:
+            return biography if len(biography) <= 420 else f"{biography[:417].rstrip()}..."
+
+        firm = cls._clean_public_investor_text(payload.get("firm"))
+        investor_type = cls._clean_public_investor_text(payload.get("investor_type"))
+        investment_style = payload.get("investment_style")
+        styles = [
+            str(item).replace("_", " ").strip()
+            for item in (investment_style or [])
+            if str(item or "").strip()
+        ]
+        parts: list[str] = []
+        if firm:
+            parts.append(f"Public filings associate this investor with {firm}.")
+        if investor_type:
+            parts.append(f"Classified as {investor_type.replace('_', ' ')}.")
+        if styles:
+            parts.append(f"Observed public style tags: {', '.join(styles[:4])}.")
+        if payload.get("last_13f_date"):
+            parts.append("Includes SEC 13F public filing context.")
+        if payload.get("last_form4_date"):
+            parts.append("Includes SEC Form 4 public filing context.")
+        return " ".join(parts) or (
+            "Public investor discovery profile assembled from official SEC-style public records."
+        )
+
+    @classmethod
+    def _public_investor_evidence(cls, payload: dict[str, Any]) -> dict[str, Any]:
+        cik = cls._clean_public_investor_text(payload.get("cik"))
+        source_url = f"https://www.sec.gov/edgar/browse/?CIK={cik}" if cik else None
+        data_sources = payload.get("data_sources")
+        if not isinstance(data_sources, list):
+            data_sources = []
+        forms: list[dict[str, str]] = []
+        last_13f_date = cls._serialize_marketplace_date(payload.get("last_13f_date"))
+        last_form4_date = cls._serialize_marketplace_date(payload.get("last_form4_date"))
+        if last_13f_date:
+            forms.append({"form": "13F", "last_filed_at": last_13f_date})
+        if last_form4_date:
+            forms.append({"form": "4", "last_filed_at": last_form4_date})
+        return {
+            "source_type": "public_sec",
+            "confidence": "official_public_records",
+            "sources": data_sources or ["SEC EDGAR public filings"],
+            "source_urls": [source_url] if source_url else [],
+            "forms": forms,
+            "cik": cik,
+            "investor_type": cls._clean_public_investor_text(payload.get("investor_type")),
+            "is_insider": bool(payload.get("is_insider")),
+            "insider_company_ticker": cls._clean_public_investor_text(
+                payload.get("insider_company_ticker")
+            ),
+            "updated_at": cls._serialize_marketplace_date(payload.get("updated_at")),
+        }
+
+    @staticmethod
+    def _serialize_marketplace_date(value: Any) -> str | None:
+        if value is None:
+            return None
+        if hasattr(value, "isoformat"):
+            return str(value.isoformat())
+        normalized = str(value).strip()
+        return normalized or None
