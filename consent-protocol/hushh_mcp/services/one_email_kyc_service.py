@@ -30,6 +30,7 @@ from google.oauth2 import service_account
 
 from api.utils.firebase_admin import ensure_firebase_auth_admin, get_firebase_auth_app
 from db.db_client import get_db
+from hushh_mcp.consent.scope_generator import get_scope_generator
 from hushh_mcp.runtime_settings import get_firebase_credential_settings
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import build_consent_request_url, frontend_origin
@@ -55,6 +56,7 @@ _FINANCIAL_FULL_SCOPE = "attr.financial.*"
 _FINANCIAL_PORTFOLIO_SCOPE = "attr.financial.portfolio.*"
 _FINANCIAL_PROFILE_SCOPE = "attr.financial.profile.*"
 _FINANCIAL_DOCUMENTS_SCOPE = "attr.financial.documents.*"
+_ONE_EMAIL_ATTR_SCOPE_RE = re.compile(r"^attr\.[a-z0-9_]+(?:\.[a-z0-9_]+)*(?:\.\*)?$")
 _ALLOWED_KYC_DATA_SCOPES = frozenset({_DEFAULT_KYC_SCOPE})
 _ALLOWED_ONE_EMAIL_DATA_SCOPES = frozenset(
     {
@@ -87,6 +89,100 @@ _KYC_WORKFLOW_STATES = {
     "completed",
     "blocked",
 }
+
+_DYNAMIC_SCOPE_TERMS: dict[str, tuple[str, ...]] = {
+    "travel": (
+        "travel",
+        "trip",
+        "trips",
+        "destination",
+        "destinations",
+        "location",
+        "locations",
+        "place",
+        "places",
+        "favorite location",
+        "favourite location",
+        "favorite places",
+        "favourite places",
+        "hotel",
+        "flight",
+    ),
+    "location": (
+        "location",
+        "locations",
+        "place",
+        "places",
+        "favorite location",
+        "favourite location",
+        "favorite places",
+        "favourite places",
+    ),
+    "food": (
+        "food",
+        "restaurant",
+        "restaurants",
+        "diet",
+        "dietary",
+        "cuisine",
+        "favorite food",
+        "favourite food",
+    ),
+    "entertainment": (
+        "entertainment",
+        "movie",
+        "movies",
+        "music",
+        "shows",
+        "events",
+        "favorite shows",
+        "favourite shows",
+    ),
+    "shopping": (
+        "shopping",
+        "brands",
+        "purchases",
+        "wishlist",
+        "favorite brands",
+        "favourite brands",
+    ),
+    "health": ("health", "wellness", "fitness", "medical"),
+    "work": ("work", "job", "career", "employment", "company"),
+    "education": ("education", "school", "university", "degree"),
+}
+_SCOPE_MATCH_STOPWORDS = frozenset(
+    {
+        "and",
+        "are",
+        "can",
+        "create",
+        "data",
+        "draft",
+        "entities",
+        "entity",
+        "for",
+        "from",
+        "get",
+        "has",
+        "here",
+        "id",
+        "information",
+        "into",
+        "items",
+        "kind",
+        "observations",
+        "one",
+        "preference",
+        "preferences",
+        "that",
+        "the",
+        "this",
+        "updated",
+        "with",
+        "you",
+        "your",
+    }
+)
 
 
 def _runtime_environment() -> str:
@@ -236,15 +332,15 @@ def _validate_kyc_data_scope(scope: str) -> str:
 
 
 def _validate_one_email_data_scope(scope: str) -> str:
-    normalized = _clean_text(scope)
-    if normalized not in _ALLOWED_ONE_EMAIL_DATA_SCOPES:
+    normalized = _clean_text(scope).lower()
+    if not normalized or not _ONE_EMAIL_ATTR_SCOPE_RE.fullmatch(normalized):
         raise OneEmailKycError(
             "One email requested scope is not approved for this lane.",
             status_code=400,
             code="ONE_KYC_SCOPE_NOT_ALLOWED",
             payload={
                 "scope": normalized,
-                "allowed_scopes": sorted(_ALLOWED_ONE_EMAIL_DATA_SCOPES),
+                "allowed_scope_pattern": "attr.<domain>[.<path>][.*]",
             },
         )
     return normalized
@@ -449,6 +545,22 @@ def _message_text(message: dict[str, Any]) -> str:
     return "\n".join(plain or html_parts)
 
 
+def _strip_quoted_reply_text(body: str) -> str:
+    lines = str(body or "").splitlines()
+    kept: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith(">"):
+            break
+        if re.match(r"^On .+ wrote:$", stripped):
+            break
+        if stripped in {"--", "-----Original Message-----"}:
+            break
+        kept.append(line)
+    text = "\n".join(kept).strip()
+    return text or str(body or "")
+
+
 def _has_attachments(message: dict[str, Any]) -> bool:
     payload = message.get("payload") if isinstance(message.get("payload"), dict) else {}
     for part in _iter_payload_parts(payload):
@@ -478,6 +590,55 @@ def _scope_candidate(
         "recommended": recommended,
         "sensitivity": sensitivity,
     }
+
+
+def _scope_domain(scope: str) -> str | None:
+    parts = _clean_text(scope).lower().split(".")
+    if len(parts) < 2 or parts[0] != "attr":
+        return None
+    return parts[1]
+
+
+def _scope_label_from_entry(entry: dict[str, Any]) -> str:
+    label = _clean_text(entry.get("label"))
+    if label:
+        return label
+    scope = _clean_text(entry.get("scope"))
+    domain = _clean_text(entry.get("domain")) or (_scope_domain(scope) or "")
+    path = _clean_text(entry.get("path"))
+    text = path or domain or scope
+    return text.replace("_", " ").replace(".", " ").title() or "Scoped data"
+
+
+def _scope_terms_from_entry(entry: dict[str, Any]) -> set[str]:
+    terms: set[str] = set()
+    scope = _clean_text(entry.get("scope")).lower()
+    domain = _clean_text(entry.get("domain")).lower() or (_scope_domain(scope) or "")
+    path = _clean_text(entry.get("path")).lower()
+    label = _clean_text(entry.get("label")).lower()
+    for item in (domain, path, label, scope.removeprefix("attr.")):
+        normalized_item = item.replace("_", " ").replace(".", " ").strip()
+        tokens = [token for token in re.split(r"[^a-z0-9]+", normalized_item) if len(token) >= 3]
+        for size in (3, 2):
+            for index in range(0, max(len(tokens) - size + 1, 0)):
+                phrase_tokens = tokens[index : index + size]
+                if all(token in _SCOPE_MATCH_STOPWORDS for token in phrase_tokens):
+                    continue
+                terms.add(" ".join(phrase_tokens))
+        for token in re.split(r"[^a-z0-9_]+", item.replace(".", " ")):
+            if len(token) >= 3 and token not in _SCOPE_MATCH_STOPWORDS:
+                terms.add(token.replace("_", " "))
+        compact = normalized_item
+        if len(compact) >= 3 and compact not in _SCOPE_MATCH_STOPWORDS:
+            terms.add(compact)
+    for term in _DYNAMIC_SCOPE_TERMS.get(domain, ()):
+        terms.add(term)
+    return {term for term in terms if term}
+
+
+def _term_matches_text(term: str, text: str) -> bool:
+    escaped = re.escape(term).replace(r"\ ", r"\s+")
+    return re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", text) is not None
 
 
 def _dedupe_scope_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1013,6 +1174,91 @@ class OneEmailKycService:
             params={"format": "full"},
         )
 
+    async def _available_one_email_scope_entries(self, user_id: str) -> list[dict[str, Any]]:
+        try:
+            entries = await get_scope_generator().get_available_scope_entries(user_id)
+        except Exception as exc:
+            logger.warning(
+                "one_email_kyc.dynamic_scope_entries_failed user_id=%s reason=%s",
+                user_id,
+                exc,
+            )
+            return []
+
+        visible_entries: list[dict[str, Any]] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("consumer_visible") is False or entry.get("internal_only") is True:
+                continue
+            try:
+                scope = _validate_one_email_data_scope(entry.get("scope"))
+            except OneEmailKycError:
+                continue
+            visible_entries.append(
+                {
+                    **entry,
+                    "scope": scope,
+                    "domain": _clean_text(entry.get("domain")) or (_scope_domain(scope) or ""),
+                    "label": _scope_label_from_entry({**entry, "scope": scope}),
+                }
+            )
+        return visible_entries
+
+    async def _detect_available_scope_candidates(
+        self,
+        *,
+        user_id: str,
+        subject: str,
+        body: str,
+    ) -> list[dict[str, Any]]:
+        haystack = f"{subject}\n{body}".lower()
+        if not haystack.strip():
+            return []
+        candidates: list[tuple[int, dict[str, Any]]] = []
+        for entry in await self._available_one_email_scope_entries(user_id):
+            scope = _clean_text(entry.get("scope"))
+            domain = _clean_text(entry.get("domain")) or (_scope_domain(scope) or "data")
+            label = _scope_label_from_entry(entry)
+            matched_terms = [
+                term
+                for term in sorted(_scope_terms_from_entry(entry), key=len, reverse=True)
+                if term and _term_matches_text(term, haystack)
+            ]
+            if not matched_terms:
+                continue
+            domain_terms = {_clean_text(domain).lower(), *_DYNAMIC_SCOPE_TERMS.get(domain, ())}
+            score = max(len(term.split()) for term in matched_terms)
+            if any(term in domain_terms for term in matched_terms):
+                score += 8
+            if scope == get_scope_generator().generate_domain_wildcard(domain):
+                score += 4
+            elif entry.get("wildcard") is True:
+                score += 2
+            candidates.append(
+                (
+                    score,
+                    _scope_candidate(
+                        scope=scope,
+                        domain=domain,
+                        label=label,
+                        description=f"Approved {label.lower()} fields available in your vault.",
+                        reason=(
+                            "The email mentions "
+                            f"{', '.join(matched_terms[:3])}, which matches available {label.lower()} data."
+                        ),
+                        sensitivity="high" if domain in {"financial", "health"} else "standard",
+                    ),
+                )
+            )
+        ranked = sorted(candidates, key=lambda item: -item[0])
+        if not ranked:
+            return []
+        top_score = ranked[0][0]
+        return _dedupe_scope_candidates(
+            [candidate for score, candidate in ranked if score == top_score][:6]
+        )
+
     async def _process_message(
         self,
         message: dict[str, Any],
@@ -1027,8 +1273,14 @@ class OneEmailKycService:
         gmail_message_id = _clean_text(message.get("id"))
         gmail_thread_id = _clean_text(message.get("threadId"))
         rfc_message_id = _clean_text(headers.get("message-id")) or None
-        body_text = _message_text(message)
-        body_hash = hashlib.sha256(body_text.encode("utf-8")).hexdigest() if body_text else None
+        raw_body_text = _message_text(message)
+        body_text = _strip_quoted_reply_text(raw_body_text)
+        body_hash = (
+            hashlib.sha256(raw_body_text.encode("utf-8")).hexdigest() if raw_body_text else None
+        )
+        request_body_hash = (
+            hashlib.sha256(body_text.encode("utf-8")).hexdigest() if body_text else None
+        )
         snippet = None
         mailbox = self.config.mailbox_email
         participants = [
@@ -1051,7 +1303,11 @@ class OneEmailKycService:
 
         is_kyc = self._looks_like_kyc(subject=subject, body=body_text)
         is_financial = self._looks_like_financial_request(subject=subject, body=body_text)
-        scope_candidates = self._detect_scope_candidates(subject=subject, body=body_text)
+        scope_candidates = self._detect_scope_candidates(
+            subject=subject,
+            body=body_text,
+            include_fallback=False,
+        )
         candidate_scopes = [candidate["scope"] for candidate in scope_candidates]
         has_attachments = _has_attachments(message)
         recipient_user_match = self._match_verified_user(recipient_participants)
@@ -1084,6 +1340,8 @@ class OneEmailKycService:
             "metadata": {
                 "source": _KYC_REQUEST_SOURCE,
                 "body_sha256": body_hash,
+                "request_body_sha256": request_body_hash,
+                "quoted_reply_text_stripped": body_text != raw_body_text,
                 "classification": (
                     "kyc_financial"
                     if is_kyc and is_financial
@@ -1132,7 +1390,41 @@ class OneEmailKycService:
             )
             return {"handled": True, "workflow": workflow, "blocked": True}
 
-        if not (is_kyc or is_financial):
+        dynamic_scope_candidates = await self._detect_available_scope_candidates(
+            user_id=user_match["user_id"],
+            subject=subject,
+            body=body_text,
+        )
+        scope_candidates = _dedupe_scope_candidates([*scope_candidates, *dynamic_scope_candidates])
+        if not scope_candidates and (is_kyc or is_financial):
+            scope_candidates = self._detect_scope_candidates(
+                subject=subject,
+                body=body_text,
+                include_fallback=True,
+            )
+        candidate_scopes = [candidate["scope"] for candidate in scope_candidates]
+        common["metadata"].update(
+            {
+                "classification": (
+                    "kyc_financial"
+                    if is_kyc and is_financial
+                    else "kyc"
+                    if is_kyc
+                    else "financial"
+                    if is_financial
+                    else "dynamic_disclosure"
+                    if dynamic_scope_candidates
+                    else "unsupported"
+                ),
+                "detected_domains": sorted(
+                    {str(candidate.get("domain")) for candidate in scope_candidates}
+                ),
+                "candidate_scopes": scope_candidates,
+                "dynamic_scope_detection": bool(dynamic_scope_candidates),
+            }
+        )
+
+        if not scope_candidates:
             workflow = self._insert_workflow(
                 **common,
                 status="blocked",
@@ -1140,8 +1432,7 @@ class OneEmailKycService:
                 requested_scope=None,
                 last_error_code="unsupported_email_task",
                 last_error_message=(
-                    "One email intake only handles KYC, compliance, and financial disclosure "
-                    "requests in this lane."
+                    "One could not match this email to any available shareable scope."
                 ),
             )
             return {"handled": True, "workflow": workflow, "blocked": True}
@@ -1220,7 +1511,13 @@ class OneEmailKycService:
         )
         return any(pattern in haystack for pattern in patterns)
 
-    def _detect_scope_candidates(self, *, subject: str, body: str) -> list[dict[str, Any]]:
+    def _detect_scope_candidates(
+        self,
+        *,
+        subject: str,
+        body: str,
+        include_fallback: bool = True,
+    ) -> list[dict[str, Any]]:
         haystack = f"{subject}\n{body}".lower()
         candidates: list[dict[str, Any]] = []
         if self._looks_like_kyc(subject=subject, body=body):
@@ -1290,7 +1587,7 @@ class OneEmailKycService:
                             sensitivity="high",
                         )
                     )
-        if not candidates:
+        if not candidates and include_fallback:
             candidates.append(
                 _scope_candidate(
                     scope=self.config.default_kyc_scope,
@@ -1318,12 +1615,32 @@ class OneEmailKycService:
             "financial_profile": ("financial profile", "financial information", "net worth"),
             "portfolio": ("portfolio", "holdings", "investment holdings"),
             "financial_documents": ("statement", "statements", "financial documents"),
+            "seat_preferences": (
+                "seat preference",
+                "seat preferences",
+                "preferred seat",
+                "preferred seats",
+            ),
+            "favorite_locations": (
+                "favorite location",
+                "favorite locations",
+                "favourite location",
+                "favourite locations",
+                "favorite places",
+                "favourite places",
+            ),
+            "locations": ("locations", "places", "destinations"),
+            "preferences": ("preference", "preferences", "favourites", "favorites"),
         }
         fields = [
             field
             for field, aliases in known_fields.items()
             if any(alias in haystack for alias in aliases)
         ]
+        if "favorite_locations" in fields and "locations" in fields:
+            fields.remove("locations")
+        if "seat_preferences" in fields and "preferences" in fields:
+            fields.remove("preferences")
         if not fields:
             fields.append("identity_profile")
         return fields
@@ -1779,7 +2096,15 @@ class OneEmailKycService:
         workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
         if workflow["status"] == "needs_client_connector":
             workflow = await self._ensure_consent_request(workflow)
-        if workflow["status"] not in {"needs_scope", "needs_documents"}:
+        should_revalidate_ready_draft = (
+            workflow["status"] == "waiting_on_user"
+            and workflow.get("draft_status") == "ready"
+            and bool(_workflow_consent_requests(workflow))
+        )
+        if (
+            workflow["status"] not in {"needs_scope", "needs_documents"}
+            and not should_revalidate_ready_draft
+        ):
             return workflow
         consent_requests = _workflow_consent_requests(workflow)
         metadata = workflow.get("metadata", {})
@@ -1809,8 +2134,17 @@ class OneEmailKycService:
             if not export_package:
                 return self._update_workflow(
                     workflow_id,
+                    status="needs_scope",
+                    draft_status="not_ready",
+                    draft_body=None,
                     last_error_code="scoped_export_pending",
                     last_error_message="Consent is granted; One is waiting for the scoped encrypted export.",
+                    metadata={
+                        **_redact_sensitive_workflow_metadata(workflow.get("metadata", {})),
+                        "consent_export": None,
+                        "consent_exports": None,
+                        "client_draft_required": False,
+                    },
                 )
             export_metadata = self._public_export_metadata(export_package)
             workflow = self._update_workflow(
@@ -1895,6 +2229,9 @@ class OneEmailKycService:
                 ),
                 metadata={
                     **metadata,
+                    "consent_export": None,
+                    "consent_exports": None,
+                    "client_draft_required": False,
                     "denied_scopes": [item["scope"] for item in denied],
                     "external_reply_blocked": True,
                     "internal_user_explanation": (
@@ -1905,11 +2242,19 @@ class OneEmailKycService:
         if pending or len(exports) != len(consent_requests):
             return self._update_workflow(
                 workflow["workflow_id"],
+                status="needs_scope",
+                draft_status="not_ready",
+                draft_body=None,
                 last_error_code="scoped_export_pending" if exports else None,
                 last_error_message=(
                     "One is waiting for all selected scoped encrypted exports." if exports else None
                 ),
-                metadata=metadata,
+                metadata={
+                    **metadata,
+                    "consent_export": None,
+                    "consent_exports": None,
+                    "client_draft_required": False,
+                },
             )
         export_metadata = [
             item["metadata"] | {"request_id": item["request_id"]} for item in exports
