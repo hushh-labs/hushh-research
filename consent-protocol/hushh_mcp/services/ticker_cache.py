@@ -83,14 +83,17 @@ class TickerCache:
 
     @property
     def loaded(self) -> bool:
-        return bool(self._rows)
+        with self._lock:
+            return bool(self._rows)
 
     @property
     def loaded_at(self) -> float:
-        return self._loaded_at
+        with self._lock:
+            return self._loaded_at
 
     def size(self) -> int:
-        return len(self._rows)
+        with self._lock:
+            return len(self._rows)
 
     def get_by_ticker(self, ticker: str) -> Optional[dict]:
         key = (ticker or "").upper().strip()
