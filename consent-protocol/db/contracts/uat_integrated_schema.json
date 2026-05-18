@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 54,
+  "expected_migration_version": 55,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -165,6 +165,38 @@
       "summary_projection",
       "created_at",
       "updated_at"
+    ],
+    "agent_chat_conversations": [
+      "id",
+      "user_id",
+      "title_ciphertext",
+      "title_iv",
+      "title_tag",
+      "title_algorithm",
+      "status",
+      "model",
+      "metadata",
+      "message_count",
+      "created_at",
+      "updated_at",
+      "last_message_at"
+    ],
+    "agent_chat_messages": [
+      "id",
+      "conversation_id",
+      "user_id",
+      "role",
+      "status",
+      "content_ciphertext",
+      "content_iv",
+      "content_tag",
+      "content_algorithm",
+      "model",
+      "tokens_used",
+      "error_code",
+      "metadata",
+      "created_at",
+      "completed_at"
     ],
     "pkm_upgrade_runs": [
       "run_id",

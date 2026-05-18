@@ -49,6 +49,14 @@
     }
   },
   {
+    "route": "/agent",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/agent/agent-screen.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]
+    }
+  },
+  {
     "route": "/kai",
     "mode": "standard",
     "shellVerification": {

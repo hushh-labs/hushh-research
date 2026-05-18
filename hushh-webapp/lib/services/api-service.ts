@@ -2383,6 +2383,71 @@ export class ApiService {
   }
 
   /**
+   * Stream a broad Agent text chat response.
+   *
+   * This is intentionally separate from Kai finance chat and the OpenAI realtime
+   * voice session. The backend uses Gemini and stores encrypted Agent history.
+   */
+  static async streamAgentChat(data: {
+    userId: string;
+    message: string;
+    conversationId?: string;
+    vaultOwnerToken: string;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return ApiService.apiFetchStream("/api/kai/agent/chat/stream", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: data.userId,
+        message: data.message,
+        conversation_id: data.conversationId,
+      }),
+      signal: data.signal,
+    });
+  }
+
+  static async listAgentChatConversations(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    limit?: number;
+  }): Promise<Response> {
+    const query = new URLSearchParams();
+    if (data.limit) query.set("limit", String(data.limit));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return apiFetch(
+      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.userId)}${suffix}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+      }
+    );
+  }
+
+  static async getAgentChatHistory(data: {
+    conversationId: string;
+    vaultOwnerToken: string;
+    limit?: number;
+  }): Promise<Response> {
+    const query = new URLSearchParams();
+    if (data.limit) query.set("limit", String(data.limit));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return apiFetch(
+      `/api/kai/agent/chat/history/${encodeURIComponent(data.conversationId)}${suffix}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+      }
+    );
+  }
+
+  /**
    * Import portfolio from brokerage statement
    *
    * Accepts CSV or PDF files and returns portfolio analysis with losers.
