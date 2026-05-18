@@ -193,4 +193,16 @@ describe("error-sanitizer", () => {
       expect(getErrorMessage(undefined)).toBe("undefined");
     });
   });
+      it("preserves uppercase localhost sanitization stability", () => {
+    const result = sanitizeErrorMessage(
+      new Error("Request failed against HTTP://LOCALHOST:8000/internal"),
+      500
+    );
+
+    expect(result.message).toBe(
+      "An error occurred on our end. Please try again in a moment."
+    );
+    expect(result.message).not.toContain("LOCALHOST");
+    expect(result.message).not.toContain("localhost");
+  });
 });
