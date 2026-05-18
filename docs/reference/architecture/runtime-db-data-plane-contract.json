@@ -192,6 +192,19 @@
       "expected_row_growth": "medium_relationship"
     },
     {
+      "id": "public_investor_reference",
+      "owner": "backend-api-contracts",
+      "data_class": "reference",
+      "lifecycle_status": "current",
+      "exact_tables": ["investor_profiles"],
+      "primary_access_path": "RIA marketplace public discovery cards and official SEC filing evidence",
+      "retention_policy": "Refreshable public reference data; update from official public sources and preserve evidence URLs.",
+      "deletion_behavior": "Not user-delete scoped; remove or correct only when the public-source inventory is withdrawn or superseded.",
+      "trust_boundary": "Official/public investor reference records only; rows do not create signed-in marketplace users and are not connectable without opt-in.",
+      "plaintext_posture": "reference_metadata",
+      "expected_row_growth": "low_reference"
+    },
+    {
       "id": "kai_brokerage_provider_cache",
       "owner": "backend-runtime-governance",
       "data_class": "provider_cache",

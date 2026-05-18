@@ -33,6 +33,13 @@ class _FakeMarketplaceConn:
                     "firm": "Public Capital Partners",
                     "title": "Managing Partner",
                     "investor_type": "fund_manager",
+                    "location_hint": "Kirkland, WA 98033",
+                    "business_address": {
+                        "street1": "2365 CARILLON POINT",
+                        "city": "KIRKLAND",
+                        "state": "WA",
+                        "zip": "98033",
+                    },
                     "aum_billions": 12.4,
                     "investment_style": ["long_term", "technology"],
                     "risk_tolerance": None,
@@ -42,6 +49,8 @@ class _FakeMarketplaceConn:
                     "is_insider": False,
                     "insider_company_ticker": None,
                     "data_sources": ["SEC EDGAR", "Form 13F"],
+                    "source_urls": ["https://data.sec.gov/submissions/CIK0000123456.json"],
+                    "evidence": {"confidence": "official_sec_record"},
                     "last_13f_date": date(2026, 3, 31),
                     "last_form4_date": None,
                     "updated_at": date(2026, 4, 15),
@@ -85,7 +94,13 @@ def test_marketplace_investors_merge_hushh_users_and_public_sec_profiles(monkeyp
         assert public_item["public_profile_id"] == "42"
         assert public_item["connectable"] is False
         assert public_item["headline"] == "Managing Partner at Public Capital Partners"
+        assert public_item["location_hint"] == "Kirkland, WA 98033"
         assert public_item["evidence"]["confidence"] == "official_public_records"
         assert public_item["evidence"]["forms"] == [{"form": "13F", "last_filed_at": "2026-03-31"}]
+        assert public_item["evidence"]["source_urls"] == [
+            "https://data.sec.gov/submissions/CIK0000123456.json",
+            "https://www.sec.gov/edgar/browse/?CIK=0000123456",
+        ]
+        assert public_item["evidence"]["business_address"]["zip"] == "98033"
 
     asyncio.run(_run())
