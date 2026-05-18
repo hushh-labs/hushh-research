@@ -3,11 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import {
-  BriefcaseBusiness,
-  CircleAlert,
-  Loader2,
-} from "lucide-react";
+import { BriefcaseBusiness, CircleAlert } from "lucide-react";
+import { InlineLoadingState } from "@/components/ui/inline-loading-state";
 
 import { RiaCompatibilityState, RiaPageShell, RiaSurface } from "@/components/ria/ria-page-shell";
 import { Badge } from "@/components/ui/badge";
@@ -346,10 +343,7 @@ export default function RiaHomePage() {
 
             <div className="overflow-hidden rounded-[20px] border border-border/60 bg-background/70">
               {homeResource.loading && !homeResource.data ? (
-                <div className="flex items-center gap-2 px-4 py-5 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Pulling readiness, relationships, and picks state.
-                </div>
+                <InlineLoadingState label="Pulling readiness, relationships, and picks state." />
               ) : null}
 
               {!homeResource.loading && queueItems.length === 0 ? (
