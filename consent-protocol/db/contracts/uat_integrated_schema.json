@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 57,
+  "expected_migration_version": 58,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -450,6 +450,21 @@
       "admission_status",
       "quality_score",
       "curation_reason",
+      "created_at",
+      "updated_at"
+    ],
+    "marketplace_investor_actions": [
+      "id",
+      "actor_user_id",
+      "ria_profile_id",
+      "source_type",
+      "target_key",
+      "target_user_id",
+      "public_profile_id",
+      "action",
+      "status",
+      "target_snapshot",
+      "metadata",
       "created_at",
       "updated_at"
     ]

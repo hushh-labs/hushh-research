@@ -52,6 +52,7 @@ _IAM_REQUIRED_TABLES: tuple[str, ...] = (
     "ria_client_invites",
     "consent_scope_templates",
     "marketplace_public_profiles",
+    "marketplace_investor_actions",
     "relationship_share_grants",
     "relationship_share_events",
 )
@@ -69,6 +70,12 @@ _RIA_PICKS_PKM_DOMAIN = "ria"
 _RIA_PICKS_PKM_PATH = "advisor_package"
 _PERSONA_STATE_CACHE_TTL = timedelta(seconds=30)
 _PERSONA_STATE_CACHE: dict[str, tuple[datetime, dict[str, Any]]] = {}
+_MARKETPLACE_INVESTOR_ACTION_STATUS: dict[str, str] = {
+    "view_more": "viewed",
+    "pass": "passed",
+    "shortlist": "shortlisted",
+    "connect_request": "connect_requested",
+}
 _RIA_SCREENING_SECTION_ORDER: tuple[str, ...] = (
     "investable_requirements",
     "automatic_avoid_triggers",
@@ -7849,6 +7856,328 @@ class RIAIAMService:
         finally:
             await conn.close()
 
+    async def record_marketplace_investor_action(
+        self,
+        user_id: str,
+        *,
+        action: str,
+        source_type: str | None = None,
+        public_profile_id: str | int | None = None,
+        target_user_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        normalized_action = str(action or "").strip().lower()
+        if normalized_action not in _MARKETPLACE_INVESTOR_ACTION_STATUS:
+            raise RIAIAMPolicyError("Unsupported marketplace investor action", status_code=400)
+
+        normalized_source = str(source_type or "").strip().lower()
+        if not normalized_source:
+            normalized_source = "public_sec" if public_profile_id is not None else "hushh_user"
+        if normalized_source not in {"public_sec", "hushh_user"}:
+            raise RIAIAMPolicyError("Unsupported marketplace investor source type", status_code=400)
+        if normalized_action == "connect_request" and normalized_source != "hushh_user":
+            raise RIAIAMPolicyError(
+                "Public SEC profiles can be shortlisted, not connected directly",
+                status_code=400,
+            )
+
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_iam_schema_ready(conn)
+                await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
+                ria = await self._get_ria_profile_by_user(conn, user_id)
+                target = await self._resolve_marketplace_investor_action_target(
+                    conn,
+                    source_type=normalized_source,
+                    public_profile_id=public_profile_id,
+                    target_user_id=target_user_id,
+                )
+                status = _MARKETPLACE_INVESTOR_ACTION_STATUS[normalized_action]
+                safe_metadata = metadata if isinstance(metadata, dict) else {}
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO marketplace_investor_actions (
+                      actor_user_id,
+                      ria_profile_id,
+                      source_type,
+                      target_key,
+                      target_user_id,
+                      public_profile_id,
+                      action,
+                      status,
+                      target_snapshot,
+                      metadata,
+                      created_at,
+                      updated_at
+                    )
+                    VALUES (
+                      $1,
+                      $2,
+                      $3,
+                      $4,
+                      $5,
+                      $6,
+                      $7,
+                      $8,
+                      $9::jsonb,
+                      $10::jsonb,
+                      NOW(),
+                      NOW()
+                    )
+                    ON CONFLICT (actor_user_id, target_key)
+                    DO UPDATE SET
+                      ria_profile_id = EXCLUDED.ria_profile_id,
+                      source_type = EXCLUDED.source_type,
+                      target_user_id = EXCLUDED.target_user_id,
+                      public_profile_id = EXCLUDED.public_profile_id,
+                      action = CASE
+                        WHEN EXCLUDED.action = 'view_more'
+                          AND marketplace_investor_actions.status IN (
+                            'passed', 'shortlisted', 'connect_requested'
+                          )
+                        THEN marketplace_investor_actions.action
+                        ELSE EXCLUDED.action
+                      END,
+                      status = CASE
+                        WHEN EXCLUDED.status = 'viewed'
+                          AND marketplace_investor_actions.status IN (
+                            'passed', 'shortlisted', 'connect_requested'
+                          )
+                        THEN marketplace_investor_actions.status
+                        ELSE EXCLUDED.status
+                      END,
+                      target_snapshot = EXCLUDED.target_snapshot,
+                      metadata = marketplace_investor_actions.metadata || EXCLUDED.metadata,
+                      updated_at = NOW()
+                    RETURNING
+                      id,
+                      actor_user_id,
+                      ria_profile_id,
+                      source_type,
+                      target_key,
+                      target_user_id,
+                      public_profile_id,
+                      action,
+                      status,
+                      target_snapshot,
+                      metadata,
+                      created_at,
+                      updated_at
+                    """,
+                    user_id,
+                    ria["id"],
+                    normalized_source,
+                    target["target_key"],
+                    target.get("target_user_id"),
+                    target.get("public_profile_id"),
+                    normalized_action,
+                    status,
+                    json.dumps(target["profile"]),
+                    json.dumps(safe_metadata),
+                )
+                return self._marketplace_investor_action_row(row)
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def list_marketplace_investor_actions(
+        self,
+        user_id: str,
+        *,
+        status: str | None = None,
+        action: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        normalized_status = str(status or "").strip().lower() or None
+        normalized_action = str(action or "").strip().lower() or None
+        if normalized_status and normalized_status not in set(
+            _MARKETPLACE_INVESTOR_ACTION_STATUS.values()
+        ):
+            raise RIAIAMPolicyError(
+                "Unsupported marketplace investor action status", status_code=400
+            )
+        if normalized_action and normalized_action not in _MARKETPLACE_INVESTOR_ACTION_STATUS:
+            raise RIAIAMPolicyError("Unsupported marketplace investor action", status_code=400)
+
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
+            ria = await self._get_ria_profile_by_user(conn, user_id)
+            rows = await conn.fetch(
+                """
+                SELECT
+                  id,
+                  actor_user_id,
+                  ria_profile_id,
+                  source_type,
+                  target_key,
+                  target_user_id,
+                  public_profile_id,
+                  action,
+                  status,
+                  target_snapshot,
+                  metadata,
+                  created_at,
+                  updated_at
+                FROM marketplace_investor_actions
+                WHERE actor_user_id = $1
+                  AND ria_profile_id = $2
+                  AND ($3::text IS NULL OR status = $3)
+                  AND ($4::text IS NULL OR action = $4)
+                ORDER BY updated_at DESC
+                LIMIT $5
+                """,
+                user_id,
+                ria["id"],
+                normalized_status,
+                normalized_action,
+                max(1, min(limit, 100)),
+            )
+            return [self._marketplace_investor_action_row(row) for row in rows]
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def _resolve_marketplace_investor_action_target(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        source_type: str,
+        public_profile_id: str | int | None,
+        target_user_id: str | None,
+    ) -> dict[str, Any]:
+        if source_type == "public_sec":
+            try:
+                profile_id = int(str(public_profile_id or "").strip())
+            except (TypeError, ValueError):
+                raise RIAIAMPolicyError("public_profile_id is required", status_code=400) from None
+            row = await conn.fetchrow(
+                """
+                SELECT
+                  id,
+                  name,
+                  cik,
+                  firm,
+                  title,
+                  investor_type,
+                  location_hint,
+                  business_address,
+                  aum_billions,
+                  investment_style,
+                  risk_tolerance,
+                  time_horizon,
+                  portfolio_turnover,
+                  biography,
+                  is_insider,
+                  insider_company_ticker,
+                  data_sources,
+                  source_urls,
+                  evidence,
+                  last_13f_date,
+                  last_form4_date,
+                  marketplace_eligible,
+                  curation_tier,
+                  admission_status,
+                  quality_score,
+                  curation_reason,
+                  updated_at
+                FROM investor_profiles
+                WHERE id = $1
+                  AND marketplace_eligible = TRUE
+                  AND admission_status = 'qualified'
+                  AND curation_tier IN ('showcase', 'qualified')
+                """,
+                profile_id,
+            )
+            if row is None:
+                raise RIAIAMPolicyError("Public investor profile not found", status_code=404)
+            profile = self._marketplace_public_sec_investor_row(row)
+            return {
+                "source_type": "public_sec",
+                "target_key": f"public_sec:{profile['public_profile_id']}",
+                "public_profile_id": profile_id,
+                "target_user_id": None,
+                "profile": profile,
+            }
+
+        normalized_user_id = str(target_user_id or "").strip()
+        if not normalized_user_id:
+            raise RIAIAMPolicyError("target_user_id is required", status_code=400)
+        row = await conn.fetchrow(
+            """
+            SELECT
+              ap.user_id,
+              mp.display_name,
+              mp.headline,
+              mp.location_hint,
+              mp.strategy_summary,
+              mp.metadata,
+              COALESCE(
+                mp.metadata ->> 'admission_status',
+                mp.metadata ->> 'qualified_investor_status'
+              ) AS admission_status,
+              COALESCE(
+                mp.metadata ->> 'curation_tier',
+                mp.metadata ->> 'marketplace_deck'
+              ) AS curation_tier,
+              CASE
+                WHEN (mp.metadata ->> 'quality_score') ~ '^\\d+$'
+                THEN (mp.metadata ->> 'quality_score')::integer
+                ELSE NULL
+              END AS quality_score,
+              CASE
+                WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                THEN (mp.metadata ->> 'is_test_profile')::boolean
+                ELSE FALSE
+              END AS is_test_profile
+            FROM actor_profiles ap
+            JOIN marketplace_public_profiles mp
+              ON mp.user_id = ap.user_id
+              AND mp.profile_type = 'investor'
+              AND mp.is_discoverable = TRUE
+            WHERE ap.user_id = $1
+              AND ap.investor_marketplace_opt_in = TRUE
+              AND LOWER(COALESCE(
+                mp.metadata ->> 'admission_status',
+                mp.metadata ->> 'qualified_investor_status',
+                ''
+              )) = 'qualified'
+              AND LOWER(COALESCE(
+                mp.metadata ->> 'curation_tier',
+                mp.metadata ->> 'marketplace_deck',
+                ''
+              )) IN ('qualified', 'showcase')
+              AND (
+                CASE
+                  WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                  THEN (mp.metadata ->> 'is_test_profile')::boolean
+                  ELSE FALSE
+                END
+              ) = FALSE
+            """,
+            normalized_user_id,
+        )
+        if row is None:
+            raise RIAIAMPolicyError("Qualified Hushh investor profile not found", status_code=404)
+        profile = self._marketplace_hushh_investor_row(row)
+        return {
+            "source_type": "hushh_user",
+            "target_key": f"hushh_user:{normalized_user_id}",
+            "public_profile_id": None,
+            "target_user_id": normalized_user_id,
+            "profile": profile,
+        }
+
     async def _search_public_sec_investor_profiles(
         self,
         conn: asyncpg.Connection,
@@ -8008,6 +8337,30 @@ class RIAIAMService:
             "actions": ["shortlist", "view_more"],
             "evidence": cls._public_investor_evidence(payload),
             "is_test_profile": False,
+        }
+
+    @classmethod
+    def _marketplace_investor_action_row(cls, row: Any) -> dict[str, Any]:
+        payload = dict(row)
+        snapshot = cls._parse_metadata(payload.get("target_snapshot"))
+        return {
+            "id": str(payload.get("id") or ""),
+            "actor_user_id": str(payload.get("actor_user_id") or ""),
+            "ria_profile_id": str(payload.get("ria_profile_id") or ""),
+            "source_type": cls._clean_public_investor_text(payload.get("source_type")),
+            "target_key": cls._clean_public_investor_text(payload.get("target_key")),
+            "target_user_id": cls._clean_public_investor_text(payload.get("target_user_id")),
+            "public_profile_id": (
+                str(payload.get("public_profile_id"))
+                if payload.get("public_profile_id") is not None
+                else None
+            ),
+            "action": cls._clean_public_investor_text(payload.get("action")),
+            "status": cls._clean_public_investor_text(payload.get("status")),
+            "profile": snapshot,
+            "metadata": cls._parse_metadata(payload.get("metadata")),
+            "created_at": cls._serialize_marketplace_date(payload.get("created_at")),
+            "updated_at": cls._serialize_marketplace_date(payload.get("updated_at")),
         }
 
     @staticmethod

@@ -84,6 +84,34 @@ export interface MarketplaceInvestor {
   is_test_profile?: boolean;
 }
 
+export type MarketplaceInvestorActionName =
+  | "view_more"
+  | "pass"
+  | "shortlist"
+  | "connect_request";
+
+export type MarketplaceInvestorActionStatus =
+  | "viewed"
+  | "passed"
+  | "shortlisted"
+  | "connect_requested";
+
+export interface MarketplaceInvestorActionRecord {
+  id: string;
+  actor_user_id: string;
+  ria_profile_id?: string | null;
+  source_type?: "hushh_user" | "public_sec" | string | null;
+  target_key?: string | null;
+  target_user_id?: string | null;
+  public_profile_id?: string | null;
+  action?: MarketplaceInvestorActionName | string | null;
+  status?: MarketplaceInvestorActionStatus | string | null;
+  profile?: MarketplaceInvestor | Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface RiaOnboardingStatus {
   exists: boolean;
   ria_profile_id?: string;
@@ -1187,6 +1215,49 @@ export class RiaService {
       CACHE_TTL.MEDIUM,
     );
     return payload.items;
+  }
+
+  static async listInvestorActions(
+    idToken: string,
+    params: {
+      status?: MarketplaceInvestorActionStatus | string;
+      action?: MarketplaceInvestorActionName | string;
+      limit?: number;
+    } = {},
+  ): Promise<MarketplaceInvestorActionRecord[]> {
+    const query = new URLSearchParams();
+    if (params.status) query.set("status", params.status);
+    if (params.action) query.set("action", params.action);
+    if (typeof params.limit === "number") query.set("limit", String(params.limit));
+    const response = await authFetch(
+      `/api/marketplace/investors/actions${query.toString() ? `?${query.toString()}` : ""}`,
+      {
+        method: "GET",
+        idToken,
+      },
+    );
+    const payload = await toJsonOrThrow<{ items: MarketplaceInvestorActionRecord[] }>(
+      response,
+    );
+    return payload.items;
+  }
+
+  static async recordInvestorAction(
+    idToken: string,
+    payload: {
+      action: MarketplaceInvestorActionName;
+      source_type?: "hushh_user" | "public_sec" | string | null;
+      public_profile_id?: string | number | null;
+      target_user_id?: string | null;
+      metadata?: Record<string, unknown>;
+    },
+  ): Promise<MarketplaceInvestorActionRecord> {
+    const response = await authFetch("/api/marketplace/investors/actions", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    return toJsonOrThrow<MarketplaceInvestorActionRecord>(response);
   }
 
   static async getRiaPublicProfile(riaId: string): Promise<MarketplaceRia> {

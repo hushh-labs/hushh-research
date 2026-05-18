@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   isMarketplaceInvestorConnectable,
   isMarketplaceInvestorShortlistable,
+  marketplaceInvestorActionTarget,
   marketplaceInvestorCardId,
   marketplaceInvestorActions,
   marketplaceInvestorCurationLabel,
@@ -29,6 +30,11 @@ describe("marketplace investor discovery helpers", () => {
     expect(isMarketplaceInvestorConnectable(investor)).toBe(false);
     expect(isMarketplaceInvestorShortlistable(investor)).toBe(true);
     expect(marketplaceInvestorActions(investor)).toEqual(["shortlist", "view_more"]);
+    expect(marketplaceInvestorActionTarget(investor)).toEqual({
+      source_type: "public_sec",
+      public_profile_id: "42",
+      target_user_id: null,
+    });
     expect(marketplaceInvestorSourceLabel(investor)).toBe("Public SEC profile");
     expect(marketplaceInvestorCurationLabel(investor)).toBe("Showcase");
   });
@@ -49,6 +55,11 @@ describe("marketplace investor discovery helpers", () => {
     expect(isMarketplaceInvestorConnectable(investor)).toBe(true);
     expect(isMarketplaceInvestorShortlistable(investor)).toBe(false);
     expect(marketplaceInvestorActions(investor)).toEqual(["connect", "view_more"]);
+    expect(marketplaceInvestorActionTarget(investor)).toEqual({
+      source_type: "hushh_user",
+      public_profile_id: null,
+      target_user_id: "hushh_investor_1",
+    });
     expect(marketplaceInvestorSourceLabel(investor)).toBe("Qualified Hushh investor");
     expect(marketplaceInvestorCurationLabel(investor)).toBe("Qualified");
   });
