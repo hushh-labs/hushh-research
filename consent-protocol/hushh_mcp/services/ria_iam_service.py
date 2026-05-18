@@ -7958,12 +7958,8 @@ class RIAIAMService:
         source_urls = payload.get("source_urls")
         if not isinstance(source_urls, list):
             source_urls = []
-        evidence = payload.get("evidence")
-        if not isinstance(evidence, dict):
-            evidence = {}
-        business_address = payload.get("business_address")
-        if not isinstance(business_address, dict):
-            business_address = {}
+        evidence = cls._coerce_public_investor_json_object(payload.get("evidence"))
+        business_address = cls._coerce_public_investor_json_object(payload.get("business_address"))
         forms: list[dict[str, str]] = []
         last_13f_date = cls._serialize_marketplace_date(payload.get("last_13f_date"))
         last_form4_date = cls._serialize_marketplace_date(payload.get("last_form4_date"))
@@ -7989,6 +7985,21 @@ class RIAIAMService:
             "metadata": evidence,
             "updated_at": cls._serialize_marketplace_date(payload.get("updated_at")),
         }
+
+    @staticmethod
+    def _coerce_public_investor_json_object(value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, (bytes, bytearray)):
+            value = value.decode("utf-8", errors="replace")
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except ValueError:
+                return {}
+            if isinstance(parsed, dict):
+                return parsed
+        return {}
 
     @staticmethod
     def _serialize_marketplace_date(value: Any) -> str | None:

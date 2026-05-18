@@ -34,12 +34,10 @@ class _FakeMarketplaceConn:
                     "title": "Managing Partner",
                     "investor_type": "fund_manager",
                     "location_hint": "Kirkland, WA 98033",
-                    "business_address": {
-                        "street1": "2365 CARILLON POINT",
-                        "city": "KIRKLAND",
-                        "state": "WA",
-                        "zip": "98033",
-                    },
+                    "business_address": (
+                        '{"street1":"2365 CARILLON POINT","city":"KIRKLAND",'
+                        '"state":"WA","zip":"98033"}'
+                    ),
                     "aum_billions": 12.4,
                     "investment_style": ["long_term", "technology"],
                     "risk_tolerance": None,
@@ -50,7 +48,10 @@ class _FakeMarketplaceConn:
                     "insider_company_ticker": None,
                     "data_sources": ["SEC EDGAR", "Form 13F"],
                     "source_urls": ["https://data.sec.gov/submissions/CIK0000123456.json"],
-                    "evidence": {"confidence": "official_sec_record"},
+                    "evidence": (
+                        '{"confidence":"official_sec_record",'
+                        '"latest_known_13f_accession":"0000123456-26-000001"}'
+                    ),
                     "last_13f_date": date(2026, 3, 31),
                     "last_form4_date": None,
                     "updated_at": date(2026, 4, 15),
@@ -102,5 +103,9 @@ def test_marketplace_investors_merge_hushh_users_and_public_sec_profiles(monkeyp
             "https://www.sec.gov/edgar/browse/?CIK=0000123456",
         ]
         assert public_item["evidence"]["business_address"]["zip"] == "98033"
+        assert (
+            public_item["evidence"]["metadata"]["latest_known_13f_accession"]
+            == "0000123456-26-000001"
+        )
 
     asyncio.run(_run())
