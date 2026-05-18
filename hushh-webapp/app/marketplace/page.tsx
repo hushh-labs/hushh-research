@@ -33,8 +33,10 @@ import { resolveAppEnvironment } from "@/lib/app-env";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   isMarketplaceInvestorConnectable,
+  isMarketplaceInvestorShortlistable,
   isPublicSecMarketplaceInvestor,
   marketplaceInvestorCardId,
+  marketplaceInvestorCurationLabel,
   marketplaceInvestorSourceLabel,
   marketplaceInvestorUserId,
 } from "@/lib/marketplace/investor-discovery";
@@ -142,6 +144,31 @@ function discoveryCardUserId(item: DiscoveryCard): string | null {
   return marketplaceInvestorUserId(item.profile as MarketplaceInvestor);
 }
 
+function formatEvidenceAddress(address?: Record<string, unknown> | null): string | null {
+  if (!address) return null;
+  const parts = [
+    address.street1,
+    address.street2,
+    address.city,
+    address.state,
+    address.zip,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+function formatEvidenceForms(forms?: Array<{ form?: string | null; last_filed_at?: string | null }>): string {
+  if (!Array.isArray(forms) || forms.length === 0) return "Official SEC filing evidence";
+  return forms
+    .map((form) => {
+      const label = String(form.form || "SEC filing").trim();
+      const date = String(form.last_filed_at || "").trim();
+      return date ? `${label} filed ${date}` : label;
+    })
+    .join(" · ");
+}
+
 export default function MarketplacePage() {
   const router = useRouter();
   const { user } = useAuth();
@@ -173,6 +200,7 @@ export default function MarketplacePage() {
   const [selectedRiaError, setSelectedRiaError] = useState<string | null>(null);
   const [passedRiaIds, setPassedRiaIds] = useState<string[]>([]);
   const [passedInvestorIds, setPassedInvestorIds] = useState<string[]>([]);
+  const [shortlistedInvestorIds, setShortlistedInvestorIds] = useState<string[]>([]);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -266,6 +294,51 @@ export default function MarketplacePage() {
       profile: investor,
     };
   }, [allowKaiTestInvestor, directoryKind, investors, kaiTestUserId]);
+
+  useEffect(() => {
+    if (!user || typeof window === "undefined") {
+      setShortlistedInvestorIds([]);
+      return;
+    }
+
+    const prefix = `marketplace:ria:${user.uid}`;
+    const readIds = (key: string) => {
+      try {
+        const parsed = JSON.parse(window.localStorage.getItem(key) || "[]");
+        return Array.isArray(parsed)
+          ? parsed.map((item) => String(item || "").trim()).filter(Boolean)
+          : [];
+      } catch {
+        return [];
+      }
+    };
+
+    setPassedInvestorIds(readIds(`${prefix}:passed-investors`));
+    setShortlistedInvestorIds(readIds(`${prefix}:shortlisted-investors`));
+  }, [user]);
+
+  const rememberInvestorDeckDecision = useCallback(
+    (kind: "passed" | "shortlisted", investorId: string) => {
+      if (!user || typeof window === "undefined") return;
+      const normalizedId = investorId.trim();
+      if (!normalizedId) return;
+      const key = `marketplace:ria:${user.uid}:${
+        kind === "passed" ? "passed-investors" : "shortlisted-investors"
+      }`;
+      try {
+        const current = JSON.parse(window.localStorage.getItem(key) || "[]");
+        const ids = Array.isArray(current)
+          ? current.map((item) => String(item || "").trim()).filter(Boolean)
+          : [];
+        if (!ids.includes(normalizedId)) {
+          window.localStorage.setItem(key, JSON.stringify([...ids, normalizedId]));
+        }
+      } catch {
+        window.localStorage.setItem(key, JSON.stringify([normalizedId]));
+      }
+    },
+    [user]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -370,7 +443,12 @@ export default function MarketplacePage() {
           return;
         }
 
-        const data = await RiaService.searchInvestors({ query, limit: 32 });
+        const data = await RiaService.searchInvestors({
+          query,
+          limit: 32,
+          persona: "ria",
+          deck: "qualified",
+        });
         if (!cancelled) setInvestors(data);
       } catch (error) {
         if (!cancelled) {
@@ -500,6 +578,7 @@ export default function MarketplacePage() {
       const investorId = marketplaceInvestorCardId(investor);
       const userId = marketplaceInvestorUserId(investor);
       const sourceLabel = marketplaceInvestorSourceLabel(investor);
+      const curationLabel = marketplaceInvestorCurationLabel(investor);
       const relationship = userId ? relationshipMap.get(userId) : null;
       const connectionState = connectionBadgeLabel(
         relationship?.relationship_status || relationship?.status
@@ -517,8 +596,10 @@ export default function MarketplacePage() {
         summary:
           investor.strategy_summary ||
           investor.location_hint ||
-          "Discovery metadata only until both sides move into a connection flow.",
-        metaLine: sourceLabel || investor.location_hint || "Public discovery profile",
+          "Qualified discovery lead backed by public evidence.",
+        metaLine: [curationLabel, sourceLabel, investor.location_hint]
+          .filter(Boolean)
+          .join(" · ") || "Qualified discovery profile",
         canConnect,
         isTestProfile: Boolean(investor.is_test_profile || (userId && isKaiTestProfileUser(userId))),
         profile: investor,
@@ -568,6 +649,25 @@ export default function MarketplacePage() {
   const selectedInvestorConnectable = selectedInvestor
     ? isMarketplaceInvestorConnectable(selectedInvestor)
     : false;
+  const selectedInvestorShortlistable = selectedInvestor
+    ? isMarketplaceInvestorShortlistable(selectedInvestor)
+    : false;
+  const selectedInvestorEvidence = selectedInvestor?.evidence || null;
+  const selectedInvestorAddress = formatEvidenceAddress(
+    selectedInvestorEvidence?.business_address
+  );
+  const selectedInvestorEvidenceLinks = Array.isArray(selectedInvestorEvidence?.source_urls)
+    ? selectedInvestorEvidence.source_urls
+        .filter((url): url is string => Boolean(url))
+        .slice(0, 3)
+    : [];
+  const selectedInvestorFormsLabel = formatEvidenceForms(selectedInvestorEvidence?.forms);
+  const selectedInvestorCurationLabel = selectedInvestor
+    ? marketplaceInvestorCurationLabel(selectedInvestor)
+    : null;
+  const selectedInvestorIsShortlisted = selectedInvestor
+    ? shortlistedInvestorIds.includes(marketplaceInvestorCardId(selectedInvestor))
+    : false;
   const selectedInjectedRia =
     selectedProfile?.kind === "ria"
       ? ((injectedTestCards.find((item) => item.kind === "ria" && item.id === selectedProfile.id)
@@ -583,8 +683,16 @@ export default function MarketplacePage() {
     : "";
   const swipeRotation = Math.max(-14, Math.min(14, dragOffset.x / 18));
   const swipeOpacity = Math.max(0.72, 1 - Math.abs(dragOffset.x) / 520);
+  const connectionsRoute = buildMarketplaceConnectionsRoute({ tab: "active" });
 
-  async function createConnectionToInvestor(investor: MarketplaceInvestor) {
+  const openTestInvestorWorkspace = useCallback(
+    (userId: string) => {
+      router.push(buildRiaClientWorkspaceRoute(userId, { tab: "overview", testProfile: true }));
+    },
+    [router]
+  );
+
+  const createConnectionToInvestor = useCallback(async (investor: MarketplaceInvestor) => {
     if (!user) return;
     const investorUserId = marketplaceInvestorUserId(investor);
     if (!isMarketplaceInvestorConnectable(investor) || !investorUserId) {
@@ -617,9 +725,9 @@ export default function MarketplacePage() {
     } finally {
       setActionLoadingUserId(null);
     }
-  }
+  }, [router, user]);
 
-  async function createConnectionToAdvisor(ria: MarketplaceRia) {
+  const createConnectionToAdvisor = useCallback(async (ria: MarketplaceRia) => {
     if (!user) return;
     try {
       setActionLoadingUserId(ria.user_id);
@@ -645,7 +753,54 @@ export default function MarketplacePage() {
     } finally {
       setActionLoadingUserId(null);
     }
-  }
+  }, [router, user]);
+
+  const shortlistInvestor = useCallback((investor: MarketplaceInvestor) => {
+    const investorId = marketplaceInvestorCardId(investor);
+    setShortlistedInvestorIds((current) =>
+      current.includes(investorId) ? current : [...current, investorId]
+    );
+    setPassedInvestorIds((current) =>
+      current.includes(investorId) ? current : [...current, investorId]
+    );
+    rememberInvestorDeckDecision("shortlisted", investorId);
+    rememberInvestorDeckDecision("passed", investorId);
+    toast.success("Investor lead saved", {
+      description: "Saved to this RIA deck shortlist for follow-up review.",
+    });
+  }, [rememberInvestorDeckDecision]);
+
+  const performPrimaryCardAction = useCallback((card: DiscoveryCard) => {
+    if (
+      currentPersona === "ria" &&
+      card.kind === "investor" &&
+      card.isTestProfile
+    ) {
+      const userId = discoveryCardUserId(card);
+      if (userId) openTestInvestorWorkspace(userId);
+      return;
+    }
+    if (card.kind === "ria") {
+      void createConnectionToAdvisor(card.profile as MarketplaceRia);
+      return;
+    }
+    const investor = card.profile as MarketplaceInvestor;
+    if (isMarketplaceInvestorShortlistable(investor)) {
+      shortlistInvestor(investor);
+      return;
+    }
+    if (card.canConnect) {
+      void createConnectionToInvestor(investor);
+      return;
+    }
+    setSelectedProfile(toSelectedProfile(card));
+  }, [
+    createConnectionToAdvisor,
+    createConnectionToInvestor,
+    currentPersona,
+    openTestInvestorWorkspace,
+    shortlistInvestor,
+  ]);
 
   const passCurrentCard = useCallback(() => {
     if (!swipeCard) return;
@@ -656,7 +811,8 @@ export default function MarketplacePage() {
     setPassedInvestorIds((current) =>
       current.includes(swipeCard.id) ? current : [...current, swipeCard.id]
     );
-  }, [directoryKind, swipeCard]);
+    rememberInvestorDeckDecision("passed", swipeCard.id);
+  }, [directoryKind, rememberInvestorDeckDecision, swipeCard]);
 
   useEffect(() => {
     function handlePointerMove(event: PointerEvent) {
@@ -669,11 +825,16 @@ export default function MarketplacePage() {
 
     function handlePointerUp() {
       if (!dragStartRef.current) return;
-      const shouldPass = Math.abs(dragOffset.x) > 110;
+      const shouldPass = dragOffset.x < -110;
+      const shouldAct = dragOffset.x > 110;
       dragStartRef.current = null;
       setDragOffset({ x: 0, y: 0 });
       if (shouldPass) {
         passCurrentCard();
+        return;
+      }
+      if (shouldAct && swipeCard) {
+        performPrimaryCardAction(swipeCard);
       }
     }
 
@@ -685,7 +846,7 @@ export default function MarketplacePage() {
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
     };
-  }, [dragOffset.x, passCurrentCard]);
+  }, [dragOffset.x, passCurrentCard, performPrimaryCardAction, swipeCard]);
 
   function resetSwipeDeck() {
     if (directoryKind === "rias") {
@@ -693,12 +854,9 @@ export default function MarketplacePage() {
       return;
     }
     setPassedInvestorIds([]);
-  }
-
-  const connectionsRoute = buildMarketplaceConnectionsRoute({ tab: "active" });
-
-  function openTestInvestorWorkspace(userId: string) {
-    router.push(buildRiaClientWorkspaceRoute(userId, { tab: "overview", testProfile: true }));
+    if (user && typeof window !== "undefined") {
+      window.localStorage.removeItem(`marketplace:ria:${user.uid}:passed-investors`);
+    }
   }
 
   return (
@@ -901,26 +1059,7 @@ export default function MarketplacePage() {
                       effect="fill"
                       size="sm"
                       className="justify-center"
-                      onClick={() => {
-                        if (
-                          currentPersona === "ria" &&
-                          swipeCard.kind === "investor" &&
-                          swipeCard.isTestProfile
-                        ) {
-                          const userId = discoveryCardUserId(swipeCard);
-                          if (userId) openTestInvestorWorkspace(userId);
-                          return;
-                        }
-                        if (swipeCard.kind === "ria") {
-                          void createConnectionToAdvisor(swipeCard.profile as MarketplaceRia);
-                          return;
-                        }
-                        if (swipeCard.canConnect) {
-                          void createConnectionToInvestor(swipeCard.profile as MarketplaceInvestor);
-                          return;
-                        }
-                        setSelectedProfile(toSelectedProfile(swipeCard));
-                      }}
+                      onClick={() => performPrimaryCardAction(swipeCard)}
                       disabled={
                         (Boolean(discoveryCardUserId(swipeCard)) &&
                           actionLoadingUserId === discoveryCardUserId(swipeCard)) ||
@@ -939,7 +1078,12 @@ export default function MarketplacePage() {
                               ? "Request advisory"
                               : swipeCard.canConnect
                                 ? "Send request"
-                                : "View profile"}
+                                : swipeCard.kind === "investor" &&
+                                    isMarketplaceInvestorShortlistable(
+                                      swipeCard.profile as MarketplaceInvestor
+                                    )
+                                  ? "Save lead"
+                                  : "View profile"}
                       </span>
                     </Button>
                   </div>
@@ -1020,21 +1164,7 @@ export default function MarketplacePage() {
                     effect="fill"
                     size="sm"
                     className="justify-center"
-                    onClick={() => {
-                      if (currentPersona === "ria" && item.kind === "investor" && item.isTestProfile) {
-                        if (userId) openTestInvestorWorkspace(userId);
-                        return;
-                      }
-                      if (item.kind === "ria") {
-                        void createConnectionToAdvisor(item.profile as MarketplaceRia);
-                        return;
-                      }
-                      if (item.canConnect) {
-                        void createConnectionToInvestor(item.profile as MarketplaceInvestor);
-                        return;
-                      }
-                      setSelectedProfile(toSelectedProfile(item));
-                    }}
+                    onClick={() => performPrimaryCardAction(item)}
                     disabled={
                       (Boolean(userId) && actionLoadingUserId === userId) ||
                       (Boolean(item.isTestProfile) && item.kind === "ria")
@@ -1050,7 +1180,12 @@ export default function MarketplacePage() {
                           ? "Request advisory"
                           : item.canConnect
                             ? "Send request"
-                            : "View profile"}
+                            : item.kind === "investor" &&
+                                isMarketplaceInvestorShortlistable(
+                                  item.profile as MarketplaceInvestor
+                                )
+                              ? "Save lead"
+                              : "View profile"}
                   </Button>
                   <Button
                     variant="none"
@@ -1185,6 +1320,11 @@ export default function MarketplacePage() {
                       Public SEC profile
                     </span>
                   ) : null}
+                  {selectedInvestorCurationLabel ? (
+                    <span className="inline-flex rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                      {selectedInvestorCurationLabel}
+                    </span>
+                  ) : null}
                   <p className="text-sm leading-6 text-muted-foreground">
                     {selectedInvestor.location_hint ||
                       selectedInvestorSourceLabel ||
@@ -1205,6 +1345,44 @@ export default function MarketplacePage() {
                 </p>
               </RiaSurface>
 
+              <RiaSurface className="space-y-3 p-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                    Evidence
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-foreground">
+                    {selectedInvestorFormsLabel}
+                  </p>
+                </div>
+                {selectedInvestorAddress ? (
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    {selectedInvestorAddress}
+                  </p>
+                ) : null}
+                {selectedInvestor.curation_reason ? (
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    {selectedInvestor.curation_reason}
+                  </p>
+                ) : null}
+                {typeof selectedInvestor.quality_score === "number" ? (
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    Quality score: {selectedInvestor.quality_score}/100
+                  </p>
+                ) : null}
+                {selectedInvestorEvidenceLinks.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedInvestorEvidenceLinks.map((url) => (
+                      <Button key={url} asChild variant="none" effect="fade" size="sm">
+                        <a href={url} target="_blank" rel="noreferrer">
+                          SEC source
+                          <ArrowUpRight className="ml-2 h-4 w-4" />
+                        </a>
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
+              </RiaSurface>
+
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant="blue-gradient"
@@ -1220,12 +1398,17 @@ export default function MarketplacePage() {
                       }
                       return;
                     }
+                    if (selectedInvestorShortlistable) {
+                      shortlistInvestor(selectedInvestor);
+                      setSelectedProfile(null);
+                      return;
+                    }
                     if (selectedInvestorConnectable) {
                       void createConnectionToInvestor(selectedInvestor);
                     }
                   }}
                   disabled={
-                    !selectedInvestorConnectable ||
+                    (!selectedInvestorConnectable && !selectedInvestorShortlistable) ||
                     (Boolean(selectedInvestorUserId) &&
                       actionLoadingUserId === selectedInvestorUserId &&
                       !selectedInvestorIsTest)
@@ -1238,7 +1421,11 @@ export default function MarketplacePage() {
                       ? "Connecting..."
                       : selectedInvestorConnectable
                         ? "Send request"
-                        : "Discovery only"}
+                        : selectedInvestorShortlistable
+                          ? selectedInvestorIsShortlisted
+                            ? "Saved lead"
+                            : "Save lead"
+                          : "Discovery only"}
                 </Button>
                 <Button
                   variant="none"

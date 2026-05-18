@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import date
+from pathlib import Path
 
 from hushh_mcp.services.ria_iam_service import RIAIAMService
 
@@ -14,17 +16,30 @@ class _FakeMarketplaceConn:
     async def fetch(self, query: str, *args: object) -> list[dict[str, object]]:
         self.fetch_calls.append((query, args))
         if "FROM actor_profiles" in query:
+            assert "qualified_investor_status" in query
+            assert args[3] is True
             return [
                 {
                     "user_id": "hushh_investor_1",
                     "display_name": "Avery Stone",
-                    "headline": "Founder liquidity planning",
+                    "headline": "Qualified founder liquidity planning",
                     "location_hint": "Austin, TX",
-                    "strategy_summary": "Opted-in Hushh investor profile.",
+                    "strategy_summary": "Qualified Hushh investor profile.",
+                    "metadata": {
+                        "admission_status": "qualified",
+                        "curation_tier": "qualified",
+                        "quality_score": 91,
+                    },
+                    "admission_status": "qualified",
+                    "curation_tier": "qualified",
+                    "quality_score": 91,
                     "is_test_profile": False,
                 }
             ]
         if "FROM investor_profiles" in query:
+            assert "marketplace_eligible = TRUE" in query
+            assert "admission_status = 'qualified'" in query
+            assert args[2] == ["showcase", "qualified"]
             return [
                 {
                     "id": 42,
@@ -54,6 +69,11 @@ class _FakeMarketplaceConn:
                     ),
                     "last_13f_date": date(2026, 3, 31),
                     "last_form4_date": None,
+                    "marketplace_eligible": True,
+                    "admission_status": "qualified",
+                    "curation_tier": "showcase",
+                    "quality_score": 95,
+                    "curation_reason": "Official SEC-backed profile meets the RIA deck bar.",
                     "updated_at": date(2026, 4, 15),
                 }
             ]
@@ -63,7 +83,7 @@ class _FakeMarketplaceConn:
         self.closed = True
 
 
-def test_marketplace_investors_merge_hushh_users_and_public_sec_profiles(monkeypatch):
+def test_marketplace_investors_returns_qualified_hushh_and_public_sec_profiles(monkeypatch):
     async def _run() -> None:
         service = RIAIAMService()
         conn = _FakeMarketplaceConn()
@@ -77,7 +97,12 @@ def test_marketplace_investors_merge_hushh_users_and_public_sec_profiles(monkeyp
         monkeypatch.setattr(service, "_conn", _conn)
         monkeypatch.setattr(service, "_ensure_iam_schema_ready", _schema_ready)
 
-        items = await service.search_marketplace_investors(query=None, limit=5)
+        items = await service.search_marketplace_investors(
+            query=None,
+            limit=5,
+            persona="ria",
+            deck="qualified",
+        )
 
         assert conn.closed is True
         assert len(items) == 2
@@ -87,6 +112,10 @@ def test_marketplace_investors_merge_hushh_users_and_public_sec_profiles(monkeyp
         assert hushh_item["source_type"] == "hushh_user"
         assert hushh_item["user_id"] == "hushh_investor_1"
         assert hushh_item["connectable"] is True
+        assert hushh_item["admission_status"] == "qualified"
+        assert hushh_item["curation_tier"] == "qualified"
+        assert hushh_item["quality_score"] == 91
+        assert hushh_item["actions"] == ["connect", "view_more"]
 
         public_item = items[1]
         assert public_item["id"] == "public_sec:42"
@@ -94,6 +123,10 @@ def test_marketplace_investors_merge_hushh_users_and_public_sec_profiles(monkeyp
         assert public_item["user_id"] is None
         assert public_item["public_profile_id"] == "42"
         assert public_item["connectable"] is False
+        assert public_item["admission_status"] == "qualified"
+        assert public_item["curation_tier"] == "showcase"
+        assert public_item["quality_score"] == 95
+        assert public_item["actions"] == ["shortlist", "view_more"]
         assert public_item["headline"] == "Managing Partner at Public Capital Partners"
         assert public_item["location_hint"] == "Kirkland, WA 98033"
         assert public_item["evidence"]["confidence"] == "official_public_records"
@@ -109,3 +142,17 @@ def test_marketplace_investors_merge_hushh_users_and_public_sec_profiles(monkeyp
         )
 
     asyncio.run(_run())
+
+
+def test_marketplace_public_investor_seed_count_is_qualified_deck_sized():
+    migration_path = (
+        Path(__file__).resolve().parents[2]
+        / "db"
+        / "migrations"
+        / "057_marketplace_investor_admission.sql"
+    )
+    text = migration_path.read_text(encoding="utf-8")
+    seeded_ciks = set(re.findall(r"^\s*'(?P<cik>\d{10})',$", text, flags=re.MULTILINE))
+
+    assert 20 <= len(seeded_ciks) <= 24
+    assert "0001166559" in seeded_ciks

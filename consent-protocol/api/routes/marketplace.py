@@ -45,10 +45,19 @@ async def list_marketplace_rias(
 async def list_marketplace_investors(
     query: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=20, ge=1, le=50),
+    persona: str | None = Query(default="ria", max_length=50),
+    deck: str | None = Query(default="qualified", max_length=50),
+    location: str | None = Query(default=None, max_length=100),
 ):
     service = RIAIAMService()
     try:
-        items = await service.search_marketplace_investors(query=query, limit=limit)
+        items = await service.search_marketplace_investors(
+            query=query,
+            limit=limit,
+            persona=persona,
+            deck=deck,
+            location=location,
+        )
         return {"items": items}
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))

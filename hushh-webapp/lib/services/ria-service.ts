@@ -62,6 +62,11 @@ export interface MarketplaceInvestor {
   location_hint?: string | null;
   strategy_summary?: string | null;
   connectable?: boolean | null;
+  admission_status?: string | null;
+  curation_tier?: string | null;
+  quality_score?: number | null;
+  curation_reason?: string | null;
+  actions?: string[];
   evidence?: {
     source_type?: string | null;
     confidence?: string | null;
@@ -72,6 +77,7 @@ export interface MarketplaceInvestor {
     investor_type?: string | null;
     is_insider?: boolean | null;
     insider_company_ticker?: string | null;
+    business_address?: Record<string, unknown>;
     updated_at?: string | null;
     metadata?: Record<string, unknown>;
   } | null;
@@ -1148,12 +1154,18 @@ export class RiaService {
   static async searchInvestors(params: {
     query?: string;
     limit?: number;
+    persona?: string;
+    deck?: string;
+    location?: string;
   }): Promise<MarketplaceInvestor[]> {
     const cache = CacheService.getInstance();
     const query = new URLSearchParams();
     if (params.query) query.set("query", params.query);
     if (typeof params.limit === "number")
       query.set("limit", String(params.limit));
+    if (params.persona) query.set("persona", params.persona);
+    if (params.deck) query.set("deck", params.deck);
+    if (params.location) query.set("location", params.location);
     const queryKey = query.toString() || "all";
     const cached = cache.get<MarketplaceInvestor[]>(
       CACHE_KEYS.MARKETPLACE_INVESTORS_SEARCH(queryKey),

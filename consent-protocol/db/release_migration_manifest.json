@@ -33,7 +33,8 @@
     "053_ria_onboarding_v2_fields.sql",
     "054_ria_license_verification_cache_index.sql",
     "055_agent_chat_encrypted_store.sql",
-    "056_public_investor_profiles.sql"
+    "056_public_investor_profiles.sql",
+    "057_marketplace_investor_admission.sql"
   ],
   "groups": {
     "iam": [
@@ -55,7 +56,8 @@
       "043_ria_pick_share_artifacts.sql",
       "053_ria_onboarding_v2_fields.sql",
       "054_ria_license_verification_cache_index.sql",
-      "056_public_investor_profiles.sql"
+      "056_public_investor_profiles.sql",
+      "057_marketplace_investor_admission.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

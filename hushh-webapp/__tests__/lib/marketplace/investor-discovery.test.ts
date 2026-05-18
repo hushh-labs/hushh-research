@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   isMarketplaceInvestorConnectable,
+  isMarketplaceInvestorShortlistable,
   marketplaceInvestorCardId,
+  marketplaceInvestorActions,
+  marketplaceInvestorCurationLabel,
   marketplaceInvestorSourceLabel,
   marketplaceInvestorUserId,
 } from "@/lib/marketplace/investor-discovery";
@@ -17,26 +20,37 @@ describe("marketplace investor discovery helpers", () => {
       public_profile_id: "42",
       display_name: "Morgan Public",
       connectable: false,
+      curation_tier: "showcase",
+      actions: ["shortlist", "view_more"],
     };
 
     expect(marketplaceInvestorCardId(investor)).toBe("public_sec:42");
     expect(marketplaceInvestorUserId(investor)).toBeNull();
     expect(isMarketplaceInvestorConnectable(investor)).toBe(false);
+    expect(isMarketplaceInvestorShortlistable(investor)).toBe(true);
+    expect(marketplaceInvestorActions(investor)).toEqual(["shortlist", "view_more"]);
     expect(marketplaceInvestorSourceLabel(investor)).toBe("Public SEC profile");
+    expect(marketplaceInvestorCurationLabel(investor)).toBe("Showcase");
   });
 
-  it("allows opted-in Hushh investors to be connection subjects", () => {
+  it("allows qualified Hushh investors to be connection subjects", () => {
     const investor: MarketplaceInvestor = {
       source_type: "hushh_user",
       user_id: "hushh_investor_1",
       display_name: "Avery Stone",
       connectable: true,
+      admission_status: "qualified",
+      curation_tier: "qualified",
+      actions: ["connect", "view_more"],
     };
 
     expect(marketplaceInvestorCardId(investor)).toBe("hushh_investor_1");
     expect(marketplaceInvestorUserId(investor)).toBe("hushh_investor_1");
     expect(isMarketplaceInvestorConnectable(investor)).toBe(true);
-    expect(marketplaceInvestorSourceLabel(investor)).toBe("Opted-in Hushh investor");
+    expect(isMarketplaceInvestorShortlistable(investor)).toBe(false);
+    expect(marketplaceInvestorActions(investor)).toEqual(["connect", "view_more"]);
+    expect(marketplaceInvestorSourceLabel(investor)).toBe("Qualified Hushh investor");
+    expect(marketplaceInvestorCurationLabel(investor)).toBe("Qualified");
   });
 
   it("honors explicit non-connectable state even for Hushh users", () => {
@@ -50,4 +64,3 @@ describe("marketplace investor discovery helpers", () => {
     expect(isMarketplaceInvestorConnectable(investor)).toBe(false);
   });
 });
-

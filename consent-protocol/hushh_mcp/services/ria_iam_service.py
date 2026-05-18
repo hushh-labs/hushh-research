@@ -7641,7 +7641,13 @@ class RIAIAMService:
                 WHERE
                   ($1::text IS NULL OR mp.display_name ILIKE ('%' || $1 || '%'))
                   AND ($2::text IS NULL OR rp.verification_status = $2)
-                  AND COALESCE((mp.metadata ->> 'is_test_profile')::boolean, FALSE) = FALSE
+                  AND (
+                    CASE
+                      WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                      THEN (mp.metadata ->> 'is_test_profile')::boolean
+                      ELSE FALSE
+                    END
+                  ) = FALSE
                   AND (
                     $3::text IS NULL
                     OR EXISTS (
@@ -7720,7 +7726,13 @@ class RIAIAMService:
                 LEFT JOIN ria_firms f
                   ON f.id = m.firm_id
                 WHERE rp.id = $1::uuid
-                  AND COALESCE((mp.metadata ->> 'is_test_profile')::boolean, FALSE) = FALSE
+                  AND (
+                    CASE
+                      WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                      THEN (mp.metadata ->> 'is_test_profile')::boolean
+                      ELSE FALSE
+                    END
+                  ) = FALSE
                 GROUP BY rp.id, rp.user_id, mp.display_name, mp.headline, mp.strategy_summary, rp.verification_status, rp.bio, rp.strategy, rp.disclosures_url, is_test_profile
                 """,
                 ria_id,
@@ -7736,12 +7748,19 @@ class RIAIAMService:
         *,
         query: str | None,
         limit: int,
+        persona: str | None = "ria",
+        deck: str | None = "qualified",
+        location: str | None = None,
     ) -> list[dict[str, Any]]:
         conn = await self._conn()
         try:
             await self._ensure_iam_schema_ready(conn)
             limit_safe = max(1, min(limit, 50))
             normalized_query = (query or "").strip() or None
+            normalized_location = (location or "").strip() or None
+            persona_safe = (persona or "ria").strip().lower() or "ria"
+            deck_safe = (deck or "qualified").strip().lower() or "qualified"
+            require_qualified_hushh = persona_safe == "ria" and deck_safe != "debug_all"
             rows = await conn.fetch(
                 """
                 SELECT
@@ -7751,6 +7770,19 @@ class RIAIAMService:
                   mp.location_hint,
                   mp.strategy_summary,
                   mp.metadata,
+                  COALESCE(
+                    mp.metadata ->> 'admission_status',
+                    mp.metadata ->> 'qualified_investor_status'
+                  ) AS admission_status,
+                  COALESCE(
+                    mp.metadata ->> 'curation_tier',
+                    mp.metadata ->> 'marketplace_deck'
+                  ) AS curation_tier,
+                  CASE
+                    WHEN (mp.metadata ->> 'quality_score') ~ '^\\d+$'
+                    THEN (mp.metadata ->> 'quality_score')::integer
+                    ELSE NULL
+                  END AS quality_score,
                   CASE
                     WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
                     THEN (mp.metadata ->> 'is_test_profile')::boolean
@@ -7764,12 +7796,36 @@ class RIAIAMService:
                 WHERE
                   ap.investor_marketplace_opt_in = TRUE
                   AND ($1::text IS NULL OR mp.display_name ILIKE ('%' || $1 || '%'))
-                  AND COALESCE((mp.metadata ->> 'is_test_profile')::boolean, FALSE) = FALSE
+                  AND ($3::text IS NULL OR COALESCE(mp.location_hint, '') ILIKE ('%' || $3 || '%'))
+                  AND (
+                    $4::boolean = FALSE
+                    OR (
+                      LOWER(COALESCE(
+                        mp.metadata ->> 'admission_status',
+                        mp.metadata ->> 'qualified_investor_status',
+                        ''
+                      )) = 'qualified'
+                      AND LOWER(COALESCE(
+                        mp.metadata ->> 'curation_tier',
+                        mp.metadata ->> 'marketplace_deck',
+                        ''
+                      )) IN ('qualified', 'showcase')
+                    )
+                  )
+                  AND (
+                    CASE
+                      WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
+                      THEN (mp.metadata ->> 'is_test_profile')::boolean
+                      ELSE FALSE
+                    END
+                  ) = FALSE
                 ORDER BY mp.display_name ASC
                 LIMIT $2
                 """,
                 normalized_query,
                 limit_safe,
+                normalized_location,
+                require_qualified_hushh,
             )
             items = [self._marketplace_hushh_investor_row(row) for row in rows]
             remaining = max(0, limit_safe - len(items))
@@ -7780,10 +7836,15 @@ class RIAIAMService:
                 conn,
                 query=normalized_query,
                 limit=remaining,
+                deck=deck_safe,
+                location=normalized_location,
             )
             items.extend(self._marketplace_public_sec_investor_row(row) for row in public_rows)
             return items
-        except asyncpg.exceptions.UndefinedTableError as exc:
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
             await conn.close()
@@ -7794,7 +7855,10 @@ class RIAIAMService:
         *,
         query: str | None,
         limit: int,
+        deck: str,
+        location: str | None,
     ) -> list[Any]:
+        eligible_tiers = ("showcase",) if deck == "showcase" else ("showcase", "qualified")
         try:
             return await conn.fetch(
                 """
@@ -7820,35 +7884,74 @@ class RIAIAMService:
                   evidence,
                   last_13f_date,
                   last_form4_date,
+                  marketplace_eligible,
+                  curation_tier,
+                  admission_status,
+                  quality_score,
+                  curation_reason,
                   updated_at
                 FROM investor_profiles
                 WHERE
+                  marketplace_eligible = TRUE
+                  AND admission_status = 'qualified'
+                  AND curation_tier = ANY($3::text[])
+                  AND cik IS NOT NULL
+                  AND COALESCE(biography, '') <> ''
+                  AND array_length(source_urls, 1) IS NOT NULL
+                  AND COALESCE(last_13f_date, last_form4_date) IS NOT NULL
+                  AND ($4::text IS NULL OR (
+                    COALESCE(location_hint, '') ILIKE ('%' || $4 || '%')
+                    OR business_address::text ILIKE ('%' || $4 || '%')
+                  ))
+                  AND
                   ($1::text IS NULL OR (
                     name ILIKE ('%' || $1 || '%')
                     OR COALESCE(firm, '') ILIKE ('%' || $1 || '%')
                     OR COALESCE(title, '') ILIKE ('%' || $1 || '%')
                     OR COALESCE(biography, '') ILIKE ('%' || $1 || '%')
+                    OR COALESCE(location_hint, '') ILIKE ('%' || $1 || '%')
+                    OR business_address::text ILIKE ('%' || $1 || '%')
                   ))
                 ORDER BY
-                  COALESCE(aum_billions, 0) DESC,
+                  CASE WHEN curation_tier = 'showcase' THEN 0 ELSE 1 END,
+                  quality_score DESC,
                   COALESCE(last_13f_date, last_form4_date, updated_at::date) DESC NULLS LAST,
                   name ASC
                 LIMIT $2
                 """,
                 query,
                 max(1, min(limit, 50)),
+                list(eligible_tiers),
+                location,
             )
-        except asyncpg.exceptions.UndefinedTableError:
-            logger.info("marketplace.public_investors.unavailable reason=investor_profiles_missing")
+        except (asyncpg.exceptions.UndefinedColumnError, asyncpg.exceptions.UndefinedTableError):
+            logger.info(
+                "marketplace.public_investors.unavailable reason=investor_profiles_schema_missing"
+            )
             return []
 
-    @staticmethod
-    def _marketplace_hushh_investor_row(row: Any) -> dict[str, Any]:
+    @classmethod
+    def _marketplace_hushh_investor_row(cls, row: Any) -> dict[str, Any]:
         payload = dict(row)
         user_id = str(payload.get("user_id") or "").strip()
         metadata = payload.get("metadata")
         if not isinstance(metadata, dict):
             metadata = {}
+        admission_status = (
+            cls._clean_public_investor_text(metadata.get("admission_status"))
+            or cls._clean_public_investor_text(metadata.get("qualified_investor_status"))
+            or cls._clean_public_investor_text(payload.get("admission_status"))
+            or "qualified"
+        )
+        curation_tier = (
+            cls._clean_public_investor_text(metadata.get("curation_tier"))
+            or cls._clean_public_investor_text(metadata.get("marketplace_deck"))
+            or cls._clean_public_investor_text(payload.get("curation_tier"))
+            or "qualified"
+        )
+        quality_score = cls._coerce_quality_score(
+            metadata.get("quality_score", payload.get("quality_score"))
+        )
         return {
             "id": user_id,
             "source_type": "hushh_user",
@@ -7859,9 +7962,13 @@ class RIAIAMService:
             "location_hint": payload.get("location_hint"),
             "strategy_summary": payload.get("strategy_summary"),
             "connectable": True,
+            "admission_status": admission_status,
+            "curation_tier": curation_tier,
+            "quality_score": quality_score,
+            "actions": ["connect", "view_more"],
             "evidence": {
                 "source_type": "hushh_user",
-                "confidence": "user_opt_in",
+                "confidence": "qualified_hushh_user",
                 "metadata": metadata,
             },
             "is_test_profile": bool(payload.get("is_test_profile")),
@@ -7892,9 +7999,26 @@ class RIAIAMService:
             "location_hint": cls._clean_public_investor_text(payload.get("location_hint")),
             "strategy_summary": cls._public_investor_strategy_summary(payload),
             "connectable": False,
+            "admission_status": cls._clean_public_investor_text(payload.get("admission_status"))
+            or "qualified",
+            "curation_tier": cls._clean_public_investor_text(payload.get("curation_tier"))
+            or "qualified",
+            "quality_score": cls._coerce_quality_score(payload.get("quality_score")),
+            "curation_reason": cls._clean_public_investor_text(payload.get("curation_reason")),
+            "actions": ["shortlist", "view_more"],
             "evidence": cls._public_investor_evidence(payload),
             "is_test_profile": False,
         }
+
+    @staticmethod
+    def _coerce_quality_score(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            score = int(value)
+        except (TypeError, ValueError):
+            return None
+        return max(0, min(score, 100))
 
     @staticmethod
     def _clean_public_investor_text(value: Any) -> str | None:
