@@ -60,4 +60,9 @@ describe("SectionHeader", () => {
     expect(actions?.className).toContain("sm:justify-end");
     expect(screen.getByRole("button", { name: "Template" })).toBeTruthy();
   });
+    it("preserves title rendering when description is omitted", () => {
+    render(<PageHeader title="Portfolio overview" icon={FileSpreadsheet} />);
+
+    expect(screen.getByText("Portfolio overview")).toBeTruthy();
+  });
 });
