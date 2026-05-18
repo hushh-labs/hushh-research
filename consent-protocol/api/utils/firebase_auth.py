@@ -6,11 +6,14 @@ Used by endpoints that require identity verification (Firebase Auth boundary).
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from fastapi import HTTPException
 
 from api.utils.firebase_admin import ensure_firebase_auth_admin, get_firebase_auth_app
+
+logger = logging.getLogger(__name__)
 
 
 def verify_firebase_bearer(authorization: Optional[str]) -> str:
@@ -29,9 +32,9 @@ def verify_firebase_bearer(authorization: Optional[str]) -> str:
     if not id_token:
         raise HTTPException(status_code=401, detail="Missing bearer token")
 
-    try:
-        from firebase_admin import auth as firebase_auth
+    from firebase_admin import auth as firebase_auth
 
+    try:
         firebase_app = get_firebase_auth_app()
         decoded = firebase_auth.verify_id_token(id_token, app=firebase_app)
         uid = decoded.get("uid")
@@ -40,6 +43,22 @@ def verify_firebase_bearer(authorization: Optional[str]) -> str:
         return uid
     except HTTPException:
         raise
-    except Exception:
-        # Do not leak details
-        raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
+    except ValueError as exc:
+        logger.warning("firebase.verify_id_token value_error: %s", exc)
+        raise HTTPException(status_code=401, detail="Invalid Firebase ID token") from None
+    except (
+        firebase_auth.InvalidIdTokenError,
+        firebase_auth.ExpiredIdTokenError,
+        firebase_auth.RevokedIdTokenError,
+        firebase_auth.UserDisabledError,
+    ):
+        raise HTTPException(status_code=401, detail="Invalid Firebase ID token") from None
+    except firebase_auth.CertificateFetchError as exc:
+        logger.error("firebase.verify_id_token certificate_fetch_failed: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service temporarily unavailable",
+        ) from None
+    except Exception as exc:
+        logger.exception("firebase.verify_id_token unexpected_error: %s", exc)
+        raise HTTPException(status_code=500, detail="Internal server error") from None

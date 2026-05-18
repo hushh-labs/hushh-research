@@ -34,6 +34,9 @@ function resolveActiveTheme(theme: string | undefined): ThemeOption {
   return "system";
 }
 
+/**
+ * Main Segmented Control Toggle
+ */
 export function ThemeToggle({ className }: { className?: string }) {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -45,7 +48,8 @@ export function ThemeToggle({ className }: { className?: string }) {
   const activeTheme = resolveActiveTheme(theme);
   const isDark = resolvedTheme === "dark";
 
-  if (!mounted) return null;
+  // Efficient: Returns null or a placeholder to prevent hydration mismatch
+  if (!mounted) return <div className={cn("h-12 w-full sm:w-[216px]", className)} />;
 
   return (
     <div
@@ -73,13 +77,13 @@ export function ThemeToggle({ className }: { className?: string }) {
               setTheme(option.value);
             }}
             className={cn(
-              "relative flex min-h-10 min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-full border px-2 py-2 text-center transition-[background-color,border-color,color,transform] duration-150",
+              "relative flex min-h-10 min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-full border px-2 py-2 text-center transition-all duration-150",
               isDark
                 ? isActive
                   ? "border-white/8 bg-neutral-900 text-white"
                   : "border-transparent bg-transparent text-zinc-400 hover:bg-white/[0.03] hover:text-zinc-100"
                 : isActive
-                  ? "border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,1),rgba(248,250,252,0.98))] text-slate-950"
+                  ? "border-slate-200/90 bg-white text-slate-950"
                   : "border-transparent bg-transparent text-slate-500 hover:bg-white/72 hover:text-slate-900"
             )}
           >
@@ -98,9 +102,7 @@ export function ThemeToggle({ className }: { className?: string }) {
 }
 
 /**
- * Compact icon-only theme switcher for tight surfaces (e.g. onboarding chrome).
- * Closes #506: replaces the full segmented control with a 36px icon button
- * that opens a dropdown with the same Light / Dark / System options.
+ * Compact icon-only theme switcher for tight surfaces
  */
 export function ThemeToggleCompact({ className }: { className?: string }) {
   const { theme, setTheme, resolvedTheme } = useTheme();
@@ -110,14 +112,10 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
     setMounted(true);
   }, []);
 
-  if (!mounted) return null;
+  if (!mounted) return <div className="h-9 w-9" />;
 
   const activeTheme = resolveActiveTheme(theme);
-  // resolveActiveTheme always returns one of the THEME_OPTIONS values, so
-  // .find() is guaranteed to hit. Assert with a non-null fallback for the
-  // type checker under noUncheckedIndexedAccess.
-  const activeOption: (typeof THEME_OPTIONS)[number] =
-    THEME_OPTIONS.find((option) => option.value === activeTheme) ?? THEME_OPTIONS[0]!;
+  const activeOption = THEME_OPTIONS.find((o) => o.value === activeTheme) ?? THEME_OPTIONS[0]!;
   const isDark = resolvedTheme === "dark";
 
   return (
@@ -125,9 +123,9 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          aria-label={`Theme: ${activeOption.label}. Click to change.`}
+          aria-label={`Theme: ${activeOption.label}`}
           className={cn(
-            "inline-flex h-9 w-9 items-center justify-center rounded-full border backdrop-blur-xl transition-[background-color,border-color,color] duration-150",
+            "inline-flex h-9 w-9 items-center justify-center rounded-full border backdrop-blur-xl transition-all duration-150",
             isDark
               ? "border-white/8 bg-black/85 text-zinc-100 hover:bg-neutral-900"
               : "border-slate-200 bg-white/85 text-slate-700 hover:bg-white",
@@ -143,17 +141,12 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
           return (
             <DropdownMenuItem
               key={option.value}
-              onSelect={() => {
-                if (!isActive) setTheme(option.value);
-              }}
-              className={cn(
-                "flex items-center gap-2",
-                isActive && "font-medium"
-              )}
+              onSelect={() => !isActive && setTheme(option.value)}
+              className={cn("flex items-center gap-2", isActive && "font-medium")}
             >
               <Icon icon={option.icon} size="sm" />
               <span className="flex-1">{option.label}</span>
-              {isActive ? <span aria-hidden className="text-xs">✓</span> : null}
+              {isActive && <span className="text-xs">✓</span>}
             </DropdownMenuItem>
           );
         })}
