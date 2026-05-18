@@ -42,9 +42,67 @@ import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 
 const LICENSE_VERIFICATION_TIMEOUT_MS = 90_000;
 const SCRAPE_POLL_INTERVAL_MS = 5_000;
+const REGULATOR_PREFILL_RESET: Partial<RiaOnboardingDraft> = {
+  advisorName: "",
+  firmName: "",
+  regulatorStatus: "",
+  licenseExpiry: "",
+  certifications: [],
+  city: "",
+  pinZip: "",
+  crdNumber: "",
+  secNumber: "",
+  areaLocality: "",
+  fullStreetAddress: "",
+  latitude: null,
+  longitude: null,
+  bio: "",
+  scrapeJobId: null,
+  displayName: "",
+  individualLegalName: "",
+  individualCrd: "",
+  advisoryFirmName: "",
+  advisoryFirmIapdNumber: "",
+  brokerFirmName: "",
+  brokerFirmCrd: "",
+  headline: "",
+  strategySummary: "",
+  verifiedLicensePrefillKey: "",
+};
 
 function isAdvisoryAccessReady(status?: string | null): boolean {
   return status === "active" || status === "verified";
+}
+
+function shouldRepairVerifiedPrefill(draft: RiaOnboardingDraft): boolean {
+  if (draft.licenseVerificationStatus !== "found") return false;
+  if (!draft.licenseNumber.trim() || !draft.advisorName.trim()) return false;
+  return draft.verifiedLicensePrefillKey !== buildVerifiedPrefillKey(draft);
+}
+
+function buildVerifiedPrefillKey(
+  draft: Pick<RiaOnboardingDraft, "regulator" | "licenseNumber">,
+): string {
+  const regulator = draft.regulator.trim().toLowerCase() || "auto";
+  return `${regulator}:${draft.licenseNumber.trim()}`;
+}
+
+function buildVerifiedLicensePrefillPatch(
+  current: RiaOnboardingDraft,
+  result: RiaLicenseVerificationResult,
+  licenseNumber: string,
+): Partial<RiaOnboardingDraft> {
+  const patch = buildRiaLicensePrefillPatch(current, result, licenseNumber);
+  return {
+    ...patch,
+    verifiedLicensePrefillKey:
+      result.status === "found"
+        ? buildVerifiedPrefillKey({
+            regulator: patch.regulator || current.regulator,
+            licenseNumber,
+          })
+        : current.verifiedLicensePrefillKey,
+  };
 }
 
 export default function RiaOnboardingPage() {
@@ -65,6 +123,10 @@ export default function RiaOnboardingPage() {
 
   const verificationAbortRef = useRef<AbortController | null>(null);
   const scrapePollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stalePrefillRepairRef = useRef<{
+    inFlight: boolean;
+    lastKey: string | null;
+  }>({ inFlight: false, lastKey: null });
 
   const advisoryVerificationStatus =
     status?.advisory_status || status?.verification_status || "draft";
@@ -306,6 +368,81 @@ export default function RiaOnboardingPage() {
     [applyPrefill],
   );
 
+  useEffect(() => {
+    if (!user || !draftReady || iamUnavailable || loading) return;
+    if (!shouldRepairVerifiedPrefill(draft)) return;
+
+    const currentUser = user;
+    const licenseNumber = draft.licenseNumber.trim();
+    const regulator = draft.regulator.trim();
+    const repairKey = buildVerifiedPrefillKey(draft);
+    if (
+      stalePrefillRepairRef.current.inFlight ||
+      stalePrefillRepairRef.current.lastKey === repairKey
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      LICENSE_VERIFICATION_TIMEOUT_MS,
+    );
+
+    stalePrefillRepairRef.current = {
+      inFlight: true,
+      lastKey: repairKey,
+    };
+
+    async function repairStalePrefill() {
+      try {
+        const idToken = await currentUser.getIdToken();
+        const result = await RiaService.verifyOnboardingLicense(
+          idToken,
+          {
+            license_number: licenseNumber,
+            regulator: regulator || undefined,
+          },
+          { signal: controller.signal },
+        );
+
+        if (cancelled || controller.signal.aborted) return;
+
+        if (result.status === "found") {
+          applyPrefill((current) =>
+            buildVerifiedLicensePrefillPatch(current, result, licenseNumber),
+          );
+
+          if (result.scrape_job_id) {
+            startScrapePolling(result.scrape_job_id);
+          }
+        }
+      } catch {
+        // Background repair is best-effort; the user can still edit or re-verify.
+      } finally {
+        clearTimeout(timeoutId);
+        stalePrefillRepairRef.current.inFlight = false;
+      }
+    }
+
+    void repairStalePrefill();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [
+    applyPrefill,
+    draft,
+    draftReady,
+    iamUnavailable,
+    loading,
+    startScrapePolling,
+    user,
+  ]);
+
   async function handleVerifyLicense() {
     if (!user || !draft.licenseNumber.trim()) return;
 
@@ -314,7 +451,10 @@ export default function RiaOnboardingPage() {
     verificationAbortRef.current = controller;
 
     setError(null);
-    updateDraft({ licenseVerificationStatus: "verifying" });
+    updateDraft({
+      ...REGULATOR_PREFILL_RESET,
+      licenseVerificationStatus: "verifying",
+    });
 
     try {
       const idToken = await user.getIdToken();
@@ -338,7 +478,7 @@ export default function RiaOnboardingPage() {
 
       if (result.status === "found") {
         applyPrefill((current) =>
-          buildRiaLicensePrefillPatch(
+          buildVerifiedLicensePrefillPatch(
             current,
             result,
             draft.licenseNumber.trim(),
@@ -354,7 +494,7 @@ export default function RiaOnboardingPage() {
         }, 600);
       } else if (result.status === "pending" && result.scrape_job_id) {
         applyPrefill((current) =>
-          buildRiaLicensePrefillPatch(
+          buildVerifiedLicensePrefillPatch(
             current,
             result,
             draft.licenseNumber.trim(),

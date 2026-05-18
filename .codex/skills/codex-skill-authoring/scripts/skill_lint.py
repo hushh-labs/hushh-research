@@ -71,6 +71,7 @@ EXPECTED_WORKFLOW_IDS = [
     "ci-watch-and-heal",
     "data-model-audit",
     "github-contribution-governance",
+    "uat-scoped-deploy",
     "pre-pr-readiness",
     "security-consent-audit",
     "mobile-parity-check",

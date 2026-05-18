@@ -141,6 +141,27 @@ describe("PhoneMandateGuard", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
+  it("keeps RIA onboarding reachable without asking for phone verification again", async () => {
+    pathnameValue = "/ria/onboarding";
+    authValue = {
+      user: { uid: "ria-user" },
+      loading: false,
+      phoneNumber: null,
+    };
+    checkVaultMock.mockResolvedValue(false);
+
+    render(
+      <PhoneMandateGuard>
+        <div>ria onboarding content</div>
+      </PhoneMandateGuard>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("ria onboarding content")).toBeTruthy();
+    });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
   it("keeps localhost development users in the app without requiring phone verification", async () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
     checkVaultMock.mockResolvedValue(false);
