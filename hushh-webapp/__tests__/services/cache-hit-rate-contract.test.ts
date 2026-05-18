@@ -206,4 +206,11 @@ describe("CacheService hit-rate contract", () => {
     // No new events after unsubscribe
     expect(events).toHaveLength(1);
   });
+     // ---------- 10. Empty cache stats preserve zero-size stability ----------
+  it("preserves empty cache stats stability when no entries exist", () => {
+    const stats = cache.getStats();
+
+    expect(stats.size).toBe(0);
+    expect(stats.keys).toEqual([]);
+  });
 });
