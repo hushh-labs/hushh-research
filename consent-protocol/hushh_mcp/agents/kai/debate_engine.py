@@ -63,7 +63,10 @@ def _safe_float(value: Any) -> Optional[float]:
         if parsed != parsed:
             return None
         return parsed
-    except Exception:
+    except (TypeError, ValueError):
+        # Intentionally broad within numeric-parsing scope: any non-castable
+        # input (e.g. dicts, lists, locale strings) is normalised to None
+        # rather than propagating into formatting helpers.
         return None
 
 

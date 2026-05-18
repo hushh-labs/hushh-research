@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional
 from hushh_mcp.agents.base_agent import HushhAgent
 from hushh_mcp.constants import GEMINI_MODEL
 
+from .errors import AgentDataError, AgentLLMError
+
 logger = logging.getLogger(__name__)
 
 
@@ -77,6 +79,11 @@ class ValuationAgent(HushhAgent):
 
         Returns:
             ValuationInsight with analysis results
+
+        Raises:
+            PermissionError:  Token missing or insufficient scope (re-raised as-is).
+            AgentDataError:   Market/peer data fetch failed unexpectedly.
+            AgentLLMError:    Both Gemini and deterministic valuation paths failed.
         """
         if not consent_token:
             raise PermissionError("Valuation analysis requires a consent token")
@@ -93,8 +100,8 @@ class ValuationAgent(HushhAgent):
         try:
             market_data = await fetch_market_data(ticker, user_id, consent_token)
             peer_data = await fetch_peer_data(ticker, user_id, consent_token)
-        except PermissionError as e:
-            logger.error(f"[Valuation] Market data access denied: {e}")
+        except PermissionError:
+            # Re-raise consent errors unchanged — callers must see the 403.
             raise
         except RealtimeDataUnavailable as e:
             logger.warning(
@@ -103,9 +110,14 @@ class ValuationAgent(HushhAgent):
                 e.detail,
             )
             return self._build_market_unavailable_fallback(ticker=ticker, detail=e.detail)
-        except Exception as e:
-            logger.error(f"[Valuation] Data fetch failed: {e}")
-            raise
+        except Exception as exc:
+            # Unexpected data-layer failure — log full traceback, then re-raise typed.
+            logger.exception(
+                "[Valuation] Market/peer data fetch failed unexpectedly for ticker=%s user=%s",
+                ticker,
+                user_id,
+            )
+            raise AgentDataError(f"Data fetch failed for {ticker}: {exc}") from exc
 
         # Operon 2: Gemini Deep Valuation Analysis
         from hushh_mcp.operons.kai.llm import (
@@ -121,6 +133,7 @@ class ValuationAgent(HushhAgent):
                     "[Valuation] Gemini unavailable, using deterministic analysis: %s",
                     get_gemini_unavailable_reason(),
                 )
+            last_exc: Exception | None = None
             for attempt in range(2):
                 try:
                     gemini_analysis = await analyze_valuation_with_gemini(
@@ -131,15 +144,23 @@ class ValuationAgent(HushhAgent):
                         peer_data=peer_data,
                         user_context=context,
                     )
+                    last_exc = None
                     break
-                except Exception as e:
+                except Exception as exc:
+                    last_exc = exc
                     logger.warning(
-                        f"[Valuation] Gemini analysis failed (attempt {attempt + 1}/2): {e}"
+                        "[Valuation] Gemini analysis failed (attempt %d/2) for %s: %s",
+                        attempt + 1,
+                        ticker,
+                        exc,
                     )
-                    if attempt == 1:
-                        logger.warning(
-                            "[Valuation] Max retries reached. Falling back to deterministic."
-                        )
+            if last_exc is not None:
+                logger.exception(
+                    "[Valuation] Gemini analysis exhausted all retries for %s — "
+                    "falling back to deterministic analysis",
+                    ticker,
+                    exc_info=last_exc,
+                )
 
         # Use Gemini results if available
         if gemini_analysis and "error" not in gemini_analysis:
@@ -159,7 +180,6 @@ class ValuationAgent(HushhAgent):
         from hushh_mcp.operons.kai.analysis import analyze_valuation
 
         try:
-            # Call the operon directly without tools (deterministic)
             analysis = analyze_valuation(
                 ticker=ticker,
                 user_id=user_id,
@@ -177,9 +197,16 @@ class ValuationAgent(HushhAgent):
                 confidence=analysis.get("confidence", 0.5),
                 recommendation=analysis.get("recommendation", "fair"),
             )
-        except Exception as e:
-            logger.error(f"[Valuation] Deterministic analysis failed: {e}")
-            raise
+        except Exception as exc:
+            # Both Gemini and deterministic paths failed — log full traceback.
+            logger.exception(
+                "[Valuation] Deterministic analysis also failed for ticker=%s user=%s",
+                ticker,
+                user_id,
+            )
+            raise AgentLLMError(
+                f"All valuation analysis paths failed for {ticker}: {exc}"
+            ) from exc
 
     def _build_market_unavailable_fallback(self, ticker: str, detail: str) -> ValuationInsight:
         """Fallback when the symbol cannot be priced reliably in realtime."""

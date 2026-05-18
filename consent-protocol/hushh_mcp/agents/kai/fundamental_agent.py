@@ -157,6 +157,7 @@ class FundamentalAgent(HushhAgent):
                     "[Fundamental] Gemini unavailable, using deterministic analysis: %s",
                     get_gemini_unavailable_reason(),
                 )
+            last_exc: Exception | None = None
             for attempt in range(2):
                 try:
                     gemini_analysis = await analyze_stock_with_gemini(
@@ -168,15 +169,31 @@ class FundamentalAgent(HushhAgent):
                         quant_metrics=quant_metrics,
                         user_context=context,
                     )
+                    last_exc = None
                     break  # Success
-                except Exception as e:
+                except Exception as exc:
+                    last_exc = exc
                     logger.warning(
-                        f"[Fundamental] Gemini analysis failed (attempt {attempt + 1}/2): {e}"
+                        "[Fundamental] Gemini analysis failed (attempt %d/2) for %s: %s",
+                        attempt + 1,
+                        ticker,
+                        exc,
                     )
-                    if attempt == 1:
-                        logger.warning(
-                            "[Fundamental] Max retries reached. Falling back to deterministic."
-                        )
+            if last_exc is not None:
+                # All retries exhausted — log full traceback then fall through
+                # to deterministic analysis rather than raising, since
+                # fundamental analysis has a valid non-LLM fallback path.
+                logger.exception(
+                    "[Fundamental] Gemini analysis exhausted all retries for %s — "
+                    "falling back to deterministic analysis",
+                    ticker,
+                    # exc_info is attached automatically by logger.exception;
+                    # we pass last_exc explicitly so the correct frame is linked.
+                    # Python's logger.exception() uses sys.exc_info() from the
+                    # current exception context; since we're outside the except
+                    # block we bind it manually via exc_info.
+                    exc_info=last_exc,
+                )
 
         # Step 3: Traditional Analysis (Fallback or baseline metrics)
         from hushh_mcp.operons.kai.analysis import analyze_fundamentals

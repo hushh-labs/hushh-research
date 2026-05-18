@@ -13,6 +13,8 @@ from hushh_mcp.hushh_adk.core import HushhAgent
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.types import UserID
 
+from .errors import AgentLLMError
+
 # Import tools
 from .tools import (
     perform_fundamental_analysis,
@@ -49,10 +51,13 @@ class KaiAgent(HushhAgent):
     ) -> Dict[str, Any]:
         """
         Agentic Entry Point.
+
+        Raises:
+            PermissionError:  Propagated unchanged from HushhAgent when the
+                              consent token is missing or lacks the required scope.
+            AgentLLMError:    The ADK / Gemini call failed in an unexpected way.
         """
         try:
-            # Execute ADK run
-            # Note: For long running analysis, we might want to stream or notify
             response = self.run(message, user_id=user_id, consent_token=consent_token)
 
             return {
@@ -60,12 +65,21 @@ class KaiAgent(HushhAgent):
                 "is_complete": True,
             }
 
-        except Exception as e:
-            logger.error(f"KaiAgent error: {e}")
-            return {
-                "response": "I encountered an error analyzing the market data.",
-                "error": str(e),
-            }
+        except PermissionError:
+            # Consent/auth failures — re-raise unchanged so the API layer can
+            # map to 401/403 rather than a generic 500.
+            raise
+
+        except Exception as exc:
+            # logger.exception() captures the full traceback automatically.
+            # The old logger.error(f"...{e}") only logged the message string,
+            # discarding the stack entirely.
+            logger.exception(
+                "KaiAgent ADK call failed for user=%s message=%r",
+                user_id,
+                message[:120],
+            )
+            raise AgentLLMError(f"KaiAgent run failed: {exc}") from exc
 
 
 # Singleton

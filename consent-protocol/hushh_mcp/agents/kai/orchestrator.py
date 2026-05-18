@@ -24,6 +24,7 @@ from hushh_mcp.constants import GEMINI_MODEL, ConsentScope
 from .config import ANALYSIS_TIMEOUT, ProcessingMode, RiskProfile
 from .debate_engine import DebateEngine
 from .decision_generator import DecisionCard, DecisionGenerator
+from .errors import AgentOrchestrationError
 from .fundamental_agent import FundamentalAgent
 from .sentiment_agent import SentimentAgent
 from .valuation_agent import ValuationAgent
@@ -103,8 +104,10 @@ class KaiOrchestrator(HushhAgent):
             DecisionCard with complete analysis
 
         Raises:
-            ValueError: If consent token is invalid
-            TimeoutError: If analysis exceeds timeout
+            ValueError:                  Consent token is invalid or user mismatch.
+            TimeoutError:                Analysis exceeded ANALYSIS_TIMEOUT.
+            AgentOrchestrationError:     Debate or decision-generation stage failed
+                                         after all agent analyses completed.
         """
         start_time = datetime.utcnow()
         logger.info(f"[Kai] Starting analysis for {ticker}")
@@ -145,9 +148,22 @@ class KaiOrchestrator(HushhAgent):
         except asyncio.TimeoutError:
             logger.error(f"[Kai] Analysis timeout for {ticker}")
             raise TimeoutError(f"Analysis exceeded {ANALYSIS_TIMEOUT}s timeout")
-        except Exception as e:
-            logger.error(f"[Kai] Analysis failed for {ticker}: {e}")
+
+        except (ValueError, PermissionError):
+            # Consent/validation errors — re-raise unchanged so callers see 401/403.
             raise
+
+        except Exception as exc:
+            # Unexpected failure in debate or decision-generation stage.
+            # logger.exception() attaches the full traceback automatically.
+            logger.exception(
+                "[Kai] Orchestration failed for ticker=%s user=%s",
+                ticker,
+                self.user_id,
+            )
+            raise AgentOrchestrationError(
+                f"Kai orchestration failed for {ticker}: {exc}"
+            ) from exc
 
     async def _validate_consent(self, consent_token: str):
         """Validate that the consent token allows access to Kai analysis."""
@@ -188,9 +204,18 @@ class KaiOrchestrator(HushhAgent):
         # agent failure invisible in logs (e.g. auth errors behind network errors).
         exceptions = [(i, r) for i, r in enumerate(results) if isinstance(r, Exception)]
         if exceptions:
-            for i, e in exceptions:
-                logger.error(f"[Kai] Agent {i} failed: {e}")
-            raise exceptions[0][1]  # raise first; all others are now logged
+            for i, exc in exceptions:
+                # logger.exception() requires being inside an except block to attach
+                # the traceback automatically.  Since we're iterating a list, we use
+                # logger.error with exc_info=exc instead — same effect, any context.
+                logger.error(
+                    "[Kai] Agent %d failed for ticker=%s: %s",
+                    i,
+                    ticker,
+                    exc,
+                    exc_info=exc,
+                )
+            raise exceptions[0][1]  # raise first; all others are now logged with tracebacks
 
         return results
 
