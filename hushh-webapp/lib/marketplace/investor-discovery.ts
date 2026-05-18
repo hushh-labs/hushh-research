@@ -1,0 +1,38 @@
+import type { MarketplaceInvestor } from "@/lib/services/ria-service";
+
+export function marketplaceInvestorCardId(investor: MarketplaceInvestor): string {
+  const explicitId = String(investor.id || "").trim();
+  if (explicitId) return explicitId;
+
+  const userId = marketplaceInvestorUserId(investor);
+  if (userId) return userId;
+
+  const publicProfileId = String(investor.public_profile_id || "").trim();
+  if (publicProfileId) return `public_sec:${publicProfileId}`;
+
+  return `investor:${String(investor.display_name || "unknown").trim().toLowerCase()}`;
+}
+
+export function marketplaceInvestorUserId(investor: MarketplaceInvestor): string | null {
+  const userId = String(investor.user_id || "").trim();
+  return userId || null;
+}
+
+export function isPublicSecMarketplaceInvestor(investor: MarketplaceInvestor): boolean {
+  return String(investor.source_type || "").toLowerCase() === "public_sec";
+}
+
+export function isMarketplaceInvestorConnectable(investor: MarketplaceInvestor): boolean {
+  if (isPublicSecMarketplaceInvestor(investor)) return false;
+  if (investor.connectable === false) return false;
+  return Boolean(marketplaceInvestorUserId(investor));
+}
+
+export function marketplaceInvestorSourceLabel(investor: MarketplaceInvestor): string | null {
+  if (isPublicSecMarketplaceInvestor(investor)) return "Public SEC profile";
+  if (String(investor.source_type || "").toLowerCase() === "hushh_user") {
+    return "Opted-in Hushh investor";
+  }
+  return null;
+}
+
