@@ -47,4 +47,33 @@ describe("CacheService", () => {
     expect(cache.get("market-home")).toBeNull();
     expect(cache.getStats().size).toBe(0);
   });
+  it("preserves stale snapshot metadata across repeated stale reads", () => {
+    const cache = CacheService.getInstance();
+
+    cache.set("consent-cache", { synced: true }, 1_000);
+
+    vi.advanceTimersByTime(1_250);
+
+    const firstSnapshot = cache.peek<{ synced: boolean }>("consent-cache");
+    const secondSnapshot = cache.peek<{ synced: boolean }>("consent-cache");
+
+    expect(firstSnapshot).toMatchObject({
+      isFresh: false,
+      isStale: true,
+      ttl: 1_000,
+    });
+
+    expect(secondSnapshot).toStrictEqual(firstSnapshot);
+  });
+
+  it("preserves snapshot value consistency for unchanged cache reads", () => {
+    const cache = CacheService.getInstance();
+
+    cache.set("portfolio-feed", { stable: true }, 5_000);
+
+    const firstSnapshot = cache.peek<{ stable: boolean }>("portfolio-feed");
+    const secondSnapshot = cache.peek<{ stable: boolean }>("portfolio-feed");
+
+    expect(secondSnapshot).toStrictEqual(firstSnapshot);
+  });
 });
