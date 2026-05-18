@@ -2704,9 +2704,12 @@ export class PersonalKnowledgeModelService {
     const canUseCache = normalizedSegmentIds.length === 0;
     const cacheKey = CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain);
     if (canUseCache) {
-      const cached = cache.get<EncryptedDomainBlob>(cacheKey);
-      if (cached) {
-        return cached;
+      const cached = cache.peek<EncryptedDomainBlob | null>(cacheKey);
+      if (cached?.isFresh) {
+        return cached.data;
+      }
+      if (cached?.isStale) {
+        cache.invalidate(cacheKey);
       }
     }
 
@@ -2833,7 +2836,7 @@ export class PersonalKnowledgeModelService {
       if (encryptedBlob && canUseCache) {
         cache.set(cacheKey, encryptedBlob, CACHE_TTL.SESSION);
       } else if (!encryptedBlob && canUseCache) {
-        cache.invalidate(cacheKey);
+        cache.set(cacheKey, null, CACHE_TTL.SHORT);
       }
 
       return encryptedBlob;

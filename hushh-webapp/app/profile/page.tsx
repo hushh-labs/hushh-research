@@ -3682,7 +3682,7 @@ function ProfilePageContent() {
             setShowVaultCreation(false);
             setHasVault(true);
             VaultService.setVaultCheckCache(user.uid, true);
-            toast.success("Vault created.");
+            toast.success("Vault created and unlocked.");
           }}
         />
       )}
