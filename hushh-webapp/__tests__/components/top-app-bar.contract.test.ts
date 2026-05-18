@@ -45,4 +45,11 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("router.push(topShellBreadcrumb.backHref);");
     expect(source).not.toContain("router.back();");
   });
+    it("keeps top-bar title pill styling contract stable", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    expect(source).toContain("TOP_SHELL_TITLE_PILL_CLASSNAME");
+    expect(source).toContain("rounded-full");
+    expect(source).toContain("group-hover:text-current");
+  });
 });
