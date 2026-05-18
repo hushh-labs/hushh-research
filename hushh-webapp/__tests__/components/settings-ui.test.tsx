@@ -108,4 +108,22 @@ describe("SettingsSegmentedTabs", () => {
     fireEvent.click(inactive);
     expect(handleValueChange).toHaveBeenCalledWith("kai");
   });
+    it("does not switch when selecting the already active segmented tab", () => {
+    const handleValueChange = vi.fn();
+
+    render(
+      <SettingsSegmentedTabs
+        value="kai"
+        onValueChange={handleValueChange}
+        options={[
+          { value: "kai", label: "Kai list" },
+          { value: "my", label: "My list" },
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Kai list" }));
+
+    expect(handleValueChange).not.toHaveBeenCalled();
+  });
 });
