@@ -28,6 +28,7 @@ import {
   primeConnectorStatus,
   useGmailConnectorStatus,
 } from "@/lib/profile/gmail-connector-store";
+import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 
 describe("gmail-connector-store", () => {
@@ -36,6 +37,7 @@ describe("gmail-connector-store", () => {
     clearConnectorStatus("user-snapshot");
     clearConnectorStatus("user-hook");
     clearConnectorStatus("user-backfill");
+    clearConnectorStatus("user-backfill-complete");
     if (typeof window !== "undefined") {
       window.sessionStorage.clear();
     }
@@ -102,7 +104,7 @@ describe("gmail-connector-store", () => {
         initialProps: {
           userId: "user-hook",
         },
-      }
+      },
     );
 
     expect(result.current.status?.google_email).toBe("user-hook@hushh.ai");
@@ -112,7 +114,9 @@ describe("gmail-connector-store", () => {
 
   it("falls back to a plain status fetch when reconcile times out", async () => {
     vi.mocked(GmailReceiptsService.reconcile).mockRejectedValueOnce(
-      new Error("Gmail is taking too long to respond right now. Please try again in a moment.")
+      new Error(
+        "Gmail is taking too long to respond right now. Please try again in a moment.",
+      ),
     );
     vi.mocked(GmailReceiptsService.getStatus).mockResolvedValue({
       configured: true,
@@ -134,7 +138,7 @@ describe("gmail-connector-store", () => {
         userId: "user-hook",
         enabled: true,
         idTokenProvider: async () => "id-token",
-      })
+      }),
     );
 
     await waitFor(() => {
@@ -156,16 +160,16 @@ describe("gmail-connector-store", () => {
 
   it("keeps a timed-out active run in a stale running state instead of collapsing to idle", async () => {
     let nowMs = 0;
-    const setTimeoutSpy = vi
-      .spyOn(window, "setTimeout")
-      .mockImplementation(
-        ((handler: TimerHandler, _timeout?: number, ...args: unknown[]) => {
-          if (typeof handler === "function") {
-            queueMicrotask(() => handler(...args));
-          }
-          return 0 as unknown as number;
-        }) as typeof window.setTimeout
-      );
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(((
+      handler: TimerHandler,
+      _timeout?: number,
+      ...args: unknown[]
+    ) => {
+      if (typeof handler === "function") {
+        queueMicrotask(() => handler(...args));
+      }
+      return 0 as unknown as number;
+    }) as typeof window.setTimeout);
     const dateNowSpy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
     try {
       nowMs = 0;
@@ -183,12 +187,14 @@ describe("gmail-connector-store", () => {
         extraction_success_rate: 1,
       } as const;
 
-      vi.mocked(GmailReceiptsService.getSyncRun).mockImplementation(async () => {
-        nowMs = 2 * 60 * 1000 + 1;
-        return {
-          run: activeRun,
-        };
-      });
+      vi.mocked(GmailReceiptsService.getSyncRun).mockImplementation(
+        async () => {
+          nowMs = 2 * 60 * 1000 + 1;
+          return {
+            run: activeRun,
+          };
+        },
+      );
       vi.mocked(GmailReceiptsService.reconcile).mockResolvedValue({
         configured: true,
         connected: true,
@@ -258,16 +264,16 @@ describe("gmail-connector-store", () => {
   });
 
   it("starts polling active runs discovered from a plain status fetch and hands off to backfill", async () => {
-    const setTimeoutSpy = vi
-      .spyOn(window, "setTimeout")
-      .mockImplementation(
-        ((handler: TimerHandler, _timeout?: number, ...args: unknown[]) => {
-          if (typeof handler === "function") {
-            queueMicrotask(() => handler(...args));
-          }
-          return 0 as unknown as number;
-        }) as typeof window.setTimeout
-      );
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(((
+      handler: TimerHandler,
+      _timeout?: number,
+      ...args: unknown[]
+    ) => {
+      if (typeof handler === "function") {
+        queueMicrotask(() => handler(...args));
+      }
+      return 0 as unknown as number;
+    }) as typeof window.setTimeout);
 
     try {
       vi.mocked(GmailReceiptsService.getStatus).mockResolvedValue({
@@ -297,40 +303,42 @@ describe("gmail-connector-store", () => {
           extraction_success_rate: 1,
         },
       } as Awaited<ReturnType<typeof GmailReceiptsService.getStatus>>);
-      vi.mocked(GmailReceiptsService.getSyncRun).mockImplementation(async ({ runId }) => {
-        if (runId === "run_bootstrap") {
+      vi.mocked(GmailReceiptsService.getSyncRun).mockImplementation(
+        async ({ runId }) => {
+          if (runId === "run_bootstrap") {
+            return {
+              run: {
+                run_id: "run_bootstrap",
+                user_id: "user-hook",
+                trigger_source: "connect",
+                sync_mode: "bootstrap",
+                status: "completed",
+                listed_count: 2,
+                filtered_count: 1,
+                synced_count: 1,
+                extracted_count: 1,
+                duplicates_dropped: 0,
+                extraction_success_rate: 1,
+              },
+            };
+          }
           return {
             run: {
-              run_id: "run_bootstrap",
+              run_id: "run_backfill",
               user_id: "user-hook",
-              trigger_source: "connect",
-              sync_mode: "bootstrap",
+              trigger_source: "backfill",
+              sync_mode: "backfill",
               status: "completed",
-              listed_count: 2,
-              filtered_count: 1,
-              synced_count: 1,
-              extracted_count: 1,
+              listed_count: 3,
+              filtered_count: 2,
+              synced_count: 2,
+              extracted_count: 2,
               duplicates_dropped: 0,
               extraction_success_rate: 1,
             },
           };
-        }
-        return {
-          run: {
-            run_id: "run_backfill",
-            user_id: "user-hook",
-            trigger_source: "backfill",
-            sync_mode: "backfill",
-            status: "completed",
-            listed_count: 3,
-            filtered_count: 2,
-            synced_count: 2,
-            extracted_count: 2,
-            duplicates_dropped: 0,
-            extraction_success_rate: 1,
-          },
-        };
-      });
+        },
+      );
       vi.mocked(GmailReceiptsService.reconcile)
         .mockResolvedValueOnce({
           configured: true,
@@ -394,7 +402,7 @@ describe("gmail-connector-store", () => {
           userId: "user-hook",
           enabled: true,
           idTokenProvider: async () => "id-token",
-        })
+        }),
       );
 
       await act(async () => {
@@ -455,5 +463,53 @@ describe("gmail-connector-store", () => {
     const view = getConnectorView("user-backfill");
     expect(view.activeTaskKind).toBe("gmail_backfill");
     expect(view.syncingRun).toBe(false);
+  });
+
+  it("normalizes completed backfill status and completes the background task", () => {
+    primeConnectorStatus({
+      userId: "user-backfill-complete",
+      status: {
+        configured: true,
+        connected: true,
+        status: "connected",
+        google_email: "backfill@hushh.ai",
+        scope_csv: "gmail.readonly",
+        auto_sync_enabled: true,
+        revoked: false,
+        connection_state: "connected",
+        sync_state: "backfill_running",
+        bootstrap_state: "completed",
+        watch_status: "active",
+        needs_reauth: false,
+        last_sync_status: "completed",
+        latest_run: {
+          run_id: "run_backfill_done",
+          user_id: "user-backfill-complete",
+          trigger_source: "backfill",
+          sync_mode: "backfill",
+          status: "completed",
+          listed_count: 12,
+          filtered_count: 6,
+          synced_count: 6,
+          extracted_count: 5,
+          duplicates_dropped: 0,
+          extraction_success_rate: 0.83,
+        },
+      },
+      source: "status",
+    });
+
+    const view = getConnectorView("user-backfill-complete");
+    expect(view.status?.sync_state).toBe("idle");
+    expect(view.activeTaskKind).toBeNull();
+    expect(view.presentation.state).toBe("connected");
+    expect(AppBackgroundTaskService.completeTask).toHaveBeenCalledWith(
+      "gmail_gmail_backfill_run_backfill_done",
+      "One is fetching older Gmail receipts without blocking the UI.",
+      expect.objectContaining({
+        runId: "run_backfill_done",
+        syncMode: "backfill",
+      }),
+    );
   });
 });
