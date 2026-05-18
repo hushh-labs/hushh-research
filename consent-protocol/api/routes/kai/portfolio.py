@@ -12,6 +12,10 @@ Authentication:
 - All endpoints require VAULT_OWNER token (consent-first architecture)
 - Token contains user_id, proving both identity and consent
 - Firebase is only used for bootstrap (issuing VAULT_OWNER token)
+
+Canonical attach points
+-----------------------
+api.routes.kai.portfolio.import_portfolio -> POST /kai/portfolio/import
 """
 
 import asyncio
@@ -2076,7 +2080,11 @@ async def import_portfolio(
     """
     # Verify user_id matches token (consent-first: token contains user_id)
     if token_data["user_id"] != user_id:
-        logger.warning(f"User ID mismatch: token={token_data['user_id']}, request={user_id}")
+        logger.warning(
+            "portfolio.upload.user_id_mismatch token_uid=%s req_uid=%s",
+            token_data["user_id"],
+            user_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="User ID does not match token"
         )
