@@ -4,11 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       scope:
-        description: "Deploy backend only, frontend only, or both"
+        description: "Auto-detect deploy lane, or force backend/frontend/all"
         required: true
-        default: "all"
+        default: "auto"
         type: choice
         options:
+          - auto
           - all
           - backend
           - frontend
@@ -64,6 +65,11 @@ jobs:
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"
 
+      - name: Capture deployment timing start
+        id: timing-start
+        shell: bash
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
       - name: Resolve deployment SHA
         id: resolve-sha
         shell: bash
@@ -112,32 +118,6 @@ jobs:
             exit 1
           fi
 
-      - name: Resolve deployment scope
-        id: scope
-        shell: bash
-        run: |
-          SCOPE="${{ github.event.inputs.scope }}"
-
-          case "$SCOPE" in
-            backend)
-              DEPLOY_BACKEND=true
-              DEPLOY_FRONTEND=false
-              ;;
-            frontend)
-              DEPLOY_BACKEND=false
-              DEPLOY_FRONTEND=true
-              ;;
-            *)
-              SCOPE="all"
-              DEPLOY_BACKEND=true
-              DEPLOY_FRONTEND=true
-              ;;
-          esac
-
-          echo "scope=$SCOPE" >> "$GITHUB_OUTPUT"
-          echo "deploy_backend=$DEPLOY_BACKEND" >> "$GITHUB_OUTPUT"
-          echo "deploy_frontend=$DEPLOY_FRONTEND" >> "$GITHUB_OUTPUT"
-
       - name: Set up Python + uv runtime
         uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
@@ -167,10 +147,40 @@ jobs:
             --region="${{ env.GCP_REGION }}" \
             --format='value(status.url)' 2>/dev/null || true)"
 
+          backend_sha=""
+          if [ -n "${backend_revision}" ]; then
+            backend_sha="$(gcloud run revisions describe "${backend_revision}" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --region="${{ env.GCP_REGION }}" \
+              --format='value(metadata.labels.deploy-sha)' 2>/dev/null || true)"
+          fi
+          frontend_sha=""
+          if [ -n "${frontend_revision}" ]; then
+            frontend_sha="$(gcloud run revisions describe "${frontend_revision}" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --region="${{ env.GCP_REGION }}" \
+              --format='value(metadata.labels.deploy-sha)' 2>/dev/null || true)"
+          fi
+
           echo "backend_revision=${backend_revision}" >> "$GITHUB_OUTPUT"
           echo "backend_url=${backend_url}" >> "$GITHUB_OUTPUT"
+          echo "backend_sha=${backend_sha}" >> "$GITHUB_OUTPUT"
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
           echo "frontend_url=${frontend_url}" >> "$GITHUB_OUTPUT"
+          echo "frontend_sha=${frontend_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve deployment scope
+        id: scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/resolve-deploy-scope.py \
+            --requested-scope "${{ github.event.inputs.scope }}" \
+            --target-sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
+            --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
+            --github-output "$GITHUB_OUTPUT" \
+            --json
 
       - name: Sync canonical hosted runtime secrets
         shell: bash
@@ -263,15 +273,21 @@ jobs:
             --report-path /tmp/uat-db-migration-guard-predeploy.json
 
       - name: Deploy backend using Cloud Build
+        id: deploy-backend
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
+          started_at="$(date +%s)"
           SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_APP_REVIEW_MODE=true##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
             "--substitutions=^##^${SUBSTITUTIONS}"
+          finished_at="$(date +%s)"
+          echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"
+          echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
+          echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"
 
       - name: Retain latest backend revisions
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -279,12 +295,20 @@ jobs:
         run: bash scripts/ci/cloudrun-retention.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.CLOUD_RUN_REVISION_RETENTION }}"
 
       - name: Deploy frontend using Cloud Build
+        id: deploy-frontend
         if: steps.scope.outputs.deploy_frontend == 'true'
+        shell: bash
         run: |
+          set -euo pipefail
+          started_at="$(date +%s)"
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/frontend.cloudbuild.yaml \
             "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_APP_ENV=uat,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }},_DEPLOY_ENV=uat,_DEPLOY_SOURCE=deploy-uat,_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
+          finished_at="$(date +%s)"
+          echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"
+          echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
+          echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"
 
       - name: Retain latest frontend revisions
         if: steps.scope.outputs.deploy_frontend == 'true'
@@ -837,6 +861,10 @@ jobs:
                   "backend_revision": "${{ steps.predeploy-state.outputs.backend_revision }}",
                   "frontend_revision": "${{ steps.predeploy-state.outputs.frontend_revision }}",
               },
+              "timing_seconds": {
+                  "backend_cloud_build": "${{ steps.deploy-backend.outputs.duration_seconds || '0' }}",
+                  "frontend_cloud_build": "${{ steps.deploy-frontend.outputs.duration_seconds || '0' }}",
+              },
           }
           Path("/tmp/uat-release-status.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
           PY
@@ -869,10 +897,22 @@ jobs:
         run: |
           set -euo pipefail
           {
+            total_seconds=$(( $(date +%s) - ${{ steps.timing-start.outputs.epoch }} ))
+            backend_build_seconds="${{ steps.deploy-backend.outputs.duration_seconds || '0' }}"
+            frontend_build_seconds="${{ steps.deploy-frontend.outputs.duration_seconds || '0' }}"
+            build_seconds=$(( backend_build_seconds + frontend_build_seconds ))
+            non_build_seconds=$(( total_seconds - build_seconds ))
+            if [ "$non_build_seconds" -lt 0 ]; then
+              non_build_seconds=0
+            fi
             echo "## UAT Release"
             echo ""
             echo "- SHA: \`${{ steps.resolve-sha.outputs.sha }}\`"
+            echo "- Requested scope: \`${{ github.event.inputs.scope }}\`"
             echo "- Scope: \`${{ steps.scope.outputs.scope }}\`"
+            echo "- Scope reason: \`${{ steps.scope.outputs.reason }}\`"
+            echo "- Backend deployed SHA before run: \`${{ steps.predeploy-state.outputs.backend_sha || 'unknown' }}\`"
+            echo "- Frontend deployed SHA before run: \`${{ steps.predeploy-state.outputs.frontend_sha || 'unknown' }}\`"
             echo "- Status: \`$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/uat-release-status.json').read_text(encoding='utf-8'))['status'])")\`"
             echo "- Blocking classifications: \`${{ steps.classify-uat-release.outputs.blocking_classifications || 'none' }}\`"
             echo "- Backend URL: \`${{ steps.final-state.outputs.backend_url }}\`"
@@ -888,6 +928,20 @@ jobs:
             echo "- Verify attempt 2: \`${{ steps.verify-uat-2.outcome }}\`"
             echo "- Backend rollback: \`${{ steps.rollback-backend.outcome }}\`"
             echo "- Frontend rollback: \`${{ steps.rollback-frontend.outcome }}\`"
+            echo ""
+            echo "### Deploy Timing"
+            echo ""
+            echo "- Total job time so far: \`${total_seconds}s\`"
+            echo "- Backend Cloud Build: \`${backend_build_seconds}s\`"
+            echo "- Frontend Cloud Build: \`${frontend_build_seconds}s\`"
+            echo "- Non-build gates and verification: \`${non_build_seconds}s\`"
+            echo ""
+            echo "### Auto Scope Evidence"
+            echo ""
+            echo "- Backend changed files: \`${{ steps.scope.outputs.backend_changed_files || 'none' }}\`"
+            echo "- Frontend changed files: \`${{ steps.scope.outputs.frontend_changed_files || 'none' }}\`"
+            echo "- Shared changed files: \`${{ steps.scope.outputs.shared_changed_files || 'none' }}\`"
+            echo "- Neutral changed files: \`${{ steps.scope.outputs.neutral_changed_files || 'none' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fail workflow when UAT release did not end healthy

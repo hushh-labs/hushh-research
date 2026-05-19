@@ -31,6 +31,13 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# Runtime-generated PKM debug logs
+pkm-debug.log*
+pkm-debug-*.log*
+pkm-debug-*.jsonl
+pkm-debug-*.ndjson
+.pkm-debug/
+
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example

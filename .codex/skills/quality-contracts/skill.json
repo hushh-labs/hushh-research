@@ -23,7 +23,8 @@
   "required_reads": [
     "docs/reference/quality/README.md",
     "docs/reference/quality/pr-impact-checklist.md",
-    "docs/reference/kai/kai-runtime-smoke-checklist.md"
+    "docs/reference/kai/kai-runtime-smoke-checklist.md",
+    ".codex/skills/quality-contracts/references/browser-verification-contract.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run test:ci",
