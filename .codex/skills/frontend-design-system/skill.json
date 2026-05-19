@@ -24,7 +24,8 @@
     "docs/reference/quality/design-system.md",
     "docs/reference/quality/frontend-ui-architecture-map.md",
     "docs/reference/quality/app-surface-design-system.md",
-    "docs/reference/quality/frontend-pattern-catalog.md"
+    "docs/reference/quality/frontend-pattern-catalog.md",
+    ".codex/skills/frontend-design-system/references/design-review-kernel.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run verify:design-system",
