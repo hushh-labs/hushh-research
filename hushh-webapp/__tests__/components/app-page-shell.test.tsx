@@ -25,4 +25,25 @@ describe("AppPageShell", () => {
 
     expect(screen.getByRole("main").getAttribute("data-app-density")).toBe("comfortable");
   });
+    it("preserves density attribute updates across rerenders", () => {
+    const { rerender } = render(
+      <AppPageShell density="compact">
+        <AppPageContentRegion>Content</AppPageContentRegion>
+      </AppPageShell>
+    );
+
+    expect(screen.getByRole("main").getAttribute("data-app-density")).toBe(
+      "compact"
+    );
+
+    rerender(
+      <AppPageShell density="comfortable">
+        <AppPageContentRegion>Content</AppPageContentRegion>
+      </AppPageShell>
+    );
+
+    expect(screen.getByRole("main").getAttribute("data-app-density")).toBe(
+      "comfortable"
+    );
+  });
 });
