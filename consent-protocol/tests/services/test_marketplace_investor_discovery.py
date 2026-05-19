@@ -18,6 +18,10 @@ class _FakeMarketplaceConn:
         self.fetch_calls.append((query, args))
         if "FROM actor_profiles" in query:
             assert "qualified_investor_status" in query
+            assert "ANY($5::text[])" in query
+            assert "($3::text IS NULL" in query
+            assert "$4::boolean = FALSE" in query
+            assert "LIMIT $2::integer" in query
             assert args[1] == 5
             assert args[3] is True
             assert args[4] == []
@@ -178,6 +182,8 @@ class _FakeMarketplaceDeckConn:
             ]
         if "FROM actor_profiles" in query:
             assert "NOT (('hushh_user:' || ap.user_id) = ANY" in query
+            assert "ANY($5::text[])" in query
+            assert "LIMIT $2::integer" in query
             assert args[1] == 12
             assert args[3] is True
             assert "hushh_user:handled_investor" in args[-1]
@@ -221,6 +227,10 @@ class _FakeMarketplaceDeckConn:
     async def fetchval(self, query: str, *args: object) -> int:
         assert "public_sec:42" in args[-1]
         if "FROM actor_profiles" in query:
+            assert "ANY($4::text[])" in query
+            assert "($2::text IS NULL" in query
+            assert "$3::boolean = FALSE" in query
+            assert len(args) == 4
             return 0
         if "FROM investor_profiles" in query:
             return 1

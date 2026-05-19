@@ -11,7 +11,7 @@ SCHEDULER_JOB_NAME="${SCHEDULER_JOB_NAME:-marketplace-investor-replenisher-every
 SCHEDULER_LOCATION="${SCHEDULER_LOCATION:-${REGION}}"
 SCHEDULER_CRON="${SCHEDULER_CRON:-0 */8 * * *}"
 SCHEDULER_TIMEZONE="${SCHEDULER_TIMEZONE:-Etc/UTC}"
-SCHEDULER_SA_NAME="${SCHEDULER_SA_NAME:-marketplace-investor-replenisher-invoker}"
+SCHEDULER_SA_NAME="${SCHEDULER_SA_NAME:-marketplace-inv-repl-invoker}"
 TARGET_TOTAL="${MARKETPLACE_INVESTOR_TARGET_TOTAL:-100}"
 TARGET_SHOWCASE="${MARKETPLACE_INVESTOR_TARGET_SHOWCASE:-50}"
 RATE_LIMIT="${MARKETPLACE_INVESTOR_RATE_LIMIT_PER_SECOND:-5}"
@@ -65,6 +65,17 @@ ensure_scheduler_sa() {
       --display-name="Marketplace investor replenisher invoker" >/dev/null
   fi
 
+  for attempt in {1..12}; do
+    if gcloud iam service-accounts describe "${SCHEDULER_SA_EMAIL}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
+      break
+    fi
+    if [[ "${attempt}" == "12" ]]; then
+      echo "ERROR: service account ${SCHEDULER_SA_EMAIL} did not become readable in time."
+      exit 1
+    fi
+    sleep 5
+  done
+
   log "Granting roles/run.developer to ${SCHEDULER_SA_EMAIL}"
   gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
     --member="serviceAccount:${SCHEDULER_SA_EMAIL}" \
@@ -95,20 +106,30 @@ upsert_cloud_run_job() {
     image="$(jq -r '.spec.template.spec.containers[0].image' "${backend_json}")"
   fi
 
-  local db_host db_port db_name db_unix_socket cloudsql_instances
-  db_host="$(jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_HOST") | .value' "${backend_json}" | head -n1)"
-  db_port="$(jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_PORT") | .value' "${backend_json}" | head -n1)"
-  db_name="$(jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_NAME") | .value' "${backend_json}" | head -n1)"
-  db_unix_socket="$(jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_UNIX_SOCKET") | .value' "${backend_json}" | head -n1)"
+  local db_host db_port db_name db_unix_socket runtime_config_secret cloudsql_instances
+  db_host="$(jq -r '[.spec.template.spec.containers[0].env[]? | select(.name=="DB_HOST") | .value // empty][0] // ""' "${backend_json}")"
+  db_port="$(jq -r '[.spec.template.spec.containers[0].env[]? | select(.name=="DB_PORT") | .value // empty][0] // ""' "${backend_json}")"
+  db_name="$(jq -r '[.spec.template.spec.containers[0].env[]? | select(.name=="DB_NAME") | .value // empty][0] // ""' "${backend_json}")"
+  db_unix_socket="$(jq -r '[.spec.template.spec.containers[0].env[]? | select(.name=="DB_UNIX_SOCKET") | .value // empty][0] // ""' "${backend_json}")"
+  runtime_config_secret="$(jq -r '[.spec.template.spec.containers[0].env[]? | select(.name=="BACKEND_RUNTIME_CONFIG_JSON") | .valueFrom.secretKeyRef.name // empty][0] // ""' "${backend_json}")"
   cloudsql_instances="$(jq -r '.spec.template.metadata.annotations["run.googleapis.com/cloudsql-instances"] // empty' "${backend_json}")"
 
-  if [[ -z "${db_host}" || -z "${db_port}" || -z "${db_name}" ]]; then
-    echo "ERROR: Unable to detect DB_HOST/DB_PORT/DB_NAME from backend service ${BACKEND_SERVICE}."
+  if [[ -z "${runtime_config_secret}" && -z "${db_host}" && -z "${db_unix_socket}" ]]; then
+    echo "ERROR: Unable to detect BACKEND_RUNTIME_CONFIG_JSON or DB_HOST/DB_UNIX_SOCKET from backend service ${BACKEND_SERVICE}."
     exit 1
   fi
 
   local env_vars
-  env_vars="ENVIRONMENT=${JOB_ENVIRONMENT},DB_HOST=${db_host},DB_PORT=${db_port},DB_NAME=${db_name},MARKETPLACE_INVESTOR_TARGET_TOTAL=${TARGET_TOTAL},MARKETPLACE_INVESTOR_TARGET_SHOWCASE=${TARGET_SHOWCASE},MARKETPLACE_INVESTOR_RATE_LIMIT_PER_SECOND=${RATE_LIMIT},SEC_EDGAR_USER_AGENT=${SEC_EDGAR_USER_AGENT}"
+  env_vars="ENVIRONMENT=${JOB_ENVIRONMENT},MARKETPLACE_INVESTOR_TARGET_TOTAL=${TARGET_TOTAL},MARKETPLACE_INVESTOR_TARGET_SHOWCASE=${TARGET_SHOWCASE},MARKETPLACE_INVESTOR_RATE_LIMIT_PER_SECOND=${RATE_LIMIT},SEC_EDGAR_USER_AGENT=${SEC_EDGAR_USER_AGENT}"
+  if [[ -n "${db_host}" ]]; then
+    env_vars="${env_vars},DB_HOST=${db_host}"
+  fi
+  if [[ -n "${db_port}" ]]; then
+    env_vars="${env_vars},DB_PORT=${db_port}"
+  fi
+  if [[ -n "${db_name}" ]]; then
+    env_vars="${env_vars},DB_NAME=${db_name}"
+  fi
   if [[ -n "${db_unix_socket}" && "${db_unix_socket}" != "null" ]]; then
     env_vars="${env_vars},DB_UNIX_SOCKET=${db_unix_socket}"
   fi
@@ -119,7 +140,10 @@ upsert_cloud_run_job() {
     log "Propagating Cloud SQL attachment to job: ${cloudsql_instances}"
   fi
 
-  local secret_vars="DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest"
+  local secret_vars="APP_SIGNING_KEY=APP_SIGNING_KEY:latest,VAULT_DATA_KEY=VAULT_DATA_KEY:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest"
+  if [[ -n "${runtime_config_secret}" ]]; then
+    secret_vars="${secret_vars},BACKEND_RUNTIME_CONFIG_JSON=${runtime_config_secret}:latest"
+  fi
   if gcloud run jobs describe "${JOB_NAME}" --project "${PROJECT_ID}" --region "${REGION}" >/dev/null 2>&1; then
     log "Updating Cloud Run Job: ${JOB_NAME}"
     gcloud run jobs update "${JOB_NAME}" \
