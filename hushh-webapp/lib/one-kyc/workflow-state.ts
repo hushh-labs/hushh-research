@@ -33,11 +33,14 @@ export function selectedScopesForWorkflow(
   if (Array.isArray(workflow.requested_scopes) && workflow.requested_scopes.length) {
     return workflow.requested_scopes;
   }
+  if (workflow.requested_scope) {
+    return [workflow.requested_scope];
+  }
   const recommended = scopeCandidates(workflow)
     .filter((candidate) => candidate.recommended !== false)
     .map((candidate) => candidate.scope);
   if (recommended.length) return recommended;
-  return workflow.requested_scope ? [workflow.requested_scope] : [];
+  return [];
 }
 
 export function selectedScopeLabels(workflow: OneKycWorkflow): string[] {
