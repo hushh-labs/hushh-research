@@ -181,12 +181,13 @@
       "glob_tables": [
         "ria_*",
         "advisor_investor_relationships",
+        "marketplace_investor_actions",
         "marketplace_public_profiles",
         "relationship_share_*"
       ],
-      "primary_access_path": "RIA profile, marketplace, client relationship, invite, and share-grant services",
-      "retention_policy": "Retain while relationship/profile exists; expire or disconnect relationship-scoped grants.",
-      "deletion_behavior": "Delete or disconnect user-scoped relationships on account/persona deletion.",
+      "primary_access_path": "RIA profile, marketplace deck actions, client relationship, invite, and share-grant services",
+      "retention_policy": "Retain while relationship/profile or deck lead exists; expire or disconnect relationship-scoped grants.",
+      "deletion_behavior": "Delete or disconnect user-scoped relationships and marketplace deck actions on account/persona deletion.",
       "trust_boundary": "Professional and relationship metadata only; no decrypted investor PKM without consent export.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_relationship"
@@ -196,9 +197,9 @@
       "owner": "backend-api-contracts",
       "data_class": "reference",
       "lifecycle_status": "current",
-      "exact_tables": ["investor_profiles"],
+      "exact_tables": ["investor_profiles", "marketplace_investor_replenisher_runs"],
       "primary_access_path": "RIA marketplace qualified investor deck, public discovery cards, and official SEC filing evidence",
-      "retention_policy": "Refreshable public reference data; update from official public sources, preserve evidence URLs, and keep curation/admission fields auditable.",
+      "retention_policy": "Refreshable public reference data; update from official public sources, preserve evidence URLs, and keep curation/admission fields plus replenisher run health auditable.",
       "deletion_behavior": "Not user-delete scoped; remove or correct only when the public-source inventory is withdrawn or superseded.",
       "trust_boundary": "Official/public investor reference records only; rows do not create signed-in marketplace users and are not connectable without opt-in.",
       "plaintext_posture": "reference_metadata",

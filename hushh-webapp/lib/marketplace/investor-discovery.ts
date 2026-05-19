@@ -43,6 +43,31 @@ export function isMarketplaceInvestorShortlistable(investor: MarketplaceInvestor
   return marketplaceInvestorActions(investor).includes("shortlist");
 }
 
+export function marketplaceInvestorActionTarget(investor: MarketplaceInvestor): {
+  source_type: "public_sec" | "hushh_user";
+  public_profile_id?: string | number | null;
+  target_user_id?: string | null;
+} {
+  if (isPublicSecMarketplaceInvestor(investor)) {
+    const publicProfileId = investor.public_profile_id ?? (
+      String(investor.id || "").startsWith("public_sec:")
+        ? String(investor.id).replace("public_sec:", "")
+        : null
+    );
+    return {
+      source_type: "public_sec",
+      public_profile_id: publicProfileId,
+      target_user_id: null,
+    };
+  }
+
+  return {
+    source_type: "hushh_user",
+    public_profile_id: null,
+    target_user_id: marketplaceInvestorUserId(investor),
+  };
+}
+
 export function marketplaceInvestorSourceLabel(investor: MarketplaceInvestor): string | null {
   if (isPublicSecMarketplaceInvestor(investor)) return "Public SEC profile";
   if (String(investor.source_type || "").toLowerCase() === "hushh_user") {

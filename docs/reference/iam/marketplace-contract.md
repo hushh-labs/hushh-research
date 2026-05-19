@@ -59,6 +59,23 @@ directory.
 5. `expired`
 6. `blocked`
 
+## Deck Action Persistence
+
+RIA marketplace deck actions are durable, not browser-only state.
+
+1. Public SEC right-swipe or `Save lead` writes to
+   `marketplace_investor_actions` with `source_type=public_sec`,
+   `public_profile_id`, `target_key=public_sec:{id}`, `action=shortlist`, and
+   `status=shortlisted`.
+2. Public SEC left-swipe or `Pass` writes `action=pass` and `status=passed`.
+3. `View more` writes `action=view_more` and `status=viewed` without
+   downgrading a previously shortlisted or passed lead.
+4. Qualified in-app investor right-swipe still creates the existing consent
+   request and `advisor_investor_relationships` row, then records
+   `action=connect_request` for deck analytics.
+5. Public SEC rows never create `advisor_investor_relationships` because they
+   are not platform users and cannot consent in-app.
+
 ## Abuse Controls
 
 1. Auth is mandatory for request creation surfaces.
