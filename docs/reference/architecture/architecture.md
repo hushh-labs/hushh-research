@@ -151,7 +151,11 @@ This is the literal platform meaning behind Human Secure Socket Host: infrastruc
   - transactional app DB for workflow, actor, consent, and regulated operational state
   - encrypted PKM/vault plane for user-private memory and key-boundary metadata
   - provider/cache plane for refreshable Plaid, Gmail, market, and other integration state
+  - partner CRM plane for CRM-native contact/workflow metadata, consent receipt ids, scope labels, audit references, and narrowly approved fields when a partner workflow has a clear business or legal purpose
   - analytics/warehouse plane for GA4, BigQuery, and dashboard truth outside the app DB
+- Partner PII rule:
+  - enterprise systems such as Salesforce must not become mirrors of Hussh PKM, KYC documents, financial memory, Gmail bodies, vault data, user keys, or broad personal profiles
+  - if plaintext PII leaves Hussh for a partner workflow, that copy is outside the Hussh zero-knowledge boundary and needs explicit consent, field inventory, retention, encryption/masking, access control, audit, and deletion ownership
 - What is missing for full-scale architecture:
   - a more formal separation between transactional, analytical, cache, and export materialization planes
   - clearer retention and replay contracts
