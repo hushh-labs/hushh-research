@@ -36,4 +36,18 @@ describe("ProfileStackNavigator", () => {
     expect(screen.queryByText("Checking your saved domains")).toBeNull();
     expect(screen.getByText("Financial domain ready")).toBeTruthy();
   });
+    it("preserves root content updates across rerenders", () => {
+    const { rerender } = render(
+      <ProfileStackNavigator rootContent={<div>Initial root</div>} entries={[]} />
+    );
+
+    expect(screen.getByText("Initial root")).toBeTruthy();
+
+    rerender(
+      <ProfileStackNavigator rootContent={<div>Updated root</div>} entries={[]} />
+    );
+
+    expect(screen.queryByText("Initial root")).toBeNull();
+    expect(screen.getByText("Updated root")).toBeTruthy();
+  });
 });
