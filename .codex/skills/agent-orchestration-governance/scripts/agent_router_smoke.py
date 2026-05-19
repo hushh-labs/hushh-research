@@ -209,9 +209,9 @@ def main() -> int:
     args = parser.parse_args()
     errors = run(args.root.resolve())
     if errors:
-        for error in errors:
-            print(f"ERROR: {error}")
-        return 1
+    for error in errors:
+        print("ERROR:", error)
+    return 1
     print(f"Agent router smoke passed: {len(SCENARIOS)} scenarios")
     return 0
 
