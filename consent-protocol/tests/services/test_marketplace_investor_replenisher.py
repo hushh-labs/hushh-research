@@ -111,12 +111,12 @@ def test_13f_dataset_archive_produces_public_sec_candidates():
         zf.writestr(
             "SUBMISSION.tsv",
             "ACCESSION_NUMBER\tCIK\tSUBMISSIONTYPE\tFILING_DATE\n"
-            "0000000001-26-000001\t1\t13F-HR\t2026-02-28\n",
+            "0000000001-26-000001\t1\t13F-HR\t31-DEC-2025\n",
         )
         zf.writestr(
             "COVERPAGE.tsv",
-            "ACCESSION_NUMBER\tFILINGMANAGER_NAME\n"
-            "0000000001-26-000001\tExample Capital Management\n",
+            "ACCESSION_NUMBER\tFILINGMANAGER_NAME\tFILINGMANAGER_STREET1\tFILINGMANAGER_CITY\tFILINGMANAGER_STATEORCOUNTRY\tFILINGMANAGER_ZIPCODE\n"
+            "0000000001-26-000001\tExample Capital Management\t100 Main St\tKirkland\tWA\t98033\n",
         )
 
     candidates = candidates_from_13f_dataset_archive(
@@ -129,5 +129,7 @@ def test_13f_dataset_archive_produces_public_sec_candidates():
     assert len(candidates) == 1
     assert candidates[0].cik == "0000000001"
     assert candidates[0].curation_tier == "showcase"
-    assert candidates[0].last_13f_date == date(2026, 2, 28)
+    assert candidates[0].last_13f_date == date(2025, 12, 31)
+    assert candidates[0].location_hint == "Kirkland, WA 98033"
+    assert candidates[0].business_address["street1"] == "100 Main St"
     assert candidates[0].source_urls[0].endswith("example_form13f.zip")
