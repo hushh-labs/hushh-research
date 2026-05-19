@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 
 import { RiaCompatibilityState, RiaPageShell, RiaSurface } from "@/components/ria/ria-page-shell";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/app-ui/status-badge";
 import { useAuth } from "@/hooks/use-auth";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
@@ -71,40 +71,6 @@ function heroToneClass(tone: HeroTone) {
   }
 }
 
-function badgeToneClass(tone: HeroTone) {
-  switch (tone) {
-    case "success":
-      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-    case "warning":
-      return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
-    case "critical":
-      return "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300";
-    case "neutral":
-    default:
-      return "border-border/70 bg-background/80 text-muted-foreground";
-  }
-}
-
-function queueToneClass(status?: string | null) {
-  switch (status) {
-    case "approved":
-      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-    case "request_pending":
-    case "submitted":
-      return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
-    case "rejected":
-    case "revoked":
-    case "expired":
-    case "disconnected":
-      return "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300";
-    default:
-      return "border-border/65 bg-background/80 text-muted-foreground";
-  }
-}
-
-function formatStatusLabel(status?: string | null) {
-  return String(status || "pending").replaceAll("_", " ");
-}
 
 function SummaryCell({
   label,
@@ -272,9 +238,7 @@ export default function RiaHomePage() {
           >
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 space-y-3">
-                <Badge className={cn("w-fit", badgeToneClass(verification.tone))}>
-                  {verification.label}
-                </Badge>
+                <StatusBadge tone={verification.tone} label={verification.label} />
                 <div className="space-y-2">
                   <h2 className="text-[clamp(1.25rem,3vw,1.85rem)] font-semibold tracking-tight text-foreground">
                     {heroTitle}
@@ -369,9 +333,7 @@ export default function RiaHomePage() {
                       <span className="text-sm font-semibold tracking-tight text-foreground">
                         {item.title}
                       </span>
-                      <Badge className={cn("capitalize", queueToneClass(item.status))}>
-                        {formatStatusLabel(item.status)}
-                      </Badge>
+                      <StatusBadge status={item.status} />
                     </div>
                     <p className="text-sm leading-6 text-muted-foreground">
                       {item.subtitle || item.next_action || "Review the next step."}
