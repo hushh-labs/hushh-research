@@ -110,4 +110,8 @@ describe("observability route map", () => {
       normalizeApiPathToTemplate("/api/custom/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9/details")
     ).toBe("/api/custom/{id}/details");
   });
+    it("preserves route resolution stability for trimmed route inputs", () => {
+    expect(resolveRouteId(" /kai ".trim())).toBe("kai_home");
+    expect(resolveRouteId(" /profile/pkm ".trim())).toBe("profile_pkm");
+  });
 });
