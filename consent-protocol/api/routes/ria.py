@@ -81,6 +81,12 @@ class RIAOnboardingVerifyLicenseRequest(BaseModel):
     force_live_verification: bool = False
 
 
+class RIAProfileRefreshLicenseRequest(BaseModel):
+    license_number: str = Field(..., min_length=1)
+    regulator: str | None = None
+    force_live_verification: bool = False
+
+
 class RIAConsentRequestCreate(BaseModel):
     subject_user_id: str = Field(..., min_length=1)
     requester_actor_type: str = Field(default="ria")
@@ -285,6 +291,37 @@ async def onboarding_status(firebase_uid: str = Depends(require_firebase_auth)):
         return await service.get_ria_onboarding_status(firebase_uid)
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
+
+
+@router.post("/profile/refresh-license")
+@limiter.limit("6/minute")
+async def refresh_profile_license(
+    payload: RIAProfileRefreshLicenseRequest,
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    service = RIAIAMService()
+    try:
+        _ = request
+        return await service.refresh_ria_profile_from_license(
+            firebase_uid,
+            license_number=payload.license_number,
+            regulator=payload.regulator,
+            force_live_verification=payload.force_live_verification,
+        )
+    except IAMSchemaNotReadyError as exc:
+        return _iam_schema_not_ready_response(str(exc))
+    except RIAIAMPolicyError as exc:
+        if exc.status_code == 409:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error": str(exc),
+                    "code": "RIA_ONBOARDING_REQUIRED",
+                    "route": "/ria/onboarding",
+                },
+            )
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @router.get("/home")

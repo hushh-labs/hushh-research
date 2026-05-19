@@ -104,6 +104,10 @@ import {
   resolveGmailStatusSummary,
   sanitizeGmailUserMessage,
 } from "@/lib/profile/mail-flow";
+import {
+  getProfileRiaRefreshLicenseNumber,
+  resolveProfileRiaRegulatoryRow,
+} from "@/lib/profile/profile-ria-regulatory-row";
 import { resolveProfileVaultSettingsRow } from "@/lib/profile/profile-vault-settings-row";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -118,7 +122,10 @@ import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
-import { RiaService } from "@/lib/services/ria-service";
+import {
+  RiaService,
+  type RiaOnboardingStatus,
+} from "@/lib/services/ria-service";
 import {
   ConsentCenterService,
   type ConsentCenterResponse,
@@ -623,6 +630,21 @@ function ProfilePageContent() {
   const [marketplaceOptIn, setMarketplaceOptIn] = useState(false);
   const [loadingMarketplaceOptIn, setLoadingMarketplaceOptIn] = useState(true);
   const [savingMarketplaceOptIn, setSavingMarketplaceOptIn] = useState(false);
+  const [riaOnboardingStatus, setRiaOnboardingStatus] =
+    useState<RiaOnboardingStatus | null>(null);
+  const [loadingRiaOnboardingStatus, setLoadingRiaOnboardingStatus] =
+    useState(false);
+  const [riaOnboardingStatusError, setRiaOnboardingStatusError] = useState<
+    string | null
+  >(null);
+  const [showRegulatoryRefresh, setShowRegulatoryRefresh] = useState(false);
+  const [regulatoryLicenseNumber, setRegulatoryLicenseNumber] = useState("");
+  const [regulatoryRegulator, setRegulatoryRegulator] = useState("SEC");
+  const [refreshingRegulatoryProfile, setRefreshingRegulatoryProfile] =
+    useState(false);
+  const [regulatoryRefreshMessage, setRegulatoryRefreshMessage] = useState<
+    string | null
+  >(null);
   const [supportKind, setSupportKind] =
     useState<SupportMessageKind>("support_request");
   const [supportSubject, setSupportSubject] = useState("");
@@ -959,6 +981,44 @@ function ProfilePageContent() {
     setMarketplaceOptIn(Boolean(personaState.investor_marketplace_opt_in));
     setLoadingMarketplaceOptIn(false);
   }, [personaState, user]);
+
+  const refreshRiaOnboardingStatus = useCallback(
+    async (force = false) => {
+      if (!user?.uid || !user.getIdToken || !hasRiaPersona) {
+        setRiaOnboardingStatus(null);
+        setRiaOnboardingStatusError(null);
+        setLoadingRiaOnboardingStatus(false);
+        return null;
+      }
+
+      setLoadingRiaOnboardingStatus(true);
+      setRiaOnboardingStatusError(null);
+      try {
+        const idToken = await user.getIdToken();
+        const nextStatus = await RiaService.getOnboardingStatus(idToken, {
+          userId: user.uid,
+          force,
+        });
+        setRiaOnboardingStatus(nextStatus);
+        return nextStatus;
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Couldn't load RIA regulatory status.";
+        setRiaOnboardingStatusError(message);
+        return null;
+      } finally {
+        setLoadingRiaOnboardingStatus(false);
+      }
+    },
+    [hasRiaPersona, user],
+  );
+
+  useEffect(() => {
+    if (authLoading) return;
+    void refreshRiaOnboardingStatus(false);
+  }, [authLoading, refreshRiaOnboardingStatus]);
 
   const refreshPkmMetadata = useCallback(
     async (force = false) => {
@@ -1829,6 +1889,28 @@ function ProfilePageContent() {
         ? "Locked"
         : readableMethod(displayedUnlockMethod);
   const vaultSettingsRow = resolveProfileVaultSettingsRow(vaultAccess);
+  const shouldShowRiaRegulatoryRow =
+    hasRiaPersona || Boolean(riaOnboardingStatus?.exists);
+  const riaRegulatoryRow = resolveProfileRiaRegulatoryRow({
+    loading: loadingRiaOnboardingStatus,
+    status: riaOnboardingStatus,
+    error: riaOnboardingStatusError,
+  });
+  const currentRiaLicenseNumber =
+    getProfileRiaRefreshLicenseNumber(riaOnboardingStatus);
+  const currentRiaRegulatorMetadata =
+    riaOnboardingStatus?.latest_verification_event?.reference_metadata
+      ?.provider;
+  const currentRiaRegulator =
+    riaOnboardingStatus?.regulator ||
+    (typeof currentRiaRegulatorMetadata === "string"
+      ? currentRiaRegulatorMetadata
+      : null) ||
+    "SEC";
+  const currentRiaFirm =
+    riaOnboardingStatus?.advisory_firm_legal_name ||
+    riaOnboardingStatus?.display_name ||
+    "Official regulator record";
   const profileVoiceSurfaceMetadata = useMemo(() => {
     const controls = [
       {
@@ -1862,6 +1944,25 @@ function ProfilePageContent() {
           "vault security",
         ],
       },
+      ...(shouldShowRiaRegulatoryRow
+        ? [
+            {
+              id: "profile_ria_regulatory",
+              label: "Regulatory profile",
+              purpose:
+                "updates official RIA license, CRD, firm, certification, and business location data.",
+              actionId: "ria.profile.refresh_license",
+              role: "card",
+              voiceAliases: [
+                "update my RIA license",
+                "refresh regulatory profile",
+                "sync CRD data",
+                "update license data",
+                "regulatory profile",
+              ],
+            },
+          ]
+        : []),
       {
         id: "profile_account",
         label: "Account",
@@ -1939,6 +2040,7 @@ function ProfilePageContent() {
       : [
           "Account",
           "Vault",
+          ...(shouldShowRiaRegulatoryRow ? ["Regulatory profile"] : []),
           "Personal Knowledge Model",
           "Access & sharing",
           "Preferences",
@@ -1973,6 +2075,9 @@ function ProfilePageContent() {
               : [
                   "Open Account",
                   vaultSettingsRow.title,
+                  ...(shouldShowRiaRegulatoryRow
+                    ? ["Update license data"]
+                    : []),
                   "Open Personal Knowledge Model",
                   "Open Access & sharing",
                   "Open Gmail receipts",
@@ -2070,13 +2175,15 @@ function ProfilePageContent() {
         ? "passphrase_dialog"
         : showVaultUnlock
           ? "vault_unlock"
-          : supportComposeKind
-            ? "support_compose"
-            : activeDetail
-              ? `${activePanel}_${activeDetail}`
-              : activePanel
-                ? `${activePanel}_panel`
-                : null,
+          : showRegulatoryRefresh
+            ? "ria_license_refresh"
+            : supportComposeKind
+              ? "support_compose"
+              : activeDetail
+                ? `${activePanel}_${activeDetail}`
+                : activePanel
+                  ? `${activePanel}_panel`
+                  : null,
       availableActions,
       activeControlId: activeVoiceControlId,
       lastInteractedControlId: lastVoiceControlId,
@@ -2085,6 +2192,7 @@ function ProfilePageContent() {
         ...(sendingSupportMessage ? ["support_message"] : []),
         ...(switchingVaultMethod ? ["vault_method_update"] : []),
         ...(savingMarketplaceOptIn ? ["marketplace_visibility_update"] : []),
+        ...(refreshingRegulatoryProfile ? ["ria_license_refresh"] : []),
       ],
       screenMetadata: {
         profile_panel: activePanel,
@@ -2100,6 +2208,9 @@ function ProfilePageContent() {
         google_email: gmail.status?.google_email || null,
         pkm_agent_lab_available: canShowPkmAgentLab,
         marketplace_opt_in: marketplaceOptIn,
+        ria_regulatory_profile_visible: shouldShowRiaRegulatoryRow,
+        ria_license_number: currentRiaLicenseNumber || null,
+        ria_regulator: currentRiaRegulator,
         security_summary: securitySummaryText,
         phone_verified: Boolean(phoneNumber),
         email_verified: emailVerified,
@@ -2110,6 +2221,8 @@ function ProfilePageContent() {
     activePanel,
     activeVoiceControlId,
     canShowPkmAgentLab,
+    currentRiaLicenseNumber,
+    currentRiaRegulator,
     gmailActionsBusy,
     gmailLastSyncText,
     gmailPresentation.isConnected,
@@ -2124,9 +2237,12 @@ function ProfilePageContent() {
     phoneNumber,
     profileSummary.totalAttributes,
     profileSummary.totalDomains,
+    refreshingRegulatoryProfile,
     savingMarketplaceOptIn,
     securitySummaryText,
     sendingSupportMessage,
+    shouldShowRiaRegulatoryRow,
+    showRegulatoryRefresh,
     showVaultUnlock,
     supportComposeKind,
     switchingVaultMethod,
@@ -2240,6 +2356,84 @@ function ProfilePageContent() {
       return;
     }
     openSecurityPanel();
+  };
+
+  const openRegulatoryProfileRow = async () => {
+    if (riaRegulatoryRow.action === "wait") return;
+    if (riaRegulatoryRow.action === "onboarding") {
+      router.push(ROUTES.RIA_ONBOARDING);
+      return;
+    }
+
+    const latestStatus =
+      riaOnboardingStatus ?? (await refreshRiaOnboardingStatus(true));
+    if (!latestStatus?.exists) {
+      router.push(ROUTES.RIA_ONBOARDING);
+      return;
+    }
+
+    setRegulatoryLicenseNumber(getProfileRiaRefreshLicenseNumber(latestStatus));
+    setRegulatoryRegulator(latestStatus.regulator || "SEC");
+    setRegulatoryRefreshMessage(null);
+    setShowRegulatoryRefresh(true);
+  };
+
+  const submitRegulatoryProfileRefresh = async () => {
+    if (!user?.uid || !user.getIdToken) return;
+    const nextLicenseNumber = regulatoryLicenseNumber.trim();
+    if (!nextLicenseNumber) {
+      setRegulatoryRefreshMessage("Enter a license or CRD number first.");
+      return;
+    }
+
+    setRefreshingRegulatoryProfile(true);
+    setRegulatoryRefreshMessage(null);
+    try {
+      const idToken = await user.getIdToken();
+      const result = await RiaService.refreshLicenseProfile(idToken, {
+        license_number: nextLicenseNumber,
+        regulator: regulatoryRegulator.trim() || undefined,
+        force_live_verification: true,
+      });
+
+      if (!result.updated) {
+        const message =
+          result.message ||
+          "The regulator did not return a verified profile. No fields were changed.";
+        setRegulatoryRefreshMessage(message);
+        toast.error("Official RIA data was not updated.", {
+          description: message,
+        });
+        return;
+      }
+
+      CacheSyncService.onPersonaStateChanged(user.uid, {
+        preservePersonaState: true,
+      });
+      const nextStatus = await refreshRiaOnboardingStatus(true);
+      if (nextStatus) {
+        setRegulatoryLicenseNumber(
+          getProfileRiaRefreshLicenseNumber(nextStatus),
+        );
+        setRegulatoryRegulator(
+          nextStatus.regulator || regulatoryRegulator || "SEC",
+        );
+      }
+      await refreshPersonaState({ force: true });
+      toast.success("Official RIA data updated.");
+      setShowRegulatoryRefresh(false);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Couldn't update official RIA data.";
+      setRegulatoryRefreshMessage(message);
+      toast.error("Couldn't update official RIA data.", {
+        description: message,
+      });
+    } finally {
+      setRefreshingRegulatoryProfile(false);
+    }
   };
 
   const handlePreviewDomainPermission = async (
@@ -3548,6 +3742,24 @@ function ProfilePageContent() {
                 voicePurpose={vaultSettingsRow.voicePurpose}
                 onClick={openVaultSettingsRow}
               />
+              {shouldShowRiaRegulatoryRow ? (
+                <SettingsRow
+                  icon={ClipboardCheck}
+                  title={riaRegulatoryRow.title}
+                  description={riaRegulatoryRow.description}
+                  trailing={
+                    <Badge variant="secondary">{riaRegulatoryRow.badge}</Badge>
+                  }
+                  chevron
+                  stackTrailingOnMobile
+                  disabled={riaRegulatoryRow.disabled}
+                  voiceControlId="profile_ria_regulatory"
+                  voiceActionId="ria.profile.refresh_license"
+                  voiceLabel="Regulatory profile"
+                  voicePurpose="Update official RIA license and CRD data from the regulator."
+                  onClick={() => void openRegulatoryProfileRow()}
+                />
+              ) : null}
               <SettingsRow
                 icon={Phone}
                 title="Account"
@@ -3686,6 +3898,95 @@ function ProfilePageContent() {
           }}
         />
       )}
+
+      <Dialog
+        open={showRegulatoryRefresh}
+        onOpenChange={setShowRegulatoryRefresh}
+      >
+        <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-lg">
+          <DialogTitle>Update license data</DialogTitle>
+          <DialogDescription>
+            Refresh official regulator fields. Your bio, services, fees, email,
+            phone, and custom profile copy stay unchanged.
+          </DialogDescription>
+          <div className="space-y-4 pt-2">
+            <div className="rounded-2xl border bg-muted/30 px-4 py-3 text-sm">
+              <p className="font-medium text-foreground">{currentRiaFirm}</p>
+              <p className="mt-1 text-muted-foreground">
+                Current CRD {currentRiaLicenseNumber || "not stored"} -{" "}
+                {currentRiaRegulator}
+              </p>
+            </div>
+
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                License / CRD
+              </span>
+              <Input
+                value={regulatoryLicenseNumber}
+                onChange={(event) =>
+                  setRegulatoryLicenseNumber(event.target.value)
+                }
+                inputMode="numeric"
+                placeholder="Enter license or CRD number"
+                disabled={refreshingRegulatoryProfile}
+              />
+            </label>
+
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Regulator
+              </span>
+              <Input
+                value={regulatoryRegulator}
+                onChange={(event) => setRegulatoryRegulator(event.target.value)}
+                placeholder="SEC"
+                disabled={refreshingRegulatoryProfile}
+              />
+            </label>
+
+            {regulatoryRefreshMessage ? (
+              <p className="rounded-2xl bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                {regulatoryRefreshMessage}
+              </p>
+            ) : null}
+
+            <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:items-center sm:justify-end">
+              <Button
+                variant="none"
+                effect="fade"
+                size="default"
+                className="w-full sm:w-auto"
+                onClick={() => setShowRegulatoryRefresh(false)}
+                disabled={refreshingRegulatoryProfile}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="default"
+                className="w-full sm:w-auto"
+                disabled={
+                  refreshingRegulatoryProfile || !regulatoryLicenseNumber.trim()
+                }
+                onClick={() => void submitRegulatoryProfileRefresh()}
+              >
+                {refreshingRegulatoryProfile ? (
+                  <>
+                    <Icon
+                      icon={Loader2}
+                      size="sm"
+                      className="mr-2 animate-spin"
+                    />
+                    Updating...
+                  </>
+                ) : (
+                  "Update official data"
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={passphraseDialogOpen}

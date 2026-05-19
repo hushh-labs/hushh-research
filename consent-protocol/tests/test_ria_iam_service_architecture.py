@@ -567,6 +567,156 @@ async def test_submit_ria_onboarding_uses_provider_returned_crd(monkeypatch):
     assert result["individual_crd"] == "99999"
 
 
+@pytest.mark.asyncio
+async def test_refresh_ria_profile_from_license_updates_official_fields_only(monkeypatch):
+    service = RIAIAMService()
+    executed: list[tuple[str, tuple]] = []
+
+    class DummyTx:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class DummyConn:
+        def transaction(self):
+            return DummyTx()
+
+        async def fetchrow(self, query, *args):
+            _ = args
+            if "FROM ria_profiles" in query:
+                return {
+                    "id": "ria-1",
+                    "user_id": "user-1",
+                    "display_name": "User Authored Name",
+                    "legal_name": "Old Legal Name",
+                    "finra_crd": "11111",
+                    "sec_iard": "801-OLD",
+                }
+            if "INSERT INTO ria_firms" in query:
+                return {"id": "firm-1"}
+            return None
+
+        async def execute(self, query, *args):
+            executed.append((query, args))
+            return "OK"
+
+        async def close(self):
+            return None
+
+    async def _fake_conn():
+        return DummyConn()
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    async def _fake_verify_license(_user_id, **kwargs):
+        assert kwargs["license_number"] == "7413463"
+        return {
+            "status": "found",
+            "advisor_name": "Andrew Garrett Kirkland",
+            "firm_name": "Financial Advocates Advisory Services",
+            "regulator": "SEC",
+            "regulator_status": "ACTIVE",
+            "certifications": ["SIE", "Series 7TO"],
+            "city": "Kennesaw",
+            "state": "GA",
+            "pin_zip": "30144",
+            "full_street_address": "123 Main St",
+            "crd_number": "7413463",
+            "provider": "ria_intelligence_combined",
+        }
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+    monkeypatch.setattr(service, "verify_ria_license", _fake_verify_license)
+
+    result = await service.refresh_ria_profile_from_license(
+        "user-1",
+        license_number="7413463",
+        regulator="SEC",
+        force_live_verification=True,
+    )
+
+    assert result["updated"] is True
+    assert result["profile"]["business_city"] == "Kennesaw"
+    assert "services_offered" not in result["applied_fields"]
+    update_profile_queries = [query for query, _args in executed if "UPDATE ria_profiles" in query]
+    assert update_profile_queries
+    profile_update = update_profile_queries[0]
+    assert "bio =" not in profile_update
+    assert "strategy =" not in profile_update
+    assert "services_offered =" not in profile_update
+    assert "fee_structure =" not in profile_update
+    assert "min_engagement_amount =" not in profile_update
+
+
+@pytest.mark.asyncio
+async def test_refresh_ria_profile_from_license_preserves_profile_on_provider_failure(
+    monkeypatch,
+):
+    service = RIAIAMService()
+    executed: list[str] = []
+
+    class DummyTx:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class DummyConn:
+        def transaction(self):
+            return DummyTx()
+
+        async def fetchrow(self, query, *args):
+            _ = args
+            if "FROM ria_profiles" in query:
+                return {
+                    "id": "ria-1",
+                    "user_id": "user-1",
+                    "display_name": "User Authored Name",
+                    "legal_name": "Old Legal Name",
+                    "finra_crd": "11111",
+                    "sec_iard": "801-OLD",
+                }
+            return None
+
+        async def execute(self, query, *args):
+            _ = args
+            executed.append(query)
+            return "OK"
+
+        async def close(self):
+            return None
+
+    async def _fake_conn():
+        return DummyConn()
+
+    async def _fake_schema_ready(_conn):
+        return None
+
+    async def _fake_verify_license(_user_id, **_kwargs):
+        return {
+            "status": "not_found",
+            "provider": "ria_intelligence_combined",
+        }
+
+    monkeypatch.setattr(service, "_conn", _fake_conn)
+    monkeypatch.setattr(service, "_ensure_iam_schema_ready", _fake_schema_ready)
+    monkeypatch.setattr(service, "verify_ria_license", _fake_verify_license)
+
+    result = await service.refresh_ria_profile_from_license(
+        "user-1",
+        license_number="0000000",
+    )
+
+    assert result["updated"] is False
+    assert result["applied_fields"] == []
+    assert not any("UPDATE ria_profiles" in query for query in executed)
+
+
 def test_dev_activation_method_removed():
     """activate_ria_dev_onboarding was fully removed — method must not exist."""
     service = RIAIAMService()

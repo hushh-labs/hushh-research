@@ -137,6 +137,22 @@ export interface RiaOnboardingStatus {
   legal_name?: string | null;
   finra_crd?: string | null;
   sec_iard?: string | null;
+  license_number?: string | null;
+  regulator?: string | null;
+  regulator_status?: string | null;
+  license_expiry_date?: string | null;
+  certifications?: string[];
+  onboarding_type?: string | null;
+  services_offered?: string[];
+  fee_structure?: string[];
+  min_engagement_amount?: number | null;
+  min_engagement_currency?: string | null;
+  business_city?: string | null;
+  business_area?: string | null;
+  business_address?: string | null;
+  business_pin_zip?: string | null;
+  business_latitude?: number | null;
+  business_longitude?: number | null;
   latest_verification_event?: {
     outcome: string;
     checked_at: string;
@@ -201,6 +217,16 @@ export interface RiaLicenseVerificationResult {
   cache_ttl_seconds?: number;
   cached_at?: string | null;
   cache_expires_at?: string | null;
+}
+
+export interface RiaLicenseProfileRefreshResult {
+  updated: boolean;
+  status: "found" | "not_found" | "pending" | "error" | string;
+  message?: string | null;
+  ria_profile_id?: string | null;
+  applied_fields?: string[];
+  profile?: Partial<RiaOnboardingStatus> | null;
+  verification?: RiaLicenseVerificationResult | Record<string, unknown> | null;
 }
 
 export interface CrdScrapeJobResult {
@@ -1263,7 +1289,8 @@ export class RiaService {
     const query = new URLSearchParams();
     if (params.status) query.set("status", params.status);
     if (params.action) query.set("action", params.action);
-    if (typeof params.limit === "number") query.set("limit", String(params.limit));
+    if (typeof params.limit === "number")
+      query.set("limit", String(params.limit));
     const response = await authFetch(
       `/api/marketplace/investors/actions${query.toString() ? `?${query.toString()}` : ""}`,
       {
@@ -1271,9 +1298,9 @@ export class RiaService {
         idToken,
       },
     );
-    const payload = await toJsonOrThrow<{ items: MarketplaceInvestorActionRecord[] }>(
-      response,
-    );
+    const payload = await toJsonOrThrow<{
+      items: MarketplaceInvestorActionRecord[];
+    }>(response);
     return payload.items;
   }
 
@@ -1397,6 +1424,24 @@ export class RiaService {
       signal: options?.signal,
     });
     return toJsonOrThrow<RiaLicenseVerificationResult>(response);
+  }
+
+  static async refreshLicenseProfile(
+    idToken: string,
+    payload: {
+      license_number: string;
+      regulator?: string;
+      force_live_verification?: boolean;
+    },
+    options?: { signal?: AbortSignal },
+  ): Promise<RiaLicenseProfileRefreshResult> {
+    const response = await authFetch("/api/ria/profile/refresh-license", {
+      method: "POST",
+      idToken,
+      body: payload,
+      signal: options?.signal,
+    });
+    return toJsonOrThrow<RiaLicenseProfileRefreshResult>(response);
   }
 
   static async getCrdScrapeJobStatus(
@@ -2067,9 +2112,7 @@ export class RiaService {
     return toJsonOrThrow(response);
   }
 
-  static async getRenaissanceAvoid(
-    idToken: string,
-  ): Promise<{
+  static async getRenaissanceAvoid(idToken: string): Promise<{
     items: Array<{
       ticker: string;
       company_name?: string;
@@ -2085,9 +2128,7 @@ export class RiaService {
     return toJsonOrThrow(response);
   }
 
-  static async getRenaissanceScreening(
-    idToken: string,
-  ): Promise<{
+  static async getRenaissanceScreening(idToken: string): Promise<{
     items: Array<{
       section: string;
       rule_index: number;

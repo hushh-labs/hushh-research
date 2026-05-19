@@ -1021,6 +1021,81 @@ def test_verify_license_provider_timeout(monkeypatch) -> None:
 
 
 # ===================================================================
+# Route: POST /api/ria/profile/refresh-license
+# ===================================================================
+
+
+def test_refresh_license_profile_route_maps_payload(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    async def _mock_refresh(
+        self,
+        user_id,
+        *,
+        license_number,
+        regulator=None,
+        force_live_verification=False,
+    ):
+        captured.update(
+            {
+                "user_id": user_id,
+                "license_number": license_number,
+                "regulator": regulator,
+                "force_live_verification": force_live_verification,
+            }
+        )
+        return {
+            "updated": True,
+            "status": "found",
+            "message": "Official RIA data updated.",
+            "applied_fields": ["finra_crd"],
+        }
+
+    monkeypatch.setattr(RIAIAMService, "refresh_ria_profile_from_license", _mock_refresh)
+
+    client = TestClient(_authed_app())
+    response = client.post(
+        "/api/ria/profile/refresh-license",
+        json={
+            "license_number": "7413463",
+            "regulator": "SEC",
+            "force_live_verification": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["updated"] is True
+    assert captured == {
+        "user_id": _TEST_UID,
+        "license_number": "7413463",
+        "regulator": "SEC",
+        "force_live_verification": True,
+    }
+
+
+def test_refresh_license_profile_route_requires_existing_ria(monkeypatch) -> None:
+    async def _mock_refresh(self, user_id, **_kwargs):
+        assert user_id == _TEST_UID
+        raise RIAIAMPolicyError(
+            "Complete RIA onboarding before refreshing license data.",
+            status_code=409,
+        )
+
+    monkeypatch.setattr(RIAIAMService, "refresh_ria_profile_from_license", _mock_refresh)
+
+    client = TestClient(_authed_app(), raise_server_exceptions=False)
+    response = client.post(
+        "/api/ria/profile/refresh-license",
+        json={"license_number": "7413463"},
+    )
+
+    assert response.status_code == 409
+    payload = response.json()
+    assert payload["code"] == "RIA_ONBOARDING_REQUIRED"
+    assert payload["route"] == "/ria/onboarding"
+
+
+# ===================================================================
 # Route: POST /api/ria/onboarding/submit  (v2 extension)
 # ===================================================================
 
