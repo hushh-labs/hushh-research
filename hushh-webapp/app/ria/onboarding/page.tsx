@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { OnboardingShell } from "@/components/ria/onboarding/onboarding-shell";
 import { OnboardingStepWelcome } from "@/components/ria/onboarding/onboarding-step-welcome";
 import { OnboardingStepLicense } from "@/components/ria/onboarding/onboarding-step-license";
@@ -670,6 +671,13 @@ export default function RiaOnboardingPage() {
   }
 
   const isEnriching = Boolean(draft.scrapeJobId && scrapePollingRef.current);
+  const nativeTestDataState = loading || !draftReady
+    ? "loading"
+    : iamUnavailable
+      ? "unavailable-valid"
+      : error
+        ? "error"
+        : "loaded";
 
   function renderStep() {
     if (loading) {
@@ -800,29 +808,39 @@ export default function RiaOnboardingPage() {
   }
 
   return (
-    <FullscreenFlowShell width="reading" className="px-4 py-8">
-      <OnboardingShell
-        currentStepIndex={currentStepIndex}
-        totalSteps={steps.length}
-        eyebrow={currentStep.eyebrow}
-        title={currentStep.title}
-        description={currentStep.description}
-        canContinue={canContinue}
-        saving={saving}
-        isFirstStep={currentStepIndex === 0}
-        isLastStep={currentStep.id === "review"}
-        advisoryAccessReady={advisoryAccessReady}
-        onBack={handleBack}
-        onContinue={handleContinue}
-      >
-        {renderStep()}
+    <>
+      <NativeTestBeacon
+        routeId="/ria/onboarding"
+        marker="native-route-ria-onboarding"
+        authState={user ? "authenticated" : "anonymous"}
+        dataState={nativeTestDataState}
+        errorCode={error ? "ria_onboarding" : null}
+        errorMessage={error}
+      />
+      <FullscreenFlowShell width="reading" className="px-0">
+        <OnboardingShell
+          currentStepIndex={currentStepIndex}
+          totalSteps={steps.length}
+          eyebrow={currentStep.eyebrow}
+          title={currentStep.title}
+          description={currentStep.description}
+          canContinue={canContinue}
+          saving={saving}
+          isFirstStep={currentStepIndex === 0}
+          isLastStep={currentStep.id === "review"}
+          advisoryAccessReady={advisoryAccessReady}
+          onBack={handleBack}
+          onContinue={handleContinue}
+        >
+          {renderStep()}
 
-        {error ? (
-          <div className="mt-4 rounded-[24px] border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-400">
-            {error}
-          </div>
-        ) : null}
-      </OnboardingShell>
-    </FullscreenFlowShell>
+          {error ? (
+            <div className="mt-4 rounded-[24px] border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-400">
+              {error}
+            </div>
+          ) : null}
+        </OnboardingShell>
+      </FullscreenFlowShell>
+    </>
   );
 }
