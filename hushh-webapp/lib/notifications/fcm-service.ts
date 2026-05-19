@@ -724,6 +724,17 @@ function setupNativeListeners(): void {
           } else if (
             data &&
             typeof data.type === "string" &&
+            data.type === "location_access_request"
+          ) {
+            const requestId =
+              typeof data.request_id === "string" ? data.request_id.trim() : "";
+            const href = requestId
+              ? `${ROUTES.KAI_LOCATION}?requestId=${encodeURIComponent(requestId)}`
+              : ROUTES.KAI_LOCATION;
+            requestInternalAppNavigation({ href, scroll: false });
+          } else if (
+            data &&
+            typeof data.type === "string" &&
             data.type === "kai_analysis_complete"
           ) {
             assignWindowLocation(ROUTES.KAI_DASHBOARD);

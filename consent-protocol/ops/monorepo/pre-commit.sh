@@ -10,15 +10,17 @@ if git diff --cached --name-only | grep -q "^${SUBTREE_PREFIX}/"; then
 
   echo "[pre-commit] Running quick lint on ${SUBTREE_PREFIX}..."
 
-  if [ ! -x "${SUBTREE_PREFIX}/.venv/bin/python3" ] && ! command -v python3 >/dev/null 2>&1; then
-    echo "[pre-commit] ERROR: python3 not found. Please install Python 3."
-    exit 1
-  fi
-
   if [ -x "${SUBTREE_PREFIX}/.venv/bin/python3" ]; then
     LINT_PYTHON=".venv/bin/python3"
-  else
+  elif [ -x "${SUBTREE_PREFIX}/.venv/Scripts/python.exe" ]; then
+    LINT_PYTHON=".venv/Scripts/python.exe"
+  elif command -v python3 >/dev/null 2>&1; then
     LINT_PYTHON="python3"
+  elif command -v python >/dev/null 2>&1; then
+    LINT_PYTHON="python"
+  else
+    echo "[pre-commit] ERROR: Python 3 not found. Please install Python 3."
+    exit 1
   fi
 
   (

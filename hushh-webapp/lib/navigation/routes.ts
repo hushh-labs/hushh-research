@@ -36,6 +36,7 @@ export const ROUTES = {
   KAI_PORTFOLIO: "/kai/portfolio",
   KAI_INVESTMENTS: "/kai/investments",
   KAI_FUNDING_TRADE: "/kai/funding-trade",
+  KAI_LOCATION: "/kai/location",
   KAI_DASHBOARD: "/kai/portfolio",
   KAI_ANALYSIS: "/kai/analysis",
   KAI_OPTIMIZE: "/kai/optimize",

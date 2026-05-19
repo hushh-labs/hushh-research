@@ -32,6 +32,24 @@ function isGmailPath(path: string): boolean {
   return path === "gmail" || path.startsWith("gmail/");
 }
 
+function normalizeOrigin(value: string | undefined): string | null {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  try {
+    return new URL(text).origin;
+  } catch {
+    return null;
+  }
+}
+
+function resolveKaiApiOrigin(path: string): string {
+  const locationOrigin =
+    path === "location" || path.startsWith("location/")
+      ? normalizeOrigin(process.env.KAI_LOCATION_API_URL || process.env.NEXT_PUBLIC_KAI_LOCATION_API_URL)
+      : null;
+  return locationOrigin || getPythonApiUrl();
+}
+
 function isUpstreamTimeoutError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const normalizedMessage = error.message.toLowerCase();
@@ -163,12 +181,20 @@ export async function DELETE(
   return proxyRequest(request, params);
 }
 
+export async function PATCH(
+  request: NextRequest,
+  props: { params: Promise<{ path: string[] }> }
+) {
+  const params = await props.params;
+  return proxyRequest(request, params);
+}
+
 async function proxyRequest(request: NextRequest, params: { path: string[] }) {
   const requestId = resolveRequestId(request);
   const path = params.path.join("/");
   // Forward query string to backend
   const queryString = request.nextUrl.search;
-  const url = `${getPythonApiUrl()}/api/kai/${path}${queryString}`;
+  const url = `${resolveKaiApiOrigin(path)}/api/kai/${path}${queryString}`;
 
   // Debug: Check if Authorization header is present
   const authHeader = request.headers.get("authorization");

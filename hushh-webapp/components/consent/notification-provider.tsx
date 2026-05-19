@@ -835,6 +835,35 @@ export function ConsentNotificationProvider({
           requestId: consent.id,
         });
         showConsentToast(consent);
+      } else if (msgType === "location_access_request") {
+        const requestId = data.request_id;
+        const href = requestId
+          ? `${ROUTES.KAI_LOCATION}?requestId=${encodeURIComponent(requestId)}`
+          : ROUTES.KAI_LOCATION;
+        toast(
+          <div className="flex flex-col gap-2">
+            <div className="space-y-0.5">
+              <p className="text-sm font-semibold">Location access request</p>
+              <p className="text-xs text-muted-foreground">
+                Someone asked to view your KAI location again.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                toast.dismiss(dedupKey);
+                router.push(href, { scroll: false });
+              }}
+              className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors"
+            >
+              Review
+            </button>
+          </div>,
+          {
+            id: dedupKey,
+            duration: 9000,
+            position: "top-center",
+          }
+        );
       } else if (msgType === "consent_opened") {
         const requestId = data.request_id;
         const bundleId =
@@ -903,7 +932,7 @@ export function ConsentNotificationProvider({
 
     window.addEventListener(FCM_MESSAGE_EVENT, handleFCMMessage);
     return () => window.removeEventListener(FCM_MESSAGE_EVENT, handleFCMMessage);
-  }, [isNativePlatform, isVaultUnlocked, showConsentToast, user?.uid]);
+  }, [isNativePlatform, isVaultUnlocked, router, showConsentToast, user?.uid]);
 
   // ONE-TIME fetch on vault unlock to catch requests that arrived while app was closed.
   // This is the ONLY acceptable HTTP call -- not a poll, just a catch-up.
