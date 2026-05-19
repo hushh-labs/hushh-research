@@ -13,12 +13,12 @@ Tests cover:
 """
 
 import asyncio
+import importlib.util
 import sys
 import types
+from enum import Enum
 from typing import Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
+from unittest.mock import AsyncMock
 
 # ─────────────────────────────────────────────
 # Step 1: Add consent-protocol to Python path
@@ -43,7 +43,7 @@ def mock_mod(name, **attrs):
 
 
 # Mock constants with real values so nothing breaks
-from enum import Enum
+
 
 class ConsentScope(str, Enum):
     VAULT_OWNER = "vault.owner"
@@ -56,7 +56,7 @@ mock_mod(
     "hushh_mcp.constants",
     ConsentScope=ConsentScope,
     GEMINI_MODEL="gemini-flash-mock",
-    CONSENT_TOKEN_PREFIX="HCT",
+    CONSENT_TOKEN_PREFIX="HCT",  # noqa: S106
     TRUST_LINK_PREFIX="HTL",
     AGENT_ID_PREFIX="agent_",
     USER_ID_PREFIX="user_",
@@ -98,7 +98,7 @@ mock_mod("hushh_mcp.hushh_adk")
 # directly from their files
 # ─────────────────────────────────────────────
 
-import importlib.util
+
 
 def load_module(file_path, module_name):
     spec = importlib.util.spec_from_file_location(module_name, file_path)
@@ -156,7 +156,6 @@ def make_fundamental(
         recommendation=recommendation,
     )
 
-mock_mod
 def make_sentiment(
     recommendation: str = "bullish",
     confidence: float = 0.80,
