@@ -11,26 +11,19 @@ export function resolveRequestId(request: NextRequest): string {
 
 export function createUpstreamHeaders(
   requestId: string,
-  extraHeaders?: Record<string, string>
+  extraHeaders?: HeadersInit // Upgraded to support native Web API Headers
 ): Headers {
-  const headers = new Headers();
+  // Natively merges any existing Headers, Record, or tuple array effortlessly
+  const headers = new Headers(extraHeaders);
   headers.set(REQUEST_ID_HEADER, requestId);
-
-  if (extraHeaders) {
-    for (const [key, value] of Object.entries(extraHeaders)) {
-      if (!value) continue;
-      headers.set(key, value);
-    }
-  }
-
   return headers;
 }
 
-export function withRequestIdJson(
+export function withRequestIdJson<T = unknown>( // Added Generics for strict type safety
   requestId: string,
-  body: unknown,
+  body: T,
   init?: ResponseInit
-): NextResponse {
+): NextResponse<T> {
   const response = NextResponse.json(body, init);
   response.headers.set(REQUEST_ID_HEADER, requestId);
   return response;
@@ -42,6 +35,8 @@ export function withRequestIdResponse(
 ): Response {
   const headers = new Headers(response.headers);
   headers.set(REQUEST_ID_HEADER, requestId);
+
+  // Safely passes the unconsumed body stream to prevent lock errors
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,

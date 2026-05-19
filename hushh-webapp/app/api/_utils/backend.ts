@@ -1,15 +1,10 @@
 // hushh-webapp/app/api/_utils/backend.ts
 
 const IS_HOSTED_ENV = Boolean(
-  process.env.VERCEL || 
-  process.env.GOOGLE_CLOUD_PROJECT || 
+  process.env.VERCEL ||
+  process.env.GOOGLE_CLOUD_PROJECT ||
   process.env.K_SERVICE
 );
-
-// 1. Hosted Environment Fail-Fast Contract (Module Level)
-// The CI integration test requires this boundary to be verified immediately upon module load.
-// We do not guess a backend origin.
-// If the backend origin is missing in prod/preview, the server refuses to boot.
 
 /**
  * Normalizes backend URLs safely.
@@ -26,7 +21,7 @@ function normalizeBackendUrl(
   // Canonicalize localhost to 127.0.0.1 for server-side route fetching
   baseUrl = baseUrl.replace(/localhost/g, "127.0.0.1");
 
-  // 2. Protocol Auto-Correction
+  // Protocol Auto-Correction
   if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
     baseUrl = baseUrl.includes("127.0.0.1")
       ? `http://${baseUrl}`
@@ -35,7 +30,7 @@ function normalizeBackendUrl(
 
   try {
     const parsedUrl = new URL(baseUrl);
-    // 3. Subpath preservation and trailing slash cleanup
+    // Subpath preservation and trailing slash cleanup
     return parsedUrl.href.replace(/\/$/, "");
   } catch (_error) {
     console.error(`[Hushh Backend Contract] Error: Invalid URL structure for ${envName}: ${baseUrl}`);
@@ -43,31 +38,62 @@ function normalizeBackendUrl(
   }
 }
 
-export function getPythonApiUrl(): string {
-  const envUrl = process.env.PYTHON_API_URL || process.env.BACKEND_URL || process.env.PYTHON_BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL;
-  
-  if (IS_HOSTED_ENV && !envUrl) {
-    throw new Error("[Hushh Backend Contract] Fail-fast: Missing backend origin. Refusing to boot with insecure localhost defaults. We do not guess a backend origin.");
+/**
+ * Resolves and strictly validates a backend URL against the hosted environment contract.
+ */
+function resolveAndValidateUrl(
+  envUrls: (string | undefined)[],
+  label: string,
+  fallback = "http://127.0.0.1:8000"
+): string {
+  // Grab the first defined URL from the fallback chain
+  const rawUrl = envUrls.find(Boolean);
+
+  // 1. Fail-fast if missing in prod
+  if (IS_HOSTED_ENV && !rawUrl) {
+    throw new Error(`[Hushh Backend Contract] Fail-fast: Missing ${label} origin. Refusing to boot with insecure localhost defaults. We do not guess a backend origin.`);
   }
 
-  const url = normalizeBackendUrl(
-    envUrl,
-    "BACKEND_URL",
-    "http://127.0.0.1:8000"
-  );
+  const url = normalizeBackendUrl(rawUrl, label, fallback);
 
+  // 2. Fail-fast if prod resolves to localhost
   if (IS_HOSTED_ENV && url.includes("127.0.0.1")) {
-    throw new Error("[Hushh Backend Contract] Fail-fast: resolved backend origin to localhost. Refusing to boot with insecure localhost defaults.");
+    throw new Error(`[Hushh Backend Contract] Fail-fast: ${label} resolved to localhost. Refusing to boot with insecure localhost defaults.`);
   }
 
   return url;
 }
 
+// ============================================================================
+// MODULE-LEVEL EVALUATION
+// These execute immediately when the module is imported, satisfying the strict 
+// CI "Fail-Fast" requirement before the server even finishes booting.
+// ============================================================================
+
+const PYTHON_API_URL = resolveAndValidateUrl(
+  [
+    process.env.PYTHON_API_URL,
+    process.env.BACKEND_URL,
+    process.env.PYTHON_BACKEND_URL,
+    process.env.NEXT_PUBLIC_BACKEND_URL
+  ],
+  "BACKEND_URL"
+);
+
+const DEVELOPER_API_URL = resolveAndValidateUrl(
+  [
+    process.env.DEVELOPER_API_URL,
+    process.env.NEXT_PUBLIC_DEVELOPER_API_URL,
+    process.env.BACKEND_URL,
+    process.env.PYTHON_BACKEND_URL
+  ],
+  "DEVELOPER_API_URL"
+);
+
+export function getPythonApiUrl(): string {
+  return PYTHON_API_URL;
+}
+
 export function getDeveloperApiUrl(): string {
-  const envUrl = process.env.DEVELOPER_API_URL || process.env.NEXT_PUBLIC_DEVELOPER_API_URL || process.env.BACKEND_URL || process.env.PYTHON_BACKEND_URL;
-  return normalizeBackendUrl(
-    envUrl,
-    "DEVELOPER_API_URL",
-    "http://127.0.0.1:8000"
-  );
+  return DEVELOPER_API_URL;
 }
