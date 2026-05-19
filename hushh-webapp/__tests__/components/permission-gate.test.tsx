@@ -44,4 +44,19 @@ describe("PermissionGate", () => {
       "/consents"
     );
   });
+    it("preserves locked state rendering when protected children are omitted", () => {
+    mockUseVault.mockReturnValue({
+      isVaultUnlocked: false,
+      vaultOwnerToken: null,
+    });
+
+    render(
+      <PermissionGate permission="portfolio_valuation">
+        {null}
+      </PermissionGate>
+    );
+
+    expect(screen.getByTestId("permission-locked-state")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Review permissions" })).toBeTruthy();
+  });
 });
