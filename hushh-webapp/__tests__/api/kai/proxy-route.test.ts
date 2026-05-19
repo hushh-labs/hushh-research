@@ -8,6 +8,7 @@ vi.mock("@/app/api/_utils/backend", () => ({
 type KaiRouteModule = {
   GET: (req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) => Promise<Response>;
   POST: (req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) => Promise<Response>;
+  PATCH: (req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) => Promise<Response>;
   DELETE: (req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) => Promise<Response>;
 };
 
@@ -52,6 +53,62 @@ describe("/api/kai/[...path] proxy", () => {
     const headers = options?.headers as Headers;
     expect(headers.get("Authorization")).toBe("Bearer vault_owner_token");
     expect(headers.get("Content-Type")).toBe("application/json");
+  });
+
+  it("forwards PATCH requests for KAI location contact updates", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ contact: { id: "contact-1" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const req = createRequest("http://localhost:3000/api/kai/location/contacts/contact-1", {
+      method: "PATCH",
+      headers: {
+        Authorization: "Bearer vault_owner_token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ auto_approve: true }),
+    });
+
+    const res = await kaiRoute.PATCH(req, {
+      params: Promise.resolve({ path: ["location", "contacts", "contact-1"] }),
+    });
+
+    expect(res.status).toBe(200);
+
+    const [url, options] = fetchSpy.mock.calls[0] ?? [];
+    expect(url).toBe("http://backend.test/api/kai/location/contacts/contact-1");
+    expect(options?.method).toBe("PATCH");
+    expect((options?.headers as Headers).get("Authorization")).toBe("Bearer vault_owner_token");
+  });
+
+  it("can route unreleased KAI location paths to a dedicated local backend", async () => {
+    vi.stubEnv("KAI_LOCATION_API_URL", "http://127.0.0.1:8000");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ contact: { id: "contact-1" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const req = createRequest("http://localhost:3000/api/kai/location/contacts", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer vault_owner_token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ displayName: "Alex", tier: "friend" }),
+    });
+
+    const res = await kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["location", "contacts"] }),
+    });
+
+    expect(res.status).toBe(200);
+    const [url] = fetchSpy.mock.calls[0] ?? [];
+    expect(url).toBe("http://127.0.0.1:8000/api/kai/location/contacts");
   });
 
   it("forwards Authorization for import multipart path without overriding multipart content-type", async () => {

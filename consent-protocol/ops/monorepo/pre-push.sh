@@ -204,6 +204,14 @@ else
       while read local_ref local_sha remote_ref remote_sha; do
         [ -z "$local_sha" ] && continue
 
+        case "$local_ref:$remote_ref" in
+          refs/heads/main:*|refs/heads/master:*|*:refs/heads/main|*:refs/heads/master)
+            printf "\n\033[31m[pre-push] BLOCKED\033[0m Direct pushes to main/master are disabled.\n"
+            printf "         Push a feature branch and open a PR instead.\n\n"
+            exit 1
+            ;;
+        esac
+
         if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
           RANGE="$local_sha"
         else
@@ -223,6 +231,13 @@ fi
 
 if [ "$should_check_main" -eq 1 ] && [ -f "$REPO_ROOT/$MAIN_SYNC_SCRIPT" ]; then
   CURRENT_BRANCH_NAME=$(git branch --show-current 2>/dev/null || true)
+  case "$CURRENT_BRANCH_NAME" in
+    "$MAIN_SYNC_BRANCH"|master)
+      printf "\n\033[31m[pre-push] BLOCKED\033[0m Direct pushes from main/master are disabled.\n"
+      printf "         Push a feature branch and open a PR instead.\n\n"
+      exit 1
+      ;;
+  esac
   MAIN_SYNC_MODE="warn"
   case "$CURRENT_BRANCH_NAME" in
     "$MAIN_SYNC_BRANCH")
@@ -255,8 +270,12 @@ if [ -n "$CP_FILES" ]; then
 
   if [ -x "${SUBTREE_PREFIX}/.venv/bin/python3" ]; then
     LINT_PYTHON=".venv/bin/python3"
+  elif [ -x "${SUBTREE_PREFIX}/.venv/Scripts/python.exe" ]; then
+    LINT_PYTHON=".venv/Scripts/python.exe"
   elif command -v python3 >/dev/null 2>&1; then
     LINT_PYTHON="python3"
+  elif command -v python >/dev/null 2>&1; then
+    LINT_PYTHON="python"
   else
     LINT_PYTHON=""
   fi

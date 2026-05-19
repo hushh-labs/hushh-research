@@ -33,6 +33,7 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 | Firebase ID Token     | Identity verification only       | 1 hour   | `Bearer <firebase-id-token>`   |
 | VAULT_OWNER Token     | Consent + identity for all data  | 24 hours | `Bearer <vault-owner-token>`   |
 | Agent Scoped Token    | Delegated MCP agent access       | 7 days   | `Bearer <consent-token>`       |
+| Location Update Token | Owner-device GPS heartbeat only  | <=24 hours | `Bearer <location-update-token>` |
 | Developer Token       | External API and remote MCP access | N/A    | `?token=<developer-token>`     |
 
 ---
@@ -66,6 +67,8 @@ Client surfaces
 | POST | `/api/validate-token` | Validate a consent token |
 | GET | `/api/app-config/review-mode` | Review mode toggle (enabled only) |
 | POST | `/api/app-config/review-mode/session` | Mint Firebase custom token for `REVIEWER_UID`; non-production smoke may use `REVIEWER_VAULT_PASSPHRASE` |
+| GET | `/api/kai/location/shared?token={bearer-location-token}` | Resolve an active public KAI location share link; expired active links are deactivated on open |
+| POST | `/api/kai/location/shared/access-request` | Request renewed access for an expired/deactivated KAI location share bearer link |
 
 ### Developer API (Developer Token / Developer API Enabled)
 
@@ -217,6 +220,31 @@ RIA relationship bundle note:
 | GET | `/api/kai/dashboard/profile-picks/{user_id}` | Real profile-based picks for dashboard cards (`symbols`, `limit`) |
 | POST | `/api/kai/portfolio/analyze-losers` | Analyze losers vs Renaissance |
 | POST | `/api/kai/portfolio/analyze-losers/stream` | Streaming losers analysis (SSE, deterministic config, cash-excluded investable universe) |
+
+#### Kai Location Sharing
+
+KAI location sharing uses hash-only bearer share tokens for public message links. A
+share can be viewed by anyone with the active bearer URL until its configured
+24-hour-or-less window expires. The public viewer is GCP-friendly live polling:
+the owner device sends scoped GPS heartbeats to the Cloud Run API, Cloud SQL keeps
+only the latest point, and the public shared page polls the bearer-link resolver
+for fresh coordinates, expiry, or owner-side stop/revoke state. Opening an expired
+active share marks it deactivated and returns a request-access state. Audit events
+and push notifications must not include coordinates.
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| GET | `/api/kai/location/state` | VAULT_OWNER Bearer | Owner dashboard state: active contacts, shares, pending access requests, latest point, and active update sessions |
+| POST | `/api/kai/location/contacts` | VAULT_OWNER Bearer | Create an owner-managed recipient; service enforces 3 active family contacts and 7 active friend contacts |
+| PATCH | `/api/kai/location/contacts/{contact_id}` | VAULT_OWNER Bearer | Update display name, tier, or family-only auto-approve flag |
+| DELETE | `/api/kai/location/contacts/{contact_id}` | VAULT_OWNER Bearer | Revoke a contact, revoke active shares, and disable future auto-approve renewals |
+| POST | `/api/kai/location/shares` | VAULT_OWNER Bearer | Create a configurable 24-hour-or-less live public bearer share for an active contact; requires a fresh GPS fix |
+| DELETE | `/api/kai/location/shares/{share_id}` | VAULT_OWNER Bearer | Revoke an active location share |
+| POST | `/api/kai/location/shares/stop-active` | VAULT_OWNER Bearer | Stop all active live location shares for the owner and revoke active update sessions when no active shares remain |
+| POST | `/api/kai/location/access-requests/{request_id}/approve` | VAULT_OWNER Bearer | Approve a pending access request and renew the original bearer link for up to 24 hours |
+| POST | `/api/kai/location/access-requests/{request_id}/deny` | VAULT_OWNER Bearer | Deny a pending access request |
+| POST | `/api/kai/location/update-sessions` | VAULT_OWNER Bearer | Issue a scoped owner-device location update token while active shares exist |
+| POST | `/api/kai/location/updates` | Location Update Bearer | Owner-device heartbeat endpoint; updates the latest GPS point only and stops accepting updates after expiry/revoke/no active shares |
 
 #### Kai Plaid Brokerage Connectivity
 

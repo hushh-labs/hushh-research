@@ -34,6 +34,7 @@ export function activeKaiRouteTabFromPath(pathname: string): KaiRouteTabId {
     pathname.startsWith(ROUTES.KAI_DASHBOARD) ||
     pathname.startsWith(ROUTES.KAI_INVESTMENTS) ||
     pathname.startsWith(ROUTES.KAI_FUNDING_TRADE) ||
+    pathname.startsWith(ROUTES.KAI_LOCATION) ||
     pathname.startsWith("/kai/dashboard") ||
     pathname.startsWith(ROUTES.KAI_OPTIMIZE)
   ) {
