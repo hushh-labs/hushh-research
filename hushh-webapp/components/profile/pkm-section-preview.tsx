@@ -26,7 +26,7 @@ function PreviewFieldList({
           </dt>
           <dd
             className={cn(
-              "min-w-0 text-sm leading-6 text-foreground",
+              "min-w-0 break-words text-sm leading-6 text-foreground",
               field.tone === "muted" ? "text-muted-foreground" : null
             )}
           >

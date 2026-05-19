@@ -59,3 +59,30 @@ Use this reference when the user wants a shared architecture brief, founder PDF,
 4. Inspect chapter-transition pages as well as diagram pages, especially after section-divider changes.
 5. Treat diagram overflow, clipped arrows, mis-centered lanes, uneven gutters, and orphaned section titles as blocking issues for a shareable artifact.
 6. If visual tooling is unavailable, say so explicitly instead of pretending the layout is verified.
+
+## Rendered PDF Standard Bar
+
+Every founder-facing PDF or print-style artifact must pass these checks before it is described as clean:
+
+1. Page count is known and recorded from the rendered PDF, not estimated from source.
+2. Every rendered page is exported to an image or screenshot proof directory.
+3. A contact sheet or direct page inspection verifies page-to-page fit across the whole document.
+4. Diagram pages have no clipped text, clipped arrows, overlapping labels, crowded margins, or disconnected arrowheads.
+5. Tables fit inside the page width with readable headers, no cut-off columns, and no orphaned continuation rows without context.
+6. Major section headings do not dangle at the bottom of a preceding page or appear immediately below a large figure unless there is enough body text below them.
+7. Current-state, future-state, and partner-confirmation-needed claims are visually distinguishable in the rendered PDF, not only in source prose.
+8. Shareable artifacts contain no machine-local links such as `/Users/...`, `file://`, or local checkout paths.
+
+## Hussh Wiki Palette
+
+When the artifact is intended to align with the private Hussh wiki visual language, use this restrained palette unless the user gives a newer canonical source:
+
+1. `#6B1F2C` oxblood for primary accents, trust boundaries, and high-signal callouts.
+2. `#1A1A1A` ink for body text and major headings.
+3. `#FAFAF5` paper for page background and figure canvas.
+4. `#E5E1D8` rule for borders and table lines.
+5. `#5C5650` secondary for captions, support copy, and muted labels.
+6. `#788C5D` sage for current-state, product lanes, and positive allowed-flow markers.
+7. `#D4A847` gold for partial, transition, or roadmap-progress lanes.
+
+Do not make the artifact a dark brochure. Keep the palette paper-like, with color used for boundary meaning and navigation rather than decoration.
