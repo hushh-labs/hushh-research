@@ -237,6 +237,26 @@
       "expected_row_growth": "high_provider_sync"
     },
     {
+      "id": "kai_live_location_sharing",
+      "owner": "backend-runtime-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "kai_location_access_requests",
+        "kai_location_contacts",
+        "kai_location_events",
+        "kai_location_latest",
+        "kai_location_shares",
+        "kai_location_update_sessions"
+      ],
+      "primary_access_path": "KAI live location contacts, bounded share links, viewer access requests, scoped update sessions, latest-point polling, and redacted event audit services",
+      "retention_policy": "Retain active contacts and live share metadata while enabled; expire shares and update sessions within bounded windows, and compact redacted location events after operational review windows.",
+      "deletion_behavior": "Delete owner-scoped location rows on account deletion; revoke active shares and update sessions on explicit stop/revoke flows.",
+      "trust_boundary": "Vault-owner APIs require owner consent authority; public share links are bearer-token scoped, token hashes persist server-side, and event metadata must not persist raw coordinates.",
+      "plaintext_posture": "location_metadata_coordinates_and_token_hashes",
+      "expected_row_growth": "medium_per_user_share"
+    },
+    {
       "id": "market_reference_and_cache",
       "owner": "backend-runtime-governance",
       "data_class": "reference",
