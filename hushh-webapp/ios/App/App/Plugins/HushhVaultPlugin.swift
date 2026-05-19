@@ -23,6 +23,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "getVault", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setupVault", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "upsertVaultWrapper", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "deleteVaultWrapper", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setPrimaryVaultMethod", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "isPasskeyAvailable", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "registerPasskeyPrf", returnType: CAPPluginReturnPromise),
@@ -541,6 +542,49 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @objc func deleteVaultWrapper(_ call: CAPPluginCall) {
+        guard let userId = call.getString("userId"),
+              let vaultKeyHash = call.getString("vaultKeyHash"),
+              let method = call.getString("method"),
+              let vaultOwnerToken = call.getString("vaultOwnerToken"),
+              !vaultOwnerToken.isEmpty else {
+            call.reject("Missing required parameters")
+            return
+        }
+
+        let authToken = call.getString("authToken")
+        let backendUrl = resolvedBackendUrl(call)
+        let urlStr = "\(backendUrl)/db/vault/wrapper/delete"
+        let wrapperId = call.getString("wrapperId") ?? "default"
+        let fallbackPrimaryMethod = call.getString("fallbackPrimaryMethod") ?? "passphrase"
+        let fallbackPrimaryWrapperId = call.getString("fallbackPrimaryWrapperId") ?? "default"
+        let body: [String: Any] = [
+            "userId": userId,
+            "vaultKeyHash": vaultKeyHash,
+            "method": method,
+            "wrapperId": wrapperId,
+            "fallbackPrimaryMethod": fallbackPrimaryMethod,
+            "fallbackPrimaryWrapperId": fallbackPrimaryWrapperId
+        ]
+
+        performRequest(
+            urlStr: urlStr,
+            body: body,
+            authToken: authToken,
+            vaultOwnerToken: vaultOwnerToken
+        ) { json, error in
+            if let error = error {
+                call.reject(error)
+                return
+            }
+            if let success = json?["success"] as? Bool, success {
+                call.resolve(["success": true])
+                return
+            }
+            call.reject("Failed to remove wrapper: invalid success response")
+        }
+    }
+
     @objc func isPasskeyAvailable(_ call: CAPPluginCall) {
         guard #available(iOS 18.0, *) else {
             call.resolve([
@@ -972,7 +1016,13 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
     }
     
     // MARK: - HTTP Helper
-    private func performRequest(urlStr: String, body: [String: Any], authToken: String?, completion: @escaping ([String: Any]?, String?) -> Void) {
+    private func performRequest(
+        urlStr: String,
+        body: [String: Any],
+        authToken: String?,
+        vaultOwnerToken: String? = nil,
+        completion: @escaping ([String: Any]?, String?) -> Void
+    ) {
         guard let url = URL(string: urlStr) else {
             completion(nil, "Invalid URL")
             return
@@ -984,6 +1034,9 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         request.addValue(clientVersionHeaderValue, forHTTPHeaderField: "X-Hushh-Client-Version")
         if let token = authToken {
             request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        if let token = vaultOwnerToken, !token.isEmpty {
+            request.addValue("Bearer \(token)", forHTTPHeaderField: "X-Hushh-Consent")
         }
         
         do {

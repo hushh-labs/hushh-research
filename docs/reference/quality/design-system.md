@@ -122,6 +122,7 @@ Project-local UI skills live in `.codex/skills/`:
 2. `frontend-design-system`
 3. `frontend-architecture`
 4. `frontend-surface-placement`
+5. `frontend-native-surface-mapper`
 
 These skills must stay aligned with this document, `frontend-ui-architecture-map.md`, and the runtime verification commands.
 
@@ -130,10 +131,12 @@ The Profile page is the canonical settings implementation for the app.
 
 Reference:
 
-1. `hushh-webapp/components/profile/settings-ui.tsx`
+1. `hushh-webapp/components/app-ui/settings-ui.tsx`
 2. `hushh-webapp/app/profile/page.tsx`
 3. [Profile Settings Design System](./profile-settings-design-system.md)
 4. [App Surface Design System](./app-surface-design-system.md)
 5. [App Surface Audit Matrix](./app-surface-audit-matrix.md)
 
 Use that companion doc when building any Apple-like settings surface so spacing, grouping, responsive behavior, and action-row semantics stay consistent.
+
+Body section headings are not page headers. `SectionHeader` and `SettingsGroup` must use compact accessible headings above row text, below page-title scale, and independent from global `h1`/`h2` element rules. `SettingsGroup` must keep eyebrow text inline with the section title and avoid a separate eyebrow/title/description three-line stack inside page content.

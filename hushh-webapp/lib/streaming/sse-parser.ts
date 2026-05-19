@@ -5,6 +5,11 @@ export interface ParseSSEBlocksResult {
   remainder: string;
 }
 
+/**
+ * Parses Server-Sent Event blocks from a streamed chunk, carrying the
+ * unterminated tail forward via `remainder` so fragmented frames are
+ * correctly reassembled across reads.
+ */
 export function parseSSEBlocks(chunk: string, remainder = ""): ParseSSEBlocksResult {
   const normalized = (remainder + chunk).replace(/\r\n/g, "\n");
   const blocks = normalized.split("\n\n");
