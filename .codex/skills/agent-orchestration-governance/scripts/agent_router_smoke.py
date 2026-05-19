@@ -175,19 +175,22 @@ SCENARIOS: tuple[dict[str, Any], ...] = (
         "forbidden_agents": set(),
         "should_delegate": False,
     },
-    {
+       {
         "name": "no-workflow-specialist-intent",
-        "workflow": None,
-        "phase": "start",
-        "prompt": "investigate vault cache loading on the profile UI",
-        "paths": [
-            "hushh-webapp/app/profile/page.tsx",
-            "hushh-webapp/lib/vault/cache.ts",
-        ],
-        "required_agents": {"frontend_architect", "security_consent_auditor"},
-        "forbidden_agents": {"backend_architect"},
+        ...
         "should_delegate": True,
     },
+    {
+        "name": "empty-workflow-safe-handling",
+        "workflow": "",
+        "phase": "start",
+        "prompt": "",
+        "paths": [],
+        "required_agents": set(),
+        "forbidden_agents": set(),
+        "should_delegate": False,
+    },
+
 )
 
 
