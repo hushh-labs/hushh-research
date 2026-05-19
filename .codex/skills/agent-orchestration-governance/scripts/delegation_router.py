@@ -21,6 +21,36 @@ WORKFLOWS_DIR = Path(".codex/workflows")
 REPO_GLOBAL_AUTO_SPAWN_MARKER = "repo_global_auto_spawn"
 REPO_INTENT_LANE_MATCH_MARKER = "repo_intent_lane_match"
 
+PR_GOVERNANCE_TRAIN_TERMS = (
+    "async pr",
+    "async train",
+    "backlog",
+    "batch",
+    "batches",
+    "changes_requested",
+    "collision group",
+    "decision wave",
+    "max pr",
+    "merge train",
+    "multiple pr",
+    "patch train",
+    "pr train",
+    "queue cohort",
+    "repass",
+    "scan max",
+    "train",
+    "trains",
+)
+
+PR_GOVERNANCE_DEFAULT_TRAIN_AGENTS = (
+    "repo_operator",
+    "backend_architect",
+    "frontend_architect",
+    "security_consent_auditor",
+    "analytics_observability_architect",
+    "reviewer",
+)
+
 PARENT_ONLY_TERMS = {
     "approve",
     "approval",
@@ -270,6 +300,7 @@ LANE_RULES: tuple[dict[str, Any], ...] = (
             "docs/future/",
             "docs/reference/kai/",
             "docs/reference/architecture/founder-language",
+            "docs/reference/architecture/one-email",
             "docs/reference/quality/app-surface-design-system",
             ".codex/skills/docs-governance/",
             ".codex/skills/founder-brief-curation/",
@@ -336,6 +367,30 @@ def _paths_match(paths: list[str], prefixes: tuple[str, ...]) -> list[str]:
     ]
 
 
+def _append_lane(
+    lanes: list[OrderedDict[str, Any]],
+    *,
+    agents: dict[str, dict[str, Any]],
+    agent_name: str,
+    evidence_target: str,
+    prompt_signals: list[str],
+    path_signals: list[str],
+) -> None:
+    if any(lane.get("agent") == agent_name for lane in lanes):
+        return
+    agent = agents.get(agent_name, {})
+    lanes.append(
+        OrderedDict(
+            agent=agent_name,
+            reasoning_effort=agent.get("default_reasoning_effort", "high"),
+            sandbox_mode=agent.get("sandbox_mode", "read-only"),
+            evidence_target=evidence_target,
+            prompt_signals=prompt_signals,
+            path_signals=path_signals,
+        )
+    )
+
+
 def _workflow_allows_auto_spawn(workflow: dict[str, Any], workflow_id: str | None) -> tuple[bool, str]:
     policy = workflow.get("delegation_policy")
     if isinstance(policy, dict):
@@ -364,17 +419,37 @@ def route_delegation(
         path_hits = _paths_match(paths, rule["path_prefixes"])
         if not term_hits and not path_hits:
             continue
-        agent_name = rule["agent"]
-        agent = agents.get(agent_name, {})
-        lanes.append(
-            OrderedDict(
-                agent=agent_name,
-                reasoning_effort=agent.get("default_reasoning_effort", "high"),
-                sandbox_mode=agent.get("sandbox_mode", "read-only"),
-                evidence_target=rule["evidence_target"],
-                prompt_signals=term_hits,
-                path_signals=path_hits,
+        _append_lane(
+            lanes,
+            agents=agents,
+            agent_name=rule["agent"],
+            evidence_target=rule["evidence_target"],
+            prompt_signals=term_hits,
+            path_signals=path_hits,
+        )
+
+    train_term_hits = _terms_match(prompt, PR_GOVERNANCE_TRAIN_TERMS)
+    if workflow_id == "pr-governance-review" and train_term_hits:
+        for agent_name in PR_GOVERNANCE_DEFAULT_TRAIN_AGENTS:
+            agent = agents.get(agent_name, {})
+            _append_lane(
+                lanes,
+                agents=agents,
+                agent_name=agent_name,
+                evidence_target=(
+                    f"default PR-train evidence lane for {agent.get('description', agent_name)}"
+                ),
+                prompt_signals=train_term_hits,
+                path_signals=[],
             )
+    if workflow_id == "pr-governance-review" and not lanes and prompt.strip():
+        _append_lane(
+            lanes,
+            agents=agents,
+            agent_name="reviewer",
+            evidence_target="default PR governance reviewer lane for sparse current-head review prompts",
+            prompt_signals=["pr-governance-workflow-default"],
+            path_signals=[],
         )
 
     if len(lanes) >= 3 and "governor" in agents:

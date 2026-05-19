@@ -426,14 +426,15 @@
     },
     {
       "id": "route.one_kyc",
-      "label": "Open KYC Workflows",
-      "meaning": "Navigates to One KYC workflow review.",
+      "label": "Open Email",
+      "meaning": "Navigates to One email request review.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "kyc",
       "aliases": [
-        "open kyc",
-        "open one kyc",
-        "show kyc workflows"
+        "open email",
+        "open email helper",
+        "show email requests",
+        "show requests"
       ],
       "scope": {
         "routes": [
@@ -459,18 +460,57 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
+      ]
+    },
+    {
+      "id": "kyc.aliases.manage",
+      "label": "Manage Verified Emails",
+      "meaning": "Opens the verified email address panel used to match email requests.",
+      "speaker_persona": "kyc",
+      "delegate_agent_id": "kyc",
+      "aliases": [
+        "manage verified emails",
+        "add email address",
+        "show matching emails"
+      ],
+      "scope": {
+        "routes": [
+          "/one/kyc"
+        ],
+        "screens": [
+          "one_kyc"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "user must be signed in"
+        ]
+      },
+      "guard_ids": [
+        "auth_required"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_hint": {
+        "status": "unwired",
+        "reason": "Requires opening the local verified email panel in /one/kyc."
+      },
+      "map_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ]
     },
     {
       "id": "kyc.workflow.sync_status",
-      "label": "Sync KYC Status",
-      "meaning": "Refreshes the selected One KYC workflow status after consent approval.",
+      "label": "Sync Email Status",
+      "meaning": "Refreshes the selected email request status after consent approval.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "kyc",
       "aliases": [
-        "sync kyc",
-        "refresh kyc status"
+        "sync email",
+        "refresh request status"
       ],
       "scope": {
         "routes": [
@@ -495,18 +535,19 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ]
     },
     {
       "id": "kyc.draft.review",
-      "label": "Review KYC Draft",
-      "meaning": "Reads or focuses the current approval-gated KYC draft.",
+      "label": "Review Email Draft",
+      "meaning": "Reads or focuses the current approval-gated email draft.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "kyc",
       "aliases": [
-        "review kyc draft",
-        "show kyc draft"
+        "review email draft",
+        "show email draft"
       ],
       "scope": {
         "routes": [
@@ -531,18 +572,19 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ]
     },
     {
       "id": "kyc.draft.request_redraft",
-      "label": "Request KYC Redraft",
-      "meaning": "Requests a new KYC draft revision from typed or spoken user instructions.",
+      "label": "Request Email Redraft",
+      "meaning": "Requests a new email draft revision from typed or spoken user instructions.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "kyc",
       "aliases": [
-        "redraft kyc",
-        "revise kyc draft"
+        "redraft email",
+        "revise email draft"
       ],
       "scope": {
         "routes": [
@@ -567,18 +609,19 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ]
     },
     {
       "id": "kyc.draft.approve_send",
-      "label": "Approve KYC Send",
-      "meaning": "Sends the KYC draft only after explicit user approval.",
+      "label": "Approve Email Send",
+      "meaning": "Sends the email draft only after explicit user approval.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "kyc",
       "aliases": [
-        "approve kyc send",
-        "send kyc reply"
+        "approve email send",
+        "send email reply"
       ],
       "scope": {
         "routes": [
@@ -604,18 +647,19 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ]
     },
     {
       "id": "kyc.draft.reject",
-      "label": "Reject KYC Draft",
-      "meaning": "Rejects the current KYC draft and blocks the workflow.",
+      "label": "Reject Email Draft",
+      "meaning": "Rejects the current email draft and blocks the workflow.",
       "speaker_persona": "kyc",
       "delegate_agent_id": "kyc",
       "aliases": [
-        "reject kyc draft",
-        "block kyc workflow"
+        "reject email draft",
+        "block email request"
       ],
       "scope": {
         "routes": [
@@ -640,7 +684,8 @@
       },
       "map_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/future/one-email-intake-roadmap.md"
+        "docs/reference/architecture/one-email-kyc.md",
+        "docs/reference/architecture/frontend-native-surface-map.md"
       ]
     },
     {
