@@ -36,4 +36,36 @@ describe("ProfileStackNavigator", () => {
     expect(screen.queryByText("Checking your saved domains")).toBeNull();
     expect(screen.getByText("Financial domain ready")).toBeTruthy();
   });
+    it("keeps stack screen titles updated when entries change", () => {
+    const { rerender } = render(
+      <ProfileStackNavigator
+        rootContent={<div>Root</div>}
+        entries={[
+          {
+            key: "panel:settings",
+            title: "Old title",
+            content: <div>Settings content</div>,
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText("Old title")).toBeTruthy();
+
+    rerender(
+      <ProfileStackNavigator
+        rootContent={<div>Root</div>}
+        entries={[
+          {
+            key: "panel:settings",
+            title: "New title",
+            content: <div>Settings content</div>,
+          },
+        ]}
+      />
+    );
+
+    expect(screen.queryByText("Old title")).toBeNull();
+    expect(screen.getByText("New title")).toBeTruthy();
+  });
 });
