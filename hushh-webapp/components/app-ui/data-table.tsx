@@ -52,6 +52,7 @@ import {
 } from "@/components/ui/pagination";
 import { Search } from "lucide-react";
 import { surfaceDataTableShellClassName } from "@/lib/morphy-ux/surfaces";
+import { DataTableSkeleton } from "@/components/app-ui/data-table-skeleton";
 import { cn } from "@/lib/utils";
 
 const TABLE_SWIPE_THRESHOLD_PX = 44;
@@ -89,6 +90,7 @@ interface DataTableProps<TData, TValue> {
   tableContainerClassName?: string;
   tableClassName?: string;
   density?: "default" | "compact";
+  isLoading?: boolean;
   stickyHeader?: boolean;
 }
 
@@ -109,6 +111,7 @@ export function DataTable<TData, TValue>({
   tableContainerClassName,
   tableClassName,
   density = "default",
+  isLoading = false,
   stickyHeader = false,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
@@ -235,6 +238,16 @@ export function DataTable<TData, TValue>({
 
   const compact = density === "compact";
   const resolvedTableShellClassName = cn("w-full", tableContainerClassName);
+
+  if (isLoading) {
+    return (
+      <DataTableSkeleton
+        columns={columns.length}
+        showSearchBar={enableSearch}
+      />
+    )
+  }
+
   return (
     <div
       className="space-y-[var(--data-table-controls-gap)]"
