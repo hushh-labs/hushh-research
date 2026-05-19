@@ -108,4 +108,39 @@ describe("SettingsSegmentedTabs", () => {
     fireEvent.click(inactive);
     expect(handleValueChange).toHaveBeenCalledWith("kai");
   });
+    it("preserves active tab pressed-state stability after rerender", () => {
+    const { rerender } = render(
+      <SettingsSegmentedTabs
+        value="kai"
+        onValueChange={() => {}}
+        options={[
+          { value: "kai", label: "Kai list" },
+          { value: "my", label: "My list" },
+        ]}
+      />
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Kai list" }).getAttribute(
+        "aria-pressed"
+      )
+    ).toBe("true");
+
+    rerender(
+      <SettingsSegmentedTabs
+        value="my"
+        onValueChange={() => {}}
+        options={[
+          { value: "kai", label: "Kai list" },
+          { value: "my", label: "My list" },
+        ]}
+      />
+    );
+
+    expect(
+      screen.getByRole("button", { name: "My list" }).getAttribute(
+        "aria-pressed"
+      )
+    ).toBe("true");
+  });
 });
