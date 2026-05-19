@@ -8,25 +8,37 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import {
+  invalidJsonPayloadResponse,
+  readJsonObject,
+} from "@/app/api/_utils/json-body";
 
 const BACKEND_URL = getPythonApiUrl();
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = (await readJsonObject(request)) as {
+      userId?: string;
+      scope?: string;
+    } | null;
+    if (!body) {
+      return invalidJsonPayloadResponse();
+    }
     const { userId, scope } = body;
-    const authHeader = request.headers.get("authorization") || request.headers.get("Authorization");
+    const authHeader =
+      request.headers.get("authorization") ||
+      request.headers.get("Authorization");
 
     if (!userId || !scope) {
       return NextResponse.json(
         { error: "userId and scope are required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
     if (!authHeader) {
       return NextResponse.json(
         { error: "Missing Authorization header" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -37,7 +49,10 @@ export async function POST(request: NextRequest) {
 
     const response = await fetch(backendUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: authHeader },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: authHeader,
+      },
       body: JSON.stringify({ userId, scope }),
     });
 
@@ -49,7 +64,7 @@ export async function POST(request: NextRequest) {
       console.error("[API] Backend error:", responseText);
       return NextResponse.json(
         { error: responseText || "Failed to revoke consent" },
-        { status: response.status }
+        { status: response.status },
       );
     }
 
@@ -64,7 +79,7 @@ export async function POST(request: NextRequest) {
     console.error("[API] Revoke consent error:", error);
     return NextResponse.json(
       { error: `Internal server error: ${error}` },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
