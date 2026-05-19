@@ -753,16 +753,27 @@ def candidates_from_13f_dataset_archive(
                 )
                 if not filing_date:
                     continue
+                business_address = {
+                    "street1": _clean_text(_field(row, "FILINGMANAGER_STREET1")),
+                    "street2": _clean_text(_field(row, "FILINGMANAGER_STREET2")),
+                    "city": _clean_text(_field(row, "FILINGMANAGER_CITY")),
+                    "state": _clean_text(_field(row, "FILINGMANAGER_STATEORCOUNTRY")),
+                    "zip": _clean_text(_field(row, "FILINGMANAGER_ZIPCODE")),
+                    "source": "SEC Form 13F cover page",
+                }
+                business_address = {key: value for key, value in business_address.items() if value}
                 accession_value = accession or ""
                 curation_tier = "showcase" if len(candidates) < showcase_slots else "qualified"
                 quality_score = 90 if curation_tier == "showcase" else 86
+                if business_address:
+                    quality_score += 3
                 candidates.append(
                     InvestorCandidate(
                         name=name,
                         cik=cik,
                         firm=name.title() if name.isupper() else name,
-                        location_hint="SEC 13F public filer",
-                        business_address={"source": "SEC Form 13F data set"},
+                        location_hint=_location_hint(business_address) or "SEC 13F public filer",
+                        business_address=business_address or {"source": "SEC Form 13F data set"},
                         investment_style=["public_13f", "institutional_filer"],
                         biography=(
                             "Official SEC-backed investor discovery profile derived from the "
@@ -886,11 +897,13 @@ def _parse_date(value: Any) -> date | None:
     text = str(value or "").strip()
     if not text:
         return None
-    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%Y%m%d"):
-        try:
-            return datetime.strptime(text[:10], fmt).date()
-        except ValueError:
-            continue
+    candidates = [text, text[:10], text[:11]]
+    for candidate in candidates:
+        for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%Y%m%d", "%d-%b-%Y"):
+            try:
+                return datetime.strptime(candidate, fmt).date()
+            except ValueError:
+                continue
     return None
 
 
