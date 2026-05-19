@@ -10,11 +10,11 @@ export function IntroStep({ onNext }: { onNext: () => void }) {
       <div className="mx-auto flex min-h-[100dvh] w-full max-w-md flex-col px-6 pt-8">
         <div className="flex-1 min-h-0">
           <div className="flex min-h-full flex-col items-center text-center">
-            <BrandMark label="Kai" size="md" />
+            <BrandMark size="md" />
 
             <div className="mt-8 space-y-4">
               <h1 className="text-[clamp(2.25rem,7.5vw,3.2rem)] font-black tracking-tight leading-[1.08]">
-                Meet Kai,
+                Meet One,
                 <br />
                 Your Personal
                 <br />
@@ -44,7 +44,8 @@ export function IntroStep({ onNext }: { onNext: () => void }) {
                     tone: "orange",
                     icon: CandlestickChart,
                     title: "Actionable Advice",
-                    subtitle: "Giving quick buy, sell, and hold investment signals",
+                    subtitle:
+                      "Giving quick buy, sell, and hold investment signals",
                   },
                 ]}
               />
