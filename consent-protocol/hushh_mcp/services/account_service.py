@@ -98,6 +98,10 @@ class AccountService:
             "marketplace_public_profiles": text(
                 "DELETE FROM marketplace_public_profiles WHERE user_id = :user_id"
             ),
+            "marketplace_investor_actions": text(
+                "DELETE FROM marketplace_investor_actions "
+                "WHERE actor_user_id = :user_id OR target_user_id = :user_id"
+            ),
             "pkm_data": text("DELETE FROM pkm_data WHERE user_id = :user_id"),
             "pkm_upgrade_runs": text("DELETE FROM pkm_upgrade_runs WHERE user_id = :user_id"),
             "kai_plaid_user_profile_cache": text(
@@ -377,6 +381,7 @@ class AccountService:
             "relationship_share_grants": False,
             "ria_pick_share_artifacts": False,
             "ria_pick_uploads": False,
+            "marketplace_investor_actions": False,
             "marketplace_profile": False,
             "one_kyc_workflows": False,
             "runtime_persona_state": False,
@@ -542,6 +547,10 @@ class AccountService:
                             params,
                         )
                 results["relationships"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="marketplace_investor_actions", params=params
+                )
+                results["marketplace_investor_actions"] = True
                 self._delete_user_rows_if_table_exists(
                     conn, table_name="marketplace_public_profiles", params=params
                 )
