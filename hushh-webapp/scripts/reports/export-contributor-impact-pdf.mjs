@@ -59,7 +59,7 @@ function renderInline(markdown) {
   html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(
-    /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+    /\[([^\]]+)\]\((https?:\/\/[^)\s]+|#[^)]+)\)/g,
     '<a href="$2">$1</a>',
   );
   return html;
@@ -82,7 +82,19 @@ function renderTable(rows) {
   const [header, maybeDivider, ...body] = rows;
   const bodyRows = isDividerRow(maybeDivider) ? body : [maybeDivider, ...body];
   const headers = splitTableRow(header);
-  return `<table>
+  const tableClass = headers.includes("Top PRs")
+    ? "top-table"
+    : headers.includes("Weekly Score") && headers.includes("Overall Score")
+      ? "scoreboard-table"
+      : headers.includes("KPI")
+        ? "kpi-table"
+        : headers.includes("Contract Cluster")
+          ? "cluster-table"
+          : headers.some((header) => header.includes("Graph"))
+            ? "graph-table"
+            : "";
+  const classAttribute = tableClass ? ` class="${tableClass}"` : "";
+  return `<table${classAttribute}>
     <thead><tr>${headers.map((cell) => `<th>${renderInline(cell)}</th>`).join("")}</tr></thead>
     <tbody>
       ${bodyRows
@@ -163,14 +175,20 @@ function buildHtml(markdown) {
     <style>
       :root {
         color-scheme: light;
-        --ink: #16211c;
-        --muted: #617066;
-        --line: #dbe3dd;
-        --soft: #f5f8f6;
-        --brand: #0f6b4b;
+        --ink: #1a1a1a;
+        --muted: #5c5650;
+        --line: #e5e1d8;
+        --soft: #f7f3ec;
+        --paper: #fafaf5;
+        --panel: #fffdf7;
+        --panel-strong: #f7f1e7;
+        --oxblood: #6b1f2c;
+        --sage: #788c5d;
+        --gold: #d4a847;
       }
 
       @page {
+        background: var(--paper);
         size: A4;
         margin: 18mm 14mm;
       }
@@ -180,14 +198,15 @@ function buildHtml(markdown) {
       }
 
       body {
+        background: var(--paper);
         color: var(--ink);
-        font: 12px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font: 12px/1.48 "SF Pro Text", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         margin: 0;
       }
 
       h1 {
-        border-bottom: 2px solid var(--ink);
-        font-size: 24px;
+        border-bottom: 2px solid var(--oxblood);
+        font-size: 26px;
         letter-spacing: 0;
         margin: 0 0 10px;
         padding: 0 0 10px;
@@ -195,13 +214,16 @@ function buildHtml(markdown) {
 
       h2 {
         break-after: avoid;
-        color: var(--brand);
-        font-size: 16px;
+        border-top: 1.5px solid var(--oxblood);
+        color: var(--oxblood);
+        font-size: 17px;
         margin: 24px 0 8px;
+        padding-top: 10px;
       }
 
       h3 {
         break-after: avoid;
+        color: var(--sage);
         font-size: 13px;
         margin: 18px 0 6px;
       }
@@ -220,7 +242,7 @@ function buildHtml(markdown) {
       }
 
       a {
-        color: var(--brand);
+        color: var(--sage);
         text-decoration: none;
       }
 
@@ -235,7 +257,7 @@ function buildHtml(markdown) {
 
       table {
         border-collapse: collapse;
-        font-size: 9.5px;
+        font-size: 8.8px;
         margin: 8px 0 16px;
         page-break-inside: auto;
         table-layout: fixed;
@@ -260,32 +282,118 @@ function buildHtml(markdown) {
       }
 
       th {
-        background: var(--soft);
-        color: var(--ink);
+        background: var(--panel-strong);
+        color: var(--oxblood);
         font-weight: 700;
+        text-transform: uppercase;
       }
 
-      td:nth-child(1),
-      td:nth-child(3),
-      td:nth-child(4),
-      td:nth-child(5),
-      td:nth-child(6),
-      td:nth-child(7),
-      td:nth-child(8),
-      th:nth-child(1),
-      th:nth-child(3),
-      th:nth-child(4),
-      th:nth-child(5),
-      th:nth-child(6),
-      th:nth-child(7),
-      th:nth-child(8) {
+      td {
+        background: var(--panel);
+      }
+
+      .scoreboard-table td:nth-child(1),
+      .scoreboard-table th:nth-child(1),
+      .top-table td:nth-child(1),
+      .top-table th:nth-child(1) {
+        text-align: right;
+        width: 6%;
+      }
+
+      .kpi-table td:nth-child(1),
+      .kpi-table th:nth-child(1) {
+        text-align: left;
+        width: 70%;
+      }
+
+      .kpi-table td:nth-child(2),
+      .kpi-table td:nth-child(3),
+      .kpi-table th:nth-child(2),
+      .kpi-table th:nth-child(3),
+      .cluster-table td:nth-child(2),
+      .cluster-table td:nth-child(3),
+      .cluster-table th:nth-child(2),
+      .cluster-table th:nth-child(3),
+      .scoreboard-table td:nth-child(3),
+      .scoreboard-table td:nth-child(4),
+      .scoreboard-table td:nth-child(5),
+      .scoreboard-table td:nth-child(6),
+      .scoreboard-table td:nth-child(7),
+      .scoreboard-table td:nth-child(8),
+      .scoreboard-table td:nth-child(9),
+      .scoreboard-table th:nth-child(3),
+      .scoreboard-table th:nth-child(4),
+      .scoreboard-table th:nth-child(5),
+      .scoreboard-table th:nth-child(6),
+      .scoreboard-table th:nth-child(7),
+      .scoreboard-table th:nth-child(8),
+      .scoreboard-table th:nth-child(9),
+      .top-table td:nth-child(3),
+      .top-table td:nth-child(4),
+      .top-table td:nth-child(5),
+      .top-table td:nth-child(6),
+      .top-table td:nth-child(7),
+      .top-table td:nth-child(8),
+      .top-table th:nth-child(3),
+      .top-table th:nth-child(4),
+      .top-table th:nth-child(5),
+      .top-table th:nth-child(6),
+      .top-table th:nth-child(7),
+      .top-table th:nth-child(8) {
         text-align: right;
       }
 
-      table:has(th:nth-child(9)) th:nth-child(9),
-      table:has(th:nth-child(9)) td:nth-child(9) {
+      .cluster-table td:nth-child(1),
+      .cluster-table th:nth-child(1) {
         text-align: left;
-        width: 32%;
+      }
+
+      .top-table td:nth-child(9),
+      .top-table th:nth-child(9),
+      .cluster-table td:nth-child(4),
+      .cluster-table th:nth-child(4) {
+        text-align: left;
+      }
+
+      .top-table td:nth-child(9),
+      .top-table th:nth-child(9) {
+        width: 33%;
+      }
+
+      .scoreboard-table td:nth-child(2),
+      .scoreboard-table th:nth-child(2) {
+        width: 20%;
+      }
+
+      .graph-table td:last-child,
+      .graph-table th:last-child {
+        font-family: "SFMono-Regular", Consolas, monospace;
+        text-align: left;
+        word-break: keep-all;
+      }
+
+      .graph-table td:last-child {
+        color: var(--sage);
+        font-weight: 800;
+      }
+
+      /*
+      Keep older unclassified 8-column tables readable if a future section is
+      added before the renderer learns its table shape.
+      */
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) td:nth-child(3),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) td:nth-child(4),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) td:nth-child(5),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) td:nth-child(6),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) td:nth-child(7),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) td:nth-child(8),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) th:nth-child(3),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) th:nth-child(4),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) th:nth-child(5),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) th:nth-child(6),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) th:nth-child(7),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) th:nth-child(8) {
+        text-align: right;
       }
 
       h2 + ul,
@@ -318,7 +426,7 @@ async function main() {
       displayHeaderFooter: true,
       headerTemplate: "<div></div>",
       footerTemplate:
-        '<div style="font: 9px system-ui, sans-serif; color: #617066; width: 100%; padding: 0 14mm; display: flex; justify-content: space-between;"><span>Hussh Contributor Impact Dashboard</span><span class="pageNumber"></span></div>',
+        '<div style="font: 9px system-ui, sans-serif; color: #5c5650; width: 100%; padding: 0 14mm; display: flex; justify-content: space-between;"><span>Hussh Contributor Impact Dashboard</span><span class="pageNumber"></span></div>',
       margin: { top: "18mm", right: "14mm", bottom: "18mm", left: "14mm" },
     });
   } finally {
