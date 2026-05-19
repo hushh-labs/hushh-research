@@ -747,7 +747,7 @@ async def fetch_market_data_batch(
         )
 
         if not valid:
-            logger.error("[Market Data Batch Fetcher] trust_link_check_failed")
+            logger.error("[Market Data Batch Fetcher] TrustLink validation failed: %s", reason)
             raise PermissionError(f"Market data access denied: {reason}")
 
         if token.user_id != user_id:
@@ -875,13 +875,13 @@ async def fetch_sec_filings(
     )
 
     if not valid:
-        logger.error("[SEC Fetcher] trust_link_check_failed")
+        logger.error("[SEC Fetcher] TrustLink validation failed: %s", reason)
         raise PermissionError(f"SEC data access denied: {reason}")
 
     if token.user_id != user_id:
         raise PermissionError("Token user mismatch")
 
-    logger.info("[SEC Fetcher] Fetching filings for %s (user=[redacted])", ticker)
+    logger.info("[SEC Fetcher] Fetching filings for %s - user %s", ticker, user_id)
 
     # SEC EDGAR API Implementation
     # Reference: https://www.sec.gov/edgar/sec-api-documentation
@@ -897,7 +897,7 @@ async def fetch_sec_filings(
     # Step 1: Get CIK from ticker
     async with httpx.AsyncClient() as client:
         # Get ticker-to-CIK mapping
-        logger.info(f"[SEC Fetcher] Looking up CIK for {ticker}...")
+        logger.info("[SEC Fetcher] Looking up CIK for %s...", ticker)
         tickers_response = await client.get(
             f"{EDGAR_WWW_URL}/files/company_tickers.json", headers=HEADERS, timeout=10.0
         )
@@ -914,10 +914,10 @@ async def fetch_sec_filings(
         if not cik:
             raise ValueError(f"CIK not found for ticker: {ticker}")
 
-        logger.info(f"[SEC Fetcher] Found CIK {cik} for {ticker}")
+        logger.info("[SEC Fetcher] Found CIK %s for %s", cik, ticker)
 
         # Step 2: Get submissions (filings list)
-        logger.info(f"[SEC Fetcher] Fetching submissions for CIK {cik}...")
+        logger.info("[SEC Fetcher] Fetching submissions for CIK %s...", cik)
         submissions_response = await client.get(
             f"{EDGAR_DATA_URL}/submissions/CIK{cik}.json", headers=HEADERS, timeout=10.0
         )
@@ -940,11 +940,11 @@ async def fetch_sec_filings(
             raise ValueError(f"No 10-K filing found for ticker: {ticker} (CIK: {cik})")
 
         logger.info(
-            f"[SEC Fetcher] Found 10-K: {accession_numbers[latest_10k_idx]} dated {filing_dates[latest_10k_idx]}"
+            "[SEC Fetcher] Found 10-K: %s dated %s", accession_numbers[latest_10k_idx], filing_dates[latest_10k_idx]
         )
 
         # Step 4: Fetch Company Facts for actual financial data
-        logger.info(f"[SEC Fetcher] Fetching company facts (financial metrics) for CIK {cik}...")
+        logger.info("[SEC Fetcher] Fetching company facts (financial metrics) for CIK %s...", cik)
         try:
             facts_url = f"{EDGAR_DATA_URL}/api/xbrl/companyfacts/CIK{cik}.json"
             # NVDA and other large filers can have very large payloads; allow a bit more time + retry.
@@ -959,7 +959,7 @@ async def fetch_sec_filings(
                     if attempt >= 2:
                         raise
                     logger.warning(
-                        f"[SEC Fetcher] companyfacts attempt {attempt} failed: {e}; retrying once..."
+                        "[SEC Fetcher] companyfacts attempt %s failed: %s; retrying once...", attempt, e
                     )
                     await asyncio.sleep(0.5)
 
@@ -1081,11 +1081,11 @@ async def fetch_sec_filings(
             )
 
             logger.info(
-                f"[SEC Fetcher] Extracted Deep Metrics for {ticker} - Trends for Revenue, Net Income, OCF, R&D available."
+                "[SEC Fetcher] Extracted Deep Metrics for %s - Trends for Revenue, Net Income, OCF, R&D available.", ticker
             )
 
         except Exception as facts_error:
-            logger.warning("[SEC Fetcher] company_facts_unavailable")
+            logger.warning("[SEC Fetcher] Could not fetch company facts: %s", facts_error)
             raise RealtimeDataUnavailable(
                 "sec_filings",
                 f"SEC companyfacts unavailable for {ticker}: {facts_error}",
@@ -1172,13 +1172,13 @@ async def fetch_market_news(
         )
 
         if not valid:
-            logger.error("[News Fetcher] trust_link_check_failed")
+            logger.error("[News Fetcher] TrustLink validation failed: %s", reason)
             raise PermissionError(f"News data access denied: {reason}")
 
         if token.user_id != user_id:
             raise PermissionError("Token user mismatch")
 
-    logger.info("[News Fetcher] Fetching news for %s (user=[redacted])", ticker)
+    logger.info("[News Fetcher] Fetching news for %s - user %s", ticker, user_id)
 
     errors: list[str] = []
     articles: list[Dict[str, Any]] = []
@@ -1310,7 +1310,7 @@ async def fetch_market_data(
         )
 
         if not valid:
-            logger.error("[Market Data Fetcher] trust_link_check_failed")
+            logger.error("[Market Data Fetcher] TrustLink validation failed: %s", reason)
             raise PermissionError(f"Market data access denied: {reason}")
 
         if token.user_id != user_id:
@@ -1500,7 +1500,7 @@ async def fetch_peer_data(
     if token.user_id != user_id:
         raise PermissionError("Token user mismatch")
 
-    logger.info("[Peer Data Fetcher] Fetching peers for %s (user=[redacted])", ticker)
+    logger.info("[Peer Data Fetcher] Fetching peers for %s - user %s", ticker, user_id)
 
     peers: list[str] = []
     errors: list[str] = []

@@ -161,7 +161,7 @@ class CSVParser:
             source="csv",
         )
 
-        logger.info(f"CSV Parser: {len(holdings)} holdings, ${total_value:,.2f}")
+        logger.info("CSV Parser: %d holdings, $%s", len(holdings), f"{total_value:,.2f}")
         return portfolio
 
     def _parse_schwab_csv(self, content: str) -> EnhancedPortfolio:

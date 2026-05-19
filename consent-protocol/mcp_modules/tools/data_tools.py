@@ -251,7 +251,7 @@ async def handle_get_financial(args: dict) -> list[TextContent]:
     )
 
     if not valid:
-        logger.warning(f"🚫 ACCESS DENIED (financial): {reason}")
+        logger.warning("🚫 ACCESS DENIED (financial): %s", reason)
         return [
             TextContent(
                 type="text",
@@ -270,7 +270,7 @@ async def handle_get_financial(args: dict) -> list[TextContent]:
     # User ID must match
     if token_obj.user_id != user_id:
         logger.warning(
-            f"🚫 ACCESS DENIED: User mismatch (token={token_obj.user_id}, request={user_id})"
+            "🚫 ACCESS DENIED: User mismatch (token=%s, request=%s)", token_obj.user_id, user_id
         )
         return [
             TextContent(
@@ -351,17 +351,17 @@ async def handle_get_financial(args: dict) -> list[TextContent]:
                         logger.info("✅ Successfully decrypted financial vault export!")
 
                     except Exception as e:
-                        logger.error(f"❌ Financial decryption failed: {e}")
+                        logger.error("❌ Financial decryption failed: %s", e)
 
             elif export_response.status_code == 404:
                 logger.warning("⚠️ No export data found for this token")
 
     except Exception as e:
-        logger.warning(f"⚠️ Financial export fetch failed: {e}")
+        logger.warning("⚠️ Financial export fetch failed: %s", e)
 
     # PRODUCTION: No fallback to demo data - fail if real data not found
     if financial_data is None:
-        logger.warning("❌ No vault export data found (financial)")
+        logger.warning("❌ No vault export data found for user=%s", user_id)
         return [
             TextContent(
                 type="text",
@@ -379,7 +379,7 @@ async def handle_get_financial(args: dict) -> list[TextContent]:
             )
         ]
 
-    logger.info("✅ Financial data ACCESSED (consent verified)")
+    logger.info("✅ Financial data ACCESSED for user=%s (consent verified)", user_id)
 
     return [
         TextContent(
@@ -429,7 +429,7 @@ async def handle_get_food(args: dict) -> list[TextContent]:
     )
 
     if not valid:
-        logger.warning(f"🚫 ACCESS DENIED (food): {reason}")
+        logger.warning("🚫 ACCESS DENIED (food): %s", reason)
         return [
             TextContent(
                 type="text",
@@ -448,7 +448,9 @@ async def handle_get_food(args: dict) -> list[TextContent]:
     # User ID must match
     if token_obj.user_id != user_id:
         logger.warning(
-            f"🚫 ACCESS DENIED: User mismatch (token={token_obj.user_id}, request={user_id})"
+            "🚫 ACCESS DENIED: User mismatch (token=%s, request=%s)",
+            token_obj.user_id,
+            user_id,
         )
         return [
             TextContent(
@@ -499,17 +501,17 @@ async def handle_get_food(args: dict) -> list[TextContent]:
                         logger.info("✅ Successfully decrypted vault export!")
 
                     except Exception as e:
-                        logger.error(f"❌ Decryption failed: {e}")
+                        logger.error("❌ Decryption failed: %s", e)
 
             elif export_response.status_code == 404:
                 logger.warning("⚠️ No export data found for this token")
 
     except Exception as e:
-        logger.warning(f"⚠️ Export fetch failed: {e}")
+        logger.warning("⚠️ Export fetch failed: %s", e)
 
     # PRODUCTION: No fallback to demo data - fail if real data not found
     if food_data is None:
-        logger.warning("❌ No vault export data found (food)")
+        logger.warning("❌ No vault export data found for user=%s", user_id)
         return [
             TextContent(
                 type="text",
@@ -528,7 +530,7 @@ async def handle_get_food(args: dict) -> list[TextContent]:
             )
         ]
 
-    logger.info("✅ Food data ACCESSED (consent verified)")
+    logger.info("✅ Food data ACCESSED for user=%s (consent verified)", user_id)
 
     return [
         TextContent(
@@ -577,7 +579,7 @@ async def handle_get_professional(args: dict) -> list[TextContent]:
     )
 
     if not valid:
-        logger.warning(f"🚫 ACCESS DENIED (professional): {reason}")
+        logger.warning("🚫 ACCESS DENIED (professional): %s", reason)
         return [
             TextContent(
                 type="text",
@@ -638,17 +640,17 @@ async def handle_get_professional(args: dict) -> list[TextContent]:
                         logger.info("✅ Successfully decrypted professional vault export!")
 
                     except Exception as e:
-                        logger.error(f"❌ Professional decryption failed: {e}")
+                        logger.error("❌ Professional decryption failed: %s", e)
 
             elif export_response.status_code == 404:
                 logger.warning("⚠️ No export data found for this professional token")
 
     except Exception as e:
-        logger.warning(f"⚠️ Professional export fetch failed: {e}")
+        logger.warning("⚠️ Professional export fetch failed: %s", e)
 
     # PRODUCTION: No fallback to demo data - fail if real data not found
     if professional_data is None:
-        logger.warning("❌ No vault export data found (professional)")
+        logger.warning("❌ No vault export data found for user=%s", user_id)
         return [
             TextContent(
                 type="text",
@@ -667,7 +669,7 @@ async def handle_get_professional(args: dict) -> list[TextContent]:
             )
         ]
 
-    logger.info("✅ Professional data ACCESSED (consent verified)")
+    logger.info("✅ Professional data ACCESSED for user=%s (consent verified)", user_id)
 
     return [
         TextContent(

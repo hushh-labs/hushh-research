@@ -168,7 +168,7 @@ class DebateEngine:
         - Final DebateResult object (only in Python 3.13+, currently None)
         """
         logger.info(
-            f"[Debate Stream] Starting {DEBATE_ROUNDS}-round debate with {self.risk_profile} profile"
+            "[Debate Stream] Starting %s-round debate with %s profile", DEBATE_ROUNDS, self.risk_profile
         )
 
         # Store insights and context
@@ -428,11 +428,11 @@ class DebateEngine:
                 }
                 # Check for disconnection after each token to stop LLM streaming
                 if self._disconnection_event is not None and self._disconnection_event.is_set():
-                    logger.info(f"[{agent_name}] Client disconnected during streaming, stopping...")
+                    logger.info("[%s] Client disconnected during streaming, stopping...", agent_name)
                     return
             elif chunk.get("type") == "error":
                 stream_error_message = str(chunk.get("message") or "Unknown streaming error")
-                logger.error(f"[{agent_name}] Stream error: {stream_error_message}")
+                logger.error("[%s] Stream error: %s", agent_name, stream_error_message)
 
             # Artificial "Thinking" Delay to prevent "Dummy" feel
             await asyncio.sleep(0.05)
@@ -627,7 +627,7 @@ class DebateEngine:
                         return
                 elif chunk.get("type") == "error":
                     stream_error_message = str(chunk.get("message") or "Unknown streaming error")
-                    logger.error(f"[{agent_name}] Retry stream error: {stream_error_message}")
+                    logger.error("[%s] Retry stream error: %s", agent_name, stream_error_message)
                 await asyncio.sleep(0.03)
 
         # Additional pause after full generation to let it sink in before next agent
@@ -692,7 +692,7 @@ class DebateEngine:
 
         # Final disconnection check
         if self._disconnection_event is not None and self._disconnection_event.is_set():
-            logger.info(f"[{agent_name}] Client disconnected after completion, stopping...")
+            logger.info("[%s] Client disconnected after completion, stopping...", agent_name)
 
     def _build_agent_prompt(
         self,

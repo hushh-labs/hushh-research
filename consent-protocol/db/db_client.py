@@ -239,7 +239,7 @@ def get_db_engine() -> Engine:
             )
 
         use_null_pool = _env_truthy("DB_SQLALCHEMY_USE_NULL_POOL", False)
-        logger.info(f"Initializing database connection to {target}")
+        logger.info("Initializing database connection to %s", target)
         if use_null_pool:
             _engine = create_engine(
                 database_url,
@@ -496,7 +496,7 @@ class TableQuery:
         except DatabaseExecutionError:
             raise
         except Exception as e:
-            logger.error(f"Database error: {e}")
+            logger.error("Database error: %s", e)
             is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name=self.table_name,
@@ -748,7 +748,7 @@ class DatabaseClient:
         except DatabaseExecutionError:
             raise
         except Exception as e:
-            logger.error(f"Raw SQL error: {e}")
+            logger.error("Raw SQL error: %s", e)
             is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name="<raw_sql>",
@@ -794,7 +794,7 @@ class DatabaseClient:
         except DatabaseExecutionError:
             raise
         except Exception as e:
-            logger.error(f"RPC error: {e}")
+            logger.error("RPC error: %s", e)
             is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name="<rpc>",

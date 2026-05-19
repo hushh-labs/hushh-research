@@ -136,7 +136,7 @@ class PortfolioImportAgent(HushhAgent):
             system_prompt = self.manifest.system_instruction
             required_scopes = self.manifest.required_scopes
         except Exception as e:
-            logger.warning(f"Could not load manifest: {e}, using defaults")
+            logger.warning("Could not load manifest: %s, using defaults", e)
             model = GEMINI_MODEL
             system_prompt = "You are a financial document parsing specialist."
             required_scopes = [ConsentScope.PORTFOLIO_IMPORT.value]
@@ -220,7 +220,7 @@ class PortfolioImportAgent(HushhAgent):
         Returns:
             ImportResult with holdings, KPIs, and portfolio data
         """
-        logger.info(f"📄 Portfolio Import Agent processing: {filename}")
+        logger.info("📄 Portfolio Import Agent processing: %s", filename)
 
         try:
             # 1. Detect file type
@@ -261,7 +261,9 @@ class PortfolioImportAgent(HushhAgent):
             portfolio_data = self._build_portfolio_data(portfolio, kpis)
 
             logger.info(
-                f"✅ Import complete: {len(portfolio.holdings)} holdings, ${portfolio.ending_value:,.2f}"
+                "✅ Import complete: %d holdings, $%s",
+                len(portfolio.holdings),
+                f"{portfolio.ending_value:,.2f}",
             )
 
             return ImportResult(
@@ -276,7 +278,7 @@ class PortfolioImportAgent(HushhAgent):
             )
 
         except Exception as e:
-            logger.error(f"❌ Import failed: {e}")
+            logger.error("❌ Import failed: %s", e)
             return ImportResult(success=False, error=str(e))
 
     # ==================== LLM Enhancement ====================
@@ -414,10 +416,10 @@ Document text:
                 portfolio.asset_allocation = data["asset_allocation"]
 
             portfolio.source = f"{brokerage}_llm"
-            logger.info(f"LLM extracted {len(portfolio.holdings)} holdings")
+            logger.info("LLM extracted %s holdings", len(portfolio.holdings))
 
         except Exception as e:
-            logger.error(f"LLM enhancement failed: {e}")
+            logger.error("LLM enhancement failed: %s", e)
 
         return portfolio
 

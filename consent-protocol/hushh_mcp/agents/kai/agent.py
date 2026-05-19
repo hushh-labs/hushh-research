@@ -61,7 +61,7 @@ class KaiAgent(HushhAgent):
             }
 
         except Exception as e:
-            logger.error(f"KaiAgent error: {e}")
+            logger.error("KaiAgent error: %s", e)
             return {
                 "response": "I encountered an error analyzing the market data.",
                 "error": str(e),

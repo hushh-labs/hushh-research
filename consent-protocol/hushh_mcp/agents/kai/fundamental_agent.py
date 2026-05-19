@@ -87,7 +87,7 @@ class FundamentalAgent(HushhAgent):
         Returns:
             FundamentalInsight with analysis results
         """
-        logger.info(f"[Fundamental] Orchestrating analysis for {ticker}")
+        logger.info("[Fundamental] Orchestrating analysis for %s", ticker)
 
         # Step 1: Fetch SEC filings (operon validates consent internally)
         from hushh_mcp.operons.kai.fetchers import (
@@ -107,7 +107,7 @@ class FundamentalAgent(HushhAgent):
                 ticker=ticker, user_id=user_id, consent_token=consent_token
             )
         except PermissionError as e:
-            logger.error(f"[Fundamental] External data access denied: {e}")
+            logger.error("[Fundamental] External data access denied: %s", e)
             raise
         except RealtimeDataUnavailable as e:
             logger.warning(
@@ -171,7 +171,7 @@ class FundamentalAgent(HushhAgent):
                     break  # Success
                 except Exception as e:
                     logger.warning(
-                        f"[Fundamental] Gemini analysis failed (attempt {attempt + 1}/2): {e}"
+                        "[Fundamental] Gemini analysis failed (attempt %s/2): %s", attempt + 1, e
                     )
                     if attempt == 1:
                         logger.warning(
@@ -197,7 +197,7 @@ class FundamentalAgent(HushhAgent):
 
         # Step 4: Merge results (Prefer Deep Gemini Report)
         if gemini_analysis and "error" not in gemini_analysis:
-            logger.info(f"[Fundamental] Integrating Deep Gemini Report for {ticker}")
+            logger.info("[Fundamental] Integrating Deep Gemini Report for %s", ticker)
             return FundamentalInsight(
                 summary=gemini_analysis.get("summary", analysis["summary"]),
                 key_metrics=analysis["key_metrics"],

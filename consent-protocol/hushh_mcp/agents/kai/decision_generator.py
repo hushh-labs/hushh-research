@@ -153,7 +153,7 @@ By using Kai, you acknowledge that you understand these limitations.
         Returns:
             Complete DecisionCard
         """
-        logger.info(f"[DecisionGen] Generating decision card for {ticker}")
+        logger.info("[DecisionGen] Generating decision card for %s", ticker)
 
         decision_id = f"decision_{datetime.utcnow().timestamp()}"
 

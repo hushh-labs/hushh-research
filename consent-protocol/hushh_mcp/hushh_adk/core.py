@@ -151,7 +151,7 @@ class HushhAgent(LlmAgent):
 
         Replaces standard .run() with one that requires Auth.
         """
-        logger.info("🤖 Agent '%s' invoked (user=[redacted])", self.hushh_name)
+        logger.info("🤖 Agent '%s' invoked by %s", self.hushh_name, user_id)
 
         # 1. Base Validation
         # Check if token allows accessing THIS agent
@@ -187,7 +187,7 @@ class HushhAgent(LlmAgent):
                 response = super().run(input=prompt)
                 return response
             except Exception as e:
-                logger.error(f"💥 Agent Failure: {str(e)}")
+                logger.error("💥 Agent Failure: %s", str(e))
                 raise e
 
 

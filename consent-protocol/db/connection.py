@@ -209,7 +209,7 @@ async def get_pool() -> asyncpg.Pool:
         db_name = os.getenv("DB_NAME", "postgres")
         db_port = int(os.getenv("DB_PORT", "5432"))
         target = db_unix_socket or db_host
-        logger.info(f"Connecting to PostgreSQL at {target}...")
+        logger.info("Connecting to PostgreSQL at %s...", target)
         if ssl_config:
             logger.info("SSL enabled for Supabase pooler connection")
         try:
@@ -244,7 +244,7 @@ async def get_pool() -> asyncpg.Pool:
                 ) from exc
             raise
         logger.info(
-            f"PostgreSQL pool created: min={_pool.get_min_size()}, max={_pool.get_max_size()}"
+            "PostgreSQL pool created: min=%s, max=%s", _pool.get_min_size(), _pool.get_max_size()
         )
     return _pool
 

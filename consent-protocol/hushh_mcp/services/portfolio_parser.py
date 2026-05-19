@@ -119,7 +119,7 @@ class PortfolioParser:
                 return self._parse_generic_csv(content, filename)
 
         except Exception as e:
-            logger.error("portfolio_parser.parse_csv.error filename=%r: %s", filename, e)
+            logger.error("Error parsing CSV: %s", e)
             return Portfolio(holdings=[], broker=broker, source_filename=filename)
 
     def _detect_broker(self, content: str) -> BrokerType:

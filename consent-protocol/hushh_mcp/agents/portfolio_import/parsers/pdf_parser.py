@@ -66,19 +66,19 @@ class PDFParser:
                 # Detect brokerage
                 brokerage = self._detect_brokerage(text, filename)
                 portfolio.source = f"{brokerage}_pdf"
-                logger.info(f"Detected brokerage: {brokerage}")
+                logger.info("Detected brokerage: %s", brokerage)
 
                 # Extract metadata
                 self._extract_metadata(portfolio, text, brokerage)
 
                 # Strategy 1: Table extraction
                 holdings = self._parse_tables(tables, text, brokerage)
-                logger.info(f"Strategy 1 (tables): {len(holdings)} holdings")
+                logger.info("Strategy 1 (tables): %s holdings", len(holdings))
 
                 # Strategy 2: Regex fallback
                 if len(holdings) < 3:
                     regex_holdings = self._parse_text_regex(text, brokerage)
-                    logger.info(f"Strategy 2 (regex): {len(regex_holdings)} holdings")
+                    logger.info("Strategy 2 (regex): %s holdings", len(regex_holdings))
                     if len(regex_holdings) > len(holdings):
                         holdings = regex_holdings
 
@@ -91,10 +91,10 @@ class PDFParser:
                     if portfolio.ending_value == 0:
                         portfolio.ending_value += h.market_value
 
-                logger.info(f"PDF Parser: {len(holdings)} holdings, ${portfolio.ending_value:,.2f}")
+                logger.info("PDF Parser: %d holdings, $%s", len(holdings), f"{portfolio.ending_value:,.2f}")
 
         except Exception as e:
-            logger.error(f"PDF parsing error: {e}")
+            logger.error("PDF parsing error: %s", e)
 
         return portfolio
 
@@ -106,7 +106,7 @@ class PDFParser:
             with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
                 return "\n".join(page.extract_text() or "" for page in pdf.pages)
         except Exception as e:
-            logger.error(f"Text extraction error: {e}")
+            logger.error("Text extraction error: %s", e)
             return ""
 
     def _detect_brokerage(self, text: str, filename: str) -> str:
@@ -350,7 +350,7 @@ class PDFParser:
             )
 
         except Exception as e:
-            logger.warning(f"Row parse error: {e}")
+            logger.warning("Row parse error: %s", e)
             return None
 
     def _extract_symbol(self, description: str) -> Tuple[Optional[str], str]:

@@ -81,7 +81,7 @@ class SentimentAgent(HushhAgent):
         if not consent_token:
             raise PermissionError("Sentiment analysis requires a consent token")
 
-        logger.info("[Sentiment] Orchestrating analysis for %s (user=[redacted])", ticker)
+        logger.info("[Sentiment] Orchestrating analysis for %s - user %s", ticker, user_id)
 
         # Operon 1: Fetch news articles (with consent check)
         from hushh_mcp.operons.kai.fetchers import (
@@ -95,13 +95,13 @@ class SentimentAgent(HushhAgent):
         try:
             news_articles = await fetch_market_news(ticker, user_id, consent_token)
         except PermissionError as e:
-            logger.error(f"[Sentiment] News access denied: {e}")
+            logger.error("[Sentiment] News access denied: %s", e)
             raise
         except RealtimeDataUnavailable as e:
             realtime_news_detail = e.detail
-            logger.warning(f"[Sentiment] Realtime news unavailable for {ticker}: {e.detail}")
+            logger.warning("[Sentiment] Realtime news unavailable for %s: %s", ticker, e.detail)
         except Exception as e:
-            logger.error(f"[Sentiment] News fetch failed: {e}")
+            logger.error("[Sentiment] News fetch failed: %s", e)
             raise
 
         market_data: Optional[Dict[str, Any]] = None
@@ -109,7 +109,7 @@ class SentimentAgent(HushhAgent):
             # Reuse quote cache pipeline so sentiment reasoning is anchored to latest price context.
             market_data = await fetch_market_data(ticker, user_id, consent_token)
         except Exception as e:
-            logger.warning(f"[Sentiment] Market snapshot unavailable for {ticker}: {e}")
+            logger.warning("[Sentiment] Market snapshot unavailable for %s: %s", ticker, e)
 
         if not news_articles:
             summary = (
@@ -158,7 +158,7 @@ class SentimentAgent(HushhAgent):
                     break
                 except Exception as e:
                     logger.warning(
-                        f"[Sentiment] Gemini analysis failed (attempt {attempt + 1}/2): {e}"
+                        "[Sentiment] Gemini analysis failed (attempt %s/2): %s", attempt + 1, e
                     )
                     if attempt == 1:
                         logger.warning(
@@ -167,7 +167,7 @@ class SentimentAgent(HushhAgent):
 
         # Use Gemini results if available
         if gemini_analysis and "error" not in gemini_analysis:
-            logger.info(f"[Sentiment] Using Gemini analysis for {ticker}")
+            logger.info("[Sentiment] Using Gemini analysis for %s", ticker)
             return SentimentInsight(
                 summary=gemini_analysis.get("summary", f"Sentiment analysis for {ticker}"),
                 sentiment_score=gemini_analysis.get("sentiment_score", 0.0),
@@ -179,7 +179,7 @@ class SentimentAgent(HushhAgent):
             )
 
         # Fallback: Deterministic analysis
-        logger.info(f"[Sentiment] Using deterministic analysis for {ticker}")
+        logger.info("[Sentiment] Using deterministic analysis for %s", ticker)
         from hushh_mcp.operons.kai.analysis import analyze_sentiment
 
         try:
@@ -201,7 +201,7 @@ class SentimentAgent(HushhAgent):
                 recommendation=analysis.get("recommendation", "neutral"),
             )
         except Exception as e:
-            logger.error(f"[Sentiment] Deterministic analysis failed: {e}")
+            logger.error("[Sentiment] Deterministic analysis failed: %s", e)
             raise
 
 

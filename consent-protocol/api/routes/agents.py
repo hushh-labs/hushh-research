@@ -4,11 +4,6 @@ Agent chat endpoints for Kai Financial agent.
 
 Note: Food & Dining and Professional Profile agents have been deprecated
 in favor of the dynamic world model architecture.
-
-Canonical attach points
------------------------
-api.routes.agents.validate_token_endpoint -> POST /api/validate-token
-api.routes.agents.kai_chat                -> POST /api/agents/kai/chat
 """
 
 import logging
@@ -42,7 +37,7 @@ async def validate_token_endpoint(request: ValidateTokenRequest):
 
         if not valid:
             # SECURITY: Return generic message, log detailed reason server-side
-            logger.warning("agents.validate_token.failed: %s", reason)
+            logger.warning("Token validation failed: %s", reason)
             return {"valid": False, "reason": "Token validation failed"}
 
         if token_obj is None:
@@ -57,7 +52,7 @@ async def validate_token_endpoint(request: ValidateTokenRequest):
         }
     except Exception as e:
         # SECURITY: Never expose exception details to client (CodeQL fix)
-        logger.error("agents.validate_token.error: %s", e)
+        logger.error("Token validation error: %s", e)
         return {"valid": False, "reason": "Token validation failed"}
 
 
@@ -78,7 +73,7 @@ async def kai_chat(request: ChatRequest):
 
     Orchestrates multi-agent investment analysis (fundamental, sentiment, valuation).
     """
-    logger.info("agents.kai_chat user=%s msg=%.50r", request.userId, request.message)
+    logger.info("📈 Kai Agent: user=%s, msg='%.50s...'", request.userId, request.message)
 
     try:
         result = get_kai_agent().handle_message(

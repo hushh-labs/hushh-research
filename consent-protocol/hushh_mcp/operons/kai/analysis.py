@@ -67,13 +67,13 @@ def analyze_fundamentals(
     valid, reason, token = validate_token(consent_token, ConsentScope("agent.kai.analyze"))
 
     if not valid:
-        logger.error(f"[Fundamental Operon] TrustLink validation failed: {reason}")
+        logger.error("[Fundamental Operon] TrustLink validation failed: %s", reason)
         raise PermissionError(f"TrustLink validation failed: {reason}")
 
     if token.user_id != user_id:
         raise PermissionError(f"Token user mismatch: expected {user_id}, got {token.user_id}")
 
-    logger.info("[Fundamental Operon] Analyzing %s (user=[redacted])", ticker)
+    logger.info("[Fundamental Operon] Analyzing %s for user %s", ticker, user_id)
 
     # Step 2: Calculate financial metrics
     metrics = calculate_financial_ratios(sec_filings)
@@ -134,13 +134,13 @@ def analyze_sentiment(
     valid, reason, token = validate_token(consent_token, ConsentScope("agent.kai.analyze"))
 
     if not valid:
-        logger.error(f"[Sentiment Operon] TrustLink validation failed: {reason}")
+        logger.error("[Sentiment Operon] TrustLink validation failed: %s", reason)
         raise PermissionError(f"TrustLink validation failed: {reason}")
 
     if token.user_id != user_id:
         raise PermissionError("Token user mismatch")
 
-    logger.info("[Sentiment Operon] Analyzing %s (user=[redacted])", ticker)
+    logger.info("[Sentiment Operon] Analyzing %s for user %s", ticker, user_id)
 
     # Calculate aggregate sentiment
     sentiment_score = calculate_sentiment_score(news_articles)
@@ -205,13 +205,13 @@ def analyze_valuation(
     valid, reason, token = validate_token(consent_token, ConsentScope("agent.kai.analyze"))
 
     if not valid:
-        logger.error(f"[Valuation Operon] TrustLink validation failed: {reason}")
+        logger.error("[Valuation Operon] TrustLink validation failed: %s", reason)
         raise PermissionError(f"TrustLink validation failed: {reason}")
 
     if token.user_id != user_id:
         raise PermissionError("Token user mismatch")
 
-    logger.info("[Valuation Operon] Analyzing %s (user=[redacted])", ticker)
+    logger.info("[Valuation Operon] Analyzing %s for user %s", ticker, user_id)
 
     # Calculate valuation metrics
     from .calculators import calculate_valuation_metrics

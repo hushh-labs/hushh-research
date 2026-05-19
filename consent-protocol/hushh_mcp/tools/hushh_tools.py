@@ -48,7 +48,7 @@ def hushh_tool(scope: str, name: Optional[str] = None):
 
             if not valid:
                 error_msg = f"⛔ Consent Denied for '{tool_name}': {reason}"
-                logger.warning("%s (user=[redacted])", error_msg)
+                logger.warning("%s (User: %s)", error_msg, ctx.user_id)
                 raise PermissionError(error_msg)
 
             # 3. Verify User Identity integrity
@@ -58,11 +58,11 @@ def hushh_tool(scope: str, name: Optional[str] = None):
                 raise PermissionError(error_msg)
 
             # 4. Execute Tool
-            logger.info("🔧 Tool '%s' executing [Scope: %s]", tool_name, scope)
+            logger.info("🔧 Tool '%s' executing for %s [Scope: %s]", tool_name, ctx.user_id, scope)
             try:
                 return func(*args, **kwargs)
             except Exception as e:
-                logger.error(f"⚠️ Tool '{tool_name}' failed: {str(e)}")
+                logger.error("⚠️ Tool '%s' failed: %s", tool_name, str(e))
                 raise e
 
         # Attach metadata for ADK compatibility

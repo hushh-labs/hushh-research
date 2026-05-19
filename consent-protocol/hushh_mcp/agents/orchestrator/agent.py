@@ -86,7 +86,7 @@ class OrchestratorAgent(HushhAgent):
             }
 
         except Exception as e:
-            logger.error(f"Orchestrator error: {e}")
+            logger.error("Orchestrator error: %s", e)
             return {
                 "response": "I'm having trouble connecting to the network right now. Please try again.",
                 "error": str(e),

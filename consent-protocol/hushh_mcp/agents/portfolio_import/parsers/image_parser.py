@@ -59,7 +59,7 @@ class ImageParser:
                 self._tesseract_available = True
                 logger.info("Tesseract OCR is available")
             except Exception as e:
-                logger.warning(f"Tesseract OCR not available: {e}")
+                logger.warning("Tesseract OCR not available: %s", e)
                 self._tesseract_available = False
         return self._tesseract_available
 
@@ -102,7 +102,7 @@ class ImageParser:
             portfolio = await self._extract_with_llm_vision(image_bytes, filename)
             return portfolio
 
-        logger.info(f"OCR extracted {len(text)} characters")
+        logger.info("OCR extracted %s characters", len(text))
 
         # Detect brokerage from text
         brokerage = self._detect_brokerage(text, filename)
@@ -113,7 +113,7 @@ class ImageParser:
 
         # Extract holdings using regex
         holdings = self._extract_holdings_regex(text, brokerage)
-        logger.info(f"Regex extracted {len(holdings)} holdings")
+        logger.info("Regex extracted %s holdings", len(holdings))
 
         # If regex failed, try LLM
         if len(holdings) < 3 and self.gemini_client:
@@ -130,7 +130,7 @@ class ImageParser:
             portfolio.total_unrealized_gain_loss += h.unrealized_gain_loss
             portfolio.ending_value += h.market_value
 
-        logger.info(f"Image Parser: {len(holdings)} holdings, ${portfolio.ending_value:,.2f}")
+        logger.info("Image Parser: %d holdings, $%s", len(holdings), f"{portfolio.ending_value:,.2f}")
         return portfolio
 
     def extract_text(self, image_bytes: bytes) -> str:
@@ -165,7 +165,7 @@ class ImageParser:
             return text
 
         except Exception as e:
-            logger.error(f"OCR extraction failed: {e}")
+            logger.error("OCR extraction failed: %s", e)
             return ""
 
     def _detect_brokerage(self, text: str, filename: str) -> str:
@@ -339,7 +339,7 @@ Text:
             return holdings
 
         except Exception as e:
-            logger.error(f"LLM text extraction failed: {e}")
+            logger.error("LLM text extraction failed: %s", e)
             return []
 
     async def _extract_with_llm_vision(
@@ -454,10 +454,10 @@ Return as JSON with structure:
                     portfolio.ending_value += holding.market_value
 
             portfolio.source = "image_vision_llm"
-            logger.info(f"Vision LLM extracted {len(portfolio.holdings)} holdings")
+            logger.info("Vision LLM extracted %s holdings", len(portfolio.holdings))
 
         except Exception as e:
-            logger.error(f"Vision extraction failed: {e}")
+            logger.error("Vision extraction failed: %s", e)
 
         return portfolio
 

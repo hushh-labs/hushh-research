@@ -82,8 +82,10 @@ class KaiOrchestrator(HushhAgent):
         self.decision_generator = DecisionGenerator(risk_profile)
 
         logger.info(
-            f"[Kai] Orchestrator initialized - "
-            f"User: {user_id}, Risk: {risk_profile}, Mode: {processing_mode}"
+            "[Kai] Orchestrator initialized - User: %s, Risk: %s, Mode: %s",
+            user_id,
+            risk_profile,
+            processing_mode,
         )
 
     async def analyze(
@@ -107,7 +109,7 @@ class KaiOrchestrator(HushhAgent):
             TimeoutError: If analysis exceeds timeout
         """
         start_time = datetime.utcnow()
-        logger.info(f"[Kai] Starting analysis for {ticker}")
+        logger.info("[Kai] Starting analysis for %s", ticker)
 
         # Step 1: Validate consent
         await self._validate_consent(consent_token)
@@ -138,15 +140,15 @@ class KaiOrchestrator(HushhAgent):
 
             # Step 5: Log completion
             duration = (datetime.utcnow() - start_time).total_seconds()
-            logger.info(f"[Kai] Analysis complete for {ticker} in {duration:.1f}s")
+            logger.info("[Kai] Analysis complete for %s in %.1fs", ticker, duration)
 
             return decision_card
 
         except asyncio.TimeoutError:
-            logger.error(f"[Kai] Analysis timeout for {ticker}")
+            logger.error("[Kai] Analysis timeout for %s", ticker)
             raise TimeoutError(f"Analysis exceeded {ANALYSIS_TIMEOUT}s timeout")
         except Exception as e:
-            logger.error(f"[Kai] Analysis failed for {ticker}: {e}")
+            logger.error("[Kai] Analysis failed for %s: %s", ticker, e)
             raise
 
     async def _validate_consent(self, consent_token: str):
@@ -189,7 +191,7 @@ class KaiOrchestrator(HushhAgent):
         exceptions = [(i, r) for i, r in enumerate(results) if isinstance(r, Exception)]
         if exceptions:
             for i, e in exceptions:
-                logger.error(f"[Kai] Agent {i} failed: {e}")
+                logger.error("[Kai] Agent %s failed: %s", i, e)
             raise exceptions[0][1]  # raise first; all others are now logged
 
         return results

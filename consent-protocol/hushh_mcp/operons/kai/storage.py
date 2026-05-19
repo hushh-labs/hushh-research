@@ -64,14 +64,14 @@ def store_decision_card(
     valid, reason, token = validate_token(consent_token, ConsentScope.PKM_WRITE)
 
     if not valid:
-        logger.error("[Storage Operon] trust_link_check_failed")
+        logger.error("[Storage Operon] TrustLink validation failed: %s", reason)
         raise PermissionError(f"TrustLink validation failed: {reason}")
 
     if token.user_id != user_id:
         raise PermissionError(f"Token user mismatch: expected {user_id}, got {token.user_id}")
 
     logger.info(
-        "[Storage Operon] Storing decision for %s (user=[redacted])", decision_card.get("ticker")
+        "[Storage Operon] Storing decision for %s - user %s", decision_card.get('ticker'), user_id
     )
 
     # Serialize decision card
@@ -116,13 +116,13 @@ def retrieve_decision_card(
     valid, reason, token = validate_token(consent_token, ConsentScope.PKM_READ)
 
     if not valid:
-        logger.error("[Storage Operon] trust_link_check_failed")
+        logger.error("[Storage Operon] TrustLink validation failed: %s", reason)
         raise PermissionError(f"TrustLink validation failed: {reason}")
 
     if token.user_id != user_id:
         raise PermissionError("Token user mismatch")
 
-    logger.info("[Storage Operon] Retrieving decision (user=[redacted])")
+    logger.info("[Storage Operon] Retrieving decision for user %s", user_id)
 
     # Decrypt using client-provided vault key
     try:
@@ -130,7 +130,7 @@ def retrieve_decision_card(
         decision_card = json.loads(decrypted_json)
         return decision_card
     except Exception as e:
-        logger.error("[Storage Operon] decryption_failed")
+        logger.error("[Storage Operon] Decryption failed: %s", e)
         raise ValueError(f"Failed to decrypt decision card: {e}")
 
 
@@ -167,13 +167,13 @@ def retrieve_decision_history(
     valid, reason, token = validate_token(consent_token, ConsentScope.PKM_READ)
 
     if not valid:
-        logger.error("[Storage Operon] trust_link_check_failed")
+        logger.error("[Storage Operon] TrustLink validation failed: %s", reason)
         raise PermissionError(f"TrustLink validation failed: {reason}")
 
     if token.user_id != user_id:
         raise PermissionError("Token user mismatch")
 
-    logger.info("[Storage Operon] Retrieving decision history (user=[redacted])")
+    logger.info("[Storage Operon] Retrieving decision history for user %s", user_id)
 
     # This operon just validates consent
     # The actual database query is done by the API endpoint

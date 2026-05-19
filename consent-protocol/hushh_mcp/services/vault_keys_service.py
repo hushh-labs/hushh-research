@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
@@ -187,7 +187,7 @@ class VaultKeysService:
 
     @staticmethod
     def _now_ms() -> int:
-        return int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+        return int(datetime.now().timestamp() * 1000)
 
     @classmethod
     def _serialize_user_entry(cls, row: Dict[str, Any]) -> Dict[str, Any]:
@@ -727,7 +727,7 @@ class VaultKeysService:
         if not recovery_encrypted or not recovery_salt_clean or not recovery_iv_clean:
             raise ValueError("Recovery wrapper fields are required")
 
-        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+        now_ms = int(datetime.now().timestamp() * 1000)
 
         key_data = {
             "user_id": user_id_clean,
@@ -765,44 +765,6 @@ class VaultKeysService:
         ]
 
         with supabase.engine.begin() as conn:
-            existing_vault = conn.execute(
-                text(
-                    """
-                    SELECT vault_status, vault_key_hash
-                    FROM vault_keys
-                    WHERE user_id = :user_id
-                    FOR UPDATE
-                    """
-                ),
-                {"user_id": user_id_clean},
-            ).fetchone()
-            if existing_vault is not None:
-
-                def row_get(row: Any, key: str) -> Any:
-                    if isinstance(row, dict):
-                        return row.get(key)
-                    return getattr(row, "_mapping", {}).get(key)
-
-                existing_status = self._normalize_vault_status(
-                    row_get(existing_vault, "vault_status")
-                )
-                existing_hash = (
-                    self._clean_base64ish(
-                        row_get(existing_vault, "vault_key_hash"),
-                        allow_none=True,
-                    )
-                    or ""
-                )
-                if (
-                    existing_status == "active"
-                    and existing_hash
-                    and existing_hash != vault_key_hash_clean
-                ):
-                    raise ValueError(
-                        "Active vault already exists; refusing to replace vault key hash "
-                        "without vault owner proof"
-                    )
-
             upsert_key_result = conn.execute(
                 text(
                     """
@@ -1008,7 +970,7 @@ class VaultKeysService:
                 "passkeyLastUsedAt": passkey_last_used_at,
             }
         )
-        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+        now_ms = int(datetime.now().timestamp() * 1000)
 
         data = {
             "user_id": user_id_clean,
@@ -1071,7 +1033,7 @@ class VaultKeysService:
         if not wrapper_response.data:
             raise ValueError("Primary method/wrapper must be an enrolled wrapper")
 
-        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+        now_ms = int(datetime.now().timestamp() * 1000)
         update_result = (
             supabase.table("vault_keys")
             .update(
@@ -1195,7 +1157,7 @@ class VaultKeysService:
                 if not fallback_exists:
                     raise ValueError("Fallback primary method/wrapper must be an enrolled wrapper")
 
-                now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+                now_ms = int(datetime.now().timestamp() * 1000)
                 updated_primary = conn.execute(
                     text(
                         """
@@ -1285,7 +1247,7 @@ class VaultKeysService:
                     prefs_summary.get("field_count", 0) if isinstance(prefs_summary, dict) else 0
                 )
         except Exception as e:  # pragma: no cover
-            logger.warning("vault_keys.get_vault_status.pkm_index_check_failed: %s", e)
+            logger.warning("Failed to check pkm_index for vault status: %s", e)
 
         domains = {
             "kai": {
@@ -1298,6 +1260,6 @@ class VaultKeysService:
         total_active = 1 if kai_has_data else 0
         total = 1
 
-        logger.info("vault_keys.vault_status user_id=%s active=%d/%d", user_id, total_active, total)
+        logger.info("✅ Vault status for %s: %s/%s domains active", user_id, total_active, total)
 
         return {"domains": domains, "totalActive": total_active, "total": total}

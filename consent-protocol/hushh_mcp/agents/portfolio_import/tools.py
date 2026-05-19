@@ -204,5 +204,5 @@ Text:
         }
 
     except Exception as e:
-        logger.error(f"LLM extraction failed: {e}")
+        logger.error("LLM extraction failed: %s", e)
         return {"error": str(e)}

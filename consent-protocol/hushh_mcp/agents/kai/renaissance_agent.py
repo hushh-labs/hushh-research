@@ -135,13 +135,13 @@ class RenaissanceAgent:
                 }
 
             self._loaded = True
-            logger.info(f"Loaded Renaissance universe: {len(self._universe)} stocks")
+            logger.info("Loaded Renaissance universe: %s stocks", len(self._universe))
 
         except FileNotFoundError:
-            logger.warning(f"Renaissance universe file not found: {data_path}")
+            logger.warning("Renaissance universe file not found: %s", data_path)
             self._loaded = True  # Mark as loaded to avoid repeated attempts
         except Exception as e:
-            logger.error(f"Error loading Renaissance universe from CSV: {e}")
+            logger.error("Error loading Renaissance universe from CSV: %s", e)
             self._loaded = True
 
     def get_renaissance_rating(self, ticker: str) -> Optional[RenaissanceRating]:
