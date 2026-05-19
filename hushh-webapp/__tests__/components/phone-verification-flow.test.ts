@@ -27,4 +27,9 @@ describe("PhoneVerificationFlow phone input normalization", () => {
       localPhoneNumber: "6505550101",
     });
   });
+    it("preserves whitespace-only phone input normalization stability", () => {
+    expect(resolvePhoneInputChange("   ")).toEqual({
+      localPhoneNumber: "",
+    });
+  });
 });
