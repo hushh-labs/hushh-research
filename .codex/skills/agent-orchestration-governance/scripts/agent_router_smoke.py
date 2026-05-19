@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-test repo-global delegation router behavior."""
+"""Smoke-test repo-global delegation router behavior and validation."""
 
 from __future__ import annotations
 
