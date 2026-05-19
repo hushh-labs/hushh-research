@@ -7885,11 +7885,11 @@ class RIAIAMService:
               AND mp.is_discoverable = TRUE
             WHERE
               ap.investor_marketplace_opt_in = TRUE
-              AND NOT (('hushh_user:' || ap.user_id) = ANY($4::text[]))
+              AND NOT (('hushh_user:' || ap.user_id) = ANY($5::text[]))
               AND ($1::text IS NULL OR mp.display_name ILIKE ('%' || $1 || '%'))
-              AND ($2::text IS NULL OR COALESCE(mp.location_hint, '') ILIKE ('%' || $2 || '%'))
+              AND ($3::text IS NULL OR COALESCE(mp.location_hint, '') ILIKE ('%' || $3 || '%'))
               AND (
-                $3::boolean = FALSE
+                $4::boolean = FALSE
                 OR (
                   LOWER(COALESCE(
                     mp.metadata ->> 'admission_status',
@@ -7911,7 +7911,7 @@ class RIAIAMService:
                 END
               ) = FALSE
             ORDER BY mp.display_name ASC
-            LIMIT $2
+            LIMIT $2::integer
             """,
             normalized_query,
             limit_safe,
@@ -8179,11 +8179,11 @@ class RIAIAMService:
               AND mp.is_discoverable = TRUE
             WHERE
               ap.investor_marketplace_opt_in = TRUE
-              AND NOT (('hushh_user:' || ap.user_id) = ANY($5::text[]))
+              AND NOT (('hushh_user:' || ap.user_id) = ANY($4::text[]))
               AND ($1::text IS NULL OR mp.display_name ILIKE ('%' || $1 || '%'))
-              AND ($3::text IS NULL OR COALESCE(mp.location_hint, '') ILIKE ('%' || $3 || '%'))
+              AND ($2::text IS NULL OR COALESCE(mp.location_hint, '') ILIKE ('%' || $2 || '%'))
               AND (
-                $4::boolean = FALSE
+                $3::boolean = FALSE
                 OR (
                   LOWER(COALESCE(
                     mp.metadata ->> 'admission_status',
