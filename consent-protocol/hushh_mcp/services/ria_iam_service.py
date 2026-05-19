@@ -9,7 +9,7 @@ import os
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal
 
 import asyncpg
@@ -1366,6 +1366,444 @@ class RIAIAMService:
 
         return response
 
+    async def refresh_ria_profile_from_license(
+        self,
+        user_id: str,
+        *,
+        license_number: str,
+        regulator: str | None = None,
+        force_live_verification: bool = False,
+    ) -> dict[str, Any]:
+        normalized_license = self._normalize_crd_text(license_number)
+        if not normalized_license:
+            raise RIAIAMPolicyError("license_number is required.", status_code=400)
+
+        normalized_regulator = self._normalize_optional_text(regulator) or "SEC"
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            profile = await conn.fetchrow(
+                """
+                SELECT id, user_id, display_name, legal_name, finra_crd, sec_iard
+                FROM ria_profiles
+                WHERE user_id = $1
+                """,
+                user_id,
+            )
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+        if profile is None:
+            raise RIAIAMPolicyError(
+                "Complete RIA onboarding before refreshing license data.",
+                status_code=409,
+            )
+
+        verification = await self.verify_ria_license(
+            user_id,
+            license_number=normalized_license,
+            regulator=normalized_regulator,
+            force_live_verification=force_live_verification,
+        )
+
+        status = str(verification.get("status") or "").strip().lower()
+        profile_id = profile["id"]
+        provider = (
+            self._normalize_optional_text(verification.get("provider"))
+            or "ria_intelligence_combined"
+        )
+        refreshed_at = datetime.now(timezone.utc)
+        verification_expires_at = refreshed_at + timedelta(days=30)
+
+        if status != "found":
+            conn = await self._conn()
+            try:
+                async with conn.transaction():
+                    await self._ensure_iam_schema_ready(conn)
+                    await conn.execute(
+                        """
+                        INSERT INTO ria_license_verifications
+                          (user_id, license_number, regulator, verification_source, raw_response, status)
+                        VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+                        """,
+                        user_id,
+                        normalized_license,
+                        normalized_regulator,
+                        "profile_refresh",
+                        json.dumps(
+                            {
+                                "response": verification,
+                                "applied_fields": [],
+                                "reason": "provider_did_not_return_found_status",
+                            },
+                            default=str,
+                        ),
+                        "pending",
+                    )
+                    await conn.execute(
+                        """
+                        INSERT INTO ria_verification_events (
+                          ria_profile_id,
+                          provider,
+                          outcome,
+                          checked_at,
+                          expires_at,
+                          reference_metadata
+                        )
+                        VALUES ($1, $2, $3, NOW(), NULL, $4::jsonb)
+                        """,
+                        profile_id,
+                        provider,
+                        status or "not_found",
+                        json.dumps(
+                            {
+                                "event_type": "profile_license_refresh",
+                                "response": verification,
+                                "updated": False,
+                            },
+                            default=str,
+                        ),
+                    )
+            except asyncpg.exceptions.UndefinedTableError as exc:
+                raise IAMSchemaNotReadyError() from exc
+            finally:
+                await conn.close()
+
+            return {
+                "updated": False,
+                "status": status or "not_found",
+                "message": "License could not be verified. No profile fields were changed.",
+                "ria_profile_id": str(profile_id),
+                "applied_fields": [],
+                "verification": verification,
+            }
+
+        official_name = self._normalize_optional_text(verification.get("advisor_name"))
+        official_crd = self._normalize_crd_text(
+            self._normalize_optional_text(verification.get("crd_number")) or normalized_license
+        )
+        sec_number = self._normalize_optional_text(verification.get("sec_number"))
+        firm_name = self._normalize_optional_text(verification.get("firm_name"))
+        regulator_status = self._normalize_optional_text(verification.get("regulator_status"))
+        license_expiry_date = self._coerce_date(verification.get("license_expiry"))
+        raw_certifications = verification.get("certifications")
+        certifications = (
+            [str(item).strip() for item in raw_certifications if str(item or "").strip()]
+            if isinstance(raw_certifications, list)
+            else []
+        )
+
+        official_location = verification.get("official_location")
+        official_location = official_location if isinstance(official_location, dict) else {}
+        business_city = self._normalize_optional_text(
+            verification.get("city") or official_location.get("city")
+        )
+        business_pin_zip = self._normalize_optional_text(
+            verification.get("pin_zip")
+            or official_location.get("pin_zip")
+            or official_location.get("pinZip")
+        )
+        business_area = self._normalize_optional_text(
+            verification.get("area_locality")
+            or official_location.get("area_locality")
+            or official_location.get("areaLocality")
+            or verification.get("state")
+            or official_location.get("state")
+        )
+        business_address = self._normalize_optional_text(
+            verification.get("full_street_address")
+            or verification.get("business_address")
+            or official_location.get("address")
+            or official_location.get("streetAddress")
+            or official_location.get("fullStreetAddress")
+        )
+
+        applied_fields: list[str] = [
+            "verification_status",
+            "verification_provider",
+            "verification_expires_at",
+            "advisory_status",
+            "advisory_provider",
+            "advisory_verification_expires_at",
+            "license_number",
+            "regulator",
+        ]
+        if official_name:
+            applied_fields.extend(["display_name", "legal_name", "individual_legal_name"])
+        if official_crd:
+            applied_fields.extend(["finra_crd", "individual_crd"])
+        if sec_number:
+            applied_fields.extend(["sec_iard", "advisory_firm_iapd_number"])
+        if firm_name:
+            applied_fields.append("advisory_firm_legal_name")
+        if regulator_status:
+            applied_fields.append("regulator_status")
+        if license_expiry_date:
+            applied_fields.append("license_expiry_date")
+        if certifications:
+            applied_fields.append("certifications")
+        if any([business_city, business_area, business_address, business_pin_zip]):
+            applied_fields.extend(
+                [
+                    key
+                    for key, value in {
+                        "business_city": business_city,
+                        "business_area": business_area,
+                        "business_address": business_address,
+                        "business_pin_zip": business_pin_zip,
+                    }.items()
+                    if value
+                ]
+            )
+
+        next_profile = {
+            "display_name": official_name or profile["display_name"],
+            "legal_name": official_name or profile["legal_name"],
+            "finra_crd": official_crd or profile["finra_crd"],
+            "sec_iard": sec_number or profile["sec_iard"],
+            "license_number": official_crd or normalized_license,
+            "regulator": normalized_regulator,
+            "regulator_status": regulator_status,
+            "license_expiry_date": license_expiry_date.isoformat() if license_expiry_date else None,
+            "certifications": certifications,
+            "advisory_firm_legal_name": firm_name,
+            "business_city": business_city,
+            "business_area": business_area,
+            "business_address": business_address,
+            "business_pin_zip": business_pin_zip,
+        }
+
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_iam_schema_ready(conn)
+                current_profile = await conn.fetchrow(
+                    """
+                    SELECT id
+                    FROM ria_profiles
+                    WHERE user_id = $1
+                    """,
+                    user_id,
+                )
+                if current_profile is None:
+                    raise RIAIAMPolicyError(
+                        "Complete RIA onboarding before refreshing license data.",
+                        status_code=409,
+                    )
+                profile_id = current_profile["id"]
+
+                await conn.execute(
+                    """
+                    UPDATE ria_profiles
+                    SET
+                      display_name = COALESCE(NULLIF($2, ''), display_name),
+                      legal_name = COALESCE(NULLIF($2, ''), legal_name),
+                      finra_crd = COALESCE(NULLIF($3, ''), finra_crd),
+                      sec_iard = COALESCE(NULLIF($4, ''), sec_iard),
+                      verification_status = 'verified',
+                      verification_provider = $5,
+                      verification_expires_at = $6,
+                      requested_capabilities = CASE
+                        WHEN 'advisory' = ANY(COALESCE(requested_capabilities, ARRAY[]::text[]))
+                          THEN requested_capabilities
+                        ELSE array_append(COALESCE(requested_capabilities, ARRAY[]::text[]), 'advisory')
+                      END,
+                      individual_legal_name = COALESCE(NULLIF($2, ''), individual_legal_name),
+                      individual_crd = COALESCE(NULLIF($3, ''), individual_crd),
+                      advisory_firm_legal_name = COALESCE(NULLIF($7, ''), advisory_firm_legal_name),
+                      advisory_firm_iapd_number = COALESCE(NULLIF($4, ''), advisory_firm_iapd_number),
+                      advisory_status = 'verified',
+                      advisory_provider = $5,
+                      advisory_verification_expires_at = $6,
+                      license_number = COALESCE(NULLIF($8, ''), license_number),
+                      regulator = COALESCE(NULLIF($9, ''), regulator),
+                      regulator_status = COALESCE(NULLIF($10, ''), regulator_status),
+                      license_expiry_date = COALESCE($11, license_expiry_date),
+                      certifications = CASE
+                        WHEN $12::text[] = '{}' THEN certifications
+                        ELSE $12::text[]
+                      END,
+                      updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    profile_id,
+                    official_name or "",
+                    official_crd or "",
+                    sec_number or "",
+                    provider,
+                    verification_expires_at,
+                    firm_name or "",
+                    official_crd or normalized_license,
+                    normalized_regulator,
+                    regulator_status or "",
+                    license_expiry_date,
+                    certifications,
+                )
+
+                if firm_name:
+                    firm_row = await conn.fetchrow(
+                        """
+                        INSERT INTO ria_firms (legal_name)
+                        VALUES ($1)
+                        ON CONFLICT (legal_name) DO UPDATE
+                        SET updated_at = NOW()
+                        RETURNING id
+                        """,
+                        firm_name,
+                    )
+                    if firm_row:
+                        await conn.execute(
+                            """
+                            INSERT INTO ria_firm_memberships (
+                              ria_profile_id,
+                              firm_id,
+                              role_title,
+                              membership_status,
+                              is_primary
+                            )
+                            VALUES ($1, $2, NULL, 'active', TRUE)
+                            ON CONFLICT (ria_profile_id, firm_id) DO UPDATE
+                            SET
+                              membership_status = 'active',
+                              is_primary = TRUE,
+                              updated_at = NOW()
+                            """,
+                            profile_id,
+                            firm_row["id"],
+                        )
+
+                if any([business_city, business_area, business_address, business_pin_zip]):
+                    await conn.execute(
+                        """
+                        INSERT INTO ria_business_contacts (
+                          user_id,
+                          city,
+                          area_locality,
+                          full_street_address,
+                          pin_zip
+                        )
+                        VALUES ($1, $2, $3, $4, $5)
+                        ON CONFLICT (user_id) DO UPDATE
+                        SET
+                          city = COALESCE(NULLIF(EXCLUDED.city, ''), ria_business_contacts.city),
+                          area_locality = COALESCE(NULLIF(EXCLUDED.area_locality, ''), ria_business_contacts.area_locality),
+                          full_street_address = COALESCE(NULLIF(EXCLUDED.full_street_address, ''), ria_business_contacts.full_street_address),
+                          pin_zip = COALESCE(NULLIF(EXCLUDED.pin_zip, ''), ria_business_contacts.pin_zip),
+                          updated_at = NOW()
+                        """,
+                        user_id,
+                        business_city or "",
+                        business_area or "",
+                        business_address or "",
+                        business_pin_zip or "",
+                    )
+
+                await conn.execute(
+                    """
+                    INSERT INTO marketplace_public_profiles (
+                      user_id,
+                      profile_type,
+                      display_name,
+                      headline,
+                      strategy_summary,
+                      verification_badge,
+                      is_discoverable,
+                      updated_at
+                    )
+                    VALUES (
+                      $1,
+                      'ria',
+                      COALESCE(NULLIF($2, ''), 'Registered Investment Advisor'),
+                      'Registered Investment Advisor',
+                      NULL,
+                      'verified',
+                      TRUE,
+                      NOW()
+                    )
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET
+                      profile_type = 'ria',
+                      display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), marketplace_public_profiles.display_name),
+                      verification_badge = 'verified',
+                      updated_at = NOW()
+                    """,
+                    user_id,
+                    official_name or "",
+                )
+
+                await conn.execute(
+                    """
+                    INSERT INTO ria_license_verifications
+                      (user_id, license_number, regulator, verification_source, raw_response, status)
+                    VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+                    """,
+                    user_id,
+                    official_crd or normalized_license,
+                    normalized_regulator,
+                    "profile_refresh",
+                    json.dumps(
+                        {
+                            "response": verification,
+                            "applied_fields": sorted(set(applied_fields)),
+                            "preserved_user_authored_fields": [
+                                "bio",
+                                "strategy",
+                                "services_offered",
+                                "fee_structure",
+                                "min_engagement_amount",
+                                "custom_headline",
+                                "email",
+                                "phone",
+                            ],
+                        },
+                        default=str,
+                    ),
+                    "completed",
+                )
+
+                await conn.execute(
+                    """
+                    INSERT INTO ria_verification_events (
+                      ria_profile_id,
+                      provider,
+                      outcome,
+                      checked_at,
+                      expires_at,
+                      reference_metadata
+                    )
+                    VALUES ($1, $2, 'verified', NOW(), $3, $4::jsonb)
+                    """,
+                    profile_id,
+                    provider,
+                    verification_expires_at,
+                    json.dumps(
+                        {
+                            "event_type": "profile_license_refresh",
+                            "response": verification,
+                            "updated": True,
+                            "applied_fields": sorted(set(applied_fields)),
+                        },
+                        default=str,
+                    ),
+                )
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+        self._invalidate_cached_persona_state(user_id)
+        return {
+            "updated": True,
+            "status": "found",
+            "message": "Official RIA data updated.",
+            "ria_profile_id": str(profile_id),
+            "applied_fields": sorted(set(applied_fields)),
+            "profile": next_profile,
+            "verification": verification,
+        }
+
     @staticmethod
     def _has_usable_license_location(response: dict[str, Any]) -> bool:
         official_location = response.get("official_location")
@@ -1436,6 +1874,25 @@ class RIAIAMService:
         if parsed is None:
             return None
         return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _coerce_date(value: Any) -> date | None:
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        if isinstance(value, str):
+            candidate = value.strip()
+            if not candidate:
+                return None
+            try:
+                return datetime.fromisoformat(candidate.replace("Z", "+00:00")).date()
+            except ValueError:
+                try:
+                    return date.fromisoformat(candidate[:10])
+                except ValueError:
+                    return None
+        return None
 
     @classmethod
     def _add_license_cache_metadata(
@@ -3861,6 +4318,53 @@ class RIAIAMService:
             if event and "reference_metadata" in event:
                 event["reference_metadata"] = self._parse_metadata(event["reference_metadata"])
 
+            v2_profile: dict[str, Any] = {}
+            try:
+                v2_row = await conn.fetchrow(
+                    """
+                    SELECT
+                      license_number,
+                      regulator,
+                      regulator_status,
+                      license_expiry_date,
+                      certifications,
+                      onboarding_type,
+                      services_offered,
+                      fee_structure,
+                      min_engagement_amount,
+                      min_engagement_currency
+                    FROM ria_profiles
+                    WHERE id = $1
+                    """,
+                    ria["id"],
+                )
+                v2_profile = dict(v2_row) if v2_row else {}
+            except asyncpg.exceptions.UndefinedColumnError:
+                logger.warning("ria_profiles v2 columns unavailable during onboarding status")
+
+            business_contact: dict[str, Any] = {}
+            try:
+                contact_row = await conn.fetchrow(
+                    """
+                    SELECT
+                      city,
+                      area_locality,
+                      full_street_address,
+                      pin_zip,
+                      latitude,
+                      longitude
+                    FROM ria_business_contacts
+                    WHERE user_id = $1
+                    """,
+                    user_id,
+                )
+                business_contact = dict(contact_row) if contact_row else {}
+            except (
+                asyncpg.exceptions.UndefinedTableError,
+                asyncpg.exceptions.UndefinedColumnError,
+            ):
+                logger.warning("ria_business_contacts unavailable during onboarding status")
+
             if used_legacy_capabilities_fallback:
                 requested_capabilities = ["advisory"]
                 individual_legal_name = ria["legal_name"]
@@ -3913,6 +4417,22 @@ class RIAIAMService:
                 "verification_status": ria["verification_status"],
                 "verification_provider": ria["verification_provider"],
                 "verification_expires_at": ria["verification_expires_at"],
+                "license_number": v2_profile.get("license_number"),
+                "regulator": v2_profile.get("regulator"),
+                "regulator_status": v2_profile.get("regulator_status"),
+                "license_expiry_date": v2_profile.get("license_expiry_date"),
+                "certifications": list(v2_profile.get("certifications") or []),
+                "onboarding_type": v2_profile.get("onboarding_type"),
+                "services_offered": list(v2_profile.get("services_offered") or []),
+                "fee_structure": list(v2_profile.get("fee_structure") or []),
+                "min_engagement_amount": v2_profile.get("min_engagement_amount"),
+                "min_engagement_currency": v2_profile.get("min_engagement_currency"),
+                "business_city": business_contact.get("city"),
+                "business_area": business_contact.get("area_locality"),
+                "business_address": business_contact.get("full_street_address"),
+                "business_pin_zip": business_contact.get("pin_zip"),
+                "business_latitude": business_contact.get("latitude"),
+                "business_longitude": business_contact.get("longitude"),
                 "latest_verification_event": event,
             }
         except asyncpg.exceptions.UndefinedTableError as exc:
