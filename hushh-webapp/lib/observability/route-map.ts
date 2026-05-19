@@ -13,6 +13,7 @@ export const ROUTE_ID_VALUES = [
   "profile_receipts",
   "profile_gmail_oauth_return",
   "consents",
+  "agent",
   "marketplace",
   "marketplace_connections",
   "marketplace_connection_portfolio",
@@ -57,6 +58,7 @@ export function resolveRouteId(pathname: string): RouteId {
     return "profile_gmail_oauth_return";
   }
   if (pathname === ROUTES.CONSENTS) return "consents";
+  if (pathname === ROUTES.AGENT) return "agent";
   if (pathname === ROUTES.MARKETPLACE) return "marketplace";
   if (pathname === ROUTES.MARKETPLACE_CONNECTIONS) return "marketplace_connections";
   if (pathname === `${ROUTES.MARKETPLACE_CONNECTIONS}/portfolio`) {
@@ -127,6 +129,18 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
   {
     regex: /^\/api\/pkm\/domain-data\/[^/?]+\/[^/?]+(?:\?.*)?$/i,
     template: "/api/pkm/domain-data/{user_id}/{domain}",
+  },
+  {
+    regex: /^\/api\/kai\/agent\/chat\/stream(?:\?.*)?$/i,
+    template: "/api/kai/agent/chat/stream",
+  },
+  {
+    regex: /^\/api\/kai\/agent\/chat\/conversations\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/kai/agent/chat/conversations/{user_id}",
+  },
+  {
+    regex: /^\/api\/kai\/agent\/chat\/history\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/kai/agent/chat/history/{conversation_id}",
   },
   {
     regex: /^\/api\/kai\/market\/insights\/baseline\/[^/?]+(?:\?.*)?$/i,
