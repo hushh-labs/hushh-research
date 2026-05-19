@@ -46,8 +46,8 @@ router = APIRouter()
 
 
 class PortfolioLoser(BaseModel):
-    symbol: str = Field(..., description="Ticker symbol")
-    name: Optional[str] = None
+    symbol: str = Field(..., description="Ticker symbol", max_length=20)
+    name: Optional[str] = Field(None, max_length=256)
     gain_loss_pct: Optional[float] = Field(
         None, description="Unrealized P/L percent (negative for losers)"
     )
@@ -58,20 +58,22 @@ class PortfolioLoser(BaseModel):
 class PortfolioHolding(BaseModel):
     """Full-position snapshot for Optimize Portfolio (not only losers)."""
 
-    symbol: str = Field(..., description="Ticker symbol")
-    name: Optional[str] = None
+    symbol: str = Field(..., description="Ticker symbol", max_length=20)
+    name: Optional[str] = Field(None, max_length=256)
     gain_loss_pct: Optional[float] = Field(None, description="Unrealized P/L percent")
     gain_loss: Optional[float] = Field(None, description="Unrealized P/L amount")
     market_value: Optional[float] = Field(None, description="Current market value of the position")
-    sector: Optional[str] = Field(None, description="Sector or industry label if available")
+    sector: Optional[str] = Field(
+        None, description="Sector or industry label if available", max_length=128
+    )
     asset_type: Optional[str] = Field(
-        None, description="High-level asset type (equity, cash, ETF, etc.)"
+        None, description="High-level asset type (equity, cash, ETF, etc.)", max_length=64
     )
 
 
 class AnalyzeLosersRequest(BaseModel):
-    user_id: str
-    losers: list[PortfolioLoser] = Field(default_factory=list)
+    user_id: str = Field(min_length=1, max_length=128)
+    losers: list[PortfolioLoser] = Field(default_factory=list, max_length=200)
     threshold_pct: float = Field(-5.0, description="Only analyze losers at or below this %")
     max_positions: int = Field(
         10, ge=1, le=50, description="Max number of loser positions to analyze"
@@ -79,6 +81,7 @@ class AnalyzeLosersRequest(BaseModel):
     holdings: list[PortfolioHolding] = Field(
         default_factory=list,
         description="Optional full holdings snapshot for Optimize Portfolio.",
+        max_length=1000,
     )
     force_optimize: bool = Field(
         False,

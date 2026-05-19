@@ -163,3 +163,72 @@ Apple Inc,100,17500
         parser2 = get_portfolio_parser()
 
         assert parser1 is parser2
+
+    # ------------------------------------------------------------------
+    # Regression tests for gain_loss overwrite and quantity None bugs
+    # ------------------------------------------------------------------
+
+    def test_broker_reported_gain_loss_is_preserved(self, parser):
+        """Broker-supplied gain/loss must not be overwritten by recalculation.
+
+        Brokers often adjust gain/loss for wash sales, dividend reinvestment,
+        return-of-capital distributions, and cost-basis elections that the
+        naive (current_value - cost_basis) formula cannot reproduce.
+        """
+        csv_content = b"""Symbol,Quantity,Cost Basis,Market Value,Gain/Loss
+AAPL,100,10000,15000,3500
+"""
+        portfolio = parser.parse_csv(csv_content)
+
+        aapl = portfolio.holdings[0]
+        # Broker reported 3500, not the naive 15000 - 10000 = 5000.
+        assert aapl.gain_loss == 3500.0, (
+            f"Expected broker-reported gain_loss=3500, got {aapl.gain_loss}"
+        )
+
+    def test_gain_loss_calculated_when_csv_column_absent(self, parser):
+        """gain_loss is derived from cost_basis and current_value when the CSV
+        does not supply a dedicated gain/loss column."""
+        csv_content = b"""Symbol,Quantity,Cost Basis,Market Value
+MSFT,50,12000,14000
+"""
+        portfolio = parser.parse_csv(csv_content)
+
+        msft = portfolio.holdings[0]
+        assert msft.gain_loss == pytest.approx(2000.0)
+        assert msft.gain_loss_pct == pytest.approx((2000.0 / 12000.0) * 100)
+
+    def test_gain_loss_pct_calculated_from_broker_gain_loss(self, parser):
+        """gain_loss_pct is based on the broker-reported gain_loss value,
+        not the recalculated one, when the CSV provides it."""
+        csv_content = b"""Symbol,Quantity,Cost Basis,Market Value,Gain/Loss
+TSLA,10,20000,25000,3000
+"""
+        portfolio = parser.parse_csv(csv_content)
+
+        tsla = portfolio.holdings[0]
+        # gain_loss_pct must use the broker-reported gain_loss (3000), not 5000.
+        assert tsla.gain_loss == 3000.0
+        assert tsla.gain_loss_pct == pytest.approx((3000.0 / 20000.0) * 100)
+
+    def test_quantity_defaults_to_zero_when_value_is_unparseable(self, parser):
+        """A malformed quantity cell must not produce None in a float field;
+        it should fall back to 0.0 so downstream arithmetic does not crash."""
+        csv_content = b"""Symbol,Quantity,Cost Basis,Market Value
+GOOGL,N/A,30000,32000
+"""
+        portfolio = parser.parse_csv(csv_content)
+
+        googl = portfolio.holdings[0]
+        assert googl.quantity == 0.0
+        assert isinstance(googl.quantity, float)
+
+    def test_negative_broker_gain_loss_preserved(self, parser):
+        """A broker-reported loss (negative value) must survive the fill-in logic."""
+        csv_content = b"""Symbol,Quantity,Cost Basis,Market Value,Gain/Loss
+NFLX,5,5000,4000,-800
+"""
+        portfolio = parser.parse_csv(csv_content)
+
+        nflx = portfolio.holdings[0]
+        assert nflx.gain_loss == -800.0
