@@ -5,12 +5,16 @@ vi.mock("@/lib/services/api-service", () => ({
     streamAgentChat: vi.fn(),
     listAgentChatConversations: vi.fn(),
     getAgentChatHistory: vi.fn(),
+    renameAgentChatConversation: vi.fn(),
+    deleteAgentChatConversation: vi.fn(),
   },
 }));
 
 import {
+  deleteAgentChatConversation,
   getAgentChatHistory,
   listAgentChatConversations,
+  renameAgentChatConversation,
   streamAgentChat,
 } from "@/lib/services/agent-chat-client";
 import { ApiService } from "@/lib/services/api-service";
@@ -82,6 +86,7 @@ describe("agent chat client", () => {
       message: "Hello",
       conversationId: undefined,
       vaultOwnerToken: "vault-token",
+      pkmContext: undefined,
       signal: undefined,
     });
   });
@@ -197,5 +202,39 @@ describe("agent chat client", () => {
         vaultOwnerToken: "vault-token",
       })
     ).resolves.toMatchObject([{ id: "message-1", content: "Hello" }]);
+  });
+
+  it("renames and deletes conversations", async () => {
+    vi.spyOn(ApiService, "renameAgentChatConversation").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "conversation-1",
+          title: "Renamed chat",
+          status: "active",
+          message_count: 2,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    vi.spyOn(ApiService, "deleteAgentChatConversation").mockResolvedValue(
+      new Response(JSON.stringify({ conversation_id: "conversation-1", deleted: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+
+    await expect(
+      renameAgentChatConversation({
+        conversationId: "conversation-1",
+        title: "Renamed chat",
+        vaultOwnerToken: "vault-token",
+      })
+    ).resolves.toMatchObject({ id: "conversation-1", title: "Renamed chat" });
+    await expect(
+      deleteAgentChatConversation({
+        conversationId: "conversation-1",
+        vaultOwnerToken: "vault-token",
+      })
+    ).resolves.toEqual({ conversation_id: "conversation-1", deleted: true });
   });
 });

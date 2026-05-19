@@ -27,11 +27,37 @@ AGENT_SYSTEM_PROMPT = """You are Agent, the Kai-focused financial assistant insi
 
 Current capability boundary:
 - Focus on markets, portfolio context, stock analysis, Kai workflows, consent/privacy surfaces, and how the Hussh app works.
+- Use the provided PKM compact context when it is relevant, especially when the user asks what Kai knows about them or shares preferences.
+- Treat PKM compact context as user-owned memory summaries, not as exhaustive truth. Do not invent personal facts outside that context and the current conversation.
 - Normal finance and app questions should be answered as plain streaming text.
 - When the stream includes a planned frontend app action, acknowledge that the app is starting or opening it. Do not claim destructive account changes, trades, approvals, revocations, or data deletion.
 - Destructive, account-changing, trading, approval, revocation, and manual-only actions must be blocked and explained safely.
 - Keep answers concise, practical, and clear. Financial answers are educational, not personalized investment advice.
 """
+
+AGENT_ACTION_PLANNER_PROMPT = """You are Agent's action router inside Hussh.
+
+Decide whether the latest user message needs a frontend app function.
+
+Call exactly one function only when the user clearly asks Agent to do one of these:
+- start stock analysis for a ticker or public company
+- open a Hussh/Kai app surface
+- perform a destructive, account-changing, consent approval/revocation, trading, or manual-only action that must be blocked
+
+Do not call a function for normal finance questions, explanations, brainstorming, or general chat.
+When unsure, do not call a function.
+"""
+
+_APP_SURFACE_ACTIONS: dict[str, tuple[str, str]] = {
+    "consent_center": ("route.consents", "Open Consent Center"),
+    "pkm": ("route.profile_pkm_agent_lab", "Open PKM"),
+    "profile": ("route.profile", "Open Profile"),
+    "portfolio_import": ("route.kai_import", "Open Portfolio Import"),
+    "portfolio_dashboard": ("route.kai_dashboard", "Open Portfolio Dashboard"),
+    "analysis_history": ("route.analysis_history", "Open Analysis History"),
+    "optimize": ("route.kai_optimize", "Open Optimize Surface"),
+    "market_home": ("route.kai_home", "Open Market Home"),
+}
 
 MessageRole = Literal["user", "assistant", "system", "tool"]
 MessageStatus = Literal["complete", "interrupted", "error"]
@@ -77,6 +103,14 @@ _NAVIGATION_ACTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
         ),
         "route.consents",
         "Open Consent Center",
+    ),
+    (
+        re.compile(
+            r"\b(?:open|go to|show|take me to|navigate to)\b.*\b(?:pkm|personal knowledge|memory lab|saved memory|saved memories)\b",
+            re.IGNORECASE,
+        ),
+        "route.profile_pkm_agent_lab",
+        "Open PKM",
     ),
     (
         re.compile(
@@ -259,6 +293,77 @@ def _resolve_ticker(raw: str) -> str | None:
     return None
 
 
+def _schema_string(description: str, *, enum: list[str] | None = None) -> genai_types.Schema:
+    return genai_types.Schema(
+        type=genai_types.Type.STRING,
+        description=description,
+        enum=enum,
+    )
+
+
+def _schema_object(
+    properties: dict[str, genai_types.Schema],
+    *,
+    required: list[str] | None = None,
+) -> genai_types.Schema:
+    return genai_types.Schema(
+        type=genai_types.Type.OBJECT,
+        properties=properties,
+        required=required or [],
+    )
+
+
+def _agent_action_tool() -> genai_types.Tool:
+    return genai_types.Tool(
+        function_declarations=[
+            genai_types.FunctionDeclaration(
+                name="start_stock_analysis",
+                description=(
+                    "Start Kai's frontend stock analysis workflow for a requested ticker "
+                    "or public company."
+                ),
+                parameters=_schema_object(
+                    {
+                        "symbol": _schema_string(
+                            "Ticker symbol if known, for example NVDA or AAPL."
+                        ),
+                        "company": _schema_string(
+                            "Company or asset name if the user gave a name instead of a ticker."
+                        ),
+                    }
+                ),
+            ),
+            genai_types.FunctionDeclaration(
+                name="open_app_surface",
+                description="Open a safe Hussh or Kai frontend surface.",
+                parameters=_schema_object(
+                    {
+                        "surface": _schema_string(
+                            "Frontend surface to open.",
+                            enum=list(_APP_SURFACE_ACTIONS.keys()),
+                        )
+                    },
+                    required=["surface"],
+                ),
+            ),
+            genai_types.FunctionDeclaration(
+                name="block_manual_action",
+                description=(
+                    "Use when the user asks Agent to perform a destructive, account-changing, "
+                    "consent approval/revocation, trading, or manual-only action."
+                ),
+                parameters=_schema_object(
+                    {
+                        "reason": _schema_string(
+                            "Short safe reason explaining why Agent cannot perform the action."
+                        )
+                    }
+                ),
+            ),
+        ]
+    )
+
+
 class AgentChatService:
     """Owns Agent chat LLM streaming and backend-decryptable encrypted history."""
 
@@ -388,6 +493,54 @@ class AgentChatService:
             },
         )
         return self._conversation_from_row((result.data or [])[0])
+
+    async def rename_conversation(
+        self,
+        conversation_id: str,
+        *,
+        user_id: str,
+        title: str,
+    ) -> AgentChatConversation | None:
+        encrypted_title = self._encrypt_text(_trim_title(title))
+        result = await self._execute_raw(
+            """
+            UPDATE agent_chat_conversations
+            SET
+              title_ciphertext = :title_ciphertext,
+              title_iv = :title_iv,
+              title_tag = :title_tag,
+              title_algorithm = :title_algorithm,
+              updated_at = now()
+            WHERE id = :conversation_id AND user_id = :user_id
+            RETURNING *
+            """,
+            {
+                "conversation_id": conversation_id,
+                "user_id": user_id,
+                "title_ciphertext": encrypted_title.ciphertext,
+                "title_iv": encrypted_title.iv,
+                "title_tag": encrypted_title.tag,
+                "title_algorithm": encrypted_title.algorithm,
+            },
+        )
+        rows = result.data or []
+        if not rows:
+            return None
+        return self._conversation_from_row(rows[0])
+
+    async def delete_conversation(self, conversation_id: str, *, user_id: str) -> bool:
+        result = await self._execute_raw(
+            """
+            DELETE FROM agent_chat_conversations
+            WHERE id = :conversation_id AND user_id = :user_id
+            RETURNING id
+            """,
+            {
+                "conversation_id": conversation_id,
+                "user_id": user_id,
+            },
+        )
+        return bool(result.data or [])
 
     async def get_or_create_conversation(
         self,
@@ -563,19 +716,22 @@ class AgentChatService:
         user_message: str,
         history: list[AgentChatMessage],
         action_plan: AgentChatActionPlan | None = None,
+        pkm_context: str | None = None,
     ) -> AsyncGenerator[str, None]:
-        prompt = self._build_prompt(
+        contents = self._build_contents(
             user_message=user_message,
             history=history,
             action_plan=action_plan,
+            pkm_context=pkm_context,
         )
         config = genai_types.GenerateContentConfig(
+            system_instruction=AGENT_SYSTEM_PROMPT,
             temperature=0.7,
             max_output_tokens=4096,
         )
         stream = await self.client.aio.models.generate_content_stream(
             model=self.model,
-            contents=prompt,
+            contents=contents,
             config=config,
         )
         async for chunk in stream:
@@ -583,25 +739,55 @@ class AgentChatService:
             if text:
                 yield text
 
+    async def plan_action_with_gemini(
+        self,
+        *,
+        user_message: str,
+        history: list[AgentChatMessage],
+        pkm_context: str | None = None,
+    ) -> AgentChatActionPlan | None:
+        deterministic_block = self._plan_blocked_action(user_message)
+        if deterministic_block is not None:
+            return deterministic_block
+
+        try:
+            response = await self.client.aio.models.generate_content(
+                model=self.model,
+                contents=self._build_action_planning_contents(
+                    user_message=user_message,
+                    history=history,
+                    pkm_context=pkm_context,
+                ),
+                config=genai_types.GenerateContentConfig(
+                    system_instruction=AGENT_ACTION_PLANNER_PROMPT,
+                    temperature=0.0,
+                    max_output_tokens=256,
+                    tools=[_agent_action_tool()],
+                    automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(
+                        disable=True
+                    ),
+                    tool_config=genai_types.ToolConfig(
+                        function_calling_config=genai_types.FunctionCallingConfig(mode="AUTO")
+                    ),
+                ),
+            )
+            for function_call in self._function_calls_from_response(response):
+                action_plan = self._action_plan_from_function_call(function_call)
+                if action_plan is not None:
+                    return action_plan
+        except Exception:
+            logger.exception("agent_chat.function_planning_failed")
+
+        return self.plan_action(user_message)
+
     def plan_action(self, user_message: str) -> AgentChatActionPlan | None:
         message = " ".join(str(user_message or "").split())
         if not message:
             return None
 
-        for pattern in _BLOCKED_ACTION_PATTERNS:
-            if pattern.search(message):
-                return AgentChatActionPlan(
-                    call_id=_tool_call_id(),
-                    action_id=None,
-                    label="Blocked Manual Action",
-                    execution="blocked",
-                    slots={},
-                    message=(
-                        "I can't perform destructive, account-changing, consent approval, "
-                        "revocation, or trading actions from Agent. Please do that manually."
-                    ),
-                    reason="manual_or_destructive_action",
-                )
+        blocked_action = self._plan_blocked_action(message)
+        if blocked_action is not None:
+            return blocked_action
 
         for pattern in _ANALYSIS_PATTERNS:
             match = pattern.search(message)
@@ -631,20 +817,104 @@ class AgentChatService:
                 )
         return None
 
-    def _build_prompt(
+    def _plan_blocked_action(self, user_message: str) -> AgentChatActionPlan | None:
+        message = " ".join(str(user_message or "").split())
+        for pattern in _BLOCKED_ACTION_PATTERNS:
+            if pattern.search(message):
+                return AgentChatActionPlan(
+                    call_id=_tool_call_id(),
+                    action_id=None,
+                    label="Blocked Manual Action",
+                    execution="blocked",
+                    slots={},
+                    message=(
+                        "I can't perform destructive, account-changing, consent approval, "
+                        "revocation, or trading actions from Agent. Please do that manually."
+                    ),
+                    reason="manual_or_destructive_action",
+                )
+        return None
+
+    def _build_contents(
         self,
         *,
         user_message: str,
         history: list[AgentChatMessage],
         action_plan: AgentChatActionPlan | None = None,
-    ) -> str:
-        history_lines = []
+        pkm_context: str | None = None,
+    ) -> list[genai_types.Content]:
+        contents: list[genai_types.Content] = []
         for message in history[-20:]:
             if message.role not in {"user", "assistant"}:
                 continue
-            role = "User" if message.role == "user" else "Agent"
-            history_lines.append(f"{role}: {message.content[:4000]}")
-        history_text = "\n".join(history_lines) if history_lines else "No prior messages."
+            role = "user" if message.role == "user" else "model"
+            contents.append(
+                genai_types.Content(
+                    role=role,
+                    parts=[genai_types.Part(text=message.content[:4000])],
+                )
+            )
+        contents.append(
+            genai_types.Content(
+                role="user",
+                parts=[
+                    genai_types.Part(
+                        text=(
+                            f"{self._build_turn_context(action_plan=action_plan, pkm_context=pkm_context)}\n\n"
+                            f"Latest user message:\n{user_message}"
+                        )
+                    )
+                ],
+            )
+        )
+        return contents
+
+    def _build_action_planning_contents(
+        self,
+        *,
+        user_message: str,
+        history: list[AgentChatMessage],
+        pkm_context: str | None = None,
+    ) -> list[genai_types.Content]:
+        contents: list[genai_types.Content] = []
+        for message in history[-8:]:
+            if message.role not in {"user", "assistant"}:
+                continue
+            role = "user" if message.role == "user" else "model"
+            contents.append(
+                genai_types.Content(
+                    role=role,
+                    parts=[genai_types.Part(text=message.content[:1500])],
+                )
+            )
+        clean_pkm_context = str(pkm_context or "").strip()
+        planning_context = (
+            clean_pkm_context[:2000]
+            if clean_pkm_context
+            else "No PKM compact context was provided for this turn."
+        )
+        contents.append(
+            genai_types.Content(
+                role="user",
+                parts=[
+                    genai_types.Part(
+                        text=(
+                            "PKM compact context for routing only:\n"
+                            f"{planning_context}\n\n"
+                            f"Latest user message:\n{user_message}"
+                        )
+                    )
+                ],
+            )
+        )
+        return contents
+
+    def _build_turn_context(
+        self,
+        *,
+        action_plan: AgentChatActionPlan | None = None,
+        pkm_context: str | None = None,
+    ) -> str:
         action_context = "No frontend app action is planned for this turn."
         if action_plan and action_plan.execution == "frontend":
             action_context = (
@@ -662,13 +932,80 @@ class AgentChatService:
                 f"- message: {action_plan.message}\n"
                 "Instruction: explain the block clearly and suggest the safe manual path."
             )
-        return (
-            f"{AGENT_SYSTEM_PROMPT}\n\n"
-            f"Conversation history:\n{history_text}\n\n"
-            f"Action context:\n{action_context}\n\n"
-            f"User: {user_message}\n\n"
-            "Agent:"
+        clean_pkm_context = str(pkm_context or "").strip()
+        pkm_context_text = (
+            clean_pkm_context[:6000]
+            if clean_pkm_context
+            else "No PKM compact context was provided for this turn."
         )
+        return f"PKM context:\n{pkm_context_text}\n\nAction context:\n{action_context}"
+
+    def _function_calls_from_response(self, response: Any) -> list[Any]:
+        response_calls = getattr(response, "function_calls", None)
+        if response_calls:
+            return list(response_calls)
+
+        calls: list[Any] = []
+        candidates = getattr(response, "candidates", None) or []
+        for candidate in candidates:
+            content = getattr(candidate, "content", None)
+            for part in getattr(content, "parts", None) or []:
+                function_call = getattr(part, "function_call", None)
+                if function_call is not None:
+                    calls.append(function_call)
+        return calls
+
+    def _action_plan_from_function_call(self, function_call: Any) -> AgentChatActionPlan | None:
+        name = str(getattr(function_call, "name", "") or "").strip()
+        args = dict(getattr(function_call, "args", None) or {})
+        call_id = str(getattr(function_call, "id", "") or "").strip() or _tool_call_id()
+
+        if name == "start_stock_analysis":
+            ticker = _resolve_ticker(
+                str(args.get("symbol") or args.get("company") or args.get("target") or "")
+            )
+            if not ticker:
+                return None
+            return AgentChatActionPlan(
+                call_id=call_id,
+                action_id="analysis.start",
+                label=f"Start analysis for {ticker}",
+                execution="frontend",
+                slots={"symbol": ticker},
+                message=f"Starting Kai analysis for {ticker}.",
+            )
+
+        if name == "open_app_surface":
+            surface = str(args.get("surface") or "").strip()
+            action = _APP_SURFACE_ACTIONS.get(surface)
+            if action is None:
+                return None
+            action_id, label = action
+            return AgentChatActionPlan(
+                call_id=call_id,
+                action_id=action_id,
+                label=label,
+                execution="frontend",
+                slots={},
+                message=f"{label} in the app.",
+            )
+
+        if name == "block_manual_action":
+            reason = str(args.get("reason") or "").strip() or "manual_or_destructive_action"
+            return AgentChatActionPlan(
+                call_id=call_id,
+                action_id=None,
+                label="Blocked Manual Action",
+                execution="blocked",
+                slots={},
+                message=(
+                    "I can't perform destructive, account-changing, consent approval, "
+                    "revocation, or trading actions from Agent. Please do that manually."
+                ),
+                reason=reason[:160],
+            )
+
+        return None
 
     def _chunk_text(self, chunk: Any) -> str:
         text_value = getattr(chunk, "text", None)

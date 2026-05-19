@@ -569,6 +569,46 @@ class ActorIdentityService:
             return []
         return [self._normalize_alias_row(row) for row in rows]
 
+    async def list_account_identifiers(self, user_id: str) -> list[str]:
+        """
+        Return identifiers that are verified or first-party known for this account.
+
+        Consent review surfaces authenticate the user by Firebase UID, but external
+        developer requests can arrive keyed by a Firebase email/phone or a verified
+        alias. Keep this set conservative: only the UID, verified Firebase-auth
+        shadow values, and verified account-owned email aliases are accepted.
+        """
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            return []
+
+        identifiers: list[str] = [normalized_user_id]
+
+        def _append(value: Any, *, email: bool = False) -> None:
+            normalized = str(value or "").strip()
+            if email:
+                normalized = normalized.lower()
+            if normalized and normalized not in identifiers:
+                identifiers.append(normalized)
+
+        identity = await self.sync_from_firebase(normalized_user_id)
+        if not identity:
+            identity = (await self.get_many([normalized_user_id])).get(normalized_user_id) or {}
+
+        if identity.get("email_verified"):
+            _append(identity.get("email"), email=True)
+        if identity.get("phone_verified"):
+            _append(identity.get("phone_number"))
+
+        for alias in await self.list_verified_email_aliases(normalized_user_id):
+            if str(alias.get("verification_status") or "").strip().lower() != "verified":
+                continue
+            if alias.get("revoked_at") is not None:
+                continue
+            _append(alias.get("email_normalized") or alias.get("email"), email=True)
+
+        return identifiers
+
     async def request_email_alias_verification(
         self,
         *,

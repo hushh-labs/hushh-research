@@ -18,6 +18,8 @@ class _FakeAgentChatService:
         self.next_action_plan: AgentChatActionPlan | None = None
         self.stream_action_plans: list[AgentChatActionPlan | None] = []
         self.stream_tokens = ["Hello", " from Gemini"]
+        self.stream_error: Exception | None = None
+        self.deleted = False
         self.conversation = AgentChatConversation(
             id="conversation-1",
             user_id="user-1",
@@ -71,12 +73,28 @@ class _FakeAgentChatService:
         user_message: str,
         history: list[AgentChatMessage],
         action_plan: AgentChatActionPlan | None = None,
+        pkm_context: str | None = None,
     ):
         assert user_message == "Hello Agent"
         assert history == []
+        assert pkm_context in {None, "Saved domains: Financial"}
         self.stream_action_plans.append(action_plan)
+        if self.stream_error is not None:
+            raise self.stream_error
         for token in self.stream_tokens:
             yield token
+
+    async def plan_action_with_gemini(
+        self,
+        *,
+        user_message: str,
+        history: list[AgentChatMessage],
+        pkm_context: str | None = None,
+    ):
+        assert user_message == "Hello Agent"
+        assert history == []
+        assert pkm_context in {None, "Saved domains: Financial"}
+        return self.next_action_plan
 
     def plan_action(self, message: str):
         assert message == "Hello Agent"
@@ -99,12 +117,25 @@ class _FakeAgentChatService:
     async def list_conversations(self, user_id: str, *, limit: int = 5):
         assert user_id == "user-1"
         assert limit == 1
-        return [self.conversation]
+        return [] if self.deleted else [self.conversation]
 
     async def get_conversation(self, conversation_id: str, *, user_id: str | None = None):
-        if conversation_id == "conversation-1" and user_id == "user-1":
+        if not self.deleted and conversation_id == "conversation-1" and user_id == "user-1":
             return self.conversation
         return None
+
+    async def rename_conversation(self, conversation_id: str, *, user_id: str, title: str):
+        if conversation_id != "conversation-1" or user_id != "user-1" or self.deleted:
+            return None
+        self.conversation.title = title
+        self.conversation.updated_at = "2026-05-18T00:00:02+00:00"
+        return self.conversation
+
+    async def delete_conversation(self, conversation_id: str, *, user_id: str):
+        if conversation_id != "conversation-1" or user_id != "user-1" or self.deleted:
+            return False
+        self.deleted = True
+        return True
 
     async def get_recent_messages(self, conversation_id: str, *, user_id: str, limit: int = 50):
         assert conversation_id == "conversation-1"
@@ -198,6 +229,32 @@ def test_agent_chat_stream_does_not_save_empty_assistant_message(monkeypatch):
     assert service.saved_messages == []
 
 
+def test_agent_chat_stream_saves_error_message_when_stream_fails_before_tokens(monkeypatch):
+    service = _FakeAgentChatService()
+    service.stream_error = RuntimeError("Gemini unavailable")
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+    client = _client(service)
+
+    response = client.post(
+        "/agent/chat/stream",
+        json={"user_id": "user-1", "message": "Hello Agent"},
+    )
+
+    assert response.status_code == 200
+    assert 'event: error\ndata: {"message": "Agent chat failed. Please try again."' in response.text
+    assert service.saved_messages == [
+        {
+            "conversation_id": "conversation-1",
+            "user_id": "user-1",
+            "role": "assistant",
+            "content": "Agent chat failed. Please try again.",
+            "status": "error",
+            "model": "gemini-2.5-pro",
+            "error_code": "AGENT_CHAT_STREAM_FAILED",
+        }
+    ]
+
+
 async def test_agent_chat_stream_saves_partial_interrupted_response(monkeypatch):
     service = _FakeAgentChatService()
     monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
@@ -265,3 +322,45 @@ def test_agent_chat_recent_conversation_and_history(monkeypatch):
         "Hello",
         "Hi there",
     ]
+
+
+def test_agent_chat_renames_conversation(monkeypatch):
+    service = _FakeAgentChatService()
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+    client = _client(service)
+
+    response = client.patch(
+        "/agent/chat/conversations/conversation-1",
+        json={"title": "Renamed Kai analysis"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "Renamed Kai analysis"
+    assert service.conversation.title == "Renamed Kai analysis"
+
+
+def test_agent_chat_deletes_conversation(monkeypatch):
+    service = _FakeAgentChatService()
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+    client = _client(service)
+
+    response = client.delete("/agent/chat/conversations/conversation-1")
+
+    assert response.status_code == 200
+    assert response.json() == {"conversation_id": "conversation-1", "deleted": True}
+    assert service.deleted is True
+
+
+def test_agent_chat_rename_and_delete_return_not_found_for_other_user(monkeypatch):
+    service = _FakeAgentChatService()
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+    client = _client(service, user_id="other-user")
+
+    renamed = client.patch(
+        "/agent/chat/conversations/conversation-1",
+        json={"title": "Nope"},
+    )
+    deleted = client.delete("/agent/chat/conversations/conversation-1")
+
+    assert renamed.status_code == 404
+    assert deleted.status_code == 404

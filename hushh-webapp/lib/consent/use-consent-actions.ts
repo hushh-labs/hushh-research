@@ -75,6 +75,24 @@ function getScopeDataEndpoint(scope: string): string | null {
   return scopeMap[scope] || null;
 }
 
+function extractConsentActionError(errorText: string): string {
+  try {
+    const parsed = JSON.parse(errorText);
+    if (typeof parsed?.error === "string") {
+      return parsed.error;
+    }
+    if (typeof parsed?.detail === "string") {
+      return parsed.detail;
+    }
+    if (typeof parsed?.detail?.message === "string") {
+      return parsed.detail.message;
+    }
+  } catch {
+    // Fall through to the raw response body.
+  }
+  return errorText || "Failed to approve";
+}
+
 // ============================================================================
 // Hook
 // ============================================================================
@@ -372,7 +390,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         if (!response.ok) {
           const errorText = await response.text();
           console.error("[NativeDebug] Approval failed:", errorText);
-          throw new Error(errorText || "Failed to approve");
+          throw new Error(extractConsentActionError(errorText));
         }
 
         return "Consent approved!";

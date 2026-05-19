@@ -915,6 +915,53 @@ async def test_consent_center_list_investor_pending_avoids_monolithic_center(mon
 
 
 @pytest.mark.asyncio
+async def test_consent_center_pending_expands_verified_account_identifiers(monkeypatch):
+    service = ConsentCenterService()
+    captured: dict[str, object] = {}
+
+    async def _identifiers(_user_id: str):
+        return [
+            "firebase_uid_123",
+            "akshat@example.com",
+            "jd77v9k4nx@privaterelay.appleid.com",
+        ]
+
+    class _FakeConsentDBService:
+        async def get_pending_requests(self, user_id: str, *, user_ids=None):
+            captured["user_id"] = user_id
+            captured["user_ids"] = user_ids
+            return [
+                {
+                    "id": "req_alias",
+                    "subjectUserId": "jd77v9k4nx@privaterelay.appleid.com",
+                    "developer": "developer:app_demo",
+                    "scope": "pkm.read",
+                    "scopeDescription": "Read PKM",
+                    "requestedAt": 100,
+                    "pollTimeoutAt": 200,
+                    "metadata": {"developer_app_display_name": "Demo App"},
+                }
+            ]
+
+    async def _hydrate(entries):
+        return entries
+
+    monkeypatch.setattr(service._identity, "list_account_identifiers", _identifiers)
+    service._consent_db = _FakeConsentDBService()
+    monkeypatch.setattr(service, "_hydrate_entry_identities", _hydrate)
+
+    entries = await service._load_investor_pending_entries("firebase_uid_123")
+
+    assert captured["user_id"] == "firebase_uid_123"
+    assert captured["user_ids"] == [
+        "firebase_uid_123",
+        "akshat@example.com",
+        "jd77v9k4nx@privaterelay.appleid.com",
+    ]
+    assert entries[0]["id"] == "req_alias"
+
+
+@pytest.mark.asyncio
 async def test_consent_center_list_preview_top_caps_page_and_limit(monkeypatch):
     service = ConsentCenterService()
 

@@ -200,6 +200,8 @@ RIA relationship bundle note:
 | POST | `/api/kai/chat` | Conversational Kai endpoint |
 | POST | `/api/kai/agent/chat/stream` | Gemini-backed Agent text chat SSE stream; emits `token` plus live `tool_start` / `tool_waiting` / `tool_result` events and stores encrypted text history only |
 | GET | `/api/kai/agent/chat/conversations/{user_id}` | List recent encrypted Agent chat conversations for the vault owner |
+| PATCH | `/api/kai/agent/chat/conversations/{conversation_id}` | Rename an authenticated vault owner's encrypted Agent chat conversation |
+| DELETE | `/api/kai/agent/chat/conversations/{conversation_id}` | Delete an authenticated vault owner's Agent chat conversation and its encrypted messages |
 | GET | `/api/kai/agent/chat/history/{conversation_id}` | Read decrypted Agent chat history for the authenticated conversation owner |
 | POST | `/api/kai/agent/realtime/session` | Create an OpenAI Realtime WebRTC client secret for the vault-unlocked Agent chat and voice surface |
 | GET | `/api/kai/chat/history/{conversation_id}` | Conversation history |

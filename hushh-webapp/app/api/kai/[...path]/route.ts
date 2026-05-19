@@ -155,6 +155,14 @@ export async function GET(
   return proxyRequest(request, params);
 }
 
+export async function PATCH(
+  request: NextRequest,
+  props: { params: Promise<{ path: string[] }> }
+) {
+  const params = await props.params;
+  return proxyRequest(request, params);
+}
+
 export async function DELETE(
   request: NextRequest,
   props: { params: Promise<{ path: string[] }> }
