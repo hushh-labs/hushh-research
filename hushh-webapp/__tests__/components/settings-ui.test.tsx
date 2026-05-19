@@ -108,4 +108,15 @@ describe("SettingsSegmentedTabs", () => {
     fireEvent.click(inactive);
     expect(handleValueChange).toHaveBeenCalledWith("kai");
   });
+    it("preserves row rendering stability when trailing content is omitted", () => {
+    render(
+      <SettingsRow
+        title="Privacy status"
+        description="All systems operational"
+      />
+    );
+
+    expect(screen.getByText("Privacy status")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /privacy status/i })).toBeNull();
+  });
 });
