@@ -60,4 +60,15 @@ describe("SectionHeader", () => {
     expect(actions?.className).toContain("sm:justify-end");
     expect(screen.getByRole("button", { name: "Template" })).toBeTruthy();
   });
+    it("preserves title rendering when description is omitted", () => {
+    render(
+      <PageHeader
+        title="Workspace overview"
+        icon={FileSpreadsheet}
+      />
+    );
+
+    expect(screen.getByText("Workspace overview")).toBeTruthy();
+    expect(screen.queryByText(/supporting line/i)).toBeNull();
+  });
 });
