@@ -45,4 +45,15 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("router.push(topShellBreadcrumb.backHref);");
     expect(source).not.toContain("router.back();");
   });
+    it("preserves persona pill icon visibility contracts", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    expect(source).toContain(
+      'className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current"'
+    );
+
+    expect(source).not.toContain(
+      "hidden h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current sm:inline-block"
+    );
+  });
 });
