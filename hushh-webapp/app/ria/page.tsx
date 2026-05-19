@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import {
   BriefcaseBusiness,
   CircleAlert,
-  Loader2,
 } from "lucide-react";
 
 import { RiaCompatibilityState, RiaPageShell, RiaSurface } from "@/components/ria/ria-page-shell";
@@ -17,6 +16,7 @@ import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { RiaService, type RiaHomeResponse } from "@/lib/services/ria-service";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { ROUTES } from "@/lib/navigation/routes";
+import { InlineLoadingState } from "@/components/app-ui/inline-loading-state";
 import { cn } from "@/lib/utils";
 
 type HeroTone = "neutral" | "warning" | "success" | "critical";
@@ -346,10 +346,7 @@ export default function RiaHomePage() {
 
             <div className="overflow-hidden rounded-[20px] border border-border/60 bg-background/70">
               {homeResource.loading && !homeResource.data ? (
-                <div className="flex items-center gap-2 px-4 py-5 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Pulling readiness, relationships, and picks state.
-                </div>
+                <InlineLoadingState label="Pulling readiness, relationships, and picks state." />
               ) : null}
 
               {!homeResource.loading && queueItems.length === 0 ? (
