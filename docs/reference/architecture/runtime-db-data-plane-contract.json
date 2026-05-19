@@ -98,8 +98,8 @@
       "lifecycle_status": "current",
       "exact_tables": ["agent_chat_conversations", "agent_chat_messages"],
       "primary_access_path": "Gemini-backed Agent text chat streaming, encrypted chat history restore, and LLM context assembly",
-      "retention_policy": "Retain while account exists or until a future user-facing Agent chat deletion/export flow is introduced.",
-      "deletion_behavior": "Delete all user rows on account deletion; do not persist transient tool debug events.",
+      "retention_policy": "Retain while account exists or until the user deletes an Agent chat conversation.",
+      "deletion_behavior": "Delete selected conversation rows with cascading encrypted messages; delete all user rows on account deletion; do not persist transient tool debug events.",
       "trust_boundary": "Message titles and content persist as AES-GCM ciphertext. Backend may decrypt only with vault service key for current Agent LLM context; frontend tool debug events remain live-only and are not stored.",
       "plaintext_posture": "ciphertext_and_metadata",
       "expected_row_growth": "high_per_user_chat"

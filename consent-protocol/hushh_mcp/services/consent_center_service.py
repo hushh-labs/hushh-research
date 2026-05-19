@@ -32,6 +32,7 @@ class ConsentCenterService:
         self._consent_db = ConsentDBService()
         self._identity = ActorIdentityService()
         self._ria = RIAIAMService()
+        self._owned_identifier_cache: dict[str, list[str]] = {}
 
     @staticmethod
     def _metadata(value: Any) -> dict[str, Any]:
@@ -151,6 +152,33 @@ class ConsentCenterService:
             entry.get("status"),
         ]
         return any(needle in str(value or "").lower() for value in haystacks)
+
+    async def _owned_user_identifiers(self, user_id: str) -> list[str]:
+        normalized_user_id = str(user_id or "").strip()
+        if normalized_user_id in self._owned_identifier_cache:
+            return self._owned_identifier_cache[normalized_user_id]
+        try:
+            identifiers = await self._identity.list_account_identifiers(normalized_user_id)
+        except Exception as exc:
+            logger.debug(
+                "consent_center.identifier_expansion_skipped user_id=%s error=%s",
+                normalized_user_id,
+                exc,
+            )
+            identifiers = []
+        resolved = identifiers or [normalized_user_id]
+        self._owned_identifier_cache[normalized_user_id] = resolved
+        return resolved
+
+    @staticmethod
+    def _identifier_filter_kwargs(user_id: str, identifiers: list[str]) -> dict[str, list[str]]:
+        normalized_user_id = str(user_id or "").strip()
+        normalized_identifiers = [
+            str(item or "").strip() for item in identifiers if str(item or "").strip()
+        ]
+        if set(normalized_identifiers) <= {normalized_user_id}:
+            return {}
+        return {"user_ids": normalized_identifiers}
 
     async def _hydrate_entry_identities(
         self, entries: list[dict[str, Any]]
@@ -913,19 +941,33 @@ class ConsentCenterService:
         }
 
     async def _load_investor_pending_entries(self, user_id: str) -> list[dict[str, Any]]:
-        pending = await self._consent_db.get_pending_requests(user_id)
+        identifiers = await self._owned_user_identifiers(user_id)
+        pending = await self._consent_db.get_pending_requests(
+            user_id,
+            **self._identifier_filter_kwargs(user_id, identifiers),
+        )
         return await self._hydrate_entry_identities(
             [self._normalize_pending(item) for item in pending]
         )
 
     async def _load_investor_active_entries(self, user_id: str) -> list[dict[str, Any]]:
-        active = await self._consent_db.get_active_tokens(user_id)
+        identifiers = await self._owned_user_identifiers(user_id)
+        active = await self._consent_db.get_active_tokens(
+            user_id,
+            **self._identifier_filter_kwargs(user_id, identifiers),
+        )
         return await self._hydrate_entry_identities(
             [self._normalize_active(item) for item in active]
         )
 
     async def _load_investor_previous_entries(self, user_id: str) -> list[dict[str, Any]]:
-        history_result = await self._consent_db.get_audit_log(user_id, page=1, limit=5000)
+        identifiers = await self._owned_user_identifiers(user_id)
+        history_result = await self._consent_db.get_audit_log(
+            user_id,
+            page=1,
+            limit=5000,
+            **self._identifier_filter_kwargs(user_id, identifiers),
+        )
         return await self._hydrate_entry_identities(
             [self._normalize_history(item) for item in history_result.get("items", [])]
         )
@@ -1090,10 +1132,30 @@ class ConsentCenterService:
         need_active = include_all or normalized_surface in {None, "active"}
         need_history = include_all or normalized_surface in {None, "previous"}
 
-        pending = await self._consent_db.get_pending_requests(user_id) if need_incoming else []
-        active = await self._consent_db.get_active_tokens(user_id) if need_active else []
+        identifiers = await self._owned_user_identifiers(user_id)
+        pending = (
+            await self._consent_db.get_pending_requests(
+                user_id,
+                **self._identifier_filter_kwargs(user_id, identifiers),
+            )
+            if need_incoming
+            else []
+        )
+        active = (
+            await self._consent_db.get_active_tokens(
+                user_id,
+                **self._identifier_filter_kwargs(user_id, identifiers),
+            )
+            if need_active
+            else []
+        )
         history_result = (
-            await self._consent_db.get_audit_log(user_id, page=1, limit=100)
+            await self._consent_db.get_audit_log(
+                user_id,
+                page=1,
+                limit=100,
+                **self._identifier_filter_kwargs(user_id, identifiers),
+            )
             if need_history
             else {"items": []}
         )

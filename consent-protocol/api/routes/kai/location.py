@@ -72,19 +72,28 @@ def _extract_bearer_token(authorization: str | None) -> str:
     if not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "LOCATION_UPDATE_TOKEN_MISSING", "message": "Missing Authorization header."},
+            detail={
+                "code": "LOCATION_UPDATE_TOKEN_MISSING",
+                "message": "Missing Authorization header.",
+            },
         )
     stripped = authorization.strip()
     if not stripped.lower().startswith("bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "LOCATION_UPDATE_TOKEN_INVALID", "message": "Expected Bearer location update token."},
+            detail={
+                "code": "LOCATION_UPDATE_TOKEN_INVALID",
+                "message": "Expected Bearer location update token.",
+            },
         )
     token = stripped[7:].strip()
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "LOCATION_UPDATE_TOKEN_MISSING", "message": "Missing location update token."},
+            detail={
+                "code": "LOCATION_UPDATE_TOKEN_MISSING",
+                "message": "Missing location update token.",
+            },
         )
     return token
 

@@ -89,6 +89,7 @@ export async function streamAgentChat(input: {
   message: string;
   conversationId?: string | null;
   vaultOwnerToken: string;
+  pkmContext?: string;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
 }): Promise<{ conversationId: string | null; model: string | null; text: string }> {
@@ -97,6 +98,7 @@ export async function streamAgentChat(input: {
     message: input.message,
     conversationId: input.conversationId || undefined,
     vaultOwnerToken: input.vaultOwnerToken,
+    pkmContext: input.pkmContext,
     signal: input.signal,
   });
 
@@ -223,4 +225,27 @@ export async function getAgentChatHistory(input: {
   }
   const payload = (await response.json()) as { messages?: AgentChatMessage[] };
   return Array.isArray(payload.messages) ? payload.messages : [];
+}
+
+export async function renameAgentChatConversation(input: {
+  conversationId: string;
+  title: string;
+  vaultOwnerToken: string;
+}): Promise<AgentChatConversation> {
+  const response = await ApiService.renameAgentChatConversation(input);
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  return (await response.json()) as AgentChatConversation;
+}
+
+export async function deleteAgentChatConversation(input: {
+  conversationId: string;
+  vaultOwnerToken: string;
+}): Promise<{ conversation_id: string; deleted: boolean }> {
+  const response = await ApiService.deleteAgentChatConversation(input);
+  if (!response.ok) {
+    throw new Error(await readError(response));
+  }
+  return (await response.json()) as { conversation_id: string; deleted: boolean };
 }

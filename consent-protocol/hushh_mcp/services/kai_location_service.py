@@ -113,7 +113,9 @@ def _validate_point(point: dict[str, Any], *, require_fresh: bool) -> dict[str, 
             status_code=422,
         )
 
-    captured_at = _parse_datetime(point.get("captured_at") or point.get("capturedAt"), field_name="captured_at")
+    captured_at = _parse_datetime(
+        point.get("captured_at") or point.get("capturedAt"), field_name="captured_at"
+    )
     if require_fresh and _utcnow() - captured_at > FRESH_FIX_WINDOW:
         raise KaiLocationError(
             "LOCATION_FIX_STALE",
@@ -143,7 +145,9 @@ def _validate_point(point: dict[str, Any], *, require_fresh: bool) -> dict[str, 
     speed_mps = optional_float("speed_mps")
     if speed_mps is None:
         speed_mps = optional_float("speedMps")
-    source_platform = str(point.get("source_platform") or point.get("sourcePlatform") or "web").strip().lower()
+    source_platform = (
+        str(point.get("source_platform") or point.get("sourcePlatform") or "web").strip().lower()
+    )
     if source_platform not in {"web", "ios", "android", "native", "unknown"}:
         source_platform = "unknown"
 
@@ -182,16 +186,22 @@ def _contact_limit(tier: str) -> int:
 
 def _build_request_url(request_id: str) -> str:
     base = (
-        os.getenv("NEXT_PUBLIC_APP_URL")
-        or os.getenv("APP_PUBLIC_URL")
-        or os.getenv("FRONTEND_BASE_URL")
-        or ""
-    ).strip().rstrip("/")
+        (
+            os.getenv("NEXT_PUBLIC_APP_URL")
+            or os.getenv("APP_PUBLIC_URL")
+            or os.getenv("FRONTEND_BASE_URL")
+            or ""
+        )
+        .strip()
+        .rstrip("/")
+    )
     path = f"/kai/location?requestId={request_id}"
     return f"{base}{path}" if base else path
 
 
-def _public_live_payload(*, row: dict[str, Any] | None, latest: dict[str, Any] | None = None) -> dict[str, Any]:
+def _public_live_payload(
+    *, row: dict[str, Any] | None, latest: dict[str, Any] | None = None
+) -> dict[str, Any]:
     server_time = _utcnow()
     share_status = str(row.get("status") or "") if row else "invalid"
     live_mode = bool(row.get("live_mode")) if row else False
@@ -268,7 +278,9 @@ class KaiLocationService:
             "contactId": str(row.get("contact_id") or "") or None,
             "contactDisplayName": str(row.get("contact_display_name") or "") or None,
             "contactTier": str(row.get("contact_tier") or "") or None,
-            "contactAutoApprove": bool(row.get("contact_auto_approve")) if row.get("contact_auto_approve") is not None else None,
+            "contactAutoApprove": bool(row.get("contact_auto_approve"))
+            if row.get("contact_auto_approve") is not None
+            else None,
             "status": str(row.get("status") or "active"),
             "liveMode": bool(row.get("live_mode")),
             "expiresAt": _iso(row.get("expires_at")),
@@ -412,7 +424,9 @@ class KaiLocationService:
         )
         payload = self._latest_payload(row)
         if not payload:
-            raise KaiLocationError("LOCATION_UPDATE_FAILED", "Could not store the latest location.", status_code=500)
+            raise KaiLocationError(
+                "LOCATION_UPDATE_FAILED", "Could not store the latest location.", status_code=500
+            )
         return payload
 
     def create_contact(
@@ -425,10 +439,14 @@ class KaiLocationService:
     ) -> dict[str, Any]:
         normalized_name = str(display_name or "").strip()
         if len(normalized_name) < 1 or len(normalized_name) > 120:
-            raise KaiLocationError("CONTACT_NAME_INVALID", "Recipient name is required.", status_code=422)
+            raise KaiLocationError(
+                "CONTACT_NAME_INVALID", "Recipient name is required.", status_code=422
+            )
         normalized_tier = str(tier or "").strip().lower()
         if normalized_tier not in {"family", "friend"}:
-            raise KaiLocationError("CONTACT_TIER_INVALID", "Recipient tier must be family or friend.", status_code=422)
+            raise KaiLocationError(
+                "CONTACT_TIER_INVALID", "Recipient tier must be family or friend.", status_code=422
+            )
         normalized_auto_approve = bool(auto_approve and normalized_tier == "family")
 
         count_row = self._execute_one(
@@ -468,7 +486,9 @@ class KaiLocationService:
         )
         contact = self._contact_payload(row)
         if not contact:
-            raise KaiLocationError("CONTACT_CREATE_FAILED", "Could not create the recipient.", status_code=500)
+            raise KaiLocationError(
+                "CONTACT_CREATE_FAILED", "Could not create the recipient.", status_code=500
+            )
         self._insert_event(
             owner_user_id=owner_user_id,
             contact_id=contact["id"],
@@ -498,10 +518,16 @@ class KaiLocationService:
         if not existing:
             raise KaiLocationError("CONTACT_NOT_FOUND", "Recipient was not found.", status_code=404)
         tier = str(existing.get("tier") or "friend")
-        next_name = str(display_name if display_name is not None else existing.get("display_name") or "").strip()
+        next_name = str(
+            display_name if display_name is not None else existing.get("display_name") or ""
+        ).strip()
         if len(next_name) < 1 or len(next_name) > 120:
-            raise KaiLocationError("CONTACT_NAME_INVALID", "Recipient name is required.", status_code=422)
-        next_auto = bool(auto_approve) if auto_approve is not None else bool(existing.get("auto_approve"))
+            raise KaiLocationError(
+                "CONTACT_NAME_INVALID", "Recipient name is required.", status_code=422
+            )
+        next_auto = (
+            bool(auto_approve) if auto_approve is not None else bool(existing.get("auto_approve"))
+        )
         if tier != "family":
             next_auto = False
         row = self._execute_one(
@@ -523,7 +549,9 @@ class KaiLocationService:
         )
         contact = self._contact_payload(row)
         if not contact:
-            raise KaiLocationError("CONTACT_UPDATE_FAILED", "Could not update the recipient.", status_code=500)
+            raise KaiLocationError(
+                "CONTACT_UPDATE_FAILED", "Could not update the recipient.", status_code=500
+            )
         self._insert_event(
             owner_user_id=owner_user_id,
             contact_id=contact_id,
@@ -579,7 +607,9 @@ class KaiLocationService:
         self._revoke_update_sessions_if_no_active_shares(owner_user_id)
         contact = self._contact_payload(row)
         if not contact:
-            raise KaiLocationError("CONTACT_REVOKE_FAILED", "Could not revoke the recipient.", status_code=500)
+            raise KaiLocationError(
+                "CONTACT_REVOKE_FAILED", "Could not revoke the recipient.", status_code=500
+            )
         return contact
 
     def list_owner_state(self, *, owner_user_id: str) -> dict[str, Any]:
@@ -651,9 +681,15 @@ class KaiLocationService:
         try:
             duration = float(duration_hours)
         except (TypeError, ValueError) as exc:
-            raise KaiLocationError("SHARE_DURATION_INVALID", "durationHours must be a number.", status_code=422) from exc
+            raise KaiLocationError(
+                "SHARE_DURATION_INVALID", "durationHours must be a number.", status_code=422
+            ) from exc
         if duration <= 0 or duration > MAX_SHARE_HOURS:
-            raise KaiLocationError("SHARE_DURATION_INVALID", "Location links can be active for at most 24 hours.", status_code=422)
+            raise KaiLocationError(
+                "SHARE_DURATION_INVALID",
+                "Location links can be active for at most 24 hours.",
+                status_code=422,
+            )
 
         contact = self._execute_one(
             """
@@ -666,9 +702,15 @@ class KaiLocationService:
             {"owner_user_id": owner_user_id, "contact_id": contact_id},
         )
         if not contact:
-            raise KaiLocationError("CONTACT_NOT_FOUND", "Create an active recipient before sharing location.", status_code=404)
+            raise KaiLocationError(
+                "CONTACT_NOT_FOUND",
+                "Create an active recipient before sharing location.",
+                status_code=404,
+            )
 
-        latest = self.upsert_latest_point(owner_user_id=owner_user_id, point=point, require_fresh=True)
+        latest = self.upsert_latest_point(
+            owner_user_id=owner_user_id, point=point, require_fresh=True
+        )
         token = _new_token()
         row = self._execute_one(
             """
@@ -699,7 +741,9 @@ class KaiLocationService:
         )
         share = self._share_payload(row)
         if not share:
-            raise KaiLocationError("SHARE_CREATE_FAILED", "Could not create the location share.", status_code=500)
+            raise KaiLocationError(
+                "SHARE_CREATE_FAILED", "Could not create the location share.", status_code=500
+            )
         self._insert_event(
             owner_user_id=owner_user_id,
             contact_id=contact_id,
@@ -724,7 +768,9 @@ class KaiLocationService:
             {"owner_user_id": owner_user_id, "share_id": share_id},
         )
         if not row:
-            raise KaiLocationError("SHARE_NOT_FOUND", "Location share was not found.", status_code=404)
+            raise KaiLocationError(
+                "SHARE_NOT_FOUND", "Location share was not found.", status_code=404
+            )
         self._insert_event(
             owner_user_id=owner_user_id,
             contact_id=str(row.get("contact_id") or "") or None,
@@ -735,7 +781,9 @@ class KaiLocationService:
         self._revoke_update_sessions_if_no_active_shares(owner_user_id)
         share = self._share_payload(row)
         if not share:
-            raise KaiLocationError("SHARE_REVOKE_FAILED", "Could not revoke the share.", status_code=500)
+            raise KaiLocationError(
+                "SHARE_REVOKE_FAILED", "Could not revoke the share.", status_code=500
+            )
         return share
 
     def stop_active_shares(self, *, owner_user_id: str) -> dict[str, Any]:
@@ -768,7 +816,13 @@ class KaiLocationService:
     def resolve_public_share(self, *, token: str) -> dict[str, Any]:
         normalized_token = str(token or "").strip()
         if not normalized_token:
-            return {"state": "invalid", "canRequestAccess": False, "share": None, "latest": None, "live": None}
+            return {
+                "state": "invalid",
+                "canRequestAccess": False,
+                "share": None,
+                "latest": None,
+                "live": None,
+            }
         row = self._execute_one(
             """
             SELECT
@@ -785,7 +839,13 @@ class KaiLocationService:
             {"token_hash": _token_hash(normalized_token)},
         )
         if not row:
-            return {"state": "invalid", "canRequestAccess": False, "share": None, "latest": None, "live": None}
+            return {
+                "state": "invalid",
+                "canRequestAccess": False,
+                "share": None,
+                "latest": None,
+                "live": None,
+            }
 
         status_value = str(row.get("status") or "active")
         share_id = str(row.get("id") or "")
@@ -796,8 +856,9 @@ class KaiLocationService:
         is_expired = isinstance(expires_at, datetime) and expires_at <= _utcnow()
 
         if status_value == "active" and is_expired:
-            row = self._execute_one(
-                """
+            row = (
+                self._execute_one(
+                    """
                 UPDATE kai_location_shares
                 SET status = 'deactivated',
                     deactivated_at = COALESCE(deactivated_at, NOW()),
@@ -809,13 +870,15 @@ class KaiLocationService:
                   :contact_tier AS contact_tier,
                   :contact_auto_approve AS contact_auto_approve
                 """,
-                {
-                    "share_id": share_id,
-                    "contact_display_name": row.get("contact_display_name"),
-                    "contact_tier": row.get("contact_tier"),
-                    "contact_auto_approve": row.get("contact_auto_approve"),
-                },
-            ) or row
+                    {
+                        "share_id": share_id,
+                        "contact_display_name": row.get("contact_display_name"),
+                        "contact_tier": row.get("contact_tier"),
+                        "contact_auto_approve": row.get("contact_auto_approve"),
+                    },
+                )
+                or row
+            )
             self._insert_event(
                 owner_user_id=owner_user_id,
                 contact_id=str(row.get("contact_id") or "") or None,
@@ -841,8 +904,9 @@ class KaiLocationService:
                 "live": _public_live_payload(row=row, latest=None),
             }
 
-        updated_row = self._execute_one(
-            """
+        updated_row = (
+            self._execute_one(
+                """
             UPDATE kai_location_shares
             SET last_viewed_at = NOW(), updated_at = NOW()
             WHERE id = CAST(:share_id AS UUID)
@@ -852,13 +916,15 @@ class KaiLocationService:
               :contact_tier AS contact_tier,
               :contact_auto_approve AS contact_auto_approve
             """,
-            {
-                "share_id": share_id,
-                "contact_display_name": row.get("contact_display_name"),
-                "contact_tier": row.get("contact_tier"),
-                "contact_auto_approve": row.get("contact_auto_approve"),
-            },
-        ) or row
+                {
+                    "share_id": share_id,
+                    "contact_display_name": row.get("contact_display_name"),
+                    "contact_tier": row.get("contact_tier"),
+                    "contact_auto_approve": row.get("contact_auto_approve"),
+                },
+            )
+            or row
+        )
         latest = self._execute_one(
             "SELECT * FROM kai_location_latest WHERE owner_user_id = :owner_user_id",
             {"owner_user_id": owner_user_id},
@@ -903,7 +969,9 @@ class KaiLocationService:
             {"token_hash": _token_hash(str(token or "").strip())},
         )
         if not share_row:
-            raise KaiLocationError("SHARE_NOT_FOUND", "This location link is no longer valid.", status_code=404)
+            raise KaiLocationError(
+                "SHARE_NOT_FOUND", "This location link is no longer valid.", status_code=404
+            )
 
         owner_user_id = str(share_row.get("owner_user_id") or "")
         share_id = str(share_row.get("id") or "")
@@ -912,10 +980,16 @@ class KaiLocationService:
         share_status = str(share_row.get("status") or "")
         expires_at = _parse_datetime(share_row.get("expires_at"), field_name="expires_at")
         contact_active = str(share_row.get("contact_status") or "revoked") == "active"
-        auto_approve = bool(share_row.get("contact_auto_approve")) and contact_tier == "family" and contact_active
+        auto_approve = (
+            bool(share_row.get("contact_auto_approve"))
+            and contact_tier == "family"
+            and contact_active
+        )
 
         if share_status == "revoked":
-            raise KaiLocationError("SHARE_REVOKED", "This location link has been revoked.", status_code=410)
+            raise KaiLocationError(
+                "SHARE_REVOKED", "This location link has been revoked.", status_code=410
+            )
         if share_status == "active" and expires_at > _utcnow():
             raise KaiLocationError(
                 "SHARE_STILL_ACTIVE",
@@ -1072,7 +1146,9 @@ class KaiLocationService:
             {"owner_user_id": owner_user_id, "request_id": request_id},
         )
         if not request_row:
-            raise KaiLocationError("ACCESS_REQUEST_NOT_FOUND", "Pending access request was not found.", status_code=404)
+            raise KaiLocationError(
+                "ACCESS_REQUEST_NOT_FOUND", "Pending access request was not found.", status_code=404
+            )
         share_id = str(request_row.get("share_id") or "")
         share_row = self._execute_one(
             """
@@ -1114,7 +1190,10 @@ class KaiLocationService:
             event_type="ACCESS_APPROVED",
             metadata={"duration_hours": 24},
         )
-        return {"accessRequest": self._request_payload(resolved), "share": self._share_payload(share_row)}
+        return {
+            "accessRequest": self._request_payload(resolved),
+            "share": self._share_payload(share_row),
+        }
 
     def deny_access_request(self, *, owner_user_id: str, request_id: str) -> dict[str, Any]:
         resolved = self._execute_one(
@@ -1130,7 +1209,9 @@ class KaiLocationService:
             {"owner_user_id": owner_user_id, "request_id": request_id},
         )
         if not resolved:
-            raise KaiLocationError("ACCESS_REQUEST_NOT_FOUND", "Pending access request was not found.", status_code=404)
+            raise KaiLocationError(
+                "ACCESS_REQUEST_NOT_FOUND", "Pending access request was not found.", status_code=404
+            )
         self._insert_event(
             owner_user_id=owner_user_id,
             contact_id=str(resolved.get("contact_id") or "") or None,
@@ -1187,7 +1268,9 @@ class KaiLocationService:
     def update_with_session(self, *, session_token: str, point: dict[str, Any]) -> dict[str, Any]:
         token = str(session_token or "").strip()
         if not token:
-            raise KaiLocationError("LOCATION_UPDATE_TOKEN_MISSING", "Missing location update token.", status_code=401)
+            raise KaiLocationError(
+                "LOCATION_UPDATE_TOKEN_MISSING", "Missing location update token.", status_code=401
+            )
         session = self._execute_one(
             """
             SELECT *
@@ -1199,7 +1282,9 @@ class KaiLocationService:
             {"session_token_hash": _token_hash(token)},
         )
         if not session:
-            raise KaiLocationError("LOCATION_UPDATE_TOKEN_INVALID", "Invalid location update token.", status_code=401)
+            raise KaiLocationError(
+                "LOCATION_UPDATE_TOKEN_INVALID", "Invalid location update token.", status_code=401
+            )
         owner_user_id = str(session.get("owner_user_id") or "")
         expires_at = session.get("expires_at")
         if isinstance(expires_at, datetime) and expires_at.tzinfo is None:
@@ -1213,7 +1298,9 @@ class KaiLocationService:
                 """,
                 {"session_id": str(session.get("id") or "")},
             )
-            raise KaiLocationError("LOCATION_UPDATE_TOKEN_EXPIRED", "Location update session expired.", status_code=401)
+            raise KaiLocationError(
+                "LOCATION_UPDATE_TOKEN_EXPIRED", "Location update session expired.", status_code=401
+            )
 
         active = self._execute_one(
             """
@@ -1227,9 +1314,13 @@ class KaiLocationService:
         )
         if int(active.get("active_count") or 0) <= 0:
             self._revoke_update_sessions_if_no_active_shares(owner_user_id)
-            raise KaiLocationError("NO_ACTIVE_LOCATION_SHARES", "No active location shares remain.", status_code=403)
+            raise KaiLocationError(
+                "NO_ACTIVE_LOCATION_SHARES", "No active location shares remain.", status_code=403
+            )
 
-        latest = self.upsert_latest_point(owner_user_id=owner_user_id, point=point, require_fresh=False)
+        latest = self.upsert_latest_point(
+            owner_user_id=owner_user_id, point=point, require_fresh=False
+        )
         self._execute_one(
             """
             UPDATE kai_location_update_sessions
@@ -1251,10 +1342,13 @@ class KaiLocationService:
             return
         try:
             db = get_db()
-            rows = db.execute_raw(
-                "SELECT token, platform FROM user_push_tokens WHERE user_id = :user_id",
-                {"user_id": owner_user_id},
-            ).data or []
+            rows = (
+                db.execute_raw(
+                    "SELECT token, platform FROM user_push_tokens WHERE user_id = :user_id",
+                    {"user_id": owner_user_id},
+                ).data
+                or []
+            )
             if not rows:
                 return
             configured, _ = ensure_firebase_admin()
@@ -1293,9 +1387,13 @@ class KaiLocationService:
                 try:
                     messaging.send(message)
                 except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
-                    db.execute_raw("DELETE FROM user_push_tokens WHERE token = :token", {"token": token})
+                    db.execute_raw(
+                        "DELETE FROM user_push_tokens WHERE token = :token", {"token": token}
+                    )
                 except Exception as exc:
-                    logger.warning("Location access FCM send failed user=%s: %s", owner_user_id, exc)
+                    logger.warning(
+                        "Location access FCM send failed user=%s: %s", owner_user_id, exc
+                    )
         except Exception as exc:
             logger.warning("Location access notification skipped user=%s: %s", owner_user_id, exc)
 

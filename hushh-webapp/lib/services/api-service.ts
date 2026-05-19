@@ -2486,6 +2486,7 @@ export class ApiService {
     message: string;
     conversationId?: string;
     vaultOwnerToken: string;
+    pkmContext?: string;
     signal?: AbortSignal;
   }): Promise<Response> {
     return ApiService.apiFetchStream("/api/kai/agent/chat/stream", {
@@ -2497,6 +2498,7 @@ export class ApiService {
         user_id: data.userId,
         message: data.message,
         conversation_id: data.conversationId,
+        pkm_context: data.pkmContext,
       }),
       signal: data.signal,
     });
@@ -2533,6 +2535,38 @@ export class ApiService {
       `/api/kai/agent/chat/history/${encodeURIComponent(data.conversationId)}${suffix}`,
       {
         method: "GET",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+      }
+    );
+  }
+
+  static async renameAgentChatConversation(data: {
+    conversationId: string;
+    title: string;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    return apiFetch(
+      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.conversationId)}`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+        body: JSON.stringify({ title: data.title }),
+      }
+    );
+  }
+
+  static async deleteAgentChatConversation(data: {
+    conversationId: string;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    return apiFetch(
+      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.conversationId)}`,
+      {
+        method: "DELETE",
         headers: {
           Authorization: `Bearer ${data.vaultOwnerToken}`,
         },

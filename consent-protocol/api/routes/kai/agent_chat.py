@@ -29,6 +29,11 @@ class AgentChatStreamRequest(BaseModel):
     user_id: str = Field(..., min_length=1)
     message: str = Field(..., min_length=1, max_length=8000)
     conversation_id: Optional[str] = None
+    pkm_context: Optional[str] = Field(default=None, max_length=6000)
+
+
+class AgentChatRenameRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=160)
 
 
 class AgentChatConversationModel(BaseModel):
@@ -61,6 +66,11 @@ class AgentChatConversationsResponse(BaseModel):
 class AgentChatHistoryResponse(BaseModel):
     conversation_id: str
     messages: list[AgentChatMessageModel]
+
+
+class AgentChatDeleteResponse(BaseModel):
+    conversation_id: str
+    deleted: bool
 
 
 def _event(event: str, data: dict[str, Any]) -> str:
@@ -110,13 +120,16 @@ async def _save_assistant_message(
     status_value: Literal["complete", "interrupted", "error"],
     error_code: str | None = None,
 ) -> None:
-    if not text.strip():
+    message_text = text.strip()
+    if not message_text and status_value == "error":
+        message_text = "Agent chat failed. Please try again."
+    if not message_text:
         return
     await service.add_message(
         conversation_id=turn.conversation_id,
         user_id=user_id,
         role="assistant",
-        content=text,
+        content=message_text,
         status=status_value,
         model=turn.model,
         error_code=error_code,
@@ -139,7 +152,11 @@ async def stream_agent_chat(
             message=body.message,
             conversation_id=body.conversation_id,
         )
-        action_plan: AgentChatActionPlan | None = service.plan_action(body.message)
+        action_plan: AgentChatActionPlan | None = await service.plan_action_with_gemini(
+            user_message=body.message,
+            history=turn.history,
+            pkm_context=body.pkm_context,
+        )
     except Exception as error:
         logger.exception("agent_chat.prepare_failed user_id=%s: %s", body.user_id, error)
         raise HTTPException(status_code=500, detail="Agent chat could not be started") from error
@@ -179,6 +196,7 @@ async def stream_agent_chat(
                 user_message=body.message,
                 history=turn.history,
                 action_plan=action_plan,
+                pkm_context=body.pkm_context,
             ):
                 if await request.is_disconnected():
                     text = "".join(chunks)
@@ -263,6 +281,43 @@ async def list_agent_chat_conversations(
         user_id=user_id,
         conversations=[_conversation_model(conversation) for conversation in conversations],
     )
+
+
+@router.patch(
+    "/agent/chat/conversations/{conversation_id}", response_model=AgentChatConversationModel
+)
+async def rename_agent_chat_conversation(
+    conversation_id: str,
+    body: AgentChatRenameRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    user_id = str(token_data.get("user_id") or "")
+    conversation = await get_agent_chat_service().rename_conversation(
+        conversation_id,
+        user_id=user_id,
+        title=body.title,
+    )
+    if conversation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    return _conversation_model(conversation)
+
+
+@router.delete(
+    "/agent/chat/conversations/{conversation_id}",
+    response_model=AgentChatDeleteResponse,
+)
+async def delete_agent_chat_conversation(
+    conversation_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    user_id = str(token_data.get("user_id") or "")
+    deleted = await get_agent_chat_service().delete_conversation(
+        conversation_id,
+        user_id=user_id,
+    )
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    return AgentChatDeleteResponse(conversation_id=conversation_id, deleted=True)
 
 
 @router.get("/agent/chat/history/{conversation_id}", response_model=AgentChatHistoryResponse)

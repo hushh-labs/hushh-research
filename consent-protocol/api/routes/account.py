@@ -113,10 +113,7 @@ def _configured_uat_phone_test_numbers() -> set[str]:
         return set()
     return {
         normalized
-        for normalized in (
-            _normalize_phone_number(part)
-            for part in re.split(r"[,;\n]+", raw)
-        )
+        for normalized in (_normalize_phone_number(part) for part in re.split(r"[,;\n]+", raw))
         if normalized
     }
 

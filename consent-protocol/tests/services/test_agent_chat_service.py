@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from hushh_mcp.services.agent_chat_service import (
     AGENT_SYSTEM_PROMPT,
     DEFAULT_AGENT_CHAT_MODEL,
@@ -60,7 +62,7 @@ def test_agent_chat_service_decrypts_encrypted_conversation_and_message(test_vau
     assert message.role == "assistant"
 
 
-def test_agent_chat_prompt_is_kai_focused_and_includes_planned_action(test_vault_key):
+def test_agent_chat_contents_use_system_instruction_boundary_and_planned_action(test_vault_key):
     service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
     action_plan = service.plan_action("Start analysis of Nvidia")
     assert action_plan is not None
@@ -68,7 +70,7 @@ def test_agent_chat_prompt_is_kai_focused_and_includes_planned_action(test_vault
     assert action_plan.execution == "frontend"
     assert action_plan.slots == {"symbol": "NVDA"}
 
-    prompt = service._build_prompt(
+    contents = service._build_contents(
         user_message="Start analysis of Nvidia",
         history=[
             AgentChatMessage(
@@ -95,16 +97,58 @@ def test_agent_chat_prompt_is_kai_focused_and_includes_planned_action(test_vault
             ),
         ],
         action_plan=action_plan,
+        pkm_context="Saved domains: Financial\n- Financial: prefers long-term portfolio reviews.",
+    )
+    current_turn_text = contents[-1].parts[0].text or ""
+
+    assert "Kai-focused financial assistant" in AGENT_SYSTEM_PROMPT
+    assert contents[0].role == "user"
+    assert contents[0].parts[0].text == "Can you help with stocks?"
+    assert contents[1].role == "model"
+    assert contents[1].parts[0].text == "Yes, I can help with Kai market workflows."
+    assert "Action context:" in current_turn_text
+    assert "PKM context:" in current_turn_text
+    assert "prefers long-term portfolio reviews" in current_turn_text
+    assert "action_id: analysis.start" in current_turn_text
+    assert "slots: {'symbol': 'NVDA'}" in current_turn_text
+    assert "Latest user message:\nStart analysis of Nvidia" in current_turn_text
+    assert AGENT_SYSTEM_PROMPT not in current_turn_text
+
+
+def test_agent_chat_translates_gemini_function_call_to_frontend_analysis(test_vault_key):
+    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+
+    action_plan = service._action_plan_from_function_call(
+        SimpleNamespace(
+            id="gemini-call-1",
+            name="start_stock_analysis",
+            args={"company": "Nvidia"},
+        )
     )
 
-    assert AGENT_SYSTEM_PROMPT in prompt
-    assert "Kai-focused financial assistant" in prompt
-    assert "User: Can you help with stocks?" in prompt
-    assert "Agent: Yes, I can help with Kai market workflows." in prompt
-    assert "Action context:" in prompt
-    assert "action_id: analysis.start" in prompt
-    assert "slots: {'symbol': 'NVDA'}" in prompt
-    assert "User: Start analysis of Nvidia" in prompt
+    assert action_plan is not None
+    assert action_plan.call_id == "gemini-call-1"
+    assert action_plan.action_id == "analysis.start"
+    assert action_plan.execution == "frontend"
+    assert action_plan.slots == {"symbol": "NVDA"}
+
+
+def test_agent_chat_translates_gemini_function_call_to_frontend_navigation(test_vault_key):
+    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+
+    action_plan = service._action_plan_from_function_call(
+        SimpleNamespace(
+            id="gemini-call-2",
+            name="open_app_surface",
+            args={"surface": "consent_center"},
+        )
+    )
+
+    assert action_plan is not None
+    assert action_plan.call_id == "gemini-call-2"
+    assert action_plan.action_id == "route.consents"
+    assert action_plan.execution == "frontend"
+    assert action_plan.slots == {}
 
 
 def test_agent_chat_plans_safe_navigation_actions(test_vault_key):
@@ -114,6 +158,17 @@ def test_agent_chat_plans_safe_navigation_actions(test_vault_key):
 
     assert action_plan is not None
     assert action_plan.action_id == "route.consents"
+    assert action_plan.execution == "frontend"
+    assert action_plan.slots == {}
+
+
+def test_agent_chat_plans_pkm_navigation(test_vault_key):
+    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+
+    action_plan = service.plan_action("Please open my PKM memory lab")
+
+    assert action_plan is not None
+    assert action_plan.action_id == "route.profile_pkm_agent_lab"
     assert action_plan.execution == "frontend"
     assert action_plan.slots == {}
 
