@@ -39,4 +39,14 @@ describe("RIA client test profile builders", () => {
       account_count: 2,
     });
   });
+    it("preserves Kai-specialized template id across detail and request templates", () => {
+    const detail = buildKaiTestClientDetail("client-template-check");
+
+    expect(detail.kai_specialized_bundle?.template_id).toBe(
+      RIA_KAI_SPECIALIZED_TEMPLATE_ID
+    );
+    expect(detail.requestable_scope_templates[0]?.template_id).toBe(
+      RIA_KAI_SPECIALIZED_TEMPLATE_ID
+    );
+  });
 });
