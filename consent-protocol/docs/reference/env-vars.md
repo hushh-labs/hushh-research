@@ -69,6 +69,9 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `REMOTE_MCP_ENABLED` | `api/developer_auth.py`, `mcp_remote.py` | No | Enables hosted remote MCP transport at `/mcp`. |
 | `SYNC_REMOTE_ENABLED` | deploy/runtime env contract | No | Legacy deploy flag; keep false unless the runtime reintroduces an active reader. |
 | `HUSHH_DEVELOPER_TOKEN` | `api/routes/session.py`, `mcp_server.py` | Optional | Self-serve developer token used by stdio MCP and token-auth `/api/user/lookup`. It is not part of the normal hosted runtime contract. |
+| `HUSHH_UAT_PHONE_TEST_NUMBERS` | `api/routes/account.py` | UAT test only | Comma-separated E.164 allowlist for fixed-code phone verification; only honored when `ENVIRONMENT=uat`. Store in UAT Secret Manager. |
+| `HUSHH_UAT_PHONE_TEST_CODE` | `api/routes/account.py` | UAT test only | Fixed OTP for the UAT phone allowlist. Store in UAT Secret Manager and never expose as `NEXT_PUBLIC_*`. |
+| `HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET` | `api/routes/account.py` | Optional | Optional HMAC key for stateless UAT phone challenge IDs; falls back to `APP_SIGNING_KEY`. |
 | `ROOT_PATH` | `server.py` | No | FastAPI root path for reverse proxy. |
 | `AGENT_GEMINI_MODEL` | `hushh_mcp/services/agent_chat_service.py` | No | Optional Agent text chat model override. Defaults to stable `gemini-2.5-pro`. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | Cloud Run env | No | Set `True` for Vertex AI in production. |

@@ -446,9 +446,11 @@ class ActorIdentityService:
         *,
         user_id: str,
         phone_number: str,
+        source: str = "firebase_phone_claim",
     ) -> dict[str, Any] | None:
         normalized_user_id = str(user_id or "").strip()
         normalized_phone_number = str(phone_number or "").strip()
+        normalized_source = str(source or "").strip() or "firebase_phone_claim"
         if not normalized_user_id or not normalized_phone_number:
             return None
 
@@ -483,7 +485,7 @@ class ActorIdentityService:
                       $1,
                       $2,
                       TRUE,
-                      'firebase_phone_claim',
+                      $3,
                       NOW(),
                       NOW(),
                       NOW()
@@ -491,7 +493,7 @@ class ActorIdentityService:
                     ON CONFLICT (user_id) DO UPDATE SET
                       phone_number = EXCLUDED.phone_number,
                       phone_verified = TRUE,
-                      source = 'firebase_phone_claim',
+                      source = $3,
                       last_synced_at = NOW(),
                       updated_at = NOW()
                     RETURNING
@@ -509,6 +511,7 @@ class ActorIdentityService:
                     """,
                     normalized_user_id,
                     normalized_phone_number,
+                    normalized_source,
                 )
         except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError):
             logger.debug(
