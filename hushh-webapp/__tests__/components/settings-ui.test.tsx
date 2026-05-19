@@ -108,4 +108,18 @@ describe("SettingsSegmentedTabs", () => {
     fireEvent.click(inactive);
     expect(handleValueChange).toHaveBeenCalledWith("kai");
   });
+    it("preserves empty options rendering stability", () => {
+    const handleValueChange = vi.fn();
+
+    render(
+      <SettingsSegmentedTabs
+        value=""
+        onValueChange={handleValueChange}
+        options={[]}
+      />
+    );
+
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(handleValueChange).not.toHaveBeenCalled();
+  });
 });
