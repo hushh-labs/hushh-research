@@ -5,6 +5,7 @@ vi.mock("@/lib/services/vault-service", () => ({
     getVaultState: vi.fn(),
     hashVaultKey: vi.fn(),
     upsertVaultWrapper: vi.fn(),
+    deleteVaultWrapper: vi.fn(),
     setPrimaryVaultMethod: vi.fn(),
     canUseGeneratedDefaultVault: vi.fn(),
   },
@@ -29,6 +30,7 @@ describe("VaultMethodService.changePassphrase", () => {
   const getVaultStateMock = vi.mocked(VaultService.getVaultState);
   const hashVaultKeyMock = vi.mocked(VaultService.hashVaultKey);
   const upsertWrapperMock = vi.mocked(VaultService.upsertVaultWrapper);
+  const deleteWrapperMock = vi.mocked(VaultService.deleteVaultWrapper);
   const setPrimaryMock = vi.mocked(VaultService.setPrimaryVaultMethod);
   const rewrapMock = vi.mocked(rewrapVaultKeyWithPassphrase);
 
@@ -68,6 +70,8 @@ describe("VaultMethodService.changePassphrase", () => {
   });
 
   it("updates passphrase wrapper without changing primary method by default", async () => {
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+
     const result = await VaultMethodService.changePassphrase({
       userId: "uid-1",
       currentVaultKey:
@@ -82,13 +86,22 @@ describe("VaultMethodService.changePassphrase", () => {
           method: "passphrase",
           wrapperId: "default",
         }),
-      })
+      }),
     );
     expect(setPrimaryMock).not.toHaveBeenCalled();
     expect(result).toEqual({
       primaryMethod: "generated_default_native_passkey_prf",
       passphraseUpdated: true,
     });
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "vault-rekeyed",
+        detail: {
+          userId: "uid-1",
+          reason: "vault_passphrase_changed",
+        },
+      })
+    );
   });
 
   it("can set passphrase as primary when keepPrimaryMethod is false", async () => {
@@ -100,7 +113,11 @@ describe("VaultMethodService.changePassphrase", () => {
       keepPrimaryMethod: false,
     });
 
-    expect(setPrimaryMock).toHaveBeenCalledWith("uid-1", "passphrase", "default");
+    expect(setPrimaryMock).toHaveBeenCalledWith(
+      "uid-1",
+      "passphrase",
+      "default",
+    );
     expect(result).toEqual({
       primaryMethod: "passphrase",
       passphraseUpdated: true,
@@ -109,7 +126,7 @@ describe("VaultMethodService.changePassphrase", () => {
 
   it("maps RP mismatch errors to actionable message", async () => {
     upsertWrapperMock.mockRejectedValueOnce(
-      new Error("wrapper rp id is not allowed for this environment")
+      new Error("wrapper rp id is not allowed for this environment"),
     );
 
     await expect(
@@ -118,7 +135,79 @@ describe("VaultMethodService.changePassphrase", () => {
         currentVaultKey:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         newPassphrase: "new-passphrase-123",
-      })
+      }),
     ).rejects.toThrow(/older domain/i);
+  });
+
+  describe("removeMethod", () => {
+    it("removes a passkey wrapper and falls back to passphrase when primary", async () => {
+      const result = await VaultMethodService.removeMethod({
+        userId: "uid-1",
+        currentVaultKey:
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        vaultOwnerToken: "vault-owner-token-1",
+        method: "generated_default_native_passkey_prf",
+        wrapperId: "cred-1",
+      });
+
+      expect(deleteWrapperMock).toHaveBeenCalledWith({
+        userId: "uid-1",
+        vaultKeyHash: "vault-hash",
+        method: "generated_default_native_passkey_prf",
+        vaultOwnerToken: "vault-owner-token-1",
+        wrapperId: "cred-1",
+        fallbackPrimaryMethod: "passphrase",
+        fallbackPrimaryWrapperId: "default",
+      });
+      expect(result).toEqual({ primaryMethod: "passphrase" });
+    });
+
+    it("rejects passphrase removal", async () => {
+      await expect(
+        VaultMethodService.removeMethod({
+          userId: "uid-1",
+          currentVaultKey:
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          vaultOwnerToken: "vault-owner-token-1",
+          method: "passphrase",
+          wrapperId: "default",
+        }),
+      ).rejects.toThrow(/cannot be removed/i);
+
+      expect(deleteWrapperMock).not.toHaveBeenCalled();
+    });
+
+    it("requires a passphrase fallback before removing quick unlock", async () => {
+      getVaultStateMock.mockResolvedValueOnce({
+        vaultKeyHash: "vault-hash",
+        primaryMethod: "generated_default_native_passkey_prf",
+        primaryWrapperId: "cred-1",
+        recoveryEncryptedVaultKey: "r1",
+        recoverySalt: "r2",
+        recoveryIv: "r3",
+        wrappers: [
+          {
+            method: "generated_default_native_passkey_prf",
+            wrapperId: "cred-1",
+            encryptedVaultKey: "e1",
+            salt: "s1",
+            iv: "i1",
+          },
+        ],
+      });
+
+      await expect(
+        VaultMethodService.removeMethod({
+          userId: "uid-1",
+          currentVaultKey:
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          vaultOwnerToken: "vault-owner-token-1",
+          method: "generated_default_native_passkey_prf",
+          wrapperId: "cred-1",
+        }),
+      ).rejects.toThrow(/passphrase unlock must be repaired/i);
+
+      expect(deleteWrapperMock).not.toHaveBeenCalled();
+    });
   });
 });
