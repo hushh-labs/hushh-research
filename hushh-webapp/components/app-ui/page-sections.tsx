@@ -145,6 +145,7 @@ export function PageHeader({
   leading,
   accent = "default",
   className,
+  testId = "page-header",
 }: {
   eyebrow?: string;
   title: ReactNode;
@@ -156,6 +157,7 @@ export function PageHeader({
   leading?: ReactNode;
   accent?: SectionAccent;
   className?: string;
+  testId?: string;
 }) {
   const styles = ACCENT_STYLES[accent];
   return (
@@ -163,6 +165,7 @@ export function PageHeader({
       className={cn("space-y-[var(--page-header-stack-gap)]", className)}
       data-slot="page-header"
       data-page-primary="true"
+      data-testid={testId}
     >
       <div className="flex items-stretch gap-3 sm:gap-4">
         {icon || leading ? (
@@ -243,6 +246,7 @@ export function SectionHeader({
   leading,
   accent = "default",
   className,
+  testId = "section-header",
 }: {
   eyebrow?: string;
   title: ReactNode;
@@ -252,10 +256,11 @@ export function SectionHeader({
   leading?: ReactNode;
   accent?: SectionAccent;
   className?: string;
+  testId?: string;
 }) {
   const styles = ACCENT_STYLES[accent];
   return (
-    <div className={cn("space-y-[var(--section-header-stack-gap)]", className)}>
+    <div className={cn("space-y-[var(--section-header-stack-gap)]", className)} data-testid={testId}>
       <div className="flex items-stretch gap-3">
         {icon || leading ? (
           <HeaderLeading
