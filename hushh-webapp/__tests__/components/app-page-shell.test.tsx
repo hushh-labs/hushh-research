@@ -25,4 +25,14 @@ describe("AppPageShell", () => {
 
     expect(screen.getByRole("main").getAttribute("data-app-density")).toBe("comfortable");
   });
+    it("preserves shell rendering when header region is omitted", () => {
+    render(
+      <AppPageShell>
+        <AppPageContentRegion>Only content</AppPageContentRegion>
+      </AppPageShell>
+    );
+
+    expect(screen.getByRole("main")).toBeTruthy();
+    expect(screen.getByText("Only content")).toBeTruthy();
+  });
 });
