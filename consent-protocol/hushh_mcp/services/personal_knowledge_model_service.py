@@ -946,10 +946,12 @@ class PersonalKnowledgeModelService:
             summary.get("attribute_count"),
             summary.get("holdings_count"),
             summary.get("item_count"),
+            summary.get("externalizable_path_count"),
+            summary.get("path_count"),
         )
         for candidate in candidates:
             parsed = self._to_non_negative_int(candidate)
-            if parsed is not None:
+            if parsed is not None and parsed > 0:
                 return parsed
         return 0
 
