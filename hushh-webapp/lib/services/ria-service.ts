@@ -112,6 +112,13 @@ export interface MarketplaceInvestorActionRecord {
   updated_at?: string | null;
 }
 
+export interface MarketplaceInvestorDeckResponse {
+  items: MarketplaceInvestor[];
+  remaining_count: number;
+  handled_count: number;
+  deck_complete: boolean;
+}
+
 export interface RiaOnboardingStatus {
   exists: boolean;
   ria_profile_id?: string;
@@ -1215,6 +1222,34 @@ export class RiaService {
       CACHE_TTL.MEDIUM,
     );
     return payload.items;
+  }
+
+  static async searchInvestorDeck(
+    idToken: string,
+    params: {
+      query?: string;
+      limit?: number;
+      persona?: string;
+      deck?: string;
+      location?: string;
+    },
+  ): Promise<MarketplaceInvestorDeckResponse> {
+    const query = new URLSearchParams();
+    if (params.query) query.set("query", params.query);
+    if (typeof params.limit === "number") {
+      query.set("limit", String(params.limit));
+    }
+    if (params.persona) query.set("persona", params.persona);
+    if (params.deck) query.set("deck", params.deck);
+    if (params.location) query.set("location", params.location);
+    const response = await authFetch(
+      `/api/marketplace/investors/deck?${query.toString()}`,
+      {
+        method: "GET",
+        idToken,
+      },
+    );
+    return toJsonOrThrow<MarketplaceInvestorDeckResponse>(response);
   }
 
   static async listInvestorActions(

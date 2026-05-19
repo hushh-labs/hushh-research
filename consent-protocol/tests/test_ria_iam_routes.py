@@ -217,6 +217,47 @@ def test_marketplace_investors_forwards_deck_and_location_filters(monkeypatch):
     assert response.json()["items"] == []
 
 
+def test_marketplace_investor_deck_is_authenticated_and_returns_metadata(monkeypatch):
+    async def _mock_deck(self, user_id: str, **kwargs):  # noqa: ANN003
+        assert user_id == "user_test_123"
+        assert kwargs == {
+            "query": "98033",
+            "limit": 12,
+            "persona": "ria",
+            "deck": "qualified",
+            "location": None,
+        }
+        return {
+            "items": [
+                {
+                    "id": "public_sec:42",
+                    "source_type": "public_sec",
+                    "display_name": "GATES FOUNDATION TRUST",
+                    "connectable": False,
+                    "actions": ["shortlist", "view_more"],
+                }
+            ],
+            "remaining_count": 1,
+            "handled_count": 8,
+            "deck_complete": False,
+        }
+
+    monkeypatch.setattr(RIAIAMService, "search_marketplace_investor_deck", _mock_deck)
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/marketplace/investors/deck",
+        params={"query": "98033", "limit": "12"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["id"] == "public_sec:42"
+    assert payload["remaining_count"] == 1
+    assert payload["handled_count"] == 8
+    assert payload["deck_complete"] is False
+
+
 def test_marketplace_investor_action_routes_are_authenticated_and_forwarded(monkeypatch):
     async def _mock_record(self, user_id: str, **kwargs):  # noqa: ANN003
         assert user_id == "user_test_123"

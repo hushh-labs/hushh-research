@@ -18,7 +18,9 @@ class _FakeMarketplaceConn:
         self.fetch_calls.append((query, args))
         if "FROM actor_profiles" in query:
             assert "qualified_investor_status" in query
+            assert args[1] == 5
             assert args[3] is True
+            assert args[4] == []
             return [
                 {
                     "user_id": "hushh_investor_1",
@@ -164,6 +166,70 @@ class _FakeMarketplaceActionConn:
         self.closed = True
 
 
+class _FakeMarketplaceDeckConn:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def fetch(self, query: str, *args: object) -> list[dict[str, object]]:
+        if "FROM marketplace_investor_actions" in query:
+            return [
+                {"target_key": "public_sec:42"},
+                {"target_key": "hushh_user:handled_investor"},
+            ]
+        if "FROM actor_profiles" in query:
+            assert "NOT (('hushh_user:' || ap.user_id) = ANY" in query
+            assert args[1] == 12
+            assert args[3] is True
+            assert "hushh_user:handled_investor" in args[-1]
+            return []
+        if "FROM investor_profiles" in query:
+            assert "NOT (('public_sec:' || id::text) = ANY" in query
+            assert "public_sec:42" in args[-1]
+            return [
+                {
+                    "id": 43,
+                    "name": "Unseen Public",
+                    "cik": "0000123457",
+                    "firm": "Unseen Public Capital",
+                    "title": "Public institutional filer",
+                    "investor_type": "institutional_investor",
+                    "location_hint": "Seattle, WA",
+                    "business_address": '{"city":"SEATTLE","state":"WA"}',
+                    "aum_billions": None,
+                    "investment_style": ["public_13f"],
+                    "risk_tolerance": None,
+                    "time_horizon": None,
+                    "portfolio_turnover": None,
+                    "biography": "Official SEC-backed unseen public investor profile.",
+                    "is_insider": False,
+                    "insider_company_ticker": None,
+                    "data_sources": ["SEC EDGAR"],
+                    "source_urls": ["https://data.sec.gov/submissions/CIK0000123457.json"],
+                    "evidence": '{"confidence":"official_sec_record"}',
+                    "last_13f_date": date(2026, 3, 31),
+                    "last_form4_date": None,
+                    "marketplace_eligible": True,
+                    "admission_status": "qualified",
+                    "curation_tier": "qualified",
+                    "quality_score": 88,
+                    "curation_reason": "Qualified public SEC filer.",
+                    "updated_at": date(2026, 4, 15),
+                }
+            ]
+        return []
+
+    async def fetchval(self, query: str, *args: object) -> int:
+        assert "public_sec:42" in args[-1]
+        if "FROM actor_profiles" in query:
+            return 0
+        if "FROM investor_profiles" in query:
+            return 1
+        return 0
+
+    async def close(self) -> None:
+        self.closed = True
+
+
 def test_marketplace_investors_returns_qualified_hushh_and_public_sec_profiles(monkeypatch):
     async def _run() -> None:
         service = RIAIAMService()
@@ -221,6 +287,43 @@ def test_marketplace_investors_returns_qualified_hushh_and_public_sec_profiles(m
             public_item["evidence"]["metadata"]["latest_known_13f_accession"]
             == "0000123456-26-000001"
         )
+
+    asyncio.run(_run())
+
+
+def test_marketplace_investor_deck_excludes_handled_profiles(monkeypatch):
+    async def _run() -> None:
+        service = RIAIAMService()
+        conn = _FakeMarketplaceDeckConn()
+
+        async def _conn():
+            return conn
+
+        async def _noop(*_args, **_kwargs):  # noqa: ANN002, ANN003
+            return None
+
+        async def _ria(_conn_arg, user_id: str):  # noqa: ANN001
+            assert user_id == "ria_user_1"
+            return {"id": uuid.UUID("22222222-2222-2222-2222-222222222222")}
+
+        monkeypatch.setattr(service, "_conn", _conn)
+        monkeypatch.setattr(service, "_ensure_iam_schema_ready", _noop)
+        monkeypatch.setattr(service, "_ensure_actor_profile_row", _noop)
+        monkeypatch.setattr(service, "_get_ria_profile_by_user", _ria)
+
+        deck = await service.search_marketplace_investor_deck(
+            "ria_user_1",
+            query=None,
+            limit=12,
+            persona="ria",
+            deck="qualified",
+        )
+
+        assert conn.closed is True
+        assert deck["handled_count"] == 2
+        assert deck["remaining_count"] == 1
+        assert deck["deck_complete"] is False
+        assert [item["id"] for item in deck["items"]] == ["public_sec:43"]
 
     asyncio.run(_run())
 

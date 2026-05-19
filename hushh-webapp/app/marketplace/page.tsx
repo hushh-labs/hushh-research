@@ -51,6 +51,7 @@ import {
   isIAMSchemaNotReadyError,
   RiaService,
   type MarketplaceInvestor,
+  type MarketplaceInvestorDeckResponse,
   type MarketplaceRia,
   type RiaClientAccess,
 } from "@/lib/services/ria-service";
@@ -192,6 +193,8 @@ export default function MarketplacePage() {
   const [actionLoadingUserId, setActionLoadingUserId] = useState<string | null>(null);
   const [rias, setRias] = useState<MarketplaceRia[]>([]);
   const [investors, setInvestors] = useState<MarketplaceInvestor[]>([]);
+  const [investorDeckMeta, setInvestorDeckMeta] =
+    useState<MarketplaceInvestorDeckResponse | null>(null);
   const [relationships, setRelationships] = useState<RiaClientAccess[]>([]);
   const [advisorConnections, setAdvisorConnections] = useState<ConsentCenterEntry[]>([]);
   const [iamUnavailable, setIamUnavailable] = useState(false);
@@ -202,6 +205,7 @@ export default function MarketplacePage() {
   const [passedRiaIds, setPassedRiaIds] = useState<string[]>([]);
   const [passedInvestorIds, setPassedInvestorIds] = useState<string[]>([]);
   const [shortlistedInvestorIds, setShortlistedInvestorIds] = useState<string[]>([]);
+  const [deckRefreshNonce, setDeckRefreshNonce] = useState(0);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -498,6 +502,7 @@ export default function MarketplacePage() {
       setIamUnavailable(false);
       try {
         if (directoryKind === "rias") {
+          setInvestorDeckMeta(null);
           const data = await RiaService.searchRias({
             query,
             limit: 32,
@@ -507,18 +512,39 @@ export default function MarketplacePage() {
           return;
         }
 
+        if (user) {
+          const idToken = await user.getIdToken();
+          const deckResponse = await RiaService.searchInvestorDeck(idToken, {
+            query,
+            limit: 12,
+            persona: "ria",
+            deck: "qualified",
+          });
+          if (!cancelled) {
+            setInvestors(deckResponse.items);
+            setInvestorDeckMeta(deckResponse);
+          }
+          return;
+        }
+
         const data = await RiaService.searchInvestors({
           query,
-          limit: 32,
+          limit: 12,
           persona: "ria",
           deck: "qualified",
         });
-        if (!cancelled) setInvestors(data);
+        if (!cancelled) {
+          setInvestors(data);
+          setInvestorDeckMeta(null);
+        }
       } catch (error) {
         if (!cancelled) {
           setIamUnavailable(isIAMSchemaNotReadyError(error));
           if (directoryKind === "rias") setRias([]);
-          else setInvestors([]);
+          else {
+            setInvestors([]);
+            setInvestorDeckMeta(null);
+          }
         }
       } finally {
         if (!cancelled) {
@@ -532,7 +558,7 @@ export default function MarketplacePage() {
     return () => {
       cancelled = true;
     };
-  }, [directoryKind, query]);
+  }, [deckRefreshNonce, directoryKind, query, user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -693,6 +719,11 @@ export default function MarketplacePage() {
   }, [activeCards, passedIds]);
   const swipeCards = shuffledSwipeCards;
   const swipeCard = swipeCards[0] || null;
+  const investorDeckComplete =
+    directoryKind === "investors" &&
+    Boolean(investorDeckMeta?.deck_complete) &&
+    swipeCards.length === 0;
+  const investorSavedLeadCount = shortlistedInvestorIds.length;
   const selectedInvestor =
     selectedProfile?.kind === "investor"
       ? investorMap.get(selectedProfile.id) ||
@@ -953,10 +984,8 @@ export default function MarketplacePage() {
       setPassedRiaIds([]);
       return;
     }
-    setPassedInvestorIds([]);
-    if (user && typeof window !== "undefined") {
-      window.localStorage.removeItem(`marketplace:ria:${user.uid}:passed-investors`);
-    }
+    setDragOffset({ x: 0, y: 0 });
+    setDeckRefreshNonce((current) => current + 1);
   }
 
   return (
@@ -1016,7 +1045,7 @@ export default function MarketplacePage() {
               <button
                 type="button"
                 className="grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground shadow-[var(--app-card-shadow-standard)] transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95"
-                aria-label="Restart deck"
+                aria-label={directoryKind === "investors" ? "Refresh deck" : "Restart deck"}
                 onClick={resetSwipeDeck}
               >
                 <RotateCcw className="h-4 w-4" />
@@ -1193,15 +1222,22 @@ export default function MarketplacePage() {
           ) : (
             <div className="flex flex-col items-center justify-center gap-4 px-6 py-14 text-center">
               <h3 className="text-xl font-semibold tracking-tight text-foreground">
-                That&apos;s everyone for now
+                {investorDeckComplete ? "Deck complete" : "That&apos;s everyone for now"}
               </h3>
               <p className="max-w-xl text-sm leading-6 text-muted-foreground">
-                You&apos;ve browsed through all available {directoryKind === "rias" ? "advisors" : "investors"} in this session. New profiles appear as more people join the marketplace.
+                {investorDeckComplete
+                  ? `You handled every eligible investor in this deck. ${investorSavedLeadCount} saved lead${investorSavedLeadCount === 1 ? "" : "s"} remain in your database-backed shortlist.`
+                  : `You've browsed through all available ${directoryKind === "rias" ? "advisors" : "investors"} in this session. New profiles appear as more people join the marketplace.`}
               </p>
+              {directoryKind === "investors" && investorDeckMeta ? (
+                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                  {investorDeckMeta.handled_count} handled · {investorDeckMeta.remaining_count} unseen
+                </p>
+              ) : null}
               <div className="flex flex-wrap justify-center gap-2">
                 <Button variant="blue-gradient" effect="fill" size="sm" onClick={resetSwipeDeck}>
                   <RotateCcw className="mr-2 h-4 w-4" />
-                  Start over
+                  {directoryKind === "investors" ? "Refresh deck" : "Start over"}
                 </Button>
                 <Button variant="none" effect="fade" size="sm" onClick={() => setView("list")}>
                   <List className="mr-2 h-4 w-4" />

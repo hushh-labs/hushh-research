@@ -77,6 +77,31 @@ async def list_marketplace_investors(
         return _iam_schema_not_ready_response(str(exc))
 
 
+@router.get("/investors/deck")
+async def list_marketplace_investor_deck(
+    query: str | None = Query(default=None, max_length=200),
+    limit: int = Query(default=12, ge=1, le=50),
+    persona: str | None = Query(default="ria", max_length=50),
+    deck: str | None = Query(default="qualified", max_length=50),
+    location: str | None = Query(default=None, max_length=100),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    service = RIAIAMService()
+    try:
+        return await service.search_marketplace_investor_deck(
+            firebase_uid,
+            query=query,
+            limit=limit,
+            persona=persona,
+            deck=deck,
+            location=location,
+        )
+    except IAMSchemaNotReadyError as exc:
+        return _iam_schema_not_ready_response(str(exc))
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
 @router.get("/investors/actions")
 async def list_marketplace_investor_actions(
     status: str | None = Query(default=None, max_length=32),

@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 58,
+  "expected_migration_version": 59,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -467,6 +467,22 @@
       "metadata",
       "created_at",
       "updated_at"
+    ],
+    "marketplace_investor_replenisher_runs": [
+      "id",
+      "run_id",
+      "status",
+      "started_at",
+      "finished_at",
+      "target_total",
+      "target_showcase",
+      "candidate_count",
+      "inserted_count",
+      "updated_count",
+      "suppressed_count",
+      "error_count",
+      "source_errors",
+      "metadata"
     ]
   }
 }
