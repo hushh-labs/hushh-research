@@ -55,6 +55,7 @@ Owner-skill rules:
 1. The skill folder name must match `Owner family`.
 2. Owner skills are the default entrypoint for broad requests in that domain.
 3. Every meaningful repo surface must map to at least one owner skill.
+4. Human-facing fleet reports label owner lanes as `master <skill-id>`; the machine-readable manifest role stays `owner` for compatibility.
 
 Spoke-skill rules:
 
@@ -132,9 +133,11 @@ Workflow-routing rules:
    - `references/` contains detailed gates, examples, templates, and calibration notes that are loaded only when relevant.
    - `scripts/` contains repeatable classification, reporting, linting, or generation logic.
    - `workflow.json` and `skill.json` contain routing and machine-readable metadata.
-14. Do not patch skills by appending every newly discovered miss to the main workflow. First decide whether the fix belongs in a script, a focused reference, a workflow playbook, or a shorter operating rule.
-15. Treat a skill as bloated when the main `SKILL.md` becomes a mixed incident ledger, comment-template inventory, domain checklist, and workflow procedure in one file. The correction is extraction, not deleting the governance constraint.
-16. A scan for skill quality should report line count, owned-surface breadth, whether focused references exist, whether deterministic scripts exist, and whether the main skill still reads as an operating kernel.
+14. Enforce strict compact budgets: master/owner `SKILL.md` max 110 lines, spoke `SKILL.md` max 85 lines, reference file max 220 lines, `Read First` max 8 entries, and `Required Checks` max 8 commands.
+15. Do not patch skills by appending every newly discovered miss to the main workflow. First decide whether the fix belongs in a script, a focused reference, a workflow playbook, or a shorter operating rule.
+16. Treat a skill as bloated when the main `SKILL.md` becomes a mixed incident ledger, comment-template inventory, domain checklist, and workflow procedure in one file. The correction is extraction, not deleting the governance constraint.
+17. A scan for skill quality should report line count, role, owner family, reads, checks, references, scripts, budget status, likely duplication, and agent/subagent activation mechanisms.
+18. Skills that judge product direction, founder language, future-state plans, or PR north-star fit must use the Founder Wiki North-Star Probe from `.codex/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md` when the task is material. The wiki is a direction lens, not current-state implementation proof; private wiki evidence stays local-only; conflicts should be recorded as `current_state_vs_north_star_drift`.
 
 ## Coverage baseline
 
@@ -179,6 +182,7 @@ The local lint tool checks for:
 10. orphaned meaningful repo surfaces
 11. workflow-pack owner/default-skill consistency
 12. workflow-pack routing, verification, and handoff completeness
-13. non-blocking context-size and modularity review advisories for oversized skills, docs, and code modules
+13. blocking compact-kernel budgets for skill files, references, `Read First`, and `Required Checks`
+14. context-size and modularity review advisories for non-skill docs and code modules
 
-Context-size advisories are review triggers, not failures. They mean the next material edit should consider extracting a bounded reference, workflow playbook, doc, service, or component before adding more content. They do not require splitting working surfaces with passing checks.
+Skill compact-kernel findings are failures. Non-skill context-size advisories are review triggers: the next material edit should consider extracting a bounded reference, workflow playbook, doc, service, or component before adding more content.
