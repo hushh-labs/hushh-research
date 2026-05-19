@@ -32,6 +32,7 @@ import {
 import { auth, prepareRecaptchaVerifier, resetRecaptcha } from "./config";
 import { Capacitor } from "@capacitor/core";
 import { AuthService } from "@/lib/services/auth-service";
+import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
@@ -446,11 +447,28 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const confirmPhoneVerification = useCallback(
     async (otp: string): Promise<User> => {
       return await (async () => {
-        const verifiedUser = await AuthService.confirmPhoneLinkVerification({
-          verificationCode: otp,
-          confirmationResult,
-          verificationId: nativeVerificationId,
-        });
+        const verifiedUser = Capacitor.isNativePlatform()
+          ? await AuthService.confirmPhoneLinkVerification({
+              verificationCode: otp,
+              confirmationResult,
+              verificationId: nativeVerificationId,
+            })
+          : await (async () => {
+              const phoneIdToken = await AuthService.getPhoneClaimIdToken({
+                verificationCode: otp,
+                verificationId: nativeVerificationId,
+              });
+              const identity = await AccountIdentityService.claimCurrentUserPhone(
+                userRef.current,
+                phoneIdToken
+              );
+              if (!AccountIdentityService.hasVerifiedPhone(identity)) {
+                throw new Error(
+                  "Phone verification completed but the backend could not confirm the phone claim."
+                );
+              }
+              return userRef.current;
+            })();
         if (!Capacitor.isNativePlatform()) {
           resetRecaptcha();
         }
