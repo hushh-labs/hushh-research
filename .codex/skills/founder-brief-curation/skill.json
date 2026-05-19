@@ -18,9 +18,9 @@
   ],
   "required_reads": [
     ".codex/skills/founder-brief-curation/references/brief-curation-rules.md",
+    ".codex/skills/founder-brief-curation/references/founder-brief-kernel.md",
     ".codex/skills/docs-governance/references/founder-document-cadence.md",
-    "docs/reference/operations/documentation-architecture-map.md",
-    "docs/reference/operations/brand-and-compatibility-contract.md"
+    "docs/reference/operations/documentation-architecture-map.md"
   ],
   "required_commands": [
     "./bin/hushh docs verify",

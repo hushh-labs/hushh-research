@@ -264,6 +264,8 @@ def validate_delegation_policies(root: Path, errors: list[str]) -> None:
         if not isinstance(lanes, dict) or not lanes:
             errors.append(f"{path}: delegation_policy.lanes must be a non-empty object")
             continue
+        if "writer_lane_exception" in lanes:
+            errors.append(f"{path}: writer_lane_exception must not be nested inside delegation_policy.lanes")
         for lane_name, lane in lanes.items():
             if not isinstance(lane, dict):
                 errors.append(f"{path}: delegation lane '{lane_name}' must be an object")
@@ -274,6 +276,46 @@ def validate_delegation_policies(root: Path, errors: list[str]) -> None:
                 errors.append(f"{path}: delegation lane '{lane_name}' references unknown agent '{agent}'")
             if effort not in ALLOWED_REASONING_EFFORTS:
                 errors.append(f"{path}: delegation lane '{lane_name}' must use high or xhigh reasoning")
+        writer_exception = policy.get("writer_lane_exception")
+        if writer_exception is not None:
+            if workflow.get("id") != "pr-governance-review":
+                errors.append(f"{path}: writer_lane_exception is only allowed for pr-governance-review")
+            if not isinstance(writer_exception, dict):
+                errors.append(f"{path}: writer_lane_exception must be an object")
+                continue
+            if "agent" in writer_exception:
+                errors.append(f"{path}: writer_lane_exception must not reference a repo-scoped agent")
+            if writer_exception.get("scope") != "pr-governance-review":
+                errors.append(f"{path}: writer_lane_exception.scope must equal pr-governance-review")
+            if writer_exception.get("executor") != "workflow-local-pr-train-worker":
+                errors.append(f"{path}: writer_lane_exception.executor must be workflow-local-pr-train-worker")
+            allowed_actions = set(writer_exception.get("allowed_actions") or [])
+            required_actions = {
+                "edit_standardized_maintainer_comment",
+                "post_standardized_maintainer_comment",
+                "request_changes",
+                "close_superseded_pr",
+                "acknowledge_harvest",
+                "enqueue_exact_head_queue_candidate",
+            }
+            if not required_actions <= allowed_actions:
+                missing = ", ".join(sorted(required_actions - allowed_actions))
+                errors.append(f"{path}: writer_lane_exception.allowed_actions missing {missing}")
+            required_gates = set(writer_exception.get("required_gates") or [])
+            for gate in {
+                "operator_approved_train_set",
+                "exact_head_sha",
+                "green_ci_status_gate",
+                "clean_mergeability",
+                "no_hard_collision_edge",
+                "comment_and_report_contract",
+            }:
+                if gate not in required_gates:
+                    errors.append(f"{path}: writer_lane_exception.required_gates missing {gate}")
+            forbidden_actions = set(writer_exception.get("forbidden_actions") or [])
+            for action in {"branch_switching", "commits", "pushes", "code_patches", "secrets", "deploys", "direct_merge_to_main"}:
+                if action not in forbidden_actions:
+                    errors.append(f"{path}: writer_lane_exception.forbidden_actions missing {action}")
 
 
 def parse_args() -> argparse.Namespace:
