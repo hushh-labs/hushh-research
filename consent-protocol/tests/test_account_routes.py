@@ -148,6 +148,125 @@ def test_claim_account_phone_maps_persistence_failure(monkeypatch):
     assert response.json()["detail"]["code"] == "PHONE_CLAIM_PERSISTENCE_UNAVAILABLE"
 
 
+def test_start_uat_test_phone_verification_requires_firebase_auth(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/account/phone/uat-test/start", json={"phone_number": "+16505550101"}
+    )
+
+    assert response.status_code == 401
+
+
+def test_start_uat_test_phone_verification_returns_challenge_for_allowlisted_number(
+    monkeypatch,
+):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101,+918080469407")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET", "challenge-secret")
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/account/phone/uat-test/start", json={"phone_number": "+1 (650) 555-0101"}
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["eligible"] is True
+    assert payload["verification_id"].startswith("uat-test-phone:")
+
+
+def test_start_uat_test_phone_verification_declines_when_not_uat(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/account/phone/uat-test/start", json={"phone_number": "+16505550101"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["eligible"] is False
+
+
+def test_confirm_uat_test_phone_verification_persists_verified_phone(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET", "challenge-secret")
+
+    async def _mock_claim(self, *, user_id: str, phone_number: str, source: str):
+        assert user_id == "firebase_uid_123"
+        assert phone_number == "+16505550101"
+        assert source == "uat_test_phone_claim"
+        return {
+            "user_id": user_id,
+            "phone_number": phone_number,
+            "phone_verified": True,
+            "source": source,
+        }
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+    monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", _mock_claim)
+
+    client = TestClient(app)
+    start_response = client.post(
+        "/api/account/phone/uat-test/start", json={"phone_number": "+16505550101"}
+    )
+    verification_id = start_response.json()["verification_id"]
+    response = client.post(
+        "/api/account/phone/uat-test/confirm",
+        json={
+            "phone_number": "+16505550101",
+            "verification_code": "000000",
+            "verification_id": verification_id,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["phone_verified"] is True
+    assert payload["identity"]["source"] == "uat_test_phone_claim"
+
+
+def test_confirm_uat_test_phone_verification_rejects_wrong_code(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET", "challenge-secret")
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+
+    client = TestClient(app)
+    start_response = client.post(
+        "/api/account/phone/uat-test/start", json={"phone_number": "+16505550101"}
+    )
+    response = client.post(
+        "/api/account/phone/uat-test/confirm",
+        json={
+            "phone_number": "+16505550101",
+            "verification_code": "123456",
+            "verification_id": start_response.json()["verification_id"],
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "UAT_PHONE_TEST_INVALID_CODE"
+
+
 def test_list_email_aliases_requires_vault_owner_token():
     client = TestClient(_build_app())
     response = client.get("/api/account/email-aliases")

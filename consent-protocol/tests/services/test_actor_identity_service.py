@@ -179,7 +179,7 @@ class _PhoneClaimFakeConnection:
         normalized = " ".join(query.lower().split())
         if "insert into actor_identity_cache" not in normalized:
             return None
-        user_id, phone_number = args
+        user_id, phone_number, source = args
         now = datetime.now(timezone.utc)
         row = self.rows.setdefault(
             user_id,
@@ -196,7 +196,7 @@ class _PhoneClaimFakeConnection:
             {
                 "phone_number": phone_number,
                 "phone_verified": True,
-                "source": "firebase_phone_claim",
+                "source": source,
                 "last_synced_at": now,
                 "updated_at": now,
             }

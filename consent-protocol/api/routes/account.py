@@ -19,7 +19,12 @@ Security:
     Email aliases, delete, and export require VAULT_OWNER token.
 """
 
+import hashlib
+import hmac
 import logging
+import os
+import re
+import secrets
 from typing import Any, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -70,6 +75,82 @@ class EmailAliasVerificationConfirmRequest(BaseModel):
 
 class PhoneClaimRequest(BaseModel):
     phone_id_token: str = Field(min_length=1, max_length=20_000)
+
+
+class UatPhoneTestStartRequest(BaseModel):
+    phone_number: str = Field(min_length=3, max_length=32)
+
+
+class UatPhoneTestConfirmRequest(BaseModel):
+    phone_number: str = Field(min_length=3, max_length=32)
+    verification_code: str = Field(min_length=1, max_length=16)
+    verification_id: str = Field(min_length=1, max_length=256)
+
+
+def _clean_env(name: str) -> str:
+    return str(os.getenv(name) or "").strip()
+
+
+def _is_uat_environment() -> bool:
+    environment = (_clean_env("ENVIRONMENT") or _clean_env("HUSHH_DEPLOY_ENV")).lower()
+    return environment == "uat"
+
+
+def _normalize_phone_number(raw_phone: str) -> str:
+    cleaned = re.sub(r"[^\d+]", "", str(raw_phone or "").strip())
+    if cleaned.startswith("00"):
+        cleaned = f"+{cleaned[2:]}"
+    if cleaned and not cleaned.startswith("+"):
+        cleaned = f"+{cleaned}"
+    if cleaned.count("+") > 1 or ("+" in cleaned[1:]):
+        return ""
+    return cleaned
+
+
+def _configured_uat_phone_test_numbers() -> set[str]:
+    raw = _clean_env("HUSHH_UAT_PHONE_TEST_NUMBERS") or _clean_env("UAT_PHONE_TEST_NUMBERS")
+    if not raw:
+        return set()
+    return {
+        normalized
+        for normalized in (
+            _normalize_phone_number(part)
+            for part in re.split(r"[,;\n]+", raw)
+        )
+        if normalized
+    }
+
+
+def _configured_uat_phone_test_code() -> str:
+    return _clean_env("HUSHH_UAT_PHONE_TEST_CODE") or _clean_env("UAT_PHONE_TEST_CODE")
+
+
+def _uat_phone_test_enabled() -> bool:
+    return _is_uat_environment() and bool(
+        _configured_uat_phone_test_numbers() and _configured_uat_phone_test_code()
+    )
+
+
+def _uat_phone_test_challenge_key() -> str:
+    return (
+        _clean_env("HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET")
+        or _clean_env("APP_SIGNING_KEY")
+        or _configured_uat_phone_test_code()
+    )
+
+
+def _create_uat_phone_test_verification_id(phone_number: str) -> str:
+    digest = hmac.new(
+        _uat_phone_test_challenge_key().encode("utf-8"),
+        phone_number.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"uat-test-phone:{digest}"
+
+
+def _is_valid_uat_phone_test_verification_id(phone_number: str, verification_id: str) -> bool:
+    expected = _create_uat_phone_test_verification_id(phone_number)
+    return secrets.compare_digest(str(verification_id or "").strip(), expected)
 
 
 def _raise_alias_error(exc: ActorIdentityAliasError) -> None:
@@ -135,6 +216,30 @@ async def _verify_phone_claim_id_token(raw_token: str) -> tuple[str, str | None]
 
     phone_session_uid = str(claims.get("uid") or claims.get("sub") or "").strip() or None
     return phone_number, phone_session_uid
+
+
+async def _delete_firebase_auth_user(user_id: str) -> str:
+    normalized_user_id = str(user_id or "").strip()
+    if not normalized_user_id:
+        return "skipped"
+
+    try:
+        from firebase_admin import auth as firebase_auth
+
+        firebase_app = get_firebase_auth_app()
+        await run_in_threadpool(
+            lambda: firebase_auth.delete_user(normalized_user_id, app=firebase_app)
+        )
+        return "deleted"
+    except Exception as exc:
+        if exc.__class__.__name__ == "UserNotFoundError":
+            return "not_found"
+        logger.warning(
+            "Firebase Auth user deletion failed for deleted account user=%s error=%s",
+            normalized_user_id,
+            type(exc).__name__,
+        )
+        return "failed"
 
 
 @router.get("/email-aliases")
@@ -213,6 +318,90 @@ async def claim_account_phone(
     }
 
 
+@router.post("/phone/uat-test/start")
+async def start_uat_test_phone_verification(
+    payload: UatPhoneTestStartRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Start a UAT-only fixed-code phone verification challenge for allowlisted numbers."""
+    del firebase_uid
+    phone_number = _normalize_phone_number(payload.phone_number)
+    enabled = _uat_phone_test_enabled()
+    eligible = enabled and phone_number in _configured_uat_phone_test_numbers()
+
+    if not eligible:
+        return {
+            "success": True,
+            "eligible": False,
+            "reason": "uat_phone_test_not_configured_or_not_allowlisted",
+        }
+
+    return {
+        "success": True,
+        "eligible": True,
+        "verification_id": _create_uat_phone_test_verification_id(phone_number),
+    }
+
+
+@router.post("/phone/uat-test/confirm")
+async def confirm_uat_test_phone_verification(
+    payload: UatPhoneTestConfirmRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Persist a UAT-only fixed-code phone verification claim for an allowlisted number."""
+    phone_number = _normalize_phone_number(payload.phone_number)
+    configured_code = _configured_uat_phone_test_code()
+
+    if not _uat_phone_test_enabled() or phone_number not in _configured_uat_phone_test_numbers():
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "UAT_PHONE_TEST_NOT_ALLOWLISTED",
+                "message": "This phone number is not allowlisted for UAT test verification.",
+            },
+        )
+
+    if not _is_valid_uat_phone_test_verification_id(phone_number, payload.verification_id):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "UAT_PHONE_TEST_INVALID_CHALLENGE",
+                "message": "The UAT phone verification challenge is invalid.",
+            },
+        )
+
+    if not secrets.compare_digest(str(payload.verification_code or "").strip(), configured_code):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "UAT_PHONE_TEST_INVALID_CODE",
+                "message": "The UAT phone verification code is invalid.",
+            },
+        )
+
+    identity = await ActorIdentityService().claim_verified_phone(
+        user_id=firebase_uid,
+        phone_number=phone_number,
+        source="uat_test_phone_claim",
+    )
+    if not identity:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "UAT_PHONE_TEST_PERSISTENCE_UNAVAILABLE",
+                "message": "Phone verification was accepted but could not be persisted.",
+            },
+        )
+
+    logger.info("UAT phone test claim persisted user=%s", firebase_uid)
+    return {
+        "success": True,
+        "user_id": firebase_uid,
+        "identity": identity,
+        "phone_verified": identity.get("phone_verified") is True,
+    }
+
+
 @router.delete("/delete")
 async def delete_account(
     payload: DeleteAccountRequest | None = Body(default=None),
@@ -233,6 +422,13 @@ async def delete_account(
 
     if not result["success"]:
         raise HTTPException(status_code=500, detail=f"Deletion failed: {result.get('error')}")
+
+    if target == "both" and result.get("account_deleted") is True:
+        details = result.get("details")
+        if not isinstance(details, dict):
+            details = {}
+        details["firebase_auth_user"] = await _delete_firebase_auth_user(user_id)
+        result["details"] = details
 
     return result
 

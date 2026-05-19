@@ -99,6 +99,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [confirmationResult, setConfirmationResult] =
     useState<ConfirmationResult | null>(null);
   const [nativeVerificationId, setNativeVerificationId] = useState<string | null>(null);
+  const [phoneVerificationPhoneNumber, setPhoneVerificationPhoneNumber] =
+    useState<string | null>(null);
   const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
 
   // Hussh state
@@ -285,6 +287,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       applyAuthUser(null);
       setConfirmationResult(null);
       setNativeVerificationId(null);
+      setPhoneVerificationPhoneNumber(null);
 
       // Reset landing/onboarding entry markers so sign-out returns to Intro on "/".
       await OnboardingLocalService.clearMarketingSeen();
@@ -352,21 +355,46 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return await (async () => {
         setConfirmationResult(null);
         setNativeVerificationId(null);
+        setPhoneVerificationPhoneNumber(null);
         const isNative = Capacitor.isNativePlatform();
+        const useLocalDevPhoneVerification =
+          !isNative && AuthService.shouldUseLocalDevPhoneVerification(phone);
 
-        let result: Awaited<ReturnType<typeof AuthService.startPhoneLinkVerification>>;
+        let result:
+          | Awaited<ReturnType<typeof AuthService.startPhoneLinkVerification>>
+          | null = null;
         try {
-          result = await AuthService.startPhoneLinkVerification(phone, {
-            resendCode: options?.resendCode,
-            recaptchaVerifier: isNative
-              ? undefined
-              : await prepareRecaptchaVerifier("recaptcha-container"),
-          });
+          if (!isNative && !useLocalDevPhoneVerification) {
+            const uatPhoneTest =
+              await AccountIdentityService.startUatTestPhoneVerification(
+                userRef.current,
+                phone
+              );
+            if (uatPhoneTest?.eligible && uatPhoneTest.verification_id) {
+              result = {
+                autoVerified: false,
+                verificationId: uatPhoneTest.verification_id,
+              };
+            }
+          }
+
+          if (!result) {
+            result = await AuthService.startPhoneLinkVerification(phone, {
+              resendCode: options?.resendCode,
+              recaptchaVerifier: isNative || useLocalDevPhoneVerification
+                ? undefined
+                : await prepareRecaptchaVerifier("recaptcha-container"),
+            });
+          }
         } catch (error) {
           if (!isNative) {
             resetRecaptcha();
           }
           throw error;
+        }
+
+        if (!result) {
+          throw new Error("Phone verification could not be started.");
         }
 
         if (result.confirmationResult) {
@@ -375,6 +403,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         if (result.verificationId) {
           setNativeVerificationId(result.verificationId);
+          setPhoneVerificationPhoneNumber(phone);
         }
 
         if (result.autoVerified) {
@@ -402,6 +431,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     ): Promise<{ autoVerified: boolean; user?: User | null }> => {
       setConfirmationResult(null);
       setNativeVerificationId(null);
+      setPhoneVerificationPhoneNumber(null);
       const isNative = Capacitor.isNativePlatform();
 
       let result: Awaited<ReturnType<typeof AuthService.startPhoneReplacementVerification>>;
@@ -425,6 +455,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       if (result.verificationId) {
         setNativeVerificationId(result.verificationId);
+        setPhoneVerificationPhoneNumber(phone);
       }
 
       if (result.autoVerified) {
@@ -453,6 +484,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
               confirmationResult,
               verificationId: nativeVerificationId,
             })
+          : AuthService.isLocalDevPhoneVerificationId(nativeVerificationId)
+            ? await AuthService.confirmLocalDevPhoneVerification({
+                verificationCode: otp,
+                verificationId: nativeVerificationId,
+              })
+          : AuthService.isUatPhoneTestVerificationId(nativeVerificationId)
+            ? await (async () => {
+                const phoneNumberForVerification =
+                  String(phoneVerificationPhoneNumber ?? "").trim();
+                if (!phoneNumberForVerification || !nativeVerificationId) {
+                  throw new Error("Phone verification session expired. Please try again.");
+                }
+                const identity =
+                  await AccountIdentityService.confirmUatTestPhoneVerification(
+                    userRef.current,
+                    {
+                      phoneNumber: phoneNumberForVerification,
+                      verificationCode: otp,
+                      verificationId: nativeVerificationId,
+                    }
+                  );
+                if (!AccountIdentityService.hasVerifiedPhone(identity)) {
+                  throw new Error(
+                    "Phone verification completed but the backend could not confirm the phone claim."
+                  );
+                }
+                return userRef.current;
+              })()
           : await (async () => {
               const phoneIdToken = await AuthService.getPhoneClaimIdToken({
                 verificationCode: otp,
@@ -474,6 +533,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
         setConfirmationResult(null);
         setNativeVerificationId(null);
+        setPhoneVerificationPhoneNumber(null);
 
         const refreshedUser = verifiedUser ?? (await refreshUser());
         applyAuthUser(refreshedUser);
@@ -483,7 +543,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return refreshedUser;
       })();
     },
-    [applyAuthUser, confirmationResult, nativeVerificationId, refreshUser]
+    [
+      applyAuthUser,
+      confirmationResult,
+      nativeVerificationId,
+      phoneVerificationPhoneNumber,
+      refreshUser,
+    ]
   );
 
   const confirmPhoneReplacement = useCallback(
@@ -498,6 +564,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
       setConfirmationResult(null);
       setNativeVerificationId(null);
+      setPhoneVerificationPhoneNumber(null);
 
       const refreshedUser = verifiedUser ?? (await refreshUser());
       applyAuthUser(refreshedUser);

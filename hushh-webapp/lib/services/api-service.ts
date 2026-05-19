@@ -982,6 +982,13 @@ export interface AccountPhoneClaimResponse {
   phone_verified: boolean;
 }
 
+export interface AccountPhoneTestStartResponse {
+  success: boolean;
+  eligible: boolean;
+  verification_id?: string;
+  reason?: string;
+}
+
 /**
  * API Service for platform-aware API calls
  */
@@ -1424,6 +1431,92 @@ export class ApiService {
             : typeof payload.error === "string"
               ? payload.error
               : `Phone claim failed with HTTP ${response.status}`;
+      throw new Error(message);
+    }
+
+    return payload as unknown as AccountPhoneClaimResponse;
+  }
+
+  static async startUatPhoneTestVerification(
+    phoneNumber: string,
+    idToken?: string
+  ): Promise<AccountPhoneTestStartResponse> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      return {
+        success: false,
+        eligible: false,
+        reason: "missing_firebase_id_token",
+      };
+    }
+
+    const response = await apiFetch("/api/account/phone/uat-test/start", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firebaseIdToken}`,
+      },
+      body: JSON.stringify({
+        phone_number: phoneNumber,
+      }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+
+    if (!response.ok) {
+      return {
+        success: false,
+        eligible: false,
+        reason:
+          typeof payload.error === "string"
+            ? payload.error
+            : `uat_phone_test_start_${response.status}`,
+      };
+    }
+
+    return {
+      success: payload.success === true,
+      eligible: payload.eligible === true,
+      verification_id:
+        typeof payload.verification_id === "string" ? payload.verification_id : undefined,
+      reason: typeof payload.reason === "string" ? payload.reason : undefined,
+    };
+  }
+
+  static async confirmUatPhoneTestVerification(
+    phoneNumber: string,
+    verificationCode: string,
+    verificationId: string,
+    idToken?: string
+  ): Promise<AccountPhoneClaimResponse> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      throw new Error("Missing Firebase ID token");
+    }
+
+    const response = await apiFetch("/api/account/phone/uat-test/confirm", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firebaseIdToken}`,
+      },
+      body: JSON.stringify({
+        phone_number: phoneNumber,
+        verification_code: verificationCode,
+        verification_id: verificationId,
+      }),
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      const detail = payload.detail;
+      const message =
+        typeof detail === "object" &&
+        detail !== null &&
+        typeof (detail as Record<string, unknown>).message === "string"
+          ? String((detail as Record<string, unknown>).message)
+          : typeof detail === "string"
+            ? detail
+            : typeof payload.error === "string"
+              ? payload.error
+              : `UAT phone test verification failed with HTTP ${response.status}`;
       throw new Error(message);
     }
 
