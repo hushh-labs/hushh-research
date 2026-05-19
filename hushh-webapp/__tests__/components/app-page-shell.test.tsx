@@ -25,4 +25,15 @@ describe("AppPageShell", () => {
 
     expect(screen.getByRole("main").getAttribute("data-app-density")).toBe("comfortable");
   });
+    it("preserves compact density token stability across content-only shells", () => {
+    render(
+      <AppPageShell>
+        <AppPageContentRegion>Standalone content</AppPageContentRegion>
+      </AppPageShell>
+    );
+
+    expect(screen.getByRole("main").getAttribute("data-app-density")).toBe(
+      "compact"
+    );
+  });
 });
