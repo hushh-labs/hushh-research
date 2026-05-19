@@ -887,7 +887,7 @@ async def stream_agent_thinking(
     phase: str,
 ) -> AsyncGenerator[dict, None]:
     """
-    Stream Gemini 3 thinking tokens for an agent analysis.
+    Stream thinking tokens for an agent analysis.
     Yields agent_token events that the frontend can display in real-time.
     """
     logger.info(f"[Kai Stream] Starting stream_agent_thinking for {agent_name}")
