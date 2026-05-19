@@ -617,6 +617,63 @@ class HushhVaultPlugin : Plugin() {
     }
 
     @PluginMethod
+    fun deleteVaultWrapper(call: PluginCall) {
+        val userId = call.getString("userId")
+        val vaultKeyHash = call.getString("vaultKeyHash")
+        val method = call.getString("method")
+        val wrapperId = call.getString("wrapperId") ?: "default"
+        val fallbackPrimaryMethod = call.getString("fallbackPrimaryMethod") ?: "passphrase"
+        val fallbackPrimaryWrapperId = call.getString("fallbackPrimaryWrapperId") ?: "default"
+        val vaultOwnerToken = call.getString("vaultOwnerToken")
+        if (userId == null || vaultKeyHash == null || method == null || vaultOwnerToken == null) {
+            call.reject("Missing required parameters")
+            return
+        }
+
+        val authToken = call.getString("authToken")
+        val backendUrl = getBackendUrl(call)
+
+        Thread {
+            try {
+                val json = JSONObject().apply {
+                    put("userId", userId)
+                    put("vaultKeyHash", vaultKeyHash)
+                    put("method", method)
+                    put("wrapperId", wrapperId)
+                    put("fallbackPrimaryMethod", fallbackPrimaryMethod)
+                    put("fallbackPrimaryWrapperId", fallbackPrimaryWrapperId)
+                }
+                val requestBody = json.toString().toRequestBody("application/json".toMediaType())
+                val requestBuilder = Request.Builder()
+                    .url("$backendUrl/db/vault/wrapper/delete")
+                    .post(requestBody)
+                    .addHeader("Content-Type", "application/json")
+                    .addHeader("X-Hushh-Client-Version", getClientVersion(call))
+                if (authToken != null) {
+                    requestBuilder.addHeader("Authorization", "Bearer $authToken")
+                }
+                requestBuilder.addHeader("X-Hushh-Consent", "Bearer $vaultOwnerToken")
+                val response = httpClient.newCall(requestBuilder.build()).execute()
+                val success = response.isSuccessful
+                val responseBody = response.body?.string().orEmpty()
+                val errorSnippet = responseBody.take(300)
+                activity.runOnUiThread {
+                    if (!success) {
+                        val detail = if (errorSnippet.isBlank()) "no response body" else errorSnippet
+                        call.reject("Failed to remove wrapper: HTTP ${response.code} - ${detail}")
+                        return@runOnUiThread
+                    }
+                    call.resolve(JSObject().put("success", true))
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    call.reject("Failed to remove wrapper: ${e.message}")
+                }
+            }
+        }.start()
+    }
+
+    @PluginMethod
     fun isPasskeyAvailable(call: PluginCall) {
         val rpId = call.getString("rpId")?.trim().orEmpty()
         val activity = activity

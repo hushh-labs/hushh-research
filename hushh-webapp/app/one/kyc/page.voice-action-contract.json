@@ -1,7 +1,7 @@
 {
   "schema_version": "kai.local_action_contract.v1",
   "surface_id": "one_kyc",
-  "surface_title": "One KYC Workflows",
+  "surface_title": "Email",
   "docs_references": [
     "docs/reference/kai/kai-action-gateway-vnext.md",
     "docs/reference/architecture/one-email-kyc.md",
@@ -9,18 +9,10 @@
   ],
   "defaults": {
     "reachability": {
-      "routes": [
-        "/one/kyc"
-      ],
-      "screens": [
-        "one_kyc"
-      ],
-      "active_personas": [
-        "investor"
-      ],
-      "navigation_prerequisites": [
-        "user must be signed in"
-      ]
+      "routes": ["/one/kyc"],
+      "screens": ["one_kyc"],
+      "active_personas": ["investor"],
+      "navigation_prerequisites": ["user must be signed in"]
     },
     "speaker_persona": "kyc",
     "delegate_agent_id": "kyc"
@@ -28,24 +20,19 @@
   "actions": [
     {
       "action_id": "route.one_kyc",
-      "label": "Open KYC Workflows",
-      "meaning": "Navigates to One KYC workflow review.",
+      "label": "Open Email",
+      "meaning": "Navigates to One email request review.",
       "aliases": [
-        "open kyc",
-        "open one kyc",
-        "show kyc workflows"
+        "open email",
+        "open email helper",
+        "show email requests",
+        "show requests"
       ],
-      "search_keywords": [
-        "kyc",
-        "one",
-        "broker"
-      ],
+      "search_keywords": ["email", "one", "request"],
       "reachability": {
         "hidden_navigable": false
       },
-      "guard_ids": [
-        "auth_required"
-      ],
+      "guard_ids": ["auth_required"],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -53,160 +40,108 @@
         "path": "route",
         "target": "/one/kyc"
       },
-      "control_ids": [
-        "one-kyc-open"
+      "control_ids": ["one-kyc-open"],
+      "state_exposure": ["workflow list metadata only"]
+    },
+    {
+      "action_id": "kyc.aliases.manage",
+      "label": "Manage Verified Emails",
+      "meaning": "Opens the verified email address panel used to match email requests.",
+      "aliases": [
+        "manage verified emails",
+        "add email address",
+        "show matching emails"
       ],
-      "state_exposure": [
-        "workflow list metadata only"
-      ]
+      "search_keywords": ["email", "address", "match"],
+      "guard_ids": ["auth_required"],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Requires opening the local verified email panel in /one/kyc."
+      },
+      "control_ids": ["one-kyc-aliases"],
+      "state_exposure": ["verified email count", "pending email count"]
     },
     {
       "action_id": "kyc.workflow.sync_status",
-      "label": "Sync KYC Status",
-      "meaning": "Refreshes the selected One KYC workflow status after consent approval.",
-      "aliases": [
-        "sync kyc",
-        "refresh kyc status"
-      ],
-      "search_keywords": [
-        "kyc",
-        "sync",
-        "consent"
-      ],
-      "guard_ids": [
-        "auth_required"
-      ],
+      "label": "Sync Email Status",
+      "meaning": "Refreshes the selected email request status after consent approval.",
+      "aliases": ["sync email", "refresh request status"],
+      "search_keywords": ["email", "sync", "consent"],
+      "guard_ids": ["auth_required"],
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",
         "reason": "Requires selected workflow context from /one/kyc."
       },
-      "control_ids": [
-        "one-kyc-sync-status"
-      ],
-      "state_exposure": [
-        "workflow status metadata"
-      ]
+      "control_ids": ["one-kyc-sync-status"],
+      "state_exposure": ["workflow status metadata"]
     },
     {
       "action_id": "kyc.draft.review",
-      "label": "Review KYC Draft",
-      "meaning": "Reads or focuses the current approval-gated KYC draft.",
-      "aliases": [
-        "review kyc draft",
-        "show kyc draft"
-      ],
-      "search_keywords": [
-        "kyc",
-        "draft",
-        "review"
-      ],
-      "guard_ids": [
-        "auth_required"
-      ],
+      "label": "Review Email Draft",
+      "meaning": "Reads or focuses the current approval-gated email draft.",
+      "aliases": ["review email draft", "show email draft"],
+      "search_keywords": ["email", "draft", "review"],
+      "guard_ids": ["auth_required"],
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",
         "reason": "Requires selected workflow context and user-visible draft state."
       },
-      "control_ids": [
-        "one-kyc-draft-review"
-      ],
-      "state_exposure": [
-        "approved draft body"
-      ]
+      "control_ids": ["one-kyc-draft-review"],
+      "state_exposure": ["approved draft body"]
     },
     {
       "action_id": "kyc.draft.request_redraft",
-      "label": "Request KYC Redraft",
-      "meaning": "Requests a new KYC draft revision from typed or spoken user instructions.",
-      "aliases": [
-        "redraft kyc",
-        "revise kyc draft"
-      ],
-      "search_keywords": [
-        "kyc",
-        "redraft",
-        "revise"
-      ],
-      "guard_ids": [
-        "auth_required"
-      ],
+      "label": "Request Email Redraft",
+      "meaning": "Requests a new email draft revision from typed or spoken user instructions.",
+      "aliases": ["redraft email", "revise email draft"],
+      "search_keywords": ["email", "redraft", "revise"],
+      "guard_ids": ["auth_required"],
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "execution_target": {
         "status": "unwired",
         "reason": "Requires selected workflow context and captured redraft instructions."
       },
-      "control_ids": [
-        "one-kyc-redraft"
-      ],
-      "state_exposure": [
-        "approved draft body",
-        "redraft instructions"
-      ]
+      "control_ids": ["one-kyc-redraft"],
+      "state_exposure": ["approved draft body", "redraft instructions"]
     },
     {
       "action_id": "kyc.draft.approve_send",
-      "label": "Approve KYC Send",
-      "meaning": "Sends the KYC draft only after explicit user approval.",
-      "aliases": [
-        "approve kyc send",
-        "send kyc reply"
-      ],
-      "search_keywords": [
-        "kyc",
-        "send",
-        "approve"
-      ],
-      "guard_ids": [
-        "auth_required",
-        "explicit_confirmation_required"
-      ],
+      "label": "Approve Email Send",
+      "meaning": "Sends the email draft only after explicit user approval.",
+      "aliases": ["approve email send", "send email reply"],
+      "search_keywords": ["email", "send", "approve"],
+      "guard_ids": ["auth_required", "explicit_confirmation_required"],
       "risk_level": "high",
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",
         "reason": "Voice must not send mail until the selected workflow and explicit confirmation are wired to the same UI approval endpoint."
       },
-      "control_ids": [
-        "one-kyc-approve-send"
-      ],
-      "state_exposure": [
-        "approved draft body",
-        "send status"
-      ]
+      "control_ids": ["one-kyc-approve-send"],
+      "state_exposure": ["approved draft body", "send status"]
     },
     {
       "action_id": "kyc.draft.reject",
-      "label": "Reject KYC Draft",
-      "meaning": "Rejects the current KYC draft and blocks the workflow.",
-      "aliases": [
-        "reject kyc draft",
-        "block kyc workflow"
-      ],
-      "search_keywords": [
-        "kyc",
-        "reject",
-        "block"
-      ],
-      "guard_ids": [
-        "auth_required"
-      ],
+      "label": "Reject Email Draft",
+      "meaning": "Rejects the current email draft and blocks the workflow.",
+      "aliases": ["reject email draft", "block email request"],
+      "search_keywords": ["email", "reject", "block"],
+      "guard_ids": ["auth_required"],
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "execution_target": {
         "status": "unwired",
         "reason": "Requires selected workflow context from /one/kyc."
       },
-      "control_ids": [
-        "one-kyc-reject"
-      ],
-      "state_exposure": [
-        "workflow status metadata"
-      ]
+      "control_ids": ["one-kyc-reject"],
+      "state_exposure": ["workflow status metadata"]
     }
   ]
 }
