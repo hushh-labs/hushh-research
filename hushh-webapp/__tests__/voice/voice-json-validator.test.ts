@@ -60,6 +60,26 @@ describe("voice-json-validator", () => {
     });
   });
 
+  it("validates PKM spoken capture tool calls", () => {
+    const toolCall = validateVoiceToolCall({
+      tool_name: "capture_pkm_memory",
+      args: {
+        message: "I prefer quiet hotel rooms away from elevators.",
+        mode: "direct_save",
+        direct_save: true,
+      },
+    });
+
+    expect(toolCall).toEqual({
+      tool_name: "capture_pkm_memory",
+      args: {
+        message: "I prefer quiet hotel rooms away from elevators.",
+        mode: "direct_save",
+        direct_save: true,
+      },
+    });
+  });
+
   it("validates blocked response payload", () => {
     const response = validateVoiceResponse({
       kind: "blocked",

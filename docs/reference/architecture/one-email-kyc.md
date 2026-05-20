@@ -15,9 +15,12 @@ flowchart TD
   mailbox --> intake --> scopes --> export --> draft --> send --> pkm
 ```
 
-This is the current implementation contract for One-led KYC intake through
-`one@hushh.ai`. KYC is a bounded identity workflow specialist under One; it is
-not a broad email agent and does not own platform consent policy.
+This is the current implementation contract for One-led, approval-gated email
+intake through `one@hushh.ai`. The current `/one/kyc` surface owns the KYC
+review workflow, but the mailbox helper can recommend any consumer-visible
+dynamic `attr.*` scope that already exists in the vault owner's shareable scope
+inventory. It is not a free-form email agent and does not own platform consent
+policy.
 
 ## Current Runtime
 
@@ -31,27 +34,50 @@ not a broad email agent and does not own platform consent policy.
 The backend owns mailbox intake, workflow metadata, consent status, Gmail send,
 retention metadata, and PKM writeback receipts. The frontend owns vault unlock,
 per-user connector private keys, scoped export decrypt, local deterministic
-draft generation, user review, and encrypted PKM writeback.
+draft generation, user review, and encrypted PKM writeback. The KYC ADK
+manifest owns the approved-reply drafting contract, but strict client-side
+zero-knowledge mode executes that contract in the browser so decrypted PKM
+plaintext is never sent to a backend drafting agent.
 
 ## Invariants
 
 1. `one@hushh.ai` is the Workspace user mailbox for One-led KYC intake.
 2. Gmail Pub/Sub intake stores message IDs, thread IDs, sender metadata,
    required-field labels, candidate scopes, hashes, and workflow state.
+   If Gmail watch history state is missing or the app user explicitly refreshes
+   Email Helper, One performs a bounded recent-mail catch-up scan and reuses the
+   same sender-authority and duplicate-protection rules.
 3. Raw email bodies, consent tokens, connector private keys, decrypted exports,
    final approved bodies, and draft plaintext are not durable backend state.
-4. One detects candidate scopes from text only. The vault owner must confirm or
-   narrow selected scopes in `/one/kyc` before consent requests are created.
+4. One detects candidate scopes from text against the resolved vault owner's
+   consumer-visible scope inventory. The vault owner must confirm or narrow
+   selected scopes in `/one/kyc` before consent requests are created.
+   The resolved vault owner is the verified sender only; copied recipients and
+   distribution-list members are reply context, not authority.
 5. Each selected workflow scope becomes its own consent request under one bundle
    id. Draft generation may use all selected and granted workflow scopes, not
    just identity scope, but must not read every globally available user scope.
+   Client drafts must render selected scopes as clear sections and must not
+   expose raw PKM structure such as entity ids, manifests, hashes, provenance,
+   or parser metadata.
 6. If any selected scope is denied or stale, One blocks the external reply.
-7. Approved KYC sends must reply in the original Gmail thread and preserve reply
+7. The canonical approved-reply renderer is
+   `hushh-webapp/lib/services/one-kyc-client-zk-service.ts`. Route code must
+   not create parallel email HTML templates. Portfolio, financial, and other
+   dense dynamic-scope drafts must preserve all useful approved values and use
+   Gmail-safe horizontal table scrolling instead of overlapping mobile columns.
+8. Approved KYC sends must reply in the original Gmail thread and preserve reply
    headers. The backend uses the approved body only transiently for Gmail send.
-8. Local decrypted exports and local drafts are cleared after approve/writeback
+   The send contract requires plain text and may include sanitized HTML for
+   Gmail multipart/alternative rendering; the plain-text part remains the
+   fallback and hash anchor.
+9. Local decrypted exports and local drafts are cleared after approve/writeback
    success, reject, or refresh into a non-ready state.
-9. Durable KYC memory is an encrypted PKM writeback artifact plus workflow
+10. Durable KYC memory is an encrypted PKM writeback artifact plus workflow
    metadata and hashes, not raw mailbox content.
+11. The Email Helper list uses stale-while-refresh semantics: cached visible
+    requests remain visible while One checks recent mail, refreshes workflow
+    status, and merges newer rows into the paginated list.
 
 ## Workflow States
 
