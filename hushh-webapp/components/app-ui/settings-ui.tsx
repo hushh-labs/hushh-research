@@ -378,7 +378,7 @@ export function SettingsDetailPanel({
   const isMobile = useIsMobile();
   if (isMobile) {
     return (
-      <Drawer open={open} onOpenChange={onOpenChange}>
+      <Drawer open={open} onOpenChange={onOpenChange} modal>
         <DrawerContent className="h-[100dvh] max-h-[100dvh] rounded-none border-none bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)]">
           <DrawerHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 text-left sm:px-5 sm:py-4">
             <DrawerTitle className="text-base font-semibold tracking-tight">
