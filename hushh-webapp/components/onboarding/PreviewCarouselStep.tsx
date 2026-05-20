@@ -239,6 +239,14 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
           </div>
 
           <div className="mt-4 flex flex-col justify-end gap-4">
+            <span
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              className="sr-only"
+            >
+              {`Slide ${selectedIndex + 1} of ${slides.length}`}
+            </span>
             <Dots count={slides.length} activeIndex={selectedIndex} />
 
             <Button
@@ -260,17 +268,22 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
 
 function Dots(props: { count: number; activeIndex: number }) {
   return (
-    <div className="flex items-center justify-center gap-2">
+    <div
+      role="group"
+      aria-label="Slide navigation"
+      className="flex items-center justify-center gap-2"
+    >
       {Array.from({ length: props.count }).map((_, i) => (
         <span
           key={i}
+          aria-label={`Go to slide ${i + 1} of ${props.count}`}
+          aria-current={i === props.activeIndex ? "step" : undefined}
           className={cn(
             "h-2 w-2 rounded-full transition-colors",
             i === props.activeIndex
               ? "bg-[var(--morphy-primary-start)]"
               : "bg-[var(--morphy-primary-start)]/20"
           )}
-          aria-hidden
         />
       ))}
     </div>
