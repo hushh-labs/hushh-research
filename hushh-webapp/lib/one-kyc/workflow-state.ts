@@ -15,7 +15,7 @@ export function scopeCandidates(workflow: OneKycWorkflow): OneKycScopeCandidate[
         {
           scope: workflow.requested_scope,
           domain: workflow.requested_scope.includes("financial") ? "financial" : "identity",
-          label: workflow.requested_scope,
+          label: friendlyScopeLabel(workflow.requested_scope),
         },
       ]
     : [];
@@ -33,18 +33,32 @@ export function selectedScopesForWorkflow(
   if (Array.isArray(workflow.requested_scopes) && workflow.requested_scopes.length) {
     return workflow.requested_scopes;
   }
+  if (workflow.requested_scope) {
+    return [workflow.requested_scope];
+  }
   const recommended = scopeCandidates(workflow)
     .filter((candidate) => candidate.recommended !== false)
     .map((candidate) => candidate.scope);
   if (recommended.length) return recommended;
-  return workflow.requested_scope ? [workflow.requested_scope] : [];
+  return [];
 }
 
 export function selectedScopeLabels(workflow: OneKycWorkflow): string[] {
   const selectedScopes = new Set(selectedScopesForWorkflow(workflow, {}));
   return scopeCandidates(workflow)
     .filter((candidate) => selectedScopes.has(candidate.scope))
-    .map((candidate) => candidate.label || candidate.scope);
+    .map((candidate) => candidate.label || friendlyScopeLabel(candidate.scope));
+}
+
+function friendlyScopeLabel(scope: string): string {
+  const parts = scope
+    .split(".")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part) => part !== "attr" && part !== "*");
+  if (!parts.length) return "Selected data";
+  const text = parts.join(" ").replaceAll("_", " ");
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)} data`;
 }
 
 export function detectedDomains(workflow: OneKycWorkflow): string[] {
@@ -58,6 +72,52 @@ export function detectedDomains(workflow: OneKycWorkflow): string[] {
 
 export function isKycClientDraftReady(workflow: OneKycWorkflow): boolean {
   return workflow.status === "waiting_on_user" && workflow.draft_status === "ready";
+}
+
+function normalizedConsentAction(value: unknown): string {
+  return String(value || "").trim().toUpperCase();
+}
+
+function metadataArray(workflow: OneKycWorkflow, key: string): unknown[] {
+  const value = workflow.metadata?.[key];
+  return Array.isArray(value) ? value : [];
+}
+
+export function hasApprovedKycWorkflowAccess(workflow: OneKycWorkflow): boolean {
+  if (isKycClientDraftReady(workflow)) return true;
+  const consentRequests = workflow.consent_requests || [];
+  if (
+    consentRequests.length > 0 &&
+    consentRequests.every((request) => normalizedConsentAction(request.status) === "GRANTED")
+  ) {
+    return true;
+  }
+  const metadataRequests = metadataArray(workflow, "consent_requests");
+  if (
+    metadataRequests.length > 0 &&
+    metadataRequests.every(
+      (request) =>
+        request &&
+        typeof request === "object" &&
+        normalizedConsentAction((request as Record<string, unknown>).status) === "GRANTED"
+    )
+  ) {
+    return true;
+  }
+  const statuses = metadataArray(workflow, "consent_statuses");
+  return (
+    statuses.length > 0 &&
+    statuses.every(
+      (status) =>
+        status &&
+        typeof status === "object" &&
+        normalizedConsentAction((status as Record<string, unknown>).action) === "CONSENT_GRANTED"
+    )
+  );
+}
+
+export function needsKycWorkflowAccessApproval(workflow: OneKycWorkflow): boolean {
+  return workflow.status === "needs_scope" && !hasApprovedKycWorkflowAccess(workflow);
 }
 
 export function removeKycWorkflowLocalState<T>(
