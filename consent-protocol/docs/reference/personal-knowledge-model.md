@@ -114,8 +114,11 @@ After legacy cutover, PKM still evolves. Those upgrades are a separate system fr
 - `pkm_migration_state` remains only for legacy-to-PKM repartition.
 - Generic PKM upgrades are driven by:
   - global `pkm_index.model_version`
+  - semantic `pkm_contract_version` and `readable_projection_version`
   - per-domain `pkm_manifests.domain_contract_version`
   - per-domain `pkm_manifests.readable_summary_version`
+- Domain contract targets are dynamic-domain defaults. Domain-specific adapters are optional compatibility overrides, not the primary upgrade policy.
+- The generic upgrade pipeline rebuilds manifest normalization, readable summaries, scope registry shape, consumer visibility, semantic counts, and externalizable path metadata from the current manifest/data shape.
 - The client plans upgrades after vault unlock, decrypts locally, rewrites one domain at a time, re-encrypts, and stores new PKM rows with optimistic concurrency.
 - Upgrade run state and checkpoints are stored server-side as non-secret metadata only.
 - If the app loses the unlocked session mid-upgrade, the next resume must reacquire access locally through the user’s normal vault unlock method.

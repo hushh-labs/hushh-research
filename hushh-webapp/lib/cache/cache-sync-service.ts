@@ -115,6 +115,20 @@ function sanitizeDomainSummary(
   return sanitized;
 }
 
+function isFullFinancialDomain(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const domain = value as Record<string, unknown>;
+  return Boolean(
+    domain.portfolio ||
+      domain.documents ||
+      domain.sources ||
+      domain.schema_version ||
+      domain.domain_intent,
+  );
+}
+
 function patchMetadataDomain(
   cachedMetadata: PersonalKnowledgeModelMetadata,
   userId: string,
@@ -236,20 +250,23 @@ function patchMetadataDomain(
  * Services/components should call this instead of ad-hoc invalidation logic.
  */
 export class CacheSyncService {
-  private static invalidateKaiFinancialResource(userId: string): void {
+  private static invalidateKaiFinancialResource(
+    userId: string,
+    options?: { includeDevice?: boolean },
+  ): void {
     const cache = CacheService.getInstance();
     cache.invalidate(CACHE_KEYS.KAI_FINANCIAL_RESOURCE(userId));
     void import("@/lib/kai/kai-financial-resource")
       .then(({ KaiFinancialResourceService }) => {
         KaiFinancialResourceService.invalidate(userId, {
-          includeDevice: false,
+          includeDevice: options?.includeDevice === true,
         });
       })
       .catch(() => undefined);
     void import("@/lib/pkm/pkm-domain-resource")
       .then(({ PkmDomainResourceService }) => {
         PkmDomainResourceService.invalidateDomain(userId, "financial", {
-          includeDevice: false,
+          includeDevice: options?.includeDevice === true,
         });
       })
       .catch(() => undefined);
@@ -278,6 +295,7 @@ export class CacheSyncService {
     domain: string,
     options?: {
       portfolioData?: PortfolioData;
+      domainData?: Record<string, unknown>;
       encryptedBlob?: {
         ciphertext: string;
         iv: string;
@@ -319,13 +337,23 @@ export class CacheSyncService {
           options.portfolioData,
           CACHE_TTL.SESSION,
         );
+      }
+      if (options?.domainData) {
+        cache.set(
+          CACHE_KEYS.DOMAIN_DATA(userId, "financial"),
+          options.domainData,
+          CACHE_TTL.SESSION,
+        );
+      } else if (options?.portfolioData) {
         cache.set(
           CACHE_KEYS.DOMAIN_DATA(userId, "financial"),
           options.portfolioData,
           CACHE_TTL.SESSION,
         );
       }
-      this.invalidateKaiFinancialResource(userId);
+      this.invalidateKaiFinancialResource(userId, {
+        includeDevice: Boolean(options?.encryptedBlob),
+      });
       this.onKaiMarketContextChanged(userId);
       // IMPORTANT: Preserve existing financial portfolio cache on profile-only
       // writes (e.g. onboarding/nav-tour sync). Invalidating here causes
@@ -336,7 +364,7 @@ export class CacheSyncService {
     void import("@/lib/pkm/pkm-domain-resource")
       .then(({ PkmDomainResourceService }) => {
         PkmDomainResourceService.invalidateDomain(userId, domain, {
-          includeDevice: false,
+          includeDevice: Boolean(options?.encryptedBlob),
         });
       })
       .catch(() => undefined);
@@ -410,11 +438,16 @@ export class CacheSyncService {
       portfolioData,
       CACHE_TTL.SESSION,
     );
-    cache.set(
+    const existingFinancialDomain = cache.get<Record<string, unknown>>(
       CACHE_KEYS.DOMAIN_DATA(userId, "financial"),
-      portfolioData,
-      CACHE_TTL.SESSION,
     );
+    if (!isFullFinancialDomain(existingFinancialDomain)) {
+      cache.set(
+        CACHE_KEYS.DOMAIN_DATA(userId, "financial"),
+        portfolioData,
+        CACHE_TTL.SESSION,
+      );
+    }
     this.invalidateKaiFinancialResource(userId);
     this.onKaiMarketContextChanged(userId);
     if (options?.invalidateMetadata !== false) {

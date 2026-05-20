@@ -81,6 +81,11 @@ async def get_pending_by_request_id(user_id: str, request_id: str) -> Optional[D
     async with pool.acquire() as conn:
         row = await conn.fetchrow(query, user_id, request_id)
         if row and row["action"] == "REQUESTED":
+            poll_timeout_at = row["poll_timeout_at"] or row["expires_at"]
+            if poll_timeout_at is not None:
+                now_ms = int(datetime.now().timestamp() * 1000)
+                if poll_timeout_at <= now_ms:
+                    return None
             metadata = row["metadata"] or {}
             if isinstance(metadata, str):
                 metadata = json.loads(metadata) if metadata else {}

@@ -1879,6 +1879,26 @@ def _stacked_branch_findings(
     ]
 
 
+def _stacked_dependency_pr_numbers(title: str, body: str | None) -> list[int]:
+    """Return explicitly named predecessor PRs from dependency language."""
+    text = _normal_text(title, body)
+    if not text:
+        return []
+    patterns = (
+        r"(?:depends on|depends upon|blocked by|after|extends|stacked on|built on|follows|requires|needs|based on)\s+(?:pr\s*)?#(?P<number>\d+)",
+        r"(?:depends on|depends upon|blocked by|after|extends|stacked on|built on|follows|requires|needs|based on)\s+(?:https?://github\.com/[^/]+/[^/]+/pull/)(?P<number>\d+)",
+        r"(?:pr\s*#(?P<number>\d+))\s+(?:first|before this|before merging|is the base)",
+    )
+    numbers: set[int] = set()
+    for pattern in patterns:
+        for match in re.finditer(pattern, text):
+            try:
+                numbers.add(int(match.group("number")))
+            except (TypeError, ValueError):
+                continue
+    return sorted(numbers)
+
+
 def _kai_finance_action_language_findings(
     files: list[str],
     patch_map: dict[str, str],
@@ -3277,6 +3297,7 @@ def _single_pr_live_assessment(report: dict[str, Any]) -> list[str]:
         f"- Summary: {pr.get('summary') or 'No PR summary extracted.'}",
         f"- Findings: {_findings_summary(report)}",
         f"- Overlap: {_overlap_summary(report)}",
+        f"- Stacked dependencies: explicit `{report.get('stacked_dependency_prs') or []}`; outside reviewed scope `{report.get('external_stacked_dependency_prs') or []}`",
         f"- Train graph: collision `{report.get('collision_group_id') or 'none'}`; can queue with `{report.get('can_queue_with') or []}`; must wait for `{report.get('must_wait_for') or []}`; queue cohort `{report.get('queue_cohort_id') or 'none'}`; patch train `{report.get('parallel_patch_train_id') or 'none'}`",
         f"- Reviewed state: `{report.get('reviewed_train_state') or 'remaining'}`; train terminal state `{report.get('train_terminal_state') or 'awaiting train action'}`",
         f"- Related surfaces: {_related_surface_summary(report)}",
@@ -3307,6 +3328,8 @@ def _is_actionable_live_candidate(report: dict[str, Any]) -> bool:
     if pr.get("review_decision") == "CHANGES_REQUESTED":
         return False
     if pr.get("mergeable") not in {"MERGEABLE", "UNKNOWN"}:
+        return False
+    if report.get("must_wait_for"):
         return False
     return report["lane"] in {"merge_now", "patch_then_merge", "harvest_then_close", "close_duplicate"}
 
@@ -4133,9 +4156,10 @@ def _append_finding(report: dict[str, Any], finding: dict[str, Any]) -> None:
 
 
 def _refresh_report_decision(report: dict[str, Any]) -> None:
+    review_decision = "" if report.get("repass_after_changes") else report["pr"].get("review_decision", "")
     report["decision"] = _recommend_merge_lane(
         ci_status_gate=report["current_ci_status_gate"],
-        review_decision=report["pr"].get("review_decision", ""),
+        review_decision=review_decision,
         findings=report["findings"],
         surface_tags=report["surface_tags"],
         changed_files=report["changed_files"],
@@ -4526,6 +4550,15 @@ def _build_train_to_subagent_map(
 
 def _hard_collision_reasons(left: dict[str, Any], right: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
+    left_number = int(left.get("pr", {}).get("number", 0) or 0)
+    right_number = int(right.get("pr", {}).get("number", 0) or 0)
+    left_deps = {int(number) for number in left.get("stacked_dependency_prs", [])}
+    right_deps = {int(number) for number in right.get("stacked_dependency_prs", [])}
+    if right_number in left_deps:
+        reasons.append(f"stacked_pr_dependency:#{right_number}->#{left_number}")
+    if left_number in right_deps:
+        reasons.append(f"stacked_pr_dependency:#{left_number}->#{right_number}")
+
     left_files = set(left.get("changed_files", []))
     right_files = set(right.get("changed_files", []))
     shared_files = sorted(left_files & right_files)
@@ -4699,6 +4732,7 @@ def _queue_eligible(report: dict[str, Any], hard_edges: dict[int, dict[int, list
         and pr.get("mergeable") == "MERGEABLE"
         and not pr.get("is_draft")
         and not hard_edges.get(number)
+        and not report.get("must_wait_for")
         and not _has_local_dirty_overlap(report)
     )
 
@@ -4727,6 +4761,41 @@ def _component_numbers(start: int, graph: dict[int, dict[int, list[str]]]) -> se
     return component
 
 
+def _component_dependency_sequence(
+    component_reports: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    by_number = {int(report["pr"]["number"]): report for report in component_reports}
+    component = set(by_number)
+    incoming: dict[int, set[int]] = {number: set() for number in component}
+    outgoing: dict[int, set[int]] = {number: set() for number in component}
+    for report in component_reports:
+        current = int(report["pr"]["number"])
+        for dependency in report.get("stacked_dependency_prs", []):
+            dependency = int(dependency)
+            if dependency not in component or dependency == current:
+                continue
+            incoming[current].add(dependency)
+            outgoing[dependency].add(current)
+
+    ready = sorted(
+        [number for number, dependencies in incoming.items() if not dependencies],
+        key=lambda number: _train_sequence_sort_key(by_number[number]),
+    )
+    ordered_numbers: list[int] = []
+    while ready:
+        current = ready.pop(0)
+        ordered_numbers.append(current)
+        for dependent in sorted(outgoing[current], key=lambda number: _train_sequence_sort_key(by_number[number])):
+            incoming[dependent].discard(current)
+            if not incoming[dependent] and dependent not in ordered_numbers and dependent not in ready:
+                ready.append(dependent)
+                ready.sort(key=lambda number: _train_sequence_sort_key(by_number[number]))
+
+    if len(ordered_numbers) != len(component):
+        return sorted(component_reports, key=_train_sequence_sort_key)
+    return [by_number[number] for number in ordered_numbers]
+
+
 def _build_train_graph(
     reports: list[dict[str, Any]],
     *,
@@ -4753,6 +4822,16 @@ def _build_train_graph(
     hard_edges: dict[int, dict[int, list[str]]] = {
         number: {} for number in by_number
     }
+    for report in train_reports:
+        dependencies = {int(number) for number in report.get("stacked_dependency_prs", [])}
+        external_dependencies = sorted(dependencies - set(by_number))
+        report["external_stacked_dependency_prs"] = external_dependencies
+        if external_dependencies:
+            report["must_wait_for"] = sorted(set(report.get("must_wait_for", [])) | set(external_dependencies))
+            report["collision_reasons"].append(
+                "stacked_pr_dependency_outside_review_scope:"
+                + ", ".join(f"#{number}" for number in external_dependencies)
+            )
 
     for left, right in combinations(train_reports, 2):
         reasons = _hard_collision_reasons(left, right)
@@ -4770,9 +4849,8 @@ def _build_train_graph(
             continue
         component = _component_numbers(number, hard_edges)
         seen |= component
-        component_reports = sorted(
-            (by_number[item] for item in component),
-            key=_train_sequence_sort_key,
+        component_reports = _component_dependency_sequence(
+            [by_number[item] for item in component]
         )
         group_id = f"collision-group-{len(collision_groups) + 1}" if len(component) > 1 else f"independent-{number}"
         group_reasons = sorted(
@@ -4800,10 +4878,10 @@ def _build_train_graph(
             if _has_local_dirty_overlap(report):
                 report["collision_reasons"].append("local_dirty_worktree_overlap")
             if len(component) > 1:
-                report["must_wait_for"] = [
+                report["must_wait_for"] = sorted(set(report.get("must_wait_for", [])) | {
                     previous["pr"]["number"]
                     for previous in component_reports[:index]
-                ]
+                })
 
     queue_candidates = [
         report
@@ -5009,13 +5087,19 @@ def _timeout_handler(signum: int, frame: Any) -> None:
     raise _PRReviewTimeout("per-PR review timed out")
 
 
-def _build_report_guarded(repo: str, pr: int, per_pr_timeout_seconds: int) -> dict[str, Any]:
+def _build_report_guarded(
+    repo: str,
+    pr: int,
+    per_pr_timeout_seconds: int,
+    *,
+    repass_after_changes: bool = False,
+) -> dict[str, Any]:
     if per_pr_timeout_seconds <= 0:
-        return build_report(repo, pr)
+        return build_report(repo, pr, repass_after_changes=repass_after_changes)
     previous_handler = signal.signal(signal.SIGALRM, _timeout_handler)
     signal.setitimer(signal.ITIMER_REAL, per_pr_timeout_seconds)
     try:
-        return build_report(repo, pr)
+        return build_report(repo, pr, repass_after_changes=repass_after_changes)
     except _PRReviewTimeout as exc:
         return _scan_failure_report(repo, pr, "timeout", str(exc))
     except Exception as exc:
@@ -5130,9 +5214,15 @@ def build_batch_report(
     queue_cohort_size: int = DEFAULT_QUEUE_COHORT_SIZE,
     max_parallel_patch_trains: int = DEFAULT_MAX_PARALLEL_PATCH_TRAINS,
     train_pool_size: int = DEFAULT_TRAIN_POOL_SIZE,
+    repass_after_changes: bool = False,
 ) -> dict[str, Any]:
     raw_reports = [
-        _build_report_guarded(repo, pr, per_pr_timeout_seconds)
+        _build_report_guarded(
+            repo,
+            pr,
+            per_pr_timeout_seconds,
+            repass_after_changes=repass_after_changes,
+        )
         for pr in prs
     ]
     reports = _apply_batch_context(raw_reports)
@@ -5969,7 +6059,7 @@ def _write_text_atomic(path: str, text: str) -> None:
     Path(temp_name).replace(output_path)
 
 
-def build_report(repo: str, pr: int) -> dict[str, Any]:
+def build_report(repo: str, pr: int, *, repass_after_changes: bool = False) -> dict[str, Any]:
     schematics = _schematics_summary()
     pr_view = _gh_json(
         repo,
@@ -6055,6 +6145,11 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
             for item in current_checks
         ],
         findings=_build_findings(files, patch_map),
+        repass_after_changes=bool(repass_after_changes),
+        stacked_dependency_prs=_stacked_dependency_pr_numbers(
+            pr_view["title"],
+            pr_view.get("body"),
+        ),
         related_surfaces=_related_surfaces(files),
         founder_wiki_probe=_founder_wiki_probe(
             title=pr_view["title"],
@@ -6114,7 +6209,7 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
         files,
     ):
         _append_finding(report, finding)
-    if report["pr"]["review_decision"] == "CHANGES_REQUESTED":
+    if report["pr"]["review_decision"] == "CHANGES_REQUESTED" and not repass_after_changes:
         _append_finding(
             report,
             _finding(
@@ -6127,7 +6222,7 @@ def build_report(repo: str, pr: int) -> dict[str, Any]:
         )
     report["decision"] = _recommend_merge_lane(
         ci_status_gate=ci_status_gate,
-        review_decision=report["pr"].get("review_decision", ""),
+        review_decision="" if repass_after_changes else report["pr"].get("review_decision", ""),
         findings=report["findings"],
         surface_tags=report["surface_tags"],
         changed_files=files,
@@ -6160,6 +6255,7 @@ def main() -> int:
     parser.add_argument("--per-pr-timeout-seconds", type=int, default=DEFAULT_PER_PR_TIMEOUT_SECONDS, help="Maximum seconds to spend deep-scanning one PR before marking it incomplete.")
     parser.add_argument("--max-parallel-patch-trains", type=int, default=DEFAULT_MAX_PARALLEL_PATCH_TRAINS, help="Maximum disjoint maintainer patch trains to surface.")
     parser.add_argument("--train-pool-size", type=int, default=DEFAULT_TRAIN_POOL_SIZE, help="Active async train worker slots for live reports.")
+    parser.add_argument("--repass-after-changes", action="store_true", help="Re-review current heads that changed after requested changes without auto-blocking on the existing review decision.")
     parser.add_argument("--output", help="Write output atomically to this path instead of stdout.")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--text", action="store_true")
@@ -6188,6 +6284,7 @@ def main() -> int:
                 queue_cohort_size=args.queue_cohort_size,
                 max_parallel_patch_trains=args.max_parallel_patch_trains,
                 train_pool_size=args.train_pool_size,
+                repass_after_changes=args.repass_after_changes,
             )
             is_batch = True
             is_live_report = True
@@ -6200,11 +6297,12 @@ def main() -> int:
                 queue_cohort_size=args.queue_cohort_size,
                 max_parallel_patch_trains=args.max_parallel_patch_trains,
                 train_pool_size=args.train_pool_size,
+                repass_after_changes=args.repass_after_changes,
             )
             is_batch = True
             is_live_report = False
         else:
-            report = build_report(args.repo, args.pr)
+            report = build_report(args.repo, args.pr, repass_after_changes=args.repass_after_changes)
             is_batch = False
             is_live_report = False
     except Exception as exc:

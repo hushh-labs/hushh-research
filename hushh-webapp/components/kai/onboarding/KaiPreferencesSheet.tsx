@@ -70,10 +70,10 @@ export function KaiPreferencesSheet(props: {
       >
         <div className="h-full flex flex-col">
           <SheetHeader className="border-b">
-            <SheetTitle>Risk profile & preferences</SheetTitle>
+            <SheetTitle>Investment preferences</SheetTitle>
             <SheetDescription>
-              Update your horizon and risk preferences. These settings personalize your
-              analysis and portfolio reports.
+              Update your horizon and risk settings for portfolio analysis,
+              debates, and optimization.
             </SheetDescription>
           </SheetHeader>
 

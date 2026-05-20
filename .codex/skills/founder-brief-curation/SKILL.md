@@ -1,6 +1,6 @@
 ---
 name: founder-brief-curation
-description: Use when drafting or polishing founder-facing architecture briefs, presentation-grade markdown/html/pdf artifacts, or paper-style technical specs that must stay grounded in repo truth.
+description: Use when drafting or polishing founder-facing architecture briefs, presentation-grade markdown/html/pdf artifacts, generic report PDFs, Drive/shareable artifacts, or paper-style technical specs that must stay grounded in repo truth.
 ---
 
 # Founder Brief Curation Skill
@@ -8,7 +8,7 @@ description: Use when drafting or polishing founder-facing architecture briefs, 
 ## Purpose and Trigger
 
 - Primary scope: `founder-brief-curation-intake`
-- Trigger on founder or board-facing technical briefs, architecture PDFs, founder-style markdown/html artifacts, diagram curation, and paper-style specs that need repo truth plus presentation polish.
+- Trigger on founder or board-facing technical briefs, architecture PDFs, generic Markdown/HTML/PDF report artifacts, Drive/shareable packet generation, diagram curation, and paper-style specs that need repo truth plus presentation polish.
 - Avoid overlap with `repo-context`, broad `docs-governance` intake, and subsystem implementation skills.
 
 ## Coverage and Ownership
@@ -31,7 +31,8 @@ Non-owned surfaces:
 
 1. Drafting founder-facing architecture briefs from checked-in docs and implementation contracts.
 2. Converting markdown drafts into presentation-grade HTML/PDF artifacts.
-3. Curating diagrams and shareable artifact rhythm without overstating unbuilt systems.
+3. Rendering generic report PDFs from repo Markdown when no narrower report skill owns the artifact.
+4. Curating diagrams and shareable artifact rhythm without overstating unbuilt systems.
 
 ## Do Not Use
 
@@ -43,8 +44,9 @@ Non-owned surfaces:
 
 1. `.codex/skills/founder-brief-curation/references/brief-curation-rules.md`
 2. `.codex/skills/founder-brief-curation/references/founder-brief-kernel.md`
-3. `.codex/skills/docs-governance/references/founder-document-cadence.md`
-4. `docs/reference/operations/documentation-architecture-map.md`
+3. `.codex/skills/founder-brief-curation/references/pdf-artifact-generation.md`
+4. `.codex/skills/docs-governance/references/founder-document-cadence.md`
+5. `docs/reference/operations/documentation-architecture-map.md`
 
 ## Workflow
 
@@ -53,7 +55,8 @@ Non-owned surfaces:
 3. Keep repo truth as current-state proof and founder wiki canon as north-star language; divergence is `current_state_vs_north_star_drift`.
 4. Keep private wiki evidence local-only unless the user asks for an internal private artifact.
 5. Build the narrative, ontology, diagrams, PDF rhythm, and honesty boundaries through `founder-brief-kernel.md`.
-6. Render and inspect actual PDFs before calling them shareable.
+6. For generic Markdown-to-PDF rendering, use `pdf-artifact-generation.md` before trying ad hoc shell, npm, or OS conversion tools.
+7. Render and inspect actual PDFs before calling them shareable.
 
 ## Handoff Rules
 

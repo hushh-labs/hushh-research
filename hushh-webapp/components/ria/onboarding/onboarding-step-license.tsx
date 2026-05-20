@@ -10,11 +10,15 @@ export function OnboardingStepLicense({
   onLicenseNumberChange,
   verificationStatus,
   onVerify,
+  onBypassVerification,
+  verificationBypassEnabled = false,
 }: {
   licenseNumber: string;
   onLicenseNumberChange: (value: string) => void;
   verificationStatus: "idle" | "verifying" | "found" | "not_found" | "error";
   onVerify: () => void;
+  onBypassVerification?: () => void;
+  verificationBypassEnabled?: boolean;
 }) {
   const canVerify =
     licenseNumber.trim().length > 0 && verificationStatus !== "verifying";
@@ -64,8 +68,23 @@ export function OnboardingStepLicense({
         )}
       </button>
 
+      {verificationBypassEnabled && onBypassVerification ? (
+        <button
+          type="button"
+          disabled={!licenseNumber.trim() || verificationStatus === "verifying"}
+          onClick={onBypassVerification}
+          className={cn(
+            "inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-[#0071E3]/35 bg-[#0071E3]/10 px-6 text-[15px] font-semibold text-[#0071E3] transition-opacity",
+            (!licenseNumber.trim() || verificationStatus === "verifying") &&
+              "opacity-40 cursor-not-allowed"
+          )}
+        >
+          Bypass for dev/UAT
+        </button>
+      ) : null}
+
       {verificationStatus !== "idle" ? (
-        <div>
+        <div className="space-y-3">
           {verificationStatus === "verifying" ? (
             <div className="flex items-center gap-3 rounded-[18px] border border-border/60 bg-card/70 px-4 py-3 backdrop-blur dark:bg-card/45">
               <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
@@ -124,8 +143,9 @@ export function OnboardingStepLicense({
           ))}
         </div>
         <p className="text-sm leading-6 text-muted-foreground">
-          Kai verifies your identity against FINRA and SEC records before
-          unlocking the advisory workflow.
+          {verificationBypassEnabled
+            ? "Development and UAT can bypass live verification for testing only."
+            : "Kai verifies your identity against FINRA and SEC records before unlocking the advisory workflow."}
         </p>
       </div>
     </div>

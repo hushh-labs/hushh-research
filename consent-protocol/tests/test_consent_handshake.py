@@ -94,8 +94,23 @@ class _FakeConsentDBService:
             "request_id": request_id,
             "user_id": row_user_id,
             "developer": row.get("agent_id", row.get("developer")),
+            "agent_id": row.get("agent_id"),
+            "requester_label": row.get("requester_label"),
+            "requester_image_url": row.get("requester_image_url"),
+            "requester_website_url": row.get("requester_website_url"),
             "scope": row["scope"],
+            "scope_description": row.get("scope_description"),
+            "poll_timeout_at": row.get("poll_timeout_at"),
+            "issued_at": row.get("issued_at"),
+            "request_url": row.get("request_url"),
+            "reason": row.get("reason"),
             "metadata": row.get("metadata", {}),
+            "bundle_id": row.get("bundle_id"),
+            "bundle_label": row.get("bundle_label"),
+            "bundle_scope_count": row.get("bundle_scope_count"),
+            "is_scope_upgrade": row.get("is_scope_upgrade"),
+            "existing_granted_scopes": row.get("existing_granted_scopes"),
+            "additional_access_summary": row.get("additional_access_summary"),
         }
 
     async def mark_pending_request_opened(self, **_kwargs):
@@ -296,6 +311,62 @@ def test_full_handshake_lifecycle(monkeypatch):
     # Verify REVOKED event recorded.
     revoked_events = [e for e in fake_db.events if e["action"] == "REVOKED"]
     assert len(revoked_events) == 1
+
+
+def test_pending_lookup_resolves_cross_linked_request_ids(monkeypatch):
+    """Product surfaces resolve canonical consent rows by cross-linked ids."""
+    fake_db = _FakeConsentDBService()
+    monkeypatch.setattr(consent, "ConsentDBService", lambda: fake_db)
+
+    issued_at = int(time.time() * 1000)
+    fake_db._add_pending(
+        "req_email_scope",
+        {
+            "request_id": "req_email_scope",
+            "agent_id": "developer:one-email",
+            "requester_label": "One",
+            "scope": "attr.travel.preferences.seat.*",
+            "scope_description": "Seat preferences",
+            "issued_at": issued_at,
+            "poll_timeout_at": issued_at + 60000,
+            "request_url": "/consent/pending?requestId=req_email_scope",
+            "reason": "Reply to an email request with approved seat preferences.",
+            "bundle_id": "bundle_email",
+            "bundle_label": "Email access request",
+            "bundle_scope_count": 1,
+            "metadata": {
+                "request_source": "one_email_kyc_v1",
+                "connector_public_key": "public-key",
+                "connector_key_id": "one-email-key",
+            },
+        },
+    )
+
+    app = _build_app()
+    client = TestClient(app)
+
+    resp = client.get(
+        "/api/consent/pending/lookup",
+        params=[
+            ("userId", "investor_1"),
+            ("request_id", "req_email_scope"),
+            ("request_id", "req_email_scope"),
+            ("request_id", "missing_scope"),
+        ],
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["missing_request_ids"] == ["missing_scope"]
+    assert len(payload["items"]) == 1
+    item = payload["items"][0]
+    assert item["request_id"] == "req_email_scope"
+    assert item["scope"] == "attr.travel.preferences.seat.*"
+    assert item["scope_description"] == "Seat preferences"
+    assert item["requester_label"] == "One"
+    assert item["bundle_id"] == "bundle_email"
+    assert item["metadata"]["request_source"] == "one_email_kyc_v1"
+    assert item["metadata"]["connector_public_key"] == "public-key"
 
 
 def test_deny_consent_records_event(monkeypatch):

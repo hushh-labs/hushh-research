@@ -71,6 +71,10 @@ export type PkmUpgradeStatus = {
   storedModelVersion: number;
   effectiveModelVersion: number;
   targetModelVersion: number;
+  currentPkmContractVersion: string | null;
+  targetPkmContractVersion: string | null;
+  currentReadableProjectionVersion: string | null;
+  targetReadableProjectionVersion: string | null;
   upgradeStatus: string;
   upgradableDomains: PkmUpgradeDomainState[];
   lastUpgradedAt: string | null;
@@ -134,12 +138,40 @@ function authHeaders(vaultOwnerToken?: string): HeadersInit {
 }
 
 function mapDomain(domain: Record<string, unknown>): PkmUpgradeDomainState {
+  const capabilities = domain.capabilities_applied || domain.capabilitiesApplied;
+  const blockers = domain.blocked_reasons || domain.blockedReasons;
   return {
     domain: String(domain.domain || ""),
     currentDomainContractVersion: Number(domain.current_domain_contract_version || 1),
     targetDomainContractVersion: Number(domain.target_domain_contract_version || 1),
     currentReadableSummaryVersion: Number(domain.current_readable_summary_version || 0),
     targetReadableSummaryVersion: Number(domain.target_readable_summary_version || 0),
+    currentPkmContractVersion:
+      typeof domain.current_pkm_contract_version === "string"
+        ? domain.current_pkm_contract_version
+        : typeof domain.currentPkmContractVersion === "string"
+          ? domain.currentPkmContractVersion
+          : null,
+    targetPkmContractVersion:
+      typeof domain.target_pkm_contract_version === "string"
+        ? domain.target_pkm_contract_version
+        : typeof domain.targetPkmContractVersion === "string"
+          ? domain.targetPkmContractVersion
+          : null,
+    currentReadableProjectionVersion:
+      typeof domain.current_readable_projection_version === "string"
+        ? domain.current_readable_projection_version
+        : typeof domain.currentReadableProjectionVersion === "string"
+          ? domain.currentReadableProjectionVersion
+          : null,
+    targetReadableProjectionVersion:
+      typeof domain.target_readable_projection_version === "string"
+        ? domain.target_readable_projection_version
+        : typeof domain.targetReadableProjectionVersion === "string"
+          ? domain.targetReadableProjectionVersion
+          : null,
+    capabilitiesApplied: Array.isArray(capabilities) ? capabilities.map(String) : [],
+    blockedReasons: Array.isArray(blockers) ? blockers.map(String) : [],
     upgradedAt: typeof domain.upgraded_at === "string" ? domain.upgraded_at : null,
     needsUpgrade: Boolean(domain.needs_upgrade),
   };
@@ -216,6 +248,30 @@ function mapStatus(payload: Record<string, unknown>): PkmUpgradeStatus {
       payload.effective_model_version || payload.model_version || 1
     ),
     targetModelVersion: Number(payload.target_model_version || 1),
+    currentPkmContractVersion:
+      typeof payload.current_pkm_contract_version === "string"
+        ? payload.current_pkm_contract_version
+        : typeof payload.currentPkmContractVersion === "string"
+          ? payload.currentPkmContractVersion
+          : null,
+    targetPkmContractVersion:
+      typeof payload.target_pkm_contract_version === "string"
+        ? payload.target_pkm_contract_version
+        : typeof payload.targetPkmContractVersion === "string"
+          ? payload.targetPkmContractVersion
+          : null,
+    currentReadableProjectionVersion:
+      typeof payload.current_readable_projection_version === "string"
+        ? payload.current_readable_projection_version
+        : typeof payload.currentReadableProjectionVersion === "string"
+          ? payload.currentReadableProjectionVersion
+          : null,
+    targetReadableProjectionVersion:
+      typeof payload.target_readable_projection_version === "string"
+        ? payload.target_readable_projection_version
+        : typeof payload.targetReadableProjectionVersion === "string"
+          ? payload.targetReadableProjectionVersion
+          : null,
     upgradeStatus: String(payload.upgrade_status || "current"),
     upgradableDomains: Array.isArray(payload.upgradable_domains)
       ? payload.upgradable_domains

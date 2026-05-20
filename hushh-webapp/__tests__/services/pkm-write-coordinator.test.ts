@@ -248,6 +248,52 @@ describe("PkmWriteCoordinator", () => {
         targetManifestVersion: 5,
       });
     });
+
+    it("passes authoritative merge decisions through merged domain writes", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext({
+        baseFullBlob: {
+          financial: {
+            portfolio: { holdings: [{ symbol: "OLD" }] },
+          },
+        },
+      });
+      pkmStoreMergedDomainWithPreparedBlobMock.mockResolvedValue({
+        success: true,
+        conflict: false,
+        dataVersion: 2,
+        fullBlob: {
+          financial: {
+            portfolio: { holdings: [{ symbol: "NEW" }] },
+          },
+        },
+      });
+
+      await PkmWriteCoordinator.saveMergedDomain({
+        ...BASE_PARAMS,
+        domain: "financial",
+        build: () => ({
+          domainData: {
+            portfolio: { holdings: [{ symbol: "NEW" }] },
+          },
+          summary: { item_count: 1 },
+          mergeDecision: {
+            merge_mode: "replace_domain",
+            target_domain: "financial",
+          },
+        }),
+      });
+
+      expect(pkmStoreMergedDomainWithPreparedBlobMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domain: "financial",
+          mergeDecision: {
+            merge_mode: "replace_domain",
+            target_domain: "financial",
+          },
+        }),
+      );
+    });
   });
 
   describe("conflict retry", () => {
