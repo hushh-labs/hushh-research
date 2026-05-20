@@ -161,8 +161,12 @@ def test_normalize_json_value_serializes_nested_non_json_payloads():
 
     normalized = MarketCacheStoreService._normalize_json_value(value)
 
-   assert sorted(normalized["rows"][0]["source_tags"]) == ["alpha", "beta"]
+    assert sorted(normalized["rows"][0]["source_tags"]) == ["alpha", "beta"]
+=======
+   normalized = MarketCacheStoreService._normalize_json_value(value)
+>>>>>>> 8ba4fd1f (fix: correct market cache test indentation)
 
+assert sorted(normalized["rows"][0]["source_tags"]) == ["alpha", "beta"]
 
 def test_normalize_json_value_handles_nan():
     value = {"score": float("nan")}
