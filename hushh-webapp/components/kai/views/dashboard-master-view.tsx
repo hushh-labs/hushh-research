@@ -2499,6 +2499,7 @@ export function DashboardMasterView({
     freshness?.syncStatus,
     hasPlaidConnections,
     isDeletingImportedData,
+    isDeletingStatementSnapshot,
     isLinkingFunding,
     isLinkingPlaid,
     isPlaidView,

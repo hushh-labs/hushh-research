@@ -2770,26 +2770,40 @@ class OneEmailKycService:
                 code="ONE_KYC_STATUS_FILTER_INVALID",
             )
 
-        conditions = ["user_id = :user_id"]
-        params: dict[str, Any] = {"user_id": user_id, "limit": page_limit + 1}
-        if not include_archived:
-            conditions.append("(metadata->>'archived_at' IS NULL OR metadata->>'archived_at' = '')")
+        params: dict[str, Any] = {
+            "user_id": user_id,
+            "limit": page_limit + 1,
+            "include_archived": bool(include_archived),
+            "status": status_value or "",
+            "status_filter_enabled": bool(status_value),
+            "cursor_created_at": None,
+            "cursor_workflow_id": "",
+        }
         if status_value:
-            conditions.append("status = :status")
             params["status"] = status_value
         if decoded_cursor:
             cursor_created_at, cursor_workflow_id = decoded_cursor
-            conditions.append(
-                "(created_at < :cursor_created_at OR "
-                "(created_at = :cursor_created_at AND workflow_id < :cursor_workflow_id))"
-            )
             params["cursor_created_at"] = cursor_created_at
             params["cursor_workflow_id"] = cursor_workflow_id
 
-        sql = f"""
+        sql = """
             SELECT *
             FROM one_kyc_workflows
-            WHERE {" AND ".join(conditions)}
+            WHERE user_id = :user_id
+              AND (
+                :include_archived = TRUE
+                OR metadata->>'archived_at' IS NULL
+                OR metadata->>'archived_at' = ''
+              )
+              AND (:status_filter_enabled = FALSE OR status = :status)
+              AND (
+                :cursor_created_at IS NULL
+                OR created_at < :cursor_created_at
+                OR (
+                  created_at = :cursor_created_at
+                  AND workflow_id < :cursor_workflow_id
+                )
+              )
             ORDER BY created_at DESC, workflow_id DESC
             LIMIT :limit
         """

@@ -1098,7 +1098,7 @@ function ProfilePageContent() {
           [domainKey]: null,
         }));
         return manifest;
-      } catch (error) {
+      } catch (_error) {
         const message = "Couldn't load sharing controls for these details.";
         setDomainManifestErrors((current) => ({
           ...current,
