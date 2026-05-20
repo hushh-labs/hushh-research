@@ -56,8 +56,12 @@ Non-owned surfaces:
 3. Keep route-container ownership with shared shells.
 4. Update docs or verification commands when the design rule itself changes.
 5. Keep persona-facing labels plain-language and route action ids aligned to One/Kai/Nav ownership.
-6. Review composition, hierarchy, responsive layout, interaction, form geometry, copy, and contrast through `design-review-kernel.md`.
-7. Challenge incomplete, vague, asymmetric, or noisy UI before shipping the obvious weaker version.
+6. Keep consumer notifications, Email Helper rows, and background-task rows free of implementation diagnostics. Do not show `PKM`, manifests, schemas, tokens, thread ids, workflow ids, consent ids, hashes, timings, correlation ids, route names, raw errors, or dummy-save language outside developer-only surfaces.
+7. Use shadcn Sonner for transient success/error/loading feedback and shadcn AlertDialog for destructive confirmation. Do not add route-local inline error banners for row actions, saves, deletes, refreshes, or short-lived failures; reserve inline errors for stable page-blocking states.
+8. When changing approval-gated Email Helper drafts or preview templates, use the canonical client renderer in `hushh-webapp/lib/services/one-kyc-client-zk-service.ts`. Do not hand-roll route-local email HTML, and keep plaintext/HTML output derived from the same render model.
+9. Gmail-safe dense data tables must live in an inline-styled horizontal scroll wrapper with a fixed/minimum table width. Do not squeeze holdings or financial tables into mobile width if that causes overlap, truncation, or unreadable numeric columns.
+10. Review composition, hierarchy, responsive layout, interaction, form geometry, copy, and contrast through `design-review-kernel.md`.
+11. Challenge incomplete, vague, asymmetric, or noisy UI before shipping the obvious weaker version.
 
 ## Handoff Rules
 

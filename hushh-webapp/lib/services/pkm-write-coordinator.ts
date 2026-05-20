@@ -42,6 +42,7 @@ type BaseContext = {
 type MergedWritePlan = {
   domainData: Record<string, unknown>;
   summary: Record<string, unknown>;
+  mergeDecision?: PkmMergeDecision;
   manifest?: DomainManifest;
   writeProjections?: PkmWriteProjection[];
 };
@@ -284,6 +285,7 @@ export class PkmWriteCoordinator {
         domain: params.domain,
         domainData: plan.domainData,
         summary: plan.summary,
+        mergeDecision: plan.mergeDecision,
         manifest: plan.manifest,
         writeProjections: plan.writeProjections,
         baseFullBlob: context.baseFullBlob,

@@ -14,8 +14,8 @@
  * - NO interval-based polling anywhere
  *
  * Product rule:
- * - Web Sonner toasts are for live realtime events only.
- * - Hydration/offline catch-up updates badge/inbox state but does not replay toasts.
+ * - Web Sonner toasts are used for live events and unreviewed catch-up requests.
+ * - Hydration/offline catch-up must surface actionable approvals once per session.
  * - Native uses Capacitor/FCM notification delivery instead of in-app Sonner toasts.
  */
 
@@ -52,6 +52,11 @@ import {
   resolveCompactConsentSummary,
   resolveConsentRequesterLabel,
 } from "@/lib/consent/consent-display";
+import {
+  emailHelperConsentSummary,
+  emailHelperWorkflowHref,
+  isEmailHelperConsent,
+} from "@/lib/consent/email-helper-consent";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import {
   getSessionItem,
@@ -454,23 +459,29 @@ export function ConsentNotificationProvider({
       toastedIdsRef.current.add(toastKey);
 
       const isBundle = Boolean(consent.bundleId);
-      const summary = isBundle
-        ? "Bundled consent request pending review."
-        : resolveCompactConsentSummary({
-            scope: consent.scope,
-            scopeDescription: consent.scopeDescription,
-            reason: consent.reason,
-            additionalAccessSummary: consent.additionalAccessSummary,
-            isScopeUpgrade: consent.isScopeUpgrade,
-            existingGrantedScopes: consent.existingGrantedScopes ?? null,
-          });
+      const summary = isEmailHelperConsent(consent.metadata)
+        ? emailHelperConsentSummary(consent.metadata)
+        : isBundle
+          ? "Bundled consent request pending review."
+          : resolveCompactConsentSummary({
+              scope: consent.scope,
+              scopeDescription: consent.scopeDescription,
+              reason: consent.reason,
+              additionalAccessSummary: consent.additionalAccessSummary,
+              isScopeUpgrade: consent.isScopeUpgrade,
+              existingGrantedScopes: consent.existingGrantedScopes ?? null,
+            });
       const currentQuery = searchParams.toString();
       const currentInternalHref = `${pathname}${currentQuery ? `?${currentQuery}` : ""}`;
-      const reviewTarget = resolveConsentNavigationTarget(consent.requestUrl, "pending", {
-        requestId: consent.id,
-        bundleId: consent.bundleId,
-        from: currentInternalHref,
-      });
+      const reviewTarget = resolveConsentNavigationTarget(
+        emailHelperWorkflowHref(consent.metadata) || consent.requestUrl,
+        "pending",
+        {
+          requestId: consent.id,
+          bundleId: consent.bundleId,
+          from: currentInternalHref,
+        }
+      );
 
       toast(
         <div className="flex flex-col gap-2">
@@ -1029,6 +1040,9 @@ export function ConsentNotificationProvider({
         clearQueuedPendingConsents(uid);
         setPendingCount(pending.length);
         dispatchConsentStateChanged({ source: "hydrated_pending" });
+        if (!isConsentWorkspaceRoute(pathname)) {
+          pending.forEach((consent) => showConsentToast(consent));
+        }
       } catch (err) {
         console.error("[NotificationProvider] Initial fetch error:", err);
         if (!cancelled && queuedPending.length > 0) {

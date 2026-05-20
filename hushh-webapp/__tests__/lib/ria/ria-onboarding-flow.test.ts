@@ -41,9 +41,9 @@ describe("ria-onboarding-flow", () => {
   });
 
   describe("canContinueRiaOnboardingStep", () => {
-    it("welcome: requires onboardingType set", () => {
+    it("welcome: defaults to a selectable Individual RIA path", () => {
       const draft = createEmptyRiaOnboardingDraft();
-      expect(canContinueRiaOnboardingStep("welcome", draft)).toBe(false);
+      expect(canContinueRiaOnboardingStep("welcome", draft)).toBe(true);
       expect(
         canContinueRiaOnboardingStep("welcome", { ...draft, onboardingType: "individual" })
       ).toBe(true);
@@ -116,7 +116,7 @@ describe("ria-onboarding-flow", () => {
     it("has correct defaults for all fields", () => {
       const draft = createEmptyRiaOnboardingDraft();
       expect(draft.currentStepId).toBe("welcome");
-      expect(draft.onboardingType).toBe("");
+      expect(draft.onboardingType).toBe("individual");
       expect(draft.licenseNumber).toBe("");
       expect(draft.licenseVerificationStatus).toBe("idle");
       expect(draft.scrapeJobId).toBeNull();
@@ -180,7 +180,14 @@ describe("ria-onboarding-flow", () => {
       const result = normalizeRiaOnboardingDraft({
         onboardingType: "corporate" as any,
       });
-      expect(result.onboardingType).toBe("");
+      expect(result.onboardingType).toBe("individual");
+    });
+
+    it("upgrades empty saved onboardingType to the default selected path", () => {
+      const result = normalizeRiaOnboardingDraft({
+        onboardingType: "",
+      });
+      expect(result.onboardingType).toBe("individual");
     });
 
     it("rejects invalid licenseVerificationStatus", () => {
@@ -280,9 +287,9 @@ describe("ria-onboarding-flow", () => {
   });
 
   describe("findFirstIncompleteRiaOnboardingStepId", () => {
-    it("returns welcome for empty draft", () => {
+    it("returns license_number for the default selected draft", () => {
       const draft = createEmptyRiaOnboardingDraft();
-      expect(findFirstIncompleteRiaOnboardingStepId(draft)).toBe("welcome");
+      expect(findFirstIncompleteRiaOnboardingStepId(draft)).toBe("license_number");
     });
 
     it("returns license_number when welcome is complete", () => {
@@ -328,7 +335,7 @@ describe("ria-onboarding-flow", () => {
 
     it("returns first incomplete when no preference", () => {
       const draft = createEmptyRiaOnboardingDraft();
-      expect(resolveRiaOnboardingStepId(draft)).toBe("welcome");
+      expect(resolveRiaOnboardingStepId(draft)).toBe("license_number");
     });
   });
 

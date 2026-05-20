@@ -128,14 +128,6 @@ function humanizePath(value: string | null | undefined): string {
     .join(" ");
 }
 
-function daysSince(value: string | null | undefined): number | null {
-  const text = String(value || "").trim();
-  if (!text) return null;
-  const timestamp = new Date(text).getTime();
-  if (!Number.isFinite(timestamp)) return null;
-  return Math.max(0, (Date.now() - timestamp) / (1000 * 60 * 60 * 24));
-}
-
 function parseTimestamp(value: string | null | undefined): number | null {
   const text = String(value || "").trim();
   if (!text) return null;
@@ -165,16 +157,33 @@ function toNonNegativeInteger(value: unknown): number | null {
   return null;
 }
 
+function firstPositiveInteger(values: unknown[]): number | null {
+  for (const value of values) {
+    const parsed = toNonNegativeInteger(value);
+    if (typeof parsed === "number" && parsed > 0) return parsed;
+  }
+  return null;
+}
+
 function resolveDomainDetailCount(domain: DomainSummary): number {
   const summary = domain.summary || {};
-  const candidates = [
-    toNonNegativeInteger(domain.attributeCount),
-    toNonNegativeInteger(summary.item_count),
-    toNonNegativeInteger(summary.attribute_count),
-    toNonNegativeInteger(summary.externalizable_path_count),
-    toNonNegativeInteger(summary.path_count),
-  ];
-  return candidates.find((count): count is number => typeof count === "number" && count > 0) ?? 0;
+  return (
+    firstPositiveInteger([
+      summary.consumer_item_count,
+      summary.memory_count,
+      summary.entity_count,
+      summary.entities_count,
+      summary.preference_count,
+      summary.preferences_count,
+      summary.receipt_count_used,
+      summary.receipt_count,
+      summary.holdings_count,
+      summary.account_count,
+      summary.item_count,
+      domain.attributeCount,
+      summary.attribute_count,
+    ]) ?? 0
+  );
 }
 
 export function isConsumerVisiblePkmDomain(domain: DomainSummary): boolean {
@@ -230,11 +239,12 @@ function toStatus(
   presentation: NaturalDomainPresentation,
   detailCount: number
 ): { status: PkmDomainStatus; statusLabel: string } {
-  const ageDays = daysSince(presentation.updatedAt);
   if (detailCount <= 0) {
-    return { status: "missing", statusLabel: "Missing" };
+    return presentation.sections.length > 0
+      ? { status: "partial", statusLabel: "Ready" }
+      : { status: "missing", statusLabel: "No saved data" };
   }
-  if (ageDays !== null && ageDays >= 30) {
+  if (domain.summary?.refresh_recommended === true) {
     return { status: "stale", statusLabel: "Stale" };
   }
   if (domain.attributeCount < 4 || presentation.sections.length < 2) {

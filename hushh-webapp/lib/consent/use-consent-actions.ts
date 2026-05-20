@@ -19,7 +19,10 @@ import {
   CONSENT_ACTION_COMPLETE_EVENT,
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
-import { buildConsentExportForScope } from "@/lib/consent/export-builder";
+import {
+  buildConsentExportForScope,
+  ConsentExportNoDataError,
+} from "@/lib/consent/export-builder";
 
 // ============================================================================
 // Types
@@ -214,6 +217,9 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
             if (err instanceof SyntaxError) {
               console.error("[Consent] Failed to parse PKM blob after decrypt");
               throw new Error("Could not prepare export; check vault.");
+            }
+            if (err instanceof ConsentExportNoDataError) {
+              throw err;
             }
             console.error("[Consent] PKM export build failed:", err);
             throw new Error("Could not load your data; try again.");

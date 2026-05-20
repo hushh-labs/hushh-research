@@ -19,6 +19,7 @@ def _fake_report(
     ci_status_gate: str = "SUCCESS",
     current_checks: list[dict] | None = None,
     review_decision: str = "",
+    stacked_dependency_prs: list[int] | None = None,
 ) -> OrderedDict:
     findings = findings or []
     report = OrderedDict(
@@ -47,6 +48,7 @@ def _fake_report(
         current_checks=current_checks or [
             OrderedDict(name="CI Status Gate", conclusion=ci_status_gate)
         ],
+        stacked_dependency_prs=stacked_dependency_prs or [],
         findings=findings,
         exact_file_overlap=[],
         concept_overlap=[],
@@ -295,6 +297,63 @@ def test_collision_train_sequences_oldest_created_pr_first() -> None:
     _assert(reports[1]["must_wait_for"] == [100], "newer PR must wait for older PR in the same train")
 
 
+def test_stacked_dependency_creates_sequential_train() -> None:
+    reports = [
+        _fake_report(
+            300,
+            ["hushh-webapp/lib/feature-init.ts"],
+            created_at="2026-05-13T10:00:00Z",
+        ),
+        _fake_report(
+            301,
+            ["hushh-webapp/app/feature/page.tsx"],
+            created_at="2026-05-13T11:00:00Z",
+            stacked_dependency_prs=[300],
+        ),
+    ]
+    graph = checklist._build_train_graph(
+        reports,
+        queue_cohort_size=4,
+        max_parallel_patch_trains=3,
+    )
+    group = graph["collision_groups"][0]
+    _assert(group["sequence"] == [300, 301], "stacked dependency must sequence predecessor before follow-up")
+    _assert(
+        any("stacked_pr_dependency:#300->#301" in reason for reason in group["reasons"]),
+        "stacked dependency must be recorded as a hard edge",
+    )
+    _assert(reports[1]["must_wait_for"] == [300], "dependent PR must wait for predecessor PR")
+
+
+def test_stacked_dependency_parser_requires_dependency_language() -> None:
+    deps = checklist._stacked_dependency_pr_numbers(
+        "feat(ui): follow-up",
+        "Depends on #300 before this can merge.",
+    )
+    _assert(deps == [300], "explicit dependency language must produce predecessor PR number")
+    issue_only = checklist._stacked_dependency_pr_numbers(
+        "fix: resolve issue",
+        "Fixes #123 and updates docs.",
+    )
+    _assert(issue_only == [], "plain issue references must not create stacked PR dependency")
+
+
+def test_external_stacked_dependency_blocks_queue_until_repass() -> None:
+    report = _fake_report(
+        302,
+        ["hushh-webapp/app/feature/page.tsx"],
+        stacked_dependency_prs=[300],
+    )
+    graph = checklist._build_train_graph(
+        [report],
+        queue_cohort_size=4,
+        max_parallel_patch_trains=3,
+    )
+    _assert(graph["queue_cohorts"] == [], "dependent PR must not enter queue when predecessor is outside reviewed scope")
+    _assert(report["must_wait_for"] == [300], "external predecessor must be preserved as must_wait_for")
+    _assert(not checklist._is_actionable_live_candidate(report), "dependent PR must not be actionable until predecessor is reviewed or landed")
+
+
 def test_all_async_trains_output_names_parallel_model() -> None:
     reports = [
         _fake_report(110, ["hushh-webapp/lib/a.ts"]),
@@ -508,6 +567,9 @@ def main() -> int:
     test_scan_failure_is_hold_not_public_changes_requested()
     test_train_graph_maps_trains_to_subagent_lanes()
     test_collision_train_sequences_oldest_created_pr_first()
+    test_stacked_dependency_creates_sequential_train()
+    test_stacked_dependency_parser_requires_dependency_language()
+    test_external_stacked_dependency_blocks_queue_until_repass()
     test_all_async_trains_output_names_parallel_model()
     test_live_selection_order_defaults_to_oldest()
     test_live_selection_order_latest()
