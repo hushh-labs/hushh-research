@@ -41,8 +41,10 @@ export function PkmUpgradeStatusCard({
   const showCurrentDomain = Boolean(run?.currentDomain && !hasCurrentTruth);
   const showLatestIssue = Boolean(run?.lastError && !hasCurrentTruth);
   const versionBadgeLabel = hasCurrentTruth
-    ? `v${status?.effectiveModelVersion ?? status?.modelVersion ?? "?"} current`
-    : `v${status?.storedModelVersion ?? status?.modelVersion ?? "?"} -> v${status?.targetModelVersion ?? "?"}`;
+    ? "Current"
+    : status?.upgradeStatus === "running"
+      ? "Updating"
+      : "Needs attention";
 
   return (
     <SurfaceInset className="rounded-[28px] border border-border/50 bg-background/85 p-5 shadow-sm">
@@ -57,21 +59,21 @@ export function PkmUpgradeStatusCard({
               <ShieldAlert className="h-4 w-4 text-amber-500" />
             )}
             <p className="text-sm font-semibold text-foreground">
-              Personal Knowledge Model Status
+              Personal data status
             </p>
           </div>
           <p className="max-w-2xl text-sm text-muted-foreground">
             {loading
-              ? "Checking whether Kai needs to refresh your encrypted Personal Knowledge Model."
+              ? "Checking whether your saved details need an update."
               : status?.upgradeStatus === "current"
-                ? "Your Personal Knowledge Model is current. Kai is using the latest encrypted structure for your saved memories."
+                ? "Your saved details are up to date."
                 : status?.upgradeStatus === "awaiting_local_auth_resume"
-                  ? "Kai is waiting for the next local vault unlock so the PKM upgrade can resume automatically."
+                  ? "Unlock your vault to continue updating your saved details."
                   : status?.upgradeStatus === "running"
-                    ? "Kai is refreshing your encrypted Personal Knowledge Model in the background while you keep using the app."
+                    ? "Updating your saved details in the background while you keep using the app."
                     : status?.upgradeStatus === "failed"
-                      ? "Kai hit a recovery state while refreshing your encrypted Personal Knowledge Model. Advanced recovery controls stay below."
-                      : "Kai found an older PKM shape and is refreshing it in the background without exposing your plaintext data to the server."}
+                      ? "We paused while updating your saved details. You can try again below."
+                      : "Refreshing your saved details in the background."}
           </p>
         </div>
         <Badge variant="secondary" className="rounded-full px-3 py-1">
@@ -87,7 +89,7 @@ export function PkmUpgradeStatusCard({
         ))}
         {status && upgradableDomains.length === 0 ? (
           <Badge variant="outline" className="rounded-full px-3 py-1">
-            No pending domain upgrades
+            No pending updates
           </Badge>
         ) : null}
       </div>
@@ -106,7 +108,7 @@ export function PkmUpgradeStatusCard({
             ) : (
               <RefreshCw className="mr-2 h-4 w-4" />
             )}
-            Retry upgrade
+            Retry update
           </Button>
         ) : null}
         {showResume && !vaultUnlocked && onUnlock ? (
@@ -116,36 +118,23 @@ export function PkmUpgradeStatusCard({
         ) : null}
         {showCurrentDomain ? (
           <p className="text-xs text-muted-foreground">
-            Current domain: {humanizeDomain(run?.currentDomain || "")}
+            Updating {humanizeDomain(run?.currentDomain || "")}
           </p>
         ) : null}
         {status?.lastUpgradedAt ? (
           <p className="text-xs text-muted-foreground">
-            Last completed upgrade: {new Date(status.lastUpgradedAt).toLocaleString()}
+            Last updated: {new Date(status.lastUpgradedAt).toLocaleString()}
           </p>
         ) : null}
       </div>
       {showLatestIssue ? (
         <div className="mt-4 rounded-2xl border border-rose-500/20 bg-rose-500/5 px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-600/90">
-            Latest upgrade issue
+            Update paused
           </p>
-          <p className="mt-1 text-sm text-foreground">{run?.lastError}</p>
-          {run?.errorContext?.stage ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Stage: {run.errorContext.stage}
-            </p>
-          ) : null}
-          {run?.errorContext?.correlationId ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Correlation: {run.errorContext.correlationId}
-            </p>
-          ) : null}
-          {run?.errorContext?.manifestRoute ? (
-            <p className="mt-1 break-all text-xs text-muted-foreground">
-              Route: {run.errorContext.manifestRoute}
-            </p>
-          ) : null}
+          <p className="mt-1 text-sm text-foreground">
+            We could not finish updating your saved details. Try again after unlocking your vault.
+          </p>
         </div>
       ) : null}
     </SurfaceInset>

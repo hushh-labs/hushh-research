@@ -270,6 +270,7 @@ describe("kai-action-gateway", () => {
 
     expect(kycActions.map((action) => action.action_id)).toEqual([
       "route.one_kyc",
+      "kyc.aliases.manage",
       "kyc.workflow.sync_status",
       "kyc.draft.review",
       "kyc.draft.request_redraft",

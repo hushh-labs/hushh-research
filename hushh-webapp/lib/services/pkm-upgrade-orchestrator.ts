@@ -34,7 +34,7 @@ import {
 const PKM_UPGRADE_TASK_KIND = "pkm_upgrade";
 const PKM_UPGRADE_SNAPSHOT_PREFIX = "pkm_upgrade_snapshot_v1";
 const PKM_UPGRADE_REHEARSAL_SESSION_PREFIX = "pkm_upgrade_rehearsal_v1";
-const PKM_UPGRADE_ROUTE = "/profile/pkm-agent-lab?tab=overview";
+const PKM_UPGRADE_ROUTE = "/profile?panel=my-data";
 const MAX_CONFLICT_RETRIES = 3;
 export const PKM_UPGRADE_COMPLETED_EVENT = "pkm-upgrade-completed";
 
@@ -52,6 +52,12 @@ type PkmUpgradeStepPlan = {
   targetDomainContractVersion: number;
   currentReadableSummaryVersion: number;
   targetReadableSummaryVersion: number;
+  currentPkmContractVersion?: string | null;
+  targetPkmContractVersion?: string | null;
+  currentReadableProjectionVersion?: string | null;
+  targetReadableProjectionVersion?: string | null;
+  capabilitiesApplied?: string[];
+  blockedReasons?: string[];
 };
 
 export type PkmUpgradeCompletedEventDetail = {
@@ -181,8 +187,8 @@ function resolveUpgradeMode(userId: string): PkmUpgradeMode {
 
 function titleForMode(mode: PkmUpgradeMode): string {
   return mode === "rehearsal_no_write"
-    ? "Checking your Personal Knowledge Model upgrade"
-    : "Updating your Personal Knowledge Model";
+    ? "Checking your personal data"
+    : "Updating your personal data";
 }
 
 function descriptionForStatus(
@@ -191,39 +197,37 @@ function descriptionForStatus(
   currentDomain?: string | null
 ): string {
   const domainLabel = currentDomain
-    ? currentDomain.replace(/[_-]+/g, " ").replace(/\b\w/g, (match) => match.toUpperCase())
-    : "your Personal Knowledge Model";
+    ? `${currentDomain.replace(/[_-]+/g, " ").toLowerCase()} details`
+    : "your personal data";
   if (mode === "rehearsal_no_write") {
     if (status === "completed") {
-      return "Kai finished a no-write upgrade check so your latest PKM shape is ready to verify on screen.";
+      return "Your personal data is ready to review.";
     }
     if (status === "failed") {
-      return `Kai paused a no-write upgrade check while validating ${domainLabel}.`;
+      return `We paused while checking ${domainLabel}.`;
     }
-    return `Checking ${domainLabel} against the latest PKM contract without saving changes.`;
+    return `Checking ${domainLabel} without changing anything.`;
   }
   if (status === "awaiting_local_auth_resume") {
-    return `Kai will continue updating ${domainLabel} the next time you unlock your vault.`;
+    return `We will continue updating ${domainLabel} after you unlock your vault.`;
   }
   if (status === "completed") {
-    return "Your Personal Knowledge Model is current.";
+    return "Your personal data is up to date.";
   }
   if (status === "failed") {
     return `We paused while updating ${domainLabel}.`;
   }
-  return `Updating ${domainLabel} in the background.`;
+  return `Keeping ${domainLabel} up to date.`;
 }
 
 function failureMessage(error: unknown): string {
   if (error instanceof PkmDomainManifestError) {
-    return error.detail
-      ? `Manifest read failed (${error.status}): ${error.detail}`
-      : `Manifest read failed (${error.status}).`;
+    return "We could not update your personal data right now.";
   }
   if (error instanceof Error && error.message.trim()) {
-    return error.message.trim();
+    return "We could not update your personal data right now.";
   }
-  return "Personal Knowledge Model upgrade failed unexpectedly.";
+  return "We could not update your personal data right now.";
 }
 
 function failureMetadata(params: {
@@ -304,7 +308,7 @@ export class PkmUpgradeOrchestrator {
   }): void {
     AppBackgroundTaskService.completeTask(params.taskId, params.description, params.metadata ?? null);
     if (params.mode === "real") {
-      toast.success("Personal Knowledge Model updated", {
+      toast.success("Personal data updated", {
         description: params.description,
         id: `pkm-upgrade-complete:${params.userId}`,
       });
@@ -776,7 +780,7 @@ export class PkmUpgradeOrchestrator {
       },
     });
     const manifestStart = nowMs();
-    let existingManifest = null;
+    let existingManifest: DomainManifest | null = null;
     try {
       existingManifest = await PersonalKnowledgeModelService.getDomainManifest(
         params.userId,
@@ -804,9 +808,18 @@ export class PkmUpgradeOrchestrator {
       domain: params.stepDomain,
       domainData,
       currentVersion: params.stepPlan.currentDomainContractVersion,
+      manifest: existingManifest,
     });
     const upgradedAt = new Date().toISOString();
     const transformMs = Math.round(nowMs() - transformStart);
+    const capabilitiesApplied = upgradeResult.capabilitiesApplied || [];
+    const compatibilityBlockedReasons = upgradeResult.compatibility?.blockedReasons || [];
+    const pkmContractVersion =
+      params.stepPlan.targetPkmContractVersion || upgradeResult.pkmContractVersion || null;
+    const readableProjectionVersion =
+      params.stepPlan.targetReadableProjectionVersion ||
+      upgradeResult.readableProjectionVersion ||
+      null;
 
     AppBackgroundTaskService.updateTask(params.taskId, {
       metadata: {
@@ -833,12 +846,18 @@ export class PkmUpgradeOrchestrator {
       ...structureArtifacts.manifest,
       domain_contract_version: params.stepPlan.targetDomainContractVersion,
       readable_summary_version: params.stepPlan.targetReadableSummaryVersion,
+      pkm_contract_version: pkmContractVersion || undefined,
+      readable_projection_version: readableProjectionVersion || undefined,
       upgraded_at: upgradedAt,
       summary_projection: {
         ...(structureArtifacts.manifest.summary_projection || {}),
         ...readableMetadata,
         domain_contract_version: params.stepPlan.targetDomainContractVersion,
         readable_summary_version: params.stepPlan.targetReadableSummaryVersion,
+        pkm_contract_version: pkmContractVersion,
+        readable_projection_version: readableProjectionVersion,
+        capabilities_applied: capabilitiesApplied,
+        compatibility_blocked_reasons: compatibilityBlockedReasons,
         upgraded_at: upgradedAt,
       },
     };
@@ -848,6 +867,10 @@ export class PkmUpgradeOrchestrator {
       ...readableMetadata,
       domain_contract_version: params.stepPlan.targetDomainContractVersion,
       readable_summary_version: params.stepPlan.targetReadableSummaryVersion,
+      pkm_contract_version: pkmContractVersion,
+      readable_projection_version: readableProjectionVersion,
+      capabilities_applied: capabilitiesApplied,
+      compatibility_blocked_reasons: compatibilityBlockedReasons,
       upgraded_at: upgradedAt,
     };
     const structureRebuildMs = Math.round(nowMs() - structureStart);
@@ -908,6 +931,10 @@ export class PkmUpgradeOrchestrator {
     const pseudoStatus: PkmUpgradeStatus = {
       ...status,
       upgradeStatus: "running",
+      currentPkmContractVersion: status.currentPkmContractVersion || null,
+      targetPkmContractVersion: status.targetPkmContractVersion || null,
+      currentReadableProjectionVersion: status.currentReadableProjectionVersion || null,
+      targetReadableProjectionVersion: status.targetReadableProjectionVersion || null,
       upgradableDomains: rehearsalPlans.map((plan) => ({
         ...plan,
         upgradedAt: null,
@@ -1185,6 +1212,9 @@ export class PkmUpgradeOrchestrator {
           stage: "completed",
           current_domain: params.stepDomain,
           timings_ms: prepared.timings,
+          capabilities_applied: domainState.capabilitiesApplied || [],
+          pkm_contract_version: domainState.targetPkmContractVersion || null,
+          readable_projection_version: domainState.targetReadableProjectionVersion || null,
         },
         attemptCount: attempt,
         lastCompletedContentRevision: stored.dataVersion,
