@@ -87,6 +87,7 @@ continue-dev-tools-usage.md
 temp/
 tmp/
 .playwright-artifacts/
+.playwright-mcp/
 /test-results/
 hushh-webapp/test-results/
 hushh-webapp/npm-audit-report.json

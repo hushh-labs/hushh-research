@@ -3,7 +3,7 @@
   "role": "spoke",
   "owner_family": "docs-governance",
   "primary_scope": "founder-brief-curation-intake",
-  "description": "Use when drafting or polishing founder-facing architecture briefs, presentation-grade markdown/html/pdf artifacts, or paper-style technical specs that must stay grounded in repo truth.",
+  "description": "Use when drafting or polishing founder-facing architecture briefs, presentation-grade markdown/html/pdf artifacts, generic report PDFs, Drive/shareable artifacts, or paper-style technical specs that must stay grounded in repo truth.",
   "owned_paths": [
     ".codex/skills/founder-brief-curation"
   ],
@@ -14,11 +14,14 @@
     "backend"
   ],
   "task_types": [
-    "founder-brief-curation"
+    "founder-brief-curation",
+    "generic-pdf-artifact-generation",
+    "report-artifact-generation"
   ],
   "required_reads": [
     ".codex/skills/founder-brief-curation/references/brief-curation-rules.md",
     ".codex/skills/founder-brief-curation/references/founder-brief-kernel.md",
+    ".codex/skills/founder-brief-curation/references/pdf-artifact-generation.md",
     ".codex/skills/docs-governance/references/founder-document-cadence.md",
     "docs/reference/operations/documentation-architecture-map.md"
   ],
@@ -63,6 +66,8 @@
     "one-kai-nav-role-blur",
     "future-state-overclaim",
     "diagram-overflow",
-    "reference-link-drift"
+    "reference-link-drift",
+    "pdf-rendering-drift",
+    "shareable-artifact-secret-leak"
   ]
 }

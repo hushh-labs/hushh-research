@@ -111,7 +111,7 @@ export function normalizeRiaCapabilities(value: unknown): RiaCapability[] {
 export function createEmptyRiaOnboardingDraft(): RiaOnboardingDraft {
   return {
     currentStepId: "welcome",
-    onboardingType: "",
+    onboardingType: "individual",
     licenseNumber: "",
     regulator: "",
     advisorName: "",
@@ -156,7 +156,7 @@ const VALID_VERIFICATION_STATUSES = [
   "not_found",
   "error",
 ];
-const VALID_ONBOARDING_TYPES = ["", "individual", "firm"];
+const VALID_ONBOARDING_TYPES = ["individual", "firm"];
 
 function sanitizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];

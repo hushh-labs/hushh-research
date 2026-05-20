@@ -6,7 +6,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from hushh_mcp.services.domain_contracts import (
+    CURRENT_PKM_CONTRACT_VERSION,
     CURRENT_PKM_MODEL_VERSION,
+    CURRENT_READABLE_PROJECTION_VERSION,
     CURRENT_READABLE_SUMMARY_VERSION,
     current_domain_contract_version,
 )
@@ -88,6 +90,33 @@ class PkmUpgradeService:
         if not candidates:
             return None
         return max(candidates)
+
+    @staticmethod
+    def _domain_capabilities(manifest: dict[str, Any]) -> list[str]:
+        capabilities: list[str] = ["encrypted_payload_structure"]
+        summary = manifest.get("summary_projection") if isinstance(manifest, dict) else {}
+        summary = summary if isinstance(summary, dict) else {}
+        if manifest.get("paths") or manifest.get("top_level_scope_paths"):
+            capabilities.append("manifest_normalization")
+        if manifest.get("scope_registry"):
+            capabilities.append("scope_registry")
+        if manifest.get("externalizable_paths"):
+            capabilities.append("externalizable_paths")
+        if summary.get("readable_summary") or summary.get("readable_highlights"):
+            capabilities.append("readable_summary")
+        if summary.get("consumer_visible") is True:
+            capabilities.append("consumer_projection")
+        if summary.get("consumer_item_count"):
+            capabilities.append("semantic_counts")
+        return list(dict.fromkeys(capabilities))
+
+    @staticmethod
+    def _domain_blockers(manifest: dict[str, Any]) -> list[str]:
+        if not manifest:
+            return ["missing_manifest"]
+        if not manifest.get("paths") and not manifest.get("top_level_scope_paths"):
+            return ["manifest_has_no_paths"]
+        return []
 
     def _normalize_run(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
         if not isinstance(row, dict):
@@ -287,6 +316,10 @@ class PkmUpgradeService:
                 else {}
             )
             manifest = await self.pkm_service.get_domain_manifest(user_id, domain) or {}
+            summary_projection = (
+                manifest.get("summary_projection") if isinstance(manifest, dict) else {}
+            )
+            summary_projection = summary_projection if isinstance(summary_projection, dict) else {}
             summary_domain_version = summary.get("domain_contract_version")
             manifest_domain_version = manifest.get("domain_contract_version")
             summary_readable_version = summary.get("readable_summary_version")
@@ -305,6 +338,18 @@ class PkmUpgradeService:
             )
             target_domain_version = current_domain_contract_version(domain)
             target_readable_version = CURRENT_READABLE_SUMMARY_VERSION
+            current_pkm_contract_version = (
+                manifest.get("pkm_contract_version")
+                or summary_projection.get("pkm_contract_version")
+                or summary.get("pkm_contract_version")
+                or "0.0.0"
+            )
+            current_readable_projection_version = (
+                manifest.get("readable_projection_version")
+                or summary_projection.get("readable_projection_version")
+                or summary.get("readable_projection_version")
+                or "0.0.0"
+            )
             domain_states.append(
                 {
                     "domain": domain,
@@ -312,10 +357,19 @@ class PkmUpgradeService:
                     "target_domain_contract_version": target_domain_version,
                     "current_readable_summary_version": current_readable_version,
                     "target_readable_summary_version": target_readable_version,
+                    "current_pkm_contract_version": str(current_pkm_contract_version),
+                    "target_pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
+                    "current_readable_projection_version": str(current_readable_projection_version),
+                    "target_readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
+                    "capabilities_applied": self._domain_capabilities(manifest),
+                    "blocked_reasons": self._domain_blockers(manifest),
                     "upgraded_at": manifest.get("upgraded_at") or summary.get("upgraded_at"),
                     "needs_upgrade": (
                         current_domain_version < target_domain_version
                         or current_readable_version < target_readable_version
+                        or str(current_pkm_contract_version) != CURRENT_PKM_CONTRACT_VERSION
+                        or str(current_readable_projection_version)
+                        != CURRENT_READABLE_PROJECTION_VERSION
                     ),
                 }
             )
@@ -349,6 +403,14 @@ class PkmUpgradeService:
             "stored_model_version": stored_model_version,
             "effective_model_version": effective_model_version,
             "target_model_version": CURRENT_PKM_MODEL_VERSION,
+            "current_pkm_contract_version": (
+                CURRENT_PKM_CONTRACT_VERSION if not stale_domains else f"{stored_model_version}.0.0"
+            ),
+            "target_pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
+            "current_readable_projection_version": (
+                CURRENT_READABLE_PROJECTION_VERSION if not stale_domains else "0.0.0"
+            ),
+            "target_readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
             "upgrade_status": upgrade_status,
             "upgradable_domains": stale_domains,
             "last_upgraded_at": last_upgraded_at,

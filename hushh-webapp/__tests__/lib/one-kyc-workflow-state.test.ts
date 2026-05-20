@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  hasApprovedKycWorkflowAccess,
   isKycClientDraftReady,
+  needsKycWorkflowAccessApproval,
   removeKycWorkflowLocalState,
   retainReadyKycWorkflowLocalState,
   selectedScopesForWorkflow,
@@ -83,5 +85,54 @@ describe("one KYC workflow state helpers", () => {
     expect(removeKycWorkflowLocalState({ wf_1: "draft", wf_2: "draft" }, "wf_1")).toEqual({
       wf_2: "draft",
     });
+  });
+
+  it("does not ask for access approval once linked access is already granted", () => {
+    const granted = workflow({
+      status: "needs_scope",
+      draft_status: "not_ready",
+      consent_requests: [
+        {
+          request_id: "okyc_1",
+          scope: "attr.financial.portfolio.*",
+          status: "granted",
+        },
+      ],
+    });
+    const pending = workflow({
+      status: "needs_scope",
+      draft_status: "not_ready",
+      consent_requests: [
+        {
+          request_id: "okyc_2",
+          scope: "attr.financial.portfolio.*",
+          status: "requested",
+        },
+      ],
+    });
+
+    expect(hasApprovedKycWorkflowAccess(granted)).toBe(true);
+    expect(needsKycWorkflowAccessApproval(granted)).toBe(false);
+    expect(hasApprovedKycWorkflowAccess(pending)).toBe(false);
+    expect(needsKycWorkflowAccessApproval(pending)).toBe(true);
+  });
+
+  it("recognizes approved access from consent status metadata", () => {
+    const granted = workflow({
+      status: "needs_scope",
+      draft_status: "not_ready",
+      metadata: {
+        consent_statuses: [
+          {
+            request_id: "okyc_1",
+            scope: "attr.travel.seat_preferences.*",
+            action: "CONSENT_GRANTED",
+          },
+        ],
+      },
+    });
+
+    expect(hasApprovedKycWorkflowAccess(granted)).toBe(true);
+    expect(needsKycWorkflowAccessApproval(granted)).toBe(false);
   });
 });

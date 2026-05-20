@@ -19,12 +19,11 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   TOP_SHELL_DROPDOWN_BODY_CLASSNAME,
-  TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME,
   TOP_SHELL_DROPDOWN_HEADER_CLASSNAME,
+  TopShellDropdownContent,
 } from "@/components/app-ui/top-shell-dropdown";
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -137,6 +136,10 @@ function appTaskTimingSummary(task: AppBackgroundTask): string | null {
   return parts.join(" • ");
 }
 
+function shouldShowBackgroundTaskDiagnostics(): boolean {
+  return getSessionItem(BACKGROUND_TASK_DEBUG_KEY) === "true";
+}
+
 interface DebateTaskCenterProps {
   triggerClassName?: string;
   renderTrigger?: (state: { activeCount: number; badgeCount: number }) => ReactElement;
@@ -145,6 +148,7 @@ interface DebateTaskCenterProps {
 const DEFAULT_TRIGGER_CLASSNAME =
   "relative grid h-10 w-10 place-items-center rounded-full";
 const IMPORT_BACKGROUND_SNAPSHOT_KEY = "kai_portfolio_import_background_v1";
+const BACKGROUND_TASK_DEBUG_KEY = "debug_app_background_tasks";
 
 interface ImportBackgroundSnapshot {
   taskId?: string | null;
@@ -176,6 +180,7 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
   const [isBusy, setIsBusy] = useState<Record<string, boolean>>({});
   const [open, setOpen] = useState(false);
   const [showPassiveActivity, setShowPassiveActivity] = useState(false);
+  const showDiagnostics = shouldShowBackgroundTaskDiagnostics();
 
   useEffect(() => {
     return DebateRunManagerService.subscribe(setDebateState);
@@ -329,7 +334,7 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
           <p className="mt-1 text-xs text-muted-foreground">
             {task.description}
           </p>
-          {appTaskStatusItems(task).length > 0 ? (
+          {showDiagnostics && appTaskStatusItems(task).length > 0 ? (
             <div className="mt-2 space-y-1">
               {appTaskStatusItems(task).map((item) => (
                 <p key={item} className="text-[11px] text-muted-foreground">
@@ -338,7 +343,7 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
               ))}
             </div>
           ) : null}
-          {appTaskTimingSummary(task) ? (
+          {showDiagnostics && appTaskTimingSummary(task) ? (
             <p className="mt-2 text-[11px] text-muted-foreground">
               {appTaskTimingSummary(task)}
             </p>
@@ -346,7 +351,7 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
           <p className="mt-1 text-xs text-muted-foreground">
             Started {new Date(task.startedAt).toLocaleTimeString()}
           </p>
-          {task.error ? (
+          {showDiagnostics && task.error ? (
             <p className="mt-1 text-xs text-rose-500">{task.error}</p>
           ) : null}
         </div>
@@ -434,7 +439,7 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
           </button>
         )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className={TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME}>
+      <TopShellDropdownContent align="end">
         <div className={TOP_SHELL_DROPDOWN_HEADER_CLASSNAME}>
           <p className="text-sm font-semibold text-foreground">Notifications</p>
         </div>
@@ -548,7 +553,7 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-foreground">Background activity</p>
                       <p className="text-xs text-muted-foreground">
-                        Small refreshes stay here unless something needs your attention.
+                        Routine updates stay here unless something needs your attention.
                       </p>
                     </div>
                     <div className="flex items-center gap-2 text-muted-foreground">
@@ -573,7 +578,7 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
             </div>
           )}
         </div>
-      </DropdownMenuContent>
+      </TopShellDropdownContent>
     </DropdownMenu>
   );
 }

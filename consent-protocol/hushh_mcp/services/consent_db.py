@@ -504,6 +504,10 @@ class ConsentDBService:
             if not self._is_external_audit_row(row):
                 return None
             if row.get("action") == "REQUESTED":
+                poll_timeout_at = self._effective_pending_timeout_at(row)
+                now_ms = int(datetime.now().timestamp() * 1000)
+                if poll_timeout_at is not None and poll_timeout_at <= now_ms:
+                    return None
                 notification_events = await self.list_internal_request_events(
                     [request_id],
                     actions=["NOTIFICATION_OPENED"],

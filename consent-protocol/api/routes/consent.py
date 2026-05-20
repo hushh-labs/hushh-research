@@ -319,6 +319,58 @@ async def get_pending_consents(
         raise
 
 
+@router.get("/pending/lookup")
+async def lookup_pending_consents(
+    userId: str,
+    request_id: list[str] | None = Query(default=None),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """
+    Resolve specific pending consent requests by canonical request id.
+
+    This is intentionally uncached and request-id scoped so product surfaces that
+    hold cross-links to consent requests do not reconstruct consent payloads from
+    feature-local workflow state.
+    """
+    if token_data["user_id"] != userId:
+        raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
+
+    request_ids = []
+    seen: set[str] = set()
+    for value in request_id or []:
+        normalized = _clean_text(value)
+        if not normalized or normalized in seen:
+            continue
+        if len(normalized) > 128:
+            raise HTTPException(status_code=400, detail="request_id is too long.")
+        seen.add(normalized)
+        request_ids.append(normalized)
+
+    if not request_ids:
+        raise HTTPException(status_code=400, detail="At least one request_id is required.")
+    if len(request_ids) > 25:
+        raise HTTPException(status_code=400, detail="At most 25 request ids can be looked up.")
+
+    service = ConsentDBService()
+    items = []
+    missing_request_ids = []
+    for request_id_value in request_ids:
+        pending = await service.get_pending_by_request_id(userId, request_id_value)
+        if pending:
+            items.append(pending)
+        else:
+            missing_request_ids.append(request_id_value)
+
+    logger.info(
+        "consent.pending_lookup user_id=%s requested=%s found=%s missing=%s",
+        userId,
+        len(request_ids),
+        len(items),
+        len(missing_request_ids),
+    )
+    return {"items": items, "missing_request_ids": missing_request_ids}
+
+
 @router.post("/pending/opened")
 async def mark_pending_consent_opened(
     body: PendingConsentOpenedRequest,
@@ -540,6 +592,15 @@ async def approve_consent(
         elif existing_export.get("refresh_status") != "current":
             logger.info(
                 "consent.token_reuse_skipped_stale_export scope=%s token=%s",
+                requested_scope,
+                str(existing_token.get("token_id") or "")[:32],
+            )
+            existing_token = None
+        elif requested_scope.startswith("attr.") and not isinstance(
+            existing_export.get("source_content_revision"), int
+        ):
+            logger.info(
+                "consent.token_reuse_skipped_missing_source_revision scope=%s token=%s",
                 requested_scope,
                 str(existing_token.get("token_id") or "")[:32],
             )

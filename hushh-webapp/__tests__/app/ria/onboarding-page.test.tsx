@@ -309,6 +309,10 @@ describe("RiaOnboardingPage", () => {
       expect(screen.getByTestId("step-welcome")).toBeTruthy();
     });
     expect(screen.getByTestId("shell-eyebrow").textContent).toBe("Welcome");
+    expect(screen.getByTestId("welcome-type").textContent).toBe("individual");
+    expect((screen.getByTestId("continue-btn") as HTMLButtonElement).disabled).toBe(
+      false
+    );
   });
 
   it("advances to license step after clicking Continue from welcome", async () => {
@@ -316,10 +320,6 @@ describe("RiaOnboardingPage", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("step-welcome")).toBeTruthy();
-    });
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("select-individual"));
     });
 
     await act(async () => {

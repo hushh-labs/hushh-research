@@ -40,9 +40,11 @@ import {
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { trackEvent } from "@/lib/observability/client";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
+import { resolveAppEnvironment } from "@/lib/app-env";
 
 const LICENSE_VERIFICATION_TIMEOUT_MS = 90_000;
 const SCRAPE_POLL_INTERVAL_MS = 5_000;
+const RIA_ENVIRONMENT_BYPASS_STATUS = "Environment bypass";
 const REGULATOR_PREFILL_RESET: Partial<RiaOnboardingDraft> = {
   advisorName: "",
   firmName: "",
@@ -70,6 +72,15 @@ const REGULATOR_PREFILL_RESET: Partial<RiaOnboardingDraft> = {
   strategySummary: "",
   verifiedLicensePrefillKey: "",
 };
+
+function isEnvironmentRiaVerificationBypassEnabled(): boolean {
+  if (process.env.NODE_ENV === "test") return false;
+  return resolveAppEnvironment() !== "production";
+}
+
+function isRiaVerificationBypassedDraft(draft: RiaOnboardingDraft): boolean {
+  return draft.regulatorStatus === RIA_ENVIRONMENT_BYPASS_STATUS;
+}
 
 function isAdvisoryAccessReady(status?: string | null): boolean {
   return status === "active" || status === "verified";
@@ -121,6 +132,8 @@ export default function RiaOnboardingPage() {
   const [iamUnavailable, setIamUnavailable] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
   const [shouldPersistDraft, setShouldPersistDraft] = useState(false);
+  const [localVerificationBypassEnabled, setLocalVerificationBypassEnabled] =
+    useState(false);
 
   const verificationAbortRef = useRef<AbortController | null>(null);
   const scrapePollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -142,6 +155,10 @@ export default function RiaOnboardingPage() {
     () => ({ licenseVerificationSatisfied }),
     [licenseVerificationSatisfied],
   );
+
+  useEffect(() => {
+    setLocalVerificationBypassEnabled(isEnvironmentRiaVerificationBypassEnabled());
+  }, []);
 
   const steps = useMemo(
     () => buildRiaOnboardingSteps(draft, flowOptions),
@@ -218,15 +235,17 @@ export default function RiaOnboardingPage() {
           });
         }
 
-        const currentStepId = resolveRiaOnboardingStepId(
-          resolvedDraft,
-          localDraft?.currentStepId,
-          {
-            licenseVerificationSatisfied:
-              alreadyVerified ||
-              resolvedDraft.licenseVerificationStatus === "found",
-          },
-        );
+        const currentStepId = localDraft?.currentStepId
+          ? resolveRiaOnboardingStepId(
+              resolvedDraft,
+              localDraft.currentStepId,
+              {
+                licenseVerificationSatisfied:
+                  alreadyVerified ||
+                  resolvedDraft.licenseVerificationStatus === "found",
+              },
+            )
+          : "welcome";
 
         setStatus(nextStatus);
         setDraft({ ...resolvedDraft, currentStepId });
@@ -533,6 +552,28 @@ export default function RiaOnboardingPage() {
     }
   }
 
+  function handleBypassLicenseVerification() {
+    if (!localVerificationBypassEnabled || !draft.licenseNumber.trim()) return;
+
+    updateDraft({
+      licenseVerificationStatus: "found",
+      advisorName: draft.advisorName || "Dev/UAT RIA",
+      firmName: draft.firmName || "Dev/UAT Advisory Practice",
+      regulator: draft.regulator || "DEV_UAT",
+      regulatorStatus: RIA_ENVIRONMENT_BYPASS_STATUS,
+      crdNumber: draft.crdNumber || draft.licenseNumber.trim(),
+      displayName: draft.displayName || draft.advisorName || "Dev/UAT RIA",
+      individualLegalName:
+        draft.individualLegalName || draft.advisorName || "Dev/UAT RIA",
+      individualCrd: draft.individualCrd || draft.licenseNumber.trim(),
+      advisoryFirmName:
+        draft.advisoryFirmName || draft.firmName || "Dev/UAT Advisory Practice",
+    });
+    setTimeout(() => {
+      moveToStep("license_details");
+    }, 200);
+  }
+
   async function handleSubmit() {
     if (!user) return;
     if (advisoryAccessReady) {
@@ -561,7 +602,8 @@ export default function RiaOnboardingPage() {
           draft.advisoryFirmIapdNumber.trim() || undefined,
         bio: draft.bio.trim() || undefined,
         strategy: draft.strategySummary.trim() || undefined,
-        force_live_verification: shouldForceLiveVerification,
+        force_live_verification:
+          shouldForceLiveVerification && !isRiaVerificationBypassedDraft(draft),
         license_number: draft.licenseNumber.trim() || undefined,
         regulator: draft.regulator.trim() || undefined,
         onboarding_type: draft.onboardingType,
@@ -728,6 +770,8 @@ export default function RiaOnboardingPage() {
             }
             verificationStatus={draft.licenseVerificationStatus}
             onVerify={handleVerifyLicense}
+            onBypassVerification={handleBypassLicenseVerification}
+            verificationBypassEnabled={localVerificationBypassEnabled}
           />
         );
       case "license_details":
