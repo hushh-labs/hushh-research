@@ -54,7 +54,7 @@ export function KaiPersonaScreen(props: {
   return (
     <main
       data-top-content-anchor="true"
-      className="min-h-[100dvh] w-full bg-transparent flex flex-col px-8 pt-[var(--app-fullscreen-flow-content-offset)] pb-[var(--app-screen-footer-pad)]"
+      className="min-h-[100dvh] w-full bg-transparent flex flex-col px-8 pt-[var(--top-content-pad)] pb-[var(--app-screen-footer-pad)]"
     >
       <div className="w-full max-w-md mx-auto flex-1 min-h-0 flex items-start sm:items-center">
         <section className="relative w-full py-4">
@@ -85,7 +85,7 @@ export function KaiPersonaScreen(props: {
             </p>
 
             <Button size="lg" fullWidth onClick={props.onLaunchDashboard} showRipple>
-              Open Portfolio
+              Connect Portfolio
               <ArrowRight className="ml-2 h-5 w-5" />
             </Button>
 

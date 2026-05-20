@@ -42,7 +42,7 @@ This is the bounded runbook for cutting Kai from legacy encrypted storage to the
 
 ## Local/UAT drill user
 
-- `REVIEWER_UID=s3xmA4lNSAQFrIaOytnSGAOzXlL2`
+- `REVIEWER_UID=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2`
 - passphrase is stored only in ignored local/UAT env files and secret storage
 - never commit the real passphrase into tracked examples or production env
 
@@ -77,10 +77,10 @@ Legacy cutover and ongoing PKM evolution are different:
 - `pkm_migration_state` is only for the bounded legacy-to-PKM repartition window.
 - Ongoing PKM schema/readability evolution uses resumable `pkm_upgrade_runs` + `pkm_upgrade_steps`.
 - Generic PKM upgrades still happen client-side after unlock:
-  1. detect stale model/domain/readable versions
+  1. detect stale model, semantic contract, domain, readable, or capability metadata
   2. decrypt one encrypted domain locally
-  3. transform it to the current contract
-  4. rebuild manifests/readable metadata
+  3. transform it through the generic dynamic PKM capability pipeline
+  4. rebuild manifests, scope registry, readable metadata, consumer visibility, and semantic counts
   5. re-encrypt and store with optimistic concurrency
 - If the app is interrupted, resume is allowed only after local vault re-auth. There is no silent server-side decrypt or key recovery.
 
@@ -90,8 +90,9 @@ Production rollout is blocked unless all supported stored-version paths are gree
 
 1. legacy world-model cutover source -> PKM
 2. prior PKM model versions -> current `CURRENT_PKM_MODEL_VERSION`
-3. prior domain-contract versions -> current domain contract
-4. prior readable-summary versions -> current readable summary
+3. prior semantic PKM contracts -> current `CURRENT_PKM_CONTRACT_VERSION`
+4. prior domain-contract versions -> current dynamic domain contract
+5. prior readable-summary/projection versions -> current readable projection
 
 The minimum blocking proof set is:
 
@@ -110,7 +111,9 @@ Manifest fetch failures must be treated as P0:
 When a domain manifest exists, it is the authoritative source for:
 
 - `domain_contract_version`
+- `pkm_contract_version`
 - `readable_summary_version`
+- `readable_projection_version`
 - `upgraded_at`
 
 Index summary versions remain useful as a fallback when no manifest exists, but stale summary data must not force a false rerun of the PKM upgrade.

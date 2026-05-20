@@ -287,7 +287,7 @@ function KaiOnboardingPageContent() {
     return (
       <div
         data-top-content-anchor="true"
-        className="mx-auto flex min-h-[calc(100dvh-var(--app-fullscreen-flow-content-offset,0px))] w-full max-w-4xl items-start px-5 pb-8 pt-[var(--app-fullscreen-flow-content-offset)]"
+        className="mx-auto flex min-h-[calc(100dvh_-_var(--top-content-pad))] w-full max-w-6xl items-start px-5 pb-8 pt-[calc(var(--top-content-pad)_+_1rem)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
       >
         <NativeTestBeacon
           routeId="/kai/onboarding"

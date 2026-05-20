@@ -77,6 +77,17 @@ export interface OneKycWorkflow {
 
 export interface OneKycWorkflowListResponse {
   workflows: OneKycWorkflow[];
+  limit?: number;
+  has_more?: boolean;
+  next_cursor?: string | null;
+}
+
+export interface OneKycRecentMailboxSyncResponse {
+  accepted: boolean;
+  scanned_count: number;
+  processed_count: number;
+  matched_count: number;
+  workflows: OneKycWorkflow[];
 }
 
 export interface OneKycClientConnectorResponse {
@@ -113,8 +124,38 @@ function authHeaders(vaultOwnerToken: string): HeadersInit {
 }
 
 export class OneKycService {
-  static listWorkflows({ userId, vaultOwnerToken }: AuthInput): Promise<OneKycWorkflowListResponse> {
+  static syncRecentEmails({
+    userId,
+    vaultOwnerToken,
+    maxResults = 12,
+  }: AuthInput & {
+    maxResults?: number;
+  }): Promise<OneKycRecentMailboxSyncResponse> {
+    return apiJson<OneKycRecentMailboxSyncResponse>("/api/one/email/sync/recent", {
+      method: "POST",
+      headers: authHeaders(vaultOwnerToken),
+      body: JSON.stringify({
+        user_id: userId,
+        max_results: maxResults,
+      }),
+    });
+  }
+
+  static listWorkflows({
+    userId,
+    vaultOwnerToken,
+    limit,
+    cursor,
+    status,
+  }: AuthInput & {
+    limit?: number;
+    cursor?: string | null;
+    status?: OneKycWorkflowStatus | null;
+  }): Promise<OneKycWorkflowListResponse> {
     const query = new URLSearchParams({ user_id: userId });
+    if (limit) query.set("limit", String(limit));
+    if (cursor) query.set("cursor", cursor);
+    if (status) query.set("status", status);
     return apiJson<OneKycWorkflowListResponse>(`/api/one/kyc/workflows?${query.toString()}`, {
       headers: authHeaders(vaultOwnerToken),
     });
@@ -129,6 +170,21 @@ export class OneKycService {
     return apiJson<OneKycWorkflow>(
       `/api/one/kyc/workflows/${encodeURIComponent(workflowId)}?${query.toString()}`,
       {
+        headers: authHeaders(vaultOwnerToken),
+      }
+    );
+  }
+
+  static archiveWorkflow({
+    userId,
+    vaultOwnerToken,
+    workflowId,
+  }: AuthInput & { workflowId: string }): Promise<OneKycWorkflow> {
+    const query = new URLSearchParams({ user_id: userId });
+    return apiJson<OneKycWorkflow>(
+      `/api/one/kyc/workflows/${encodeURIComponent(workflowId)}?${query.toString()}`,
+      {
+        method: "DELETE",
         headers: authHeaders(vaultOwnerToken),
       }
     );
@@ -171,6 +227,7 @@ export class OneKycService {
     workflowId,
     approvedSubject,
     approvedBody,
+    approvedHtml,
     clientDraftHash,
     consentExportRevision,
     pkmWritebackArtifactHash,
@@ -178,6 +235,7 @@ export class OneKycService {
     workflowId: string;
     approvedSubject?: string | null;
     approvedBody: string;
+    approvedHtml?: string | null;
     clientDraftHash?: string | null;
     consentExportRevision?: number | null;
     pkmWritebackArtifactHash: string;
@@ -191,6 +249,7 @@ export class OneKycService {
           user_id: userId,
           approved_subject: approvedSubject,
           approved_body: approvedBody,
+          approved_html: approvedHtml,
           client_draft_hash: clientDraftHash,
           consent_export_revision: consentExportRevision,
           pkm_writeback_artifact_hash: pkmWritebackArtifactHash,

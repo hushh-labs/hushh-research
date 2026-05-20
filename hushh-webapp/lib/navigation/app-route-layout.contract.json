@@ -234,10 +234,11 @@
   },
   {
     "route": "/ria/onboarding",
-    "mode": "standard",
+    "mode": "flow",
+    "exemptionReason": "RIA onboarding is a five-step fullscreen setup flow that owns its own compact content rhythm.",
     "shellVerification": {
-      "file": "components/ria/ria-page-shell.tsx",
-      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
+      "file": "app/ria/onboarding/page.tsx",
+      "includes": ["FullscreenFlowShell", "OnboardingShell"]
     }
   },
   {
