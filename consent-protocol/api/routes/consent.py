@@ -411,7 +411,10 @@ class ConsentApprovalPayload(BaseModel):
     Integrated by Abdul Gaffar — canonical field-level validation logic.
     """
 
-    model_config = ConfigDict(extra="allow")
+    # Reject unknown fields with HTTP 422 rather than silently storing them.
+    # extra="allow" let callers inject arbitrary keys into __pydantic_extra__,
+    # which propagated to downstream DB writes and log entries (CWE-915 / DoS).
+    model_config = ConfigDict(extra="forbid")
 
     version: int = Field(default=1, ge=1, le=2)
 
