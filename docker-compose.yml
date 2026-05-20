@@ -1,0 +1,109 @@
+# Hussh local container stack.
+#
+# This is an opt-in contributor/devex surface. The canonical repo CLI remains
+# ./bin/hushh; use ./bin/hushh compose ... instead of calling docker compose
+# directly for normal repo work.
+#
+# Profiles:
+#   backend - FastAPI backend only, using consent-protocol/.env
+#   cache   - Redis only
+#   mail    - Mailhog only
+#   db      - local Postgres only; not wired into backend by default
+#   dev     - backend + Redis + Mailhog
+
+name: hushh-dev
+
+services:
+  backend:
+    profiles: ["backend", "dev"]
+    build:
+      context: ./consent-protocol
+      dockerfile: Dockerfile
+    image: hushh/backend:local
+    env_file:
+      - ./consent-protocol/.env
+    environment:
+      PORT: "8000"
+      APP_FRONTEND_ORIGIN: "http://localhost:3000"
+      CORS_ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:8025"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3).read()",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - hushh
+
+  redis:
+    profiles: ["cache", "dev"]
+    image: redis:7-alpine
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--maxmemory",
+        "256mb",
+        "--maxmemory-policy",
+        "allkeys-lru",
+      ]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - hushh
+
+  mailhog:
+    profiles: ["mail", "dev"]
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    restart: unless-stopped
+    networks:
+      - hushh
+
+  db:
+    profiles: ["db"]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "postgres"
+      POSTGRES_DB: "hushh"
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - hushh
+
+volumes:
+  redis-data:
+  db-data:
+
+networks:
+  hushh:
+    driver: bridge

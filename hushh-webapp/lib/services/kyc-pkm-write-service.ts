@@ -15,6 +15,18 @@ export type KycWorkflowCheck = {
   source_domain: string | null;
 };
 
+export type KycWorkflowSentReplySnapshot = {
+  workflow_id: string;
+  subject: string | null;
+  body: string;
+  html_body: string | null;
+  to: string[];
+  cc: string[];
+  sent_at: string;
+  draft_hash: string | null;
+  schema_version: 1;
+};
+
 export type KycWorkflowArtifact = {
   checks: Record<KycWorkflowCheckKey, KycWorkflowCheck>;
   overall_status: KycWorkflowStatus;
@@ -22,6 +34,7 @@ export type KycWorkflowArtifact = {
   request_summary: string | null;
   pending_requirements: string[];
   completed_requirements: string[];
+  sent_replies?: Record<string, KycWorkflowSentReplySnapshot>;
   last_updated: string;
   schema_version: 1;
 };
@@ -82,6 +95,7 @@ function buildKycSummary(artifact: KycWorkflowArtifact): Record<string, unknown>
     email_verified: artifact.checks.email.status === "verified",
     pending_requirement_count: artifact.pending_requirements.length,
     completed_requirement_count: artifact.completed_requirements.length,
+    sent_reply_count: Object.keys(artifact.sent_replies || {}).length,
     last_updated: artifact.last_updated,
   };
 }
@@ -119,6 +133,10 @@ export function mergeKycWorkflowArtifact(
   artifact: KycWorkflowArtifact,
   existing: KycWorkflowArtifact | null
 ): KycWorkflowArtifact {
+  const sentReplies = {
+    ...(existing?.sent_replies || {}),
+    ...(artifact.sent_replies || {}),
+  };
   return {
     checks: {
       identity: mergeCheck(artifact.checks.identity, existing?.checks.identity),
@@ -131,6 +149,7 @@ export function mergeKycWorkflowArtifact(
     request_summary: artifact.request_summary ?? existing?.request_summary ?? null,
     pending_requirements: artifact.pending_requirements,
     completed_requirements: artifact.completed_requirements,
+    sent_replies: Object.keys(sentReplies).length ? sentReplies : undefined,
     last_updated: artifact.last_updated,
     schema_version: 1,
   };
@@ -173,8 +192,14 @@ export class KycWorkflowPkmService {
     const completedRequirements = Array.isArray(domainData.completed_requirements)
       ? domainData.completed_requirements.filter((item): item is string => typeof item === "string")
       : [];
+    const sentReplies = normalizeSentReplies(domainData.sent_replies);
 
-    if (!hasChecks && pendingRequirements.length === 0 && completedRequirements.length === 0) {
+    if (
+      !hasChecks &&
+      pendingRequirements.length === 0 &&
+      completedRequirements.length === 0 &&
+      Object.keys(sentReplies).length === 0
+    ) {
       return { found: false, artifact: null };
     }
 
@@ -187,10 +212,43 @@ export class KycWorkflowPkmService {
         : null,
       pending_requirements: pendingRequirements,
       completed_requirements: completedRequirements,
+      sent_replies: Object.keys(sentReplies).length ? sentReplies : undefined,
       last_updated: (domainData.last_updated as string) ?? new Date().toISOString(),
       schema_version: 1,
     };
 
     return { found: true, artifact };
   }
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+}
+
+function normalizeSentReplies(value: unknown): Record<string, KycWorkflowSentReplySnapshot> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const snapshots: Record<string, KycWorkflowSentReplySnapshot> = {};
+  for (const [workflowId, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const record = raw as Record<string, unknown>;
+    const body = typeof record.body === "string" ? record.body : "";
+    if (!body.trim()) continue;
+    const id = typeof record.workflow_id === "string" && record.workflow_id.trim()
+      ? record.workflow_id.trim()
+      : workflowId;
+    snapshots[id] = {
+      workflow_id: id,
+      subject: typeof record.subject === "string" ? record.subject : null,
+      body,
+      html_body: typeof record.html_body === "string" ? record.html_body : null,
+      to: normalizeStringArray(record.to),
+      cc: normalizeStringArray(record.cc),
+      sent_at: typeof record.sent_at === "string" ? record.sent_at : new Date().toISOString(),
+      draft_hash: typeof record.draft_hash === "string" ? record.draft_hash : null,
+      schema_version: 1,
+    };
+  }
+  return snapshots;
 }

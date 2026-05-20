@@ -42,6 +42,7 @@ export type InvestorKaiActionWiring =
         | {
             kind: "voice_tool";
             toolName: VoiceToolCall["tool_name"];
+            params?: Record<string, unknown>;
           }
         | {
             kind: "route";
@@ -123,6 +124,7 @@ const KNOWN_VOICE_TOOLS: readonly VoiceToolCall["tool_name"][] = [
   "cancel_active_analysis",
   "clarify",
   "switch_persona",
+  "capture_pkm_memory",
 ];
 
 function describeGuard(guardId: string): string {
@@ -206,6 +208,7 @@ function toWiring(executionTarget: KaiActionExecutionTarget): InvestorKaiActionW
       binding: {
         kind: "voice_tool",
         toolName: executionTarget.target as VoiceToolCall["tool_name"],
+        params: executionTarget.params ? { ...executionTarget.params } : undefined,
       },
     };
   }

@@ -17,21 +17,48 @@ def _registry_choices():
             "domain_key": "travel",
             "display_name": "Travel",
             "description": "Travel preferences, loyalty programs, and trip history",
+            "scope_paths": [
+                "seat_preferences",
+                "hotel_preferences",
+                "flight_preferences",
+                "preferences",
+            ],
+        },
+        {
+            "domain_key": "shopping",
+            "display_name": "Shopping",
+            "description": "Receipts, merchant affinity, and shopping preferences",
+            "scope_paths": ["receipts_memory", "product_preferences", "merchant_preferences"],
+        },
+        {
+            "domain_key": "location",
+            "display_name": "Location",
+            "description": "Home base, places, and location preferences",
+            "scope_paths": ["profile", "preferences"],
         },
         {
             "domain_key": "social",
             "display_name": "Social",
             "description": "Relationships, family context, and social preferences",
+            "scope_paths": ["relationships", "preferences"],
         },
         {
             "domain_key": "health",
             "display_name": "Health",
             "description": "Durable health routines, constraints, and wellness preferences",
+            "scope_paths": ["activities", "dietary_constraints", "sleep_preferences", "routines"],
         },
         {
             "domain_key": "financial",
             "display_name": "Financial",
             "description": "Investment portfolio, risk profile, and financial preferences",
+            "scope_paths": ["goals", "profile", "events"],
+        },
+        {
+            "domain_key": "professional",
+            "display_name": "Professional",
+            "description": "Work preferences, professional context, and goals",
+            "scope_paths": ["work_preferences", "goals", "profile"],
         },
     ]
 
@@ -447,6 +474,478 @@ async def test_generate_structure_preview_defaults_primary_path_to_root_scope(mo
     assert "primary_path_defaulted_to_root_scope" in result["validation_hints"]
     assert run_agent_contract.await_count == 5
     assert result["preview_cards"][0]["primary_json_path"] == "preferences"
+
+
+@pytest.mark.asyncio
+async def test_generate_structure_preview_corrects_canonical_seat_preference_not_changes(
+    monkeypatch,
+):
+    service = PKMAgentLabService()
+
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    run_agent_contract = AsyncMock(
+        side_effect=[
+            _single_segment("Actually window seats work better now."),
+            {
+                "routing_decision": "non_financial_or_ephemeral",
+                "confidence": 0.94,
+                "reason": "Travel preference correction.",
+                "source_agent": "financial_guard_agent",
+                "contract_version": 1,
+            },
+            {
+                "save_class": "durable",
+                "intent_class": "correction",
+                "mutation_intent": "correct",
+                "requires_confirmation": False,
+                "confirmation_reason": "",
+                "candidate_domain_choices": [
+                    {"domain_key": "travel", "recommended": True},
+                ],
+                "confidence": 0.92,
+                "source_agent": "memory_intent_agent",
+                "contract_version": 1,
+            },
+            {
+                "merge_mode": "correct_entity",
+                "target_domain": "travel",
+                "target_entity_id": "travel_preference_seat_001",
+                "target_entity_path": "changes.entities.travel_preference_seat_001",
+                "match_confidence": 0.86,
+                "match_reason": "Incorrectly routed to changes by the model.",
+                "source_agent": "memory_merge_agent",
+                "contract_version": 1,
+            },
+            {
+                "candidate_payload": {
+                    "changes": {
+                        "entities": {
+                            "travel_preference_seat_001": {
+                                "entity_id": "travel_preference_seat_001",
+                                "summary": "Actually window seats work better now.",
+                                "status": "active",
+                            }
+                        }
+                    }
+                },
+                "structure_decision": {
+                    "action": "match_existing_domain",
+                    "target_domain": "travel",
+                    "json_paths": ["changes"],
+                    "top_level_scope_paths": ["changes"],
+                    "externalizable_paths": ["changes"],
+                    "summary_projection": {},
+                    "sensitivity_labels": {},
+                    "confidence": 0.84,
+                    "source_agent": "pkm_structure_agent",
+                    "contract_version": 1,
+                },
+                "write_mode": "can_save",
+                "primary_json_path": "changes",
+                "target_entity_scope": "changes",
+                "validation_hints": [],
+            },
+        ]
+    )
+    monkeypatch.setattr(service, "_run_agent_contract", run_agent_contract)
+
+    result = await service.generate_structure_preview(
+        user_id="user-seat",
+        message="Actually window seats work better now.",
+        current_domains=["travel"],
+        simulated_state={
+            "domains": ["travel"],
+            "memories": [
+                {
+                    "domain": "travel",
+                    "entity_id": "travel_preference_seat_001",
+                    "entity_scope": "seat_preferences",
+                    "intent_class": "preference",
+                    "message": "Prefers aisle seats near the front.",
+                    "active": True,
+                }
+            ],
+        },
+    )
+
+    assert result["merge_decision"]["merge_mode"] == "correct_entity"
+    assert (
+        result["merge_decision"]["target_entity_path"]
+        == "seat_preferences.entities.travel_preference_seat_001"
+    )
+    assert result["target_entity_scope"] == "seat_preferences"
+    assert "changes" not in result["candidate_payload"]
+    assert "seat_preferences" in result["candidate_payload"]
+    assert "crud_payload_aligned_to_merge_target" in result["validation_hints"]
+    assert run_agent_contract.await_count == 5
+
+
+def test_fallback_delete_requires_stable_target():
+    result = PKMAgentLabService._fallback_merge_decision(
+        message="Remove my seat preference.",
+        current_domains=["travel"],
+        intent_frame={
+            "intent_class": "deletion",
+            "mutation_intent": "delete",
+            "candidate_domain_choices": [{"domain_key": "travel", "recommended": True}],
+            "confidence": 0.9,
+        },
+        simulated_state={"domains": ["travel"], "memories": []},
+    )
+
+    assert result["merge_mode"] == "no_op"
+    assert result["target_entity_path"] == ""
+    assert "No stable prior target" in result["match_reason"]
+
+
+CRUD_MATRIX_STATE = {
+    "domains": [
+        "food",
+        "travel",
+        "shopping",
+        "location",
+        "social",
+        "health",
+        "financial",
+        "professional",
+    ],
+    "memories": [
+        {
+            "domain": "food",
+            "entity_id": "food_pref_001",
+            "entity_scope": "preferences",
+            "intent_class": "preference",
+            "message": "I prefer Cantonese restaurants for dinner.",
+            "active": True,
+        },
+        {
+            "domain": "travel",
+            "entity_id": "seat_pref_001",
+            "entity_scope": "seat_preferences",
+            "intent_class": "preference",
+            "message": "I prefer aisle seats near the front.",
+            "active": True,
+        },
+        {
+            "domain": "shopping",
+            "entity_id": "shopping_pref_001",
+            "entity_scope": "product_preferences",
+            "intent_class": "preference",
+            "message": "I prefer Patagonia for outdoor jackets.",
+            "active": True,
+        },
+        {
+            "domain": "location",
+            "entity_id": "location_profile_001",
+            "entity_scope": "profile",
+            "intent_class": "profile_fact",
+            "message": "I live in Seattle.",
+            "active": True,
+        },
+        {
+            "domain": "social",
+            "entity_id": "social_relationship_001",
+            "entity_scope": "relationships",
+            "intent_class": "relationship",
+            "message": "My sister Maya is my emergency contact.",
+            "active": True,
+        },
+        {
+            "domain": "health",
+            "entity_id": "health_routine_001",
+            "entity_scope": "activities",
+            "intent_class": "routine",
+            "message": "I usually swim before breakfast.",
+            "active": True,
+        },
+        {
+            "domain": "financial",
+            "entity_id": "financial_goal_001",
+            "entity_scope": "goals",
+            "intent_class": "plan_or_goal",
+            "message": "I want to pay off my student loans in three years.",
+            "active": True,
+        },
+        {
+            "domain": "professional",
+            "entity_id": "work_pref_001",
+            "entity_scope": "work_preferences",
+            "intent_class": "preference",
+            "message": "I prefer async written updates for work.",
+            "active": True,
+        },
+    ],
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message, expected_domain, expected_intent, expected_merge, expected_write, expected_scope",
+    [
+        (
+            "I prefer Cantonese restaurants for team dinners.",
+            "food",
+            "preference",
+            "extend_entity",
+            "can_save",
+            "preferences",
+        ),
+        (
+            "I prefer window seats on long flights.",
+            "travel",
+            "preference",
+            "extend_entity",
+            "can_save",
+            "seat_preferences",
+        ),
+        (
+            "I prefer Patagonia as a brand for outdoor jackets.",
+            "shopping",
+            "preference",
+            "extend_entity",
+            "can_save",
+            "product_preferences",
+        ),
+        (
+            "I live in Seattle most of the year.",
+            "location",
+            "profile_fact",
+            "extend_entity",
+            "can_save",
+            "profile",
+        ),
+        (
+            "My brother Arjun is my emergency contact.",
+            "social",
+            "relationship",
+            "extend_entity",
+            "can_save",
+            "relationships",
+        ),
+        (
+            "I usually swim after work.",
+            "health",
+            "health",
+            "extend_entity",
+            "can_save",
+            "activities",
+        ),
+        (
+            "Remember that I prefer index funds.",
+            "financial",
+            "financial_event",
+            "create_entity",
+            "can_save",
+            "events",
+        ),
+        (
+            "I prefer async written updates before meetings.",
+            "professional",
+            "preference",
+            "extend_entity",
+            "can_save",
+            "work_preferences",
+        ),
+        (
+            "I also like Sichuan food when ordering dinner.",
+            "food",
+            "preference",
+            "extend_entity",
+            "can_save",
+            "preferences",
+        ),
+        (
+            "I still prefer aisle seats for short flights.",
+            "travel",
+            "preference",
+            "extend_entity",
+            "can_save",
+            "seat_preferences",
+        ),
+        (
+            "I usually buy skincare from Sephora.",
+            "shopping",
+            "shopping_need",
+            "create_entity",
+            "can_save",
+            "product_preferences",
+        ),
+        (
+            "When possible I like morning workouts.",
+            "health",
+            "preference",
+            "create_entity",
+            "can_save",
+            "activities",
+        ),
+        (
+            "Actually window seats work better now.",
+            "travel",
+            "correction",
+            "correct_entity",
+            "can_save",
+            "seat_preferences",
+        ),
+        (
+            "Changed my mind, I prefer Thai food now.",
+            "food",
+            "correction",
+            "correct_entity",
+            "can_save",
+            "preferences",
+        ),
+        (
+            "No longer use Patagonia as my jacket default.",
+            "shopping",
+            "correction",
+            "correct_entity",
+            "can_save",
+            "product_preferences",
+        ),
+        (
+            "Actually I am based in New York now.",
+            "location",
+            "correction",
+            "correct_entity",
+            "can_save",
+            "profile",
+        ),
+        (
+            "Forget my seat preference.",
+            "travel",
+            "deletion",
+            "delete_entity",
+            "can_save",
+            "seat_preferences",
+        ),
+        (
+            "Remove my shopping brand preference.",
+            "shopping",
+            "deletion",
+            "delete_entity",
+            "can_save",
+            "product_preferences",
+        ),
+        (
+            "Delete the async work updates preference.",
+            "professional",
+            "deletion",
+            "delete_entity",
+            "can_save",
+            "work_preferences",
+        ),
+        (
+            "Don't remember my morning workout preference anymore.",
+            "health",
+            "deletion",
+            "delete_entity",
+            "can_save",
+            "activities",
+        ),
+        (
+            "Remind me to call my sister tomorrow.",
+            "social",
+            "task_or_reminder",
+            "no_op",
+            "do_not_save",
+            None,
+        ),
+        (
+            "Please order toothpaste tonight.",
+            "shopping",
+            "task_or_reminder",
+            "no_op",
+            "do_not_save",
+            None,
+        ),
+        (
+            "Q2FmZSB3YWtlIHVwIGhhc2ggcGF5bG9hZA==",
+            "professional",
+            "ambiguous",
+            "no_op",
+            "do_not_save",
+            None,
+        ),
+        (
+            "7b9a662f0c63a4d8f65f5b9d4cb4e2aa",
+            "professional",
+            "ambiguous",
+            "no_op",
+            "do_not_save",
+            None,
+        ),
+        ("remember this", "professional", "ambiguous", "no_op", "do_not_save", None),
+        (
+            "I prefer window seats and I usually buy Patagonia jackets.",
+            "travel",
+            "preference",
+            "extend_entity",
+            "can_save",
+            "seat_preferences",
+        ),
+        ("Actually update that preference.", "travel", "correction", "no_op", "do_not_save", None),
+        ("Remove that old note.", "travel", "deletion", "no_op", "do_not_save", None),
+        (
+            "My favorite hotel rooms are quiet and away from elevators.",
+            "travel",
+            "preference",
+            "create_entity",
+            "can_save",
+            "hotel_preferences",
+        ),
+        (
+            "I want to save for a home by 2028.",
+            "financial",
+            "plan_or_goal",
+            "create_entity",
+            "can_save",
+            "goals",
+        ),
+    ],
+)
+async def test_dynamic_scope_crud_matrix_uses_canonical_targets(
+    monkeypatch,
+    message,
+    expected_domain,
+    expected_intent,
+    expected_merge,
+    expected_write,
+    expected_scope,
+):
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    monkeypatch.setattr(service, "_run_agent_contract", AsyncMock(return_value=None))
+
+    simulated_state = CRUD_MATRIX_STATE
+    if message in {"Actually update that preference.", "Remove that old note."}:
+        simulated_state = {"domains": CRUD_MATRIX_STATE["domains"], "memories": []}
+
+    result = await service.generate_structure_preview(
+        user_id=f"user-{abs(hash(message))}",
+        message=message,
+        current_domains=CRUD_MATRIX_STATE["domains"],
+        simulated_state=simulated_state,
+    )
+    card = result["preview_cards"][0]
+
+    assert card["target_domain"] == expected_domain
+    assert card["intent_class"] == expected_intent
+    assert card["merge_mode"] == expected_merge
+    assert card["write_mode"] == expected_write
+    if expected_scope:
+        assert card["target_entity_scope"] == expected_scope
+        assert card["primary_json_path"] == expected_scope
+    assert "changes" not in card.get("candidate_payload", {})
+    if expected_merge in {"correct_entity", "delete_entity"}:
+        assert ".changes." not in str(card.get("merge_decision", {}))
 
 
 @pytest.mark.asyncio
