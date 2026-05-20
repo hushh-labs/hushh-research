@@ -178,10 +178,16 @@ function deriveMergeHighlight(mergeMode: string | null | undefined): string | nu
   const normalized = normalizeToken(mergeMode);
   if (!normalized) return null;
   if (normalized.includes("update") || normalized.includes("merge")) {
-    return "Merged into an existing memory";
+    return "Updated an existing memory";
   }
   if (normalized.includes("create")) {
     return "Saved as a new memory";
+  }
+  if (normalized.includes("extend")) {
+    return "Added detail to an existing memory";
+  }
+  if (normalized.includes("correct")) {
+    return "Corrected an existing memory";
   }
   return null;
 }
@@ -210,7 +216,6 @@ export function buildReadablePkmMetadata(params: {
   });
   const capturedAt = params.createdAt || new Date().toISOString();
   const messageExcerpt = clampText(params.sourceText, 120);
-  const intentLabel = humanizePath(params.intentClass || "", " ");
   const sectionSentence =
     sections.length > 0
       ? `focused on ${formatList(sections.slice(0, 2)).toLowerCase()}`
@@ -218,10 +223,9 @@ export function buildReadablePkmMetadata(params: {
   const readableSummary = `Kai saved a ${domainDisplayName.toLowerCase()} update ${sectionSentence}.`;
 
   const readableHighlights = uniqueStrings([
-    sections.length > 0 ? `Updated sections: ${formatList(sections.slice(0, 3))}` : null,
+    sections.length > 0 ? `${formatList(sections.slice(0, 3))}` : null,
     deriveMergeHighlight(params.mergeMode),
-    intentLabel ? `Intent: ${intentLabel}` : null,
-    messageExcerpt ? `Captured from: ${messageExcerpt}` : null,
+    messageExcerpt ? `Saved from your note: ${messageExcerpt}` : null,
   ]).slice(0, 5);
 
   const readableEventSummary =
@@ -233,7 +237,7 @@ export function buildReadablePkmMetadata(params: {
     readable_summary: readableSummary,
     readable_highlights: readableHighlights,
     readable_updated_at: capturedAt,
-    readable_source_label: "PKM Agent Lab",
+    readable_source_label: "Saved memory",
     readable_event_summary: readableEventSummary,
   };
 }

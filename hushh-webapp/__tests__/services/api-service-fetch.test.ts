@@ -209,4 +209,72 @@ describe("ApiService.apiFetch", () => {
     );
     expect(payload.meta?.market_mode).toBe("baseline");
   });
+
+  it("starts UAT phone test verification through the account proxy", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        success: true,
+        eligible: true,
+        verification_id: "uat-test-phone:abc123",
+      })
+    );
+
+    const payload = await ApiService.startUatPhoneTestVerification(
+      "+16505550101",
+      "firebase-id-token"
+    );
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [calledUrl, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).toBe("/api/account/phone/uat-test/start");
+    expect((options.headers as Record<string, string>).Authorization).toBe(
+      "Bearer firebase-id-token"
+    );
+    expect(JSON.parse(String(options.body))).toEqual({
+      phone_number: "+16505550101",
+    });
+    expect(payload).toEqual({
+      success: true,
+      eligible: true,
+      verification_id: "uat-test-phone:abc123",
+      reason: undefined,
+    });
+  });
+
+  it("confirms UAT phone test verification without a Firebase phone token", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        success: true,
+        user_id: "user_123",
+        phone_verified: true,
+        identity: {
+          user_id: "user_123",
+          phone_number: "+16505550101",
+          phone_verified: true,
+          source: "uat_test_phone_claim",
+        },
+      })
+    );
+
+    const payload = await ApiService.confirmUatPhoneTestVerification(
+      "+16505550101",
+      "000000",
+      "uat-test-phone:abc123",
+      "firebase-id-token"
+    );
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [calledUrl, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).toBe("/api/account/phone/uat-test/confirm");
+    expect((options.headers as Record<string, string>).Authorization).toBe(
+      "Bearer firebase-id-token"
+    );
+    expect(JSON.parse(String(options.body))).toEqual({
+      phone_number: "+16505550101",
+      verification_code: "000000",
+      verification_id: "uat-test-phone:abc123",
+    });
+    expect(payload.phone_verified).toBe(true);
+    expect(payload.identity?.source).toBe("uat_test_phone_claim");
+  });
 });
