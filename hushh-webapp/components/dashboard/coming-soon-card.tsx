@@ -1,40 +1,52 @@
-// components/dashboard/coming-soon-card.tsx
+"use client";
 
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, Button } from '@/lib/morphy-ux/morphy';
-import { LucideIcon } from 'lucide-react';
+import type { LucideIcon } from "lucide-react";
+
+import {
+  SurfaceCard,
+  SurfaceCardContent,
+  SurfaceCardDescription,
+  SurfaceCardHeader,
+  SurfaceCardTitle,
+  type SurfaceAccent,
+} from "@/components/app-ui/surfaces";
+import { Button } from "@/components/ui/button";
 
 interface ComingSoonCardProps {
   title: string;
   description: string;
   icon: LucideIcon;
-  color?: string;
+  accent?: SurfaceAccent;
 }
 
-export function ComingSoonCard({ title, description, icon: Icon, color = 'text-blue-500' }: ComingSoonCardProps) {
+export function ComingSoonCard({
+  title,
+  description,
+  icon: Icon,
+  accent = "none",
+}: ComingSoonCardProps) {
   return (
-    <Card className="glass">
-      <CardHeader>
+    <SurfaceCard accent={accent}>
+      <SurfaceCardHeader>
         <div className="flex items-center gap-3">
-          <Icon className={`h-8 w-8 ${color}`} />
+          <Icon className="h-8 w-8 shrink-0 text-primary" />
           <div>
-            <CardTitle>{title}</CardTitle>
-            <CardDescription>Coming Soon</CardDescription>
+            <SurfaceCardTitle>{title}</SurfaceCardTitle>
+            <SurfaceCardDescription>Coming Soon</SurfaceCardDescription>
           </div>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <p className="text-muted-foreground">
-          {description}
-        </p>
-        <div className="p-4 bg-muted/50 rounded-lg border border-dashed">
-          <p className="text-sm text-center text-muted-foreground">
-            🚧 This domain is under development
+      </SurfaceCardHeader>
+      <SurfaceCardContent className="space-y-4">
+        <p className="text-sm leading-6 text-muted-foreground">{description}</p>
+        <div className="rounded-lg border border-dashed bg-muted/50 p-4">
+          <p className="text-center text-sm text-muted-foreground">
+           This domain is under development
           </p>
         </div>
-        <Button variant="gradient" effect="glass" className="w-full" disabled showRipple>
+        <Button variant="outline" className="w-full" disabled>
           Notify Me When Ready
         </Button>
-      </CardContent>
-    </Card>
+      </SurfaceCardContent>
+    </SurfaceCard>
   );
 }
