@@ -27,4 +27,13 @@ describe("PhoneVerificationFlow phone input normalization", () => {
       localPhoneNumber: "6505550101",
     });
   });
+    it("preserves account branch identifiers across detail and workspace payloads", () => {
+    const clientId = "client-branch-check";
+    const detail = buildKaiTestClientDetail(clientId);
+    const workspace = buildKaiTestClientWorkspace(clientId);
+
+    expect(workspace.account_branches.map((branch) => branch.branch_id)).toEqual(
+      detail.account_branches.map((branch) => branch.branch_id)
+    );
+  });
 });
