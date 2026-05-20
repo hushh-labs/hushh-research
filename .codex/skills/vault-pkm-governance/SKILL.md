@@ -60,7 +60,8 @@ Non-owned surfaces:
 5. For protected route behavior, distinguish same-session navigation from cold-entry re-unlock.
 6. Treat PKM manifests as authority and `pkm_index` as discovery cache.
 7. Require data-plane classification for PKM/vault/legacy-memory migrations before production readiness.
-8. Route IAM, consent, and verification policy questions to `iam-consent-governance` when they become primary.
+8. Keep PKM/vault upgrade diagnostics out of consumer UI. Use plain terms such as `personal data`, `saved details`, and `sharing`; reserve `PKM`, manifests, schemas, timings, and correlation ids for logs, docs, and developer-only tools.
+9. Route IAM, consent, and verification policy questions to `iam-consent-governance` when they become primary.
 
 ## Handoff Rules
 

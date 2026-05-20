@@ -84,8 +84,10 @@ function renderTable(rows) {
   const headers = splitTableRow(header);
   const tableClass = headers.includes("Top PRs")
     ? "top-table"
-    : headers.includes("Weekly Score") && headers.includes("Overall Score")
+    : headers.includes("Weekly Balanced") && headers.includes("Overall Balanced")
       ? "scoreboard-table"
+      : headers.includes("Product Area")
+        ? "product-table"
       : headers.includes("KPI")
         ? "kpi-table"
         : headers.includes("Contract Cluster")
@@ -175,16 +177,19 @@ function buildHtml(markdown) {
     <style>
       :root {
         color-scheme: light;
-        --ink: #1a1a1a;
-        --muted: #5c5650;
-        --line: #e5e1d8;
-        --soft: #f7f3ec;
-        --paper: #fafaf5;
-        --panel: #fffdf7;
-        --panel-strong: #f7f1e7;
-        --oxblood: #6b1f2c;
-        --sage: #788c5d;
-        --gold: #d4a847;
+        --ink: #1c1c1e;
+        --muted: rgba(60, 60, 67, 0.78);
+        --quiet: rgba(60, 60, 67, 0.52);
+        --line: rgba(60, 60, 67, 0.18);
+        --line-strong: rgba(60, 60, 67, 0.36);
+        --paper: #ffffff;
+        --soft: #f5f5f7;
+        --panel: rgba(255, 255, 255, 0.86);
+        --panel-strong: #ebebf0;
+        --accent: #dbb90f;
+        --accent-soft: #fff3bf;
+        --blue: #007aff;
+        --green: #30b071;
       }
 
       @page {
@@ -200,12 +205,12 @@ function buildHtml(markdown) {
       body {
         background: var(--paper);
         color: var(--ink);
-        font: 12px/1.48 "SF Pro Text", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font: 12px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Helvetica Neue", system-ui, sans-serif;
         margin: 0;
       }
 
       h1 {
-        border-bottom: 2px solid var(--oxblood);
+        border-bottom: 2px solid var(--accent);
         font-size: 26px;
         letter-spacing: 0;
         margin: 0 0 10px;
@@ -214,8 +219,8 @@ function buildHtml(markdown) {
 
       h2 {
         break-after: avoid;
-        border-top: 1.5px solid var(--oxblood);
-        color: var(--oxblood);
+        border-top: 1px solid var(--line);
+        color: var(--ink);
         font-size: 17px;
         margin: 24px 0 8px;
         padding-top: 10px;
@@ -223,7 +228,7 @@ function buildHtml(markdown) {
 
       h3 {
         break-after: avoid;
-        color: var(--sage);
+        color: var(--accent);
         font-size: 13px;
         margin: 18px 0 6px;
       }
@@ -242,15 +247,15 @@ function buildHtml(markdown) {
       }
 
       a {
-        color: var(--sage);
+        color: var(--blue);
         text-decoration: none;
       }
 
       code {
         background: var(--soft);
         border: 1px solid var(--line);
-        border-radius: 4px;
-        font-family: "SFMono-Regular", Consolas, monospace;
+        border-radius: 6px;
+        font-family: "SF Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
         font-size: 0.92em;
         padding: 1px 4px;
       }
@@ -282,8 +287,8 @@ function buildHtml(markdown) {
       }
 
       th {
-        background: var(--panel-strong);
-        color: var(--oxblood);
+        background: var(--accent-soft);
+        color: var(--ink);
         font-weight: 700;
         text-transform: uppercase;
       }
@@ -310,6 +315,18 @@ function buildHtml(markdown) {
       .kpi-table td:nth-child(3),
       .kpi-table th:nth-child(2),
       .kpi-table th:nth-child(3),
+      .product-table td:nth-child(2),
+      .product-table td:nth-child(3),
+      .product-table td:nth-child(4),
+      .product-table td:nth-child(5),
+      .product-table td:nth-child(6),
+      .product-table td:nth-child(7),
+      .product-table th:nth-child(2),
+      .product-table th:nth-child(3),
+      .product-table th:nth-child(4),
+      .product-table th:nth-child(5),
+      .product-table th:nth-child(6),
+      .product-table th:nth-child(7),
       .cluster-table td:nth-child(2),
       .cluster-table td:nth-child(3),
       .cluster-table th:nth-child(2),
@@ -321,6 +338,10 @@ function buildHtml(markdown) {
       .scoreboard-table td:nth-child(7),
       .scoreboard-table td:nth-child(8),
       .scoreboard-table td:nth-child(9),
+      .scoreboard-table td:nth-child(10),
+      .scoreboard-table td:nth-child(11),
+      .scoreboard-table td:nth-child(12),
+      .scoreboard-table td:nth-child(13),
       .scoreboard-table th:nth-child(3),
       .scoreboard-table th:nth-child(4),
       .scoreboard-table th:nth-child(5),
@@ -328,36 +349,54 @@ function buildHtml(markdown) {
       .scoreboard-table th:nth-child(7),
       .scoreboard-table th:nth-child(8),
       .scoreboard-table th:nth-child(9),
+      .scoreboard-table th:nth-child(10),
+      .scoreboard-table th:nth-child(11),
+      .scoreboard-table th:nth-child(12),
+      .scoreboard-table th:nth-child(13),
       .top-table td:nth-child(3),
       .top-table td:nth-child(4),
       .top-table td:nth-child(5),
       .top-table td:nth-child(6),
       .top-table td:nth-child(7),
       .top-table td:nth-child(8),
+      .top-table td:nth-child(9),
+      .top-table td:nth-child(10),
+      .top-table td:nth-child(11),
+      .top-table td:nth-child(12),
+      .top-table td:nth-child(13),
+      .top-table td:nth-child(14),
       .top-table th:nth-child(3),
       .top-table th:nth-child(4),
       .top-table th:nth-child(5),
       .top-table th:nth-child(6),
       .top-table th:nth-child(7),
-      .top-table th:nth-child(8) {
+      .top-table th:nth-child(8),
+      .top-table th:nth-child(9),
+      .top-table th:nth-child(10),
+      .top-table th:nth-child(11),
+      .top-table th:nth-child(12),
+      .top-table th:nth-child(13),
+      .top-table th:nth-child(14) {
         text-align: right;
       }
 
       .cluster-table td:nth-child(1),
-      .cluster-table th:nth-child(1) {
+      .cluster-table th:nth-child(1),
+      .product-table td:nth-child(1),
+      .product-table th:nth-child(1) {
         text-align: left;
       }
 
-      .top-table td:nth-child(9),
-      .top-table th:nth-child(9),
+      .top-table td:last-child,
+      .top-table th:last-child,
       .cluster-table td:nth-child(4),
       .cluster-table th:nth-child(4) {
         text-align: left;
       }
 
-      .top-table td:nth-child(9),
-      .top-table th:nth-child(9) {
-        width: 33%;
+      .top-table td:last-child,
+      .top-table th:last-child {
+        width: 24%;
       }
 
       .scoreboard-table td:nth-child(2),
@@ -373,7 +412,7 @@ function buildHtml(markdown) {
       }
 
       .graph-table td:last-child {
-        color: var(--sage);
+        color: var(--accent);
         font-weight: 800;
       }
 
@@ -381,18 +420,18 @@ function buildHtml(markdown) {
       Keep older unclassified 8-column tables readable if a future section is
       added before the renderer learns its table shape.
       */
-      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) td:nth-child(3),
-      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) td:nth-child(4),
-      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) td:nth-child(5),
-      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) td:nth-child(6),
-      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) td:nth-child(7),
-      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) td:nth-child(8),
-      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) th:nth-child(3),
-      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) th:nth-child(4),
-      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) th:nth-child(5),
-      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) th:nth-child(6),
-      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) th:nth-child(7),
-      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table) th:nth-child(8) {
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table):not(.product-table) td:nth-child(3),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table):not(.product-table) td:nth-child(4),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table):not(.product-table) td:nth-child(5),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table):not(.product-table) td:nth-child(6),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table):not(.product-table) td:nth-child(7),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table):not(.product-table) td:nth-child(8),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table):not(.product-table) th:nth-child(3),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table):not(.product-table) th:nth-child(4),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table):not(.product-table) th:nth-child(5),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table):not(.product-table) th:nth-child(6),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table):not(.product-table) th:nth-child(7),
+      table:not(.top-table):not(.scoreboard-table):not(.kpi-table):not(.cluster-table):not(.product-table) th:nth-child(8) {
         text-align: right;
       }
 
@@ -426,7 +465,7 @@ async function main() {
       displayHeaderFooter: true,
       headerTemplate: "<div></div>",
       footerTemplate:
-        '<div style="font: 9px system-ui, sans-serif; color: #5c5650; width: 100%; padding: 0 14mm; display: flex; justify-content: space-between;"><span>Hussh Contributor Impact Dashboard</span><span class="pageNumber"></span></div>',
+        '<div style="font: 9px -apple-system, BlinkMacSystemFont, SF Pro Text, system-ui, sans-serif; color: rgba(60,60,67,.78); width: 100%; padding: 0 14mm; display: flex; justify-content: space-between;"><span>Hussh Contributor Impact Dashboard</span><span class="pageNumber"></span></div>',
       margin: { top: "18mm", right: "14mm", bottom: "18mm", left: "14mm" },
     });
   } finally {

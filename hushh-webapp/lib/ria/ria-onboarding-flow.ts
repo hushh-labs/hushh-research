@@ -111,7 +111,7 @@ export function normalizeRiaCapabilities(value: unknown): RiaCapability[] {
 export function createEmptyRiaOnboardingDraft(): RiaOnboardingDraft {
   return {
     currentStepId: "welcome",
-    onboardingType: "",
+    onboardingType: "individual",
     licenseNumber: "",
     regulator: "",
     advisorName: "",

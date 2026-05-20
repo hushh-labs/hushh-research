@@ -31,7 +31,7 @@ Non-owned surfaces:
 2. Distinguishing clearly between current behavior and future direction.
 3. Selecting only the smallest set of evidence-bearing docs needed for the answer.
 4. Drafting repo-backed internal Q&A replies where the question may reference files, test failures, or implementation concerns that need verification before answering.
-5. Drafting Discord-ready announcements or replies that intentionally use native Discord markdown for pacing, emphasis, quotes, lists, and compact calls to action.
+5. Drafting Discord-ready or WhatsApp-ready messages with platform-native formatting and compact scan bullets.
 
 ## Do Not Use
 
@@ -42,9 +42,10 @@ Non-owned surfaces:
 ## Read First
 
 1. `.codex/skills/comms-community/references/reply-rules.md`
-2. `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`
-3. `docs/reference/iam/README.md`
-4. `consent-protocol/docs/reference/developer-api.md`
+2. `.codex/skills/comms-community/references/whatsapp-formatting.md` when drafting WhatsApp/mobile-chat copy
+3. `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`
+4. `docs/reference/iam/README.md`
+5. `consent-protocol/docs/reference/developer-api.md`
 
 ## Workflow
 
@@ -88,11 +89,12 @@ Non-owned surfaces:
    - `Why it matters`: trust, speed, duplication control, maintainer leverage
    - `Where to look`: local path, ignored/generated status, and the canonical skill/script surface
    - `How to use it next`: one concrete next command or workflow
-10. Choose evidence format by audience:
+10. When the user asks for WhatsApp formatting, a WhatsApp draft, or a mobile-chat paste, follow `references/whatsapp-formatting.md`.
+11. Choose evidence format by audience:
    - public/community and internal shareable Q&A: prefer canonical GitHub markdown doc links on `main`, not repo-relative paths
    - internal repo-debug Q&A: file links or GitHub issue/PR links are allowed when they directly prove the point
-11. If the question asks for the current architecture doc, cite the maintained top-level doc first and only then mention narrower subsystem docs.
-12. Do not invent certainty from a vague teammate report. If the concern is branch-local or not present in the current tree, say so and ask for the exact path, log, or PR.
+12. If the question asks for the current architecture doc, cite the maintained top-level doc first and only then mention narrower subsystem docs.
+13. Do not invent certainty from a vague teammate report. If the concern is branch-local or not present in the current tree, say so and ask for the exact path, log, or PR.
 
 ## Handoff Rules
 

@@ -112,24 +112,29 @@ a VAULT_OWNER token plus a matching `user_id`; mailbox maintenance routes use
 Pub/Sub OIDC or the One maintenance token, not user Firebase auth. Strict
 client-side ZK means the backend never decrypts consent exports, never builds
 review drafts, and never persists review draft plaintext. Dev/UAT One Email now
-uses text-only multi-scope disclosure intake: after resolving the vault owner,
+uses deterministic multi-scope disclosure intake: after resolving the vault owner,
 the backend matches email intent against that user's consumer-visible dynamic
 scope inventory, stores detected domains, candidate scopes, thread metadata,
 hashes, and consent/writeback/send metadata only; the vault-unlocked client
-confirms scopes and builds the final draft from approved encrypted exports. The
+confirms scopes and builds the final draft from approved encrypted exports. When
+the user approves a reply, the client may submit both plain text and sanitized
+HTML; Gmail send uses multipart/alternative while preserving the plain-text
+fallback and original-thread reply headers. The
 maintained architecture reference is [One Email KYC](./one-email-kyc.md).
 
-Inbound user resolution uses exact verified email evidence. The resolver checks
-verified `To`, `Cc`, and `Reply-To` recipients before falling back to all
-participants, so a broker or alternate sender account does not override the
-vault owner explicitly copied on the request. Apple private relay addresses are
-not inferred to original emails; original addresses must be verified as aliases
-before they can resolve intake.
+Inbound user resolution uses exact verified sender evidence. The resolver binds
+an actionable request only to the `From` sender when that sender matches a
+verified Hussh identity or verified email alias. `To`, `Cc`, distribution-list,
+and `Reply-To` recipients are reply-thread context only; they do not authorize a
+request for a copied user. Apple private relay addresses are not inferred to
+original emails; original addresses must be verified as aliases before they can
+resolve intake.
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
 | POST | `/api/one/email/webhook` | Pub/Sub OIDC | Receive Gmail Pub/Sub notifications for the delegated One mailbox |
 | POST | `/api/one/email/watch/renew` | `X-Hushh-Maintenance-Token` | Renew the Gmail watch for the delegated One mailbox |
+| POST | `/api/one/email/sync/recent` | VAULT_OWNER Bearer | Bounded catch-up scan of recent One mailbox messages, used by Email refresh when Pub/Sub delivery or history state lags |
 | GET | `/api/one/kyc/client-connector?user_id={user_id}` | VAULT_OWNER Bearer | Read registered public client connector metadata |
 | POST | `/api/one/kyc/client-connector` | VAULT_OWNER Bearer | Register public client connector metadata after vault unlock; private key remains client/vault-only |
 | GET | `/api/one/kyc/workflows?user_id={user_id}` | VAULT_OWNER Bearer | List One KYC workflows for the vault owner |
@@ -138,7 +143,7 @@ before they can resolve intake.
 | POST | `/api/one/kyc/workflows/{workflow_id}/refresh` | VAULT_OWNER Bearer | Refresh workflow state after consent approval; returns encrypted export metadata for client-side draft generation |
 | GET | `/api/one/kyc/workflows/{workflow_id}/consent-export?user_id={user_id}` | VAULT_OWNER Bearer | Return the encrypted wrapped-key export package for this ready workflow without exposing the consent token to the browser |
 | GET | `/api/one/kyc/workflows/{workflow_id}/consent-exports?user_id={user_id}` | VAULT_OWNER Bearer | Return all selected encrypted wrapped-key export packages for multi-scope client-side draft generation |
-| POST | `/api/one/kyc/workflows/{workflow_id}/send-approved-reply` | VAULT_OWNER Bearer | Transiently send the user-approved final email body as Gmail reply-all in the original thread; persist metadata/hashes and thread verification only |
+| POST | `/api/one/kyc/workflows/{workflow_id}/send-approved-reply` | VAULT_OWNER Bearer | Transiently send the user-approved final email body as Gmail reply-all in the original thread; accepts required `approved_body` plain text and optional sanitized `approved_html` for multipart Gmail rendering; persist metadata/hashes and thread verification only |
 | POST | `/api/one/kyc/workflows/{workflow_id}/writeback-complete` | VAULT_OWNER Bearer | Record encrypted PKM writeback status and artifact hash |
 | POST | `/api/one/kyc/workflows/{workflow_id}/approve-draft` | VAULT_OWNER Bearer | Deprecated; returns gone because server-side draft approval is disabled |
 | POST | `/api/one/kyc/workflows/{workflow_id}/reject-draft` | VAULT_OWNER Bearer | Reject and block the workflow |
@@ -152,6 +157,7 @@ before they can resolve intake.
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | GET | `/api/consent/pending` | List pending consent requests |
+| GET | `/api/consent/pending/lookup` | Resolve specific pending consent requests by canonical `request_id` for cross-linked product surfaces |
 | POST | `/api/consent/pending/approve` | Approve consent (zero-knowledge export) |
 | POST | `/api/consent/pending/deny` | Deny consent request |
 | POST | `/api/consent/cancel` | Cancel pending request |

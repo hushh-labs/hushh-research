@@ -116,7 +116,6 @@ export function TopAppBarSpacer() {
 /* ── Helpers ───────────────────────────────────────────────────────── */
 function getTopBarTitle(
   pathname: string,
-  activePersona: "investor" | "ria",
 ): {
   label: string;
   icon?: LucideIcon;
@@ -133,11 +132,7 @@ function getTopBarTitle(
     pathname === ROUTES.RIA_ONBOARDING ||
     pathname.startsWith(`${ROUTES.RIA_ONBOARDING}/`)
   ) {
-    return {
-      label: "Set up RIA",
-      icon: BriefcaseBusiness,
-      interactive: true as const,
-    };
+    return null;
   }
 
   if (pathname === ROUTES.DEVELOPERS) {
@@ -147,9 +142,13 @@ function getTopBarTitle(
   const isRiaShellRoute =
     pathname === ROUTES.RIA_HOME || pathname.startsWith(`${ROUTES.RIA_HOME}/`);
   if (isRiaShellRoute) {
+    return null;
+  }
+
+  if (isProfileTopBarRoute(pathname)) {
     return {
-      label: "RIA",
-      icon: BriefcaseBusiness,
+      label: "Profile",
+      icon: UserRound,
       interactive: true as const,
     };
   }
@@ -157,15 +156,32 @@ function getTopBarTitle(
   const isPersonaShellRoute =
     pathname.startsWith(ROUTES.KAI_HOME) ||
     pathname.startsWith(ROUTES.MARKETPLACE) ||
-    pathname.startsWith(ROUTES.CONSENTS) ||
-    pathname.startsWith(ROUTES.PROFILE);
+    pathname.startsWith(ROUTES.CONSENTS);
 
   if (isPersonaShellRoute) {
-    return activePersona === "ria"
-      ? { label: "RIA", icon: BriefcaseBusiness, interactive: true as const }
-      : { label: "Investor", icon: UserRound, interactive: true as const };
+    return null;
   }
   return null;
+}
+
+function isProfileTopBarRoute(pathname: string): boolean {
+  const normalized = normalizeTopBarPathname(pathname);
+  return normalized === ROUTES.PROFILE || normalized.startsWith(`${ROUTES.PROFILE}/`);
+}
+
+function normalizeTopBarPathname(pathname: string): string {
+  const base = pathname.split(/[?#]/, 1)[0]?.trim() || "/";
+  if (base === "/") return base;
+  const withSlash = base.startsWith("/") ? base : `/${base}`;
+  return withSlash.endsWith("/") ? withSlash.slice(0, -1) : withSlash;
+}
+
+function roleSwitcherLabel(activePersona: Persona): string {
+  return activePersona === "ria" ? "RIA" : "Investor";
+}
+
+function roleSwitcherIcon(activePersona: Persona): LucideIcon {
+  return activePersona === "ria" ? BriefcaseBusiness : UserRound;
 }
 
 function routeForPersona(params: {
@@ -205,8 +221,12 @@ export function TopAppBar({ className }: TopAppBarProps) {
   const showOnboardingActions = chromeState.useOnboardingChrome;
   const hideChrome = !topShellMetrics.shellVisible;
   const centerTitle = useMemo(
-    () => getTopBarTitle(pathname, activePersona),
-    [activePersona, pathname],
+    () => getTopBarTitle(pathname),
+    [pathname],
+  );
+  const canShowPersonaSwitcher = useMemo(
+    () => isProfileTopBarRoute(pathname),
+    [pathname],
   );
   const showKaiTabs = topShellMetrics.hasTabs;
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
@@ -377,7 +397,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
 
               <div className="pointer-events-none flex min-w-0 flex-1 items-center justify-center">
                 {centerTitle ? (
-                  centerTitle.interactive ? (
+                  centerTitle.interactive && canShowPersonaSwitcher ? (
                     <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -389,7 +409,9 @@ export function TopAppBar({ className }: TopAppBarProps) {
                           >
                             <Icon
                               icon={
-                                switchingPersona ? Loader2 : centerTitle.icon!
+                                switchingPersona
+                                  ? Loader2
+                                  : roleSwitcherIcon(activePersona)
                               }
                               size="sm"
                               className={cn(
@@ -400,7 +422,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                             <span className="truncate">
                               {switchingPersona
                                 ? `Switching to ${switchingPersona === "ria" ? "RIA" : "Investor"}`
-                                : centerTitle.label}
+                                : roleSwitcherLabel(activePersona)}
                             </span>
                             {!switchingPersona && (
                               <span

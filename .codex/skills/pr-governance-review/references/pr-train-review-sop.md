@@ -8,24 +8,25 @@ revisits `changes_requested`, or scales throughput without weakening quality.
 This SOP is the canonical behavior source for multi-PR governance.
 Canonical order for every backlog, batch, repass, decision-wave, or scale pass:
 
-1. Refresh or verify the live report and record scan completeness.
-2. Move failing, missing, stale, or auxiliary-failing checks into
-   `Check Failure Holds` unless this is explicitly CI repair.
-3. Build the train graph from hard edges: files, lockfiles, generated
-   contracts, schema/migrations, sensitive runtimes, dirty-file overlap,
-   stacked/conflicting state, and queue/main dependencies.
+1. Reuse a complete live report under `12` hours old when scope matches and no merge/close wave has changed it; otherwise refresh or verify completeness.
+2. Move failing, missing, stale, or auxiliary-failing checks into `Check Failure Holds` unless this is CI repair.
+3. Build the train graph from hard edges: files, lockfiles, generated contracts, schema/migrations, sensitive runtimes, dirty-file overlap, stacked/conflicting state, and queue/main dependencies.
 4. Identify all async trains from that graph, oldest PRs first, not only the next visible batch.
-5. Start one read-only evidence lane per independent train family before final train selection; the writer-lane exception does not make evidence lanes writable.
-6. Ask one Pre-Wave Operator Question for the whole reviewed train set before
-   any comment, close, patch, queue, merge, or deploy checkpoint.
-7. After a wave completes, treat PRs with current standardized maintainer
-   records as handled until their head SHA, CI state, mergeability, or
-   contributor response changes. Do not repeat them in the next operator wave.
+5. Start one read-only evidence lane per independent train family; the writer-lane exception does not make evidence lanes writable.
+6. Ask one Pre-Wave Operator Question before any comment, close, patch, queue, merge, or deploy checkpoint.
+7. After a wave completes, treat PRs with current standardized maintainer records as handled until their head SHA, CI state, mergeability, or contributor response changes.
 8. Run independent trains in parallel through a five-worker train pool; sequence hard-edge PRs oldest-first inside a train and refill a freed worker with the next oldest non-touching train.
 9. Treat PR Validation, Queue Validation, and Main Post-Merge Smoke as monitor lanes; while they run, prepare the next independent train or decision wave.
 10. Ingest every returned lane into queue, patch, comment/close, hold, or next-refill writes; do not call the set complete until every reviewed PR is linked as acted, terminal, blocked, or remaining.
 
 If this order conflicts with another PR-governance reference, this section wins.
+
+## Live Report Reuse
+
+1. Reuse `tmp/pr-governance-live-report.md` when it is complete, under `12` hours old, and the operator asks to continue from it.
+2. Do not regenerate only to rebuild train chains, decision waves, or blocked buckets already present in a fresh complete report.
+3. Refresh when a merge/close/comment wave changed the scope, the report is partial, or a selected PR's head/check/mergeability changed.
+4. State whether the train set came from a reused report or a refreshed report.
 
 ## Preflight
 
@@ -51,15 +52,23 @@ Identify every train in the reviewed scope before any state change:
 
 1. One independent hard-edge component becomes one train.
 2. One train maps to one read-only evidence subagent lane.
-3. Train `1..n` run in parallel when files, runtime families, generated
-   contracts, lockfiles, schema, deploy, and dirty surfaces do not touch.
-4. Inside a train, process PRs one after another in ascending PR creation time;
-   fall back to ascending PR number when creation time is unavailable.
+3. Train `1..n` run in parallel when files, runtime families, generated contracts, lockfiles, schema, deploy, and dirty surfaces do not touch.
+4. Inside a train, process PRs one after another in ascending PR creation time; fall back to PR number when creation time is unavailable.
 5. The subagent owns train evidence and may use only the controlled writer envelope after approval; the parent owns patches, branches, deploys, merge policy, and final synthesis.
-6. A train can contain `20+` PRs when homogeneous and same-surface. High-risk
-   state-changing writes still use the dynamic wave caps.
-7. The handoff lists every train, PR links, sequence, lane/subagent, action,
-   patch/harvest possibility, attribution, and next stop condition.
+6. A train can contain `20+` PRs when homogeneous and same-surface; high-risk writes still use dynamic wave caps.
+7. Handoffs list every train, PR links, sequence, lane, action, patch/harvest possibility, attribution, and stop condition.
+
+## Stacked PR Dependency Standard
+
+Large OSS-style contribution queues often contain stacked work. Treat this as a sequencing input, not as automatic drift.
+
+1. Review every PR against current `main`, then check whether it has a proven predecessor in the open PR set.
+2. Proven stack evidence includes explicit dependency language in the PR title/body, branch ancestry, imports/callers that point to files introduced by another open PR, or tests that only make sense after a named predecessor lands.
+3. Hints such as same author, similar title, nearby creation time, or same broad theme are not enough by themselves.
+4. If a follow-up PR depends on a predecessor, put both in one sequential train, set `must_wait_for`, and process the initializer first.
+5. Do not mark the follow-up as an unattached helper solely because the caller is in its predecessor PR.
+6. If the predecessor is outside the reviewed scope, stale, failing CI, conflicting, or unmerged, hold the dependent PR with `needs_predecessor_repass` rather than approving it.
+7. If no predecessor can be proven, apply the normal current-main reachability gate.
 
 ## Controlled Writer-Lane Envelope
 
@@ -67,26 +76,21 @@ Allowed after operator approval: edit/post standardized maintainer reviews or co
 
 ## Wave Means Checkpoint
 
-`Wave` does not mean "only work on this small batch." It is the next
-operator-approved state-changing checkpoint across already running trains.
+`Wave` means the next operator-approved state-changing checkpoint across already running trains, not "only work on this small batch."
 
-1. `Train`: the full hard-edge PR sequence for one surface; one evidence lane,
-   oldest-first internally.
+1. `Train`: the full hard-edge PR sequence for one surface; one evidence lane, oldest-first internally.
 2. `Parallel train set`: all non-touching trains running across lanes/subagents.
-3. `Wave`: bounded GitHub writes, maintainer patches, queue actions, closes, or
-   merges inside the already approved train set.
+3. `Wave`: bounded GitHub writes, maintainer patches, queue actions, closes, or merges inside the approved train set.
 
 Approval applies to the reviewed train set, not just the first train. Waves are state-changing checkpoints for safe GitHub writes while all lanes continue. While the operator answers, unrelated lanes keep scanning, proving attach points, drafting patch plans, and preparing the next checkpoint.
 
 ## Scan Modes
 
 1. `active`: latest window only.
-2. `hybrid`: default; all-open inventory plus latest `100` and up to `40`
-   older high-signal candidates.
+2. `hybrid`: default; all-open inventory plus latest `100` and up to `40` older high-signal candidates.
 3. `full`: audit mode only; attempt every open PR with timeout.
 
-If scanning fails, state inventoried/reviewed/failed PRs and whether the result
-is complete, partial, or fallback-only.
+If scanning fails, state inventoried/reviewed/failed PRs and whether the result is complete, partial, or fallback-only.
 
 ## Hundred-PR Active Pass Standard
 
@@ -95,9 +99,11 @@ Report open/reviewed counts, trains, terminal PRs by action, and non-terminal tr
 
 ## Check Failure Intake Filter
 
-Exclude PRs from executable trains when `CI Status Gate` is missing, pending,
-skipped, cancelled, failing, unknown, or green while a current auxiliary check
-fails. Show them only in `Check Failure Holds` unless this is CI repair.
+Exclude PRs from executable trains when `CI Status Gate` is missing, pending, skipped, cancelled, failing, unknown, or green while a current auxiliary check fails. Show them only in `Check Failure Holds` unless this is CI repair.
+
+## Post-Changes Repass Train
+
+Contributor commits or non-maintainer comments newer than the latest maintainer `changes_requested` record create a repass train. Re-enter only PRs with a current green `CI Status Gate`; failing/missing gates stay in holds. Build trains from current files/surfaces, re-review the current head SHA, and output `approve_or_queue`, `maintainer_patch_or_harvest`, `updated_changes_requested`, or `still_blocked_with_reason`.
 
 ## Train Graph
 
@@ -105,13 +111,11 @@ fails. Show them only in `Check Failure Holds` unless this is CI repair.
 2. lockfile overlap
 3. schema, migration, or generated-contract overlap
 4. same sensitive runtime family
-5. same public route, backend route, auth, consent, vault, PKM, voice, finance,
-   KYC, deploy, or CI authority surface
+5. same public route, backend route, auth, consent, vault, PKM, voice, finance, KYC, deploy, or CI authority surface
 6. local dirty-file overlap
 7. stacked, conflicting, or stale branch state
 
-Soft edges such as same author, broad theme, similar title, or nearby UI area
-do not block parallelism by themselves.
+Soft edges such as same author, broad theme, similar title, or nearby UI area do not block parallelism by themselves.
 
 ## Lanes
 
@@ -130,14 +134,10 @@ This is the Merge Train Capacity Model.
 
 Before every state-changing checkpoint, ask one researched operator question:
 
-1. `Current truth`: scan freshness, reviewed/open counts, wave type, exact PR
-   links, and excluded check-failure holds.
-2. `Recommended path`: running train set, checkpoint size, comment/edit posture,
-   and expected artifact.
-3. `Risk if accepted blindly`: stale heads, changed CI, unsafe record edits,
-   noisy bulk comments, or unfair attribution.
-4. `Decision needed`: approve the checkpoint, reduce/split it, or refresh
-   first.
+1. `Current truth`: scan freshness, reviewed/open counts, wave type, PR links, and excluded check-failure holds.
+2. `Recommended path`: train set, checkpoint size, comment/edit posture, and expected artifact.
+3. `Risk if accepted blindly`: stale heads, changed CI, unsafe edits, noisy comments, or unfair attribution.
+4. `Decision needed`: approve the checkpoint, reduce/split it, or refresh first.
 
 Do not ask the operator to find facts Codex can verify.
 
@@ -191,11 +191,13 @@ available. Never rewrite `main` for retroactive co-author credit.
 7. Produce the operator dossier from `operator-batch-output-contract.md`; one approval starts the full reviewed train set, not a single train.
 8. Execute approved GitHub writes by editing existing maintainer records first.
 9. Exclude PRs just handled by a current standardized maintainer record until fresh contributor or GitHub state changes.
-10. For merges, enqueue exact head SHA and monitor queue and smoke.
-11. Refresh live report and contributor-impact dashboard.
-12. Return the parent worktree to the recorded developer branch after temporary PR checkout, worktree, detached HEAD, or queue-monitoring branch changes.
-13. Report active-pass progress in chat: `reviewed`, `acted`, `terminal`, `blocked`, `remaining`, `merged`, `patched`, `commented`, and direct links.
-14. Start the next independent train while unrelated checks run; continue until every train in the approved set is terminal or blocked with links/reasons.
+10. Run a post-changes repass train for green PRs with contributor activity
+    after a maintainer changes-requested record.
+11. For merges, enqueue exact head SHA and monitor queue and smoke.
+12. Refresh live report and contributor-impact dashboard.
+13. Return the parent worktree to the recorded developer branch after temporary PR checkout, worktree, detached HEAD, or queue-monitoring branch changes.
+14. Report active-pass progress in chat: `reviewed`, `acted`, `terminal`, `blocked`, `remaining`, `merged`, `patched`, `commented`, and direct links.
+15. Start the next independent train while unrelated checks run; continue until every train in the approved set is terminal or blocked with links/reasons.
 
 ## Queue Cancellation Handling
 

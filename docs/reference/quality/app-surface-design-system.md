@@ -35,15 +35,33 @@ Rules:
    - deletion and revocation
    - suspicious-access or trust-state warnings
 5. Route navigation action ids use `route.*`. The `nav.*` namespace is reserved for true Nav guardian actions, not navigation.
-6. KYC owns explicit identity/KYC workflow copy:
-   - requirements and missing-document state
+6. Email Helper owns approval-gated email replies:
+   - plain-language information-needed state
+   - selectable data sections
    - approval-gated drafts
-   - workflow status
-   - structured PKM writeback summaries
+   - sent-reply summaries
+   - hidden workflow/writeback metadata
+   - Gmail-safe plaintext and HTML generated through the shared client renderer
 7. Local voice/action contracts must set `speaker_persona` to `one`, `kai`, `nav`, or `kyc` using the same ownership rules.
 8. Actions executed by a specialist on behalf of One should set `delegate_agent_id` to `kai`, `nav`, or `kyc`.
 9. Persona switching changes the workspace context. It does not change the top relationship agent; One stays the default shell voice.
 10. Canonical app copy uses neutral voice descriptors. Do not encode celebrity references or personal numeric preferences in maintained UI copy or docs.
+
+## Consumer Copy Contract
+
+Persona-facing surfaces are for everyday users, not implementers.
+
+Rules:
+
+1. Use plain labels such as `Personal Data`, `saved details`, `sharing`, and `access`.
+2. Do not expose implementation terms in consumer UI, including `PKM`, `manifest`, `schema`, `export`, `token`, `runtime`, `debug`, `dummy save`, route names, correlation ids, thread ids, workflow ids, consent ids, hashes, timings, or raw provider errors.
+3. Background notifications must summarize what the user can understand or do. Diagnostics belong in logs, metadata, developer routes, or an explicit debug-only view.
+4. Error copy should explain the next user action. Keep low-level failure details out of visible app text unless the route is explicitly developer-facing.
+5. Route links from consumer notifications must point to consumer surfaces such as Profile, Personal Data, Access Center, or the relevant workspace, not labs or raw explorer tools.
+6. Row-level saves, deletes, refreshes, and short-lived failures must use the shadcn Sonner notification stack. Do not add inline route banners for transient row actions because they shift page layout and create loading bounce.
+7. Destructive actions must use the shadcn AlertDialog confirmation pattern before mutation. Keep the in-flight state inside the dialog or the initiating row action, not as a page-level loader.
+8. Email Helper draft previews must not expose raw data structure terms such as `changes`, `entities`, hashes, provenance, parser metadata, or internal ids. Use readable sections, facts, and tables from the approved render model.
+9. Dense email tables, especially portfolios and holdings, should remain complete and readable on mobile through horizontal scrolling. Do not force all table columns to fit the viewport when that creates overlap.
 
 ## Shell Contract
 

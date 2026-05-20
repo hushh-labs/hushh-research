@@ -123,6 +123,7 @@ const KNOWN_VOICE_TOOLS: readonly VoiceToolCall["tool_name"][] = [
   "cancel_active_analysis",
   "clarify",
   "switch_persona",
+  "capture_pkm_memory",
 ];
 
 function describeGuard(guardId: string): string {

@@ -145,6 +145,7 @@ import {
 } from "@/lib/profile/pkm-profile-presentation";
 import {
   buildPkmSectionPreviewPresentation,
+  type PkmSectionPreviewEntity,
   type PkmSectionPreviewPresentation,
 } from "@/lib/profile/pkm-section-preview";
 import { loadProfilePkmMetadataForVaultState } from "@/lib/profile/profile-pkm-metadata-policy";
@@ -255,6 +256,30 @@ function applyManifestExposureChange(
   }
 
   return updated ? nextManifest : manifest;
+}
+
+function buildPkmEntityDeletionCandidate(
+  topLevelScopePath: string,
+  entityKey: string,
+): Record<string, unknown> {
+  const segments = topLevelScopePath.split(".").map((segment) => segment.trim()).filter(Boolean);
+  const root: Record<string, unknown> = {};
+  let current = root;
+
+  for (const segment of segments) {
+    const next: Record<string, unknown> = {};
+    current[segment] = next;
+    current = next;
+  }
+
+  current.entities = {
+    [entityKey]: {
+      entity_id: entityKey,
+      status: "deleted",
+    },
+  };
+
+  return root;
 }
 
 const SUPPORT_KIND_COPY: Record<
@@ -583,19 +608,25 @@ function ProfilePageContent() {
   const [domainPreview, setDomainPreview] = useState<{
     open: boolean;
     permissionKey: string | null;
+    domainKey: string | null;
+    topLevelScopePath: string | null;
     title: string;
     description: string;
     presentation: PkmSectionPreviewPresentation | null;
     loading: boolean;
     error: string | null;
+    deletingEntityKey: string | null;
   }>({
     open: false,
     permissionKey: null,
+    domainKey: null,
+    topLevelScopePath: null,
     title: "",
     description: "",
     presentation: null,
     loading: false,
     error: null,
+    deletingEntityKey: null,
   });
   const [consentCenter, setConsentCenter] =
     useState<ConsentCenterResponse | null>(null);
@@ -799,7 +830,7 @@ function ProfilePageContent() {
         status: "updating" as const,
         label: "Unlock required",
         description:
-          "This domain stays readable while locked. Unlock the vault to manage section-level sharing controls.",
+          "These details stay readable while locked. Unlock the vault to manage section-level sharing controls.",
         canManagePermissions: false,
       };
     }
@@ -841,11 +872,14 @@ function ProfilePageContent() {
       return {
         open: false,
         permissionKey: null,
+        domainKey: null,
+        topLevelScopePath: null,
         title: "",
         description: "",
         presentation: null,
         loading: false,
         error: null,
+        deletingEntityKey: null,
       };
     });
   }, [selectedDomain?.key]);
@@ -1065,10 +1099,7 @@ function ProfilePageContent() {
         }));
         return manifest;
       } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Couldn't load sharing controls for this domain.";
+        const message = "Couldn't load sharing controls for these details.";
         setDomainManifestErrors((current) => ({
           ...current,
           [domainKey]: message,
@@ -1915,9 +1946,9 @@ function ProfilePageContent() {
     const controls = [
       {
         id: "profile_my_data",
-        label: "Personal Knowledge Model",
+        label: "Personal Data",
         purpose:
-          "opens your saved domains, source summaries, and sharing controls.",
+          "opens your saved details and sharing controls.",
         actionId: "route.profile_my_data",
         role: "card",
         voiceAliases: ["personal knowledge model", "my data", "pkm"],
@@ -2025,7 +2056,7 @@ function ProfilePageContent() {
           activePanel === "account"
             ? "Account"
             : activePanel === "my-data"
-              ? "Personal Knowledge Model"
+              ? "Personal Data"
               : activePanel === "access"
                 ? "Access & sharing"
                 : activePanel === "preferences"
@@ -2041,7 +2072,7 @@ function ProfilePageContent() {
           "Account",
           "Vault",
           ...(shouldShowRiaRegulatoryRow ? ["Regulatory profile"] : []),
-          "Personal Knowledge Model",
+          "Personal Data",
           "Access & sharing",
           "Preferences",
           "Security",
@@ -2078,7 +2109,7 @@ function ProfilePageContent() {
                   ...(shouldShowRiaRegulatoryRow
                     ? ["Update license data"]
                     : []),
-                  "Open Personal Knowledge Model",
+                  "Open Personal Data",
                   "Open Access & sharing",
                   "Open Gmail receipts",
                   "Open Support",
@@ -2091,7 +2122,7 @@ function ProfilePageContent() {
           ? activePanel === "account"
             ? "Account"
             : activePanel === "my-data"
-              ? "Personal Knowledge Model"
+              ? "Personal Data"
               : activePanel === "access"
                 ? "Access & sharing"
                 : activePanel === "preferences"
@@ -2112,8 +2143,8 @@ function ProfilePageContent() {
           },
           {
             id: "my-data",
-            title: "Personal Knowledge Model",
-            purpose: "Saved domains, source summaries, and sharing controls.",
+            title: "Personal Data",
+            purpose: "Saved details and sharing controls.",
           },
           {
             id: "access",
@@ -2311,29 +2342,6 @@ function ProfilePageContent() {
     return null;
   }
 
-  const openKaiPreferences = () => {
-    if (vaultAccess.needsVaultCreation) {
-      router.push(ROUTES.KAI_IMPORT);
-      return;
-    }
-    if (!vaultAccess.canMutateSecureData) {
-      setPendingProfileTarget({
-        panel: "preferences",
-        detail: "kai-preferences",
-        mode: "push",
-      });
-      requestVaultUnlock("profile_data");
-      return;
-    }
-    updateProfileView(
-      {
-        panel: "preferences",
-        detail: "kai-preferences",
-      },
-      "push",
-    );
-  };
-
   const popProfileStack = () => {
     if (activeDetail) {
       updateProfileView({ panel: activePanel, detail: null }, "replace");
@@ -2453,13 +2461,16 @@ function ProfilePageContent() {
     setDomainPreview({
       open: true,
       permissionKey: permission.key,
+      domainKey,
+      topLevelScopePath: permission.topLevelScopePath,
       title: permission.label,
       description:
         permission.description ||
-        `Saved values from your ${selectedDomain?.title?.toLowerCase() || domainKey} domain.`,
+        `Saved values from ${selectedDomain?.title?.toLowerCase() || domainKey}.`,
       presentation: null,
       loading: true,
       error: null,
+      deletingEntityKey: null,
     });
 
     try {
@@ -2474,10 +2485,12 @@ function ProfilePageContent() {
         ...current,
         open: true,
         permissionKey: permission.key,
+        domainKey,
+        topLevelScopePath: permission.topLevelScopePath,
         title: permission.label,
         description:
           permission.description ||
-          `Saved values from your ${selectedDomain?.title?.toLowerCase() || domainKey} domain.`,
+          `Saved values from ${selectedDomain?.title?.toLowerCase() || domainKey}.`,
         presentation: buildPkmSectionPreviewPresentation({
           domain: domainKey,
           domainTitle: selectedDomain?.title || domainKey,
@@ -2488,6 +2501,7 @@ function ProfilePageContent() {
         }),
         loading: false,
         error: null,
+        deletingEntityKey: null,
       }));
     } catch (error) {
       const message =
@@ -2498,14 +2512,90 @@ function ProfilePageContent() {
         ...current,
         open: true,
         permissionKey: permission.key,
+        domainKey,
+        topLevelScopePath: permission.topLevelScopePath,
         title: permission.label,
         description:
           permission.description ||
-          `Saved values from your ${selectedDomain?.title?.toLowerCase() || domainKey} domain.`,
+          `Saved values from ${selectedDomain?.title?.toLowerCase() || domainKey}.`,
         presentation: null,
         loading: false,
         error: message,
+        deletingEntityKey: null,
       }));
+    }
+  };
+
+  const handleDeletePkmPreviewEntity = async (entity: PkmSectionPreviewEntity) => {
+    const domainKey = domainPreview.domainKey || selectedDomain?.key || null;
+    const topLevelScopePath = domainPreview.topLevelScopePath;
+    if (!user?.uid || !vaultKey || !vaultOwnerToken || !domainKey || !topLevelScopePath) {
+      requestVaultUnlock("profile_data");
+      return;
+    }
+
+    setDomainPreview((current) => ({
+      ...current,
+      error: null,
+      deletingEntityKey: entity.key,
+    }));
+
+    try {
+      await PersonalKnowledgeModelService.storePreparedDomain({
+        userId: user.uid,
+        vaultKey,
+        domain: domainKey,
+        domainData: buildPkmEntityDeletionCandidate(topLevelScopePath, entity.key),
+        summary: {},
+        mergeDecision: {
+          merge_mode: "delete_entity",
+          target_domain: domainKey,
+          target_entity_id: entity.key,
+          target_entity_path: `${topLevelScopePath}.entities.${entity.key}`,
+          match_confidence: 1,
+          match_reason: "User removed this saved PKM entry from the profile interface.",
+        },
+        vaultOwnerToken,
+      });
+
+      const permission = selectedDomainPermissions.find(
+        (candidate) => candidate.key === domainPreview.permissionKey,
+      );
+      const data = await PersonalKnowledgeModelService.loadDomainData({
+        userId: user.uid,
+        domain: domainKey,
+        vaultKey,
+        vaultOwnerToken,
+        segmentIds: [topLevelScopePath],
+      });
+
+      setDomainPreview((current) => ({
+        ...current,
+        presentation: buildPkmSectionPreviewPresentation({
+          domain: domainKey,
+          domainTitle: selectedDomain?.title || domainKey,
+          permissionLabel: permission?.label || current.title || topLevelScopePath,
+          permissionDescription: permission?.description || current.description || null,
+          topLevelScopePath,
+          value: data,
+        }),
+        loading: false,
+        error: null,
+        deletingEntityKey: null,
+      }));
+
+      void refreshPkmMetadata(true);
+      void refreshDomainManifest(domainKey, true);
+      toast.success("Saved entry removed.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Couldn't remove this saved entry.";
+      setDomainPreview((current) => ({
+        ...current,
+        error: message,
+        deletingEntityKey: null,
+      }));
+      toast.error(message);
     }
   };
 
@@ -2527,7 +2617,7 @@ function ProfilePageContent() {
     const permissionKey = permission.key;
     const previousManifest = cloneManifest(domainManifests[domainKey] ?? null);
     if (!previousManifest) {
-      toast.error("This domain is still preparing sharing controls.");
+      toast.error("These details are still preparing sharing controls.");
       return;
     }
 
@@ -2800,11 +2890,6 @@ function ProfilePageContent() {
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         <Badge variant="secondary">Appearance</Badge>
-        <Badge variant="secondary">
-          {canEditKaiPreferences
-            ? "Secure preferences ready"
-            : "Unlock required"}
-        </Badge>
         <Badge variant="secondary">Device controls soon</Badge>
       </div>
       <SettingsGroup>
@@ -2814,23 +2899,6 @@ function ProfilePageContent() {
           description="Light, dark, or system."
           trailing={<ThemeToggle className="w-full min-w-0 sm:w-[228px]" />}
           stackTrailingOnMobile
-        />
-        <SettingsRow
-          icon={RefreshCw}
-          title="Kai preferences"
-          description={
-            vaultAccess.canMutateSecureData
-              ? "Risk profile and horizon."
-              : "Unlock to edit secure Kai preferences."
-          }
-          trailing={
-            canEditKaiPreferences ? (
-              <Badge variant="secondary">Ready</Badge>
-            ) : null
-          }
-          chevron
-          stackTrailingOnMobile
-          onClick={openKaiPreferences}
         />
         <SettingsRow
           icon={Cloud}
@@ -3359,8 +3427,8 @@ function ProfilePageContent() {
   } else if (!routeBlockedByVault && activePanel === "my-data") {
     profileStackEntries.push({
       key: "panel:my-data",
-      title: "Personal Knowledge Model",
-      description: "Browse domains, counts, and sharing controls.",
+      title: "Personal Data",
+      description: "Browse saved details and sharing controls.",
       content: myDataContent,
     });
     if (selectedDomain) {
@@ -3377,7 +3445,7 @@ function ProfilePageContent() {
                 status: "missing_manifest",
                 label: "Updating structure",
                 description:
-                  "Sharing controls will appear here once this domain manifest is ready.",
+                  "Sharing controls will appear here once these details are ready.",
                 canManagePermissions: false,
               }
             }
@@ -3396,6 +3464,7 @@ function ProfilePageContent() {
             previewPresentation={domainPreview.presentation}
             previewLoading={domainPreview.loading}
             previewError={domainPreview.error}
+            previewDeletingEntityKey={domainPreview.deletingEntityKey}
             onPreviewOpenChange={(open) =>
               setDomainPreview((current) => ({
                 ...current,
@@ -3404,6 +3473,9 @@ function ProfilePageContent() {
             }
             onPreviewPermission={(permission) =>
               void handlePreviewDomainPermission(selectedDomain.key, permission)
+            }
+            onDeletePreviewEntity={(entity) =>
+              void handleDeletePkmPreviewEntity(entity)
             }
             onTogglePermission={(permission, nextValue) =>
               void handleToggleDomainPermission(
@@ -3655,17 +3727,17 @@ function ProfilePageContent() {
             <SettingsGroup title="Data">
               <SettingsRow
                 icon={Folder}
-                title="Personal Knowledge Model"
+                title="Personal Data"
                 description={
                   vaultAccess.needsVaultCreation
                     ? "Create your vault first."
                     : !pkmMetadataReady && !pkmMetadataFailed
-                      ? "Checking saved domains."
+                      ? "Checking saved details."
                       : pkmMetadataFailed
                         ? "Saved data is unavailable."
                         : vaultAccess.needsUnlock
-                          ? "Unlock to review domains and sharing."
-                          : "Domains, counts, and sharing."
+                          ? "Unlock to review saved details and sharing."
+                          : "Saved details and sharing."
                 }
                 trailing={<Badge variant="secondary">{myDataRootBadge}</Badge>}
                 chevron

@@ -201,6 +201,80 @@ describe("CacheSyncService mutation cascades", () => {
     expect(invalidatedKeys).toContain(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
   });
 
+  it("onPkmDomainStored keeps the full financial domain fresh after encrypted portfolio writes", () => {
+    const portfolioData = {
+      holdings: [{ symbol: "MSFT", shares: 2 }],
+    };
+    const domainData = {
+      schema_version: 3,
+      portfolio: portfolioData,
+      documents: {
+        statements: [{ id: "stmt-new", canonical_v2: portfolioData }],
+      },
+      sources: {
+        active_source: "statement",
+        statement: {
+          active_snapshot_id: "stmt-new",
+          snapshots: [{ id: "stmt-new", canonical_v2: portfolioData }],
+        },
+      },
+    };
+
+    CacheSyncService.onPkmDomainStored(userId, "financial", {
+      portfolioData: portfolioData as any,
+      domainData,
+      encryptedBlob: {
+        ciphertext: "ciphertext-new",
+        iv: "iv-new",
+        tag: "tag-new",
+        dataVersion: 7,
+        updatedAt: "2026-05-18T05:55:00.000Z",
+      },
+    });
+
+    expect(cache.get(CACHE_KEYS.PORTFOLIO_DATA(userId))).toEqual(portfolioData);
+    expect(cache.get(CACHE_KEYS.DOMAIN_DATA(userId, "financial"))).toEqual(
+      domainData,
+    );
+    expect(
+      cache.get(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial")),
+    ).toMatchObject({
+      dataVersion: 7,
+      updatedAt: "2026-05-18T05:55:00.000Z",
+    });
+  });
+
+  it("onPortfolioUpserted preserves a full financial domain already cached from PKM", () => {
+    const thinPortfolio = {
+      holdings: [{ symbol: "NVDA", shares: 3 }],
+    };
+    const fullFinancialDomain = {
+      schema_version: 3,
+      portfolio: {
+        holdings: [{ symbol: "MSFT", shares: 2 }],
+      },
+      documents: {
+        statements: [{ id: "stmt-existing" }],
+      },
+      sources: {
+        active_source: "statement",
+      },
+    };
+
+    cache.set(
+      CACHE_KEYS.DOMAIN_DATA(userId, "financial"),
+      fullFinancialDomain,
+      CACHE_TTL.SESSION,
+    );
+
+    CacheSyncService.onPortfolioUpserted(userId, thinPortfolio as any);
+
+    expect(cache.get(CACHE_KEYS.PORTFOLIO_DATA(userId))).toEqual(thinPortfolio);
+    expect(cache.get(CACHE_KEYS.DOMAIN_DATA(userId, "financial"))).toEqual(
+      fullFinancialDomain,
+    );
+  });
+
   // ---------- 10. onPkmDomainCleared (financial) ----------
   it("onPkmDomainCleared invalidates domain data, encrypted blob, PKM blob, decrypted blob, metadata, and portfolio data for financial", () => {
     CacheSyncService.onPkmDomainCleared(userId, "financial");
