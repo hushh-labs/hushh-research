@@ -19,6 +19,7 @@ export const ROUTE_ID_VALUES = [
   "marketplace_connection_portfolio",
   "marketplace_ria_profile",
   "one_kyc",
+  "one_location",
   "portfolio_shared",
   "ria_home",
   "ria_onboarding",
@@ -71,6 +72,7 @@ export function resolveRouteId(pathname: string): RouteId {
     return "marketplace_ria_profile";
   }
   if (pathname === ROUTES.ONE_KYC) return "one_kyc";
+  if (pathname === ROUTES.ONE_LOCATION) return "one_location";
   if (pathname === "/portfolio/shared") return "portfolio_shared";
   if (pathname === ROUTES.RIA_HOME) return "ria_home";
   if (pathname === ROUTES.RIA_ONBOARDING) return "ria_onboarding";
@@ -129,6 +131,46 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
   {
     regex: /^\/api\/pkm\/domain-data\/[^/?]+\/[^/?]+(?:\?.*)?$/i,
     template: "/api/pkm/domain-data/{user_id}/{domain}",
+  },
+  {
+    regex: /^\/api\/one\/location\/recipient-keys(?:\?.*)?$/i,
+    template: "/api/one/location/recipient-keys",
+  },
+  {
+    regex: /^\/api\/one\/location\/state(?:\?.*)?$/i,
+    template: "/api/one/location/state",
+  },
+  {
+    regex: /^\/api\/one\/location\/grants(?:\?.*)?$/i,
+    template: "/api/one/location/grants",
+  },
+  {
+    regex: /^\/api\/one\/location\/grants\/[^/?]+\/envelopes(?:\?.*)?$/i,
+    template: "/api/one/location/grants/{grant_id}/envelopes",
+  },
+  {
+    regex: /^\/api\/one\/location\/grants\/[^/?]+\/envelope(?:\?.*)?$/i,
+    template: "/api/one/location/grants/{grant_id}/envelope",
+  },
+  {
+    regex: /^\/api\/one\/location\/grants\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/one/location/grants/{grant_id}",
+  },
+  {
+    regex: /^\/api\/one\/location\/requests(?:\?.*)?$/i,
+    template: "/api/one/location/requests",
+  },
+  {
+    regex: /^\/api\/one\/location\/requests\/[^/?]+\/approve(?:\?.*)?$/i,
+    template: "/api/one/location/requests/{request_id}/approve",
+  },
+  {
+    regex: /^\/api\/one\/location\/requests\/[^/?]+\/deny(?:\?.*)?$/i,
+    template: "/api/one/location/requests/{request_id}/deny",
+  },
+  {
+    regex: /^\/api\/one\/location\/grants\/[^/?]+\/refer(?:\?.*)?$/i,
+    template: "/api/one/location/grants/{grant_id}/refer",
   },
   {
     regex: /^\/api\/kai\/agent\/chat\/stream(?:\?.*)?$/i,

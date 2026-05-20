@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-05-07",
-  "total_routes": 37,
-  "native_required_routes": 34,
+  "total_routes": 39,
+  "native_required_routes": 36,
   "excluded_routes": 3,
   "routes": [
     {
@@ -188,6 +188,16 @@
       "allowedDataStates": ["loaded"]
     },
     {
+      "route": "/agent",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fagent",
+      "expectedMarker": "native-route-agent",
+      "expectedRoute": "/agent",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded", "empty-valid", "unavailable-valid"]
+    },
+    {
       "route": "/one/kyc",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fkyc",
@@ -196,6 +206,16 @@
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/one/location",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Flocation",
+      "expectedMarker": "native-route-one-location",
+      "expectedRoute": "/one/location",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": ["loaded", "empty-valid", "unavailable-valid"]
     },
     {
       "route": "/profile",

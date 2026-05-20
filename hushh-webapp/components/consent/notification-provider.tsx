@@ -60,6 +60,13 @@ import {
 } from "@/lib/utils/session-storage";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import { ROUTES } from "@/lib/navigation/routes";
+import {
+  buildOneLocationNotificationHref,
+  locationShareNotificationDescription,
+  markOneLocationGrantOpened,
+  playOneLocationNotificationSound,
+  recordOneLocationShareNotification,
+} from "@/lib/one-location/notifications";
 
 // ============================================================================
 // Helpers
@@ -333,6 +340,19 @@ function isConsentWorkspaceRoute(pathname: string): boolean {
   return String(pathname || "").trim().toLowerCase().startsWith("/consents");
 }
 
+function isOneLocationNotificationType(value: unknown): boolean {
+  return String(value || "").trim().toLowerCase().startsWith("location_");
+}
+
+function oneLocationOwnerLabel(data: Record<string, string>): string {
+  return (
+    String(data.owner_display_label || "").trim() ||
+    String(data.owner_label || "").trim() ||
+    String(data.owner_user_id || "").trim() ||
+    "A trusted person"
+  );
+}
+
 const ConsentNotificationStateContext = createContext<ConsentNotificationStateValue>({
   deliveryMode: "inbox_only",
   deliveryDetail: null,
@@ -507,6 +527,53 @@ export function ConsentNotificationProvider({
       router,
       searchParams,
     ]
+  );
+
+  const showOneLocationShareNotification = useCallback(
+    (data: Record<string, string>) => {
+      if (!user?.uid || isNativePlatform) return;
+      const grantId = String(data.grant_id || data.grantId || "").trim();
+      if (!grantId) return;
+      const ownerLabel = oneLocationOwnerLabel(data);
+      const created = recordOneLocationShareNotification({
+        userId: user.uid,
+        grantId,
+        ownerLabel,
+        expiresAt: data.expires_at,
+        durationHours: data.duration_hours,
+      });
+      if (!created) return;
+
+      const toastKey = `one-location-share:${grantId}`;
+      const href = buildOneLocationNotificationHref(grantId);
+      const description = locationShareNotificationDescription(ownerLabel);
+      playOneLocationNotificationSound();
+
+      toast(
+        <div className="flex flex-col gap-2">
+          <div className="space-y-0.5">
+            <p className="line-clamp-1 text-sm font-semibold">Location shared</p>
+            <p className="line-clamp-2 text-xs text-muted-foreground">{description}</p>
+          </div>
+          <button
+            onClick={() => {
+              markOneLocationGrantOpened(user.uid, grantId);
+              toast.dismiss(toastKey);
+              router.push(href, { scroll: false });
+            }}
+            className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors"
+          >
+            Open
+          </button>
+        </div>,
+        {
+          id: toastKey,
+          duration: 10000,
+          position: "top-center",
+        },
+      );
+    },
+    [isNativePlatform, router, user?.uid],
   );
 
   // Initialize FCM when user logs in (stable dependency: user?.uid).
@@ -805,10 +872,31 @@ export function ConsentNotificationProvider({
       const msgType = data.type;
 
       // Dedup: skip if we've already processed this exact message
-      const msgId = data.message_id || data.request_id || data.bundle_id || "";
+      const msgId = data.message_id || data.request_id || data.bundle_id || data.grant_id || "";
       const dedupKey = `${msgType}:${msgId}`;
       if (msgId && toastedIdsRef.current.has(dedupKey)) return;
       if (msgId) toastedIdsRef.current.add(dedupKey);
+
+      if (isOneLocationNotificationType(msgType)) {
+        if (msgType === "location_share_created" || msgType === "location_access_approved") {
+          showOneLocationShareNotification(data);
+        } else if (
+          msgType === "location_share_revoked" ||
+          msgType === "location_share_expired" ||
+          msgType === "location_access_denied"
+        ) {
+          const grantId = data.grant_id || data.approved_grant_id || "";
+          const toastKey = grantId ? `one-location-share:${grantId}` : undefined;
+          if (toastKey) {
+            toast.dismiss(toastKey);
+          }
+          dispatchConsentStateChanged({
+            source: "fcm_resolved",
+            requestId: data.request_id || grantId,
+          });
+        }
+        return;
+      }
 
       if (msgType === "consent_request") {
         const consent = consentFromFCMPayload(data);
@@ -903,7 +991,7 @@ export function ConsentNotificationProvider({
 
     window.addEventListener(FCM_MESSAGE_EVENT, handleFCMMessage);
     return () => window.removeEventListener(FCM_MESSAGE_EVENT, handleFCMMessage);
-  }, [isNativePlatform, isVaultUnlocked, showConsentToast, user?.uid]);
+  }, [isNativePlatform, isVaultUnlocked, showConsentToast, showOneLocationShareNotification, user?.uid]);
 
   // ONE-TIME fetch on vault unlock to catch requests that arrived while app was closed.
   // This is the ONLY acceptable HTTP call -- not a poll, just a catch-up.
