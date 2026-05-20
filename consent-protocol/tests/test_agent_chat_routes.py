@@ -184,7 +184,7 @@ def test_agent_chat_stream_sends_token_events_and_saves_assistant(monkeypatch):
     ]
 
 
-def test_agent_chat_stream_sends_live_tool_events_without_saving_tool_messages(monkeypatch):
+def test_agent_chat_stream_saves_short_frontend_action_receipt(monkeypatch):
     service = _FakeAgentChatService()
     service.next_action_plan = AgentChatActionPlan(
         call_id="tool_test_1",
@@ -208,9 +208,37 @@ def test_agent_chat_stream_sends_live_tool_events_without_saving_tool_messages(m
     assert '"slots": {"symbol": "NVDA"}' in response.text
     assert 'event: tool_waiting\ndata: {"call_id": "tool_test_1"' in response.text
     assert '"status": "waiting_for_frontend"' in response.text
-    assert service.stream_action_plans == [service.next_action_plan]
+    assert 'event: token\ndata: {"token": "Starting Kai analysis for NVDA."}' in response.text
+    assert service.stream_action_plans == []
     assert [message["role"] for message in service.saved_messages] == ["assistant"]
-    assert service.saved_messages[0]["content"] == "Hello from Gemini"
+    assert service.saved_messages[0]["content"] == "Starting Kai analysis for NVDA."
+
+
+def test_agent_chat_stream_does_not_stream_long_text_for_navigation_action(monkeypatch):
+    service = _FakeAgentChatService()
+    service.stream_tokens = ["This is a long generic Gemini navigation explanation."]
+    service.next_action_plan = AgentChatActionPlan(
+        call_id="tool_test_2",
+        action_id="route.consents",
+        label="Open Consent Center",
+        execution="frontend",
+        slots={},
+        message="Open Consent Center in the app.",
+    )
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+    client = _client(service)
+
+    response = client.post(
+        "/agent/chat/stream",
+        json={"user_id": "user-1", "message": "Hello Agent"},
+    )
+
+    assert response.status_code == 200
+    assert 'event: tool_waiting\ndata: {"call_id": "tool_test_2"' in response.text
+    assert 'event: token\ndata: {"token": "Open Consent Center in the app."}' in response.text
+    assert "long generic Gemini" not in response.text
+    assert service.stream_action_plans == []
+    assert service.saved_messages[0]["content"] == "Open Consent Center in the app."
 
 
 def test_agent_chat_stream_does_not_save_empty_assistant_message(monkeypatch):
@@ -285,6 +313,39 @@ async def test_agent_chat_stream_saves_partial_interrupted_response(monkeypatch)
             "user_id": "user-1",
             "role": "assistant",
             "content": "Hello",
+            "status": "interrupted",
+            "model": "gemini-2.5-pro",
+            "error_code": None,
+        }
+    ]
+
+
+async def test_agent_chat_stream_saves_non_empty_interrupted_fallback(monkeypatch):
+    service = _FakeAgentChatService()
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+
+    class _DisconnectingRequest:
+        async def is_disconnected(self):
+            return True
+
+    response = await agent_chat.stream_agent_chat(
+        _DisconnectingRequest(),
+        agent_chat.AgentChatStreamRequest(user_id="user-1", message="Hello Agent"),
+        {"user_id": "user-1", "scope": "vault.owner"},
+    )
+    chunks: list[str] = []
+    async for chunk in response.body_iterator:
+        chunks.append(chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk)
+
+    stream_text = "".join(chunks)
+    assert "event: token" not in stream_text
+    assert "event: complete" not in stream_text
+    assert service.saved_messages == [
+        {
+            "conversation_id": "conversation-1",
+            "user_id": "user-1",
+            "role": "assistant",
+            "content": "Agent response was interrupted before it could finish.",
             "status": "interrupted",
             "model": "gemini-2.5-pro",
             "error_code": None,

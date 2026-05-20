@@ -151,6 +151,29 @@ def test_agent_chat_translates_gemini_function_call_to_frontend_navigation(test_
     assert action_plan.slots == {}
 
 
+def test_agent_chat_translates_gemini_function_call_to_pkm_add(test_vault_key):
+    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+
+    action_plan = service._action_plan_from_function_call(
+        SimpleNamespace(
+            id="gemini-call-3",
+            name="add_to_pkm",
+            args={
+                "memory_text": "My name is Akshat Kumar and I study at IIT Bombay.",
+                "reason": "durable personal context",
+            },
+        )
+    )
+
+    assert action_plan is not None
+    assert action_plan.call_id == "gemini-call-3"
+    assert action_plan.action_id == "pkm.add"
+    assert action_plan.execution == "frontend"
+    assert action_plan.slots == {}
+    assert action_plan.message == "Checking PKM and saving what fits."
+    assert action_plan.reason == "durable personal context"
+
+
 def test_agent_chat_plans_safe_navigation_actions(test_vault_key):
     service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
 
@@ -158,6 +181,19 @@ def test_agent_chat_plans_safe_navigation_actions(test_vault_key):
 
     assert action_plan is not None
     assert action_plan.action_id == "route.consents"
+    assert action_plan.execution == "frontend"
+    assert action_plan.slots == {}
+
+
+def test_agent_chat_plans_explicit_pkm_add(test_vault_key):
+    service = AgentChatService(model="gemini-2.5-pro", vault_key_hex=test_vault_key)
+
+    action_plan = service.plan_action(
+        "Can you add this information in my PKM: my name is Akshat Kumar."
+    )
+
+    assert action_plan is not None
+    assert action_plan.action_id == "pkm.add"
     assert action_plan.execution == "frontend"
     assert action_plan.slots == {}
 
