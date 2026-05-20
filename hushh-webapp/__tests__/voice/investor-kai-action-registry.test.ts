@@ -63,6 +63,17 @@ describe("investor-kai-action-registry", () => {
     });
     expect(voiceAction?.id).toBe("analysis.resume_active");
     expect(voiceAction?.wiring.status).toBe("wired");
+
+    const pkmCaptureAction = getInvestorKaiActionByVoiceToolCall({
+      tool_name: "capture_pkm_memory",
+      args: {
+        message: "I prefer quiet hotel rooms away from elevators.",
+        mode: "direct_save",
+        direct_save: true,
+      },
+    });
+    expect(pkmCaptureAction?.id).toBe("profile.pkm.preview_capture");
+    expect(pkmCaptureAction?.wiring.status).toBe("wired");
   });
 
   it("marks legacy/dead actions explicitly", () => {

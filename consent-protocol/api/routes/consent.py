@@ -13,10 +13,10 @@ This ensures consistent consent-first architecture throughout the system.
 import logging
 import re
 import time
-from typing import Dict
+from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
@@ -53,6 +53,29 @@ _CONSENT_STORAGE_ERROR_PATTERNS = (
     "timeout",
 )
 _CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM"
+
+
+async def _owned_consent_identifiers(user_id: str) -> list[str]:
+    try:
+        identifiers = await ActorIdentityService().list_account_identifiers(user_id)
+    except Exception as exc:
+        logger.debug(
+            "consent.identifier_expansion_skipped user_id=%s error=%s",
+            user_id,
+            exc,
+        )
+        identifiers = []
+    return identifiers or [user_id]
+
+
+def _identifier_filter_kwargs(user_id: str, identifiers: list[str]) -> dict[str, list[str]]:
+    normalized_user_id = str(user_id or "").strip()
+    normalized_identifiers = [
+        str(item or "").strip() for item in identifiers if str(item or "").strip()
+    ]
+    if set(normalized_identifiers) <= {normalized_user_id}:
+        return {}
+    return {"user_ids": normalized_identifiers}
 
 
 def _clean_text(value: object | None) -> str:
@@ -211,54 +234,54 @@ async def _hydrate_pending_requester_labels(pending_items: list[dict]) -> list[d
 
 
 class CancelConsentRequest(BaseModel):
-    userId: str
-    requestId: str
+    userId: str = Field(min_length=1, max_length=128)
+    requestId: str = Field(min_length=1, max_length=128)
 
 
 class PendingConsentOpenedRequest(BaseModel):
-    userId: str
-    requestId: str | None = None
-    bundleId: str | None = None
-    openedVia: str | None = None
+    userId: str = Field(min_length=1, max_length=128)
+    requestId: str | None = Field(default=None, max_length=128)
+    bundleId: str | None = Field(default=None, max_length=128)
+    openedVia: str | None = Field(default=None, max_length=64)
 
 
 class GenericConsentRequestCreate(BaseModel):
-    subject_user_id: str
-    requester_actor_type: str = "ria"
-    subject_actor_type: str = "investor"
-    scope_template_id: str
-    selected_scope: str | None = None
-    duration_mode: str = "preset"
-    duration_hours: int | None = None
-    firm_id: str | None = None
-    reason: str | None = None
+    subject_user_id: str = Field(min_length=1, max_length=128)
+    requester_actor_type: str = Field(default="ria", max_length=64)
+    subject_actor_type: str = Field(default="investor", max_length=64)
+    scope_template_id: str = Field(min_length=1, max_length=256)
+    selected_scope: str | None = Field(default=None, max_length=256)
+    duration_mode: str = Field(default="preset", max_length=64)
+    duration_hours: int | None = Field(default=None, ge=1, le=8760)
+    firm_id: str | None = Field(default=None, max_length=128)
+    reason: str | None = Field(default=None, max_length=1000)
 
 
 class RelationshipDisconnectRequest(BaseModel):
-    investor_user_id: str | None = None
-    ria_profile_id: str | None = None
+    investor_user_id: str | None = Field(default=None, max_length=128)
+    ria_profile_id: str | None = Field(default=None, max_length=128)
 
 
 class RefreshExportUploadRequest(BaseModel):
-    userId: str
-    consentToken: str
-    encryptedData: str
-    encryptedIv: str
-    encryptedTag: str
-    wrappedExportKey: str
-    wrappedKeyIv: str
-    wrappedKeyTag: str
-    senderPublicKey: str
-    wrappingAlg: str | None = None
-    connectorKeyId: str | None = None
-    sourceContentRevision: int | None = None
-    sourceManifestRevision: int | None = None
+    userId: str = Field(min_length=1, max_length=128)
+    consentToken: str = Field(min_length=1, max_length=2048)
+    encryptedData: str = Field(min_length=1)
+    encryptedIv: str = Field(min_length=1, max_length=256)
+    encryptedTag: str = Field(min_length=1, max_length=256)
+    wrappedExportKey: str = Field(min_length=1, max_length=8192)
+    wrappedKeyIv: str = Field(min_length=1, max_length=256)
+    wrappedKeyTag: str = Field(min_length=1, max_length=256)
+    senderPublicKey: str = Field(min_length=1, max_length=8192)
+    wrappingAlg: str | None = Field(default=None, max_length=64)
+    connectorKeyId: str | None = Field(default=None, max_length=128)
+    sourceContentRevision: int | None = Field(default=None, ge=1)
+    sourceManifestRevision: int | None = Field(default=None, ge=1)
 
 
 class RefreshExportFailureRequest(BaseModel):
-    userId: str
-    consentToken: str
-    lastError: str | None = None
+    userId: str = Field(min_length=1, max_length=128)
+    consentToken: str = Field(min_length=1, max_length=2048)
+    lastError: str | None = Field(default=None, max_length=2000)
 
 
 @router.get("/pending")
@@ -277,7 +300,11 @@ async def get_pending_consents(
 
     service = ConsentDBService()
     try:
-        pending_from_db = await service.get_pending_requests(userId)
+        owned_identifiers = await _owned_consent_identifiers(userId)
+        pending_from_db = await service.get_pending_requests(
+            userId,
+            **_identifier_filter_kwargs(userId, owned_identifiers),
+        )
         pending_from_db = await _hydrate_pending_requester_labels(pending_from_db)
         logger.info("consent.pending_fetched count=%s", len(pending_from_db))
         return {"pending": pending_from_db}
@@ -292,6 +319,58 @@ async def get_pending_consents(
         raise
 
 
+@router.get("/pending/lookup")
+async def lookup_pending_consents(
+    userId: str,
+    request_id: list[str] | None = Query(default=None),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """
+    Resolve specific pending consent requests by canonical request id.
+
+    This is intentionally uncached and request-id scoped so product surfaces that
+    hold cross-links to consent requests do not reconstruct consent payloads from
+    feature-local workflow state.
+    """
+    if token_data["user_id"] != userId:
+        raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
+
+    request_ids = []
+    seen: set[str] = set()
+    for value in request_id or []:
+        normalized = _clean_text(value)
+        if not normalized or normalized in seen:
+            continue
+        if len(normalized) > 128:
+            raise HTTPException(status_code=400, detail="request_id is too long.")
+        seen.add(normalized)
+        request_ids.append(normalized)
+
+    if not request_ids:
+        raise HTTPException(status_code=400, detail="At least one request_id is required.")
+    if len(request_ids) > 25:
+        raise HTTPException(status_code=400, detail="At most 25 request ids can be looked up.")
+
+    service = ConsentDBService()
+    items = []
+    missing_request_ids = []
+    for request_id_value in request_ids:
+        pending = await service.get_pending_by_request_id(userId, request_id_value)
+        if pending:
+            items.append(pending)
+        else:
+            missing_request_ids.append(request_id_value)
+
+    logger.info(
+        "consent.pending_lookup user_id=%s requested=%s found=%s missing=%s",
+        userId,
+        len(request_ids),
+        len(items),
+        len(missing_request_ids),
+    )
+    return {"items": items, "missing_request_ids": missing_request_ids}
+
+
 @router.post("/pending/opened")
 async def mark_pending_consent_opened(
     body: PendingConsentOpenedRequest,
@@ -301,21 +380,81 @@ async def mark_pending_consent_opened(
         raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
 
     service = ConsentDBService()
+    owned_identifiers = await _owned_consent_identifiers(body.userId)
     opened = await service.mark_pending_request_opened(
         user_id=body.userId,
         request_id=body.requestId,
         bundle_id=body.bundleId,
         opened_via=body.openedVia,
+        **_identifier_filter_kwargs(body.userId, owned_identifiers),
     )
     if opened is None:
         return {"ok": True, "acknowledged": False}
     return {"ok": True, "acknowledged": True, **opened}
 
 
+class ConsentApprovalPayload(BaseModel):
+    """Versioned, field-validated consent-approval request body.
+
+    Field constraints and the agent_id/X-Client-Id identity check ensure
+    callers supply well-formed, consistent data before any DB or token
+    logic runs.  FastAPI returns 422 on field violations; the handler
+    returns 403 on identity mismatch.
+
+    agent_id
+        Optional identifier the calling agent declares about itself.
+        When present AND the ``X-Client-Id`` header is also present, the
+        two values MUST match — a mismatch returns HTTP 403
+        ``AGENT_ID_CLIENT_ID_MISMATCH`` before any further processing.
+
+    Canonical surface: api.routes.consent — no separate validation service.
+    Integrated by Abdul Gaffar — canonical field-level validation logic.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    version: int = Field(default=1, ge=1, le=2)
+
+    userId: str = Field(..., min_length=1, max_length=128, pattern=r"^\S+$")
+    requestId: str = Field(..., min_length=1, max_length=128, pattern=r"^\S+$")
+
+    agent_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+        pattern=r"^\S+$",
+        description=(
+            "Agent identifier declared by the caller. "
+            "Must equal the X-Client-Id header when both are present."
+        ),
+    )
+
+    encryptedData: str | None = Field(default=None, max_length=10_000_000)
+    encryptedIv: str | None = Field(default=None, max_length=512)
+    encryptedTag: str | None = Field(default=None, max_length=512)
+    wrappedExportKey: str | None = Field(default=None, max_length=10_000_000)
+    wrappedKeyIv: str | None = Field(default=None, max_length=512)
+    wrappedKeyTag: str | None = Field(default=None, max_length=512)
+    senderPublicKey: str | None = Field(default=None, max_length=4096)
+    wrappingAlg: str | None = Field(default=None, max_length=64)
+    connectorKeyId: str | None = Field(default=None, max_length=256)
+    durationHours: int | None = Field(default=None, ge=1, le=8760)
+    sourceContentRevision: int | None = Field(default=None, ge=0)
+    sourceManifestRevision: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _stamp_missing_version(cls, values: Any) -> Any:
+        if isinstance(values, dict) and "version" not in values:
+            values = {**values, "version": 1}
+        return values
+
+
 @router.post("/pending/approve")
 async def approve_consent(
     request: Request,
     token_data: dict = Depends(require_vault_owner_token),
+    x_client_id: str | None = Header(None, alias="X-Client-Id"),
 ):
     """
     User approves a pending consent request (Zero-Knowledge).
@@ -326,21 +465,48 @@ async def approve_consent(
     For connector-backed approvals, the export key is wrapped to the connector public key
     and the backend never persists a plaintext decrypt key.
     """
-    body = await request.json()
-    userId = body.get("userId")
-    requestId = body.get("requestId")
-    encryptedData = body.get("encryptedData")  # Base64 ciphertext
-    encryptedIv = body.get("encryptedIv")  # Base64 IV
-    encryptedTag = body.get("encryptedTag")  # Base64 auth tag
-    wrappedExportKey = body.get("wrappedExportKey")
-    wrappedKeyIv = body.get("wrappedKeyIv")
-    wrappedKeyTag = body.get("wrappedKeyTag")
-    senderPublicKey = body.get("senderPublicKey")
-    wrappingAlg = body.get("wrappingAlg")
-    connectorKeyId = body.get("connectorKeyId")
-    requested_duration_hours = body.get("durationHours")
-    source_content_revision = body.get("sourceContentRevision")
-    source_manifest_revision = body.get("sourceManifestRevision")
+    try:
+        _body = ConsentApprovalPayload.model_validate(await request.json())
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors(include_url=False))
+
+    # Granular field-level validation: agent_id in payload must match
+    # X-Client-Id header when both are supplied.  A mismatch indicates the
+    # caller is misrepresenting its identity and is rejected before any
+    # further auth or DB logic runs.
+    # Integrated by Abdul Gaffar — canonical field-level validation logic.
+    if _body.agent_id is not None and x_client_id is not None:
+        if _body.agent_id != x_client_id:
+            logger.warning(
+                "consent.approve.agent_id_mismatch payload=%s header=%s",
+                _body.agent_id,
+                x_client_id,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error_code": "AGENT_ID_CLIENT_ID_MISMATCH",
+                    "message": (
+                        "agent_id in payload does not match X-Client-Id header. "
+                        "Ensure both values identify the same agent."
+                    ),
+                },
+            )
+
+    userId = _body.userId
+    requestId = _body.requestId
+    encryptedData = _body.encryptedData  # Base64 ciphertext
+    encryptedIv = _body.encryptedIv  # Base64 IV
+    encryptedTag = _body.encryptedTag  # Base64 auth tag
+    wrappedExportKey = _body.wrappedExportKey
+    wrappedKeyIv = _body.wrappedKeyIv
+    wrappedKeyTag = _body.wrappedKeyTag
+    senderPublicKey = _body.senderPublicKey
+    wrappingAlg = _body.wrappingAlg
+    connectorKeyId = _body.connectorKeyId
+    requested_duration_hours = _body.durationHours
+    source_content_revision = _body.sourceContentRevision
+    source_manifest_revision = _body.sourceManifestRevision
 
     # Verify user is approving their own consent
     if token_data["user_id"] != userId:
@@ -351,10 +517,16 @@ async def approve_consent(
 
     # Get pending request from database
     service = ConsentDBService()
-    pending_request = await service.get_pending_by_request_id(userId, requestId)
+    owned_identifiers = await _owned_consent_identifiers(userId)
+    pending_request = await service.get_pending_by_request_id(
+        userId,
+        requestId,
+        **_identifier_filter_kwargs(userId, owned_identifiers),
+    )
 
     if not pending_request:
         raise HTTPException(status_code=404, detail="Consent request not found")
+    subject_user_id = str(pending_request.get("user_id") or userId).strip() or userId
 
     # Issue consent token - map scope to ConsentScope enum using centralized resolver
     requested_scope = pending_request["scope"]
@@ -395,6 +567,7 @@ async def approve_consent(
         userId,
         agent_id=pending_request["developer"],
         requested_scope=requested_scope,
+        **_identifier_filter_kwargs(userId, owned_identifiers),
     )
     if existing_token and is_developer_request:
         existing_export = await service.get_consent_export_metadata(
@@ -419,6 +592,15 @@ async def approve_consent(
         elif existing_export.get("refresh_status") != "current":
             logger.info(
                 "consent.token_reuse_skipped_stale_export scope=%s token=%s",
+                requested_scope,
+                str(existing_token.get("token_id") or "")[:32],
+            )
+            existing_token = None
+        elif requested_scope.startswith("attr.") and not isinstance(
+            existing_export.get("source_content_revision"), int
+        ):
+            logger.info(
+                "consent.token_reuse_skipped_missing_source_revision scope=%s token=%s",
                 requested_scope,
                 str(existing_token.get("token_id") or "")[:32],
             )
@@ -448,6 +630,18 @@ async def approve_consent(
 
         reuse_metadata = dict(metadata) if isinstance(metadata, dict) else {}
         reuse_metadata["reused_consent_token"] = True
+        if subject_user_id != userId:
+            await service.insert_event(
+                user_id=subject_user_id,
+                agent_id=pending_request["developer"],
+                scope=requested_scope,
+                action="CONSENT_GRANTED",
+                token_id=existing_token.get("token_id"),
+                request_id=requestId,
+                scope_description=get_scope_description(requested_scope),
+                expires_at=existing_token.get("expires_at"),
+                metadata=reuse_metadata,
+            )
         await service.insert_event(
             user_id=userId,
             agent_id=pending_request["developer"],
@@ -575,6 +769,17 @@ async def approve_consent(
     granted_event_metadata = dict(metadata) if isinstance(metadata, dict) else {}
 
     # Log CONSENT_GRANTED with the normalized requested scope string.
+    if subject_user_id != userId:
+        await service.insert_event(
+            user_id=subject_user_id,
+            agent_id=pending_request["developer"],
+            scope=requested_scope,
+            action="CONSENT_GRANTED",
+            token_id=token.token,
+            request_id=requestId,
+            expires_at=token.expires_at,
+            metadata=granted_event_metadata,
+        )
     await service.insert_event(
         user_id=userId,
         agent_id=pending_request["developer"],
@@ -592,6 +797,7 @@ async def approve_consent(
         userId,
         agent_id=pending_request["developer"],
         requested_scope=requested_scope,
+        **_identifier_filter_kwargs(userId, owned_identifiers),
     )
     for index, superseded_token in enumerate(superseded_tokens):
         superseded_scope = str(superseded_token.get("scope") or "").strip()
@@ -610,7 +816,7 @@ async def approve_consent(
             "superseded_by_token_id": token.token,
         }
         await service.insert_event(
-            user_id=userId,
+            user_id=str(superseded_token.get("user_id") or subject_user_id),
             agent_id=pending_request["developer"],
             scope=superseded_scope,
             action="REVOKED",
@@ -666,10 +872,16 @@ async def deny_consent(
 
     # Get pending request from database
     service = ConsentDBService()
-    pending_request = await service.get_pending_by_request_id(userId, requestId)
+    owned_identifiers = await _owned_consent_identifiers(userId)
+    pending_request = await service.get_pending_by_request_id(
+        userId,
+        requestId,
+        **_identifier_filter_kwargs(userId, owned_identifiers),
+    )
 
     if not pending_request:
         raise HTTPException(status_code=404, detail="Consent request not found")
+    subject_user_id = str(pending_request.get("user_id") or userId).strip() or userId
 
     metadata = pending_request.get("metadata", {})
     developer_label = (
@@ -678,7 +890,7 @@ async def deny_consent(
 
     # Log CONSENT_DENIED to database
     await service.insert_event(
-        user_id=userId,
+        user_id=subject_user_id,
         agent_id=pending_request["developer"],
         scope=pending_request["scope"],
         action="CONSENT_DENIED",
@@ -717,12 +929,20 @@ async def cancel_consent(
     logger.info("consent.cancel_requested")
 
     service = ConsentDBService()
-    pending_request = await service.get_pending_by_request_id(payload.userId, payload.requestId)
+    owned_identifiers = await _owned_consent_identifiers(payload.userId)
+    pending_request = await service.get_pending_by_request_id(
+        payload.userId,
+        payload.requestId,
+        **_identifier_filter_kwargs(payload.userId, owned_identifiers),
+    )
     if not pending_request:
         raise HTTPException(status_code=404, detail="Consent request not found")
+    subject_user_id = (
+        str(pending_request.get("user_id") or payload.userId).strip() or payload.userId
+    )
 
     await service.insert_event(
-        user_id=payload.userId,
+        user_id=subject_user_id,
         agent_id=pending_request["developer"],
         scope=pending_request["scope"],
         action="CANCELLED",
@@ -1000,7 +1220,11 @@ async def revoke_consent(
 
         # Get the active token for this scope from the correct ledger.
         service = ConsentDBService()
-        active_tokens = await service.get_active_tokens(userId)
+        owned_identifiers = await _owned_consent_identifiers(userId)
+        active_tokens = await service.get_active_tokens(
+            userId,
+            **_identifier_filter_kwargs(userId, owned_identifiers),
+        )
         internal_tokens = await service.get_active_internal_tokens(userId)
         all_active_tokens = [*internal_tokens, *active_tokens]
         logger.info("consent.revoke_active_token_count=%s", len(all_active_tokens))
@@ -1040,8 +1264,9 @@ async def revoke_consent(
         logger.info("consent.revoke_persist_event")
 
         # Log REVOKED event to database (link to original request_id for trail)
+        subject_user_id = str(token_to_revoke.get("user_id") or userId).strip() or userId
         await service.insert_event(
-            user_id=userId,
+            user_id=subject_user_id,
             agent_id=agent_id,
             scope=scope,
             action="REVOKED",

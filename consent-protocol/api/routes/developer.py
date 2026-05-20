@@ -36,7 +36,7 @@ router = APIRouter()
 developer_api_router = APIRouter(prefix="/api/v1", tags=["Developer API"])
 portal_router = APIRouter(prefix="/api/developer", tags=["Developer Portal"])
 
-_STATIC_REQUESTABLE_SCOPES = ("pkm.read", "pkm.write", "pkm.read", "pkm.write")
+_STATIC_REQUESTABLE_SCOPES: frozenset[str] = frozenset({"pkm.read", "pkm.write"})
 _MIN_PUBLIC_EXPIRY_HOURS = 24
 _MAX_PUBLIC_EXPIRY_HOURS = 24 * 90
 _MIN_PUBLIC_APPROVAL_TIMEOUT_MINUTES = 5
@@ -483,9 +483,7 @@ def _compact_scope_entries(
 ) -> tuple[list[str], list[str], list[dict]]:
     compact_entries: list[dict] = []
     seen_scopes: set[str] = set()
-    discovered_domains = {
-        str(domain).strip().lower() for domain in available_domains if str(domain).strip()
-    }
+    discovered_domains = set()
 
     for entry in scope_entries:
         if not isinstance(entry, dict):
@@ -497,8 +495,6 @@ def _compact_scope_entries(
         source_kind = str(entry.get("source_kind") or "").strip()
         wildcard = entry.get("wildcard") is True
         domain = str(entry.get("domain") or "").strip().lower() or None
-        if domain:
-            discovered_domains.add(domain)
 
         # Default developer discovery should expose requestable top-level consent
         # surfaces only. Deep path-level manifest rows remain available via verbose
@@ -512,6 +508,8 @@ def _compact_scope_entries(
 
         compact_entries.append(entry)
         seen_scopes.add(scope)
+        if domain:
+            discovered_domains.add(domain)
 
     compact_scopes = sorted(
         {
@@ -744,7 +742,7 @@ async def get_tool_catalog(
 async def get_user_scopes(
     user_id: str,
     request: Request,
-    token: Optional[str] = Query(None),
+    token: Optional[str] = Query(None, max_length=2048),
     authorization: Optional[str] = Header(None),
     detail: Literal["compact", "verbose"] = Query(default="compact"),
 ):
@@ -771,10 +769,10 @@ async def get_user_scopes(
 @developer_api_router.get("/consent-status", response_model=DeveloperConsentStatusResponse)
 async def get_consent_status(
     request: Request,
-    user_id: str = Query(..., alias="user_id"),
-    scope: str | None = Query(default=None),
-    request_id: str | None = Query(default=None),
-    token: Optional[str] = Query(None),
+    user_id: str = Query(..., alias="user_id", max_length=128),
+    scope: str | None = Query(default=None, max_length=500),
+    request_id: str | None = Query(default=None, max_length=200),
+    token: Optional[str] = Query(None, max_length=2048),
     authorization: Optional[str] = Header(None),
 ):
     principal = _resolve_principal(
