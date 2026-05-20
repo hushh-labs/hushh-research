@@ -439,6 +439,7 @@ class ConsentApprovalPayload(BaseModel):
     wrappedKeyIv: str | None = Field(default=None, max_length=512)
     wrappedKeyTag: str | None = Field(default=None, max_length=512)
     senderPublicKey: str | None = Field(default=None, max_length=4096)
+    connectorPublicKey: str | None = Field(default=None, max_length=8192)
     wrappingAlg: str | None = Field(default=None, max_length=64)
     connectorKeyId: str | None = Field(default=None, max_length=256)
     durationHours: int | None = Field(default=None, ge=1, le=8760)
