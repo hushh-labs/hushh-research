@@ -11,6 +11,7 @@ import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator"
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
+import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 
 export type UnlockWarmResult = {
   onboardingSynced: boolean;
@@ -112,6 +113,13 @@ function deriveTrackedSymbols(portfolio: Record<string, unknown>): string[] {
     )
     .sort((a, b) => a.localeCompare(b))
     .slice(0, 8);
+}
+
+function nowMs(): number {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
 }
 
 export class UnlockWarmOrchestrator {
@@ -231,6 +239,7 @@ export class UnlockWarmOrchestrator {
     vaultOwnerToken: string;
     routePath?: string;
   }): Promise<UnlockWarmResult> {
+    const startedAtMs = nowMs();
     const cache = CacheService.getInstance();
     const warmPriority = resolveWarmPriority(params.routePath);
     const activePickSource = getKaiActivePickSource(params.userId);
@@ -268,7 +277,7 @@ export class UnlockWarmOrchestrator {
       userId: params.userId,
       kind: UNLOCK_WARM_TASK_KIND,
       title: "Getting your workspace ready",
-      description: "Kai is refreshing saved views in the background.",
+      description: "Refreshing saved views in the background.",
       visibility: "passive",
       groupLabel: "Background activity",
       visibleAfterMs: PASSIVE_TASK_VISIBLE_AFTER_MS,
@@ -480,6 +489,20 @@ export class UnlockWarmOrchestrator {
     if (warmPriority === "consents") {
       this.queueConsentExportRefresh(params);
     }
+    const durationMs = Math.max(0, Math.round(nowMs() - startedAtMs));
+    trackEvent("startup_readiness_warmup_completed", {
+      result: "success",
+      warm_priority: warmPriority,
+      duration_ms: durationMs,
+      duration_ms_bucket: toDurationBucket(durationMs),
+      onboarding_synced: result.onboardingSynced,
+      metadata_warmed: result.metadataWarmed,
+      financial_warmed: result.financialWarmed,
+      kai_market_warmed: result.kaiMarketWarmed,
+      dashboard_picks_warmed: result.dashboardPicksWarmed,
+      consents_warmed: result.consentsWarmed,
+      vault_status_warmed: result.vaultStatusWarmed,
+    });
     AppBackgroundTaskService.completeTask(
       taskId,
       "Background activity is up to date.",
@@ -492,9 +515,23 @@ export class UnlockWarmOrchestrator {
     );
     return result;
   } catch (error) {
+    const durationMs = Math.max(0, Math.round(nowMs() - startedAtMs));
+    trackEvent("startup_readiness_warmup_completed", {
+      result: "error",
+      warm_priority: warmPriority,
+      duration_ms: durationMs,
+      duration_ms_bucket: toDurationBucket(durationMs),
+      onboarding_synced: false,
+      metadata_warmed: false,
+      financial_warmed: false,
+      kai_market_warmed: false,
+      dashboard_picks_warmed: false,
+      consents_warmed: false,
+      vault_status_warmed: false,
+    });
     AppBackgroundTaskService.failTask(
       taskId,
-      error instanceof Error ? error.message : "Background activity failed.",
+      "We could not finish getting your workspace ready.",
       "Background activity needs attention.",
       {
         routePath: params.routePath || null,

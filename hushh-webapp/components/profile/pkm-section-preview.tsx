@@ -1,5 +1,7 @@
 "use client";
 
+import { Loader2, Trash2 } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 import type {
   PkmSectionPreviewEntity,
@@ -26,7 +28,7 @@ function PreviewFieldList({
           </dt>
           <dd
             className={cn(
-              "min-w-0 text-sm leading-6 text-foreground",
+              "min-w-0 break-words text-sm leading-6 text-foreground",
               field.tone === "muted" ? "text-muted-foreground" : null
             )}
           >
@@ -72,18 +74,47 @@ function PreviewSectionItems({
 
 function PreviewEntityRow({
   entity,
+  deletingEntityKey,
+  onDeleteEntity,
 }: {
   entity: PkmSectionPreviewEntity;
+  deletingEntityKey?: string | null;
+  onDeleteEntity?: (entity: PkmSectionPreviewEntity) => void;
 }) {
+  const deleting = deletingEntityKey === entity.key;
+  const canDelete = entity.deletable === true && Boolean(onDeleteEntity);
+
+  function handleDelete() {
+    if (!onDeleteEntity) return;
+    const confirmed = window.confirm(`Remove "${entity.title}" from your personal data?`);
+    if (!confirmed) return;
+    onDeleteEntity(entity);
+  }
+
   return (
     <div className="space-y-3 px-4 py-4">
-      <div className="space-y-1">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm font-semibold tracking-tight text-foreground">{entity.title}</p>
           {entity.subtitle ? (
             <span className="text-xs text-muted-foreground">{entity.subtitle}</span>
           ) : null}
         </div>
+        {canDelete ? (
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleting}
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-red-500/20 bg-red-500/10 px-3 text-xs font-medium text-red-700 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:text-red-300"
+          >
+            {deleting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+            Delete
+          </button>
+        ) : null}
       </div>
       {entity.fields.length > 0 ? <PreviewFieldList fields={entity.fields} /> : null}
       {entity.sections?.length ? (
@@ -104,8 +135,12 @@ function PreviewEntityRow({
 
 export function PkmSectionPreview({
   presentation,
+  deletingEntityKey,
+  onDeleteEntity,
 }: {
   presentation: PkmSectionPreviewPresentation;
+  deletingEntityKey?: string | null;
+  onDeleteEntity?: (entity: PkmSectionPreviewEntity) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -169,7 +204,12 @@ export function PkmSectionPreview({
           {group.kind === "entities" ? (
             <div className="overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] divide-y divide-[color:var(--app-card-border-standard)]">
               {group.items.map((entity) => (
-                <PreviewEntityRow key={entity.key} entity={entity} />
+                <PreviewEntityRow
+                  key={entity.key}
+                  entity={entity}
+                  deletingEntityKey={deletingEntityKey}
+                  onDeleteEntity={onDeleteEntity}
+                />
               ))}
             </div>
           ) : null}
