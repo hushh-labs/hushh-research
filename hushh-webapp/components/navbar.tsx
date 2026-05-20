@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, type CSSProperties } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BriefcaseBusiness,
+  Bot,
   Compass,
   FileSpreadsheet,
   LayoutDashboard,
@@ -31,8 +32,8 @@ import { activeKaiRouteTabFromPath } from "@/lib/navigation/kai-route-tabs";
 import { activeRiaRouteTabFromPath } from "@/lib/navigation/ria-route-tabs";
 import { useVault } from "@/lib/vault/vault-context";
 
-type InvestorNavKey = "dashboard" | "market" | "connect" | "analysis" | "profile";
-type RiaNavKey = "home" | "clients" | "connect" | "picks" | "profile";
+type InvestorNavKey = "dashboard" | "market" | "connect" | "analysis" | "agent" | "profile";
+type RiaNavKey = "home" | "clients" | "connect" | "picks" | "agent" | "profile";
 type NavKey = InvestorNavKey | RiaNavKey;
 
 export const Navbar = () => {
@@ -123,6 +124,12 @@ export const Navbar = () => {
               dataTourId: "nav-ria-connect",
             },
             {
+              value: "agent",
+              label: "Agent",
+              icon: Bot,
+              dataTourId: "nav-agent",
+            },
+            {
               value: "profile",
               label: "Profile",
               icon: User,
@@ -154,6 +161,12 @@ export const Navbar = () => {
               label: "Connect",
               icon: Compass,
               dataTourId: "nav-connect",
+            },
+            {
+              value: "agent",
+              label: "Agent",
+              icon: Bot,
+              dataTourId: "nav-agent",
             },
             {
               value: "profile",
@@ -190,6 +203,10 @@ export const Navbar = () => {
     ? "profile"
     : normalizedPathname.startsWith(ROUTES.CONSENTS)
     ? "profile"
+    : normalizedPathname === ROUTES.ONE_KYC
+    ? "profile"
+    : normalizedPathname.startsWith(ROUTES.AGENT)
+    ? "agent"
     : activePersona === "ria"
     ? activeRiaRouteTabFromPath(normalizedPathname)
     : activeKaiRouteTabFromPath(normalizedPathname);
@@ -222,6 +239,9 @@ export const Navbar = () => {
         return;
       case "connect":
         router.push(ROUTES.MARKETPLACE);
+        return;
+      case "agent":
+        router.push(ROUTES.AGENT);
         return;
       case "home":
         router.push(ROUTES.RIA_HOME);

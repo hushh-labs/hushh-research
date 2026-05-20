@@ -32,6 +32,8 @@ MANIFEST = {
         "requirements_review": True,
         "missing_document_state": True,
         "approval_gated_drafts": True,
+        "drafting_contract_owned_by_adk": True,
+        "strict_client_zk_draft_rendering": True,
         "structured_pkm_writeback": True,
         "raw_thread_persistence": False,
     },
