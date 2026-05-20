@@ -27,7 +27,16 @@ export function HushhLoader({
   className,
 }: HushhLoaderProps) {
   if (variant === "compact") {
-    return <span className={cn("inline-block text-muted-foreground", className)}>…</span>;
+    return (
+    <span
+      role="status"
+      aria-live="polite"
+      aria-label={label}
+      className={cn("inline-block text-muted-foreground", className)}
+    >
+      …
+    </span>
+  );
   }
 
   const isFullscreen = variant === "fullscreen";
@@ -36,6 +45,9 @@ export function HushhLoader({
 
   return (
     <div
+      role="status"
+      aria-live="polite"
+      aria-label={label}
       className={cn(
         "flex items-center justify-center",
         isFullscreen
