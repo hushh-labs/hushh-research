@@ -29,8 +29,9 @@ Current capability boundary:
 - Focus on markets, portfolio context, stock analysis, Kai workflows, consent/privacy surfaces, and how the Hussh app works.
 - Use the provided PKM compact context when it is relevant, especially when the user asks what Kai knows about them or shares preferences.
 - Treat PKM compact context as user-owned memory summaries, not as exhaustive truth. Do not invent personal facts outside that context and the current conversation.
-- Normal finance and app questions should be answered as plain streaming text.
-- When the stream includes a planned frontend app action, acknowledge that the app is starting or opening it. Do not claim destructive account changes, trades, approvals, revocations, or data deletion.
+- When the user explicitly asks to save, remember, or add durable personal context to PKM, use the frontend PKM tool. Do not say Agent cannot save to PKM.
+- Normal finance and app questions should be answered as streaming text. Use concise GitHub-flavored Markdown with headings, lists, links, code, or tables when structure makes the answer easier to scan.
+- When the stream includes a planned frontend app action, keep the reply to a short receipt. The frontend owns the actual navigation/action state.
 - Destructive, account-changing, trading, approval, revocation, and manual-only actions must be blocked and explained safely.
 - Keep answers concise, practical, and clear. Financial answers are educational, not personalized investment advice.
 """
@@ -42,6 +43,7 @@ Decide whether the latest user message needs a frontend app function.
 Call exactly one function only when the user clearly asks Agent to do one of these:
 - start stock analysis for a ticker or public company
 - open a Hussh/Kai app surface
+- save, remember, or add durable personal context to the user's PKM
 - perform a destructive, account-changing, consent approval/revocation, trading, or manual-only action that must be blocked
 
 Do not call a function for normal finance questions, explanations, brainstorming, or general chat.
@@ -176,6 +178,17 @@ _BLOCKED_ACTION_PATTERNS = [
         r"\b(?:buy|sell|trade)\b.*\b(?:now|for me|on my behalf|in my account)\b", re.IGNORECASE
     ),
     re.compile(r"\b(?:place|execute)\b.*\b(?:order|trade)\b", re.IGNORECASE),
+]
+
+_PKM_ADD_PATTERNS = [
+    re.compile(
+        r"\b(?:add|save|store|remember)\b.*\b(?:pkm|personal knowledge|memory|memories)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:add|save|store|remember)\s+(?:this|that)\b",
+        re.IGNORECASE,
+    ),
 ]
 
 
@@ -358,6 +371,25 @@ def _agent_action_tool() -> genai_types.Tool:
                             "Short safe reason explaining why Agent cannot perform the action."
                         )
                     }
+                ),
+            ),
+            genai_types.FunctionDeclaration(
+                name="add_to_pkm",
+                description=(
+                    "Save or queue durable personal context to the user's encrypted PKM through "
+                    "the frontend PKM writer. Use only when the user explicitly asks to save, "
+                    "remember, store, or add information to PKM or memory."
+                ),
+                parameters=_schema_object(
+                    {
+                        "memory_text": _schema_string(
+                            "The exact user-provided information that should be considered for PKM."
+                        ),
+                        "reason": _schema_string(
+                            "Short reason this looks like long-term personal context."
+                        ),
+                    },
+                    required=["memory_text"],
                 ),
             ),
         ]
@@ -789,6 +821,17 @@ class AgentChatService:
         if blocked_action is not None:
             return blocked_action
 
+        for pattern in _PKM_ADD_PATTERNS:
+            if pattern.search(message):
+                return AgentChatActionPlan(
+                    call_id=_tool_call_id(),
+                    action_id="pkm.add",
+                    label="Add to PKM",
+                    execution="frontend",
+                    slots={},
+                    message="Checking PKM and saving what fits.",
+                )
+
         for pattern in _ANALYSIS_PATTERNS:
             match = pattern.search(message)
             if not match:
@@ -1003,6 +1046,21 @@ class AgentChatService:
                     "revocation, or trading actions from Agent. Please do that manually."
                 ),
                 reason=reason[:160],
+            )
+
+        if name == "add_to_pkm":
+            memory_text = str(args.get("memory_text") or "").strip()
+            if not memory_text:
+                return None
+            reason = str(args.get("reason") or "").strip()
+            return AgentChatActionPlan(
+                call_id=call_id,
+                action_id="pkm.add",
+                label="Add to PKM",
+                execution="frontend",
+                slots={},
+                message="Checking PKM and saving what fits.",
+                reason=reason[:160] if reason else None,
             )
 
         return None

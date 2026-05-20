@@ -3,6 +3,8 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Bot, BriefcaseBusiness, Bug, Copy, Mic, MicOff, Send, UserRound } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import {
   AppPageContentRegion,
@@ -90,6 +92,9 @@ const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   updatedAt: null,
 };
 
+const EXPLICIT_PKM_SAVE_PATTERN =
+  /\b(?:add|save|store|remember)\b[\s\S]{0,140}\b(?:pkm|personal knowledge|memory|memories)\b|\b(?:add|save|store|remember)\s+(?:this|that)\b/i;
+
 function formatNow(): string {
   return new Intl.DateTimeFormat(undefined, {
     hour: "numeric",
@@ -105,6 +110,96 @@ function createGreetingMessage(): AgentMessage {
     timestamp: formatNow(),
     status: "done",
   };
+}
+
+function AgentMarkdown({ text }: { text: string }) {
+  return (
+    <div className="agent-markdown min-w-0 break-words">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: ({ children }) => (
+            <h2 className="mb-2 mt-1 text-base font-semibold leading-6 text-foreground">
+              {children}
+            </h2>
+          ),
+          h2: ({ children }) => (
+            <h3 className="mb-2 mt-3 text-sm font-semibold leading-5 text-foreground">
+              {children}
+            </h3>
+          ),
+          h3: ({ children }) => (
+            <h4 className="mb-1.5 mt-3 text-sm font-semibold leading-5 text-foreground">
+              {children}
+            </h4>
+          ),
+          h4: ({ children }) => (
+            <h5 className="mb-1.5 mt-2 text-sm font-semibold leading-5 text-foreground">
+              {children}
+            </h5>
+          ),
+          p: ({ children }) => (
+            <p className="my-2 first:mt-0 last:mb-0">{children}</p>
+          ),
+          ul: ({ children }) => (
+            <ul className="my-2 ml-5 list-disc space-y-1">{children}</ul>
+          ),
+          ol: ({ children }) => (
+            <ol className="my-2 ml-5 list-decimal space-y-1">{children}</ol>
+          ),
+          li: ({ children }) => <li className="pl-1">{children}</li>,
+          a: ({ children, href }) => (
+            <a
+              href={href || "#"}
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-primary underline-offset-4 hover:underline"
+            >
+              {children}
+            </a>
+          ),
+          code: ({ children, className }) => {
+            const inline = !className;
+            if (inline) {
+              return (
+                <code className="rounded border border-border/70 bg-muted px-1 py-0.5 font-mono text-[0.85em]">
+                  {children}
+                </code>
+              );
+            }
+            return <code className={cn("font-mono text-xs", className)}>{children}</code>;
+          },
+          pre: ({ children }) => (
+            <pre className="my-3 overflow-x-auto rounded-md border border-border/70 bg-muted/60 p-3 leading-5">
+              {children}
+            </pre>
+          ),
+          blockquote: ({ children }) => (
+            <blockquote className="my-3 border-l-2 border-primary/50 pl-3 text-muted-foreground">
+              {children}
+            </blockquote>
+          ),
+          table: ({ children }) => (
+            <div className="my-3 overflow-x-auto rounded-md border border-border/70">
+              <table className="min-w-full border-collapse text-left text-xs">{children}</table>
+            </div>
+          ),
+          th: ({ children }) => (
+            <th className="border-b border-border/70 bg-muted/60 px-3 py-2 font-semibold">
+              {children}
+            </th>
+          ),
+          td: ({ children }) => (
+            <td className="border-b border-border/50 px-3 py-2 align-top last:border-b-0">
+              {children}
+            </td>
+          ),
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 function AgentBubble({ message }: { message: AgentMessage }) {
@@ -129,7 +224,11 @@ function AgentBubble({ message }: { message: AgentMessage }) {
             isError && "border-destructive/40 bg-destructive/10 text-destructive"
           )}
         >
-          {message.text}
+          {isUser ? (
+            <span className="whitespace-pre-wrap break-words">{message.text}</span>
+          ) : (
+            <AgentMarkdown text={message.text} />
+          )}
           {isStreaming ? (
             <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-current align-middle" />
           ) : null}
@@ -910,6 +1009,8 @@ export function AgentScreen() {
     let toolStatusMessageId: string | null = null;
     let pkmStatusMessageId: string | null = null;
     let assistantHasToken = false;
+    let turnPkmContext = EMPTY_PKM_CONTEXT;
+    let pkmAddToolHandled = false;
 
     const upsertToolStatusMessage = (
       messageText: string,
@@ -935,6 +1036,18 @@ export function AgentScreen() {
           status,
           ephemeral: true,
         }));
+        return;
+      }
+      if (assistantHasToken) {
+        toolStatusMessageId = `msg-${turnId}-tool-status`;
+        appendMessage({
+          id: toolStatusMessageId,
+          role: "assistant",
+          text: cleanText,
+          timestamp: formatNow(),
+          status,
+          ephemeral: true,
+        });
         return;
       }
       toolStatusMessageId = assistantMessageId;
@@ -985,10 +1098,130 @@ export function AgentScreen() {
       return "done";
     };
 
+    const executePkmAddTool = async (toolEvent: AgentChatToolEvent) => {
+      if (!vaultKey || !token) {
+        appendDebugEvent(debugTurnId, "pkm_tool_skipped", {
+          reason: !vaultKey ? "vault_key_unavailable" : "vault_owner_token_unavailable",
+          tool: toolEvent,
+        });
+        upsertPkmStatusMessage("Unlock your vault before saving to PKM.", "error");
+        return;
+      }
+
+      const sourceText =
+        typeof toolEvent.slots.source_text === "string" && toolEvent.slots.source_text.trim()
+          ? toolEvent.slots.source_text.trim()
+          : text;
+
+      setActivePkmToolCount((count) => count + 1);
+      appendDebugEvent(debugTurnId, "pkm_tool_preview_start", {
+        tool: "pkm.add",
+        current_domains: turnPkmContext.domains,
+        source_text: sourceText,
+      });
+      upsertPkmStatusMessage("Checking PKM and saving what fits...", "streaming");
+
+      try {
+        const preview = await previewAgentPkmMemory({
+          userId,
+          message: sourceText,
+          currentDomains: turnPkmContext.domains,
+          vaultOwnerToken: token,
+        });
+        const autoSaveCards = getAutoSavePkmCards(preview.cards);
+        const reviewCards = getReviewRequiredPkmCards(preview.cards);
+        const ignoredCards = getIgnoredPkmCards(preview.cards);
+
+        appendDebugEvent(debugTurnId, "pkm_tool_preview_result", {
+          model: preview.model,
+          used_fallback: preview.used_fallback,
+          total_cards: preview.cards.length,
+          auto_save_count: autoSaveCards.length,
+          review_count: reviewCards.length,
+          ignored_count: ignoredCards.length,
+          preview_summary: preview.preview_summary || null,
+          cards: preview.cards,
+        });
+
+        if (autoSaveCards.length > 0) {
+          appendDebugEvent(debugTurnId, "pkm_tool_save_start", {
+            candidate_count: autoSaveCards.length,
+          });
+          const saveResult = await addToPKM({
+            userId,
+            cards: autoSaveCards,
+            sourceMessage: sourceText,
+            vaultKey,
+            vaultOwnerToken: token,
+            source: "agent_chat_tool",
+          });
+          appendDebugEvent(debugTurnId, "pkm_tool_save_result", saveResult);
+          upsertPkmStatusMessage(
+            formatAgentPkmSaveSummary(saveResult),
+            saveResult.saved > 0 ? "done" : "error"
+          );
+          if (saveResult.saved > 0) {
+            void loadAgentPkmContext({
+              userId,
+              vaultOwnerToken: token,
+              forceRefresh: true,
+            }).catch(() => undefined);
+            toast.success("Saved to PKM.");
+          }
+        }
+
+        if (reviewCards.length > 0) {
+          setPkmReviews((current) => [
+            ...current.filter((review) => review.turnId !== debugTurnId),
+            {
+              id: `${debugTurnId}-pkm-review`,
+              turnId: debugTurnId,
+              sourceMessage: sourceText,
+              cards: reviewCards,
+              saving: false,
+            },
+          ]);
+          appendDebugEvent(debugTurnId, "pkm_tool_review_required", {
+            candidate_count: reviewCards.length,
+            cards: reviewCards,
+          });
+          if (autoSaveCards.length === 0) {
+            upsertPkmStatusMessage(
+              "Agent found PKM memory that needs your review before saving.",
+              "done"
+            );
+          }
+        }
+
+        if (autoSaveCards.length === 0 && reviewCards.length === 0) {
+          upsertPkmStatusMessage("I didn't find durable PKM memory to save from that.", "done");
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "Agent could not save that PKM memory.";
+        appendDebugEvent(debugTurnId, "pkm_tool_failed", {
+          message,
+          tool: toolEvent,
+        });
+        upsertPkmStatusMessage("Agent could not save that PKM memory.", "error");
+      } finally {
+        setActivePkmToolCount((count) => Math.max(0, count - 1));
+      }
+    };
+
     const executeFrontendTool = async (toolEvent: AgentChatToolEvent) => {
       if (!toolEvent.actionId) return;
-      setActiveFrontendToolCount((count) => count + 1);
       appendDebugEvent(debugTurnId, "frontend_execute_start", toolEvent);
+
+      if (toolEvent.actionId === "pkm.add") {
+        pkmAddToolHandled = true;
+        await executePkmAddTool(toolEvent);
+        return;
+      }
+
+      setActiveFrontendToolCount((count) => count + 1);
       try {
         const result = await executeAgentGatewayAction({
           actionId: toolEvent.actionId,
@@ -1184,6 +1417,7 @@ export function AgentScreen() {
           userId,
           vaultOwnerToken: token,
         });
+        turnPkmContext = agentPkmContext;
         if (streamAbortController.signal.aborted) return;
         if (agentPkmContext.text) {
           appendDebugEvent(debugTurnId, "pkm_context_loaded", {
@@ -1200,12 +1434,6 @@ export function AgentScreen() {
               : "Failed to load compact PKM context.",
         });
       }
-
-      const pkmAbortController = new AbortController();
-      pkmAbortControllersRef.current.add(pkmAbortController);
-      void runPkmMemoryCapture(agentPkmContext, pkmAbortController.signal).finally(() => {
-        pkmAbortControllersRef.current.delete(pkmAbortController);
-      });
 
       await streamAgentChat({
         userId,
@@ -1287,6 +1515,13 @@ export function AgentScreen() {
           status: "done",
         };
       });
+      if (!pkmAddToolHandled && !EXPLICIT_PKM_SAVE_PATTERN.test(text)) {
+        const pkmAbortController = new AbortController();
+        pkmAbortControllersRef.current.add(pkmAbortController);
+        void runPkmMemoryCapture(turnPkmContext, pkmAbortController.signal).finally(() => {
+          pkmAbortControllersRef.current.delete(pkmAbortController);
+        });
+      }
       void loadConversationList().catch(() => undefined);
       setIsChatLoading(false);
       setIsStreaming(false);

@@ -123,6 +123,8 @@ async def _save_assistant_message(
     message_text = text.strip()
     if not message_text and status_value == "error":
         message_text = "Agent chat failed. Please try again."
+    if not message_text and status_value == "interrupted":
+        message_text = "Agent response was interrupted before it could finish."
     if not message_text:
         return
     await service.add_message(
@@ -176,15 +178,45 @@ async def stream_agent_chat(
                 payload = action_plan.to_event_payload()
                 yield _event("tool_start", payload)
                 if action_plan.execution == "frontend":
+                    receipt_text = action_plan.message.strip() or "Working on that in Kai."
+                    await _save_assistant_message(
+                        service=service,
+                        turn=turn,
+                        user_id=body.user_id,
+                        text=receipt_text,
+                        status_value="complete",
+                    )
+                    chunks.append(receipt_text)
+                    saved = True
+                    yield _event("token", {"token": receipt_text})
                     yield _event(
                         "tool_waiting",
                         {
                             **payload,
-                            "message": action_plan.message,
+                            "message": receipt_text,
                             "status": "waiting_for_frontend",
                         },
                     )
+                    yield _event(
+                        "complete",
+                        {
+                            "conversation_id": turn.conversation_id,
+                            "status": "complete",
+                            "model": turn.model,
+                        },
+                    )
+                    return
                 else:
+                    receipt_text = action_plan.message.strip() or "That action is blocked in Agent."
+                    await _save_assistant_message(
+                        service=service,
+                        turn=turn,
+                        user_id=body.user_id,
+                        text=receipt_text,
+                        status_value="complete",
+                    )
+                    chunks.append(receipt_text)
+                    saved = True
                     yield _event(
                         "tool_result",
                         {
@@ -192,6 +224,16 @@ async def stream_agent_chat(
                             "status": "blocked",
                         },
                     )
+                    yield _event("token", {"token": receipt_text})
+                    yield _event(
+                        "complete",
+                        {
+                            "conversation_id": turn.conversation_id,
+                            "status": "complete",
+                            "model": turn.model,
+                        },
+                    )
+                    return
             async for token in service.stream_response(
                 user_message=body.message,
                 history=turn.history,
