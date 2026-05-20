@@ -27,13 +27,11 @@ describe("PhoneVerificationFlow phone input normalization", () => {
       localPhoneNumber: "6505550101",
     });
   });
-    it("preserves account branch identifiers across detail and workspace payloads", () => {
-    const clientId = "client-branch-check";
-    const detail = buildKaiTestClientDetail(clientId);
-    const workspace = buildKaiTestClientWorkspace(clientId);
+  it("preserves normalized local digits across repeated formatting input", () => {
+  const first = resolvePhoneInputChange("(650) 555-4567");
+  const second = resolvePhoneInputChange("650-555-4567");
 
-    expect(workspace.account_branches.map((branch) => branch.branch_id)).toEqual(
-      detail.account_branches.map((branch) => branch.branch_id)
-    );
-  });
+  expect(first.localPhoneNumber).toBe("6505554567");
+  expect(second.localPhoneNumber).toBe("6505554567");
+});
 });
