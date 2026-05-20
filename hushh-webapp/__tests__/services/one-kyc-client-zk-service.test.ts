@@ -20,6 +20,7 @@ vi.mock("@/lib/services/one-kyc-service", () => ({
 }));
 
 import {
+  effectiveOneKycRequiredFields,
   KYC_CONNECTOR_WRAPPING_ALG,
   OneKycClientZkService,
   type KycClientConnectorPrivateRecord,
@@ -132,11 +133,633 @@ describe("OneKycClientZkService", () => {
     });
 
     expect(draft.body).toContain("full name: Ada Lovelace");
-    expect(draft.body).toContain("portfolio: ticker: UAT; value: test only");
-    expect(draft.body).toContain("approved export did not contain");
-    expect(draft.body).toContain("financial profile");
+    expect(draft.body).toContain("Portfolio summary");
+    expect(draft.body).toContain("Holdings");
+    expect(draft.body).toContain("- UAT");
+    expect(draft.body).not.toContain("Not found in the approved data");
+    expect(draft.body).not.toContain("financial profile");
     expect(draft.body).not.toContain("User requested adjustment");
     expect(draft.scopeSummaries).toHaveLength(2);
+    expect(draft.renderModel.sections.map((section) => section.title)).toEqual([
+      "Identity information",
+      "Financial information",
+    ]);
+  });
+
+  it("applies supported redraft style without sending the instruction text", async () => {
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow: {
+        ...baseWorkflow,
+        required_fields: ["full_name", "portfolio"],
+        requested_scopes: ["attr.identity.*", "attr.financial.portfolio.*"],
+        metadata: { account_holder_name: "Kushal Trivedi" },
+      },
+      instructions: "Make this more formal and concise. Also mention my private chat context.",
+      exportPayloads: [
+        {
+          scope: "attr.identity.*",
+          payload: {
+            identity: {
+              full_name: "Kushal Trivedi",
+            },
+          },
+        },
+        {
+          scope: "attr.financial.portfolio.*",
+          payload: {
+            financial: {
+              portfolio: [{ ticker: "HUSHH", value: "approved test value" }],
+            },
+          },
+        },
+      ],
+    });
+
+    expect(draft.body).toContain(
+      "I am replying on behalf of Kushal Trivedi with the approved information below.",
+    );
+    expect(draft.body).toContain("Identity information");
+    expect(draft.body).toContain("Portfolio");
+    expect(draft.body).toContain("Portfolio summary");
+    expect(draft.body).toContain("- HUSHH");
+    expect(draft.body).not.toContain("private chat context");
+    expect(draft.body).not.toContain("Make this more formal");
+    expect(draft.body).toContain("Best,\nhussh One");
+  });
+
+  it("rebuilds plaintext and HTML when redraft instructions change style", async () => {
+    const workflow: OneKycWorkflow = {
+      ...baseWorkflow,
+      required_fields: ["portfolio"],
+      requested_scope: "attr.financial.portfolio.*",
+      metadata: { account_holder_name: "Kushal Trivedi" },
+    };
+    const exportPayload = {
+      financial: {
+        portfolio: {
+          account_summary: {
+            ending_value: 1656064.53,
+            cash_balance: 900226.92,
+          },
+          holdings: [{ quantity: 30, symbol: "AMZN", market_value: 92822.4 }],
+        },
+      },
+    };
+
+    const original = await OneKycClientZkService.buildDraft({
+      workflow,
+      exportPayload,
+    });
+    const redrafted = await OneKycClientZkService.buildDraft({
+      workflow,
+      exportPayload,
+      instructions: "Make this sectioned as a table with full detail.",
+    });
+
+    expect(redrafted.body).not.toEqual(original.body);
+    expect(redrafted.htmlBody).not.toEqual(original.htmlBody);
+    expect(redrafted.body).toContain("Portfolio");
+    expect(redrafted.htmlBody).toContain("<table");
+    expect(redrafted.renderModel.style.table).toBe(true);
+    expect(redrafted.renderModel.style.fullDetail).toBe(true);
+  });
+
+  it("renders portfolio exports as structured human email text instead of raw PKM metadata", async () => {
+    const workflow: OneKycWorkflow = {
+      ...baseWorkflow,
+      required_fields: ["portfolio"],
+      requested_scope: "attr.financial.portfolio.*",
+      subject: "Portfolio information",
+      metadata: { account_holder_name: "Kushal Trivedi" },
+    };
+
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow,
+      exportPayload: {
+        financial: {
+          portfolio: {
+            account_info: {
+              holder_name: "MANISH SAINANI DESIGNATED BENE PLAN/TOD",
+              account_number: "4566-0512",
+            },
+            account_summary: {
+              beginning_value: 6820789.52,
+              ending_value: 6951964.54,
+              cash_balance: -2569053.37,
+              change_in_value: 145734.69,
+              investment_gain_loss: 145734.69,
+              total_fees: -14559.67,
+            },
+            holdings: [
+              {
+                quantity: 1879.4037,
+                instrument_kind: "equity",
+                symbol: "AAPL",
+                symbol_trust_reason: "statement_import",
+                metadata_confidence: 0,
+                analyze_eligible: true,
+                optimize_eligible: true,
+                is_short_position: false,
+                tradable: true,
+                unrealized_gain_loss: -379342.45,
+                asset_type: "Equities",
+                price_per_unit: 234.775,
+                market_value: 441258.37,
+                confidence: 0.85,
+              },
+              {
+                quantity: 30,
+                symbol: "AMZN",
+                asset_type: "Equities",
+                price_per_unit: 3094.08,
+                market_value: 92822.4,
+              },
+              {
+                quantity: 10000,
+                symbol: "ABEV",
+                asset_type: "Equities",
+                market_value: 27400,
+              },
+              {
+                quantity: 900226.92,
+                symbol: "CASH",
+                market_value: 900226.92,
+              },
+            ],
+            cash_balance: -2569053.37,
+            total_value: 6951964.54,
+            parse_fallback: false,
+            domain_intent: { primary: "financial", secondary: "portfolio" },
+          },
+        },
+      },
+    });
+
+    expect(draft.body).toContain("I am replying on behalf of Kushal Trivedi.");
+    expect(draft.body).toContain("Portfolio summary");
+    expect(draft.body).not.toContain("Portfolio\n\nPortfolio summary");
+    expect(draft.body).toContain("- Total value: $6,951,964.54");
+    expect(draft.body).toContain("- Cash balance: -$2,569,053.37");
+    expect(draft.body).toContain("- Investment gain/loss: $145,734.69");
+    expect(draft.body).toContain("- Holdings: 4");
+    expect(draft.body).toContain("Holdings");
+    expect(draft.body).toContain("- AAPL: 1,879.4037 shares; $441,258.37 value");
+    expect(draft.body).toContain("- AMZN: 30 shares; $92,822.40 value; $3,094.08 per share");
+    expect(draft.body).toContain("- ABEV: 10,000 shares; $27,400.00 value");
+    expect(draft.body).toContain("- Cash: $900,226.92");
+    expect(draft.body).toContain("Best,\nhussh One");
+    expect(draft.htmlBody).toContain("<table");
+    expect(draft.htmlBody).toContain("overflow-x:auto");
+    expect(draft.htmlBody).toContain("min-width:720px");
+    expect(draft.htmlBody).toContain("Portfolio summary");
+    expect(draft.htmlBody).toContain("AAPL");
+    expect(draft.htmlBody).toContain("Cash");
+    expect(draft.body).not.toContain("and 1 more");
+    expect(draft.body).not.toContain("and 17 more");
+    expect(draft.htmlBody).not.toContain("and 1 more");
+    expect(draft.htmlBody).not.toContain("and 17 more");
+    expect(draft.body).not.toContain("account number");
+    expect(draft.body).not.toContain("4566-0512");
+    expect(draft.htmlBody).not.toContain("account number");
+    expect(draft.htmlBody).not.toContain("4566-0512");
+    expect(draft.body).not.toContain("symbol trust reason");
+    expect(draft.body).not.toContain("metadata confidence");
+    expect(draft.body).not.toContain("analyze eligible");
+    expect(draft.body).not.toContain("domain intent");
+    expect(draft.body).not.toContain("parse fallback");
+  });
+
+  it("formats broad financial exports through portfolio-aware sections", async () => {
+    const workflow: OneKycWorkflow = {
+      ...baseWorkflow,
+      required_fields: ["financial_profile"],
+      requested_scope: "attr.financial.*",
+      subject: "Financial information",
+      metadata: { account_holder_name: "Kushal Trivedi" },
+    };
+
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow,
+      instructions: "Format the financial data as a clean table with headings.",
+      exportPayload: {
+        financial: {
+          portfolio: {
+            account_summary: {
+              ending_value: 1656064.53,
+              cash_balance: 900226.92,
+              investment_gain_loss: 16126.09,
+            },
+            holdings: [
+              {
+                quantity: 30,
+                symbol: "AMZN",
+                asset_type: "Equities",
+                price_per_unit: 3094.08,
+                market_value: 92822.4,
+              },
+              {
+                quantity: 10000,
+                symbol: "ABEV",
+                asset_type: "Equities",
+                market_value: 27400,
+              },
+            ],
+            domain_intent: { primary: "financial", secondary: "portfolio" },
+          },
+        },
+      },
+    });
+
+    expect(draft.approvedValues.financial_information).toContain("Portfolio summary");
+    expect(draft.body).toContain("Portfolio summary");
+    expect(draft.body).toContain("- Total value: $1,656,064.53");
+    expect(draft.body).toContain("Holdings");
+    expect(draft.body).toContain("- AMZN: 30 shares; $92,822.40 value; $3,094.08 per share");
+    expect(draft.body).not.toContain("domain intent");
+    expect(draft.body).not.toContain("financial profile\nPortfolio summary");
+    expect(draft.htmlBody).toContain("hussh One");
+    expect(draft.htmlBody).toContain("🤫");
+    expect(draft.htmlBody).toContain("#D4A847");
+    expect(draft.htmlBody).toContain("#18181b");
+    expect(draft.htmlBody).toContain("<table");
+    expect(draft.htmlBody).toContain("AMZN");
+  });
+
+  it("honors financial path scopes before stale required fields", async () => {
+    const workflow: OneKycWorkflow = {
+      ...baseWorkflow,
+      required_fields: ["financial_profile"],
+      requested_scope: "attr.financial.portfolio.*",
+      subject: "Portfolio information",
+      metadata: { account_holder_name: "Kushal Trivedi" },
+    };
+
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow,
+      exportPayload: {
+        financial: {
+          portfolio: {
+            account_summary: {
+              ending_value: 1656064.53,
+            },
+            holdings: [{ quantity: 30, symbol: "AMZN", market_value: 92822.4 }],
+          },
+        },
+      },
+    });
+
+    expect(draft.approvedValues.portfolio).toContain("Portfolio summary");
+    expect(draft.missingFields).toEqual([]);
+    expect(draft.body).toContain("Portfolio");
+    expect(draft.body).toContain("Holdings");
+    expect(draft.body).toContain("AMZN");
+    expect(draft.body).not.toContain("financial profile:");
+  });
+
+  it("renders all selected financial scopes without letting the broad scope hide portfolio data", async () => {
+    const workflow: OneKycWorkflow = {
+      ...baseWorkflow,
+      required_fields: ["financial_profile"],
+      requested_scopes: ["attr.financial.profile.*", "attr.financial.*"],
+      subject: "Financial information",
+      metadata: { account_holder_name: "Kushal Trivedi" },
+    };
+
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow,
+      instructions: "Make this sectioned and human.",
+      exportPayloads: [
+        {
+          scope: "attr.financial.profile.*",
+          payload: {
+            financial: {
+              profile: {
+                preferences: {
+                  risk_profile: "balanced",
+                  investment_horizon: "medium_term",
+                  updated_at: "2026-03-01T18:49:42.147Z",
+                },
+              },
+            },
+          },
+        },
+        {
+          scope: "attr.financial.*",
+          payload: {
+            financial: {
+              profile: {
+                preferences: {
+                  risk_profile: "balanced",
+                  investment_horizon: "medium_term",
+                  updated_at: "2026-03-01T18:49:42.147Z",
+                },
+              },
+              portfolio: {
+                account_summary: {
+                  ending_value: 1656064.53,
+                  cash_balance: 900226.92,
+                },
+                holdings: [
+                  { quantity: 30, symbol: "AMZN", market_value: 92822.4 },
+                  { quantity: 10000, symbol: "ABEV", market_value: 27400 },
+                ],
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    expect(draft.renderModel.sections.map((section) => section.title)).toEqual([
+      "Financial profile",
+      "Financial information",
+    ]);
+    expect(draft.body).toContain("Financial profile");
+    expect(draft.body).toContain("Risk profile: Balanced");
+    expect(draft.body).toContain("Financial information");
+    expect(draft.body).toContain("Portfolio summary");
+    expect(draft.body).toContain("Holdings");
+    expect(draft.body).toContain("AMZN");
+    expect(draft.body).toContain("ABEV");
+    expect(draft.body).not.toContain("2026-03-01T18:49:42.147Z");
+    expect(draft.body).not.toContain("financial profile: onboarding");
+    expect(draft.body).not.toContain("Portfolio\n\nfinancial profile");
+  });
+
+  it("escapes approved values before producing HTML email content", async () => {
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow: {
+        ...baseWorkflow,
+        required_fields: ["preferences"],
+        requested_scope: "attr.travel.seat_preferences.*",
+        metadata: { account_holder_name: "Kushal Trivedi" },
+      },
+      exportPayload: {
+        travel: {
+          seat_preferences: {
+            summary: '<script>alert("bad")</script>Window seats',
+          },
+        },
+      },
+    });
+
+    expect(draft.body).toContain('<script>alert("bad")</script>Window seats');
+    expect(draft.htmlBody).toContain("&lt;script&gt;");
+    expect(draft.htmlBody).not.toContain("<script>");
+  });
+
+  it("builds drafts from dynamic non-identity scopes without forcing identity fields", async () => {
+    const workflow: OneKycWorkflow = {
+      ...baseWorkflow,
+      required_fields: ["favorite_locations"],
+      requested_scope: "attr.travel.*",
+      subject: "Favorite locations",
+    };
+
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow,
+      exportPayload: {
+        travel: {
+          favorite_locations: ["Seattle", "Tokyo"],
+          travel_style: "quiet cafes and walkable neighborhoods",
+        },
+      },
+    });
+
+    expect(draft.subject).toBe("Re: Favorite locations");
+    expect(draft.approvedValues).toEqual({
+      travel_information:
+        "favorite locations: Seattle, Tokyo; travel style: quiet cafes and walkable neighborhoods",
+    });
+    expect(draft.missingFields).toEqual([]);
+    expect(draft.body).toContain("favorite locations");
+    expect(draft.body).toContain("Seattle, Tokyo");
+    expect(draft.body).toContain("quiet cafes and walkable neighborhoods");
+    expect(draft.body).not.toContain("identity profile");
+  });
+
+  it("renders multiple dynamic scopes as clean sections without PKM structure keys", async () => {
+    const workflow: OneKycWorkflow = {
+      ...baseWorkflow,
+      required_fields: ["preferences"],
+      requested_scopes: ["attr.location.*", "attr.travel.*"],
+      subject: "Approved details",
+      metadata: { account_holder_name: "Kushal Trivedi" },
+    };
+
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow,
+      instructions: "Make this human and sectioned.",
+      exportPayloads: [
+        {
+          scope: "attr.location.*",
+          payload: {
+            location: {
+              changes: {
+                entities: {
+                  sf_residence_001: { summary: "I live in New York City now." },
+                },
+              },
+              preferences: {
+                entities: {
+                  nyc_preference_001: { summary: "I love New York City." },
+                },
+              },
+              profile: {
+                entities: {
+                  sf_residence_001: { summary: "I live in San Francisco." },
+                },
+              },
+            },
+          },
+        },
+        {
+          scope: "attr.travel.*",
+          payload: {
+            travel: {
+              changes: {
+                entities: {
+                  travel_preference_seat_001: {
+                    summary: "Actually window seats work better now.",
+                  },
+                },
+              },
+              seat_preferences: {
+                entities: {
+                  travel_preference_seat_001: {
+                    summary: "I prefer aisle seats for work trips.",
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    expect(draft.body).toContain("Location information");
+    expect(draft.body).toContain("Travel information");
+    expect(draft.body).toContain("I love New York City.");
+    expect(draft.body).toContain("I prefer aisle seats for work trips.");
+    expect(draft.body).not.toContain("changes");
+    expect(draft.body).not.toContain("entities");
+    expect(draft.body).not.toContain("sf residence 001");
+    expect(draft.body).not.toContain("travel preference seat 001");
+    expect(draft.htmlBody).not.toContain("changes");
+    expect(draft.htmlBody).not.toContain("entities");
+  });
+
+  it("formats financial profile dates and enums for human email", async () => {
+    const workflow: OneKycWorkflow = {
+      ...baseWorkflow,
+      required_fields: ["financial_profile"],
+      requested_scope: "attr.financial.profile.*",
+      subject: "Financial profile",
+      metadata: { account_holder_name: "Kushal Trivedi" },
+    };
+
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow,
+      instructions: "Make it more human.",
+      exportPayload: {
+        financial: {
+          profile: {
+            onboarding: {
+              completed: true,
+              completed_at: "2026-03-01T17:21:46.644Z",
+            },
+            preferences: {
+              investment_horizon: "medium_term",
+              drawdown_response: "buy_more",
+              volatility_preference: "moderate",
+              risk_score: 4,
+              risk_profile: "balanced",
+              updated_at: "2026-03-01T18:49:42.147Z",
+            },
+          },
+        },
+      },
+    });
+
+    expect(draft.body).toContain("Risk profile: Balanced");
+    expect(draft.body).toContain("Investment horizon: Medium term");
+    expect(draft.body).toContain("Drawdown response: Buy more");
+    expect(draft.body).toContain("Last updated: Mar 1, 2026");
+    expect(draft.body).not.toContain("Financial profile\n\nFinancial profile");
+    expect(draft.body).not.toContain("2026-03-01T18:49:42.147Z");
+    expect(draft.body).not.toContain("onboarding");
+    expect(draft.body).not.toContain("completed at");
+  });
+
+  it("recognizes redraft requests that ask to remove duplicate headings", async () => {
+    const workflow: OneKycWorkflow = {
+      ...baseWorkflow,
+      required_fields: ["portfolio"],
+      requested_scope: "attr.financial.portfolio.*",
+      subject: "Portfolio information",
+      metadata: { account_holder_name: "Kushal Trivedi" },
+    };
+
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow,
+      instructions: "can you remove the double headers",
+      exportPayload: {
+        financial: {
+          portfolio: {
+            account_summary: {
+              ending_value: 1656064.53,
+            },
+            holdings: [{ quantity: 30, symbol: "AMZN", market_value: 92822.4 }],
+          },
+        },
+      },
+    });
+
+    expect(draft.renderModel.style.cleanHeaders).toBe(true);
+    expect(draft.body).toContain("Portfolio summary");
+    expect(draft.body).not.toContain("Portfolio\n\nPortfolio summary");
+    expect(draft.htmlBody).toContain("Portfolio summary");
+    expect(draft.htmlBody).toContain("AMZN");
+  });
+
+  it("maps generic travel preference asks to approved travel data without leaking email false positives", async () => {
+    const workflow: OneKycWorkflow = {
+      ...baseWorkflow,
+      required_fields: ["email", "preferences"],
+      requested_scope: "attr.travel.seat_preferences.*",
+      subject: "Test Email",
+      sender_email: "kushal@example.com",
+      sender_name: "Kushal Trivedi",
+      counterparty_label: "Kushal Trivedi",
+      metadata: {
+        classification: "dynamic_disclosure",
+        reply_thread: { matched_user_emails: ["kushal@example.com"] },
+      },
+    };
+
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow,
+      exportPayload: {
+        travel: {
+          seat_preferences: {
+            summary: "Actually window seats work better now.",
+            observations: ["Avoid middle seats when possible."],
+          },
+        },
+      },
+    });
+
+    expect(draft.approvedValues).toEqual({
+      seat_preferences: "Actually window seats work better now.",
+    });
+    expect(draft.missingFields).toEqual([]);
+    expect(draft.body.startsWith("I am replying on behalf of Kushal Trivedi.")).toBe(true);
+    expect(draft.body).toContain("Kushal prefers window seats.");
+    expect(draft.body).toContain("Best,\nhussh One");
+    expect(draft.body).not.toContain("No requested values were present");
+    expect(draft.body).not.toContain("Hi Kushal Trivedi");
+    expect(draft.body).not.toContain("email");
+    expect(draft.body).not.toContain("anything else");
+    expect(draft.body).not.toContain("KYC review");
+  });
+
+  it("filters stale identity fields from effective non-identity requirements", () => {
+    expect(
+      effectiveOneKycRequiredFields({
+        requiredFields: ["email", "preferences"],
+        scopes: ["attr.travel.seat_preferences.*"],
+        fallbackScope: "attr.travel.seat_preferences.*",
+      })
+    ).toEqual(["seat_preferences"]);
+  });
+
+  it("builds dynamic drafts from scope path metadata without hardcoded field aliases", async () => {
+    const workflow: OneKycWorkflow = {
+      ...baseWorkflow,
+      required_fields: ["preferences"],
+      requested_scope: "attr.mobility.cabin_comfort.*",
+      subject: "Booking request",
+      metadata: { classification: "dynamic_disclosure" },
+    };
+
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow,
+      exportPayload: {
+        mobility: {
+          cabin_comfort: {
+            summary: "Prefers quiet cabins and extra legroom.",
+          },
+        },
+      },
+    });
+
+    expect(draft.approvedValues).toEqual({
+      cabin_comfort: "Prefers quiet cabins and extra legroom.",
+    });
+    expect(draft.missingFields).toEqual([]);
+    expect(draft.body).toContain("cabin comfort");
+    expect(draft.body).toContain("Prefers quiet cabins and extra legroom.");
+    expect(draft.body).not.toContain("No requested values were present");
   });
 
   it("rejects consent exports wrapped to a different connector before decrypting", async () => {
