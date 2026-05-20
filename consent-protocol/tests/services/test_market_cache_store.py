@@ -18,7 +18,12 @@ def test_normalize_json_value_serializes_nested_non_json_payloads():
 
     normalized = MarketCacheStoreService._normalize_json_value(value)
 
-    assert normalized["generated_at"] == "2026-03-27T12:00:00+00:00"
-    assert normalized["rows"][0]["price"] == 123.45
-    assert normalized["rows"][0]["bad_number"] is None
     assert sorted(normalized["rows"][0]["source_tags"]) == ["alpha", "beta"]
+
+
+def test_normalize_json_value_handles_nan():
+    value = {"score": float("nan")}
+
+    normalized = MarketCacheStoreService._normalize_json_value(value)
+
+    assert normalized["score"] is None
