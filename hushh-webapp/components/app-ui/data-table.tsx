@@ -116,7 +116,9 @@ export function DataTable<TData, TValue>({
     []
   );
   const [globalFilter, setGlobalFilter] = React.useState("");
+  const [liveAnnouncement, setLiveAnnouncement] = React.useState("");
   const swipeStartRef = React.useRef<{ x: number; y: number } | null>(null);
+  const isFirstRender = React.useRef(true);
   const normalizedSearchKeys = React.useMemo(
     () =>
       Array.from(
@@ -200,6 +202,20 @@ export function DataTable<TData, TValue>({
     [currentPage, pageCount]
   );
 
+  React.useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (filteredCount === 0) {
+      setLiveAnnouncement("No results found.");
+    } else {
+      setLiveAnnouncement(
+        `Showing ${rangeStart} to ${rangeEnd} of ${filteredCount} results.`
+      );
+    }
+  }, [filteredCount, currentPage, pageCount, rangeStart, rangeEnd]);
+
   const handleTouchStart = React.useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     const touch = event.touches[0];
     if (!touch) return;
@@ -242,6 +258,13 @@ export function DataTable<TData, TValue>({
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
+      <div
+        role="status"
+        aria-live="polite"
+        className="sr-only"
+      >
+        {liveAnnouncement}
+      </div>
       {/* Search and Filter Controls */}
       {(enableSearch || (filterKey && filterOptions)) && (
         <div className="flex flex-col gap-3 sm:flex-row">
