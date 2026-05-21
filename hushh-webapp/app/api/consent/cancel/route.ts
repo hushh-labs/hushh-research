@@ -1,4 +1,5 @@
 // app/api/consent/cancel/route.ts
+export const dynamic = "force-dynamic";
 
 /**
  * Cancel Consent API
