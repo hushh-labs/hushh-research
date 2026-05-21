@@ -401,8 +401,8 @@ class ActorIdentityService:
                       email = COALESCE(EXCLUDED.email, actor_identity_cache.email),
                       phone_number = COALESCE(EXCLUDED.phone_number, actor_identity_cache.phone_number),
                       photo_url = COALESCE(EXCLUDED.photo_url, actor_identity_cache.photo_url),
-                      email_verified = COALESCE(EXCLUDED.email_verified, actor_identity_cache.email_verified),
-                      phone_verified = COALESCE(EXCLUDED.phone_verified, actor_identity_cache.phone_verified),
+                      email_verified = COALESCE($6, actor_identity_cache.email_verified),
+                      phone_verified = COALESCE($7, actor_identity_cache.phone_verified),
                       source = CASE
                         WHEN EXCLUDED.source IS NULL OR EXCLUDED.source = '' THEN actor_identity_cache.source
                         ELSE EXCLUDED.source
@@ -434,6 +434,93 @@ class ActorIdentityService:
         except Exception as exc:
             logger.debug(
                 "actor_identity_cache upsert skipped for %s: %s",
+                normalized_user_id,
+                exc,
+            )
+            return None
+
+        return self._normalize_row(row)
+
+    async def claim_verified_phone(
+        self,
+        *,
+        user_id: str,
+        phone_number: str,
+        source: str = "firebase_phone_claim",
+    ) -> dict[str, Any] | None:
+        normalized_user_id = str(user_id or "").strip()
+        normalized_phone_number = str(phone_number or "").strip()
+        normalized_source = str(source or "").strip() or "firebase_phone_claim"
+        if not normalized_user_id or not normalized_phone_number:
+            return None
+
+        pool = await get_pool()
+        try:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE actor_identity_cache
+                    SET
+                      phone_number = NULL,
+                      phone_verified = FALSE,
+                      updated_at = NOW()
+                    WHERE phone_number = $2
+                      AND user_id <> $1
+                    """,
+                    normalized_user_id,
+                    normalized_phone_number,
+                )
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO actor_identity_cache (
+                      user_id,
+                      phone_number,
+                      phone_verified,
+                      source,
+                      last_synced_at,
+                      created_at,
+                      updated_at
+                    )
+                    VALUES (
+                      $1,
+                      $2,
+                      TRUE,
+                      $3,
+                      NOW(),
+                      NOW(),
+                      NOW()
+                    )
+                    ON CONFLICT (user_id) DO UPDATE SET
+                      phone_number = EXCLUDED.phone_number,
+                      phone_verified = TRUE,
+                      source = $3,
+                      last_synced_at = NOW(),
+                      updated_at = NOW()
+                    RETURNING
+                      user_id,
+                      display_name,
+                      email,
+                      phone_number,
+                      photo_url,
+                      email_verified,
+                      phone_verified,
+                      source,
+                      last_synced_at,
+                      created_at,
+                      updated_at
+                    """,
+                    normalized_user_id,
+                    normalized_phone_number,
+                    normalized_source,
+                )
+        except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError):
+            logger.debug(
+                "actor_identity_cache phone claim skipped; phone shadow schema unavailable"
+            )
+            return None
+        except Exception as exc:
+            logger.debug(
+                "actor_identity_cache phone claim skipped for %s: %s",
                 normalized_user_id,
                 exc,
             )
@@ -481,6 +568,46 @@ class ActorIdentityService:
             logger.debug("actor_verified_email_aliases missing; alias list empty")
             return []
         return [self._normalize_alias_row(row) for row in rows]
+
+    async def list_account_identifiers(self, user_id: str) -> list[str]:
+        """
+        Return identifiers that are verified or first-party known for this account.
+
+        Consent review surfaces authenticate the user by Firebase UID, but external
+        developer requests can arrive keyed by a Firebase email/phone or a verified
+        alias. Keep this set conservative: only the UID, verified Firebase-auth
+        shadow values, and verified account-owned email aliases are accepted.
+        """
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            return []
+
+        identifiers: list[str] = [normalized_user_id]
+
+        def _append(value: Any, *, email: bool = False) -> None:
+            normalized = str(value or "").strip()
+            if email:
+                normalized = normalized.lower()
+            if normalized and normalized not in identifiers:
+                identifiers.append(normalized)
+
+        identity = await self.sync_from_firebase(normalized_user_id)
+        if not identity:
+            identity = (await self.get_many([normalized_user_id])).get(normalized_user_id) or {}
+
+        if identity.get("email_verified"):
+            _append(identity.get("email"), email=True)
+        if identity.get("phone_verified"):
+            _append(identity.get("phone_number"))
+
+        for alias in await self.list_verified_email_aliases(normalized_user_id):
+            if str(alias.get("verification_status") or "").strip().lower() != "verified":
+                continue
+            if alias.get("revoked_at") is not None:
+                continue
+            _append(alias.get("email_normalized") or alias.get("email"), email=True)
+
+        return identifiers
 
     async def request_email_alias_verification(
         self,
@@ -787,14 +914,15 @@ class ActorIdentityService:
             )
             return cached
 
+        firebase_phone_number = getattr(user_record, "phone_number", None)
         updated = await self.upsert_identity(
             user_id=normalized_user_id,
             display_name=getattr(user_record, "display_name", None),
             email=getattr(user_record, "email", None),
-            phone_number=getattr(user_record, "phone_number", None),
+            phone_number=firebase_phone_number,
             photo_url=getattr(user_record, "photo_url", None),
             email_verified=getattr(user_record, "email_verified", None),
-            phone_verified=bool(getattr(user_record, "phone_number", None)),
+            phone_verified=True if firebase_phone_number else None,
             source="firebase_auth",
         )
         return updated or cached

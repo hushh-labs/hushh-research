@@ -24,7 +24,7 @@ function projectExecutionHint(action: InvestorKaiActionDefinition) {
     return {
       status: "unwired" as const,
       reason: action.wiring.reason,
-      intended_handler: action.wiring.intendedHandler,
+      ...(action.wiring.intendedHandler ? { intended_handler: action.wiring.intendedHandler } : {}),
     };
   }
 
@@ -52,6 +52,7 @@ function projectExecutionHint(action: InvestorKaiActionDefinition) {
       status: "wired" as const,
       path: "voice_tool" as const,
       target: binding.toolName,
+      ...(binding.params ? { params: binding.params } : {}),
     };
   }
 

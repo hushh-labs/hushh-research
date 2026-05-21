@@ -102,7 +102,11 @@ describe("/api/kai/[...path] proxy", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(streamBody, {
         status: 200,
-        headers: { "Content-Type": "text/event-stream" },
+        headers: {
+          "Content-Type": "text/event-stream",
+          "X-Agent-Conversation-Id": "conversation-1",
+          "X-Agent-Model": "gemini-2.5-pro",
+        },
       })
     );
 
@@ -122,6 +126,8 @@ describe("/api/kai/[...path] proxy", () => {
     expect(res.headers.get("Content-Type")).toBe("text/event-stream");
     expect(res.headers.get("Cache-Control")).toBe("no-cache");
     expect(res.headers.get("Connection")).toBe("keep-alive");
+    expect(res.headers.get("X-Agent-Conversation-Id")).toBe("conversation-1");
+    expect(res.headers.get("X-Agent-Model")).toBe("gemini-2.5-pro");
 
     const [url, options] = fetchSpy.mock.calls[0] ?? [];
     expect(url).toBe("http://backend.test/api/kai/analyze/stream?ticker=AAPL&user_id=user_123");

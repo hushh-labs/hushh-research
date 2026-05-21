@@ -6,6 +6,13 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 const PKM_READ = "pkm.read";
 const ATTR_SCOPE_REGEX = /^attr\.([a-zA-Z0-9_]+)(?:\.(.+))?$/;
 
+export class ConsentExportNoDataError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConsentExportNoDataError";
+  }
+}
+
 function parseAttrScope(scope: string): {
   domain: string;
   path: string | null;
@@ -50,6 +57,58 @@ function resolveApprovedPaths(
 
   return manifestPaths.filter(
     (path) => path === parsed.path || path.startsWith(`${parsed.path}.`)
+  );
+}
+
+function hasShareableValue(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number" || typeof value === "boolean") return true;
+  if (Array.isArray(value)) return value.some((item) => hasShareableValue(item));
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).some(
+      ([key, item]) => key !== "__export_metadata" && hasShareableValue(item)
+    );
+  }
+  return false;
+}
+
+function normalizeSegmentCandidate(path: string): string | null {
+  const [topLevel] = String(path || "").split(".", 1);
+  const normalized = String(topLevel || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalized || null;
+}
+
+function topLevelSegmentsForPaths(paths: string[]): string[] {
+  return [
+    ...new Set(
+      paths
+        .map((path) => normalizeSegmentCandidate(path))
+        .filter((segment): segment is string => Boolean(segment))
+    ),
+  ];
+}
+
+function mergeSegmentIds(...groups: Array<string[] | null | undefined>): string[] {
+  return [
+    ...new Set(
+      groups.flatMap((group) =>
+        (group || [])
+          .map((segmentId) => normalizeSegmentCandidate(segmentId))
+          .filter((segmentId): segmentId is string => Boolean(segmentId))
+      )
+    ),
+  ];
+}
+
+function assertShareablePayload(scope: string, payload: Record<string, unknown>): void {
+  if (hasShareableValue(payload)) return;
+  throw new ConsentExportNoDataError(
+    `No shareable data was found for ${scope.replace(/^attr\./, "").replace(/\.\*$/, "").replaceAll(".", " ")}.`
   );
 }
 
@@ -108,48 +167,92 @@ export async function buildConsentExportForScope(params: {
     params.vaultOwnerToken
   ).catch(() => null);
   const approvedPaths = resolveApprovedPaths(params.scope, manifest);
-  const segmentIds = PersonalKnowledgeModelService.resolveSegmentIdsForPaths({
-    manifest,
-    paths: approvedPaths,
-  });
-  const encryptedDomainBlob = await PersonalKnowledgeModelService.getDomainData(
+  const isDomainWideScope = !parsedScope.path;
+  const manifestSegmentIds = isDomainWideScope
+    ? []
+    : PersonalKnowledgeModelService.resolveSegmentIdsForPaths({
+        manifest,
+        paths: approvedPaths,
+      });
+  const pathSegmentIds = isDomainWideScope
+    ? []
+    : topLevelSegmentsForPaths(approvedPaths.length ? approvedPaths : [parsedScope.path ?? ""]);
+  const segmentIds = mergeSegmentIds(manifestSegmentIds, pathSegmentIds);
+  let effectiveSegmentIds = segmentIds;
+  let encryptedDomainBlob = await PersonalKnowledgeModelService.getDomainData(
     params.userId,
     parsedScope.domain,
     params.vaultOwnerToken,
-    segmentIds
+    effectiveSegmentIds
   );
+  if (!encryptedDomainBlob && !isDomainWideScope && effectiveSegmentIds.length > 0) {
+    effectiveSegmentIds = [];
+    encryptedDomainBlob = await PersonalKnowledgeModelService.getDomainData(
+      params.userId,
+      parsedScope.domain,
+      params.vaultOwnerToken,
+      effectiveSegmentIds
+    );
+  }
   if (!encryptedDomainBlob) {
-    return {
-      payload: { [parsedScope.domain]: {} },
-      sourceManifestRevision:
-        typeof manifest?.manifest_version === "number" ? manifest.manifest_version : undefined,
-    };
+    throw new ConsentExportNoDataError(
+      `No approved PKM data is available for ${parsedScope.domain.replaceAll("_", " ")}.`
+    );
   }
 
-  const domainData = await PersonalKnowledgeModelService.loadDomainData({
+  const buildPayload = (
+    domainData: Record<string, unknown>,
+    segmentIdsForExport: string[]
+  ) => ({
+    ...projectDomainDataForScope({
+      domain: parsedScope.domain,
+      scope: params.scope,
+      domainData,
+    }),
+    __export_metadata: {
+      scope: params.scope,
+      source_domain: parsedScope.domain,
+      manifest_version: manifest?.manifest_version ?? null,
+      approved_paths: approvedPaths,
+      approved_segment_ids: segmentIdsForExport,
+      export_timestamp: new Date().toISOString(),
+    },
+  });
+
+  let domainData = await PersonalKnowledgeModelService.loadDomainData({
     userId: params.userId,
     domain: parsedScope.domain,
     vaultKey: params.vaultKey,
     vaultOwnerToken: params.vaultOwnerToken,
-    segmentIds,
+    segmentIds: effectiveSegmentIds,
   });
-  const resolvedDomainData = domainData || {};
-  return {
-    payload: {
-      ...projectDomainDataForScope({
+  let payload = buildPayload(domainData || {}, effectiveSegmentIds);
+
+  if (!hasShareableValue(payload) && !isDomainWideScope && effectiveSegmentIds.length > 0) {
+    const fullDomainBlob = await PersonalKnowledgeModelService.getDomainData(
+      params.userId,
+      parsedScope.domain,
+      params.vaultOwnerToken,
+      []
+    );
+    if (fullDomainBlob) {
+      const fullDomainData = await PersonalKnowledgeModelService.loadDomainData({
+        userId: params.userId,
         domain: parsedScope.domain,
-        scope: params.scope,
-        domainData: resolvedDomainData,
-      }),
-      __export_metadata: {
-        scope: params.scope,
-        source_domain: parsedScope.domain,
-        manifest_version: manifest?.manifest_version ?? null,
-        approved_paths: approvedPaths,
-        approved_segment_ids: segmentIds,
-        export_timestamp: new Date().toISOString(),
-      },
-    },
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+        segmentIds: [],
+      });
+      encryptedDomainBlob = fullDomainBlob;
+      effectiveSegmentIds = [];
+      domainData = fullDomainData;
+      payload = buildPayload(domainData || {}, effectiveSegmentIds);
+    }
+  }
+
+  assertShareablePayload(params.scope, payload);
+  return {
+    payload,
     sourceContentRevision:
       typeof encryptedDomainBlob.dataVersion === "number"
         ? encryptedDomainBlob.dataVersion

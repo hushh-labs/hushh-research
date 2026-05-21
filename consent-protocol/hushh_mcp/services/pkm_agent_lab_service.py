@@ -120,6 +120,8 @@ _HEALTH_HINTS = {
     "sleep",
     "workout",
     "fitness",
+    "swim",
+    "swimming",
     "run",
     "running",
 }
@@ -130,6 +132,15 @@ _SHOPPING_HINTS = {
     "shopping",
     "brand",
     "purchase",
+    "receipt",
+    "merchant",
+    "store",
+    "subscription",
+    "return",
+    "size",
+    "jacket",
+    "jackets",
+    "patagonia",
 }
 _RELATIONSHIP_HINTS = {
     "mom",
@@ -139,7 +150,33 @@ _RELATIONSHIP_HINTS = {
     "partner",
     "friend",
     "family",
+    "sister",
+    "brother",
+    "emergency",
+    "contact",
     "relationship",
+}
+_PROFESSIONAL_HINTS = {
+    "work",
+    "async",
+    "written",
+    "meeting",
+    "meetings",
+    "project",
+    "professional",
+}
+_LOCATION_HINTS = {
+    "live",
+    "lives",
+    "living",
+    "home",
+    "based",
+    "base",
+    "city",
+    "neighborhood",
+    "nyc",
+    "seattle",
+    "sf",
 }
 _FINANCIAL_HINTS = {
     "stock",
@@ -152,6 +189,12 @@ _FINANCIAL_HINTS = {
     "401k",
     "ira",
     "dividend",
+    "fund",
+    "funds",
+    "index",
+    "loan",
+    "loans",
+    "save",
 }
 _FINANCIAL_CORE_HINTS = {
     "optimize",
@@ -173,6 +216,8 @@ _FINANCIAL_MEMORY_HINTS = {
     "comfortable",
     "risk_tolerance",
     "index_funds",
+    "index",
+    "funds",
     "dividend_paying",
     "automatic_monthly_investing",
 }
@@ -185,6 +230,46 @@ _AMBIGUOUS_PREFIXES = {
 }
 _GENERAL_DOMAIN_KEY = "general"
 _DEFAULT_CONFIRMATION_DOMAINS = ("professional", "travel", "shopping", "food")
+_STRUCTURAL_SCOPE_TOKENS = {
+    "entities",
+    "items",
+    "_items",
+    "summary",
+    "status",
+    "observations",
+    "created_at",
+    "updated_at",
+    "schema_version",
+    "provenance",
+    "artifact_id",
+    "hash",
+}
+_MEMORY_SIMILARITY_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "by",
+    "for",
+    "from",
+    "i",
+    "in",
+    "is",
+    "it",
+    "me",
+    "my",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "when",
+    "with",
+}
 _ENTITY_STATUS_ACTIVE = "active"
 _ENTITY_STATUS_CORRECTED = "corrected"
 _ENTITY_STATUS_DELETED = "deleted"
@@ -457,6 +542,7 @@ class PKMAgentLabService:
         user_id: str,
         message: str,
         current_domains: list[str],
+        current_manifests: list[dict[str, Any]] | None,
         simulated_state: dict[str, Any] | None,
         model_override: str | None,
         strict_small_model: bool,
@@ -467,6 +553,7 @@ class PKMAgentLabService:
                 "user_id": user_id,
                 "message": message.strip(),
                 "current_domains": sorted(current_domains),
+                "current_manifests": current_manifests or [],
                 "simulated_state": simulated_state or {},
                 "model_override": model_override or "",
                 "strict_small_model": strict_small_model,
@@ -687,25 +774,74 @@ class PKMAgentLabService:
     @classmethod
     def _message_tokens(cls, message: str) -> set[str]:
         normalized = cls._safe_excerpt(message, limit=1200).lower()
-        return {token for token in cls._normalize_path(normalized).split(".") if token}
+        return {token for token in re.split(r"[._\-\s]+", cls._normalize_path(normalized)) if token}
 
     @classmethod
     def _is_finance_message(cls, message: str) -> bool:
         normalized_message = cls._safe_excerpt(message, limit=400).lower()
         tokens = cls._message_tokens(message)
-        return any(token in tokens or token in normalized_message for token in _FINANCIAL_HINTS)
+        return cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=tokens,
+            hints=_FINANCIAL_HINTS,
+        )
+
+    @classmethod
+    def _contains_any_hint(
+        cls,
+        *,
+        normalized_message: str,
+        message_words: set[str],
+        hints: set[str],
+    ) -> bool:
+        for hint in hints:
+            normalized_hint = cls._normalize_segment(hint)
+            if not normalized_hint:
+                continue
+            if normalized_hint in message_words:
+                return True
+            if normalized_hint.endswith("s") and normalized_hint[:-1] in message_words:
+                return True
+            if f"{normalized_hint}s" in message_words:
+                return True
+            if len(normalized_hint) >= 4 and re.search(
+                rf"\b{re.escape(normalized_hint)}s?\b",
+                normalized_message,
+            ):
+                return True
+        return False
 
     @classmethod
     def _is_correction_message(cls, message: str) -> bool:
         normalized = cls._safe_excerpt(message, limit=400).lower()
         return any(
-            phrase in normalized for phrase in ("actually", "not anymore", "changed my mind")
+            phrase in normalized
+            for phrase in (
+                "actually",
+                "instead",
+                "not anymore",
+                "no longer",
+                "changed my mind",
+                "works better now",
+                "work better now",
+            )
         )
 
     @classmethod
     def _is_deletion_message(cls, message: str) -> bool:
         normalized = cls._safe_excerpt(message, limit=400).lower()
-        return any(phrase in normalized for phrase in ("forget that", "delete", "remove that"))
+        return any(
+            phrase in normalized
+            for phrase in (
+                "forget that",
+                "forget my",
+                "delete",
+                "remove that",
+                "remove my",
+                "do not remember",
+                "don't remember",
+            )
+        )
 
     @classmethod
     def _keyword_ranked_domains(
@@ -716,23 +852,56 @@ class PKMAgentLabService:
     ) -> list[str]:
         normalized_message = cls._safe_excerpt(message, limit=400).lower()
         tokens = cls._message_tokens(message)
+        message_words = tokens
         ranked: list[str] = []
-        if any(token in tokens or token in normalized_message for token in _FINANCIAL_HINTS):
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_FINANCIAL_HINTS,
+        ):
             ranked.append("financial")
-        if any(token in tokens or token in normalized_message for token in _FOOD_HINTS):
-            ranked.append("food")
-        if any(token in tokens or token in normalized_message for token in _TRAVEL_HINTS):
-            ranked.append("travel")
-        if any(token in tokens or token in normalized_message for token in _HEALTH_HINTS):
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_HEALTH_HINTS,
+        ):
             ranked.append("health")
-        if any(token in tokens or token in normalized_message for token in _SHOPPING_HINTS):
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_TRAVEL_HINTS,
+        ):
+            ranked.append("travel")
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_SHOPPING_HINTS,
+        ):
             ranked.append("shopping")
-        if any(token in tokens or token in normalized_message for token in _RELATIONSHIP_HINTS):
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_LOCATION_HINTS,
+        ):
+            ranked.append("location")
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_RELATIONSHIP_HINTS,
+        ):
             ranked.append("social")
-        for domain in current_domains:
-            normalized_domain = cls._normalize_segment(domain)
-            if normalized_domain and normalized_domain != _GENERAL_DOMAIN_KEY:
-                ranked.append(normalized_domain)
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_PROFESSIONAL_HINTS,
+        ):
+            ranked.append("professional")
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_FOOD_HINTS,
+        ):
+            ranked.append("food")
         return cls._unique_list(ranked)
 
     @classmethod
@@ -778,12 +947,27 @@ class PKMAgentLabService:
         )
         display_name = str(raw.get("display_name") or defaults["display_name"]).strip()
         description = str(raw.get("description") or defaults["description"]).strip()
-        return {
+        normalized: dict[str, Any] = {
             "domain_key": domain_key,
             "display_name": display_name or defaults["display_name"],
             "description": description or defaults["description"],
             "recommended": bool(recommended),
         }
+        scope_paths = raw.get("scope_paths") or defaults.get("scope_paths")
+        if isinstance(scope_paths, list):
+            normalized["scope_paths"] = cls._unique_list(
+                [
+                    cls._normalize_path(str(path))
+                    for path in scope_paths
+                    if cls._normalize_path(str(path))
+                ]
+            )
+        scope_registry = raw.get("scope_registry") or defaults.get("scope_registry")
+        if isinstance(scope_registry, list):
+            normalized["scope_registry"] = [
+                deepcopy(entry) for entry in scope_registry if isinstance(entry, dict)
+            ]
+        return normalized
 
     @classmethod
     def _candidate_domain_choices(
@@ -857,6 +1041,22 @@ class PKMAgentLabService:
                         or f"Durable PKM memories for {self._titleize_path(domain_key).lower()}"
                     ).strip(),
                 }
+                scope_paths = entry.get("scope_paths")
+                if isinstance(scope_paths, list):
+                    registry_map[domain_key]["scope_paths"] = self._unique_list(
+                        [
+                            self._normalize_path(str(path))
+                            for path in scope_paths
+                            if self._normalize_path(str(path))
+                        ]
+                    )
+                scope_registry = entry.get("scope_registry")
+                if isinstance(scope_registry, list):
+                    registry_map[domain_key]["scope_registry"] = [
+                        deepcopy(candidate)
+                        for candidate in scope_registry
+                        if isinstance(candidate, dict)
+                    ]
         else:
             for entry in CANONICAL_DOMAIN_REGISTRY:
                 if entry.domain_key == _GENERAL_DOMAIN_KEY:
@@ -875,6 +1075,114 @@ class PKMAgentLabService:
                 }
         ordered_keys = self._unique_list(sorted(registry_map.keys()))
         return [registry_map[key] for key in ordered_keys if key in registry_map]
+
+    @classmethod
+    def _is_consumer_visible_scope_projection(cls, projection: Any) -> bool:
+        if not isinstance(projection, dict):
+            return True
+        if projection.get("internal_only") is True:
+            return False
+        if projection.get("consumer_visible") is False:
+            return False
+        storage_mode = cls._normalize_segment(str(projection.get("storage_mode") or ""))
+        if storage_mode in {"system", "internal", "runtime"}:
+            return False
+        return True
+
+    @classmethod
+    def _registry_override_from_manifests(
+        cls, current_manifests: list[dict[str, Any]] | None
+    ) -> list[dict[str, Any]]:
+        overrides: list[dict[str, Any]] = []
+        for manifest in current_manifests or []:
+            if not isinstance(manifest, dict):
+                continue
+            domain_key = cls._normalize_segment(str(manifest.get("domain") or ""))
+            if not domain_key or domain_key == _GENERAL_DOMAIN_KEY:
+                continue
+            scope_paths: list[str] = []
+            for path in manifest.get("top_level_scope_paths") or []:
+                normalized_path = cls._normalize_path(str(path))
+                if normalized_path:
+                    scope_paths.append(normalized_path)
+            visible_registry = []
+            for entry in manifest.get("scope_registry") or []:
+                if not isinstance(entry, dict):
+                    continue
+                projection = entry.get("summary_projection") or {}
+                if not cls._is_consumer_visible_scope_projection(projection):
+                    continue
+                top_level_path = cls._normalize_path(
+                    str(
+                        projection.get("top_level_scope_path")
+                        or entry.get("top_level_scope_path")
+                        or ""
+                    )
+                )
+                if top_level_path:
+                    scope_paths.append(top_level_path)
+                visible_registry.append(deepcopy(entry))
+            if not scope_paths and isinstance(manifest.get("paths"), list):
+                for path_entry in manifest.get("paths") or []:
+                    if not isinstance(path_entry, dict):
+                        continue
+                    if path_entry.get("exposure_eligibility") is False:
+                        continue
+                    json_path = cls._normalize_path(str(path_entry.get("json_path") or ""))
+                    if json_path:
+                        scope_paths.append(json_path.split(".", 1)[0])
+            overrides.append(
+                {
+                    "domain_key": domain_key,
+                    "display_name": cls._titleize_path(domain_key),
+                    "description": f"Existing PKM memories already grouped under {cls._titleize_path(domain_key).lower()}",
+                    "scope_paths": cls._unique_list(scope_paths),
+                    "scope_registry": visible_registry,
+                }
+            )
+        return overrides
+
+    @classmethod
+    def _merge_registry_overrides(
+        cls,
+        left: list[dict[str, Any]] | None,
+        right: list[dict[str, Any]] | None,
+    ) -> list[dict[str, Any]] | None:
+        if not left and not right:
+            return None
+        merged: dict[str, dict[str, Any]] = {}
+        for entry in [*(left or []), *(right or [])]:
+            if not isinstance(entry, dict):
+                continue
+            domain_key = cls._normalize_segment(str(entry.get("domain_key") or ""))
+            if not domain_key or domain_key == _GENERAL_DOMAIN_KEY:
+                continue
+            current = merged.setdefault(domain_key, {"domain_key": domain_key})
+            for key in ("display_name", "description"):
+                if entry.get(key):
+                    current[key] = entry[key]
+            current["scope_paths"] = cls._unique_list(
+                [
+                    *[
+                        cls._normalize_path(str(path))
+                        for path in current.get("scope_paths", [])
+                        if cls._normalize_path(str(path))
+                    ],
+                    *[
+                        cls._normalize_path(str(path))
+                        for path in entry.get("scope_paths", [])
+                        if cls._normalize_path(str(path))
+                    ],
+                ]
+            )
+            registry = current.setdefault("scope_registry", [])
+            if isinstance(registry, list) and isinstance(entry.get("scope_registry"), list):
+                registry.extend(
+                    deepcopy(candidate)
+                    for candidate in entry.get("scope_registry", [])
+                    if isinstance(candidate, dict)
+                )
+        return list(merged.values())
 
     async def _run_agent_contract(
         self,
@@ -1138,7 +1446,20 @@ class PKMAgentLabService:
                 "contract_version": 1,
             }
 
-        if any(token in tokens or token in normalized for token in _FINANCIAL_MEMORY_HINTS) or any(
+        if any(phrase in normalized for phrase in ("save for", "pay off", "student loan")):
+            return {
+                "routing_decision": "non_financial_or_ephemeral",
+                "confidence": 0.86,
+                "reason": "The message describes a durable personal goal; downstream PKM intent should choose the goal scope without treating it as a governed financial action.",
+                "source_agent": "financial_guard_agent",
+                "contract_version": 1,
+            }
+
+        if cls._contains_any_hint(
+            normalized_message=normalized,
+            message_words=tokens,
+            hints=_FINANCIAL_MEMORY_HINTS,
+        ) or any(
             phrase in normalized
             for phrase in (
                 "remember that i prefer",
@@ -1157,7 +1478,11 @@ class PKMAgentLabService:
                 "contract_version": 1,
             }
 
-        if any(token in tokens or token in normalized for token in _FINANCIAL_CORE_HINTS) or (
+        if cls._contains_any_hint(
+            normalized_message=normalized,
+            message_words=tokens,
+            hints=_FINANCIAL_CORE_HINTS,
+        ) or (
             "portfolio" in tokens
             and any(
                 phrase in normalized
@@ -1254,6 +1579,7 @@ class PKMAgentLabService:
     ) -> dict[str, Any]:
         normalized = cls._safe_excerpt(message, limit=800).lower()
         tokens = cls._message_tokens(message)
+        message_words = tokens
         ranked_domains = cls._keyword_ranked_domains(
             message=message, current_domains=current_domains
         )
@@ -1274,7 +1600,13 @@ class PKMAgentLabService:
             intent_class = "ambiguous"
             mutation_intent = "no_op"
             confidence = 0.98
-        elif normalized.startswith("remind me") or "todo" in tokens or "to_do" in tokens:
+        elif (
+            normalized.startswith("remind me")
+            or normalized.startswith("please order")
+            or normalized.startswith("order ")
+            or "todo" in tokens
+            or "to_do" in tokens
+        ):
             save_class = "ephemeral"
             intent_class = "task_or_reminder"
             mutation_intent = "no_op"
@@ -1302,32 +1634,87 @@ class PKMAgentLabService:
             intent_class = "correction"
             mutation_intent = "correct"
             confidence = 0.88
-        elif any(
-            phrase in normalized for phrase in ("i like", "i love", "i prefer", "my favorite")
+        elif (
+            any(
+                phrase in normalized
+                for phrase in (
+                    "i like",
+                    "i also like",
+                    "i love",
+                    "i prefer",
+                    "i still prefer",
+                    "my favorite",
+                )
+            )
+            or ("prefer" in tokens and not normalized.startswith(("delete", "remove", "forget")))
+            or (
+                "like" in tokens
+                and bool(ranked_domains)
+                and not normalized.startswith(("delete", "remove", "forget", "remind me"))
+            )
         ):
             save_class = "durable"
             intent_class = "preference"
             mutation_intent = "extend" if current_domains else "create"
             confidence = 0.78
-        elif any(token in tokens or token in normalized for token in _HEALTH_HINTS):
+        elif cls._contains_any_hint(
+            normalized_message=normalized,
+            message_words=message_words,
+            hints=_HEALTH_HINTS,
+        ):
             save_class = "durable"
             intent_class = "health"
             mutation_intent = "extend" if "health" in current_domains else "create"
             confidence = 0.8
-        elif any(token in tokens or token in normalized for token in _TRAVEL_HINTS):
+        elif cls._contains_any_hint(
+            normalized_message=normalized,
+            message_words=message_words,
+            hints=_TRAVEL_HINTS,
+        ):
             save_class = "durable"
             intent_class = "travel"
             mutation_intent = "extend" if "travel" in current_domains else "create"
             confidence = 0.78
-        elif any(token in tokens or token in normalized for token in _SHOPPING_HINTS):
+        elif cls._contains_any_hint(
+            normalized_message=normalized,
+            message_words=message_words,
+            hints=_SHOPPING_HINTS,
+        ):
             save_class = "durable"
             intent_class = "shopping_need"
             mutation_intent = "extend" if "shopping" in current_domains else "create"
             confidence = 0.76
-        elif any(token in tokens or token in normalized for token in _RELATIONSHIP_HINTS):
+        elif any(phrase in normalized for phrase in ("save for", "pay off", "student loan")):
+            save_class = "durable"
+            intent_class = "plan_or_goal"
+            mutation_intent = "create"
+            confidence = 0.78
+        elif cls._contains_any_hint(
+            normalized_message=normalized,
+            message_words=message_words,
+            hints=_LOCATION_HINTS,
+        ):
+            save_class = "durable"
+            intent_class = "profile_fact"
+            mutation_intent = "extend" if "location" in current_domains else "create"
+            confidence = 0.78
+        elif cls._contains_any_hint(
+            normalized_message=normalized,
+            message_words=message_words,
+            hints=_RELATIONSHIP_HINTS,
+        ):
             save_class = "durable"
             intent_class = "relationship"
             mutation_intent = "extend" if "social" in current_domains else "create"
+            confidence = 0.76
+        elif cls._contains_any_hint(
+            normalized_message=normalized,
+            message_words=message_words,
+            hints=_PROFESSIONAL_HINTS,
+        ):
+            save_class = "durable"
+            intent_class = "preference" if "prefer" in tokens else "profile_fact"
+            mutation_intent = "extend" if "professional" in current_domains else "create"
             confidence = 0.76
         elif any(phrase in normalized for phrase in _AMBIGUOUS_PREFIXES) or len(tokens) <= 2:
             save_class = "ambiguous"
@@ -1520,6 +1907,11 @@ class PKMAgentLabService:
         if intent == "relationship":
             return "relationships"
         if intent == "health":
+            if any(
+                token in normalized
+                for token in ("swim", "run", "walk", "stretch", "workout", "exercise", "fitness")
+            ):
+                return "activities"
             if any(token in normalized for token in ("allerg", "intoler", "constraint", "avoid")):
                 return "dietary_constraints"
             return "records"
@@ -1530,13 +1922,154 @@ class PKMAgentLabService:
         if intent == "financial_event":
             return "events"
         if intent in {"correction", "deletion"}:
-            return "changes"
+            if domain == "location" and any(
+                token in normalized
+                for token in ("based", "base", "live", "lives", "living", "home", "city")
+            ):
+                return "profile"
+            return cls._root_scope_for_intent("preference", domain, message=message)
         return "notes"
 
     @classmethod
+    def _scope_paths_for_domain(
+        cls,
+        *,
+        registry_choices: list[dict[str, Any]],
+        domain: str,
+    ) -> list[str]:
+        normalized_domain = cls._normalize_segment(domain)
+        paths: list[str] = []
+        for entry in registry_choices:
+            if not isinstance(entry, dict):
+                continue
+            if cls._normalize_segment(str(entry.get("domain_key") or "")) != normalized_domain:
+                continue
+            for path in entry.get("scope_paths") or []:
+                normalized_path = cls._normalize_path(str(path))
+                if normalized_path:
+                    paths.append(normalized_path)
+            for registry_entry in entry.get("scope_registry") or []:
+                if not isinstance(registry_entry, dict):
+                    continue
+                projection = registry_entry.get("summary_projection") or {}
+                if not cls._is_consumer_visible_scope_projection(projection):
+                    continue
+                normalized_path = cls._normalize_path(
+                    str(
+                        projection.get("top_level_scope_path")
+                        or registry_entry.get("top_level_scope_path")
+                        or ""
+                    )
+                )
+                if normalized_path:
+                    paths.append(normalized_path)
+        return cls._unique_list(paths)
+
+    @classmethod
+    def _scope_tokens(cls, path: str) -> set[str]:
+        tokens: set[str] = set()
+        for part in re.split(r"[._\-\s]+", cls._normalize_path(path)):
+            if not part or part in _STRUCTURAL_SCOPE_TOKENS:
+                continue
+            tokens.add(part)
+            if part.endswith("s") and len(part) > 3:
+                tokens.add(part[:-1])
+        return tokens
+
+    @classmethod
+    def _preferred_scope_from_metadata(
+        cls,
+        *,
+        intent_class: str,
+        target_domain: str,
+        message: str,
+        fallback_scope: str,
+        registry_choices: list[dict[str, Any]],
+    ) -> tuple[str, str | None]:
+        fallback = cls._normalize_path(fallback_scope) or "notes"
+        available_paths = cls._scope_paths_for_domain(
+            registry_choices=registry_choices,
+            domain=target_domain,
+        )
+        if not available_paths:
+            return fallback, None
+        if fallback in available_paths and fallback not in {
+            "preferences",
+            "notes",
+            "records",
+            "shopping",
+        }:
+            return fallback, None
+
+        message_tokens = cls._message_tokens(message)
+        intent = cls._normalize_segment(intent_class)
+        best_path = ""
+        best_score = 0.0
+        for path in available_paths:
+            path_tokens = cls._scope_tokens(path)
+            if not path_tokens:
+                continue
+            overlap = len(message_tokens & path_tokens)
+            score = float(overlap * 3)
+            if intent in {"preference", "correction", "deletion"} and (
+                "preference" in path_tokens or "preferences" in path_tokens
+            ):
+                score += 1.5
+            if intent == "profile_fact" and {"profile", "identity", "location"} & path_tokens:
+                score += 1.0
+            if (
+                intent == "routine"
+                and {"routine", "routines", "activity", "activities"} & path_tokens
+            ):
+                score += 1.0
+            if intent == "plan_or_goal" and {"goal", "goals", "plan", "plans"} & path_tokens:
+                score += 1.0
+            if intent == "shopping_need":
+                if {"product", "products", "preference", "preferences"} & path_tokens:
+                    score += 1.5
+                if ({"receipt", "receipts", "merchant"} & path_tokens) and (
+                    {"receipt", "receipts", "merchant", "purchase", "purchases"} & message_tokens
+                ):
+                    score += 1.0
+            if score > best_score:
+                best_score = score
+                best_path = path
+
+        if best_path and best_score >= 1.0:
+            return best_path, "dynamic_scope_metadata_selected"
+        return fallback, "dynamic_scope_metadata_no_specific_match"
+
+    @classmethod
+    def _retarget_payload_root_scope(
+        cls,
+        payload: dict[str, Any],
+        *,
+        from_scope: str,
+        to_scope: str,
+    ) -> dict[str, Any]:
+        source_scope = cls._normalize_path(from_scope)
+        target_scope = cls._normalize_path(to_scope)
+        if not source_scope or not target_scope or source_scope == target_scope:
+            return payload
+        if source_scope not in payload or target_scope in payload:
+            return payload
+        next_payload = deepcopy(payload)
+        next_payload[target_scope] = next_payload.pop(source_scope)
+        return next_payload
+
+    @classmethod
+    def _entity_scope_from_path(cls, path: str) -> str:
+        normalized = cls._normalize_path(path)
+        parts = [part for part in normalized.split(".") if part]
+        if "entities" not in parts:
+            return ""
+        entity_index = parts.index("entities")
+        return ".".join(parts[:entity_index])
+
+    @classmethod
     def _memory_similarity_score(cls, left: str, right: str) -> float:
-        left_tokens = cls._message_tokens(left)
-        right_tokens = cls._message_tokens(right)
+        left_tokens = cls._message_tokens(left) - _MEMORY_SIMILARITY_STOPWORDS
+        right_tokens = cls._message_tokens(right) - _MEMORY_SIMILARITY_STOPWORDS
         if not left_tokens or not right_tokens:
             return 0.0
         intersection = len(left_tokens & right_tokens)
@@ -1596,6 +2129,14 @@ class PKMAgentLabService:
             if memory_domain != recommended_domain:
                 continue
             score = cls._memory_similarity_score(message, str(memory.get("message") or ""))
+            memory_scope = cls._normalize_path(str(memory.get("entity_scope") or ""))
+            if mutation_intent in {"correct", "delete"} and memory_scope:
+                if memory_scope == root_scope:
+                    score += 0.75
+                elif memory_scope.startswith(f"{root_scope}.") or root_scope.startswith(
+                    f"{memory_scope}."
+                ):
+                    score += 0.4
             if score > best_score:
                 best_score = score
                 best_match = memory
@@ -1627,7 +2168,7 @@ class PKMAgentLabService:
         elif (
             mutation_intent in {"extend", "update"}
             and best_match is not None
-            and best_score >= 0.18
+            and (best_score >= 0.18 or (best_score > 0 and target_entity_scope == root_scope))
         ):
             merge_mode = "extend_entity"
             match_reason = "The message appears to refine an existing memory instead of creating a new concept."
@@ -1690,7 +2231,35 @@ class PKMAgentLabService:
         if cls._looks_opaque_or_nonsense(decision.get("match_reason") or ""):
             decision["match_reason"] = fallback["match_reason"]
 
-        if cls._normalize_segment(str(intent_frame.get("mutation_intent") or "")) == "no_op":
+        mutation_intent = cls._normalize_segment(str(intent_frame.get("mutation_intent") or ""))
+        if mutation_intent in {"correct", "delete"} and fallback.get("merge_mode") == "no_op":
+            decision["merge_mode"] = "no_op"
+            decision["target_entity_id"] = ""
+            decision["target_entity_path"] = ""
+            decision["match_reason"] = fallback.get("match_reason") or (
+                "No stable prior target was available for this mutation."
+            )
+
+        if decision["merge_mode"] in {"correct_entity", "delete_entity"}:
+            decision_scope = cls._entity_scope_from_path(
+                str(decision.get("target_entity_path") or "")
+            )
+            fallback_scope = cls._entity_scope_from_path(
+                str(fallback.get("target_entity_path") or "")
+            )
+            if not decision_scope or decision_scope == "changes":
+                decision["target_entity_id"] = fallback.get("target_entity_id") or ""
+                decision["target_entity_path"] = fallback.get("target_entity_path") or ""
+                decision_scope = fallback_scope
+            if decision_scope == "changes":
+                decision["merge_mode"] = "no_op"
+                decision["target_entity_id"] = ""
+                decision["target_entity_path"] = ""
+                decision["match_reason"] = (
+                    "No stable canonical entity target was available for this mutation."
+                )
+
+        if mutation_intent == "no_op":
             decision["merge_mode"] = "no_op"
             decision["target_entity_id"] = ""
             decision["target_entity_path"] = ""
@@ -1748,6 +2317,12 @@ class PKMAgentLabService:
             target_domain,
             message=message,
         )
+        merge_mode = cls._normalize_segment(str(merge_decision.get("merge_mode") or ""))
+        target_scope = cls._entity_scope_from_path(
+            str(merge_decision.get("target_entity_path") or "")
+        )
+        if merge_mode in {"correct_entity", "delete_entity"} and target_scope:
+            root_scope = target_scope
         entity = cls._build_entity_record(
             message=message,
             intent_frame=intent_frame,
@@ -2043,6 +2618,7 @@ class PKMAgentLabService:
             or cls._normalize_segment(str(merge_decision.get("target_domain") or ""))
             or fallback_target_domain
         )
+        validation_hints: list[str] = []
         candidate_payload = cls._sanitize_candidate_payload(
             raw_structure.get("candidate_payload"),
             message=message,
@@ -2050,8 +2626,21 @@ class PKMAgentLabService:
             merge_decision=merge_decision,
             target_domain=suggested_target_domain,
         )
+        merge_mode = cls._normalize_segment(str(merge_decision.get("merge_mode") or ""))
+        target_scope = cls._entity_scope_from_path(
+            str(merge_decision.get("target_entity_path") or "")
+        )
+        if merge_mode in {"correct_entity", "delete_entity"} and target_scope != "changes":
+            aligned_payload = cls._fallback_payload_from_intent(
+                message=message,
+                intent_frame=intent_frame,
+                merge_decision=merge_decision,
+                target_domain=suggested_target_domain,
+            )
+            if candidate_payload != aligned_payload:
+                validation_hints.append("crud_payload_aligned_to_merge_target")
+            candidate_payload = aligned_payload
 
-        validation_hints: list[str] = []
         if not isinstance(raw_structure, dict):
             validation_hints.append("missing_structure_output")
 
@@ -2113,13 +2702,48 @@ class PKMAgentLabService:
                 target_domain=target_domain,
             )
 
-        if intent_frame.get("intent_class") != "financial_event" and target_domain == "financial":
+        if (
+            intent_frame.get("intent_class") not in {"financial_event", "plan_or_goal"}
+            and target_domain == "financial"
+        ):
             validation_hints.append("financial_domain_requires_confirmation")
             target_domain = (
                 recommended_domain
                 if recommended_domain != "financial"
                 else _DEFAULT_CONFIRMATION_DOMAINS[0]
             )
+
+        if merge_mode not in {"correct_entity", "delete_entity"}:
+            current_root_scope = next(
+                (
+                    cls._normalize_path(str(key))
+                    for key in candidate_payload.keys()
+                    if cls._normalize_path(str(key))
+                ),
+                cls._root_scope_for_intent(
+                    str(intent_frame.get("intent_class") or "note"),
+                    target_domain,
+                    message=message,
+                ),
+            )
+            preferred_scope, scope_hint = cls._preferred_scope_from_metadata(
+                intent_class=str(intent_frame.get("intent_class") or "note"),
+                target_domain=target_domain,
+                message=message,
+                fallback_scope=current_root_scope,
+                registry_choices=registry_choices,
+            )
+            if scope_hint:
+                validation_hints.append(scope_hint)
+            if (
+                preferred_scope != current_root_scope
+                and scope_hint == "dynamic_scope_metadata_selected"
+            ):
+                candidate_payload = cls._retarget_payload_root_scope(
+                    candidate_payload,
+                    from_scope=current_root_scope,
+                    to_scope=preferred_scope,
+                )
 
         if cls._detect_duplicate_memory(
             message=message,
@@ -2148,11 +2772,10 @@ class PKMAgentLabService:
         except Exception:
             decision["contract_version"] = 1
 
-        requested_scope = str(
-            raw_structure.get("target_entity_scope")
-            or merge_decision.get("target_entity_path")
-            or ""
-        ).strip()
+        raw_requested_scope = str(raw_structure.get("target_entity_scope") or "").strip()
+        requested_scope = raw_requested_scope
+        if target_scope:
+            requested_scope = target_scope
         target_entity_scope = cls._manifest_target_entity_scope(
             requested_scope=requested_scope,
             manifest_paths=decision["json_paths"],
@@ -2185,6 +2808,12 @@ class PKMAgentLabService:
                 }
                 for hint in validation_hints
             )
+            and write_mode == "can_save"
+        ):
+            write_mode = "confirm_first"
+
+        if (
+            "dynamic_scope_metadata_no_specific_match" in validation_hints
             and write_mode == "can_save"
         ):
             write_mode = "confirm_first"
@@ -2232,8 +2861,8 @@ class PKMAgentLabService:
             write_mode == "can_save"
             and primary_json_path is not None
             and primary_json_path in decision["top_level_scope_paths"]
-            and requested_scope
-            and cls._normalize_path(requested_scope) != primary_json_path
+            and (raw_requested_scope or requested_scope)
+            and cls._normalize_path(raw_requested_scope or requested_scope) != primary_json_path
         ):
             validation_hints.append("primary_path_defaulted_to_root_scope")
         validation_hints = cls._unique_list(validation_hints)
@@ -2332,7 +2961,11 @@ class PKMAgentLabService:
                     else "confidential",
                     "scope_kind": "subtree",
                     "exposure_enabled": True,
-                    "summary_projection": {"top_level_scope_path": scope_path},
+                    "summary_projection": {
+                        "top_level_scope_path": scope_path,
+                        "consumer_visible": True,
+                        "internal_only": False,
+                    },
                 }
             )
         for entry in scope_registry:
@@ -2704,7 +3337,7 @@ class PKMAgentLabService:
                 "- create_entity = a new durable concept.\n"
                 "- extend_entity = same durable concept, more detail.\n"
                 "- correct_entity = old meaning is superseded by the new statement.\n"
-                "- delete_entity = an existing memory should be tombstoned.\n"
+                "- delete_entity = an existing active memory should be removed from shareable PKM data.\n"
                 "- no_op = not durable, too vague, or no stable target exists.\n"
                 "- Never use general.\n"
                 'Examples: {"message":"I still prefer aisle seats.","merge_mode":"extend_entity","target_domain":"travel"} '
@@ -2762,6 +3395,8 @@ class PKMAgentLabService:
                 "- candidate_payload must align with target_domain and intent_frame.\n"
                 "- Keep payload shallow, durable, and entity-based when possible.\n"
                 "- Use merge_decision.target_domain unless there is a clear validation error.\n"
+                "- For correct_entity/delete_entity, candidate_payload must use merge_decision.target_entity_path and must not create a changes subtree.\n"
+                "- For delete_entity, do not create replacement plaintext; target the existing entity id only.\n"
                 "- primary_json_path may be a top-level root path when broad structure is enough.\n"
                 "- Use a deeper nested path only when the subtree is clearly stable.\n"
                 "- If requires_confirmation is true, return write_mode=confirm_first and primary_json_path=null or empty.\n"
@@ -2792,6 +3427,8 @@ class PKMAgentLabService:
             "- Use stable snake_case keys.\n"
             "- Prefer entity maps with stable ids over anonymous append-only statements.\n"
             "- Use merge_decision.target_domain unless validation requires a different broad domain.\n"
+            "- For correct_entity/delete_entity, candidate_payload must align to merge_decision.target_entity_path and must not create a changes subtree.\n"
+            "- For delete_entity, target the existing entity id; do not create replacement plaintext or a new deleted memory.\n"
             "- For reminders or ephemeral requests, use write_mode=do_not_save.\n"
             "- If intent_frame.requires_confirmation is true, return write_mode=confirm_first.\n"
             "- primary_json_path must identify the main path inside the domain payload. Use a top-level path when a broad root-domain write is enough; use a deeper nested path only when the subtree is clearly stable.\n"
@@ -2830,6 +3467,7 @@ class PKMAgentLabService:
         user_id: str,
         message: str,
         current_domains: list[str] | None = None,
+        current_manifests: list[dict[str, Any]] | None = None,
         simulated_state: dict[str, Any] | None = None,
         model_override: str | None = None,
         strict_small_model: bool = False,
@@ -2839,9 +3477,14 @@ class PKMAgentLabService:
         normalized_domains = [
             self._normalize_segment(domain) for domain in (current_domains or []) if domain
         ]
+        manifest_overrides = self._registry_override_from_manifests(current_manifests)
+        effective_registry_override = self._merge_registry_overrides(
+            domain_registry_override,
+            manifest_overrides,
+        )
         registry_choices = await self._load_domain_registry_choices(
             current_domains=normalized_domains,
-            override=domain_registry_override,
+            override=effective_registry_override,
         )
         financial_guard_fallback = self._fallback_financial_guard_decision(
             message=message,
@@ -3047,6 +3690,7 @@ class PKMAgentLabService:
         user_id: str,
         message: str,
         current_domains: list[str] | None = None,
+        current_manifests: list[dict[str, Any]] | None = None,
         simulated_state: dict[str, Any] | None = None,
         model_override: str | None = None,
         strict_small_model: bool = False,
@@ -3060,6 +3704,7 @@ class PKMAgentLabService:
             user_id=user_id,
             message=message,
             current_domains=normalized_domains,
+            current_manifests=current_manifests,
             simulated_state=simulated_state,
             model_override=model_override,
             strict_small_model=strict_small_model,
@@ -3116,6 +3761,7 @@ class PKMAgentLabService:
                     user_id=user_id,
                     message=source_text,
                     current_domains=normalized_domains,
+                    current_manifests=current_manifests,
                     simulated_state=simulated_state,
                     model_override=model_override,
                     strict_small_model=strict_small_model,

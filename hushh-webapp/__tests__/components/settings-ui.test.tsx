@@ -1,7 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { SettingsRow, SettingsSegmentedTabs } from "@/components/profile/settings-ui";
+import {
+  SettingsDetailPanel,
+  SettingsRow,
+  SettingsSegmentedTabs,
+} from "@/components/profile/settings-ui";
 
 describe("SettingsRow", () => {
   it("wraps both primary action and trailing in a single interactive row", () => {
@@ -107,5 +111,37 @@ describe("SettingsSegmentedTabs", () => {
 
     fireEvent.click(inactive);
     expect(handleValueChange).toHaveBeenCalledWith("kai");
+  });
+});
+
+describe("SettingsDetailPanel", () => {
+  it("preserves dialog accessibility semantics", () => {
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+
+    render(
+      <SettingsDetailPanel
+        open
+        onOpenChange={() => {}}
+        title="Settings"
+        description="Settings dialog"
+      >
+        <div>Content</div>
+      </SettingsDetailPanel>
+    );
+
+    expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy();
+    expect(screen.getByText("Settings dialog")).toBeTruthy();
   });
 });
