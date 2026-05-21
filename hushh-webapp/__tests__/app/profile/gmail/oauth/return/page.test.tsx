@@ -93,9 +93,9 @@ describe("ProfileGmailOAuthReturnPage", () => {
     );
 
     render(
-      <ProfileGmailOAuthReturnPage
-        searchParams={{ code: "code-123", state: "state-123" }}
-      />
+      await ProfileGmailOAuthReturnPage({
+        searchParams: Promise.resolve({ code: "code-123", state: "state-123" }),
+      })
     );
 
     await waitFor(() => {
@@ -120,9 +120,9 @@ describe("ProfileGmailOAuthReturnPage", () => {
     });
 
     render(
-      <ProfileGmailOAuthReturnPage
-        searchParams={{}}
-      />
+      await ProfileGmailOAuthReturnPage({
+        searchParams: Promise.resolve({}),
+      })
     );
 
     await waitFor(() => {
