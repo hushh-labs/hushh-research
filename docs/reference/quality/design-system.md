@@ -36,11 +36,13 @@ This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the st
    - `consent`
    - `marketplace`
    - `developers`
+11. Email draft HTML is not route UI. Email Helper drafts must use the shared strict-ZK renderer so plaintext and Gmail-safe HTML stay synchronized, responsive, and free of consumer-facing implementation noise.
 
 ## Morphy Extension Allowlist
 1. CTA-level behavior on top of stock button semantics.
 2. Shared card and surface treatment on top of stock card structure.
 3. Ripple, motion hooks, icon wrappers, and toast helpers.
+4. Confirmation and notification composition must stay on stock shadcn primitives: `alert-dialog` for destructive confirmation and `sonner` for transient status.
 
 ## Import Rules
 Use stock shadcn by default for baseline primitives:
@@ -67,6 +69,7 @@ Forbidden:
 1. Importing moved custom components from `@/components/ui/*` paths that no longer belong to registry ownership.
 2. Editing `components/ui/*` for app-specific behavior.
 3. Creating primitive forks in Morphy that bypass stock components.
+4. Route-local inline banners for transient row actions, saves, deletes, refreshes, or short-lived failures.
 
 ## Charts Contract
 1. `hushh-webapp/components/ui/chart.tsx` is the canonical chart primitive layer.
@@ -138,3 +141,5 @@ Reference:
 5. [App Surface Audit Matrix](./app-surface-audit-matrix.md)
 
 Use that companion doc when building any Apple-like settings surface so spacing, grouping, responsive behavior, and action-row semantics stay consistent.
+
+Body section headings are not page headers. `SectionHeader` and `SettingsGroup` must use compact accessible headings above row text, below page-title scale, and independent from global `h1`/`h2` element rules. `SettingsGroup` must keep eyebrow text inline with the section title and avoid a separate eyebrow/title/description three-line stack inside page content.

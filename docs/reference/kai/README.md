@@ -40,6 +40,8 @@ Kai-specific architecture, runtime, rollout, and audit references live here.
 
 Within the seven-layer platform architecture, Kai spans Layer 5 through Layer 7: intelligence, experience, and channel delivery.
 
+Kai is not the product-surface owner for all of One. Keep this directory focused on the current finance specialist runtime: portfolio, market intelligence, brokerage, RIA, voice/search/actionability, finance safety, and decision receipts. Planning for One as the broader product surface lives in [../../future/one-product-surface-evolution-plan.md](../../future/one-product-surface-evolution-plan.md); current-state Kai claims must stay tied to checked routes, generated contracts, tests, and provider behavior.
+
 Kai docs use founder language as part of the whole-platform vocabulary:
 
 - `Kai` is the primary user-facing intelligence surface for the platform, not a separate platform from the repo
