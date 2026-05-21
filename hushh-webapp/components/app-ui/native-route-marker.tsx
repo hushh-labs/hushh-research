@@ -17,14 +17,15 @@ export type NativeDataTelemetryState =
   | "loaded" 
   | "empty-valid" 
   | "stale-fallback" 
-  | "error-upstream";
+  | "error-upstream"
+  | "error"; // Added to maintain backward compatibility with legacy views
 
 export interface NativeRouteMarkerProps {
   routeId: string;
   marker: string;
   authState?: NativeAuthTelemetryState;
   dataState?: NativeDataTelemetryState;
-  metadata?: Record<string, unknown>; // New Feature: Structured diagnostic metadata serialization
+  metadata?: Record<string, unknown>; // Feature: Structured diagnostic metadata serialization
 }
 
 // Reusable invisible configuration layout block
