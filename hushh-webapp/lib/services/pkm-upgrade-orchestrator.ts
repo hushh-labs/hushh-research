@@ -634,7 +634,7 @@ export class PkmUpgradeOrchestrator {
         runId: runId || null,
         mode,
       });
-      console.error("[PkmUpgradeOrchestrator] PKM upgrade failed", metadata);
+      console.warn("[PkmUpgradeOrchestrator] PKM upgrade failed", metadata);
       if (runId) {
         await PkmUpgradeService.failRun({
           runId,
@@ -1037,7 +1037,7 @@ export class PkmUpgradeOrchestrator {
         runId: null,
         mode: params.mode,
       });
-      console.error("[PkmUpgradeOrchestrator] PKM no-write rehearsal failed", metadata);
+      console.warn("[PkmUpgradeOrchestrator] PKM no-write rehearsal failed", metadata);
       AppBackgroundTaskService.failTask(
         taskId,
         message,
