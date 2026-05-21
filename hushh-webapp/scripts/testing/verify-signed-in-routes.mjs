@@ -898,7 +898,7 @@ async function verifyRiaWorkspaceFlow(page, viewport) {
     await page.getByLabel(/go back/i).click();
     await waitForRouteBeacon(page, ["/ria/clients/[userId]"]);
 
-    await page.getByRole("button", { name: /^access$/i }).click();
+    await page.getByRole("button", { name: /^(sharing|access)$/i }).click();
     await page.getByTestId("ria-client-workspace-access").waitFor({ state: "visible", timeout: 15000 });
     await page.getByRole("link", { name: /open access/i }).first().click();
     await waitForRouteBeacon(page, ["/consents"]);
