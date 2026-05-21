@@ -1,3 +1,8 @@
+// Prevent build-time static page collection failures by providing safe default fallbacks on CI/CD
+// This ensures that the build process can complete successfully without encountering missing environment variable errors
+process.env.BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:8000";
+process.env.PYTHON_API_URL = process.env.PYTHON_API_URL || "http://127.0.0.1:8000";
+process.env.NEXT_PUBLIC_BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
 import type { NextConfig } from "next";
 import path from "path";
 
