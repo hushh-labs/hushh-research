@@ -191,6 +191,8 @@ class FourUserMemoryService(OneLocationAgentService):
         self.envelopes: dict[str, dict] = {}
         self.requests: dict[str, dict] = {}
         self.referrals: dict[str, dict] = {}
+        self.public_invites: dict[str, dict] = {}
+        self.public_submissions: dict[str, dict] = {}
         self.notifications: list[dict] = []
 
     def _send_metadata_notification(self, **kwargs) -> None:
@@ -249,6 +251,32 @@ class FourUserMemoryService(OneLocationAgentService):
                     }
                 )
             return rows
+        if "FROM one_location_public_invites" in sql:
+            return [
+                invite
+                for invite in sorted(
+                    self.public_invites.values(),
+                    key=lambda item: item["created_at"],
+                    reverse=True,
+                )
+                if invite["owner_user_id"] == params["user_id"]
+            ][:20]
+        if "FROM one_location_public_invite_submissions submission" in sql:
+            rows = []
+            for submission in sorted(
+                self.public_submissions.values(),
+                key=lambda item: item["submitted_at"],
+                reverse=True,
+            ):
+                if (
+                    submission["owner_user_id"] == params["user_id"]
+                    or submission.get("matched_user_id") == params["user_id"]
+                ):
+                    request = self.requests.get(submission.get("request_id") or "")
+                    rows.append(
+                        {**submission, "request_status": request.get("status") if request else None}
+                    )
+            return rows[:50]
         if "UPDATE one_location_share_grants" in sql and "status = 'revoked'" in sql:
             revoked = []
             for grant in self.grants.values():
@@ -267,6 +295,16 @@ class FourUserMemoryService(OneLocationAgentService):
         if "INSERT INTO one_location_events" in sql:
             return None
         if "UPDATE one_location_recipient_keys" in sql:
+            return None
+        if "FROM actor_identity_cache" in sql and "regexp_replace" in sql:
+            phone_digits = params["phone_digits"]
+            local_digits = params["local_digits"]
+            for identity in self.identities.values():
+                digits = "".join(ch for ch in identity["phone_number"] if ch.isdigit())
+                if identity["phone_verified"] and (
+                    digits == phone_digits or digits.endswith(local_digits)
+                ):
+                    return identity
             return None
         if "INSERT INTO one_location_recipient_keys" in sql:
             user_id = params["user_id"]
@@ -430,6 +468,66 @@ class FourUserMemoryService(OneLocationAgentService):
             }
             self.referrals[referral_id] = row
             return row
+        if "INSERT INTO one_location_public_invites" in sql:
+            invite_id = str(uuid.uuid4())
+            row = {
+                "id": invite_id,
+                "owner_user_id": params["owner_user_id"],
+                "public_code_hash": params["public_code_hash"],
+                "status": "active",
+                "duration_hours": params["duration_hours"],
+                "expires_at": params["expires_at"],
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+                "revoked_at": None,
+            }
+            self.public_invites[invite_id] = row
+            return row
+        if "FROM one_location_public_invites i" in sql:
+            for invite in self.public_invites.values():
+                if invite["public_code_hash"] == params["public_code_hash"]:
+                    owner = self.identities.get(invite["owner_user_id"], {})
+                    return {
+                        **invite,
+                        "owner_display_name": owner.get("display_name"),
+                        "owner_phone_number": owner.get("phone_number"),
+                    }
+            return None
+        if "UPDATE one_location_public_invites" in sql and "status = 'expired'" in sql:
+            invite = self.public_invites.get(params["invite_id"])
+            if invite and invite["status"] == "active":
+                invite["status"] = "expired"
+                return invite
+            return None
+        if "INSERT INTO one_location_public_invite_submissions" in sql:
+            submission_id = str(uuid.uuid4())
+            row = {
+                "id": submission_id,
+                "invite_id": params["invite_id"],
+                "owner_user_id": params["owner_user_id"],
+                "visitor_display_name": params["visitor_display_name"],
+                "visitor_phone_hash": params["visitor_phone_hash"],
+                "visitor_phone_last4": params["visitor_phone_last4"],
+                "matched_user_id": params.get("matched_user_id"),
+                "request_id": params.get("request_id"),
+                "status": params["status"],
+                "message": params.get("message"),
+                "submitted_at": datetime.now(timezone.utc),
+                "resolved_at": None,
+            }
+            self.public_submissions[submission_id] = row
+            return row
+        if "UPDATE one_location_public_invites" in sql and "status = 'revoked'" in sql:
+            invite = self.public_invites.get(params["invite_id"])
+            if (
+                invite
+                and invite["owner_user_id"] == params["owner_user_id"]
+                and invite["status"] == "active"
+            ):
+                invite["status"] = "revoked"
+                invite["revoked_at"] = datetime.now(timezone.utc)
+                return invite
+            return None
         if "SET status = 'revoked'" in sql and "owner_user_id = :owner_user_id" in sql:
             grant = self.grants.get(params["grant_id"])
             if (
@@ -553,3 +651,55 @@ def test_four_user_location_workflow_contract() -> None:
     )
     assert "latitude" not in serialized_state
     assert "longitude" not in serialized_state
+
+
+def test_public_invite_is_request_only_and_token_hash_only() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    token = created["publicToken"]
+
+    assert created["publicUrl"].endswith(token)
+    assert token not in json.dumps(service.public_invites, default=str)
+
+    resolved = service.resolve_public_invite(public_token=token)
+    assert resolved["invite"]["ownerUserId"] == "user_a"
+    assert "latitude" not in json.dumps(resolved)
+    assert "longitude" not in json.dumps(resolved)
+
+    submitted = service.submit_public_invite_request(
+        public_token=token,
+        visitor_display_name="User B",
+        phone_number="+1 555 010 0002",
+        message="Please share for pickup.",
+    )
+
+    assert submitted["submission"]["status"] == "matched_request_pending"
+    assert submitted["request"]["status"] == "pending"
+    assert submitted["request"]["requesterUserId"] == "user_b"
+    assert "latitude" not in json.dumps(service.public_submissions, default=str)
+    assert "longitude" not in json.dumps(service.notifications, default=str)
+    assert {item["notification_type"] for item in service.notifications} >= {
+        "location_public_invite_submitted"
+    }
+
+
+def test_public_invite_submission_without_key_never_creates_access() -> None:
+    service = FourUserMemoryService()
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    submitted = service.submit_public_invite_request(
+        public_token=created["publicToken"],
+        visitor_display_name="User C",
+        phone_number="+1 555 010 0003",
+    )
+
+    assert submitted["submission"]["status"] == "identity_pending_key"
+    assert submitted["submission"]["matchedUserId"] == "user_c"
+    assert submitted["request"] is None
+    assert service.requests == {}

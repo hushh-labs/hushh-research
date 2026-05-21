@@ -279,14 +279,16 @@
         "one_location_access_requests",
         "one_location_envelopes",
         "one_location_events",
+        "one_location_public_invite_submissions",
+        "one_location_public_invites",
         "one_location_recipient_keys",
         "one_location_referrals",
         "one_location_share_grants"
       ],
-      "primary_access_path": "One Location Agent verified-recipient directory, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, referrals, revocation, expiry, and metadata-only audit",
+      "primary_access_path": "One Location Agent verified-recipient directory, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, referrals, revocation, expiry, and metadata-only audit",
       "retention_policy": "Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",
       "deletion_behavior": "Delete rows where the deleting account is owner, recipient, requester, referrer, referred user, or key owner; revoke active grants before deletion where possible.",
-      "trust_boundary": "Coordinates exist only on owner and recipient devices. Backend stores recipient public keys, grant metadata, ciphertext envelopes, and audit metadata; it must not store latitude, longitude, addresses, map previews, or movement trails.",
+      "trust_boundary": "Coordinates exist only on owner and recipient devices. Backend stores recipient public keys, grant metadata, ciphertext envelopes, public invite token hashes, request metadata, and audit metadata; it must not store latitude, longitude, addresses, map previews, or movement trails. Public invite links can request access only and never reveal location.",
       "plaintext_posture": "ciphertext_coordinates_and_metadata_only",
       "expected_row_growth": "medium_per_user_share"
     },

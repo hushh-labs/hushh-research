@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import secrets
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -168,6 +169,29 @@ def _mask_phone(value: Any) -> str | None:
     if len(digits) <= 4:
         return f"***{digits}"
     return f"{'*' * max(3, len(digits) - 4)}{digits[-4:]}"
+
+
+def _normalize_phone_digits(value: Any) -> str:
+    return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+
+def _hash_public_value(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _public_invite_url(token: str) -> str:
+    base = (
+        (
+            os.getenv("NEXT_PUBLIC_APP_URL")
+            or os.getenv("APP_PUBLIC_URL")
+            or os.getenv("FRONTEND_BASE_URL")
+            or ""
+        )
+        .strip()
+        .rstrip("/")
+    )
+    path = f"/location/request/{token}"
+    return f"{base}{path}" if base else path
 
 
 def _identity_display_label(row: dict[str, Any] | None, fallback: str = "A trusted person") -> str:
@@ -365,6 +389,34 @@ class OneLocationAgentService:
             logger.debug("one.location.identity_lookup_failed user=%s error=%s", user_id, exc)
             return None
 
+    def _identity_row_by_phone_digits(self, phone_digits: str) -> dict[str, Any] | None:
+        local_digits = phone_digits[-10:] if len(phone_digits) >= 10 else phone_digits
+        try:
+            return self._execute_one(
+                """
+                SELECT user_id, display_name, phone_number, phone_verified
+                FROM actor_identity_cache
+                WHERE phone_verified = TRUE
+                  AND (
+                    regexp_replace(COALESCE(phone_number, ''), '[^0-9]', '', 'g') = :phone_digits
+                    OR RIGHT(
+                      regexp_replace(COALESCE(phone_number, ''), '[^0-9]', '', 'g'),
+                      :local_digits_length
+                    ) = :local_digits
+                  )
+                ORDER BY last_synced_at DESC NULLS LAST, updated_at DESC NULLS LAST
+                LIMIT 1
+                """,
+                {
+                    "phone_digits": phone_digits,
+                    "local_digits": local_digits,
+                    "local_digits_length": len(local_digits),
+                },
+            )
+        except Exception as exc:
+            logger.debug("one.location.phone_identity_lookup_failed error=%s", exc)
+            return None
+
     @staticmethod
     def _recipient_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
         if not row:
@@ -459,6 +511,44 @@ class OneLocationAgentService:
             "requestId": str(row.get("request_id") or "") or None,
             "status": str(row.get("status") or "pending_owner_approval"),
             "createdAt": _iso(row.get("created_at")),
+            "resolvedAt": _iso(row.get("resolved_at")),
+        }
+
+    @staticmethod
+    def _public_invite_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not row:
+            return None
+        owner_label = str(row.get("owner_display_name") or "").strip()
+        owner_masked_phone = _mask_phone(row.get("owner_phone_number"))
+        return {
+            "id": str(row.get("id") or ""),
+            "ownerUserId": str(row.get("owner_user_id") or ""),
+            "ownerDisplayName": owner_label or None,
+            "ownerMaskedPhone": owner_masked_phone,
+            "status": str(row.get("status") or "active"),
+            "durationHours": float(row.get("duration_hours") or 0),
+            "expiresAt": _iso(row.get("expires_at")),
+            "createdAt": _iso(row.get("created_at")),
+            "updatedAt": _iso(row.get("updated_at")),
+            "revokedAt": _iso(row.get("revoked_at")),
+        }
+
+    @staticmethod
+    def _public_submission_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not row:
+            return None
+        return {
+            "id": str(row.get("id") or ""),
+            "inviteId": str(row.get("invite_id") or ""),
+            "ownerUserId": str(row.get("owner_user_id") or ""),
+            "visitorDisplayName": str(row.get("visitor_display_name") or ""),
+            "visitorMaskedPhone": _mask_phone(row.get("visitor_phone_last4")),
+            "matchedUserId": str(row.get("matched_user_id") or "") or None,
+            "requestId": str(row.get("request_id") or "") or None,
+            "requestStatus": str(row.get("request_status") or "") or None,
+            "status": str(row.get("status") or "pending_identity"),
+            "message": str(row.get("message") or "") or None,
+            "submittedAt": _iso(row.get("submitted_at")),
             "resolvedAt": _iso(row.get("resolved_at")),
         }
 
@@ -899,6 +989,250 @@ class OneLocationAgentService:
             "envelope": self._envelope_payload(row),
         }
 
+    def _expire_public_invite(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not row or str(row.get("status") or "") != "active":
+            return row
+        expires_at = _parse_datetime(row.get("expires_at"), field_name="expires_at")
+        if expires_at > _utcnow():
+            return row
+        updated = self._execute_one(
+            """
+            UPDATE one_location_public_invites
+            SET status = 'expired', updated_at = NOW()
+            WHERE id = CAST(:invite_id AS UUID)
+              AND status = 'active'
+            RETURNING *
+            """,
+            {"invite_id": str(row.get("id") or "")},
+        )
+        return updated or {**row, "status": "expired"}
+
+    def create_public_invite(
+        self,
+        *,
+        owner_user_id: str,
+        duration_hours: float,
+    ) -> dict[str, Any]:
+        if not owner_user_id:
+            raise OneLocationAgentError(
+                "LOCATION_AUTH_REQUIRED", "A user is required.", status_code=401
+            )
+        try:
+            duration = normalize_duration_hours(duration_hours)
+        except ValueError as exc:
+            raise OneLocationAgentError(
+                "LOCATION_DURATION_INVALID",
+                str(exc),
+                status_code=422,
+            ) from exc
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = _hash_public_value(raw_token)
+        expires_at = _utcnow() + timedelta(hours=duration)
+        row = self._execute_one(
+            """
+            INSERT INTO one_location_public_invites (
+              owner_user_id, public_code_hash, status, duration_hours,
+              expires_at, created_at, updated_at, metadata
+            )
+            VALUES (
+              :owner_user_id, :public_code_hash, 'active', :duration_hours,
+              :expires_at, NOW(), NOW(), '{}'::jsonb
+            )
+            RETURNING *
+            """,
+            {
+                "owner_user_id": owner_user_id,
+                "public_code_hash": token_hash,
+                "duration_hours": duration,
+                "expires_at": expires_at,
+            },
+        )
+        invite = self._public_invite_payload(row)
+        if not invite:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_INVITE_CREATE_FAILED",
+                "Could not create the public request link.",
+                status_code=500,
+            )
+        self._insert_event(
+            owner_user_id=owner_user_id,
+            actor_user_id=owner_user_id,
+            event_type="location_public_invite_created",
+            metadata={"invite_id": invite["id"], "duration_hours": duration},
+        )
+        return {
+            "invite": invite,
+            "publicToken": raw_token,
+            "publicUrl": _public_invite_url(raw_token),
+        }
+
+    def resolve_public_invite(self, *, public_token: str) -> dict[str, Any]:
+        normalized_token = str(public_token or "").strip()
+        if len(normalized_token) < 16:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_INVITE_INVALID",
+                "This request link is invalid.",
+                status_code=404,
+            )
+        row = self._execute_one(
+            """
+            SELECT
+              i.*,
+              owner.display_name AS owner_display_name,
+              owner.phone_number AS owner_phone_number
+            FROM one_location_public_invites i
+            LEFT JOIN actor_identity_cache owner ON owner.user_id = i.owner_user_id
+            WHERE i.public_code_hash = :public_code_hash
+            LIMIT 1
+            """,
+            {"public_code_hash": _hash_public_value(normalized_token)},
+        )
+        row = self._expire_public_invite(row)
+        invite = self._public_invite_payload(row)
+        if not invite or invite["status"] != "active":
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_INVITE_NOT_ACTIVE",
+                "This request link is no longer active.",
+                status_code=410 if invite else 404,
+            )
+        return {"invite": invite}
+
+    def submit_public_invite_request(
+        self,
+        *,
+        public_token: str,
+        visitor_display_name: str,
+        phone_number: str,
+        message: str | None = None,
+    ) -> dict[str, Any]:
+        invite = self.resolve_public_invite(public_token=public_token)["invite"]
+        display_name = str(visitor_display_name or "").strip()
+        if len(display_name) < 2:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_VISITOR_NAME_REQUIRED",
+                "Enter your name before requesting location access.",
+                status_code=422,
+            )
+        phone_digits = _normalize_phone_digits(phone_number)
+        if len(phone_digits) < 8 or len(phone_digits) > 15:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_VISITOR_PHONE_INVALID",
+                "Enter a valid phone number before requesting location access.",
+                status_code=422,
+            )
+        message_value = (message or "").strip()[:500] or None
+        owner_user_id = invite["ownerUserId"]
+        matched_identity = self._identity_row_by_phone_digits(phone_digits)
+        matched_user_id = str(matched_identity.get("user_id") or "") if matched_identity else None
+        status_value = "pending_identity"
+        request: dict[str, Any] | None = None
+        if matched_user_id == owner_user_id:
+            matched_user_id = None
+        if matched_user_id:
+            try:
+                request = self.request_access(
+                    requester_user_id=matched_user_id,
+                    owner_user_id=owner_user_id,
+                    message=message_value or f"Public request from {display_name}",
+                    notify_owner=False,
+                )
+                status_value = "matched_request_pending"
+            except OneLocationAgentError as exc:
+                if exc.code != "LOCATION_RECIPIENT_UNAVAILABLE":
+                    raise
+                status_value = "identity_pending_key"
+        row = self._execute_one(
+            """
+            INSERT INTO one_location_public_invite_submissions (
+              invite_id, owner_user_id, visitor_display_name, visitor_phone_hash,
+              visitor_phone_last4, matched_user_id, request_id, status, message,
+              submitted_at, metadata
+            )
+            VALUES (
+              CAST(:invite_id AS UUID), :owner_user_id, :visitor_display_name,
+              :visitor_phone_hash, :visitor_phone_last4, :matched_user_id,
+              CAST(:request_id AS UUID), :status, :message, NOW(), '{}'::jsonb
+            )
+            RETURNING *
+            """,
+            {
+                "invite_id": invite["id"],
+                "owner_user_id": owner_user_id,
+                "visitor_display_name": display_name[:120],
+                "visitor_phone_hash": _hash_public_value(phone_digits),
+                "visitor_phone_last4": phone_digits[-4:],
+                "matched_user_id": matched_user_id,
+                "request_id": request["id"] if request else None,
+                "status": status_value,
+                "message": message_value,
+            },
+        )
+        submission = self._public_submission_payload(row)
+        if not submission:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_SUBMISSION_FAILED",
+                "Could not send the public location request.",
+                status_code=500,
+            )
+        self._insert_event(
+            owner_user_id=owner_user_id,
+            actor_user_id=matched_user_id,
+            recipient_user_id=matched_user_id,
+            request_id=request["id"] if request else None,
+            event_type="location_public_invite_submitted",
+            metadata={
+                "invite_id": invite["id"],
+                "submission_id": submission["id"],
+                "matched": bool(matched_user_id),
+                "request_created": bool(request),
+            },
+        )
+        self._send_metadata_notification(
+            user_id=owner_user_id,
+            notification_type="location_public_invite_submitted",
+            title="Public location request",
+            body=f"{display_name[:80]} requested location access from your link.",
+            notification_tag=f"one-location-public-request:{submission['id']}",
+            request_url=_one_location_url(requestId=request["id"] if request else None),
+            data={
+                "submission_id": submission["id"],
+                "invite_id": invite["id"],
+                "request_id": request["id"] if request else None,
+                "visitor_display_label": display_name[:80],
+                "visitor_masked_phone": _mask_phone(phone_digits),
+                "matched_user_id": matched_user_id,
+                "status": status_value,
+            },
+        )
+        return {"submission": submission, "request": request}
+
+    def revoke_public_invite(self, *, owner_user_id: str, invite_id: str) -> dict[str, Any]:
+        row = self._execute_one(
+            """
+            UPDATE one_location_public_invites
+            SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+            WHERE id = CAST(:invite_id AS UUID)
+              AND owner_user_id = :owner_user_id
+              AND status = 'active'
+            RETURNING *
+            """,
+            {"owner_user_id": owner_user_id, "invite_id": invite_id},
+        )
+        if not row:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_INVITE_NOT_FOUND",
+                "Active public request link was not found.",
+                status_code=404,
+            )
+        invite = self._public_invite_payload(row) or {}
+        self._insert_event(
+            owner_user_id=owner_user_id,
+            actor_user_id=owner_user_id,
+            event_type="location_public_invite_revoked",
+            metadata={"invite_id": invite_id},
+        )
+        return invite
+
     def list_state(self, *, user_id: str) -> dict[str, Any]:
         self._expire_stale_grants(user_id)
         recipients = self.list_verified_recipients(owner_user_id=user_id)
@@ -956,6 +1290,30 @@ class OneLocationAgentService:
             """,
             {"user_id": user_id},
         )
+        public_invites = self._execute_many(
+            """
+            SELECT *
+            FROM one_location_public_invites
+            WHERE owner_user_id = :user_id
+            ORDER BY created_at DESC
+            LIMIT 20
+            """,
+            {"user_id": user_id},
+        )
+        public_submissions = self._execute_many(
+            """
+            SELECT
+              submission.*,
+              req.status AS request_status
+            FROM one_location_public_invite_submissions submission
+            LEFT JOIN one_location_access_requests req ON req.id = submission.request_id
+            WHERE submission.owner_user_id = :user_id
+               OR submission.matched_user_id = :user_id
+            ORDER BY submission.submitted_at DESC
+            LIMIT 50
+            """,
+            {"user_id": user_id},
+        )
         return {
             "recipients": recipients,
             "ownerGrants": [
@@ -966,6 +1324,16 @@ class OneLocationAgentService:
             ],
             "requests": [payload for row in requests if (payload := self._request_payload(row))],
             "referrals": [payload for row in referrals if (payload := self._referral_payload(row))],
+            "publicInvites": [
+                payload
+                for row in public_invites
+                if (payload := self._public_invite_payload(self._expire_public_invite(row)))
+            ],
+            "publicInviteSubmissions": [
+                payload
+                for row in public_submissions
+                if (payload := self._public_submission_payload(row))
+            ],
             "capabilityScopes": LOCATION_CAPABILITY_SCOPES,
         }
 
@@ -1020,6 +1388,7 @@ class OneLocationAgentService:
         owner_user_id: str,
         message: str | None = None,
         referred_by_user_id: str | None = None,
+        notify_owner: bool = True,
     ) -> dict[str, Any]:
         if requester_user_id == owner_user_id:
             raise OneLocationAgentError(
@@ -1094,23 +1463,24 @@ class OneLocationAgentService:
         )
         requester_identity = self._identity_row(requester_user_id)
         requester_label = _identity_display_label(requester_identity, fallback="Someone")
-        self._send_metadata_notification(
-            user_id=owner_user_id,
-            notification_type="location_access_request",
-            title="Location access request",
-            body=f"{requester_label} is asking to view your location.",
-            notification_tag=f"one-location-request:{request['id']}",
-            request_url=_one_location_url(requestId=request["id"]),
-            data={
-                "request_id": request["id"],
-                "requester_user_id": requester_user_id,
-                "requester_display_label": requester_label,
-                "requester_masked_phone": _mask_phone(requester_identity.get("phone_number"))
-                if requester_identity
-                else None,
-                "referred_by_user_id": referred_by_user_id,
-            },
-        )
+        if notify_owner:
+            self._send_metadata_notification(
+                user_id=owner_user_id,
+                notification_type="location_access_request",
+                title="Location access request",
+                body=f"{requester_label} is asking to view your location.",
+                notification_tag=f"one-location-request:{request['id']}",
+                request_url=_one_location_url(requestId=request["id"]),
+                data={
+                    "request_id": request["id"],
+                    "requester_user_id": requester_user_id,
+                    "requester_display_label": requester_label,
+                    "requester_masked_phone": _mask_phone(requester_identity.get("phone_number"))
+                    if requester_identity
+                    else None,
+                    "referred_by_user_id": referred_by_user_id,
+                },
+            )
         return request
 
     def approve_request(

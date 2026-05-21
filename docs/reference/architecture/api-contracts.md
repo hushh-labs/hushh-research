@@ -156,10 +156,13 @@ resolve intake.
 ### One Location Agent
 
 One Location Agent is One-owned live-location sharing for trusted people. The
-route family is authenticated and ciphertext-only. Public bearer links,
-server-readable latitude/longitude, reverse geocoding, map thumbnails, and
-movement trails do not belong in this contract. The maintained architecture
-reference is [One Location Agent](./one-location-agent.md).
+route family is authenticated and ciphertext-only for all live-location reads.
+Public bearer links that reveal location, server-readable latitude/longitude,
+reverse geocoding, map thumbnails, and movement trails do not belong in this
+contract. Scope-2 public links are request-only: they collect visitor metadata
+and route the workflow back to owner approval; they never reveal live location.
+The maintained architecture reference is
+[One Location Agent](./one-location-agent.md).
 
 The older KAI location route family is transitional prototype history and is
 not the product owner for live location.
@@ -169,6 +172,10 @@ not the product owner for live location.
 | GET | `/api/one/location/state` | VAULT_OWNER Bearer | List verified recipient directory, owner grants, received grants, pending requests, and referrals for the authenticated user |
 | GET | `/api/one/location/recipients` | VAULT_OWNER Bearer | List phone-verified users excluding self, with masked labels and active public key metadata only |
 | POST | `/api/one/location/recipient-keys` | VAULT_OWNER Bearer | Register the authenticated user's recipient public key; private key remains device-local |
+| POST | `/api/one/location/public-invites` | VAULT_OWNER Bearer | Create a duration-bounded public request link; the raw token is returned once and only its hash is stored |
+| GET | `/api/one/location/public-invites/{public_token}` | Public | Resolve request-link metadata only: owner label, status, duration, and expiry |
+| POST | `/api/one/location/public-invites/{public_token}/submit` | Public | Submit visitor name, phone, and optional message as metadata-only request intent; creates an owner approval request only for matched verified/keyed Hussh users |
+| DELETE | `/api/one/location/public-invites/{invite_id}` | VAULT_OWNER Bearer | Revoke an active public request link |
 | POST | `/api/one/location/grants` | VAULT_OWNER Bearer | Create a duration-bounded owner-approved grant for one verified recipient identity/key |
 | POST | `/api/one/location/grants/{grant_id}/envelopes` | VAULT_OWNER Bearer | Store the owner-device encrypted latest-location envelope; backend receives ciphertext and metadata only |
 | GET | `/api/one/location/grants/{grant_id}/envelope` | VAULT_OWNER Bearer | Return ciphertext only to the exact approved recipient while grant is active |

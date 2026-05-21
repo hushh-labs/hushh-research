@@ -1,7 +1,7 @@
 """One Location Agent routes.
 
-The route contract is intentionally authenticated and ciphertext-only. Public
-bearer links and server-readable latitude/longitude do not belong here.
+Live-location reads are authenticated and ciphertext-only. Public invite routes
+are request-only and never return coordinates, ciphertext, or grants.
 """
 
 from __future__ import annotations
@@ -58,6 +58,16 @@ class ReferralRequest(_CamelModel):
     message: str | None = Field(default=None, max_length=500)
 
 
+class CreatePublicInviteRequest(_CamelModel):
+    duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=24)
+
+
+class SubmitPublicInviteRequest(_CamelModel):
+    visitor_display_name: str = Field(alias="visitorDisplayName", min_length=2, max_length=120)
+    phone_number: str = Field(alias="phoneNumber", min_length=8, max_length=32)
+    message: str | None = Field(default=None, max_length=500)
+
+
 def _service() -> OneLocationAgentService:
     return OneLocationAgentService()
 
@@ -92,6 +102,60 @@ async def list_verified_location_recipients(
     try:
         return {
             "recipients": _service().list_verified_recipients(owner_user_id=_user_id(token_data))
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/public-invites")
+async def create_public_location_invite(
+    payload: CreatePublicInviteRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return _service().create_public_invite(
+            owner_user_id=_user_id(token_data),
+            duration_hours=payload.duration_hours,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/public-invites/{public_token}")
+async def resolve_public_location_invite(public_token: str):
+    try:
+        return _service().resolve_public_invite(public_token=public_token)
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/public-invites/{public_token}/submit")
+async def submit_public_location_invite(
+    public_token: str,
+    payload: SubmitPublicInviteRequest,
+):
+    try:
+        return _service().submit_public_invite_request(
+            public_token=public_token,
+            visitor_display_name=payload.visitor_display_name,
+            phone_number=payload.phone_number,
+            message=payload.message,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/location/public-invites/{invite_id}")
+async def revoke_public_location_invite(
+    invite_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return {
+            "invite": _service().revoke_public_invite(
+                owner_user_id=_user_id(token_data),
+                invite_id=invite_id,
+            )
         }
     except Exception as exc:
         raise _handle_error(exc) from exc

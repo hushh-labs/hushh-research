@@ -66,6 +66,8 @@ vi.mock("@/lib/one-location/service", () => ({
     approveRequest: vi.fn(),
     denyRequest: vi.fn(),
     referRecipient: vi.fn(),
+    createPublicInvite: vi.fn(),
+    revokePublicInvite: vi.fn(),
   },
 }));
 
@@ -116,6 +118,8 @@ function locationState() {
     receivedGrants: [],
     requests: [],
     referrals: [],
+    publicInvites: [],
+    publicInviteSubmissions: [],
     capabilityScopes: [
       "cap.location.live.share",
       "cap.location.live.view",
@@ -198,13 +202,14 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("does not render public-link sharing controls", async () => {
+  it("renders a public request-link control that does not promise public location", async () => {
     render(<OneLocationAgentPageContent />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
+    expect(screen.getByText("Create request link")).toBeTruthy();
+    expect(screen.getByText("Public link responses")).toBeTruthy();
     expect(screen.queryByText(/public live-location link/i)).toBeNull();
-    expect(screen.queryByText(/share link/i)).toBeNull();
     expect(screen.queryByText(/whatsapp/i)).toBeNull();
   });
 

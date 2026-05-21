@@ -2,7 +2,7 @@
 
 Status: v1 implementation contract
 Owner: One + IAM/consent governance
-Last updated: 2026-05-20
+Last updated: 2026-05-21
 
 ## Visual Map
 
@@ -75,12 +75,19 @@ reverse geocode, map, notify, or inspect latitude/longitude.
 
 ## Authorization Contract
 
-All One Location Agent routes require a VAULT_OWNER bearer token.
+All live-location grant, envelope, approval, revocation, and state routes
+require a VAULT_OWNER bearer token. Scope-2 public invite routes are the only
+public exceptions, and they are request-only. They may resolve safe owner/link
+metadata and accept visitor name/phone/message, but they never return
+coordinates, ciphertext, grants, map embeds, or share authority.
 
 - `actor_identity_cache.phone_verified = true` is eligibility only.
 - Each recipient needs a separate active grant.
 - Expiry and revocation block reads before ciphertext is returned.
 - Referrals create access requests only; they never forward access.
+- Public invite submissions create access requests only when the visitor maps
+  to a verified Hussh user with active recipient key material; otherwise they
+  remain metadata-only intent for follow-up.
 - Consent/audit records are metadata-only.
 
 Capability scopes:
@@ -99,8 +106,32 @@ envelope publishing, ciphertext viewing, revocation, access requests, request
 resolution, and referrals. Tools validate their capability scope per invocation
 and delegate persistence to `OneLocationAgentService`.
 
-The agent refuses public bearer links, plaintext server coordinates, and
-referrals that grant access without owner approval.
+The agent refuses public bearer links that reveal location, plaintext server
+coordinates, and referrals or public submissions that grant access without owner
+approval.
+
+## Public Request Links
+
+Scope-2 public sharing is a request-link workflow, not a public live-location
+viewer.
+
+1. The authenticated owner creates a duration-bounded public request link from
+   `/one/location`.
+2. The backend returns the raw token once and stores only its hash.
+3. The public page `/location/request/{token}` asks the visitor for name, phone,
+   and optional message.
+4. The public page submits metadata only. It never displays a map or location.
+5. If the phone maps to a verified/keyed Hussh user, One creates a normal
+   pending access request for owner approval.
+6. If the phone does not have usable Hussh identity/key material, the submission
+   stays pending identity/key setup.
+7. Owner approval still creates a fresh recipient-scoped grant and the owner
+   device still encrypts the coordinate envelope for that recipient.
+
+Public invite tables store token hashes, status, expiry, visitor display name,
+phone hash/last4, matched user id when available, and request linkage. They must
+not store raw phone numbers, raw invite tokens, coordinates, addresses, map
+previews, or movement/freshness trails.
 
 ## Notification Contract
 
@@ -143,6 +174,7 @@ The implementation must prove:
 - expired/revoked grants block reads
 - referrals create requests but no access
 - notification and audit metadata contain no coordinates
+- public request links store token hashes only and never reveal location
 - web, iOS, and Android have foreground permission parity
 - A/B/C/D flow is covered at service, authenticated API route, and browser
   crypto levels

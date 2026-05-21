@@ -4,6 +4,8 @@ import type {
   OneLocationAccessRequest,
   OneLocationEncryptedEnvelope,
   OneLocationGrant,
+  OneLocationPublicInvite,
+  OneLocationPublicInviteSubmission,
   OneLocationRecipient,
   OneLocationReferral,
   OneLocationState,
@@ -93,6 +95,73 @@ export class OneLocationService {
     return apiJsonWithRetry<OneLocationState>("/api/one/location/state", {
       headers: jsonAuthHeaders(vaultOwnerToken),
     });
+  }
+
+  static async createPublicInvite(params: {
+    vaultOwnerToken: string;
+    durationHours: number;
+  }): Promise<{
+    invite: OneLocationPublicInvite;
+    publicToken: string;
+    publicUrl: string;
+  }> {
+    return apiJsonWithRetry(
+      "/api/one/location/public-invites",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ durationHours: params.durationHours }),
+      },
+      1,
+    );
+  }
+
+  static async resolvePublicInvite(publicToken: string): Promise<{
+    invite: OneLocationPublicInvite;
+  }> {
+    return apiJsonWithRetry(
+      `/api/one/location/public-invites/${encodeURIComponent(publicToken)}`,
+      {},
+      1,
+    );
+  }
+
+  static async submitPublicInviteRequest(params: {
+    publicToken: string;
+    visitorDisplayName: string;
+    phoneNumber: string;
+    message?: string;
+  }): Promise<{
+    submission: OneLocationPublicInviteSubmission;
+    request: OneLocationAccessRequest | null;
+  }> {
+    return apiJsonWithRetry(
+      `/api/one/location/public-invites/${encodeURIComponent(params.publicToken)}/submit`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          visitorDisplayName: params.visitorDisplayName,
+          phoneNumber: params.phoneNumber,
+          message: params.message,
+        }),
+      },
+      1,
+    );
+  }
+
+  static async revokePublicInvite(params: {
+    vaultOwnerToken: string;
+    inviteId: string;
+  }): Promise<OneLocationPublicInvite> {
+    const response = await apiJson<{ invite: OneLocationPublicInvite }>(
+      `/api/one/location/public-invites/${encodeURIComponent(params.inviteId)}`,
+      {
+        method: "DELETE",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+      },
+    );
+    return response.invite;
   }
 
   static async createGrant(params: {

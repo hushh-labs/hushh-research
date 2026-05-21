@@ -368,7 +368,8 @@ function isOneLocationWorkflowNotificationType(
     value === "location_share_expired" ||
     value === "location_access_request" ||
     value === "location_access_denied" ||
-    value === "location_referral_invite"
+    value === "location_referral_invite" ||
+    value === "location_public_invite_submitted"
   );
 }
 
@@ -398,11 +399,20 @@ function oneLocationReferringLabel(data: Record<string, string>): string {
   );
 }
 
+function oneLocationVisitorLabel(data: Record<string, string>): string {
+  return (
+    String(data.visitor_display_label || "").trim() ||
+    String(data.visitor_label || "").trim() ||
+    "Someone"
+  );
+}
+
 function oneLocationNotificationId(data: Record<string, string>): string {
   return (
     String(data.grant_id || "").trim() ||
     String(data.approved_grant_id || "").trim() ||
     String(data.request_id || "").trim() ||
+    String(data.submission_id || "").trim() ||
     String(data.referral_id || "").trim() ||
     String(data.notification_tag || "").trim()
   );
@@ -656,6 +666,7 @@ export function ConsentNotificationProvider({
       const grantId = String(data.grant_id || data.approved_grant_id || "").trim();
       const requestId = String(data.request_id || "").trim();
       const referralId = String(data.referral_id || "").trim();
+      const submissionId = String(data.submission_id || "").trim();
       const id = oneLocationNotificationId(data);
       if (!id) return;
 
@@ -671,6 +682,7 @@ export function ConsentNotificationProvider({
         ownerLabel: oneLocationOwnerLabel(data),
         requesterLabel: oneLocationRequesterLabel(data),
         referringLabel: oneLocationReferringLabel(data),
+        visitorLabel: oneLocationVisitorLabel(data),
       });
       const routeHref = buildOneLocationWorkflowHref({
         grantId,
@@ -689,11 +701,12 @@ export function ConsentNotificationProvider({
           grantId: grantId || null,
           requestId: requestId || null,
           referralId: referralId || null,
+          submissionId: submissionId || null,
         },
       });
       dispatchConsentStateChanged({
         source: "one_location_notification",
-        requestId: requestId || grantId || referralId,
+        requestId: requestId || grantId || referralId || submissionId,
         notificationType: msgType,
       });
       if (!created) return;
@@ -1027,7 +1040,13 @@ export function ConsentNotificationProvider({
       const msgType = data.type;
 
       // Dedup: skip if we've already processed this exact message
-      const msgId = data.message_id || data.request_id || data.bundle_id || data.grant_id || "";
+      const msgId =
+        data.message_id ||
+        data.request_id ||
+        data.bundle_id ||
+        data.grant_id ||
+        data.submission_id ||
+        "";
       const dedupKey = `${msgType}:${msgId}`;
       if (msgId && toastedIdsRef.current.has(dedupKey)) return;
       if (msgId) toastedIdsRef.current.add(dedupKey);
