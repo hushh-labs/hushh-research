@@ -29,7 +29,7 @@ class AgentChatStreamRequest(BaseModel):
     user_id: str = Field(..., min_length=1)
     message: str = Field(..., min_length=1, max_length=8000)
     conversation_id: Optional[str] = None
-    pkm_context: Optional[str] = Field(default=None, max_length=6000)
+    pkm_context: Optional[str] = Field(default=None, max_length=20000)
 
 
 class AgentChatRenameRequest(BaseModel):
@@ -302,9 +302,10 @@ async def stream_agent_chat(
             )
 
     headers = {
-        "Cache-Control": "no-cache",
+        "Cache-Control": "no-cache, no-transform",
         "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
+        "X-Content-Type-Options": "nosniff",
         "X-Agent-Conversation-Id": turn.conversation_id,
         "X-Agent-Model": turn.model,
     }

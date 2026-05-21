@@ -11,6 +11,7 @@ import {
   PkmWriteCoordinator,
   type PkmWriteCoordinatorResult,
 } from "@/lib/services/pkm-write-coordinator";
+import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 
 export type AgentPkmDomainChoice = {
   domain_key: string;
@@ -77,6 +78,9 @@ export type AgentPkmContext = {
   domains: string[];
   totalAttributes: number;
   updatedAt: string | null;
+  detailCount?: number;
+  source?: "metadata" | "decrypted_session_pkm";
+  mode?: "summary" | "relevant" | "broad";
 };
 
 export type AgentPkmSaveResult = {
@@ -313,6 +317,9 @@ export async function addToPKM(params: {
   }
 
   const savedResults = results.filter((result) => result.success);
+  if (savedResults.length > 0) {
+    AgentPkmContextStore.invalidateUser(params.userId);
+  }
   return {
     attempted: results.length,
     saved: savedResults.length,
@@ -389,14 +396,39 @@ export function buildAgentPkmContextFromMetadata(
 export async function loadAgentPkmContext(params: {
   userId: string;
   vaultOwnerToken: string;
+  vaultKey?: string | null;
+  message?: string;
   forceRefresh?: boolean;
+  maxChars?: number;
 }): Promise<AgentPkmContext> {
+  if (params.vaultKey) {
+    try {
+      return await AgentPkmContextStore.load({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+        message: params.message,
+        forceRefresh: params.forceRefresh,
+        maxChars: params.maxChars,
+      });
+    } catch {
+      AgentPkmContextStore.invalidateUser(params.userId);
+    }
+  }
   const metadata = await PersonalKnowledgeModelService.getMetadata(
     params.userId,
     params.forceRefresh === true,
     params.vaultOwnerToken
   );
-  return buildAgentPkmContextFromMetadata(metadata);
+  return {
+    ...buildAgentPkmContextFromMetadata(metadata),
+    source: "metadata",
+    mode: "summary",
+  };
+}
+
+export function clearAgentPkmContext(userId?: string): void {
+  AgentPkmContextStore.clear(userId);
 }
 
 export function formatAgentPkmSaveSummary(result: AgentPkmSaveResult): string {
