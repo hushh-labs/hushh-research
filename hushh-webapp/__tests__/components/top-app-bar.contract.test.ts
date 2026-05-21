@@ -45,4 +45,13 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("router.push(topShellBreadcrumb.backHref);");
     expect(source).not.toContain("router.back();");
   });
+    it("preserves relationship empty-state messaging contracts", () => {
+    const source = read("components/consent/consent-center-page.tsx");
+
+    expect(source).toContain(
+      "No relationship entries match this view right now.",
+    );
+    expect(source).toContain("relationshipItems.length");
+    expect(source).toContain('value: "relationships"');
+  });
 });
