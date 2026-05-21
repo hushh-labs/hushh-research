@@ -1,73 +1,37 @@
-import type { CSSProperties } from "react";
+import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
-// =============================================================================
-// TYPE CONSTRAINTS SCHEMAS (Enforcing domain type safety over raw strings)
-// =============================================================================
-
-export type NativeAuthTelemetryState = 
-  | "public" 
-  | "authenticated" 
-  | "vault-unlocked" 
-  | "mfa-pending" 
-  | "anonymous";
-
-export type NativeDataTelemetryState = 
-  | "idle" 
-  | "loading" 
-  | "loaded" 
-  | "empty-valid" 
-  | "stale-fallback" 
-  | "error-upstream"
-  | "error"
-  | "booting"
-  | "unavailable-valid"; // Added to resolve the TS2322 error regarding currentDataState string values
-
-export interface NativeRouteMarkerProps {
-  routeId: string;
-  marker: string;
-  authState?: NativeAuthTelemetryState;
-  dataState?: NativeDataTelemetryState;
-  metadata?: Record<string, unknown>; // Feature: Structured diagnostic metadata serialization
+interface SettingsGroupProps {
+  title: ReactNode;
+  eyebrow?: ReactNode;
+  children: ReactNode;
+  className?: string;
 }
 
-// Reusable invisible configuration layout block
-const VISUALLY_HIDDEN_STYLE: CSSProperties = {
-  display: "none",
-  position: "absolute",
-  width: "1px",
-  height: "1px",
-  padding: 0,
-  margin: "-1px",
-  overflow: "hidden",
-  clip: "rect(0, 0, 0, 0)",
-  border: 0,
-};
-
-// =============================================================================
-// CANONICAL COMPONENT NODE (React Server Component)
-// =============================================================================
-
-export function NativeRouteMarker({
-  routeId,
-  marker,
-  authState = "anonymous",
-  dataState = "idle",
-  metadata,
-}: NativeRouteMarkerProps) {
-  
-  // Safely stringify custom payloads for automated E2E test parsing arrays
-  const serializedMetadata = metadata ? JSON.stringify(metadata) : undefined;
-
+export function SettingsGroup({
+  title,
+  eyebrow,
+  children,
+  className,
+}: SettingsGroupProps) {
   return (
-    <div
-      style={VISUALLY_HIDDEN_STYLE}
-      aria-hidden="true"
-      data-testid={marker}
-      data-native-route-marker="true"
-      data-native-route-id={routeId}
-      data-native-auth-default={authState}
-      data-native-data-default={dataState}
-      data-native-metadata={serializedMetadata} // Decoded cleanly in E2E via element.getAttribute('data-native-metadata')
-    />
+    <section className={cn("space-y-3 pt-2", className)}>
+      {/* Rule Fixes:
+        1. Uses a compact <h3> heading for accessibility.
+        2. Keeps the eyebrow inline with the title inside the heading.
+      */}
+      <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground/90 flex items-center gap-2">
+        {eyebrow && (
+          <span className="opacity-75 text-[10px] font-medium bg-muted px-1.5 py-0.5 rounded-md">
+            {eyebrow}
+          </span>
+        )}
+        <span>{title}</span>
+      </h3>
+      
+      <div className="rounded-[20px] border border-border/60 bg-card p-1 divide-y divide-border/40 overflow-hidden">
+        {children}
+      </div>
+    </section>
   );
 }
