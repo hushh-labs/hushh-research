@@ -37,7 +37,9 @@
     "057_marketplace_investor_admission.sql",
     "058_marketplace_investor_actions.sql",
     "059_marketplace_investor_replenisher_runs.sql",
-    "060_kai_location_sharing.sql"
+    "060_kai_location_sharing.sql",
+    "061_consent_exports_export_key_guard.sql",
+    "062_pkm_default_available_visibility.sql"
   ],
   "groups": {
     "iam": [
@@ -73,7 +75,9 @@
       "034_pkm_upgrade_engine.sql",
       "035_strict_zero_knowledge_consent_exports.sql",
       "043_ria_pick_share_artifacts.sql",
-      "048_merge_pkm_domain_summary_rpc.sql"
+      "048_merge_pkm_domain_summary_rpc.sql",
+      "061_consent_exports_export_key_guard.sql",
+      "062_pkm_default_available_visibility.sql"
     ]
   }
 }

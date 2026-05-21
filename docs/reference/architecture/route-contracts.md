@@ -47,7 +47,10 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/register-phone`
 - `/logout`
 - `/labs/profile-appearance`
+- `/agent`
 - `/profile`
+- `/profile/receipts`
+- `/profile/gmail/oauth/return`
 - `/consents`
 - `/one/kyc`
 - `/marketplace`

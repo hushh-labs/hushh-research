@@ -5,7 +5,19 @@ import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import type { PkmWriteCoordinatorResult } from "@/lib/services/pkm-write-coordinator";
 import type { OneKycWorkflow } from "@/lib/services/one-kyc-service";
 import { OneKycService } from "@/lib/services/one-kyc-service";
+import {
+  APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID,
+  buildApprovedDisclosureHtml,
+  buildApprovedDisclosurePlainText,
+  redraftTransformFromInstructions,
+  type ApprovedDisclosureRenderModel,
+  type RedraftTransform,
+  type RenderFact,
+  type RenderSection,
+} from "@/lib/services/one-kyc-approved-disclosure-renderer";
 import { bytesToBase64 } from "@/lib/vault/base64";
+
+export { APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID };
 
 export const KYC_CONNECTOR_PKM_DOMAIN = "kyc_connector" as const;
 export const KYC_CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM" as const;
@@ -60,37 +72,10 @@ type KycDraftExportPayload = {
   payload: Record<string, unknown>;
 };
 
-export type KycDraftStyle = {
-  compact: boolean;
-  formal: boolean;
-  bulletList: boolean;
-  structured: boolean;
-  table: boolean;
-  fullDetail: boolean;
-  human: boolean;
-  cleanHeaders: boolean;
-};
-
-export type KycDraftRenderEntry = {
-  field: string;
-  label: string;
-  value: string;
-  scope: string;
-};
-
-export type KycDraftRenderSection = {
-  scope: string;
-  title: string;
-  entries: KycDraftRenderEntry[];
-  missingFields: string[];
-};
-
-export type KycDraftRenderModel = {
-  accountHolder: string;
-  style: KycDraftStyle;
-  sections: KycDraftRenderSection[];
-  missingFields: string[];
-};
+export type KycDraftStyle = RedraftTransform;
+export type KycDraftRenderEntry = RenderFact;
+export type KycDraftRenderSection = RenderSection;
+export type KycDraftRenderModel = ApprovedDisclosureRenderModel;
 
 const MAX_DRAFT_BODY_LENGTH = 12000;
 
@@ -1052,6 +1037,47 @@ function scopeTitle(scope: string | null | undefined): string {
   return "Approved information";
 }
 
+function workflowCandidateForScope(
+  workflow: OneKycWorkflow,
+  scope: string | null | undefined
+): { label?: string; description?: string } | null {
+  const normalized = String(scope || "");
+  if (!normalized) return null;
+  return (
+    workflow.candidate_scopes?.find((candidate) => candidate.scope === normalized) || null
+  );
+}
+
+function presentationSourceForScope(
+  workflow: OneKycWorkflow,
+  scope: string | null | undefined
+): KycDraftRenderSection["presentationSource"] {
+  const normalized = String(scope || "");
+  if (
+    normalized.startsWith("attr.identity") ||
+    normalized.startsWith("attr.financial")
+  ) {
+    return "first_party_adapter";
+  }
+  const candidate = workflowCandidateForScope(workflow, scope);
+  if (candidate?.label || candidate?.description) return "scope_metadata";
+  return "generic_projection";
+}
+
+function missingPresentationMetadataForScope(
+  workflow: OneKycWorkflow,
+  scope: string | null | undefined
+): string | null {
+  const source = presentationSourceForScope(workflow, scope);
+  return source === "generic_projection" ? String(scope || "") || null : null;
+}
+
+function workflowScopeTitle(workflow: OneKycWorkflow, scope: string | null | undefined): string {
+  const candidate = workflowCandidateForScope(workflow, scope);
+  const label = truncate(candidate?.label, 80);
+  return label || scopeTitle(scope);
+}
+
 function uniqueApprovedKey(
   approvedValues: Record<string, string>,
   field: string,
@@ -1709,6 +1735,7 @@ export class OneKycClientZkService {
     const missingFields: string[] = [];
     const scopeSummaries: KycDraftBuildResult["scopeSummaries"] = [];
     const sections: KycDraftRenderSection[] = [];
+    const missingPresentationMetadata: string[] = [];
     const selectedScopes = payloads
       .map((item) => item.scope || params.workflow.requested_scope || "attr.identity.*")
       .filter((scope): scope is string => Boolean(scope));
@@ -1739,27 +1766,33 @@ export class OneKycClientZkService {
       }
       sections.push({
         scope,
-        title: scopeTitle(scope),
+        title: workflowScopeTitle(params.workflow, scope),
         entries: sectionEntries,
         missingFields: extracted.missingFields,
+        presentationSource: presentationSourceForScope(params.workflow, scope),
       });
+      const missingMetadataScope = missingPresentationMetadataForScope(params.workflow, scope);
+      if (missingMetadataScope && !missingPresentationMetadata.includes(missingMetadataScope)) {
+        missingPresentationMetadata.push(missingMetadataScope);
+      }
       scopeSummaries.push({
         scope,
         approvedFields: Object.keys(extracted.approvedValues),
         missingFields: extracted.missingFields,
       });
     }
-    const style = draftStyleFromInstructions(params.instructions);
+    const style = redraftTransformFromInstructions(params.instructions);
     const renderModel: KycDraftRenderModel = {
+      contractId: APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID,
+      contractVersion: "1.0.0",
       accountHolder: accountHolderLabel(params.workflow),
       style,
       sections,
       missingFields,
+      missingPresentationMetadata,
     };
-    const body = buildApprovedReplyBody({
-      renderModel,
-    });
-    const htmlBody = buildApprovedReplyHtml(body);
+    const body = buildApprovedDisclosurePlainText(renderModel);
+    const htmlBody = buildApprovedDisclosureHtml(renderModel);
     return {
       subject: replySubject(params.workflow.subject),
       body,

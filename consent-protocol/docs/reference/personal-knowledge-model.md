@@ -26,7 +26,16 @@ Until that migration lands, do not describe One-owned PKM as current-state runti
 - `pkm_manifest_paths`
   Private queryable manifest paths for first-party runtime and consent expansion.
 - `pkm_scope_registry`
-  Public queryable scope handles and coarse exposure metadata. No raw internal PKM paths should be exposed outside first-party authenticated tooling.
+  Public queryable scope handles and coarse exposure metadata. Registry rows carry
+  a protocol-owned `visibility_posture`: `private`, `consent_required`, or
+  `default_available`. No raw internal PKM paths should be exposed outside
+  first-party authenticated tooling.
+- `pkm_default_available_projections`
+  Standing safe projections for user-selected `default_available` sections. These
+  rows are generated client-side after vault unlock, contain only consumer-visible
+  projection payloads, and are revocable. They never contain raw encrypted PKM
+  blobs, `pkm.read`, hashes/provenance as shareable values, workflow artifacts,
+  or unrestricted domain payloads.
 - `pkm_events`
   Append-only PKM mutation and replay ledger.
 - `pkm_migration_state`
@@ -69,6 +78,11 @@ local saves fail solely because the cloud projection is temporarily unavailable.
   - `size_bytes`
 - Exact raw JSON paths remain private to first-party authenticated tooling after vault unlock.
 - Public/runtime discovery must use scope handles and coarse metadata, not raw internal PKM paths.
+- Sharing posture is a three-state protocol contract:
+  - `private`: not discoverable or exportable to external connectors.
+  - `consent_required`: discoverable safe label only; data still requires consent and a strict-ZK encrypted export.
+  - `default_available`: discoverable and readable as a user-published safe projection without creating a consent request.
+- `default_available` is projection-only. It does not downgrade vault encryption, does not expose `pkm.read`, and does not grant access to non-consumer-visible data.
 
 ## Partner and CRM boundary
 
@@ -122,6 +136,17 @@ After legacy cutover, PKM still evolves. Those upgrades are a separate system fr
 - The client plans upgrades after vault unlock, decrypts locally, rewrites one domain at a time, re-encrypts, and stores new PKM rows with optimistic concurrency.
 - Upgrade run state and checkpoints are stored server-side as non-secret metadata only.
 - If the app loses the unlocked session mid-upgrade, the next resume must reacquire access locally through the user’s normal vault unlock method.
+
+### Reviewer-backed upgrade evidence
+
+PKM protocol-version bumps require evidence against the current reviewer fixture from runtime env.
+
+- Use `REVIEWER_UID` as the vault-owner user under test; do not substitute copied recipients, counterparties, or older fixture ids.
+- Use `../../scripts/audit_active_pkm_shape_readonly.py` to decrypt active reviewer `pkm_blobs` locally in memory and emit only redacted structural shape, counts, and presentation painpoints.
+- If the local maintainer env lacks reviewer secrets, run the audit with `--gcp-secret-project hushh-pda-uat` so Secret Manager values are loaded into process memory only.
+- Use `../../scripts/eval_pkm_structure_agent.py --phase fresh_chain_60` or deeper phases to run natural prompt chains against the reviewer-shaped manifest/scope surface.
+- Treat duplicate branches, `changes` noise, oversized arrays, deep key-value nesting, and developer metadata paths as upgrade/presentation inputs for the dynamic capability pipeline.
+- Never print plaintext PKM values or send decrypted reviewer payloads to backend ADK/model calls as part of upgrade evidence.
 
 ## Financial protected lane
 

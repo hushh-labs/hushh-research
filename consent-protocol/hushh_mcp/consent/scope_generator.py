@@ -43,6 +43,7 @@ class DynamicScopeGenerator:
         "kyc_connector",
         "kyc_workflow",
     }
+    _VISIBILITY_POSTURES = {"private", "consent_required", "default_available"}
 
     def __init__(self):
         self._supabase = None
@@ -186,6 +187,10 @@ class DynamicScopeGenerator:
         *,
         top_level_path: str | None,
         summary_projection: dict | None = None,
+        visibility_posture: str | None = None,
+        exposure_enabled: bool = True,
+        default_projection_ready: bool = False,
+        default_projection_updated_at: str | None = None,
     ) -> dict[str, object]:
         projection = dict(summary_projection or {})
         normalized_path = cls._normalize_scope_path(
@@ -194,6 +199,11 @@ class DynamicScopeGenerator:
         consumer_visible = (
             bool(normalized_path) and normalized_path not in cls._STRUCTURAL_TOP_LEVEL_SCOPE_PATHS
         )
+        requested_posture = str(visibility_posture or "").strip().lower()
+        if requested_posture not in cls._VISIBILITY_POSTURES:
+            requested_posture = "consent_required"
+        if not exposure_enabled or not consumer_visible:
+            requested_posture = "private"
         return {
             "top_level_scope_path": normalized_path,
             "consumer_visible": bool(
@@ -210,6 +220,13 @@ class DynamicScopeGenerator:
                 projection.get("visibility_reason")
                 or ("consumer_shareable" if consumer_visible else "structural_top_level_path")
             ).strip(),
+            "visibility_posture": requested_posture,
+            "default_projection_ready": bool(
+                requested_posture == "default_available" and default_projection_ready
+            ),
+            "default_projection_updated_at": default_projection_updated_at
+            if requested_posture == "default_available" and default_projection_ready
+            else None,
         }
 
     async def _get_legacy_scope_catalog(self, user_id: str) -> dict[str, dict[str, set[str]]]:
@@ -340,7 +357,7 @@ class DynamicScopeGenerator:
             registry_result = (
                 self.supabase.table("pkm_scope_registry")
                 .select(
-                    "domain,scope_handle,scope_label,exposure_enabled,summary_projection,manifest_version"
+                    "domain,scope_handle,scope_label,exposure_enabled,visibility_posture,default_projection_ready,default_projection_updated_at,summary_projection,manifest_version"
                 )
                 .eq("user_id", user_id)
                 .execute()
@@ -424,15 +441,21 @@ class DynamicScopeGenerator:
             visibility = self._scope_visibility_metadata(
                 top_level_path=summary_projection.get("top_level_scope_path"),
                 summary_projection=summary_projection,
+                visibility_posture=row.get("visibility_posture"),
+                exposure_enabled=row.get("exposure_enabled") is not False,
+                default_projection_ready=row.get("default_projection_ready") is True,
+                default_projection_updated_at=str(row.get("default_projection_updated_at") or "")
+                or None,
             )
             top_level_path = self._normalize_scope_path(visibility.get("top_level_scope_path"))
             if domain and top_level_path:
                 if (
                     visibility.get("consumer_visible") is not False
                     and visibility.get("internal_only") is not True
+                    and visibility.get("visibility_posture") != "private"
                 ):
                     all_consumer_top_levels_by_domain.setdefault(domain, set()).add(top_level_path)
-                    if row.get("exposure_enabled") is not False:
+                    if visibility.get("visibility_posture") != "private":
                         enabled_consumer_top_levels_by_domain.setdefault(domain, set()).add(
                             top_level_path
                         )
@@ -442,6 +465,11 @@ class DynamicScopeGenerator:
                     "manifest_revision": row.get("manifest_version"),
                     "source_kind": "pkm_scope_registry",
                     "exposure_enabled": row.get("exposure_enabled") is not False,
+                    "visibility_posture": visibility.get("visibility_posture"),
+                    "default_projection_ready": visibility.get("default_projection_ready") is True,
+                    "default_projection_updated_at": visibility.get(
+                        "default_projection_updated_at"
+                    ),
                     "consumer_visible": visibility.get("consumer_visible") is not False,
                     "internal_only": visibility.get("internal_only") is True,
                     "visibility_reason": visibility.get("visibility_reason"),
@@ -475,6 +503,9 @@ class DynamicScopeGenerator:
                     "visibility_reason": "internal_runtime_domain"
                     if domain_internal
                     else "consumer_shareable",
+                    "visibility_posture": "private" if domain_internal else "consent_required",
+                    "default_projection_ready": False,
+                    "default_projection_updated_at": None,
                 }
             )
 
@@ -493,7 +524,7 @@ class DynamicScopeGenerator:
             ]
             for path in [path for path in top_level_paths if path]:
                 registry_meta = registry_by_top_level.get((domain, path), {})
-                if registry_meta.get("exposure_enabled") is False:
+                if registry_meta.get("visibility_posture") == "private":
                     continue
                 _upsert_scope_entry(
                     {
@@ -517,6 +548,14 @@ class DynamicScopeGenerator:
                         "visibility_reason": "internal_runtime_domain"
                         if domain_internal
                         else registry_meta.get("visibility_reason"),
+                        "visibility_posture": "private"
+                        if domain_internal
+                        else registry_meta.get("visibility_posture") or "consent_required",
+                        "default_projection_ready": registry_meta.get("default_projection_ready")
+                        is True,
+                        "default_projection_updated_at": registry_meta.get(
+                            "default_projection_updated_at"
+                        ),
                     }
                 )
             for raw_path in row.get("externalizable_paths") or []:
@@ -526,7 +565,7 @@ class DynamicScopeGenerator:
                 manifest_externalizable_paths.add((domain, path))
                 top_level = path.split(".", 1)[0]
                 registry_meta = registry_by_top_level.get((domain, top_level), {})
-                if registry_meta.get("exposure_enabled") is False:
+                if registry_meta.get("visibility_posture") == "private":
                     continue
                 _upsert_scope_entry(
                     {
@@ -550,6 +589,14 @@ class DynamicScopeGenerator:
                         "visibility_reason": "internal_runtime_domain"
                         if domain_internal
                         else registry_meta.get("visibility_reason"),
+                        "visibility_posture": "private"
+                        if domain_internal
+                        else registry_meta.get("visibility_posture") or "consent_required",
+                        "default_projection_ready": registry_meta.get("default_projection_ready")
+                        is True,
+                        "default_projection_updated_at": registry_meta.get(
+                            "default_projection_updated_at"
+                        ),
                     }
                 )
 
@@ -565,7 +612,7 @@ class DynamicScopeGenerator:
             domain_internal = self._is_internal_only_domain(domain)
             top_level = path.split(".", 1)[0]
             registry_meta = registry_by_top_level.get((domain, top_level), {})
-            if registry_meta.get("exposure_enabled") is False:
+            if registry_meta.get("visibility_posture") == "private":
                 continue
             _upsert_scope_entry(
                 {
@@ -591,6 +638,14 @@ class DynamicScopeGenerator:
                     "visibility_reason": "internal_runtime_domain"
                     if domain_internal
                     else registry_meta.get("visibility_reason"),
+                    "visibility_posture": "private"
+                    if domain_internal
+                    else registry_meta.get("visibility_posture") or "consent_required",
+                    "default_projection_ready": registry_meta.get("default_projection_ready")
+                    is True,
+                    "default_projection_updated_at": registry_meta.get(
+                        "default_projection_updated_at"
+                    ),
                 }
             )
 
@@ -614,6 +669,9 @@ class DynamicScopeGenerator:
                     "consumer_visible": True,
                     "internal_only": False,
                     "visibility_reason": "consumer_shareable",
+                    "visibility_posture": "consent_required",
+                    "default_projection_ready": False,
+                    "default_projection_updated_at": None,
                 }
             )
             for path in sorted(entry.get("wildcards", set())):
@@ -632,6 +690,9 @@ class DynamicScopeGenerator:
                         "consumer_visible": True,
                         "internal_only": False,
                         "visibility_reason": "consumer_shareable",
+                        "visibility_posture": "consent_required",
+                        "default_projection_ready": False,
+                        "default_projection_updated_at": None,
                     }
                 )
             for path in sorted(entry.get("paths", set())):
@@ -650,6 +711,9 @@ class DynamicScopeGenerator:
                         "consumer_visible": True,
                         "internal_only": False,
                         "visibility_reason": "consumer_shareable",
+                        "visibility_posture": "consent_required",
+                        "default_projection_ready": False,
+                        "default_projection_updated_at": None,
                     }
                 )
         return [entries[scope] for scope in sorted(entries)]
@@ -765,6 +829,8 @@ class DynamicScopeGenerator:
                 if not include_internal and (
                     entry.get("internal_only") is True or entry.get("consumer_visible") is False
                 ):
+                    continue
+                if not include_internal and entry.get("visibility_posture") == "private":
                     continue
                 if not include_exact_paths and entry.get("wildcard") is not True:
                     continue

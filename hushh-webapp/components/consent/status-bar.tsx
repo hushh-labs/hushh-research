@@ -128,7 +128,7 @@ export function ConsentStatusBar({ className = "" }: ConsentStatusBarProps) {
           <div className="space-y-2 text-xs">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Scope:</span>
-              <span className="font-mono">vault.read.all</span>
+              <span className="font-mono">vault.owner</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Expires:</span>

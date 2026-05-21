@@ -36,7 +36,7 @@ This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the st
    - `consent`
    - `marketplace`
    - `developers`
-11. Email draft HTML is not route UI. Email Helper drafts must use the shared strict-ZK renderer so plaintext and Gmail-safe HTML stay synchronized, responsive, and free of consumer-facing implementation noise.
+11. Email draft HTML is not route UI. Email Helper drafts must use the shared `agent_kyc.approved_disclosure_formatter.v1` strict-ZK renderer so plaintext and Gmail-safe HTML stay synchronized, responsive, and free of consumer-facing implementation noise. Dense email tables need horizontal scroll wrappers with fixed minimum widths instead of squeezed mobile columns.
 
 ## Morphy Extension Allowlist
 1. CTA-level behavior on top of stock button semantics.

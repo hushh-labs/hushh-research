@@ -53,7 +53,7 @@ Non-owned surfaces:
 ## Workflow
 
 1. Read the frontend architecture and design-system docs before narrowing ownership.
-2. Route shared UI to `frontend-design-system`, route/package conventions to `frontend-architecture`, and placement/layer questions to `frontend-surface-placement`.
+2. Route shared UI to `frontend-design-system`, route/package conventions to `frontend-architecture`, cache coherence to `frontend-cache-coherence`, and placement/layer questions to `frontend-surface-placement`.
 3. Route native-only concerns to `mobile-native`.
 4. Keep route and verification changes aligned with existing package scripts and contracts.
 5. Choose the smallest authoritative proof; use browser proof only for browser-only behavior or explicit user request.
@@ -65,9 +65,10 @@ Non-owned surfaces:
 
 1. Shared visual-system work routes to `frontend-design-system`.
 2. Route contracts, package conventions, and verification ownership route to `frontend-architecture`.
-3. File-placement and layer-boundary work routes to `frontend-surface-placement`.
-4. Native-only work routes to `mobile-native`.
-5. Cross-domain scans start with `repo-context`.
+3. Warm-cache UX, TTL, and screen cache posture route to `frontend-cache-coherence`.
+4. File-placement and layer-boundary work routes to `frontend-surface-placement`.
+5. Native-only work routes to `mobile-native`.
+6. Cross-domain scans start with `repo-context`.
 
 ## Required Checks
 

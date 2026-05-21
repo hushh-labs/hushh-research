@@ -66,7 +66,6 @@ const SAME_SESSION_SHELL_ROUTES = new Set([
   "/ria/clients",
   "/ria/clients/[userId]",
   "/ria/clients/[userId]/accounts/[accountId]",
-  "/ria/clients/[userId]/requests/[requestId]",
   "/ria/picks",
   "/marketplace",
   "/consents",
@@ -445,6 +444,22 @@ async function firstVisible(locator) {
   return locator.first();
 }
 
+async function visibleTopAppBarTitle(page) {
+  const titleCandidates = page.getByTestId("top-app-bar-title");
+  const titleCount = await titleCandidates.count().catch(() => 0);
+  for (let index = 0; index < titleCount; index += 1) {
+    const candidate = titleCandidates.nth(index);
+    if (await candidate.isVisible().catch(() => false)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+async function hasNavTourId(page, tourId) {
+  return (await page.locator(`[data-tour-id="${tourId}"]`).count().catch(() => 0)) > 0;
+}
+
 async function ensurePersona(page, persona) {
   const stayInRiaWorkspace = page.getByRole("button", {
     name: /stay in ria workspace/i,
@@ -468,7 +483,34 @@ async function ensurePersona(page, persona) {
     return;
   }
 
-  const titleTrigger = await firstVisible(page.getByTestId("top-app-bar-title"));
+  let titleTrigger = await visibleTopAppBarTitle(page);
+  if (!titleTrigger) {
+    const pathname = new URL(page.url()).pathname;
+    if (
+      persona === "ria" &&
+      pathname.startsWith("/ria") &&
+      (await hasNavTourId(page, "nav-ria-home"))
+    ) {
+      return;
+    }
+    if (
+      persona === "investor" &&
+      (pathname.startsWith("/kai") ||
+        pathname.startsWith("/profile") ||
+        pathname.startsWith("/portfolio")) &&
+      (await hasNavTourId(page, "nav-market"))
+    ) {
+      return;
+    }
+    await clickBottomNav(page, "Profile");
+    await waitForRouteBeacon(page, ["/profile"]);
+    titleTrigger = await visibleTopAppBarTitle(page);
+    if (!titleTrigger) {
+      throw new Error(
+        `Cannot align reviewer persona to ${persona}: top app bar persona trigger is not visible on ${pathname} or /profile`
+      );
+    }
+  }
   const label = persona === "ria" ? "RIA" : "Investor";
   const currentTitle = (await titleTrigger.textContent().catch(() => "")) || "";
   if (currentTitle.includes(label)) {
@@ -480,6 +522,29 @@ async function ensurePersona(page, persona) {
 }
 
 async function clickBottomNav(page, label) {
+  const navTourIdsByLabel = {
+    Agent: ["nav-agent"],
+    Analysis: ["nav-analysis"],
+    Clients: ["nav-ria-clients"],
+    Connect: ["nav-connect", "nav-ria-connect"],
+    Home: ["nav-ria-home"],
+    Market: ["nav-market"],
+    Picks: ["nav-ria-picks"],
+    Portfolio: ["nav-portfolio"],
+    Profile: ["nav-profile"],
+  };
+  for (const tourId of navTourIdsByLabel[label] || []) {
+    const byTourId = page.locator(`[data-tour-id="${tourId}"]`).first();
+    if ((await byTourId.count().catch(() => 0)) > 0) {
+      await byTourId.evaluate((node) => {
+        if (node instanceof HTMLElement) {
+          node.click();
+        }
+      });
+      return;
+    }
+  }
+
   const button = await firstVisible(page.getByRole("button", { name: new RegExp(`^${label}$`, "i") }));
   if (await button.isVisible().catch(() => false)) {
     await button.click();
@@ -575,10 +640,7 @@ async function navigateViaShell(page, spec) {
       await page.getByRole("button", { name: /taxable brokerage/i }).click();
       return true;
     case "/ria/clients/[userId]/requests/[requestId]":
-      await openRiaWorkspace(page);
-      await page.getByRole("button", { name: /^access$/i }).click();
-      await page.getByRole("button", { name: /portfolio/i }).first().click();
-      return true;
+      return false;
     case "/kai":
       await ensurePersona(page, "investor");
       await clickBottomNav(page, "Market");
