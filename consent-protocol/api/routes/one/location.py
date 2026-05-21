@@ -6,6 +6,8 @@ are request-only and never return coordinates, ciphertext, or grants.
 
 from __future__ import annotations
 
+import hmac
+import os
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -97,10 +99,56 @@ def _handle_error(exc: Exception) -> HTTPException:
     )
 
 
+def _retention_auth_enabled() -> bool:
+    raw = os.getenv("ONE_LOCATION_RETENTION_AUTH_ENABLED")
+    environment = (
+        str(os.getenv("ENVIRONMENT") or os.getenv("HUSHH_DEPLOY_ENV") or "development")
+        .strip()
+        .lower()
+    )
+    local_or_test = environment in {"development", "dev", "local", "test"}
+    if raw is not None:
+        enabled = raw.strip().lower() in {"1", "true", "yes", "on"}
+        return enabled or not local_or_test
+    return True
+
+
+def _require_retention_auth(request: Request) -> None:
+    if not _retention_auth_enabled():
+        return
+    expected = str(os.getenv("ONE_LOCATION_RETENTION_TOKEN") or "").strip()
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "ONE_LOCATION_RETENTION_TOKEN_MISSING",
+                "message": "One Location retention token is not configured.",
+            },
+        )
+    provided = str(request.headers.get("x-hushh-maintenance-token") or "").strip()
+    if not provided or not hmac.compare_digest(provided, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "ONE_LOCATION_RETENTION_UNAUTHORIZED",
+                "message": "One Location retention purge is not authorized.",
+            },
+        )
+
+
 @router.get("/location/state")
 async def get_location_state(token_data: dict = Depends(require_vault_owner_token)):
     try:
         return _service().list_state(user_id=_user_id(token_data))
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/retention/purge")
+async def purge_location_retention(request: Request, older_than_hours: float = 12):
+    _require_retention_auth(request)
+    try:
+        return _service().purge_terminal_work(older_than_hours=older_than_hours)
     except Exception as exc:
         raise _handle_error(exc) from exc
 
