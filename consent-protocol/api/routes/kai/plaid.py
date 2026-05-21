@@ -6,10 +6,10 @@ import json
 import logging
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from api.middleware import require_consent_scope, require_vault_owner_token
+from api.middleware import require_consent_scope, require_firebase_auth, require_vault_owner_token
 from hushh_mcp.integrations.alpaca import AlpacaApiError
 from hushh_mcp.services.broker_funding_service import (
     FundingOrchestrationError,
@@ -51,6 +51,10 @@ class PlaidOAuthResumeRequest(BaseModel):
 class PlaidRefreshRequest(BaseModel):
     user_id: str
     item_id: str | None = None
+
+
+class PlaidItemRemoveRequest(BaseModel):
+    user_id: str
 
 
 class PlaidSourcePreferenceRequest(BaseModel):
@@ -151,6 +155,30 @@ def _verify_user(token_data: dict[str, Any], requested_user_id: str) -> None:
         )
 
 
+async def _resolve_plaid_connection_user(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    authorization: str | None,
+) -> str:
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    if not token.startswith("HCT:"):
+        return await require_firebase_auth(background_tasks, authorization)
+
+    token_data = await require_vault_owner_token(
+        request=request,
+        authorization=authorization,
+    )
+    return str(token_data["user_id"])
+
+
+def _verify_resolved_user(resolved_user_id: str, requested_user_id: str) -> None:
+    if resolved_user_id != requested_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User ID does not match token",
+        )
+
+
 def _to_http_exception(error: Exception) -> HTTPException:
     if isinstance(error, FundingOrchestrationError):
         return HTTPException(
@@ -238,18 +266,25 @@ async def get_plaid_status(
 
 @router.post("/plaid/link-token")
 async def create_plaid_link_token(
-    request: PlaidLinkTokenRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    payload: PlaidLinkTokenRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(None),
 ):
-    _verify_user(token_data, request.user_id)
+    resolved_user_id = await _resolve_plaid_connection_user(
+        request,
+        background_tasks,
+        authorization,
+    )
+    _verify_resolved_user(resolved_user_id, payload.user_id)
     try:
         return await get_plaid_portfolio_service().create_link_token(
-            user_id=request.user_id,
-            item_id=request.item_id,
-            redirect_uri=request.redirect_uri,
+            user_id=payload.user_id,
+            item_id=payload.item_id,
+            redirect_uri=payload.redirect_uri,
         )
     except Exception as exc:
-        logger.exception("kai.plaid.link_token_failed user_id=%s", request.user_id)
+        logger.exception("kai.plaid.link_token_failed user_id=%s", payload.user_id)
         raise _to_http_exception(exc) from exc
 
 
@@ -280,19 +315,26 @@ async def create_plaid_update_link_token(
 
 @router.post("/plaid/exchange-public-token")
 async def exchange_plaid_public_token(
-    request: PlaidPublicTokenExchangeRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    payload: PlaidPublicTokenExchangeRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(None),
 ):
-    _verify_user(token_data, request.user_id)
+    resolved_user_id = await _resolve_plaid_connection_user(
+        request,
+        background_tasks,
+        authorization,
+    )
+    _verify_resolved_user(resolved_user_id, payload.user_id)
     try:
         return await get_plaid_portfolio_service().exchange_public_token(
-            user_id=request.user_id,
-            public_token=request.public_token,
-            metadata=request.metadata,
-            resume_session_id=request.resume_session_id,
+            user_id=payload.user_id,
+            public_token=payload.public_token,
+            metadata=payload.metadata,
+            resume_session_id=payload.resume_session_id,
         )
     except Exception as exc:
-        _raise_logged_http_exception("kai.plaid.exchange_failed", request.user_id, exc)
+        _raise_logged_http_exception("kai.plaid.exchange_failed", payload.user_id, exc)
 
 
 @router.post("/plaid/funding/link-token")
@@ -685,6 +727,34 @@ async def refresh_plaid_connections(
         )
     except Exception as exc:
         _raise_logged_http_exception("kai.plaid.refresh_failed", request.user_id, exc)
+
+
+@router.post("/plaid/items/{item_id}/remove")
+async def remove_plaid_item(
+    item_id: str,
+    request: PlaidItemRemoveRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _verify_user(token_data, request.user_id)
+    try:
+        result = await get_plaid_portfolio_service().remove_item(
+            user_id=request.user_id,
+            item_id=item_id,
+        )
+        if result is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "PLAID_ITEM_NOT_FOUND",
+                    "message": "No Plaid portfolio connection was found for this user.",
+                    "item_id": item_id,
+                },
+            )
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _raise_logged_http_exception("kai.plaid.item_remove_failed", request.user_id, exc)
 
 
 @router.get("/plaid/refresh/{run_id}")

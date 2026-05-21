@@ -47,7 +47,7 @@ export class HushhVaultWeb extends WebPlugin {
     let saltBytes: Uint8Array;
     if (options.salt) {
       saltBytes = new Uint8Array(
-        options.salt.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
+        options.salt.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16)),
       );
     } else {
       saltBytes = crypto.getRandomValues(new Uint8Array(16));
@@ -59,7 +59,7 @@ export class HushhVaultWeb extends WebPlugin {
       encoder.encode(options.passphrase),
       "PBKDF2",
       false,
-      ["deriveBits"]
+      ["deriveBits"],
     );
 
     // Derive the key
@@ -71,7 +71,7 @@ export class HushhVaultWeb extends WebPlugin {
         hash: "SHA-256",
       },
       keyMaterial,
-      256 // 32 bytes
+      256, // 32 bytes
     );
 
     // Convert to hex string
@@ -97,7 +97,7 @@ export class HushhVaultWeb extends WebPlugin {
    */
   async encryptData(options: EncryptDataOptions): Promise<EncryptedPayload> {
     const keyBytes = new Uint8Array(
-      options.keyHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
+      options.keyHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16)),
     );
 
     const key = await crypto.subtle.importKey(
@@ -105,7 +105,7 @@ export class HushhVaultWeb extends WebPlugin {
       keyBytes,
       { name: "AES-GCM", length: 256 },
       false,
-      ["encrypt"]
+      ["encrypt"],
     );
 
     // 12-byte IV (96 bits) as per NIST recommendation
@@ -115,7 +115,7 @@ export class HushhVaultWeb extends WebPlugin {
     const encrypted = await crypto.subtle.encrypt(
       { name: "AES-GCM", iv },
       key,
-      encoder.encode(options.plaintext)
+      encoder.encode(options.plaintext),
     );
 
     // Web Crypto returns ciphertext + tag concatenated
@@ -139,7 +139,7 @@ export class HushhVaultWeb extends WebPlugin {
    */
   async decryptData(options: DecryptDataOptions): Promise<DecryptDataResult> {
     const keyBytes = new Uint8Array(
-      options.keyHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
+      options.keyHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16)),
     );
 
     const key = await crypto.subtle.importKey(
@@ -147,17 +147,17 @@ export class HushhVaultWeb extends WebPlugin {
       keyBytes,
       { name: "AES-GCM", length: 256 },
       false,
-      ["decrypt"]
+      ["decrypt"],
     );
 
     const ciphertext = Uint8Array.from(atob(options.payload.ciphertext), (c) =>
-      c.charCodeAt(0)
+      c.charCodeAt(0),
     );
     const tag = Uint8Array.from(atob(options.payload.tag), (c) =>
-      c.charCodeAt(0)
+      c.charCodeAt(0),
     );
     const iv = Uint8Array.from(atob(options.payload.iv), (c) =>
-      c.charCodeAt(0)
+      c.charCodeAt(0),
     );
 
     // Concatenate ciphertext + tag for Web Crypto
@@ -168,7 +168,7 @@ export class HushhVaultWeb extends WebPlugin {
     const decrypted = await crypto.subtle.decrypt(
       { name: "AES-GCM", iv },
       key,
-      combined
+      combined,
     );
 
     const decoder = new TextDecoder();
@@ -208,10 +208,10 @@ export class HushhVaultWeb extends WebPlugin {
    * Get preferences - in web mode, calls the API route
    */
   async getPreferences(
-    options: GetPreferencesOptions
+    options: GetPreferencesOptions,
   ): Promise<GetPreferencesResult> {
     const response = await fetch(
-      `/api/vault/${options.domain}?userId=${options.userId}`
+      `/api/vault/${options.domain}?userId=${options.userId}`,
     );
 
     if (!response.ok) {
@@ -247,7 +247,7 @@ export class HushhVaultWeb extends WebPlugin {
         createdAt: pref.created_at,
         updatedAt: pref.updated_at,
         consentTokenId: pref.consent_token_id,
-      })
+      }),
     );
 
     return { preferences };
@@ -279,10 +279,13 @@ export class HushhVaultWeb extends WebPlugin {
       if (options.authToken) {
         headers.Authorization = `Bearer ${options.authToken}`;
       }
-      const response = await fetch(`/api/vault/check?userId=${options.userId}`, {
-        headers,
-        signal: AbortSignal.timeout(15000),
-      });
+      const response = await fetch(
+        `/api/vault/check?userId=${options.userId}`,
+        {
+          headers,
+          signal: AbortSignal.timeout(15000),
+        },
+      );
       if (!response.ok) return { exists: false };
       const data = await response.json();
       return { exists: data.hasVault || false };
@@ -380,6 +383,32 @@ export class HushhVaultWeb extends WebPlugin {
     return { success: true };
   }
 
+  async deleteVaultWrapper(options: {
+    userId: string;
+    vaultKeyHash: string;
+    method: string;
+    wrapperId?: string;
+    fallbackPrimaryMethod?: string;
+    fallbackPrimaryWrapperId?: string;
+    authToken?: string;
+    vaultOwnerToken?: string;
+  }): Promise<{ success: boolean }> {
+    const headers: HeadersInit = { "Content-Type": "application/json" };
+    if (options.authToken) {
+      headers.Authorization = `Bearer ${options.authToken}`;
+    }
+    if (options.vaultOwnerToken) {
+      headers["X-Hushh-Consent"] = `Bearer ${options.vaultOwnerToken}`;
+    }
+    const response = await fetch("/api/vault/wrapper/delete", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(options),
+    });
+    if (!response.ok) throw new Error("Failed to remove wrapper");
+    return { success: true };
+  }
+
   async setPrimaryVaultMethod(options: {
     userId: string;
     primaryMethod: string;
@@ -398,7 +427,10 @@ export class HushhVaultWeb extends WebPlugin {
   async isPasskeyAvailable(_options?: {
     rpId?: string;
   }): Promise<{ available: boolean; reason?: string }> {
-    return { available: false, reason: "Native passkey plugin path unavailable in web fallback" };
+    return {
+      available: false,
+      reason: "Native passkey plugin path unavailable in web fallback",
+    };
   }
 
   async registerPasskeyPrf(_options: {
@@ -454,7 +486,7 @@ export class HushhVaultWeb extends WebPlugin {
     }
     const response = await fetch(
       `/api/consent/pending?userId=${options.userId}`,
-      { headers }
+      { headers },
     );
     if (!response.ok) throw new Error("Failed to fetch pending");
     const data = await response.json();
@@ -471,7 +503,7 @@ export class HushhVaultWeb extends WebPlugin {
     }
     const response = await fetch(
       `/api/consent/active?userId=${options.userId}`,
-      { headers }
+      { headers },
     );
     if (!response.ok) throw new Error("Failed to fetch active");
     const data = await response.json();
@@ -492,7 +524,7 @@ export class HushhVaultWeb extends WebPlugin {
     const limit = options.limit || 50;
     const response = await fetch(
       `/api/consent/history?userId=${options.userId}&page=${page}&limit=${limit}`,
-      { headers }
+      { headers },
     );
     if (!response.ok) throw new Error("Failed to fetch history");
     const data = await response.json();

@@ -297,11 +297,14 @@ export function buildKaiTestClientWorkspace(userId: string): RiaClientWorkspace 
 
 export function buildKaiTestMarketplaceInvestor(userId: string): MarketplaceInvestor {
   return {
+    id: userId,
+    source_type: "hushh_user",
     user_id: userId,
     display_name: KAI_TEST_DISPLAY_NAME,
     headline: "Advisor-side Kai and Explorer rehearsal for the current PKM payload contract.",
     location_hint: KAI_TEST_LOCATION_HINT,
     strategy_summary: KAI_TEST_STRATEGY_SUMMARY,
+    connectable: true,
     is_test_profile: true,
   };
 }
