@@ -196,3 +196,99 @@ def test_public_location_invite_route_creates_request_without_returning_location
     assert "map" not in serialized
     assert "address" not in serialized
     assert "reverse_geocode" not in serialized
+
+
+def test_one_location_retention_purge_requires_dedicated_token_by_default(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_TOKEN", raising=False)
+    monkeypatch.setenv("ONE_EMAIL_WATCH_RENEW_TOKEN", "shared-one-email-token")
+    service = FourUserMemoryService()
+    client = _client(service, {"user_id": "user_a"}, monkeypatch)
+
+    response = client.post(
+        "/api/one/location/retention/purge?older_than_hours=12",
+        headers={"X-Hushh-Maintenance-Token": "shared-one-email-token"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "ONE_LOCATION_RETENTION_TOKEN_MISSING"
+
+
+def test_one_location_retention_purge_rejects_missing_maintenance_token(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
+    monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
+    service = FourUserMemoryService()
+    client = _client(service, {"user_id": "user_a"}, monkeypatch)
+
+    response = client.post("/api/one/location/retention/purge?older_than_hours=12")
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "ONE_LOCATION_RETENTION_UNAUTHORIZED"
+
+
+def test_one_location_retention_purge_rejects_wrong_maintenance_token(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
+    monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
+    service = FourUserMemoryService()
+    client = _client(service, {"user_id": "user_a"}, monkeypatch)
+
+    response = client.post(
+        "/api/one/location/retention/purge?older_than_hours=12",
+        headers={"X-Hushh-Maintenance-Token": "wrong-token"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "ONE_LOCATION_RETENTION_UNAUTHORIZED"
+
+
+def test_one_location_retention_purge_accepts_valid_dedicated_token(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
+    monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
+    service = FourUserMemoryService()
+    client = _client(service, {"user_id": "user_a"}, monkeypatch)
+
+    response = client.post(
+        "/api/one/location/retention/purge?older_than_hours=12",
+        headers={"X-Hushh-Maintenance-Token": "expected-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["retention_hours"] == 12
+
+
+def test_one_location_retention_auth_cannot_be_disabled_in_hosted_mode(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", "false")
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_TOKEN", raising=False)
+    service = FourUserMemoryService()
+    client = _client(service, {"user_id": "user_a"}, monkeypatch)
+
+    response = client.post("/api/one/location/retention/purge?older_than_hours=12")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "ONE_LOCATION_RETENTION_TOKEN_MISSING"
+
+
+def test_one_location_retention_auth_can_be_disabled_in_local_test_mode(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", "false")
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_TOKEN", raising=False)
+    service = FourUserMemoryService()
+    client = _client(service, {"user_id": "user_a"}, monkeypatch)
+
+    response = client.post("/api/one/location/retention/purge?older_than_hours=12")
+
+    assert response.status_code == 200
+    assert response.json()["retention_hours"] == 12
