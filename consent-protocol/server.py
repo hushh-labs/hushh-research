@@ -9,6 +9,7 @@ Run with: uvicorn server:app --reload --port 8000
 import logging
 import os
 import time
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
@@ -112,11 +113,35 @@ from db.db_client import DatabaseExecutionError  # noqa: E402
 # Set ROOT_PATH env var to your production URL to fix Swagger showing localhost
 root_path = os.environ.get("ROOT_PATH", "")
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup hooks
+    await startup_pool_and_iam_cache()
+    await startup_consent_listener()
+    await startup_ticker_cache()
+    await startup_pkm_scope_validator_warmup()
+    await startup_regulated_runtime_guards()
+    await startup_required_schema_guard()
+    await startup_remote_mcp_transport()
+    await startup_market_cache_store_table()
+    await startup_market_insights_refresh()
+    await startup_gmail_receipts_sync()
+
+    yield
+
+    # Shutdown hooks
+    await shutdown_gmail_receipts_sync()
+    await shutdown_email_delivery_queue()
+    await shutdown_remote_mcp_transport()
+
+
 app = FastAPI(
     title="Hussh Consent Protocol API - DIAGNOSTICS",
     description="Agent endpoints for the Hussh Personal Data Agent system",
     version="1.0.0",
     root_path=root_path,
+    lifespan=lifespan,
 )
 
 app.middleware("http")(observability_middleware)
@@ -309,7 +334,6 @@ logger.info(
 # ============================================================================
 
 
-@app.on_event("startup")
 async def startup_pool_and_iam_cache() -> None:
     """Eagerly create the asyncpg pool and pre-populate the IAM schema cache.
 
@@ -375,7 +399,6 @@ async def startup_pool_and_iam_cache() -> None:
         )
 
 
-@app.on_event("startup")
 async def startup_consent_listener():
     """Start background task that LISTENs to consent_audit_new (NOTIFY)."""
     import asyncio
@@ -385,7 +408,6 @@ async def startup_consent_listener():
     asyncio.create_task(run_consent_listener())
 
 
-@app.on_event("startup")
 async def startup_ticker_cache():
     """Preload SEC tickers into an in-memory cache on server startup.
 
@@ -399,7 +421,6 @@ async def startup_ticker_cache():
         logger.warning("[startup] Ticker cache preload failed (routes will fall back to DB): %s", e)
 
 
-@app.on_event("startup")
 async def startup_pkm_scope_validator_warmup() -> None:
     """Prewarm PKM scope validation helpers before the first consent request."""
     started_at = time.perf_counter()
@@ -420,7 +441,6 @@ async def startup_pkm_scope_validator_warmup() -> None:
     )
 
 
-@app.on_event("startup")
 async def startup_regulated_runtime_guards():
     """Emit explicit startup security warnings for risky production flags."""
     from hushh_mcp.services.ria_verification import (
@@ -440,7 +460,6 @@ async def startup_regulated_runtime_guards():
         logger.warning("security.developer_api_enabled_in_production")
 
 
-@app.on_event("startup")
 async def startup_required_schema_guard():
     """Fail fast when the runtime database is missing core contract tables.
 
@@ -489,19 +508,16 @@ async def startup_required_schema_guard():
         )
 
 
-@app.on_event("startup")
 async def startup_remote_mcp_transport():
     """Start the hosted remote MCP session manager."""
     await startup_remote_mcp()
 
 
-@app.on_event("shutdown")
 async def shutdown_remote_mcp_transport():
     """Stop the hosted remote MCP session manager."""
     await shutdown_remote_mcp()
 
 
-@app.on_event("startup")
 async def startup_market_cache_store_table():
     """Ensure the L2 market cache table exists before any request hits it."""
     from hushh_mcp.services.market_cache_store import get_market_cache_store_service
@@ -523,26 +539,22 @@ async def startup_market_cache_store_table():
         )
 
 
-@app.on_event("startup")
 async def startup_market_insights_refresh():
     """Warm shared market caches, then keep them refreshed in the background."""
     await warm_market_insights_startup_once()
     start_market_insights_background_refresh()
 
 
-@app.on_event("startup")
 async def startup_gmail_receipts_sync():
     """Start Gmail catch-up/watch renewal loop for configured runtimes."""
     start_gmail_receipts_background_sync()
 
 
-@app.on_event("shutdown")
 async def shutdown_gmail_receipts_sync():
     """Stop Gmail catch-up/watch renewal loop."""
     await shutdown_gmail_receipts_background_sync()
 
 
-@app.on_event("shutdown")
 async def shutdown_email_delivery_queue():
     """Stop queued outbound email worker tasks."""
     await shutdown_email_delivery_queue_service()

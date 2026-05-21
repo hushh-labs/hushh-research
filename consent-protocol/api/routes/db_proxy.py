@@ -457,16 +457,18 @@ async def vault_setup(
 
     except ValueError as e:
         message = str(e)
+        logger.warning("vault/setup validation error user=%s: %s", _mask_user_id(request.userId), e)
         if "primaryMethod + primaryWrapperId" in message:
             raise HTTPException(
                 status_code=400,
                 detail={
-                    "error": message,
+                    "error": "The specified primary wrapper is not enrolled for this vault.",
                     "code": "VAULT_PRIMARY_WRAPPER_NOT_FOUND",
                 },
             )
         raise HTTPException(
-            status_code=400, detail={"error": message, "code": "VAULT_VALIDATION_ERROR"}
+            status_code=400,
+            detail={"error": "Invalid vault setup parameters.", "code": "VAULT_VALIDATION_ERROR"},
         )
     except Exception as e:
         logger.error(

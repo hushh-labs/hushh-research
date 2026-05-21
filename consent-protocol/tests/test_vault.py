@@ -68,7 +68,7 @@ def test_decryption_fails_with_tampered_data(test_vault_key):
     encrypted = encrypt_data(plaintext, test_vault_key)
 
     # Tamper with ciphertext
-    corrupted = encrypted.copy(
+    corrupted = encrypted.model_copy(
         update={"ciphertext": base64.b64encode(b"malicious content").decode("utf-8")}
     )
 
@@ -83,9 +83,10 @@ def test_encrypted_payload_structure(test_vault_key):
     plaintext = "test data"
     encrypted = encrypt_data(plaintext, test_vault_key)
 
-    assert "ciphertext" in encrypted.dict()
-    assert "iv" in encrypted.dict()
-    assert "tag" in encrypted.dict()
+    dump = encrypted.model_dump()
+    assert "ciphertext" in dump
+    assert "iv" in dump
+    assert "tag" in dump
 
 
 def test_different_ivs_produce_different_ciphertext(test_vault_key):

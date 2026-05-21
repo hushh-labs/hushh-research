@@ -34,8 +34,7 @@ def _make_app() -> FastAPI:
         patch("api.utils.firebase_admin.get_firebase_auth_app", return_value=MagicMock()),
     ):
         # Override the dependency so every request is pre-authenticated
-        from api.middleware import require_vault_owner_token
-        from api.routes.session import router
+        from api.routes.session import require_vault_owner_token, router
 
         app.dependency_overrides[require_vault_owner_token] = lambda: _FAKE_TOKEN_DATA
         app.include_router(router)

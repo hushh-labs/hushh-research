@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
-from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.kai_location_service import (
     KaiLocationError,
     KaiLocationService,
@@ -56,8 +55,9 @@ def _service() -> KaiLocationService:
 def _handle_error(exc: Exception) -> HTTPException:
     if isinstance(exc, KaiLocationError):
         return HTTPException(status_code=exc.status_code, detail=location_error_detail(exc))
-    if isinstance(exc, DatabaseExecutionError):
-        return HTTPException(status_code=exc.status_code, detail=database_error_detail(exc))
+    if exc.__class__.__name__ == "DatabaseExecutionError":
+        status_code = getattr(exc, "status_code", 500)
+        return HTTPException(status_code=status_code, detail=database_error_detail(exc))  # type: ignore
     return HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail={"code": "LOCATION_API_FAILED", "message": "Location request failed."},
