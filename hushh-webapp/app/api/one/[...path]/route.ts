@@ -10,8 +10,8 @@ import {
 } from "@/app/api/_utils/request-id";
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
-const ONE_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(20_000, {
-  developmentFloorMs: 20_000,
+const ONE_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
+  developmentFloorMs: 45_000,
   overrideEnvKey: "HUSHH_ONE_API_TIMEOUT_MS",
 });
 

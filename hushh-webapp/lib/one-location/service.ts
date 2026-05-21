@@ -1,5 +1,5 @@
 import { HushhLocation } from "@/lib/capacitor";
-import { apiJson } from "@/lib/services/api-client";
+import { ApiError, apiJson } from "@/lib/services/api-client";
 import type {
   OneLocationAccessRequest,
   OneLocationEncryptedEnvelope,
@@ -19,6 +19,41 @@ function jsonAuthHeaders(vaultOwnerToken: string): Record<string, string> {
     ...authHeaders(vaultOwnerToken),
     "Content-Type": "application/json",
   };
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientOneLocationError(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false;
+  if (![502, 503, 504].includes(error.status)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("one api unavailable") ||
+    message.includes("could not be completed") ||
+    message.includes("temporarily unavailable") ||
+    error.status === 504
+  );
+}
+
+async function apiJsonWithRetry<T>(
+  path: string,
+  options: RequestInit = {},
+  retries = 1,
+): Promise<T> {
+  let attempt = 0;
+  for (;;) {
+    try {
+      return await apiJson<T>(path, options);
+    } catch (error) {
+      if (attempt >= retries || !isTransientOneLocationError(error)) {
+        throw error;
+      }
+      attempt += 1;
+      await wait(450 * attempt);
+    }
+  }
 }
 
 export class OneLocationService {
@@ -55,7 +90,7 @@ export class OneLocationService {
   }
 
   static async getState(vaultOwnerToken: string): Promise<OneLocationState> {
-    return apiJson<OneLocationState>("/api/one/location/state", {
+    return apiJsonWithRetry<OneLocationState>("/api/one/location/state", {
       headers: jsonAuthHeaders(vaultOwnerToken),
     });
   }
@@ -66,15 +101,18 @@ export class OneLocationService {
     recipientKeyId: string;
     durationHours: number;
   }): Promise<OneLocationGrant> {
-    const response = await apiJson<{ grant: OneLocationGrant }>("/api/one/location/grants", {
-      method: "POST",
-      headers: jsonAuthHeaders(params.vaultOwnerToken),
-      body: JSON.stringify({
-        recipientUserId: params.recipientUserId,
-        recipientKeyId: params.recipientKeyId,
-        durationHours: params.durationHours,
-      }),
-    });
+    const response = await apiJson<{ grant: OneLocationGrant }>(
+      "/api/one/location/grants",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          recipientUserId: params.recipientUserId,
+          recipientKeyId: params.recipientKeyId,
+          durationHours: params.durationHours,
+        }),
+      },
+    );
     return response.grant;
   }
 
@@ -97,10 +135,16 @@ export class OneLocationService {
   static async viewEnvelope(params: {
     vaultOwnerToken: string;
     grantId: string;
-  }): Promise<{ grant: OneLocationGrant; envelope: OneLocationEncryptedEnvelope }> {
-    return apiJson(`/api/one/location/grants/${encodeURIComponent(params.grantId)}/envelope`, {
-      headers: jsonAuthHeaders(params.vaultOwnerToken),
-    });
+  }): Promise<{
+    grant: OneLocationGrant;
+    envelope: OneLocationEncryptedEnvelope;
+  }> {
+    return apiJson(
+      `/api/one/location/grants/${encodeURIComponent(params.grantId)}/envelope`,
+      {
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+      },
+    );
   }
 
   static async revokeGrant(params: {
@@ -122,7 +166,9 @@ export class OneLocationService {
     ownerUserId: string;
     message?: string;
   }): Promise<OneLocationAccessRequest> {
-    const response = await apiJson<{ request: OneLocationAccessRequest }>(
+    const response = await apiJsonWithRetry<{
+      request: OneLocationAccessRequest;
+    }>(
       "/api/one/location/requests",
       {
         method: "POST",
@@ -132,6 +178,7 @@ export class OneLocationService {
           message: params.message,
         }),
       },
+      1,
     );
     return response.request;
   }
@@ -141,11 +188,14 @@ export class OneLocationService {
     requestId: string;
     durationHours: number;
   }): Promise<{ request: OneLocationAccessRequest; grant: OneLocationGrant }> {
-    return apiJson(`/api/one/location/requests/${encodeURIComponent(params.requestId)}/approve`, {
-      method: "POST",
-      headers: jsonAuthHeaders(params.vaultOwnerToken),
-      body: JSON.stringify({ durationHours: params.durationHours }),
-    });
+    return apiJson(
+      `/api/one/location/requests/${encodeURIComponent(params.requestId)}/approve`,
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ durationHours: params.durationHours }),
+      },
+    );
   }
 
   static async denyRequest(params: {
@@ -167,14 +217,20 @@ export class OneLocationService {
     grantId: string;
     referredUserId: string;
     message?: string;
-  }): Promise<{ referral: OneLocationReferral; request: OneLocationAccessRequest }> {
-    return apiJson(`/api/one/location/grants/${encodeURIComponent(params.grantId)}/refer`, {
-      method: "POST",
-      headers: jsonAuthHeaders(params.vaultOwnerToken),
-      body: JSON.stringify({
-        referredUserId: params.referredUserId,
-        message: params.message,
-      }),
-    });
+  }): Promise<{
+    referral: OneLocationReferral;
+    request: OneLocationAccessRequest;
+  }> {
+    return apiJson(
+      `/api/one/location/grants/${encodeURIComponent(params.grantId)}/refer`,
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          referredUserId: params.referredUserId,
+          message: params.message,
+        }),
+      },
+    );
   }
 }

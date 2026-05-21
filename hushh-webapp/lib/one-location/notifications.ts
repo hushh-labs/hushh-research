@@ -6,9 +6,55 @@ export const ONE_LOCATION_GRANT_OPENED_EVENT = "hushh:one-location-grant-opened"
 export const ONE_LOCATION_NOTIFICATION_OPEN_PARAM = "locationNotification";
 export const ONE_LOCATION_NOTIFICATION_OPEN_VALUE = "opened";
 export const ONE_LOCATION_GRANT_ID_PARAM = "grantId";
+export const ONE_LOCATION_REQUEST_ID_PARAM = "requestId";
+export const ONE_LOCATION_REFERRAL_ID_PARAM = "referralId";
 
 const OPENED_GRANTS_KEY_PREFIX = "one_location_opened_grants_v1";
 const LOCATION_SHARE_TASK_KIND = "one_location_share";
+const LOCATION_WORKFLOW_TASK_KIND = "one_location_workflow";
+
+export type OneLocationWorkflowNotificationType =
+  | "location_share_created"
+  | "location_access_approved"
+  | "location_share_revoked"
+  | "location_share_expired"
+  | "location_access_request"
+  | "location_access_denied"
+  | "location_referral_invite";
+
+const WORKFLOW_COPY: Record<
+  OneLocationWorkflowNotificationType,
+  { title: string; fallbackDescription: string }
+> = {
+  location_share_created: {
+    title: "Location shared",
+    fallbackDescription: "A trusted person shared location access with you.",
+  },
+  location_access_approved: {
+    title: "Location request approved",
+    fallbackDescription: "Your location request was approved.",
+  },
+  location_share_revoked: {
+    title: "Location access removed",
+    fallbackDescription: "Location access from a trusted person was removed.",
+  },
+  location_share_expired: {
+    title: "Location access expired",
+    fallbackDescription: "A location share reached its expiry time.",
+  },
+  location_access_request: {
+    title: "Location request",
+    fallbackDescription: "Someone is asking to view your location.",
+  },
+  location_access_denied: {
+    title: "Location request denied",
+    fallbackDescription: "Your location request was denied.",
+  },
+  location_referral_invite: {
+    title: "Location referral pending",
+    fallbackDescription: "A trusted person referred you into a location request flow.",
+  },
+};
 
 function openedGrantStorageKey(userId: string): string {
   return `${OPENED_GRANTS_KEY_PREFIX}:${userId}`;
@@ -82,6 +128,19 @@ export function oneLocationGrantTaskId(grantId: string): string {
   return `${LOCATION_SHARE_TASK_KIND}:${String(grantId || "").trim()}`;
 }
 
+export function dismissOneLocationShareNotification(grantId: string): void {
+  const normalizedGrantId = String(grantId || "").trim();
+  if (!normalizedGrantId) return;
+  AppBackgroundTaskService.dismissTask(oneLocationGrantTaskId(normalizedGrantId));
+}
+
+export function oneLocationWorkflowTaskId(
+  notificationType: OneLocationWorkflowNotificationType,
+  id: string,
+): string {
+  return `${LOCATION_WORKFLOW_TASK_KIND}:${notificationType}:${String(id || "").trim()}`;
+}
+
 export function buildOneLocationNotificationHref(grantId: string): string {
   const params = new URLSearchParams();
   params.set(ONE_LOCATION_GRANT_ID_PARAM, grantId);
@@ -89,9 +148,77 @@ export function buildOneLocationNotificationHref(grantId: string): string {
   return `/one/location?${params.toString()}`;
 }
 
+export function buildOneLocationWorkflowHref(params: {
+  grantId?: string | null;
+  requestId?: string | null;
+  referralId?: string | null;
+  openGrant?: boolean;
+}): string {
+  const query = new URLSearchParams();
+  const grantId = String(params.grantId || "").trim();
+  const requestId = String(params.requestId || "").trim();
+  const referralId = String(params.referralId || "").trim();
+  if (grantId) query.set(ONE_LOCATION_GRANT_ID_PARAM, grantId);
+  if (requestId) query.set(ONE_LOCATION_REQUEST_ID_PARAM, requestId);
+  if (referralId) query.set(ONE_LOCATION_REFERRAL_ID_PARAM, referralId);
+  if (grantId && params.openGrant) {
+    query.set(ONE_LOCATION_NOTIFICATION_OPEN_PARAM, ONE_LOCATION_NOTIFICATION_OPEN_VALUE);
+  }
+  const suffix = query.toString();
+  return suffix ? `/one/location?${suffix}` : "/one/location";
+}
+
 export function locationShareNotificationDescription(ownerLabel?: string | null): string {
   const label = String(ownerLabel || "").trim() || "A trusted person";
   return `${label} shared location access with you. Open this notification to view it.`;
+}
+
+export function locationWorkflowNotificationCopy(params: {
+  type: OneLocationWorkflowNotificationType;
+  ownerLabel?: string | null;
+  requesterLabel?: string | null;
+  referringLabel?: string | null;
+}): { title: string; description: string } {
+  const copy = WORKFLOW_COPY[params.type];
+  const ownerLabel = String(params.ownerLabel || "").trim() || "A trusted person";
+  const requesterLabel = String(params.requesterLabel || "").trim() || "Someone";
+  const referringLabel = String(params.referringLabel || "").trim() || "A trusted person";
+
+  switch (params.type) {
+    case "location_share_created":
+    case "location_access_approved":
+      return {
+        title: copy.title,
+        description: locationShareNotificationDescription(ownerLabel),
+      };
+    case "location_share_revoked":
+      return {
+        title: copy.title,
+        description: `${ownerLabel} removed your location access.`,
+      };
+    case "location_share_expired":
+      return {
+        title: copy.title,
+        description: `Location sharing with ${ownerLabel} has expired.`,
+      };
+    case "location_access_request":
+      return {
+        title: copy.title,
+        description: `${requesterLabel} is asking to view your location.`,
+      };
+    case "location_access_denied":
+      return {
+        title: copy.title,
+        description: `${ownerLabel} denied your location request.`,
+      };
+    case "location_referral_invite":
+      return {
+        title: copy.title,
+        description: `${referringLabel} referred you into a location request for ${ownerLabel}.`,
+      };
+    default:
+      return { title: copy.title, description: copy.fallbackDescription };
+  }
 }
 
 export function recordOneLocationShareNotification(params: {
@@ -129,6 +256,43 @@ export function recordOneLocationShareNotification(params: {
     },
   });
   AppBackgroundTaskService.completeTask(taskId, description);
+  return true;
+}
+
+export function recordOneLocationWorkflowNotification(params: {
+  userId: string;
+  notificationType: OneLocationWorkflowNotificationType;
+  id: string;
+  title: string;
+  description: string;
+  routeHref?: string | null;
+  metadata?: Record<string, unknown> | null;
+}): boolean {
+  const userId = String(params.userId || "").trim();
+  const id = String(params.id || "").trim();
+  if (!userId || !id) return false;
+
+  const taskId = oneLocationWorkflowTaskId(params.notificationType, id);
+  const existing = AppBackgroundTaskService.getTask(taskId);
+  if (existing && !existing.dismissedAt) return false;
+
+  AppBackgroundTaskService.startTask({
+    taskId,
+    userId,
+    kind: LOCATION_WORKFLOW_TASK_KIND,
+    title: params.title,
+    description: params.description,
+    routeHref: params.routeHref || "/one/location",
+    visibility: "primary",
+    groupLabel: "One Location",
+    autoClearAfterMs: 0,
+    metadata: {
+      notificationType: params.notificationType,
+      id,
+      ...(params.metadata || {}),
+    },
+  });
+  AppBackgroundTaskService.completeTask(taskId, params.description);
   return true;
 }
 

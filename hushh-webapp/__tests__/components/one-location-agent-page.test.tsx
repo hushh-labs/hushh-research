@@ -158,10 +158,14 @@ describe("OneLocationAgentPage", () => {
   it("renders the One-owned encrypted location control surface", async () => {
     render(<OneLocationAgentPageContent />);
 
-    expect(await screen.findByRole("heading", { name: "One Location Agent" })).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: "One Location Agent" }),
+    ).toBeTruthy();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     expect(await screen.findByText("People who can see me")).toBeTruthy();
-    expect(screen.queryAllByText("Trusted B - ******8012").length).toBeGreaterThan(0);
+    expect(
+      screen.queryAllByText("Trusted B - ******8012").length,
+    ).toBeGreaterThan(0);
     expect(screen.getByText("Share Encrypted Update")).toBeTruthy();
     expect(mockRegisterKey).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
@@ -170,6 +174,28 @@ describe("OneLocationAgentPage", () => {
       algorithm: "ECDH-P256-AES256-GCM",
     });
     expect(mockSyncCurrentUser).toHaveBeenCalledWith({ uid: "user_a" });
+  });
+
+  it("shows a skeleton while the first location state refresh is loading", async () => {
+    let resolveState: (value: ReturnType<typeof locationState>) => void = () =>
+      undefined;
+    mockGetState.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveState = resolve;
+      }),
+    );
+
+    const { container } = render(<OneLocationAgentPageContent />);
+
+    await waitFor(() => expect(mockRegisterKey).toHaveBeenCalled());
+    expect(
+      container.querySelectorAll('[data-slot="skeleton"]').length,
+    ).toBeGreaterThan(0);
+
+    resolveState(locationState());
+    await waitFor(() =>
+      expect(screen.getByText("Share Encrypted Update")).toBeTruthy(),
+    );
   });
 
   it("does not render public-link sharing controls", async () => {
@@ -190,7 +216,11 @@ describe("OneLocationAgentPage", () => {
 
     render(<OneLocationAgentPageContent />);
 
-    expect(await screen.findByText("Unlock your vault before loading location sharing.")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Unlock your vault before loading location sharing.",
+      ),
+    ).toBeTruthy();
     expect(mockRegisterKey).not.toHaveBeenCalled();
     expect(mockGetState).not.toHaveBeenCalled();
   });

@@ -348,6 +348,23 @@ class FourUserMemoryService(OneLocationAgentService):
                 and envelope["recipient_user_id"] == params["recipient_user_id"]
             ]
             return matches[-1] if matches else None
+        if (
+            "FROM one_location_access_requests" in sql
+            and "requester_user_id = :requester_user_id" in sql
+        ):
+            for request in sorted(
+                self.requests.values(),
+                key=lambda item: item["requested_at"],
+                reverse=True,
+            ):
+                if (
+                    request["owner_user_id"] == params["owner_user_id"]
+                    and request["requester_user_id"] == params["requester_user_id"]
+                    and request["status"] == "pending"
+                    and request.get("referred_by_user_id") == params.get("referred_by_user_id")
+                ):
+                    return request
+            return None
         if "INSERT INTO one_location_access_requests" in sql:
             request_id = str(uuid.uuid4())
             row = {
@@ -363,6 +380,13 @@ class FourUserMemoryService(OneLocationAgentService):
             }
             self.requests[request_id] = row
             return row
+        if "UPDATE one_location_access_requests" in sql and "SET message = :message" in sql:
+            request = self.requests.get(params["request_id"])
+            if request and request["status"] == "pending":
+                request["message"] = params["message"]
+                request["requested_at"] = datetime.now(timezone.utc)
+                return request
+            return None
         if "FROM one_location_access_requests" in sql:
             request = self.requests.get(params["request_id"])
             if (
@@ -466,6 +490,19 @@ def test_four_user_location_workflow_contract() -> None:
         service.view_latest_envelope(recipient_user_id=user_c, grant_id=grant_b["id"])
     assert denied_c.value.code == "LOCATION_GRANT_NOT_FOUND"
 
+    direct_request_c = service.request_access(
+        requester_user_id=user_c,
+        owner_user_id=user_a,
+        message="Can you share where you are?",
+    )
+    duplicate_request_c = service.request_access(
+        requester_user_id=user_c,
+        owner_user_id=user_a,
+        message="Can you share where you are now?",
+    )
+    assert duplicate_request_c["id"] == direct_request_c["id"]
+    assert duplicate_request_c["message"] == "Can you share where you are now?"
+
     referral_response = service.refer_recipient(
         referring_user_id=user_b,
         grant_id=grant_b["id"],
@@ -499,6 +536,7 @@ def test_four_user_location_workflow_contract() -> None:
         "location_share_created",
         "location_access_request",
         "location_access_approved",
+        "location_referral_invite",
         "location_share_revoked",
     }
     assert "latitude" not in json.dumps(service.notifications, default=str)

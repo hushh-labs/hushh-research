@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -17,6 +18,10 @@ from hushh_mcp.operons.location.policy import (
 )
 
 logger = logging.getLogger(__name__)
+_NOTIFICATION_EXECUTOR = ThreadPoolExecutor(
+    max_workers=max(1, int(os.getenv("ONE_LOCATION_NOTIFICATION_WORKERS", "2"))),
+    thread_name_prefix="one-location-notify",
+)
 
 COORDINATE_METADATA_KEYS = {
     "lat",
@@ -111,6 +116,49 @@ def _contains_plaintext_location_key(value: Any) -> bool:
     if isinstance(value, list):
         return any(_contains_plaintext_location_key(item) for item in value)
     return False
+
+
+def _submit_notification_send(
+    *,
+    messaging: Any,
+    message: Any,
+    token: str,
+    notification_type: str,
+    user_id: str,
+) -> None:
+    def _deliver() -> None:
+        try:
+            messaging.send(message)
+        except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
+            try:
+                get_db().execute_raw(
+                    "DELETE FROM user_push_tokens WHERE token = :token",
+                    {"token": token},
+                )
+            except Exception as exc:
+                logger.warning(
+                    "one.location.notification_token_cleanup_failed type=%s user=%s error=%s",
+                    notification_type,
+                    user_id,
+                    exc,
+                )
+        except Exception as exc:
+            logger.warning(
+                "one.location.notification_send_failed type=%s user=%s error=%s",
+                notification_type,
+                user_id,
+                exc,
+            )
+
+    try:
+        _NOTIFICATION_EXECUTOR.submit(_deliver)
+    except Exception as exc:
+        logger.warning(
+            "one.location.notification_submit_failed type=%s user=%s error=%s",
+            notification_type,
+            user_id,
+            exc,
+        )
 
 
 def _mask_phone(value: Any) -> str | None:
@@ -287,20 +335,13 @@ class OneLocationAgentService:
                     notification_tag=notification_tag,
                     show_alert=True,
                 )
-                try:
-                    messaging.send(message)
-                except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
-                    get_db().execute_raw(
-                        "DELETE FROM user_push_tokens WHERE token = :token",
-                        {"token": token},
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "one.location.notification_send_failed type=%s user=%s error=%s",
-                        notification_type,
-                        user_id,
-                        exc,
-                    )
+                _submit_notification_send(
+                    messaging=messaging,
+                    message=message,
+                    token=token,
+                    notification_type=notification_type,
+                    user_id=user_id,
+                )
         except Exception as exc:
             logger.warning(
                 "one.location.notification_skipped type=%s user=%s error=%s",
@@ -434,14 +475,32 @@ class OneLocationAgentService:
             {"user_id": user_id},
         )
         for row in expired:
+            grant_id = str(row.get("id") or "") or None
+            owner_user_id = str(row.get("owner_user_id") or "")
+            recipient_user_id = str(row.get("recipient_user_id") or "")
+            owner_label = _identity_display_label(self._identity_row(owner_user_id))
             self._insert_event(
-                owner_user_id=str(row.get("owner_user_id") or ""),
+                owner_user_id=owner_user_id,
                 actor_user_id=None,
-                recipient_user_id=str(row.get("recipient_user_id") or "") or None,
-                grant_id=str(row.get("id") or "") or None,
+                recipient_user_id=recipient_user_id or None,
+                grant_id=grant_id,
                 event_type="location_share_expired",
                 metadata={"reason": "expires_at"},
             )
+            if grant_id and recipient_user_id:
+                self._send_metadata_notification(
+                    user_id=recipient_user_id,
+                    notification_type="location_share_expired",
+                    title="Location access expired",
+                    body="A location share reached its expiry time.",
+                    notification_tag=f"one-location-expired:{grant_id}",
+                    request_url=_one_location_url(grantId=grant_id),
+                    data={
+                        "grant_id": grant_id,
+                        "owner_user_id": owner_user_id,
+                        "owner_display_label": owner_label,
+                    },
+                )
 
     def register_recipient_key(
         self,
@@ -935,14 +994,23 @@ class OneLocationAgentService:
             event_type="location_share_revoked",
             metadata={"reason": "owner_revoke"},
         )
+        owner_identity = self._identity_row(owner_user_id)
+        owner_label = _identity_display_label(owner_identity)
         self._send_metadata_notification(
             user_id=str(row.get("recipient_user_id") or ""),
             notification_type="location_share_revoked",
             title="Location access revoked",
-            body="Location access from a trusted person was revoked.",
+            body=f"{owner_label} removed your location access.",
             notification_tag=f"one-location-revoked:{grant_id}",
             request_url=_one_location_url(grantId=grant_id),
-            data={"grant_id": grant_id, "owner_user_id": owner_user_id},
+            data={
+                "grant_id": grant_id,
+                "owner_user_id": owner_user_id,
+                "owner_display_label": owner_label,
+                "owner_masked_phone": _mask_phone(owner_identity.get("phone_number"))
+                if owner_identity
+                else None,
+            },
         )
         return self._grant_payload(row) or {}
 
@@ -959,25 +1027,57 @@ class OneLocationAgentService:
                 "LOCATION_REQUEST_SELF", "Request a different person's location.", status_code=422
             )
         self._recipient_key_row(recipient_user_id=requester_user_id)
+        message_value = (message or "").strip()[:500] or None
         row = self._execute_one(
             """
-            INSERT INTO one_location_access_requests (
-              owner_user_id, requester_user_id, referred_by_user_id, status,
-              message, requested_at, metadata
-            )
-            VALUES (
-              :owner_user_id, :requester_user_id, :referred_by_user_id, 'pending',
-              :message, NOW(), '{}'::jsonb
-            )
-            RETURNING *
+            SELECT *
+            FROM one_location_access_requests
+            WHERE owner_user_id = :owner_user_id
+              AND requester_user_id = :requester_user_id
+              AND status = 'pending'
+              AND referred_by_user_id IS NOT DISTINCT FROM :referred_by_user_id
+            ORDER BY requested_at DESC
+            LIMIT 1
             """,
             {
                 "owner_user_id": owner_user_id,
                 "requester_user_id": requester_user_id,
                 "referred_by_user_id": referred_by_user_id,
-                "message": (message or "").strip()[:500] or None,
             },
         )
+        if not row:
+            row = self._execute_one(
+                """
+                INSERT INTO one_location_access_requests (
+                  owner_user_id, requester_user_id, referred_by_user_id, status,
+                  message, requested_at, metadata
+                )
+                VALUES (
+                  :owner_user_id, :requester_user_id, :referred_by_user_id, 'pending',
+                  :message, NOW(), '{}'::jsonb
+                )
+                RETURNING *
+                """,
+                {
+                    "owner_user_id": owner_user_id,
+                    "requester_user_id": requester_user_id,
+                    "referred_by_user_id": referred_by_user_id,
+                    "message": message_value,
+                },
+            )
+        elif message_value and str(row.get("message") or "") != message_value:
+            refreshed = self._execute_one(
+                """
+                UPDATE one_location_access_requests
+                SET message = :message,
+                    requested_at = NOW()
+                WHERE id = CAST(:request_id AS UUID)
+                  AND status = 'pending'
+                RETURNING *
+                """,
+                {"request_id": str(row.get("id") or ""), "message": message_value},
+            )
+            row = refreshed or row
         request = self._request_payload(row)
         if not request:
             raise OneLocationAgentError(
@@ -993,16 +1093,22 @@ class OneLocationAgentService:
             event_type="location_access_request",
             metadata={"referred": bool(referred_by_user_id)},
         )
+        requester_identity = self._identity_row(requester_user_id)
+        requester_label = _identity_display_label(requester_identity, fallback="Someone")
         self._send_metadata_notification(
             user_id=owner_user_id,
             notification_type="location_access_request",
             title="Location access request",
-            body="Someone is asking to view your location.",
+            body=f"{requester_label} is asking to view your location.",
             notification_tag=f"one-location-request:{request['id']}",
             request_url=_one_location_url(requestId=request["id"]),
             data={
                 "request_id": request["id"],
                 "requester_user_id": requester_user_id,
+                "requester_display_label": requester_label,
+                "requester_masked_phone": _mask_phone(requester_identity.get("phone_number"))
+                if requester_identity
+                else None,
                 "referred_by_user_id": referred_by_user_id,
             },
         )
@@ -1060,17 +1166,23 @@ class OneLocationAgentService:
             event_type="location_access_approved",
             metadata={"duration_hours": normalize_duration_hours(duration_hours)},
         )
+        owner_identity = self._identity_row(owner_user_id)
+        owner_label = _identity_display_label(owner_identity)
         self._send_metadata_notification(
             user_id=requester_user_id,
             notification_type="location_access_approved",
             title="Location request approved",
-            body="Your location access request was approved.",
+            body=f"{owner_label} approved your location request.",
             notification_tag=f"one-location-approved:{request_id}",
             request_url=_one_location_url(requestId=request_id, grantId=grant["id"]),
             data={
                 "request_id": request_id,
                 "grant_id": grant["id"],
                 "owner_user_id": owner_user_id,
+                "owner_display_label": owner_label,
+                "owner_masked_phone": _mask_phone(owner_identity.get("phone_number"))
+                if owner_identity
+                else None,
             },
         )
         return {"request": self._request_payload(resolved), "grant": grant}
@@ -1101,14 +1213,23 @@ class OneLocationAgentService:
             event_type="location_access_denied",
             metadata={},
         )
+        owner_identity = self._identity_row(owner_user_id)
+        owner_label = _identity_display_label(owner_identity)
         self._send_metadata_notification(
             user_id=str(row.get("requester_user_id") or ""),
             notification_type="location_access_denied",
             title="Location request denied",
-            body="Your location access request was denied.",
+            body=f"{owner_label} denied your location request.",
             notification_tag=f"one-location-denied:{request_id}",
             request_url=_one_location_url(requestId=request_id),
-            data={"request_id": request_id, "owner_user_id": owner_user_id},
+            data={
+                "request_id": request_id,
+                "owner_user_id": owner_user_id,
+                "owner_display_label": owner_label,
+                "owner_masked_phone": _mask_phone(owner_identity.get("phone_number"))
+                if owner_identity
+                else None,
+            },
         )
         return self._request_payload(row) or {}
 
@@ -1177,6 +1298,32 @@ class OneLocationAgentService:
             event_type="location_referral_invite",
             metadata={"creates_access": False},
         )
+        owner_label = _identity_display_label(self._identity_row(owner_user_id))
+        referring_identity = self._identity_row(referring_user_id)
+        referring_label = _identity_display_label(referring_identity)
+        if referral_payload:
+            self._send_metadata_notification(
+                user_id=referred_user_id,
+                notification_type="location_referral_invite",
+                title="Location referral pending",
+                body=f"{referring_label} referred you into a location request.",
+                notification_tag=f"one-location-referral:{referral_payload['id']}",
+                request_url=_one_location_url(
+                    requestId=request["id"], referralId=referral_payload["id"]
+                ),
+                data={
+                    "request_id": request["id"],
+                    "referral_id": referral_payload["id"],
+                    "grant_id": grant_id,
+                    "owner_user_id": owner_user_id,
+                    "owner_display_label": owner_label,
+                    "referring_user_id": referring_user_id,
+                    "referring_display_label": referring_label,
+                    "referring_masked_phone": _mask_phone(referring_identity.get("phone_number"))
+                    if referring_identity
+                    else None,
+                },
+            )
         return {"referral": referral_payload, "request": request}
 
 

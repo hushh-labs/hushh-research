@@ -67,10 +67,15 @@ import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   buildOneLocationNotificationHref,
+  buildOneLocationWorkflowHref,
+  dismissOneLocationShareNotification,
   locationShareNotificationDescription,
+  locationWorkflowNotificationCopy,
   markOneLocationGrantOpened,
   playOneLocationNotificationSound,
   recordOneLocationShareNotification,
+  recordOneLocationWorkflowNotification,
+  type OneLocationWorkflowNotificationType,
 } from "@/lib/one-location/notifications";
 
 // ============================================================================
@@ -349,12 +354,53 @@ function isOneLocationNotificationType(value: unknown): boolean {
   return String(value || "").trim().toLowerCase().startsWith("location_");
 }
 
+function isOneLocationWorkflowNotificationType(
+  value: unknown,
+): value is OneLocationWorkflowNotificationType {
+  return (
+    value === "location_share_created" ||
+    value === "location_access_approved" ||
+    value === "location_share_revoked" ||
+    value === "location_share_expired" ||
+    value === "location_access_request" ||
+    value === "location_access_denied" ||
+    value === "location_referral_invite"
+  );
+}
+
 function oneLocationOwnerLabel(data: Record<string, string>): string {
   return (
     String(data.owner_display_label || "").trim() ||
     String(data.owner_label || "").trim() ||
     String(data.owner_user_id || "").trim() ||
     "A trusted person"
+  );
+}
+
+function oneLocationRequesterLabel(data: Record<string, string>): string {
+  return (
+    String(data.requester_display_label || "").trim() ||
+    String(data.requester_label || "").trim() ||
+    String(data.requester_user_id || "").trim() ||
+    "Someone"
+  );
+}
+
+function oneLocationReferringLabel(data: Record<string, string>): string {
+  return (
+    String(data.referring_display_label || "").trim() ||
+    String(data.referring_user_id || "").trim() ||
+    "A trusted person"
+  );
+}
+
+function oneLocationNotificationId(data: Record<string, string>): string {
+  return (
+    String(data.grant_id || "").trim() ||
+    String(data.approved_grant_id || "").trim() ||
+    String(data.request_id || "").trim() ||
+    String(data.referral_id || "").trim() ||
+    String(data.notification_tag || "").trim()
   );
 }
 
@@ -553,6 +599,11 @@ export function ConsentNotificationProvider({
         expiresAt: data.expires_at,
         durationHours: data.duration_hours,
       });
+      dispatchConsentStateChanged({
+        source: "one_location_notification",
+        requestId: grantId,
+        notificationType: data.type || "location_share_created",
+      });
       if (!created) return;
 
       const toastKey = `one-location-share:${grantId}`;
@@ -585,6 +636,95 @@ export function ConsentNotificationProvider({
       );
     },
     [isNativePlatform, router, user?.uid],
+  );
+
+  const showOneLocationWorkflowNotification = useCallback(
+    (data: Record<string, string>) => {
+      if (!user?.uid || isNativePlatform) return;
+      const msgType = data.type;
+      if (!isOneLocationWorkflowNotificationType(msgType)) return;
+
+      if (msgType === "location_share_created" || msgType === "location_access_approved") {
+        showOneLocationShareNotification(data);
+        return;
+      }
+
+      const grantId = String(data.grant_id || data.approved_grant_id || "").trim();
+      const requestId = String(data.request_id || "").trim();
+      const referralId = String(data.referral_id || "").trim();
+      const id = oneLocationNotificationId(data);
+      if (!id) return;
+
+      if (msgType === "location_share_revoked" || msgType === "location_share_expired") {
+        if (grantId) {
+          toast.dismiss(`one-location-share:${grantId}`);
+          dismissOneLocationShareNotification(grantId);
+        }
+      }
+
+      const copy = locationWorkflowNotificationCopy({
+        type: msgType,
+        ownerLabel: oneLocationOwnerLabel(data),
+        requesterLabel: oneLocationRequesterLabel(data),
+        referringLabel: oneLocationReferringLabel(data),
+      });
+      const routeHref = buildOneLocationWorkflowHref({
+        grantId,
+        requestId,
+        referralId,
+        openGrant: false,
+      });
+      const created = recordOneLocationWorkflowNotification({
+        userId: user.uid,
+        notificationType: msgType,
+        id,
+        title: copy.title,
+        description: copy.description,
+        routeHref,
+        metadata: {
+          grantId: grantId || null,
+          requestId: requestId || null,
+          referralId: referralId || null,
+        },
+      });
+      dispatchConsentStateChanged({
+        source: "one_location_notification",
+        requestId: requestId || grantId || referralId,
+        notificationType: msgType,
+      });
+      if (!created) return;
+
+      playOneLocationNotificationSound();
+      const toastKey = `one-location-workflow:${msgType}:${id}`;
+      toast(
+        <div className="flex flex-col gap-2">
+          <div className="space-y-0.5">
+            <p className="line-clamp-1 text-sm font-semibold">{copy.title}</p>
+            <p className="line-clamp-2 text-xs text-muted-foreground">{copy.description}</p>
+          </div>
+          <button
+            onClick={() => {
+              toast.dismiss(toastKey);
+              router.push(routeHref, { scroll: false });
+            }}
+            className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors"
+          >
+            Open
+          </button>
+        </div>,
+        {
+          id: toastKey,
+          duration: 10000,
+          position: "top-center",
+        },
+      );
+    },
+    [
+      isNativePlatform,
+      router,
+      showOneLocationShareNotification,
+      user?.uid,
+    ],
   );
 
   // Initialize FCM when user logs in (stable dependency: user?.uid).
@@ -889,23 +1029,7 @@ export function ConsentNotificationProvider({
       if (msgId) toastedIdsRef.current.add(dedupKey);
 
       if (isOneLocationNotificationType(msgType)) {
-        if (msgType === "location_share_created" || msgType === "location_access_approved") {
-          showOneLocationShareNotification(data);
-        } else if (
-          msgType === "location_share_revoked" ||
-          msgType === "location_share_expired" ||
-          msgType === "location_access_denied"
-        ) {
-          const grantId = data.grant_id || data.approved_grant_id || "";
-          const toastKey = grantId ? `one-location-share:${grantId}` : undefined;
-          if (toastKey) {
-            toast.dismiss(toastKey);
-          }
-          dispatchConsentStateChanged({
-            source: "fcm_resolved",
-            requestId: data.request_id || grantId,
-          });
-        }
+        showOneLocationWorkflowNotification(data);
         return;
       }
 
@@ -1002,7 +1126,7 @@ export function ConsentNotificationProvider({
 
     window.addEventListener(FCM_MESSAGE_EVENT, handleFCMMessage);
     return () => window.removeEventListener(FCM_MESSAGE_EVENT, handleFCMMessage);
-  }, [isNativePlatform, isVaultUnlocked, showConsentToast, showOneLocationShareNotification, user?.uid]);
+  }, [isNativePlatform, isVaultUnlocked, showConsentToast, showOneLocationWorkflowNotification, user?.uid]);
 
   // ONE-TIME fetch on vault unlock to catch requests that arrived while app was closed.
   // This is the ONLY acceptable HTTP call -- not a poll, just a catch-up.
