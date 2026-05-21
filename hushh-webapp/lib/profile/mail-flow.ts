@@ -79,7 +79,9 @@ function formatDateTime(value: string | null | undefined): string | null {
   }).format(date);
 }
 
-function formatRelativeTimeFromNow(value: string | null | undefined): string | null {
+function formatRelativeTimeFromNow(
+  value: string | null | undefined,
+): string | null {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
@@ -113,22 +115,54 @@ function hasActiveSync(status: GmailConnectionStatus | null): boolean {
   return active && !isBackfillRunning(status);
 }
 
+function hasActiveRun(run: GmailSyncRun | null | undefined): boolean {
+  return run?.status === "queued" || run?.status === "running";
+}
+
+function hasActiveStatus(status: GmailConnectionStatus | null): boolean {
+  return (
+    status?.last_sync_status === "queued" ||
+    status?.last_sync_status === "running"
+  );
+}
+
 function isBootstrapRunning(status: GmailConnectionStatus | null): boolean {
   if (!status) return false;
-  return (
-    status.bootstrap_state === "queued" ||
-    status.bootstrap_state === "running" ||
-    status.latest_run?.trigger_source === "connect"
-  );
+  const latestRun = status.latest_run;
+  if (hasActiveRun(latestRun) && latestRun?.trigger_source === "connect") {
+    return true;
+  }
+  if (
+    status.bootstrap_state !== "queued" &&
+    status.bootstrap_state !== "running" &&
+    status.sync_state !== "bootstrap_running"
+  ) {
+    return false;
+  }
+  if (latestRun) {
+    return hasActiveRun(latestRun);
+  }
+  return hasActiveStatus(status);
 }
 
 function isBackfillRunning(status: GmailConnectionStatus | null): boolean {
   if (!status) return false;
-  return (
-    status.sync_state === "backfill_running" ||
-    status.latest_run?.sync_mode === "backfill" ||
-    status.latest_run?.trigger_source === "auto_daily"
-  );
+  const latestRun = status.latest_run;
+  if (
+    hasActiveRun(latestRun) &&
+    (latestRun?.sync_mode === "backfill" ||
+      latestRun?.trigger_source === "auto_daily" ||
+      latestRun?.trigger_source === "backfill")
+  ) {
+    return true;
+  }
+  if (status.sync_state !== "backfill_running") {
+    return false;
+  }
+  if (latestRun) {
+    return hasActiveRun(latestRun);
+  }
+  return hasActiveStatus(status);
 }
 
 function isAuthErrorText(value: string | null | undefined): boolean {
@@ -146,7 +180,7 @@ function isAuthErrorText(value: string | null | undefined): boolean {
 
 function latestSyncTimestamp(
   run: GmailSyncRun | null | undefined,
-  status: GmailConnectionStatus | null
+  status: GmailConnectionStatus | null,
 ): string | null {
   return (
     run?.completed_at ||
@@ -157,8 +191,12 @@ function latestSyncTimestamp(
   );
 }
 
-export function resolveGmailConnectedLabel(status: GmailConnectionStatus | null): string {
-  return status?.google_email ? `Connected to ${status.google_email}` : "Connected to your Gmail";
+export function resolveGmailConnectedLabel(
+  status: GmailConnectionStatus | null,
+): string {
+  return status?.google_email
+    ? `Connected to ${status.google_email}`
+    : "Connected to your Gmail";
 }
 
 export function sanitizeGmailUserMessage(
@@ -166,11 +204,12 @@ export function sanitizeGmailUserMessage(
   options?: {
     fallback?: string;
     authFallback?: string;
-  }
+  },
 ): string {
   const fallback = options?.fallback || GMAIL_GENERIC_SYNC_ERROR;
   const authFallback =
-    options?.authFallback || "Reconnect Gmail to continue syncing your receipts.";
+    options?.authFallback ||
+    "Reconnect Gmail to continue syncing your receipts.";
   const raw =
     typeof value === "string"
       ? value
@@ -200,7 +239,7 @@ export function sanitizeGmailUserMessage(
 
 export function resolveGmailLastUpdatedLabel(
   status: GmailConnectionStatus | null,
-  run?: GmailSyncRun | null
+  run?: GmailSyncRun | null,
 ): string | null {
   const timestamp = latestSyncTimestamp(run ?? status?.latest_run, status);
   if (!timestamp) return null;
@@ -218,7 +257,9 @@ export function resolveGmailStatusSummary(options: {
   errorText?: string | null;
 }): GmailStatusSummary {
   const { status, loading = false, errorText = null } = options;
-  const connected = Boolean(status?.configured && status?.connected && !status?.revoked);
+  const connected = Boolean(
+    status?.configured && status?.connected && !status?.revoked,
+  );
   const connectedLabel = resolveGmailConnectedLabel(status);
   const lastUpdated = resolveGmailLastUpdatedLabel(status);
 
@@ -240,11 +281,15 @@ export function resolveGmailStatusSummary(options: {
     };
   }
 
-  if (!connected && (status?.revoked || status?.needs_reauth || isAuthErrorText(errorText))) {
+  if (
+    !connected &&
+    (status?.revoked || status?.needs_reauth || isAuthErrorText(errorText))
+  ) {
     return {
       tone: "error",
       title: "Reconnect Gmail to keep syncing receipts",
-      detail: "Your Gmail permission needs to be refreshed before we can import new receipts.",
+      detail:
+        "Your Gmail permission needs to be refreshed before we can import new receipts.",
       helper: lastUpdated,
     };
   }
@@ -253,7 +298,8 @@ export function resolveGmailStatusSummary(options: {
     return {
       tone: "success",
       title: "Older receipts are still loading",
-      detail: "Your recent receipts are ready while we fetch older receipts in the background.",
+      detail:
+        "Your recent receipts are ready while we fetch older receipts in the background.",
       helper: lastUpdated || connectedLabel,
     };
   }
@@ -282,7 +328,9 @@ export function resolveGmailStatusSummary(options: {
   if (connected) {
     return {
       tone: "success",
-      title: lastUpdated ? "Your receipts are up to date" : "Your Gmail is connected",
+      title: lastUpdated
+        ? "Your receipts are up to date"
+        : "Your Gmail is connected",
       detail: connectedLabel,
       helper: lastUpdated || "Sync receipts to bring in your recent purchases.",
     };
@@ -303,7 +351,8 @@ export function resolveGmailStatusSummary(options: {
   return {
     tone: "neutral",
     title: "Connect Gmail to sync your receipts",
-    detail: "We'll look for receipt emails and keep them together in one place.",
+    detail:
+      "We'll look for receipt emails and keep them together in one place.",
     helper: null,
   };
 }
@@ -331,14 +380,12 @@ function resolveLatestSyncText(status: GmailConnectionStatus | null): string {
     return lastUpdated || "Your receipts are up to date.";
   }
   if (
-    status?.bootstrap_state === "running" ||
-    status?.bootstrap_state === "queued" ||
-    status?.sync_state === "bootstrap_running" ||
-    run?.trigger_source === "connect"
+    isBootstrapRunning(status) ||
+    (hasActiveRun(run) && run?.trigger_source === "connect")
   ) {
     return "We're fetching your recent purchases.";
   }
-  if (status?.sync_state === "backfill_running" || run?.sync_mode === "backfill") {
+  if (isBackfillRunning(status)) {
     return "We're fetching older receipts in the background.";
   }
   if (status?.connected && !status.revoked) {
@@ -354,7 +401,9 @@ export function resolveGmailConnectionPresentation(options: {
   errorText?: string | null;
 }): GmailConnectionPresentation {
   const { status, loading = false, action = null, errorText = null } = options;
-  const connected = Boolean(status?.configured && status?.connected && !status?.revoked);
+  const connected = Boolean(
+    status?.configured && status?.connected && !status?.revoked,
+  );
 
   if (loading && !status && !errorText) {
     return {
@@ -384,7 +433,8 @@ export function resolveGmailConnectionPresentation(options: {
       badgeLabel: "Connected",
       description: `${resolveGmailConnectedLabel(status)}. We're fetching older receipts in the background.`,
       latestSyncText: resolveLatestSyncText(status),
-      latestSyncBadge: status?.latest_run?.status || status?.last_sync_status || "running",
+      latestSyncBadge:
+        status?.latest_run?.status || status?.last_sync_status || "running",
       isConnected: true,
     };
   }
@@ -397,7 +447,8 @@ export function resolveGmailConnectionPresentation(options: {
         ? `${resolveGmailConnectedLabel(status)}. We're syncing your receipts now.`
         : "We're syncing your receipts now.",
       latestSyncText: resolveLatestSyncText(status),
-      latestSyncBadge: status?.latest_run?.status || status?.last_sync_status || null,
+      latestSyncBadge:
+        status?.latest_run?.status || status?.last_sync_status || null,
       isConnected: connected,
     };
   }
@@ -413,13 +464,17 @@ export function resolveGmailConnectionPresentation(options: {
     };
   }
 
-  if (!connected && (status?.revoked || status?.needs_reauth || isAuthErrorText(errorText))) {
+  if (
+    !connected &&
+    (status?.revoked || status?.needs_reauth || isAuthErrorText(errorText))
+  ) {
     return {
       state: "needs_reauthentication",
       badgeLabel: "Reconnect Gmail",
       description: "Reconnect Gmail to continue syncing your receipts.",
       latestSyncText: resolveLatestSyncText(status),
-      latestSyncBadge: status?.latest_run?.status || status?.last_sync_status || null,
+      latestSyncBadge:
+        status?.latest_run?.status || status?.last_sync_status || null,
       isConnected: false,
     };
   }
@@ -430,7 +485,8 @@ export function resolveGmailConnectionPresentation(options: {
       badgeLabel: "Syncing",
       description: `${resolveGmailConnectedLabel(status)}. We're fetching your recent purchases.`,
       latestSyncText: resolveLatestSyncText(status),
-      latestSyncBadge: status?.latest_run?.status || status?.last_sync_status || "running",
+      latestSyncBadge:
+        status?.latest_run?.status || status?.last_sync_status || "running",
       isConnected: true,
     };
   }
@@ -443,7 +499,8 @@ export function resolveGmailConnectionPresentation(options: {
         ? `${resolveGmailConnectedLabel(status)}. We're syncing your receipts now.`
         : "We're syncing your receipts now.",
       latestSyncText: resolveLatestSyncText(status),
-      latestSyncBadge: status?.latest_run?.status || status?.last_sync_status || null,
+      latestSyncBadge:
+        status?.latest_run?.status || status?.last_sync_status || null,
       isConnected: connected,
     };
   }
@@ -472,7 +529,9 @@ export function resolveGmailConnectionPresentation(options: {
 
   if (errorText) {
     return {
-      state: isAuthErrorText(errorText) ? "needs_reauthentication" : "sync_failed",
+      state: isAuthErrorText(errorText)
+        ? "needs_reauthentication"
+        : "sync_failed",
       badgeLabel: isAuthErrorText(errorText) ? "Reconnect Gmail" : "Try again",
       description: isAuthErrorText(errorText)
         ? "Reconnect Gmail to continue syncing your receipts."
@@ -498,7 +557,9 @@ export function buildProfileGmailReturnPath(): string {
   return `${ROUTES.PROFILE}?${params.toString()}`;
 }
 
-export function stashProfileGmailReturnStatus(status: GmailConnectionStatus): void {
+export function stashProfileGmailReturnStatus(
+  status: GmailConnectionStatus,
+): void {
   try {
     setSessionItem(GMAIL_OAUTH_RETURN_STATUS_KEY, JSON.stringify(status));
   } catch (error) {
@@ -521,7 +582,7 @@ export function consumeProfileGmailReturnStatus(): GmailConnectionStatus | null 
 }
 
 export function resolveGmailSyncFeedback(
-  status: GmailConnectionStatus | null
+  status: GmailConnectionStatus | null,
 ): GmailSyncFeedback {
   const latestRunStatus = status?.latest_run?.status;
   const terminalStatus = latestRunStatus || status?.last_sync_status;
@@ -529,14 +590,21 @@ export function resolveGmailSyncFeedback(
   if (terminalStatus === "failed" || status?.last_sync_status === "failed") {
     return {
       kind: "error",
-      message: sanitizeGmailUserMessage(status?.last_sync_error || status?.latest_run?.error_message, {
-        fallback: "We couldn't update your receipts. Please try again in a moment.",
-        authFallback: "Reconnect Gmail to continue syncing your receipts.",
-      }),
+      message: sanitizeGmailUserMessage(
+        status?.last_sync_error || status?.latest_run?.error_message,
+        {
+          fallback:
+            "We couldn't update your receipts. Please try again in a moment.",
+          authFallback: "Reconnect Gmail to continue syncing your receipts.",
+        },
+      ),
     };
   }
 
-  if (terminalStatus === "canceled" || status?.last_sync_status === "canceled") {
+  if (
+    terminalStatus === "canceled" ||
+    status?.last_sync_status === "canceled"
+  ) {
     return {
       kind: "message",
       message: "Gmail sync was canceled.",
@@ -546,30 +614,27 @@ export function resolveGmailSyncFeedback(
   if (
     terminalStatus === "completed" ||
     status?.last_sync_status === "completed" ||
-    status?.bootstrap_state === "running" ||
-    status?.bootstrap_state === "queued" ||
-    status?.sync_state === "bootstrap_running" ||
-    status?.sync_state === "backfill_running" ||
+    isBootstrapRunning(status) ||
+    isBackfillRunning(status) ||
     status?.latest_run?.status === "running" ||
     status?.latest_run?.status === "queued"
   ) {
-    if (
-      status?.bootstrap_state === "running" ||
-      status?.bootstrap_state === "queued" ||
-      status?.sync_state === "bootstrap_running"
-    ) {
+    if (isBootstrapRunning(status)) {
       return {
         kind: "message",
         message: "Gmail is scanning recent receipts in the background.",
       };
     }
-    if (status?.sync_state === "backfill_running") {
+    if (isBackfillRunning(status)) {
       return {
         kind: "message",
         message: "We're fetching older receipts in the background.",
       };
     }
-    if (status?.latest_run?.status === "running" || status?.latest_run?.status === "queued") {
+    if (
+      status?.latest_run?.status === "running" ||
+      status?.latest_run?.status === "queued"
+    ) {
       return {
         kind: "message",
         message: "We're still syncing your receipts.",
@@ -589,7 +654,11 @@ export function resolveGmailSyncFeedback(
 
 export function isRecoverableGmailOAuthReplayError(error: unknown): boolean {
   const message =
-    error instanceof Error ? error.message : typeof error === "string" ? error : "";
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
   const normalized = normalizeText(message);
 
   if (!normalized) return false;

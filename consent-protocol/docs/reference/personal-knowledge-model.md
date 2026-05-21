@@ -70,6 +70,14 @@ local saves fail solely because the cloud projection is temporarily unavailable.
 - Exact raw JSON paths remain private to first-party authenticated tooling after vault unlock.
 - Public/runtime discovery must use scope handles and coarse metadata, not raw internal PKM paths.
 
+## Partner and CRM boundary
+
+PKM is not a partner CRM mirror.
+
+Enterprise systems such as Salesforce may store CRM-native contact or workflow metadata, consent receipt ids, scope labels, audit references, and narrowly approved fields when a workflow has a clear business or legal purpose. They should not receive raw PKM, KYC documents, full email bodies, vault data, user keys, or broad personal profiles by default.
+
+If plaintext PII is handed to a partner system, that copy is outside the Hussh zero-knowledge boundary. The handoff must be explicit, scoped, auditable, minimized, and covered by retention, encryption or masking, access control, and deletion policy. The canonical personal memory remains encrypted PKM unless a consented encrypted PKM write records a derived fact back into Hussh.
+
 ## Why JSONB is not the encrypted payload layer
 
 We explicitly reject `jsonb { plaintext_key: ciphertext_value }` as the primary PKM storage model.
@@ -106,8 +114,11 @@ After legacy cutover, PKM still evolves. Those upgrades are a separate system fr
 - `pkm_migration_state` remains only for legacy-to-PKM repartition.
 - Generic PKM upgrades are driven by:
   - global `pkm_index.model_version`
+  - semantic `pkm_contract_version` and `readable_projection_version`
   - per-domain `pkm_manifests.domain_contract_version`
   - per-domain `pkm_manifests.readable_summary_version`
+- Domain contract targets are dynamic-domain defaults. Domain-specific adapters are optional compatibility overrides, not the primary upgrade policy.
+- The generic upgrade pipeline rebuilds manifest normalization, readable summaries, scope registry shape, consumer visibility, semantic counts, and externalizable path metadata from the current manifest/data shape.
 - The client plans upgrades after vault unlock, decrypts locally, rewrites one domain at a time, re-encrypts, and stores new PKM rows with optimistic concurrency.
 - Upgrade run state and checkpoints are stored server-side as non-secret metadata only.
 - If the app loses the unlocked session mid-upgrade, the next resume must reacquire access locally through the user’s normal vault unlock method.
