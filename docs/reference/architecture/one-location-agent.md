@@ -4,6 +4,18 @@ Status: v1 implementation contract
 Owner: One + IAM/consent governance
 Last updated: 2026-05-20
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  OwnerDevice[Owner device] -->|captures plaintext locally| ClientEnvelope[Recipient encrypted envelope]
+  ClientEnvelope -->|ciphertext and metadata only| Backend[Backend workflow state]
+  Backend -->|authorized ciphertext read| RecipientDevice[Recipient device]
+  RecipientDevice -->|local decrypt after grant check| MapView[Live location view]
+  Consent[Nav/PCHP consent, expiry, revocation, audit] --> Backend
+  One[One trusted-person surface] --> Consent
+```
+
 ## Current Truth
 
 Merged KAI location APIs are a prototype/current-risk surface. They include a

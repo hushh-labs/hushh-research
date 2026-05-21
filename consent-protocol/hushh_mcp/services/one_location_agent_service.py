@@ -603,9 +603,8 @@ class OneLocationAgentService:
     def _recipient_key_row(
         self, *, recipient_user_id: str, recipient_key_id: str | None = None
     ) -> dict[str, Any]:
-        key_filter = "AND k.key_id = :recipient_key_id" if recipient_key_id else ""
         row = self._execute_one(
-            f"""
+            """
             SELECT
               a.user_id, a.display_name, a.phone_number, a.phone_verified,
               k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
@@ -614,7 +613,7 @@ class OneLocationAgentService:
             WHERE a.user_id = :recipient_user_id
               AND a.phone_verified = TRUE
               AND k.status = 'active'
-              {key_filter}
+              AND (:recipient_key_id IS NULL OR k.key_id = :recipient_key_id)
             ORDER BY k.created_at DESC
             LIMIT 1
             """,
