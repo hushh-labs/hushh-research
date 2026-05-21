@@ -250,6 +250,17 @@ class TestOneNavKycManifests:
             "blocked",
         )
 
+    def test_kyc_owns_strict_zk_disclosure_formatter_contract(self) -> None:
+        formatter = KYC_MANIFEST["capabilities"]["approved_disclosure_formatter"]
+        assert KYC_MANIFEST["capabilities"]["drafting_contract_owned_by_adk"] is True
+        assert KYC_MANIFEST["capabilities"]["strict_client_zk_draft_rendering"] is True
+        assert formatter["contract_id"] == "agent_kyc.approved_disclosure_formatter.v1"
+        assert formatter["contract_version"] == "1.0.0"
+        assert formatter["input_schema"] == "ApprovedDisclosureRenderInput"
+        assert formatter["output_schema"] == "ApprovedDisclosureRenderModel"
+        assert formatter["strict_client_zk"] is True
+        assert formatter["backend_plaintext_allowed"] is False
+
 
 # ---------------------------------------------------------------------------
 # Cross-manifest isolation: agent_ids do not collide

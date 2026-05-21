@@ -9,20 +9,20 @@
 
 // Valid test tokens (format matches HCT:base64.signature)
 export const VALID_TOKENS = {
-  // Session token with vault.read.all scope
+  // Session token with pkm.read scope
   session:
-    "HCT:dGVzdF91c2VyfHRlc3RfYWdlbnR8dmF1bHQucmVhZC5hbGx8MTcwMzAwMDAwMDAwMHwxNzAzMDg2NDAwMDAw.valid_signature",
+    "HCT:dGVzdF91c2VyfHRlc3RfYWdlbnR8cGttLnJlYWR8MTcwMzAwMDAwMDAwMHwxNzAzMDg2NDAwMDAw.valid_signature",
 };
 
 // Invalid test tokens
 export const INVALID_TOKENS = {
   // Expired token
   expired:
-    "HCT:dGVzdF91c2VyfHRlc3RfYWdlbnR8dmF1bHQucmVhZC5hbGx8MTcwMjAwMDAwMDAwMHwxNzAyMDAwMDAwMDAx.expired_signature",
+    "HCT:dGVzdF91c2VyfHRlc3RfYWdlbnR8cGttLnJlYWR8MTcwMjAwMDAwMDAwMHwxNzAyMDAwMDAwMDAx.expired_signature",
 
   // Wrong signature
   badSignature:
-    "HCT:dGVzdF91c2VyfHRlc3RfYWdlbnR8dmF1bHQucmVhZC5hbGx8MTcwMzAwMDAwMDAwMHwxNzAzMDg2NDAwMDAw.invalid_signature",
+    "HCT:dGVzdF91c2VyfHRlc3RfYWdlbnR8cGttLnJlYWR8MTcwMzAwMDAwMDAwMHwxNzAzMDg2NDAwMDAw.invalid_signature",
 
   // Wrong format
   malformed: "INVALID_TOKEN_FORMAT",
@@ -54,7 +54,7 @@ export function mockValidationResponse(
     valid,
     user_id: options.userId || "test_user",
     agent_id: options.agentId || "test_agent",
-    scope: options.scope || "vault.read.all",
+    scope: options.scope || "pkm.read",
     reason: options.reason,
   };
 }

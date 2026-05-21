@@ -4,6 +4,7 @@
   "allowed_data_classes": [
     "personal_encrypted",
     "personal_metadata",
+    "personal_projection",
     "workflow_state",
     "provider_cache",
     "audit_regulated",
@@ -122,6 +123,19 @@
       "trust_boundary": "Queryable metadata and scope handles only; no raw decrypted PKM.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "high_metadata"
+    },
+    {
+      "id": "pkm_default_available_projection",
+      "owner": "vault-pkm-governance",
+      "data_class": "personal_projection",
+      "lifecycle_status": "current",
+      "exact_tables": ["pkm_default_available_projections"],
+      "primary_access_path": "vault-owner profile sharing controls publish safe projections; authenticated developer connectors read ready projections through the default-available export endpoint",
+      "retention_policy": "Retain while the user keeps the section available by default; revoke or replace on posture change, projection refresh, domain deletion, or account deletion.",
+      "deletion_behavior": "Soft revoke individual projections by setting revoked_at; hard-delete on account or domain deletion.",
+      "trust_boundary": "Consumer-visible safe projection payloads only. Never raw encrypted PKM, pkm.read, workflow artifacts, hashes, provenance as shareable data, or broad blobs.",
+      "plaintext_posture": "user_published_safe_projection",
+      "expected_row_growth": "low_per_user_section"
     },
     {
       "id": "pkm_upgrade_workflows",

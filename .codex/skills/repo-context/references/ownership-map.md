@@ -28,6 +28,7 @@ Use this reference after the initial scan to choose the correct owner skill firs
 2. `frontend-architecture`
 3. `frontend-surface-placement`
 4. `frontend-native-surface-mapper`
+5. `frontend-cache-coherence`
 
 ### `mobile-native`
 
@@ -77,3 +78,4 @@ Use this reference after the initial scan to choose the correct owner skill firs
 20. `uat-scoped-deploy`
 20. `data-model-audit`
 21. `frontend-native-surface-map`
+22. `frontend-cache-coherence`

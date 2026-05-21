@@ -2328,9 +2328,9 @@ export class ApiService {
     userId: string;
     scopes?: string[];
   }): Promise<Response> {
-    // Updated to use dynamic attr.* scopes instead of legacy vault.read.*/vault.write.*
+    // Uses dynamic attr.* scopes instead of legacy vault wildcard scopes.
     const scopes = data.scopes || [
-      "attr.financial.risk_profile",  // Replaces vault.read.risk_profile
+      "attr.financial.risk_profile",
       "agent.kai.analyze",
     ];
 

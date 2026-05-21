@@ -51,6 +51,7 @@ require_merge_queue = (
     if require_merge_queue_arg
     else bool(policy["main"]["merge_queue_required"])
 )
+require_last_push_approval = bool(policy["main"].get("require_last_push_approval", False))
 require_conversation_resolution = (
     require_conversation_resolution_arg.lower() == "true"
     if require_conversation_resolution_arg
@@ -58,6 +59,7 @@ require_conversation_resolution = (
 )
 expected_bypass = sorted(policy["main"]["review_bypass_users"])
 expected_queue_bypass = sorted(policy["main"]["merge_queue_bypass_users"])
+expected_queue_bypass_team_name = str(policy["main"].get("merge_queue_bypass_team_name") or "").strip()
 expected_queue_bypass_team_slug = str(policy["main"].get("merge_queue_bypass_team_slug") or "").strip()
 data = json.loads(os.environ["PROTECTION_JSON"])
 rulesets = json.loads(os.environ["RULESETS_JSON"])
@@ -75,6 +77,9 @@ strict_checks = data.get("required_status_checks", {}).get("strict", False)
 
 approvals = (
     data.get("required_pull_request_reviews", {}).get("required_approving_review_count", 0)
+)
+last_push_approval = (
+    data.get("required_pull_request_reviews", {}).get("require_last_push_approval", False)
 )
 force_pushes = data.get("allow_force_pushes", {}).get("enabled", False)
 deletions = data.get("allow_deletions", {}).get("enabled", False)
@@ -95,6 +100,7 @@ bypass_users = sorted(
 )
 
 merge_queue_bypass = []
+merge_queue_bypass_team_names = []
 merge_queue_bypass_team_slugs = []
 for ruleset in ruleset_list:
     if ruleset.get("target") != "branch" or ruleset.get("enforcement") != "active":
@@ -127,8 +133,12 @@ for ruleset in ruleset_list:
                     ).stdout
                 )
                 team_slug = str(team_detail.get("slug") or "").strip()
+                team_name = str(team_detail.get("name") or "").strip()
                 if team_slug:
                     merge_queue_bypass_team_slugs.append(team_slug)
+                if team_name:
+                    merge_queue_bypass_team_names.append(team_name)
+                if team_slug:
                     memberships = json.loads(
                         subprocess.run(
                             ["gh", "api", f"organizations/140115870/team/{actor_id}/members"],
@@ -148,6 +158,7 @@ for ruleset in ruleset_list:
             if actor_name:
                 merge_queue_bypass.append(actor_name)
 merge_queue_bypass = sorted(set(merge_queue_bypass))
+merge_queue_bypass_team_names = sorted(set(merge_queue_bypass_team_names))
 merge_queue_bypass_team_slugs = sorted(set(merge_queue_bypass_team_slugs))
 
 errors = []
@@ -156,6 +167,8 @@ for required_check in required_checks:
         errors.append(f"required status check missing: {required_check}")
 if approvals != expected_approvals:
     errors.append(f"required approvals drifted: expected {expected_approvals}, got {approvals}")
+if require_last_push_approval and not last_push_approval:
+    errors.append("latest-push approval requirement is not enabled")
 if require_strict and not strict_checks:
     errors.append("required status checks are not strict/up-to-date")
 if require_conversation_resolution and not conversation_resolution:
@@ -176,13 +189,19 @@ if expected_queue_bypass_team_slug and merge_queue_bypass_team_slugs != [expecte
     errors.append(
         f"merge queue bypass team drifted: expected {[expected_queue_bypass_team_slug]}, got {merge_queue_bypass_team_slugs}"
     )
+if expected_queue_bypass_team_name and merge_queue_bypass_team_names != [expected_queue_bypass_team_name]:
+    errors.append(
+        f"merge queue bypass team name drifted: expected {[expected_queue_bypass_team_name]}, got {merge_queue_bypass_team_names}"
+    )
 
 print(f"Branch protection summary: checks={checks}, approvals={approvals}, "
-      f"strict={strict_checks}, enforce_admins={admins_enforced}, allow_force_pushes={force_pushes}, "
+      f"latest_push_approval={last_push_approval}, strict={strict_checks}, "
+      f"enforce_admins={admins_enforced}, allow_force_pushes={force_pushes}, "
       f"allow_deletions={deletions}, conversation_resolution={conversation_resolution}, "
       f"merge_queue_enabled={merge_queue_enabled}, "
       f"review_bypass_users={bypass_users}, merge_queue_bypass={merge_queue_bypass}, "
-      f"merge_queue_bypass_teams={merge_queue_bypass_team_slugs}")
+      f"merge_queue_bypass_team_names={merge_queue_bypass_team_names}, "
+      f"merge_queue_bypass_team_slugs={merge_queue_bypass_team_slugs}")
 
 if errors:
     for error in errors:

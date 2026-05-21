@@ -77,6 +77,7 @@ Client surfaces
 | GET | `/api/v1/user-scopes/{user_id}` | Discover dynamic user scopes for one user (requires `?token=<developer-token>`) |
 | GET | `/api/v1/consent-status` | Check app-scoped consent status by scope or request id |
 | POST | `/api/v1/request-consent` | Create or reuse consent for one discovered scope (requires `?token=<developer-token>`) |
+| POST | `/api/v1/default-available-export` | Read a user-published safe projection for a `default_available` scope; records audit metadata and never returns raw PKM |
 | POST | `/api/v1/scoped-export` | Fetch encrypted consent export metadata and ciphertext for an approved developer grant |
 
 ### Developer Portal (Firebase Sign-In / Self-Serve)
@@ -120,6 +121,8 @@ confirms scopes and builds the final draft from approved encrypted exports. When
 the user approves a reply, the client may submit both plain text and sanitized
 HTML; Gmail send uses multipart/alternative while preserving the plain-text
 fallback and original-thread reply headers. The
+`agent_kyc.approved_disclosure_formatter.v1` contract owns the render model;
+the vault-unlocked browser executes it against decrypted scoped exports. The
 maintained architecture reference is [One Email KYC](./one-email-kyc.md).
 
 Inbound user resolution uses exact verified sender evidence. The resolver binds
@@ -214,7 +217,8 @@ RIA relationship bundle note:
 | GET | `/api/pkm/domain-data/{user_id}/{domain}` | Get encrypted PKM domain data |
 | DELETE | `/api/pkm/domain-data/{user_id}/{domain}` | Delete a PKM domain |
 | GET | `/api/pkm/metadata/{user_id}` | Get PKM metadata for UI |
-| POST | `/api/pkm/domains/{domain}/scope-exposure` | Enable/disable top-level PKM section exposure and revoke overlapping active grants |
+| POST | `/api/pkm/domains/{domain}/scope-exposure` | Set a top-level PKM section posture: private, ask-first consent, or default-available projection |
+| POST | `/api/pkm/domains/{domain}/default-available-projection` | Vault-owner publishes a client-generated safe projection for one default-available section |
 | GET | `/api/pkm/upgrade/status/{user_id}` | Get generic PKM upgrade status + resumable run metadata |
 | POST | `/api/pkm/upgrade/start-or-resume` | Start or resume a client-side PKM upgrade run |
 | POST | `/api/pkm/upgrade/runs/{run_id}/status` | Update run-level PKM upgrade status |
@@ -483,21 +487,29 @@ External developers (MCP agents, third-party apps) use the `/api/v1` endpoints:
 ```
 1. GET /api/v1/user-scopes/{user_id}
    Query: ?token=<developer-token>
-   → Returns: { user_id, available_domains, scopes }
+   → Returns: { user_id, available_domains, scopes, scope_entries }
 
-2. POST /api/v1/request-consent
+2. If the selected scope entry is `visibility_posture=default_available`
+   and `default_projection_ready=true`, POST /api/v1/default-available-export
+   Query: ?token=<developer-token>
+   Body: { user_id, scope }
+   → Returns: { projection_payload, projection_hash, projection_version }
+   → No consent request is created; an audit event is recorded.
+
+3. POST /api/v1/request-consent
    Query: ?token=<developer-token>
    Body: { user_id, scope, reason, approval_timeout_minutes, connector_public_key, connector_key_id, connector_wrapping_alg }
    → Returns: { request_id, status: "pending" } or an immediate reuse payload with
-     { requested_scope, granted_scope, coverage_kind, covered_by_existing_grant }
+     { requested_scope, granted_scope, coverage_kind, covered_by_existing_grant }.
+   → If the scope is already default-available, returns { status: "already_available", coverage_kind: "default_available_projection" }.
 
-3. User receives FCM notification → approves in app
+4. User receives FCM notification → approves in app
 
-4. POST /api/validate-token
+5. POST /api/validate-token
    Body: { token: "<consent-token>" }
    → Returns: { valid, user_id, scope, expires_at }
 
-5. POST /api/v1/scoped-export?token=<developer-token>
+6. POST /api/v1/scoped-export?token=<developer-token>
    Body: { consent_token, expected_scope, connector_id, connector_public_key, connector_key_id }
    → Returns: { encrypted_data, iv, tag, wrapped_key_bundle, export_revision, export_refresh_status }
    → Connector unwraps and decrypts locally, then narrows to the approved workflow payload before any partner handoff
@@ -505,10 +517,11 @@ External developers (MCP agents, third-party apps) use the `/api/v1` endpoints:
 
 For MCP hosts, the recommended consumption surface is:
 
-`discover_user_domains` → `request_consent` → `check_consent_status` → `get_encrypted_scoped_export(expected_scope=original_scope)`
+`discover_user_domains` → `read_default_available_projection_when_ready` → `request_consent` → `check_consent_status` → `get_encrypted_scoped_export(expected_scope=original_scope)`
 
 Coverage rules:
 
+- `default_available` + ready projection → read safe projection through `/api/v1/default-available-export`; no consent request
 - broader active grant → narrower ask: reuse immediately
 - narrower active grant → broader ask: requires fresh approval
 - exact duplicate pending request → reuse the existing request_id

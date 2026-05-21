@@ -581,7 +581,102 @@ async def test_generate_structure_preview_corrects_canonical_seat_preference_not
     assert "changes" not in result["candidate_payload"]
     assert "seat_preferences" in result["candidate_payload"]
     assert "crud_payload_aligned_to_merge_target" in result["validation_hints"]
+    assert result["drift_flags"]["changes_branch_blocked"] is True
+    assert result["preview_cards"][0]["drift_flags"]["changes_branch_blocked"] is True
     assert run_agent_contract.await_count == 5
+
+
+@pytest.mark.asyncio
+async def test_structure_preview_strips_internal_metadata_and_reports_drift(monkeypatch):
+    service = PKMAgentLabService()
+
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    run_agent_contract = AsyncMock(
+        side_effect=[
+            _single_segment("I prefer quiet hotel rooms."),
+            {
+                "routing_decision": "non_financial_or_ephemeral",
+                "confidence": 0.94,
+                "reason": "Travel preference.",
+                "source_agent": "financial_guard_agent",
+                "contract_version": 1,
+            },
+            {
+                "save_class": "durable",
+                "intent_class": "preference",
+                "mutation_intent": "create",
+                "requires_confirmation": False,
+                "confirmation_reason": "",
+                "candidate_domain_choices": [
+                    {"domain_key": "travel", "recommended": True},
+                ],
+                "confidence": 0.92,
+                "source_agent": "memory_intent_agent",
+                "contract_version": 1,
+            },
+            {
+                "merge_mode": "create_entity",
+                "target_domain": "travel",
+                "target_entity_id": "hotel_pref_001",
+                "target_entity_path": "hotel_preferences.entities.hotel_pref_001",
+                "match_confidence": 0.86,
+                "match_reason": "New hotel preference.",
+                "source_agent": "memory_merge_agent",
+                "contract_version": 1,
+            },
+            {
+                "candidate_payload": {
+                    "hotel_preferences": {
+                        "entities": {
+                            "hotel_pref_001": {
+                                "entity_id": "hotel_pref_001",
+                                "summary": "I prefer quiet hotel rooms.",
+                                "status": "active",
+                                "provenance": {"source_kind": "agent_debug"},
+                                "parser_metadata": {"trace_id": "abc"},
+                            }
+                        },
+                        "workflow_id": "wf_123",
+                    }
+                },
+                "structure_decision": {
+                    "action": "create_domain",
+                    "target_domain": "travel",
+                    "json_paths": ["hotel_preferences"],
+                    "top_level_scope_paths": ["hotel_preferences"],
+                    "externalizable_paths": ["hotel_preferences"],
+                    "summary_projection": {},
+                    "sensitivity_labels": {},
+                    "confidence": 0.84,
+                    "source_agent": "pkm_structure_agent",
+                    "contract_version": 1,
+                },
+                "write_mode": "can_save",
+                "primary_json_path": "hotel_preferences",
+                "target_entity_scope": "hotel_preferences",
+                "validation_hints": [],
+            },
+        ]
+    )
+    monkeypatch.setattr(service, "_run_agent_contract", run_agent_contract)
+
+    result = await service.generate_structure_preview(
+        user_id="user-hotel",
+        message="I prefer quiet hotel rooms.",
+        current_domains=["travel"],
+    )
+
+    serialized_payload = str(result["candidate_payload"])
+    assert "provenance" not in serialized_payload
+    assert "parser_metadata" not in serialized_payload
+    assert "workflow_id" not in serialized_payload
+    assert "internal_metadata_blocked" in result["validation_hints"]
+    assert result["drift_flags"]["internal_metadata_blocked"] is True
+    assert result["preview_summary"]["drift_flag_counts"]["internal_metadata_blocked"] == 1
 
 
 def test_fallback_delete_requires_stable_target():
@@ -815,6 +910,14 @@ CRUD_MATRIX_STATE = {
             "profile",
         ),
         (
+            "Actually I live in New York City now.",
+            "location",
+            "correction",
+            "correct_entity",
+            "can_save",
+            "profile",
+        ),
+        (
             "Forget my seat preference.",
             "travel",
             "deletion",
@@ -946,6 +1049,166 @@ async def test_dynamic_scope_crud_matrix_uses_canonical_targets(
     assert "changes" not in card.get("candidate_payload", {})
     if expected_merge in {"correct_entity", "delete_entity"}:
         assert ".changes." not in str(card.get("merge_decision", {}))
+
+
+@pytest.mark.asyncio
+async def test_obvious_location_correction_recovers_from_model_no_op(monkeypatch):
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=[
+                _single_segment("Actually I live in New York City now."),
+                {
+                    "routing_decision": "non_financial_or_ephemeral",
+                    "confidence": 0.95,
+                    "reason": "Location update, not finance.",
+                    "source_agent": "financial_guard_agent",
+                    "contract_version": 1,
+                },
+                {
+                    "save_class": "ephemeral",
+                    "intent_class": "ambiguous",
+                    "mutation_intent": "no_op",
+                    "requires_confirmation": False,
+                    "confirmation_reason": "",
+                    "candidate_domain_choices": [{"domain_key": "location", "recommended": True}],
+                    "confidence": 0.9,
+                    "source_agent": "memory_intent_agent",
+                    "contract_version": 1,
+                },
+                {
+                    "merge_mode": "no_op",
+                    "target_domain": "location",
+                    "target_entity_id": "",
+                    "target_entity_path": "",
+                    "match_confidence": 0.9,
+                    "match_reason": "Model incorrectly treated the update as no-op.",
+                    "source_agent": "memory_merge_agent",
+                    "contract_version": 1,
+                },
+                {
+                    "candidate_payload": {},
+                    "structure_decision": {
+                        "action": "match_existing_domain",
+                        "target_domain": "location",
+                        "json_paths": [],
+                        "top_level_scope_paths": [],
+                        "externalizable_paths": [],
+                        "summary_projection": {},
+                        "sensitivity_labels": {},
+                        "confidence": 0.8,
+                        "source_agent": "pkm_structure_agent",
+                        "contract_version": 1,
+                    },
+                    "write_mode": "do_not_save",
+                    "primary_json_path": "",
+                    "target_entity_scope": "",
+                    "validation_hints": ["update_residence_to_new_york_city"],
+                },
+            ]
+        ),
+    )
+
+    result = await service.generate_structure_preview(
+        user_id="reviewer-like-user",
+        message="Actually I live in New York City now.",
+        current_domains=CRUD_MATRIX_STATE["domains"],
+        simulated_state=CRUD_MATRIX_STATE,
+    )
+    card = result["preview_cards"][0]
+
+    assert card["target_domain"] == "location"
+    assert card["intent_class"] == "correction"
+    assert card["merge_mode"] == "correct_entity"
+    assert card["target_entity_scope"] == "profile"
+    assert card["primary_json_path"] == "profile"
+    assert card["write_mode"] == "can_save"
+
+
+def test_fallback_merge_prefers_canonical_scope_over_changes():
+    intent_frame = {
+        "save_class": "durable",
+        "intent_class": "correction",
+        "mutation_intent": "correct",
+        "requires_confirmation": False,
+        "candidate_domain_choices": [
+            {"domain_key": "travel", "recommended": True},
+        ],
+        "confidence": 0.88,
+    }
+    simulated_state = {
+        "memories": [
+            {
+                "domain": "travel",
+                "entity_id": "travel_preference_seat_001",
+                "entity_scope": "changes",
+                "message": "Actually window seats work better now.",
+                "active": True,
+            },
+            {
+                "domain": "travel",
+                "entity_id": "travel_preference_seat_001",
+                "entity_scope": "seat_preferences",
+                "message": "I prefer aisle seats for work trips.",
+                "active": True,
+            },
+        ]
+    }
+
+    result = PKMAgentLabService._fallback_merge_decision(
+        message="Actually window seats work better now.",
+        current_domains=["travel"],
+        intent_frame=intent_frame,
+        simulated_state=simulated_state,
+    )
+
+    assert result["merge_mode"] == "correct_entity"
+    assert result["target_entity_id"] == "travel_preference_seat_001"
+    assert result["target_entity_path"] == "seat_preferences.entities.travel_preference_seat_001"
+
+
+@pytest.mark.asyncio
+async def test_segmentation_cannot_strip_correction_cue(monkeypatch):
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service,
+        "_load_domain_registry_choices",
+        AsyncMock(return_value=_registry_choices()),
+    )
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=[
+                _single_segment("I live in New York City now."),
+                None,
+                None,
+                None,
+                None,
+            ]
+        ),
+    )
+
+    result = await service.generate_structure_preview(
+        user_id="reviewer-like-user",
+        message="Actually I live in New York City now.",
+        current_domains=CRUD_MATRIX_STATE["domains"],
+        simulated_state=CRUD_MATRIX_STATE,
+    )
+    card = result["preview_cards"][0]
+
+    assert card["source_text"] == "Actually I live in New York City now."
+    assert card["intent_class"] == "correction"
+    assert card["merge_mode"] == "correct_entity"
+    assert card["target_entity_scope"] == "profile"
+    assert card["write_mode"] == "can_save"
 
 
 @pytest.mark.asyncio

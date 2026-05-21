@@ -57,11 +57,16 @@ Non-owned surfaces:
 2. Keep frontend and backend boundaries aligned around the same vault/PKM contract.
 3. Treat vault keys and owner tokens as memory-only runtime state.
 4. Use route/service tests or metadata proof before browser proof when sufficient.
-5. For protected route behavior, distinguish same-session navigation from cold-entry re-unlock.
-6. Treat PKM manifests as authority and `pkm_index` as discovery cache.
-7. Require data-plane classification for PKM/vault/legacy-memory migrations before production readiness.
-8. Keep PKM/vault upgrade diagnostics out of consumer UI. Use plain terms such as `personal data`, `saved details`, and `sharing`; reserve `PKM`, manifests, schemas, timings, and correlation ids for logs, docs, and developer-only tools.
-9. Route IAM, consent, and verification policy questions to `iam-consent-governance` when they become primary.
+5. Reviewer/browser proof must use the current reviewer fixture from runtime env (`REVIEWER_UID` plus the vault passphrase overlay) and validate as the vault owner. With the flipped Email Helper data model, the actor under test is the resolved vault-owner sender account, not copied recipients, counterparties, or global fixtures.
+6. For protected route behavior, distinguish same-session navigation from cold-entry re-unlock.
+7. Treat PKM manifests as authority and `pkm_index` as discovery cache.
+8. If fixture data is missing for the env-wired reviewer, repair or reseed that reviewer account instead of testing against a different UID or email.
+9. Require data-plane classification for PKM/vault/legacy-memory migrations before production readiness.
+10. Keep PKM/vault upgrade diagnostics out of consumer UI. Use plain terms such as `personal data`, `saved details`, and `sharing`; reserve `PKM`, manifests, schemas, timings, and correlation ids for logs, docs, and developer-only tools.
+11. Treat PKM section visibility as three protocol postures, not a Boolean: `private`, `consent_required`, and `default_available`. `default_available` means a user-published safe projection only; never raw PKM, `pkm.read`, workflow artifacts, hashes, provenance, or broad encrypted blobs.
+12. Before bumping PKM protocol or readable projection versions, run the reviewer-backed active shape audit in read-only mode: `cd consent-protocol && python3 scripts/audit_active_pkm_shape_readonly.py --env-file .env`. If the local maintainer env lacks reviewer secrets, use `--gcp-secret-project hushh-pda-uat` so Secret Manager values stay process-local. Use only redacted structural output; never paste plaintext values into chat, docs, commits, tests, or model prompts.
+13. Pair PKM protocol changes with natural prompt-chain evidence from `cd consent-protocol && python3 scripts/eval_pkm_structure_agent.py --phase fresh_chain_60 --env-file .env`; the eval must use `REVIEWER_UID` as the first shadow user when present and should exercise create/extend/correct/delete/no-op behavior over the reviewer-shaped manifest/scope surface. For protocol or prompt hardening, add `--enforce-gates` once the change is expected to pass so fallback, mutation, domain, fragmentation, finance-contamination, and unresolved-domain drift cannot regress silently.
+14. Route IAM, consent, and verification policy questions to `iam-consent-governance` when they become primary.
 
 ## Handoff Rules
 

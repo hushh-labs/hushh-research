@@ -100,6 +100,14 @@ Representative selected scopes:
    scope already available for the user, such as `attr.travel.*` for favorite
    locations or `attr.food.*` for food preferences.
 
+Each dynamic PKM scope has one visibility posture:
+
+1. `Private`: the section is hidden from external discovery.
+2. `Ask first`: the section is discoverable by label, but data still requires consent and a strict zero-knowledge encrypted export.
+3. `Available by default`: the user has published a safe consumer-visible projection that authenticated connectors can read without creating a consent request.
+
+`Available by default` never means raw PKM, `pkm.read`, internal manifests, hashes, provenance, workflow artifacts, or broad encrypted blobs. It is a narrow projection path with audit events and revocation state.
+
 Denied selected scopes block external reply-all. Missing fields inside an
 approved export are described in the client-generated draft; the backend never
 decrypts or drafts from the scoped data.

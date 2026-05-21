@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 61,
+  "expected_migration_version": 63,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -163,6 +163,29 @@
       "scope_label",
       "manifest_version",
       "summary_projection",
+      "visibility_posture",
+      "default_projection_ready",
+      "default_projection_updated_at",
+      "created_at",
+      "updated_at"
+    ],
+    "pkm_default_available_projections": [
+      "id",
+      "user_id",
+      "domain",
+      "scope",
+      "scope_handle",
+      "top_level_scope_path",
+      "projection_payload",
+      "projection_hash",
+      "projection_version",
+      "manifest_version",
+      "content_revision",
+      "source_content_revision",
+      "source_manifest_revision",
+      "revoked_at",
+      "revoked_reason",
+      "metadata",
       "created_at",
       "updated_at"
     ],

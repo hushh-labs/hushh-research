@@ -72,6 +72,7 @@ export interface HushhPersonalKnowledgeModelPlugin {
     }>;
     allScopes: string[];
     wildcardScopes: string[];
+    scopeEntries?: Array<Record<string, unknown>>;
   }>;
 
   getEncryptedData(options: {
