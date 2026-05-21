@@ -112,6 +112,7 @@ type AgentChatWorkspaceProps = {
 
 const AGENT_GREETING =
   "Hey, I'm Agent. Ask me about markets, your portfolio, Kai analysis, or consent workflows.";
+const AGENT_GREETING_TIMESTAMP = "Just now";
 
 const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   text: "",
@@ -136,7 +137,7 @@ function createGreetingMessage(): AgentMessage {
     id: "agent-greeting",
     role: "assistant",
     text: AGENT_GREETING,
-    timestamp: formatNow(),
+    timestamp: AGENT_GREETING_TIMESTAMP,
     status: "done",
   };
 }

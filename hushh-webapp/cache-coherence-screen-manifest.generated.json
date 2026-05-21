@@ -87,7 +87,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": true,
+        "cache_service": false,
         "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
@@ -96,10 +96,12 @@
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": false,
-        "sse_or_streaming": true,
+        "sse_or_streaming": false,
         "native_beacon": true
       },
-      "findings": []
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
     },
     {
       "route": "/consents",

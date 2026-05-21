@@ -1257,6 +1257,14 @@ async def get_default_available_export(
                 ),
             },
         )
+    if discovered_entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error_code": "SCOPE_NOT_DISCOVERED_FOR_USER",
+                "message": "Requested scope is not available for this user.",
+            },
+        )
 
     projection = await get_pkm_service().get_default_available_projection(
         user_id=payload.user_id,

@@ -70,6 +70,10 @@ import { ROUTES } from "@/lib/navigation/routes";
 // Helpers
 // ============================================================================
 
+function isTransientFetchFailure(error: unknown): boolean {
+  return error instanceof TypeError && /failed to fetch/i.test(error.message);
+}
+
 /**
  * Build a PendingConsent object from an FCM data payload.
  * The backend now includes scope, agent_id, and scope_description in the
@@ -956,8 +960,13 @@ export function ConsentNotificationProvider({
           pending.forEach((consent) => showConsentToast(consent));
         }
       } catch (err) {
-        console.error("[NotificationProvider] Initial fetch error:", err);
-        if (!cancelled && queuedPending.length > 0) {
+        if (cancelled) return;
+        if (isTransientFetchFailure(err)) {
+          console.warn("[NotificationProvider] Initial fetch error:", err);
+        } else {
+          console.error("[NotificationProvider] Initial fetch error:", err);
+        }
+        if (queuedPending.length > 0) {
           clearQueuedPendingConsents(uid);
         }
       }
