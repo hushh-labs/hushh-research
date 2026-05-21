@@ -212,6 +212,18 @@ export function resolveTopShellBreadcrumb(
     };
   }
 
+  if (pathname === ROUTES.ONE_LOCATION) {
+    return {
+      backHref: ROUTES.PROFILE,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: ROUTES.PROFILE },
+        { label: "Location" },
+      ],
+    };
+  }
+
   if (
     pathname === ROUTES.MARKETPLACE_CONNECTIONS ||
     pathname.startsWith(`${ROUTES.MARKETPLACE_CONNECTIONS}/`)

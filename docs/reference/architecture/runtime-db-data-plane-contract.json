@@ -240,7 +240,7 @@
       "id": "kai_live_location_sharing",
       "owner": "backend-runtime-governance",
       "data_class": "personal_metadata",
-      "lifecycle_status": "current",
+      "lifecycle_status": "transitional",
       "exact_tables": [
         "kai_location_access_requests",
         "kai_location_contacts",
@@ -254,6 +254,26 @@
       "deletion_behavior": "Delete owner-scoped location rows on account deletion; revoke active shares and update sessions on explicit stop/revoke flows.",
       "trust_boundary": "Vault-owner APIs require owner consent authority; public share links are bearer-token scoped, token hashes persist server-side, and event metadata must not persist raw coordinates.",
       "plaintext_posture": "location_metadata_coordinates_and_token_hashes",
+      "expected_row_growth": "medium_per_user_share"
+    },
+    {
+      "id": "one_location_agent",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_location_access_requests",
+        "one_location_envelopes",
+        "one_location_events",
+        "one_location_recipient_keys",
+        "one_location_referrals",
+        "one_location_share_grants"
+      ],
+      "primary_access_path": "One Location Agent verified-recipient directory, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, referrals, revocation, expiry, and metadata-only audit",
+      "retention_policy": "Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",
+      "deletion_behavior": "Delete rows where the deleting account is owner, recipient, requester, referrer, referred user, or key owner; revoke active grants before deletion where possible.",
+      "trust_boundary": "Coordinates exist only on owner and recipient devices. Backend stores recipient public keys, grant metadata, ciphertext envelopes, and audit metadata; it must not store latitude, longitude, addresses, map previews, or movement trails.",
+      "plaintext_posture": "ciphertext_coordinates_and_metadata_only",
       "expected_row_growth": "medium_per_user_share"
     },
     {

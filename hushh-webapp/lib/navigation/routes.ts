@@ -21,6 +21,7 @@ export const ROUTES = {
   MARKETPLACE_CONNECTIONS: "/marketplace/connections",
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
   ONE_KYC: "/one/kyc",
+  ONE_LOCATION: "/one/location",
   RIA_HOME: "/ria",
   RIA_ONBOARDING: "/ria/onboarding",
   RIA_CLIENTS: "/ria/clients",

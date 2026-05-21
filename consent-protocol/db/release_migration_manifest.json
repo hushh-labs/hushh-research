@@ -37,7 +37,8 @@
     "057_marketplace_investor_admission.sql",
     "058_marketplace_investor_actions.sql",
     "059_marketplace_investor_replenisher_runs.sql",
-    "060_kai_location_sharing.sql"
+    "060_kai_location_sharing.sql",
+    "061_one_location_agent.sql"
   ],
   "groups": {
     "iam": [
@@ -63,7 +64,8 @@
       "057_marketplace_investor_admission.sql",
       "058_marketplace_investor_actions.sql",
       "059_marketplace_investor_replenisher_runs.sql",
-      "060_kai_location_sharing.sql"
+      "060_kai_location_sharing.sql",
+      "061_one_location_agent.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

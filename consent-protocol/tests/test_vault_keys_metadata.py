@@ -113,6 +113,30 @@ class _FakeSQLConnection:
                 )
             return _FakeSQLResult(rows=[{"user_id": incoming["user_id"]}], rowcount=1)
 
+        if "insert into actor_profiles" in sql:
+            user_id = params["user_id"]
+            has_vault = any(row.get("user_id") == user_id for row in db["vault_keys"])
+            if not has_vault:
+                return _FakeSQLResult(rows=[], rowcount=0)
+
+            existing = next(
+                (row for row in db["actor_profiles"] if row.get("user_id") == user_id),
+                None,
+            )
+            if existing:
+                return _FakeSQLResult(rows=[], rowcount=0)
+
+            db["actor_profiles"].append(
+                {
+                    "user_id": user_id,
+                    "personas": ["investor"],
+                    "last_active_persona": "investor",
+                    "investor_marketplace_opt_in": False,
+                }
+            )
+            rows = [{"user_id": user_id}] if "returning user_id" in sql else []
+            return _FakeSQLResult(rows=rows, rowcount=1)
+
         if "delete from vault_key_wrappers" in sql:
             user_id = params["user_id"]
             existing = db["vault_key_wrappers"]
@@ -303,6 +327,7 @@ class _FakeSupabase:
         self.db = {
             "vault_keys": [],
             "vault_key_wrappers": [],
+            "actor_profiles": [],
         }
         self.fail_wrapper_methods: set[str] = set()
         self.engine = _FakeEngine(self)
@@ -400,7 +425,26 @@ async def test_setup_vault_state_persists_passphrase_required_wrapper_set():
     assert len(fake.db["vault_keys"]) == 1
     assert fake.db["vault_keys"][0]["primary_method"] == "passphrase"
     assert fake.db["vault_keys"][0]["vault_key_hash"] == "vault-hash"
+    assert fake.db["actor_profiles"] == [
+        {
+            "user_id": "user-1",
+            "personas": ["investor"],
+            "last_active_persona": "investor",
+            "investor_marketplace_opt_in": False,
+        }
+    ]
     assert len(fake.db["vault_key_wrappers"]) == 2
+
+
+def test_ensure_actor_profile_repairs_existing_vault_user():
+    fake = _FakeSupabase()
+    fake.db["vault_keys"].append({"user_id": "user-1"})
+    service = VaultKeysService()
+    service._supabase = fake
+
+    assert service.ensure_actor_profile("user-1") is True
+    assert service.ensure_actor_profile("user-1") is True
+    assert [row["user_id"] for row in fake.db["actor_profiles"]] == ["user-1"]
 
 
 @pytest.mark.asyncio

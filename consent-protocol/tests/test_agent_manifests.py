@@ -17,6 +17,7 @@ from hushh_mcp.agents.kai.manifest import MANIFEST as KAI_MANIFEST
 from hushh_mcp.agents.kai.manifest import get_manifest as get_kai_manifest
 from hushh_mcp.agents.kyc.manifest import KYC_WORKFLOW_STATES
 from hushh_mcp.agents.kyc.manifest import MANIFEST as KYC_MANIFEST
+from hushh_mcp.agents.location.manifest import MANIFEST as LOCATION_MANIFEST
 from hushh_mcp.agents.nav.manifest import MANIFEST as NAV_MANIFEST
 from hushh_mcp.agents.one.manifest import MANIFEST as ONE_MANIFEST
 from hushh_mcp.agents.orchestrator.manifest import manifest as ORCHESTRATOR_MANIFEST
@@ -199,7 +200,7 @@ class TestOrchestratorManifest:
 class TestOneNavKycManifests:
     @pytest.mark.parametrize(
         "manifest",
-        [ONE_MANIFEST, NAV_MANIFEST, KYC_MANIFEST],
+        [ONE_MANIFEST, NAV_MANIFEST, KYC_MANIFEST, LOCATION_MANIFEST],
     )
     def test_required_manifest_shape(self, manifest: dict) -> None:
         for key in (
@@ -216,7 +217,7 @@ class TestOneNavKycManifests:
 
     @pytest.mark.parametrize(
         "manifest",
-        [ONE_MANIFEST, NAV_MANIFEST, KYC_MANIFEST],
+        [ONE_MANIFEST, NAV_MANIFEST, KYC_MANIFEST, LOCATION_MANIFEST],
     )
     def test_manifest_scope_entries_are_consent_scopes(self, manifest: dict) -> None:
         for scope in [*manifest["required_scopes"], *manifest["optional_scopes"]]:
@@ -226,10 +227,16 @@ class TestOneNavKycManifests:
         assert ONE_MANIFEST["agent_id"] == "agent_one"
         assert NAV_MANIFEST["agent_id"] == "agent_nav"
         assert KYC_MANIFEST["agent_id"] == "agent_kyc"
+        assert LOCATION_MANIFEST["agent_id"] == "agent_location"
 
-    def test_one_delegates_to_kai_nav_kyc(self) -> None:
+    def test_one_delegates_to_kai_nav_kyc_location(self) -> None:
         specialist_ids = {specialist["id"] for specialist in ONE_MANIFEST["specialists"]}
-        assert {"kai", "nav", "kyc"} <= specialist_ids
+        assert {"kai", "nav", "kyc", "location"} <= specialist_ids
+
+    def test_location_manifest_is_recipient_encrypted_and_metadata_only(self) -> None:
+        assert LOCATION_MANIFEST["compliance"]["recipient_e2ee_required"] is True
+        assert LOCATION_MANIFEST["compliance"]["backend_plaintext_coordinates_allowed"] is False
+        assert LOCATION_MANIFEST["compliance"]["public_bearer_links_allowed"] is False
 
     def test_kyc_workflow_states_are_canonical(self) -> None:
         assert KYC_WORKFLOW_STATES == (

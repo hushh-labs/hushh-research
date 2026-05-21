@@ -111,6 +111,47 @@ class AccountService:
                 "DELETE FROM kai_receipt_memory_artifacts WHERE user_id = :user_id"
             ),
             "one_kyc_workflows": text("DELETE FROM one_kyc_workflows WHERE user_id = :user_id"),
+            "one_location_access_requests": text(
+                """
+                DELETE FROM one_location_access_requests
+                WHERE owner_user_id = :user_id
+                   OR requester_user_id = :user_id
+                   OR referred_by_user_id = :user_id
+                """
+            ),
+            "one_location_envelopes": text(
+                """
+                DELETE FROM one_location_envelopes
+                WHERE owner_user_id = :user_id
+                   OR recipient_user_id = :user_id
+                """
+            ),
+            "one_location_events": text(
+                """
+                DELETE FROM one_location_events
+                WHERE owner_user_id = :user_id
+                   OR actor_user_id = :user_id
+                   OR recipient_user_id = :user_id
+                """
+            ),
+            "one_location_recipient_keys": text(
+                "DELETE FROM one_location_recipient_keys WHERE user_id = :user_id"
+            ),
+            "one_location_referrals": text(
+                """
+                DELETE FROM one_location_referrals
+                WHERE owner_user_id = :user_id
+                   OR referring_user_id = :user_id
+                   OR referred_user_id = :user_id
+                """
+            ),
+            "one_location_share_grants": text(
+                """
+                DELETE FROM one_location_share_grants
+                WHERE owner_user_id = :user_id
+                   OR recipient_user_id = :user_id
+                """
+            ),
             "runtime_persona_state": text(
                 "DELETE FROM runtime_persona_state WHERE user_id = :user_id"
             ),
@@ -384,6 +425,12 @@ class AccountService:
             "marketplace_investor_actions": False,
             "marketplace_profile": False,
             "one_kyc_workflows": False,
+            "one_location_events": False,
+            "one_location_referrals": False,
+            "one_location_access_requests": False,
+            "one_location_envelopes": False,
+            "one_location_share_grants": False,
+            "one_location_recipient_keys": False,
             "runtime_persona_state": False,
             "vault_keys": False,
         }
@@ -571,6 +618,20 @@ class AccountService:
                     params=params,
                 )
                 results["one_kyc_workflows"] = True
+                for table_name in (
+                    "one_location_events",
+                    "one_location_referrals",
+                    "one_location_access_requests",
+                    "one_location_envelopes",
+                    "one_location_share_grants",
+                    "one_location_recipient_keys",
+                ):
+                    self._delete_user_rows_if_table_exists(
+                        conn,
+                        table_name=table_name,
+                        params=params,
+                    )
+                    results[table_name] = True
                 self._delete_user_rows_if_table_exists(
                     conn,
                     table_name="actor_verified_email_aliases",
