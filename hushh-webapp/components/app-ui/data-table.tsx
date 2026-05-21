@@ -5,6 +5,7 @@ import {
   type ColumnDef,
   type ColumnFiltersState,
   type SortingState,
+  type VisibilityState,
   type Row,
   flexRender,
   getCoreRowModel,
@@ -33,8 +34,11 @@ import {
 } from "@/components/ui/select";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -46,7 +50,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { Search } from "lucide-react";
+import { Search, SlidersHorizontal, Download, EyeOff } from "lucide-react";
 import { surfaceDataTableShellClassName } from "@/lib/morphy-ux/surfaces";
 import { cn } from "@/lib/utils";
 
@@ -83,6 +87,8 @@ interface DataTableProps<TData, TValue> {
   tableClassName?: string;
   density?: "default" | "compact";
   stickyHeader?: boolean;
+  isLoading?: boolean; // New Feature: Explicit Async Loading State Toggle
+  exportFileName?: string; // New Feature: Custom Export Document Filename
 }
 
 export function DataTable<TData, TValue>({
@@ -103,9 +109,12 @@ export function DataTable<TData, TValue>({
   tableClassName,
   density = "default",
   stickyHeader = false,
+  isLoading = false,
+  exportFileName = "data-grid-export",
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const [searchTerm, setSearchTerm] = React.useState("");
   const [globalFilter, setGlobalFilter] = React.useState("");
 
@@ -169,13 +178,13 @@ export function DataTable<TData, TValue>({
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
-    ...(normalizedSearchKeys.length > 0
-      ? { globalFilterFn: globalSearchFilterFn }
-      : {}),
+    onColumnVisibilityChange: setColumnVisibility,
+    ...(normalizedSearchKeys.length > 0 ? { globalFilterFn: globalSearchFilterFn } : {}),
     state: {
       sorting,
       columnFilters,
       globalFilter,
+      columnVisibility,
     },
     initialState: {
       pagination: {
@@ -201,6 +210,31 @@ export function DataTable<TData, TValue>({
     () => buildPaginationItems(currentPage, pageCount),
     [currentPage, pageCount]
   );
+
+  /**
+   * New Feature: Client CSV parsing export controller engine
+   */
+  const handleExportCSV = React.useCallback(() => {
+    const visibleColumns = table.getVisibleFlatColumns().filter(col => typeof col.accessorFn === 'function' || typeof col.columnDef.header === 'string');
+    const headers = visibleColumns.map(col => typeof col.columnDef.header === 'string' ? col.columnDef.header : col.id).join(",");
+    
+    const rows = table.getFilteredRowModel().rows.map(row => {
+      return visibleColumns.map(col => {
+        const value = col.accessorFn ? col.accessorFn(row.original, table.getRowModel().rows.indexOf(row)) : (row.original as any)[col.id];
+        const cleanValue = value === null || value === undefined ? "" : String(value).replace(/"/g, '""');
+        return `"${cleanValue}"`;
+      }).join(",");
+    });
+
+    const csvContent = `data:text/csv;charset=utf-8,${[headers, ...rows].join("\n")}`;
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `${exportFileName}_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [table, exportFileName]);
 
   const handleTouchStart = React.useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     const touch = event.touches[0];
@@ -236,19 +270,20 @@ export function DataTable<TData, TValue>({
   );
 
   const compact = density === "compact";
-  const resolvedTableShellClassName = cn("w-full", tableContainerClassName);
+  const resolvedTableShellClassName = cn("w-full overflow-x-auto", tableContainerClassName);
 
   return (
     <div
-      className="space-y-[var(--data-table-controls-gap)]"
+      className="space-y-[var(--data-table-controls-gap,1rem)]"
       data-no-route-swipe={hasMultiplePages ? "true" : undefined}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
-      {(enableSearch || (filterKey && filterOptions)) && (
-        <div className="flex flex-col gap-3 sm:flex-row">
+      {/* GLOBAL ACTIONS AND DATA MANIPULATION TOOLBARS */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row flex-1 min-w-0">
           {enableSearch && (
-            <div className="relative flex-1">
+            <div className="relative flex-1 max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
               <Input
                 placeholder={searchPlaceholder}
@@ -264,24 +299,16 @@ export function DataTable<TData, TValue>({
             <Select
               value={(table.getColumn(filterKey)?.getFilterValue() as string) ?? "all"}
               onValueChange={(value) =>
-                table
-                  .getColumn(filterKey)
-                  ?.setFilterValue(value === "all" ? undefined : value)
+                table.getColumn(filterKey)?.setFilterValue(value === "all" ? undefined : value)
               }
             >
               <SelectTrigger className="w-full sm:w-[200px] cursor-pointer" aria-label={filterPlaceholder}>
                 <SelectValue placeholder={filterPlaceholder} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all" className="cursor-pointer">
-                  All
-                </SelectItem>
+                <SelectItem value="all" className="cursor-pointer">All Options</SelectItem>
                 {filterOptions.map((option) => (
-                  <SelectItem
-                    key={option.value}
-                    value={option.value}
-                    className="cursor-pointer"
-                  >
+                  <SelectItem key={option.value} value={option.value} className="cursor-pointer">
                     {option.label}
                   </SelectItem>
                 ))}
@@ -289,20 +316,57 @@ export function DataTable<TData, TValue>({
             </Select>
           )}
         </div>
-      )}
 
-      <div
-        className={cn(surfaceDataTableShellClassName, resolvedTableShellClassName)}
-        data-slot="surface-data-table-shell"
-      >
+        {/* NEW FEATURES: CONTROLS SYSTEM DRAWER BUTTON PANELS */}
+        <div className="flex items-center gap-2 self-end sm:self-auto">
+          {data.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportCSV}
+              className="h-9 gap-2 text-xs font-medium cursor-pointer"
+              title="Export Current View Set to CSV"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span className="hidden md:inline">Export CSV</span>
+            </Button>
+          )}
+
+          {/* DYNAMIC COLUMN VISIBILITY PICKER HOOK */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-9 gap-2 text-xs font-medium ml-auto cursor-pointer">
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                <span>Columns</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[180px]">
+              <DropdownMenuLabel className="text-xs">Toggle Visibility</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {table
+                .getAllColumns()
+                .filter((column) => column.getCanHide())
+                .map((column) => {
+                  return (
+                    <DropdownMenuCheckboxItem
+                      key={column.id}
+                      className="capitalize text-xs cursor-pointer"
+                      checked={column.getIsVisible()}
+                      onCheckedChange={(value) => column.toggleVisibility(!!value)}
+                    >
+                      {typeof column.columnDef.header === 'string' ? column.columnDef.header : column.id}
+                    </DropdownMenuCheckboxItem>
+                  );
+                })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      {/* CORE CANVAS ELEMENT FRAMEWORK */}
+      <div className={cn(surfaceDataTableShellClassName, resolvedTableShellClassName)} data-slot="surface-data-table-shell">
         <Table className={tableClassName}>
-          <TableHeader
-            className={
-              stickyHeader
-                ? "sticky top-0 z-10 bg-[color:var(--app-card-surface-sticky-header-solid)] backdrop-blur"
-                : undefined
-            }
-          >
+          <TableHeader className={stickyHeader ? "sticky top-0 z-10 bg-background/95 backdrop-blur shadow-sm" : undefined}>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
@@ -310,29 +374,37 @@ export function DataTable<TData, TValue>({
                     key={header.id}
                     className={cn(
                       compact
-                        ? "px-[max(10px,calc(var(--data-table-cell-px)-2px))] py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground"
-                        : "px-[var(--data-table-cell-px)] py-[calc(var(--data-table-cell-py)-1px)]",
-                      header.column.getCanSort() ? "cursor-pointer select-none" : ""
+                        ? "px-3 py-2 text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-semibold"
+                        : "px-4 py-3",
+                      header.column.getCanSort() ? "cursor-pointer select-none hover:bg-muted/40 transition-colors" : ""
                     )}
                     onClick={header.column.getToggleSortingHandler()}
                   >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                        header.column.columnDef.header,
-                        header.getContext()
-                      )}
-                    {{
-                      asc: " ↑",
-                      desc: " ↓",
-                    }[header.column.getIsSorted() as string] ?? null}
+                    <div className="flex items-center gap-1.5">
+                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                      {{
+                        asc: " ⬆️",
+                        desc: " ⬇️",
+                      }[header.column.getIsSorted() as string] ?? null}
+                    </div>
                   </TableHead>
                 ))}
               </TableRow>
             ))}
           </TableHeader>
           <TableBody data-no-auto-fade="true">
-            {table.getRowModel().rows?.length ? (
+            {/* FEATURE: SHIMMER RUNTIME SKELETON REPLACEMENT */}
+            {isLoading ? (
+              Array.from({ length: pageSize }).map((_, rowIndex) => (
+                <TableRow key={`shimmer-row-${rowIndex}`}>
+                  {columns.map((_, colIndex) => (
+                    <TableCell key={`shimmer-cell-${colIndex}`} className={compact ? "py-3 px-3" : "py-4 px-4"}>
+                      <div className="h-4 w-full animate-pulse rounded bg-muted/60" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}
@@ -346,29 +418,19 @@ export function DataTable<TData, TValue>({
                   onClick={onRowClick ? () => onRowClick(row.original) : undefined}
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell
-                      key={cell.id}
-                      className={cn(
-                        compact
-                          ? "px-[max(10px,calc(var(--data-table-cell-px)-2px))] py-2.5 align-middle"
-                          : "px-[var(--data-table-cell-px)] py-[var(--data-table-cell-py)]"
-                      )}
-                    >
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
+                    <TableCell key={cell.id} className={compact ? "px-3 py-2.5 align-middle" : "px-4 py-3.5"}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="h-24 px-[var(--data-table-cell-px)] text-center text-muted-foreground"
-                >
-                  No results found.
+                <TableCell colSpan={table.getAllColumns().length} className="h-32 text-center text-sm text-muted-foreground">
+                  <div className="flex flex-col items-center justify-center gap-1.5 py-6">
+                    <EyeOff className="h-5 w-5 text-muted-foreground/60" />
+                    <p className="font-medium">No results found matching execution queries.</p>
+                  </div>
                 </TableCell>
               </TableRow>
             )}
@@ -376,38 +438,36 @@ export function DataTable<TData, TValue>({
         </Table>
       </div>
 
-      {hasMultiplePages && (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-xs text-muted-foreground sm:text-sm">
-            Showing {rangeStart}-{rangeEnd} of {filteredCount}
+      {/* FOOTER PAGINATION HANDLERS CONTROL BLOCK */}
+      {hasMultiplePages && !isLoading && (
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pt-2">
+          <div className="text-xs text-muted-foreground font-medium">
+            Showing <span className="text-foreground font-semibold">{rangeStart}</span> to{" "}
+            <span className="text-foreground font-semibold">{rangeEnd}</span> of{" "}
+            <span className="text-foreground font-semibold">{filteredCount}</span> elements
           </div>
 
-          <div className="flex flex-col items-stretch gap-2 sm:items-end">
-            <div className="flex items-center justify-between gap-2 sm:justify-end">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 min-w-[64px] justify-between px-2 text-xs sm:min-w-[80px] sm:px-3 sm:text-sm"
-                    data-no-route-swipe
-                  >
-                    {table.getState().pagination.pageSize}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {normalizedPageSizeOptions.map((size) => (
-                    <DropdownMenuItem
-                      key={size}
-                      onSelect={() => table.setPageSize(size)}
-                      className="cursor-pointer"
-                    >
-                      {size}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <span className="text-xs text-muted-foreground sm:text-sm">
+          <div className="flex flex-col items-stretch gap-2.5 sm:items-end">
+            <div className="flex items-center justify-between gap-3 sm:justify-end">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted-foreground">Rows per page:</span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-8 min-w-[64px] justify-between px-2 text-xs" data-no-route-swipe>
+                      <span>{table.getState().pagination.pageSize}</span>
+                      <span className="text-[10px] text-muted-foreground">▼</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-[64px]">
+                    {normalizedPageSizeOptions.map((size) => (
+                      <DropdownMenuItem key={size} onSelect={() => table.setPageSize(size)} className="cursor-pointer text-xs justify-center font-medium">
+                        {size}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              <span className="text-xs text-muted-foreground font-medium border-l border-border/60 pl-3">
                 Page {currentPage} of {pageCount}
               </span>
             </div>
@@ -418,14 +478,10 @@ export function DataTable<TData, TValue>({
                   <PaginationPrevious
                     href="#"
                     aria-disabled={!table.getCanPreviousPage()}
-                    className={cn(
-                      !table.getCanPreviousPage() && "pointer-events-none opacity-50"
-                    )}
+                    className={cn(!table.getCanPreviousPage() && "pointer-events-none opacity-40")}
                     onClick={(event) => {
                       event.preventDefault();
-                      if (table.getCanPreviousPage()) {
-                        table.previousPage();
-                      }
+                      if (table.getCanPreviousPage()) table.previousPage();
                     }}
                   />
                 </PaginationItem>
@@ -453,12 +509,10 @@ export function DataTable<TData, TValue>({
                   <PaginationNext
                     href="#"
                     aria-disabled={!table.getCanNextPage()}
-                    className={cn(!table.getCanNextPage() && "pointer-events-none opacity-50")}
+                    className={cn(!table.getCanNextPage() && "pointer-events-none opacity-40")}
                     onClick={(event) => {
                       event.preventDefault();
-                      if (table.getCanNextPage()) {
-                        table.nextPage();
-                      }
+                      if (table.getCanNextPage()) table.nextPage();
                     }}
                   />
                 </PaginationItem>
