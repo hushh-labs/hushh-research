@@ -45,4 +45,11 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("router.push(topShellBreadcrumb.backHref);");
     expect(source).not.toContain("router.back();");
   });
+    it("preserves deterministic breadcrumb navigation contracts", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    expect(source).toContain("topShellBreadcrumb.backHref");
+    expect(source).toContain("router.push(topShellBreadcrumb.backHref);");
+    expect(source).not.toContain("history.back()");
+  });
 });
