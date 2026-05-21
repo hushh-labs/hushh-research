@@ -32,7 +32,14 @@ export function useConsentPendingSummaryCount() {
   } | null>(null);
 
   useEffect(() => {
-    const handleMutation = () => setMutationTick((value) => value + 1);
+    const handleMutation = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail || {};
+      const source = String(detail.source || "").trim();
+      if (source === "cached_pending" || source === "queued_pending") {
+        return;
+      }
+      setMutationTick((value) => value + 1);
+    };
     window.addEventListener(CONSENT_ACTION_COMPLETE_EVENT, handleMutation);
     window.addEventListener(CONSENT_STATE_CHANGED_EVENT, handleMutation);
     return () => {
