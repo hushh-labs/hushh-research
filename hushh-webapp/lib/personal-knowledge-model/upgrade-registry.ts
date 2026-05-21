@@ -1,32 +1,37 @@
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import {
+  CURRENT_PKM_CONTRACT_VERSION,
   CURRENT_READABLE_SUMMARY_VERSION,
+  CURRENT_READABLE_PROJECTION_VERSION,
   currentDomainContractVersion,
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import type { DomainSummary } from "@/lib/services/personal-knowledge-model-service";
+
+export type PkmDomainCapability =
+  | "manifest_normalization"
+  | "readable_summary"
+  | "scope_registry"
+  | "consumer_projection"
+  | "semantic_counts"
+  | "externalizable_paths"
+  | "entity_maps"
+  | "encrypted_payload_structure";
+
+export type PkmDomainCompatibility = {
+  pkmContractVersion: string;
+  readableProjectionVersion: string;
+  capabilities: PkmDomainCapability[];
+  blockedReasons: string[];
+};
 
 export type PkmDomainUpgradeResult = {
   domainData: Record<string, unknown>;
   notes: string[];
   newDomainContractVersion: number;
-};
-
-type PkmDomainUpgradeStep = {
-  fromVersion: number;
-  toVersion: number;
-  apply: (domainData: Record<string, unknown>) => Record<string, unknown>;
-  note: string;
-};
-
-const DOMAIN_UPGRADE_REGISTRY: Record<string, PkmDomainUpgradeStep[]> = {
-  financial: [
-    {
-      fromVersion: 1,
-      toVersion: 2,
-      apply: (domainData) => ({ ...domainData }),
-      note: "Refreshed the Financial contract metadata for resumable PKM upgrades.",
-    },
-  ],
+  pkmContractVersion: string;
+  readableProjectionVersion: string;
+  capabilitiesApplied: PkmDomainCapability[];
+  compatibility: PkmDomainCompatibility;
 };
 
 function cloneRecord<T extends Record<string, unknown>>(value: T): T {
@@ -38,6 +43,70 @@ function cloneRecord<T extends Record<string, unknown>>(value: T): T {
     }
   }
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function uniqueCapabilities(values: PkmDomainCapability[]): PkmDomainCapability[] {
+  return Array.from(new Set(values));
+}
+
+function countEntityMaps(value: unknown): number {
+  if (!value || typeof value !== "object") return 0;
+  if (Array.isArray(value)) {
+    return value.reduce((sum, item) => sum + countEntityMaps(item), 0);
+  }
+  const record = value as Record<string, unknown>;
+  let count = 0;
+  for (const [key, child] of Object.entries(record)) {
+    if (key === "entities" && child && typeof child === "object" && !Array.isArray(child)) {
+      count += Object.keys(child as Record<string, unknown>).length;
+      continue;
+    }
+    count += countEntityMaps(child);
+  }
+  return count;
+}
+
+export function inferPkmDomainCompatibility(params: {
+  domainData: Record<string, unknown>;
+  manifest?: DomainManifest | null;
+}): PkmDomainCompatibility {
+  const capabilities: PkmDomainCapability[] = ["encrypted_payload_structure"];
+  const manifest = params.manifest || null;
+  const summary = manifest?.summary_projection || {};
+  const blockedReasons: string[] = [];
+
+  if (manifest?.paths?.length || manifest?.top_level_scope_paths?.length) {
+    capabilities.push("manifest_normalization");
+  } else if (manifest) {
+    blockedReasons.push("manifest_has_no_paths");
+  } else {
+    blockedReasons.push("missing_manifest");
+  }
+  if (manifest?.scope_registry?.length) {
+    capabilities.push("scope_registry");
+  }
+  if (manifest?.externalizable_paths?.length) {
+    capabilities.push("externalizable_paths");
+  }
+  if (summary.readable_summary || summary.readable_highlights) {
+    capabilities.push("readable_summary");
+  }
+  if (summary.consumer_visible === true || manifest?.scope_registry?.some((entry) => {
+    const projection = entry.summary_projection || {};
+    return projection.consumer_visible === true && projection.internal_only !== true;
+  })) {
+    capabilities.push("consumer_projection");
+  }
+  if (Number(summary.consumer_item_count || 0) > 0 || countEntityMaps(params.domainData) > 0) {
+    capabilities.push("semantic_counts", "entity_maps");
+  }
+
+  return {
+    pkmContractVersion: CURRENT_PKM_CONTRACT_VERSION,
+    readableProjectionVersion: CURRENT_READABLE_PROJECTION_VERSION,
+    capabilities: uniqueCapabilities(capabilities),
+    blockedReasons,
+  };
 }
 
 function titleize(value: string): string {
@@ -59,8 +128,13 @@ export function runDomainUpgrade(params: {
   domain: string;
   domainData: Record<string, unknown>;
   currentVersion: number;
+  manifest?: DomainManifest | null;
 }): PkmDomainUpgradeResult {
   const targetVersion = currentDomainContractVersion(params.domain);
+  const compatibility = inferPkmDomainCompatibility({
+    domainData: params.domainData,
+    manifest: params.manifest || null,
+  });
   if ((params.currentVersion || 0) <= 0) {
     return {
       domainData: cloneRecord(params.domainData),
@@ -68,29 +142,29 @@ export function runDomainUpgrade(params: {
         `Rebuilt ${titleize(params.domain)} into the current Personal Knowledge Model contract from legacy or unversioned data.`,
       ],
       newDomainContractVersion: targetVersion,
+      pkmContractVersion: CURRENT_PKM_CONTRACT_VERSION,
+      readableProjectionVersion: CURRENT_READABLE_PROJECTION_VERSION,
+      capabilitiesApplied: compatibility.capabilities,
+      compatibility,
     };
   }
   let nextDomainData = cloneRecord(params.domainData);
   let nextVersion = Math.max(0, params.currentVersion || 0);
   const notes: string[] = [];
-  const steps = DOMAIN_UPGRADE_REGISTRY[String(params.domain || "").trim().toLowerCase()] || [];
 
   while (nextVersion < targetVersion) {
-    const matchingStep = steps.find((step) => step.fromVersion === nextVersion);
-    if (matchingStep) {
-      nextDomainData = matchingStep.apply(nextDomainData);
-      nextVersion = matchingStep.toVersion;
-      notes.push(matchingStep.note);
-      continue;
-    }
     nextVersion += 1;
-    notes.push(`Refreshed ${titleize(params.domain)} to contract v${nextVersion}.`);
+    notes.push(`Refreshed ${titleize(params.domain)} with the generic dynamic PKM capability pipeline.`);
   }
 
   return {
     domainData: nextDomainData,
     notes,
     newDomainContractVersion: targetVersion,
+    pkmContractVersion: CURRENT_PKM_CONTRACT_VERSION,
+    readableProjectionVersion: CURRENT_READABLE_PROJECTION_VERSION,
+    capabilitiesApplied: compatibility.capabilities,
+    compatibility,
   };
 }
 
@@ -107,6 +181,8 @@ export function buildReadableUpgradeSummary(params: {
   readable_source_label: string;
   readable_event_summary: string;
   readable_summary_version: number;
+  readable_projection_version: string;
+  pkm_contract_version: string;
   upgraded_at: string;
 } {
   const domainLabel =
@@ -115,20 +191,21 @@ export function buildReadableUpgradeSummary(params: {
   const attributeCount = Number(params.domainSummary?.attributeCount || 0);
   const upgradedAt = params.upgradedAt || new Date().toISOString();
   const highlights = [
-    sections.length > 0 ? `Updated sections: ${sections.join(", ")}` : null,
+    sections.length > 0 ? `${sections.join(", ")}` : null,
     attributeCount > 0
-      ? `${attributeCount} saved detail${attributeCount === 1 ? "" : "s"} kept intact`
+      ? `${attributeCount} saved detail${attributeCount === 1 ? "" : "s"}`
       : null,
-    params.notes && params.notes.length > 0 ? params.notes[0] : null,
   ].filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 
   return {
-    readable_summary: `Kai refreshed your ${domainLabel.toLowerCase()} data so it stays organized and ready to review.`,
+    readable_summary: `Your ${domainLabel.toLowerCase()} memory is organized and ready to review.`,
     readable_highlights: highlights.slice(0, 5),
     readable_updated_at: upgradedAt,
-    readable_source_label: "PKM Upgrade",
-    readable_event_summary: `Refreshed ${domainLabel} for the latest Personal Knowledge Model.`,
+    readable_source_label: "Saved memory",
+    readable_event_summary: `Updated ${domainLabel} memory.`,
     readable_summary_version: CURRENT_READABLE_SUMMARY_VERSION,
+    readable_projection_version: CURRENT_READABLE_PROJECTION_VERSION,
+    pkm_contract_version: CURRENT_PKM_CONTRACT_VERSION,
     upgraded_at: upgradedAt,
   };
 }

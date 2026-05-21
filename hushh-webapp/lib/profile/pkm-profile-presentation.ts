@@ -96,6 +96,11 @@ export type PkmProfileSummaryPresentation = {
   attentionItems: string[];
 };
 
+const CONSUMER_HIDDEN_DOMAIN_KEYS = new Set([
+  "kyc_connector",
+  "kyc_workflow",
+]);
+
 const INTERNAL_ONLY_TOP_LEVEL_SCOPE_PATHS = new Set([
   "domain_intent",
   "schema_version",
@@ -123,12 +128,71 @@ function humanizePath(value: string | null | undefined): string {
     .join(" ");
 }
 
-function daysSince(value: string | null | undefined): number | null {
+function parseTimestamp(value: string | null | undefined): number | null {
   const text = String(value || "").trim();
   if (!text) return null;
   const timestamp = new Date(text).getTime();
-  if (!Number.isFinite(timestamp)) return null;
-  return Math.max(0, (Date.now() - timestamp) / (1000 * 60 * 60 * 24));
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function newestTimestamp(values: Array<string | null | undefined>): string | null {
+  const newest = values
+    .map((value) => {
+      const timestamp = parseTimestamp(value);
+      return timestamp === null ? null : { value: String(value), timestamp };
+    })
+    .filter((entry): entry is { value: string; timestamp: number } => Boolean(entry))
+    .sort((left, right) => right.timestamp - left.timestamp)[0];
+  return newest?.value || null;
+}
+
+function toNonNegativeInteger(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Math.floor(value);
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed >= 0) return Math.floor(parsed);
+  }
+  return null;
+}
+
+function firstPositiveInteger(values: unknown[]): number | null {
+  for (const value of values) {
+    const parsed = toNonNegativeInteger(value);
+    if (typeof parsed === "number" && parsed > 0) return parsed;
+  }
+  return null;
+}
+
+function resolveDomainDetailCount(domain: DomainSummary): number {
+  const summary = domain.summary || {};
+  return (
+    firstPositiveInteger([
+      summary.consumer_item_count,
+      summary.memory_count,
+      summary.entity_count,
+      summary.entities_count,
+      summary.preference_count,
+      summary.preferences_count,
+      summary.receipt_count_used,
+      summary.receipt_count,
+      summary.holdings_count,
+      summary.account_count,
+      summary.item_count,
+      domain.attributeCount,
+      summary.attribute_count,
+    ]) ?? 0
+  );
+}
+
+export function isConsumerVisiblePkmDomain(domain: DomainSummary): boolean {
+  const key = normalizeToken(domain.key);
+  if (!key || CONSUMER_HIDDEN_DOMAIN_KEYS.has(key)) return false;
+  if (domain.summary?.internal_only === true || domain.summary?.consumer_visible === false) {
+    return false;
+  }
+  return true;
 }
 
 function inferSourceLabels(
@@ -136,8 +200,9 @@ function inferSourceLabels(
   presentation: NaturalDomainPresentation
 ): string[] {
   const labels = new Set<string>();
-  if (presentation.sourceLabel) {
-    labels.add(presentation.sourceLabel);
+  const readableSourceLabel = presentation.sourceLabel?.trim();
+  if (readableSourceLabel && !/^pkm upgrade$/i.test(readableSourceLabel)) {
+    labels.add(readableSourceLabel);
   }
 
   const key = normalizeToken(domain.key);
@@ -171,13 +236,15 @@ function inferSourceLabels(
 
 function toStatus(
   domain: DomainSummary,
-  presentation: NaturalDomainPresentation
+  presentation: NaturalDomainPresentation,
+  detailCount: number
 ): { status: PkmDomainStatus; statusLabel: string } {
-  const ageDays = daysSince(presentation.updatedAt);
-  if (domain.attributeCount <= 0) {
-    return { status: "missing", statusLabel: "Missing" };
+  if (detailCount <= 0) {
+    return presentation.sections.length > 0
+      ? { status: "partial", statusLabel: "Ready" }
+      : { status: "missing", statusLabel: "No saved data" };
   }
-  if (ageDays !== null && ageDays >= 30) {
+  if (domain.summary?.refresh_recommended === true) {
     return { status: "stale", statusLabel: "Stale" };
   }
   if (domain.attributeCount < 4 || presentation.sections.length < 2) {
@@ -240,7 +307,18 @@ export function buildPkmDomainPresentation(params: {
   });
 
   const sourceLabels = inferSourceLabels(params.domain, presentation);
-  const { status, statusLabel } = toStatus(params.domain, presentation);
+  const detailCount = resolveDomainDetailCount(params.domain);
+  const updatedAt = newestTimestamp([
+    presentation.updatedAt,
+    typeof params.domain.summary?.last_content_at === "string"
+      ? params.domain.summary.last_content_at
+      : null,
+    typeof params.domain.summary?.updated_at === "string"
+      ? params.domain.summary.updated_at
+      : null,
+    params.domain.lastUpdated,
+  ]);
+  const { status, statusLabel } = toStatus(params.domain, { ...presentation, updatedAt }, detailCount);
   const attentionFlags: string[] = [];
   if (status === "missing") attentionFlags.push("Needs data");
   if (status === "stale") attentionFlags.push("Refresh recommended");
@@ -266,8 +344,8 @@ export function buildPkmDomainPresentation(params: {
     highlights: presentation.highlights.filter(isConsumerHighlightUseful).slice(0, 4),
     sections: presentation.sections,
     sourceLabels,
-    updatedAt: presentation.updatedAt,
-    detailCount: params.domain.attributeCount,
+    updatedAt,
+    detailCount,
     status,
     statusLabel,
     accessEntries,
@@ -360,8 +438,8 @@ export function buildPkmProfileSummaryPresentation(params: {
   return {
     metadataResolved: params.metadataResolved ?? params.metadata !== null,
     sharingResolved: params.sharingResolved ?? true,
-    totalDomains: params.metadata?.domains.length ?? 0,
-    totalAttributes: params.metadata?.totalAttributes ?? 0,
+    totalDomains: params.domains.length,
+    totalAttributes: params.domains.reduce((total, domain) => total + domain.detailCount, 0),
     totalSourceCount,
     activeGrantCount: params.activeGrants.length,
     sharedDomainCount,

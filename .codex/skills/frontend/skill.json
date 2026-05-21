@@ -26,7 +26,8 @@
     "docs/reference/quality/frontend-ui-architecture-map.md",
     "docs/reference/quality/design-system.md",
     "hushh-webapp/components/README.md",
-    "hushh-webapp/lib/services/README.md"
+    "hushh-webapp/lib/services/README.md",
+    ".codex/skills/frontend/references/browser-ux-runtime.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run verify:docs",
