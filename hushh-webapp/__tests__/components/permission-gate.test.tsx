@@ -44,4 +44,22 @@ describe("PermissionGate", () => {
       "/consents"
     );
   });
+    it("preserves canonical consent fallback routing for locked vault states", () => {
+    mockUseVault.mockReturnValue({
+      isVaultUnlocked: false,
+      vaultOwnerToken: null,
+    });
+
+    render(
+      <PermissionGate permission="portfolio_valuation">
+        <button type="button">Open workspace</button>
+      </PermissionGate>
+    );
+
+    const reviewLink = screen.getByRole("link", {
+      name: "Review permissions",
+    });
+
+    expect(reviewLink.getAttribute("href")).toBe("/consents");
+  });
 });
