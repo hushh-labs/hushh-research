@@ -20,6 +20,7 @@ export const ROUTE_ID_VALUES = [
   "marketplace_ria_profile",
   "one_kyc",
   "one_location",
+  "one_location_public_request",
   "portfolio_shared",
   "ria_home",
   "ria_onboarding",
@@ -73,6 +74,7 @@ export function resolveRouteId(pathname: string): RouteId {
   }
   if (pathname === ROUTES.ONE_KYC) return "one_kyc";
   if (pathname === ROUTES.ONE_LOCATION) return "one_location";
+  if (pathname.startsWith("/location/request/")) return "one_location_public_request";
   if (pathname === "/portfolio/shared") return "portfolio_shared";
   if (pathname === ROUTES.RIA_HOME) return "ria_home";
   if (pathname === ROUTES.RIA_ONBOARDING) return "ria_onboarding";
@@ -171,6 +173,18 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
   {
     regex: /^\/api\/one\/location\/grants\/[^/?]+\/refer(?:\?.*)?$/i,
     template: "/api/one/location/grants/{grant_id}/refer",
+  },
+  {
+    regex: /^\/api\/one\/location\/public-invites(?:\?.*)?$/i,
+    template: "/api/one/location/public-invites",
+  },
+  {
+    regex: /^\/api\/one\/location\/public-invites\/[^/?]+\/submit(?:\?.*)?$/i,
+    template: "/api/one/location/public-invites/{public_token}/submit",
+  },
+  {
+    regex: /^\/api\/one\/location\/public-invites\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/one/location/public-invites/{public_invite_id}",
   },
   {
     regex: /^\/api\/kai\/agent\/chat\/stream(?:\?.*)?$/i,
