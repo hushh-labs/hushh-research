@@ -108,4 +108,21 @@ describe("SettingsSegmentedTabs", () => {
     fireEvent.click(inactive);
     expect(handleValueChange).toHaveBeenCalledWith("kai");
   });
+    it("preserves inactive segmented tab accessibility state", () => {
+    render(
+      <SettingsSegmentedTabs
+        value="kai"
+        onValueChange={() => {}}
+        options={[
+          { value: "kai", label: "Kai list" },
+          { value: "my", label: "My list" },
+        ]}
+      />
+    );
+
+    const inactive = screen.getByRole("button", { name: "My list" });
+
+    expect(inactive.getAttribute("data-state")).toBe("inactive");
+    expect(inactive.getAttribute("aria-pressed")).toBe("false");
+  });
 });
