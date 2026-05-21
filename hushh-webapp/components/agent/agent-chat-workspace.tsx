@@ -27,6 +27,7 @@ import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
+import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
 import { useAuth } from "@/hooks/use-auth";
 import {
   executeAgentGatewayAction,
@@ -34,6 +35,7 @@ import {
 } from "@/lib/agent/agent-action-runtime";
 import {
   addToPKM,
+  clearAgentPkmContext,
   formatAgentPkmSaveSummary,
   getAutoSavePkmCards,
   getIgnoredPkmCards,
@@ -117,6 +119,7 @@ const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   totalAttributes: 0,
   updatedAt: null,
 };
+const AGENT_STREAM_RENDER_FRAME_MS = 32;
 
 const EXPLICIT_PKM_SAVE_PATTERN =
   /\b(?:add|save|store|remember)\b[\s\S]{0,140}\b(?:pkm|personal knowledge|memory|memories)\b|\b(?:add|save|store|remember)\s+(?:this|that)\b/i;
@@ -228,13 +231,108 @@ function AgentMarkdown({ text }: { text: string }) {
   );
 }
 
+function useAnimatedAssistantText(targetText: string, active: boolean) {
+  const [displayedText, setDisplayedText] = useState(active ? "" : targetText);
+  const displayedTextRef = useRef(displayedText);
+  const targetTextRef = useRef(targetText);
+
+  useEffect(() => {
+    displayedTextRef.current = displayedText;
+  }, [displayedText]);
+
+  useEffect(() => {
+    targetTextRef.current = targetText;
+
+    if (!active && !targetText.startsWith(displayedTextRef.current)) {
+      displayedTextRef.current = targetText;
+      setDisplayedText(targetText);
+    }
+  }, [active, targetText]);
+
+  useEffect(() => {
+    let frame = 0;
+    let lastPaintAt = 0;
+
+    const tick = (now: number) => {
+      const target = targetTextRef.current;
+      const current = displayedTextRef.current;
+
+      if (!target.startsWith(current)) {
+        displayedTextRef.current = target;
+        setDisplayedText(target);
+        return;
+      }
+
+      if (current.length >= target.length) {
+        return;
+      }
+
+      if (lastPaintAt && now - lastPaintAt < AGENT_STREAM_RENDER_FRAME_MS) {
+        frame = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      const elapsedMs = lastPaintAt ? Math.max(12, now - lastPaintAt) : AGENT_STREAM_RENDER_FRAME_MS;
+      lastPaintAt = now;
+      const backlog = target.length - current.length;
+      const charsPerSecond = backlog > 900 ? 2600 : backlog > 260 ? 1500 : 620;
+      const step = Math.max(
+        1,
+        Math.min(backlog, Math.ceil((charsPerSecond * elapsedMs) / 1000))
+      );
+      const nextText = target.slice(0, current.length + step);
+      displayedTextRef.current = nextText;
+      setDisplayedText(nextText);
+
+      if (nextText.length < target.length) {
+        frame = window.requestAnimationFrame(tick);
+      }
+    };
+
+    const target = targetTextRef.current;
+    const current = displayedTextRef.current;
+    if (target && (!target.startsWith(current) || current.length < target.length)) {
+      frame = window.requestAnimationFrame(tick);
+    }
+
+    return () => {
+      if (frame) {
+        window.cancelAnimationFrame(frame);
+      }
+    };
+  }, [active, targetText]);
+
+  return {
+    displayedText,
+    isAnimating: active || displayedText.length < targetText.length,
+  };
+}
+
+function AgentThinkingDots() {
+  return (
+    <span className="inline-flex items-center gap-1 py-1 text-muted-foreground" aria-label="Agent is thinking">
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-160ms] motion-reduce:animate-none" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-80ms] motion-reduce:animate-none" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current motion-reduce:animate-none" />
+    </span>
+  );
+}
+
 function AgentBubble({ message }: { message: AgentMessage }) {
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
+  const animated = useAnimatedAssistantText(message.text, !isUser && isStreaming);
+  const assistantText = isUser ? message.text : animated.displayedText;
+  const showStreamingAffordance = !isUser && animated.isAnimating;
 
   return (
-    <div className={cn("flex gap-3", isUser ? "justify-end" : "justify-start")}>
+    <div
+      className={cn(
+        "flex gap-3 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none",
+        isUser ? "justify-end" : "justify-start"
+      )}
+    >
       {!isUser ? (
         <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
           <Bot className="h-4 w-4" />
@@ -242,6 +340,7 @@ function AgentBubble({ message }: { message: AgentMessage }) {
       ) : null}
       <div className={cn("max-w-[78%]", isUser && "order-first")}>
         <div
+          aria-live={!isUser && isStreaming ? "polite" : undefined}
           className={cn(
             "rounded-lg px-4 py-3 text-sm leading-6 shadow-sm",
             isUser
@@ -252,11 +351,18 @@ function AgentBubble({ message }: { message: AgentMessage }) {
         >
           {isUser ? (
             <span className="whitespace-pre-wrap break-words">{message.text}</span>
+          ) : assistantText ? (
+            <AgentMarkdown text={assistantText} />
           ) : (
-            <AgentMarkdown text={message.text} />
+            <AgentThinkingDots />
           )}
-          {isStreaming ? (
-            <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-current align-middle" />
+          {showStreamingAffordance ? (
+            <StreamingCursor
+              isStreaming={isStreaming}
+              color={isError ? "error" : "primary"}
+              size="md"
+              className="ml-1"
+            />
           ) : null}
         </div>
         <p className={cn("mt-1 text-xs text-muted-foreground", isUser && "text-right")}>
@@ -439,6 +545,13 @@ export function AgentChatWorkspace({
     }
     pkmAbortControllersRef.current.clear();
   }, []);
+
+  useEffect(() => {
+    if (user?.uid && isVaultUnlocked && vaultKey) {
+      return;
+    }
+    clearAgentPkmContext(user?.uid);
+  }, [isVaultUnlocked, user?.uid, vaultKey]);
   const routeQuery = searchParams?.toString() || "";
   const pathnameWithQuery = routeQuery ? `${pathname || ""}?${routeQuery}` : pathname || "";
   const routeInfo = useMemo(
@@ -1003,6 +1116,7 @@ export function AgentChatWorkspace({
           void loadAgentPkmContext({
             userId: user.uid,
             vaultOwnerToken: token,
+            vaultKey,
             forceRefresh: true,
           }).catch(() => undefined);
           toast.success("Saved to PKM.");
@@ -1075,6 +1189,36 @@ export function AgentChatWorkspace({
     let assistantHasToken = false;
     let turnPkmContext = EMPTY_PKM_CONTEXT;
     let pkmAddToolHandled = false;
+    let pendingAssistantDelta = "";
+    let assistantFlushFrame: number | null = null;
+
+    const flushAssistantDelta = () => {
+      assistantFlushFrame = null;
+      const delta = pendingAssistantDelta;
+      pendingAssistantDelta = "";
+      if (!delta) return;
+      assistantHasToken = true;
+      updateMessage(assistantMessageId, (message) => ({
+        ...message,
+        text: message.ephemeral ? delta : `${message.text}${delta}`,
+        status: "streaming",
+        ephemeral: false,
+      }));
+    };
+
+    const queueAssistantDelta = (delta: string) => {
+      pendingAssistantDelta += delta;
+      if (assistantFlushFrame !== null) return;
+      assistantFlushFrame = window.requestAnimationFrame(flushAssistantDelta);
+    };
+
+    const cancelAssistantFlush = () => {
+      if (assistantFlushFrame !== null) {
+        window.cancelAnimationFrame(assistantFlushFrame);
+        assistantFlushFrame = null;
+      }
+      pendingAssistantDelta = "";
+    };
 
     const upsertToolStatusMessage = (
       messageText: string,
@@ -1235,6 +1379,7 @@ export function AgentChatWorkspace({
             void loadAgentPkmContext({
               userId,
               vaultOwnerToken: token,
+              vaultKey,
               forceRefresh: true,
             }).catch(() => undefined);
             toast.success("Saved to PKM.");
@@ -1401,6 +1546,7 @@ export function AgentChatWorkspace({
             void loadAgentPkmContext({
               userId,
               vaultOwnerToken: token,
+              vaultKey,
               forceRefresh: true,
             }).catch(() => undefined);
           }
@@ -1492,6 +1638,8 @@ export function AgentChatWorkspace({
         agentPkmContext = await loadAgentPkmContext({
           userId,
           vaultOwnerToken: token,
+          vaultKey,
+          message: text,
         });
         turnPkmContext = agentPkmContext;
         if (streamAbortController.signal.aborted) return;
@@ -1499,6 +1647,9 @@ export function AgentChatWorkspace({
           appendDebugEvent(debugTurnId, "pkm_context_loaded", {
             domain_count: agentPkmContext.domains.length,
             total_attributes: agentPkmContext.totalAttributes,
+            detail_count: agentPkmContext.detailCount || 0,
+            source: agentPkmContext.source || "metadata",
+            mode: agentPkmContext.mode || "summary",
             updated_at: agentPkmContext.updatedAt,
           });
         }
@@ -1550,16 +1701,11 @@ export function AgentChatWorkspace({
           },
           onToken: (delta) => {
             if (streamAbortController.signal.aborted) return;
-            assistantHasToken = true;
-            updateMessage(assistantMessageId, (message) => ({
-              ...message,
-              text: message.ephemeral ? delta : `${message.text}${delta}`,
-              status: "streaming",
-              ephemeral: false,
-            }));
+            queueAssistantDelta(delta);
           },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
+            flushAssistantDelta();
             if (nextConversationId) {
               setConversationId(nextConversationId);
             }
@@ -1572,6 +1718,7 @@ export function AgentChatWorkspace({
           },
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
+            flushAssistantDelta();
             updateMessage(assistantMessageId, (current) => ({
               ...current,
               text: current.text || message,
@@ -1583,6 +1730,7 @@ export function AgentChatWorkspace({
         },
       });
       if (streamAbortController.signal.aborted) return;
+      flushAssistantDelta();
       updateMessage(assistantMessageId, (message) => {
         if (message.status === "error") return message;
         return {
@@ -1603,6 +1751,7 @@ export function AgentChatWorkspace({
       setIsStreaming(false);
     } catch (error) {
       if (streamAbortController.signal.aborted) return;
+      flushAssistantDelta();
       const message =
         error instanceof Error && error.message
           ? error.message
@@ -1616,6 +1765,7 @@ export function AgentChatWorkspace({
       setIsChatLoading(false);
       setIsStreaming(false);
     } finally {
+      cancelAssistantFlush();
       if (streamAbortControllerRef.current === streamAbortController) {
         streamAbortControllerRef.current = null;
       }
