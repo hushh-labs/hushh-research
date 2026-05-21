@@ -44,7 +44,8 @@ describe("PermissionGate", () => {
       "/consents"
     );
   });
-    it("preserves locked state rendering when protected children are omitted", () => {
+
+       it("preserves locked-state rendering when children are empty", () => {
     mockUseVault.mockReturnValue({
       isVaultUnlocked: false,
       vaultOwnerToken: null,
@@ -57,6 +58,7 @@ describe("PermissionGate", () => {
     );
 
     expect(screen.getByTestId("permission-locked-state")).toBeTruthy();
+    expect(screen.getByText("Vault permission required")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Review permissions" })).toBeTruthy();
   });
 });
