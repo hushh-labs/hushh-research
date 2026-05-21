@@ -206,4 +206,14 @@ describe("CacheService hit-rate contract", () => {
     // No new events after unsubscribe
     expect(events).toHaveLength(1);
   });
+       it("preserves zero-state cache metrics stability after cache clears", () => {
+    const cache = new CacheService();
+
+    cache.clear();
+
+    expect(cache.getStats()).toMatchObject({
+      size: 0,
+      keys: [],
+    });
+  });
 });
