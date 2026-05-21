@@ -39,6 +39,10 @@ class DynamicScopeGenerator:
         "schema_version",
         "updated_at",
     }
+    _INTERNAL_ONLY_DOMAINS = {
+        "kyc_connector",
+        "kyc_workflow",
+    }
 
     def __init__(self):
         self._supabase = None
@@ -145,6 +149,10 @@ class DynamicScopeGenerator:
                 segments.append(normalized_part)
         return ".".join(segments)
 
+    @classmethod
+    def _is_internal_only_domain(cls, domain: str | None) -> bool:
+        return cls._normalize_domain_key(domain) in cls._INTERNAL_ONLY_DOMAINS
+
     @staticmethod
     def _coerce_json_dict(value: object) -> dict:
         if isinstance(value, dict):
@@ -222,10 +230,14 @@ class DynamicScopeGenerator:
             domain_summaries = {}
 
         catalog: dict[str, dict[str, set[str]]] = {
-            domain: {"paths": set(), "wildcards": set()} for domain in available_domains
+            domain: {"paths": set(), "wildcards": set()}
+            for domain in available_domains
+            if not self._is_internal_only_domain(domain)
         }
 
         for domain in available_domains:
+            if self._is_internal_only_domain(domain):
+                continue
             summary = domain_summaries.get(domain)
             if not isinstance(summary, dict):
                 continue
@@ -265,7 +277,7 @@ class DynamicScopeGenerator:
             if not isinstance(row, dict):
                 continue
             domain = self._normalize_domain_key(row.get("domain"))
-            if not domain:
+            if not domain or self._is_internal_only_domain(domain):
                 continue
             entry = catalog.setdefault(domain, {"paths": set(), "wildcards": set()})
             for top_level_path in row.get("top_level_scope_paths") or []:
@@ -285,7 +297,7 @@ class DynamicScopeGenerator:
                 continue
             domain = self._normalize_domain_key(row.get("domain"))
             json_path = self._normalize_scope_path(row.get("json_path"))
-            if not domain or not json_path:
+            if not domain or self._is_internal_only_domain(domain) or not json_path:
                 continue
             entry = catalog.setdefault(domain, {"paths": set(), "wildcards": set()})
             entry["paths"].add(json_path)
@@ -437,9 +449,14 @@ class DynamicScopeGenerator:
                 }
 
         for domain in sorted(known_domains):
+            domain_internal = self._is_internal_only_domain(domain)
             domain_top_levels = all_consumer_top_levels_by_domain.get(domain, set())
             enabled_top_levels = enabled_consumer_top_levels_by_domain.get(domain, set())
-            if domain_top_levels and enabled_top_levels != domain_top_levels:
+            if (
+                not domain_internal
+                and domain_top_levels
+                and enabled_top_levels != domain_top_levels
+            ):
                 continue
             _upsert_scope_entry(
                 {
@@ -453,9 +470,11 @@ class DynamicScopeGenerator:
                     "exposure_eligibility": True,
                     "manifest_revision": None,
                     "meta_reference": "domain wildcard derived from discovered PKM domains",
-                    "consumer_visible": True,
-                    "internal_only": False,
-                    "visibility_reason": "consumer_shareable",
+                    "consumer_visible": not domain_internal,
+                    "internal_only": domain_internal,
+                    "visibility_reason": "internal_runtime_domain"
+                    if domain_internal
+                    else "consumer_shareable",
                 }
             )
 
@@ -466,6 +485,7 @@ class DynamicScopeGenerator:
             domain = self._normalize_domain_key(row.get("domain"))
             if not domain:
                 continue
+            domain_internal = self._is_internal_only_domain(domain)
             manifest_version = row.get("manifest_version")
             top_level_paths = [
                 self._normalize_scope_path(path)
@@ -488,9 +508,15 @@ class DynamicScopeGenerator:
                         "manifest_revision": registry_meta.get("manifest_revision")
                         or manifest_version,
                         "meta_reference": "manifest top-level scope path",
-                        "consumer_visible": registry_meta.get("consumer_visible") is not False,
-                        "internal_only": registry_meta.get("internal_only") is True,
-                        "visibility_reason": registry_meta.get("visibility_reason"),
+                        "consumer_visible": False
+                        if domain_internal
+                        else registry_meta.get("consumer_visible") is not False,
+                        "internal_only": True
+                        if domain_internal
+                        else registry_meta.get("internal_only") is True,
+                        "visibility_reason": "internal_runtime_domain"
+                        if domain_internal
+                        else registry_meta.get("visibility_reason"),
                     }
                 )
             for raw_path in row.get("externalizable_paths") or []:
@@ -515,9 +541,15 @@ class DynamicScopeGenerator:
                         "manifest_revision": registry_meta.get("manifest_revision")
                         or manifest_version,
                         "meta_reference": "externalizable manifest path",
-                        "consumer_visible": registry_meta.get("consumer_visible") is not False,
-                        "internal_only": registry_meta.get("internal_only") is True,
-                        "visibility_reason": registry_meta.get("visibility_reason"),
+                        "consumer_visible": False
+                        if domain_internal
+                        else registry_meta.get("consumer_visible") is not False,
+                        "internal_only": True
+                        if domain_internal
+                        else registry_meta.get("internal_only") is True,
+                        "visibility_reason": "internal_runtime_domain"
+                        if domain_internal
+                        else registry_meta.get("visibility_reason"),
                     }
                 )
 
@@ -530,6 +562,7 @@ class DynamicScopeGenerator:
             path = self._normalize_scope_path(row.get("json_path"))
             if not domain or not path:
                 continue
+            domain_internal = self._is_internal_only_domain(domain)
             top_level = path.split(".", 1)[0]
             registry_meta = registry_by_top_level.get((domain, top_level), {})
             if registry_meta.get("exposure_enabled") is False:
@@ -549,9 +582,15 @@ class DynamicScopeGenerator:
                     "exposure_eligibility": True,
                     "manifest_revision": registry_meta.get("manifest_revision"),
                     "meta_reference": "manifest path row marked exposure eligible",
-                    "consumer_visible": registry_meta.get("consumer_visible") is not False,
-                    "internal_only": registry_meta.get("internal_only") is True,
-                    "visibility_reason": registry_meta.get("visibility_reason"),
+                    "consumer_visible": False
+                    if domain_internal
+                    else registry_meta.get("consumer_visible") is not False,
+                    "internal_only": True
+                    if domain_internal
+                    else registry_meta.get("internal_only") is True,
+                    "visibility_reason": "internal_runtime_domain"
+                    if domain_internal
+                    else registry_meta.get("visibility_reason"),
                 }
             )
 
@@ -871,6 +910,28 @@ class DynamicScopeGenerator:
             "color_hex": color_hex,
             "description": description,
         }
+
+    async def prewarm_validator(self) -> None:
+        """
+        Exercise format-only validation paths so the first request does not pay
+        singleton setup, parser, wildcard, and domain metadata import costs.
+
+        Per-user scope catalogs remain lazy because they are backed by PKM rows
+        and must be evaluated against the requesting user's latest manifests.
+        """
+        warmup_scopes = (
+            "attr.financial.*",
+            "attr.financial.profile.*",
+            "attr.financial.profile.risk_score",
+        )
+        for scope in warmup_scopes:
+            await self.validate_scope(scope)
+            self.get_scope_display_info(scope)
+
+        self.matches_wildcard(
+            "attr.financial.profile.risk_score",
+            "attr.financial.profile.*",
+        )
 
 
 # Singleton instance
