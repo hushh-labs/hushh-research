@@ -1,7 +1,7 @@
 "use client";
 
 import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Check, ChevronsUpDown, FilePenLine, X } from "lucide-react";
+import { Check, ChevronsUpDown, FilePenLine, X, Loader2 } from "lucide-react";
 
 import {
   CommandDialog,
@@ -23,7 +23,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
 
-// 1. Defined standard class names at the top for better maintainability
+// =============================================================================
+// GLOBAL STYLING TOKENS
+// =============================================================================
+
 const FIELD_TRIGGER_CLASSNAME =
   "flex min-h-10 w-full items-center justify-between gap-3 rounded-[16px] border px-3 py-2 text-left text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring/70";
 
@@ -32,6 +35,10 @@ const COMMAND_ITEM_CLASSNAME =
 
 const COMMAND_SHELL_CLASSNAME =
   "chrome-glass-surface top-[calc(var(--top-shell-reserved-height,0px)+0.75rem)] max-h-[min(70dvh,32rem)] w-[calc(100%-1rem)] translate-y-0 rounded-[28px] border border-white/55 p-0 shadow-2xl sm:top-1/2 sm:w-full sm:max-w-[52rem] sm:max-h-[min(76dvh,38rem)] sm:-translate-y-1/2 lg:max-w-[58rem] dark:border-white/12";
+
+// =============================================================================
+// UTILITY SCHEMAS & DATA ENGINES
+// =============================================================================
 
 export type CommandPickerOption<T = unknown> = {
   value: string;
@@ -42,7 +49,6 @@ export type CommandPickerOption<T = unknown> = {
   data?: T;
 };
 
-// 2. Extracted the haystack generator logic outside the filter to avoid recreating the array in memory
 function buildHaystack<T>(option: CommandPickerOption<T>): string {
   return [
     option.value,
@@ -62,7 +68,33 @@ function filterCommandOptions<T>(options: CommandPickerOption<T>[], query: strin
   return options.filter((option) => buildHaystack(option).includes(normalizedQuery));
 }
 
-// 3. Removed PopupEditorPanel as an internal component and moved it directly into PopupTextEditorField to avoid unnecessary prop drilling and re-renders.
+/**
+ * Feature: Highlight matching characters inside picker elements
+ */
+function HighlightedText({ text, match }: { text: string; match: string }) {
+  if (!match.trim() || !text) return <span className="truncate">{text}</span>;
+  
+  const regex = new RegExp(`(${match.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&")})`, "gi");
+  const segments = text.split(regex);
+
+  return (
+    <span className="truncate">
+      {segments.map((segment, index) => 
+        regex.test(segment) ? (
+          <mark key={index} className="bg-yellow-500/20 text-yellow-600 dark:text-yellow-400 rounded-sm px-0.5 font-semibold">
+            {segment}
+          </mark>
+        ) : (
+          segment
+        )
+      )}
+    </span>
+  );
+}
+
+// =============================================================================
+// 1. COMMAND PICKER FIELD COMPONENT
+// =============================================================================
 
 export function CommandPickerField<T = unknown>({
   title,
@@ -79,6 +111,7 @@ export function CommandPickerField<T = unknown>({
   displayValue,
   renderOption,
   triggerClassName,
+  maxRenderItems = 80, // Virtual chunk threshold feature prevents sub-list freezing
 }: {
   title: ReactNode;
   description?: ReactNode;
@@ -94,6 +127,7 @@ export function CommandPickerField<T = unknown>({
   displayValue?: string;
   renderOption?: (option: CommandPickerOption<T>, selected: boolean) => ReactNode;
   triggerClassName?: string;
+  maxRenderItems?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -101,7 +135,6 @@ export function CommandPickerField<T = unknown>({
   const [loading, setLoading] = useState(false);
   const deferredQuery = useDeferredValue(query);
 
-  // 4. Fixed race conditions in loadOptions by utilizing an AbortController pattern (cleaner than manual `cancelled` boolean)
   useEffect(() => {
     if (!open || !loadOptions) return;
 
@@ -131,13 +164,12 @@ export function CommandPickerField<T = unknown>({
   }, [deferredQuery, loadOptions, open]);
 
   const resolvedOptions = useMemo(() => {
-    if (loadOptions) return dynamicOptions;
-    return filterCommandOptions(options, deferredQuery);
-  }, [deferredQuery, dynamicOptions, loadOptions, options]);
+    const list = loadOptions ? dynamicOptions : filterCommandOptions(options, deferredQuery);
+    return list.slice(0, maxRenderItems); // Paginate view allocations smoothly
+  }, [deferredQuery, dynamicOptions, loadOptions, options, maxRenderItems]);
 
   const selectedOption = useMemo(() => {
     const normalizedValue = value.trim().toLowerCase();
-    // 5. Consolidated the search array to prevent redundant loops
     const allOptions = loadOptions ? dynamicOptions : options;
     return allOptions.find((option) => option.value.trim().toLowerCase() === normalizedValue) || null;
   }, [dynamicOptions, loadOptions, options, value]);
@@ -146,7 +178,7 @@ export function CommandPickerField<T = unknown>({
 
   return (
     <>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 w-full">
         <button
           type="button"
           aria-haspopup="dialog"
@@ -157,8 +189,8 @@ export function CommandPickerField<T = unknown>({
           }}
           className={cn(
             FIELD_TRIGGER_CLASSNAME,
-            invalid ? "border-rose-300 dark:border-rose-500/50" : "border-border/80",
-            triggerValue ? "bg-background text-foreground" : "bg-background text-muted-foreground",
+            invalid ? "border-rose-300 dark:border-rose-500/50" : "border-border/80 bg-background",
+            triggerValue ? "text-foreground" : "text-muted-foreground",
             triggerClassName
           )}
         >
@@ -189,16 +221,27 @@ export function CommandPickerField<T = unknown>({
         description={typeof description === "string" ? description : "Search and select an option."}
         className={COMMAND_SHELL_CLASSNAME}
       >
-        <CommandInput
-          value={query}
-          onValueChange={setQuery}
-          placeholder={searchPlaceholder}
-          className="text-sm sm:text-[15px]"
-        />
+        <div className="relative flex items-center border-b border-border/40">
+          <CommandInput
+            value={query}
+            onValueChange={setQuery}
+            placeholder={searchPlaceholder}
+            className="text-sm sm:text-[15px] flex-1"
+          />
+          {loading && (
+            <Loader2 className="absolute right-4 h-4 w-4 animate-spin text-muted-foreground/70" />
+          )}
+        </div>
+        
         <CommandList className="max-h-[min(56dvh,24rem)] p-2 sm:max-h-[min(62dvh,30rem)] sm:p-3">
-          <CommandEmpty className="px-3 py-6 text-sm text-muted-foreground">
-            {loading ? "Loading..." : emptyText}
+          <CommandEmpty className="px-3 py-6 text-sm text-center text-muted-foreground">
+            {loading ? (
+              <span className="inline-flex items-center gap-2"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Gathering parameters...</span>
+            ) : (
+              emptyText
+            )}
           </CommandEmpty>
+          
           <CommandGroup heading={query.trim() ? "Matches" : "Options"}>
             {resolvedOptions.map((option) => {
               const selected = option.value === value;
@@ -217,15 +260,17 @@ export function CommandPickerField<T = unknown>({
                     renderOption(option, selected)
                   ) : (
                     <>
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <p className="truncate font-medium text-foreground">{option.label}</p>
+                      <div className="min-w-0 flex-1 space-y-0.5">
+                        <p className="truncate font-medium text-foreground">
+                          <HighlightedText text={option.label} match={deferredQuery} />
+                        </p>
                         {option.description ? (
-                          <p className="truncate text-xs text-muted-foreground">
-                            {option.description}
+                          <p className="truncate text-xs text-muted-foreground/90">
+                            <HighlightedText text={option.description} match={deferredQuery} />
                           </p>
                         ) : null}
                       </div>
-                      {selected ? <Check className="h-4 w-4 text-primary" aria-hidden="true" /> : null}
+                      {selected && <Check className="h-4 w-4 text-primary shrink-0 ml-2" aria-hidden="true" />}
                     </>
                   )}
                 </CommandItem>
@@ -237,6 +282,10 @@ export function CommandPickerField<T = unknown>({
     </>
   );
 }
+
+// =============================================================================
+// 2. POPUP TEXT EDITOR FIELD COMPONENT
+// =============================================================================
 
 export function PopupTextEditorField({
   title,
@@ -250,6 +299,7 @@ export function PopupTextEditorField({
   triggerClassName,
   previewClassName,
   textareaClassName,
+  maxLength = 1000, // Feature: Enforced max-length constraints
 }: {
   title: ReactNode;
   description?: ReactNode;
@@ -262,17 +312,19 @@ export function PopupTextEditorField({
   triggerClassName?: string;
   previewClassName?: string;
   textareaClassName?: string;
+  maxLength?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value);
 
   useEffect(() => {
     if (open) {
-      setDraft(value); // Only sync draft when opening the dialog to avoid overriding user edits
+      setDraft(value);
     }
   }, [open, value]);
 
   const preview = value.trim();
+  const isOverLimit = draft.length > maxLength;
 
   return (
     <>
@@ -307,7 +359,7 @@ export function PopupTextEditorField({
         open={open}
         onOpenChange={(nextOpen) => {
           setOpen(nextOpen);
-          if (!nextOpen) setDraft(value); // Revert draft on explicit cancel/close
+          if (!nextOpen) setDraft(value);
         }}
         modal
       >
@@ -319,17 +371,23 @@ export function PopupTextEditorField({
             ) : null}
           </DialogHeader>
 
-          <div className="overflow-y-auto px-4 py-4 sm:px-5">
+          <div className="overflow-y-auto px-4 py-4 sm:px-5 space-y-2">
             <Textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder={placeholder}
               className={cn(
-                "min-h-[220px] resize-none rounded-[22px] border-border/80 bg-background/90 px-4 py-3 text-sm leading-6 sm:min-h-[260px]",
-                invalid ? "border-rose-300 dark:border-rose-500/50" : "",
+                "min-h-[220px] resize-none rounded-[22px] border-border/80 bg-background/90 px-4 py-3 text-sm leading-6 sm:min-h-[260px] transition-colors focus-visible:ring-1",
+                isOverLimit || invalid ? "border-rose-400 focus-visible:ring-rose-400" : "",
                 textareaClassName
               )}
             />
+            {/* Real-time metrics visualization footer banner */}
+            <div className="flex items-center justify-end px-1 text-xs">
+              <span className={cn("font-medium", isOverLimit ? "text-rose-500 font-semibold" : "text-muted-foreground/80")}>
+                {draft.length} / {maxLength} characters
+              </span>
+            </div>
           </div>
 
           <DialogFooter className="border-t border-black/10 px-5 py-4 dark:border-white/10">
@@ -349,11 +407,12 @@ export function PopupTextEditorField({
               variant="blue-gradient"
               effect="fill"
               size="sm"
+              disabled={isOverLimit}
               onClick={() => {
                 onSave(draft);
                 setOpen(false);
               }}
-              className="w-full justify-center sm:w-auto"
+              className="w-full justify-center sm:w-auto data-[disabled=true]:opacity-50"
             >
               {saveLabel}
             </Button>
