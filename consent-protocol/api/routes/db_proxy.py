@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from api.middleware import require_firebase_auth, verify_user_id_match
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.vault_keys_service import VaultKeysService
 
 logger = logging.getLogger(__name__)
@@ -453,6 +454,14 @@ async def vault_setup(
             wrappers=[wrapper.model_dump() for wrapper in request.wrappers],
             primary_wrapper_id=request.primaryWrapperId,
         )
+        try:
+            await ActorIdentityService().sync_from_firebase(firebase_uid, force=False)
+        except Exception as identity_error:
+            logger.debug(
+                "vault/setup identity shadow sync skipped for %s: %s",
+                _mask_user_id(request.userId),
+                identity_error,
+            )
         return SuccessResponse(success=True)
 
     except ValueError as e:

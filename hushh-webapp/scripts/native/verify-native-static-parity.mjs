@@ -33,10 +33,28 @@ const micUsageMatch = infoPlist.match(
 if (!micUsageMatch?.[1]?.trim()) {
   fail("iOS Info.plist must include non-empty NSMicrophoneUsageDescription.");
 }
+const locationUsageMatch = infoPlist.match(
+  /<key>NSLocationWhenInUseUsageDescription<\/key>\s*<string>([^<]+)<\/string>/
+);
+if (!locationUsageMatch?.[1]?.trim()) {
+  fail("iOS Info.plist must include non-empty NSLocationWhenInUseUsageDescription.");
+}
 
 const androidManifest = read(androidManifestPath);
 if (!androidManifest.includes('android.permission.RECORD_AUDIO')) {
   fail("AndroidManifest.xml must include android.permission.RECORD_AUDIO.");
+}
+if (!androidManifest.includes('android.permission.ACCESS_FINE_LOCATION')) {
+  fail("AndroidManifest.xml must include android.permission.ACCESS_FINE_LOCATION.");
+}
+if (!androidManifest.includes('android.permission.ACCESS_COARSE_LOCATION')) {
+  fail("AndroidManifest.xml must include android.permission.ACCESS_COARSE_LOCATION.");
+}
+if (androidManifest.includes('android.permission.ACCESS_BACKGROUND_LOCATION')) {
+  fail("One Location Agent v1 must not request android.permission.ACCESS_BACKGROUND_LOCATION.");
+}
+if (infoPlist.includes("<string>location</string>")) {
+  fail("One Location Agent v1 must not add iOS background location mode.");
 }
 
 const routeValues = routeValuesFromRoutesTs(read(routesPath));

@@ -45,7 +45,7 @@ except EnvironmentError as e:
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 CONSENT_EVOLUTION_MIGRATION_FILES = (
     "035_strict_zero_knowledge_consent_exports.sql",
-    "061_consent_exports_export_key_guard.sql",
+    "062_consent_exports_export_key_guard.sql",
 )
 RELEASE_MANIFEST_PATH = Path(__file__).resolve().parent / "release_migration_manifest.json"
 

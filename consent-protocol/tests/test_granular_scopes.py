@@ -50,6 +50,16 @@ class TestStaticScopes:
         assert ConsentScope.AGENT_KYC_PROCESS.value == "agent.kyc.process"
         assert ConsentScope.AGENT_KYC_WRITEBACK.value == "agent.kyc.writeback"
 
+    def test_live_location_capability_scope_values(self):
+        """Test One Location Agent workflow capability scopes."""
+        assert ConsentScope.CAP_LOCATION_LIVE_SHARE.value == "cap.location.live.share"
+        assert ConsentScope.CAP_LOCATION_LIVE_VIEW.value == "cap.location.live.view"
+        assert ConsentScope.CAP_LOCATION_LIVE_REQUEST.value == "cap.location.live.request"
+        assert ConsentScope.CAP_LOCATION_LIVE_REVOKE.value == "cap.location.live.revoke"
+        assert (
+            ConsentScope.CAP_LOCATION_LIVE_REFER_REQUEST.value == "cap.location.live.refer_request"
+        )
+
     def test_external_data_scopes(self):
         """Test external data source scopes."""
         assert ConsentScope.EXTERNAL_SEC_FILINGS.value == "external.sec.filings"
@@ -97,6 +107,17 @@ class TestStaticScopes:
 
         assert ConsentScope.EXTERNAL_SEC_FILINGS in ext_scopes
         assert ConsentScope.EXTERNAL_RENAISSANCE in ext_scopes
+
+    def test_capability_scopes(self):
+        """Test capability_scopes() returns workflow capabilities."""
+        cap_scopes = ConsentScope.capability_scopes()
+
+        assert ConsentScope.CAP_LOCATION_LIVE_SHARE in cap_scopes
+        assert ConsentScope.CAP_LOCATION_LIVE_VIEW in cap_scopes
+        assert ConsentScope.CAP_LOCATION_LIVE_REQUEST in cap_scopes
+        assert ConsentScope.CAP_LOCATION_LIVE_REVOKE in cap_scopes
+        assert ConsentScope.CAP_LOCATION_LIVE_REFER_REQUEST in cap_scopes
+        assert ConsentScope.CAP_LOCATION_LIVE_VIEW not in ConsentScope.agent_scopes()
 
 
 class TestDynamicScopes:

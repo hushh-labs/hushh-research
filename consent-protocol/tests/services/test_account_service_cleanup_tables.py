@@ -92,6 +92,12 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM marketplace_investor_actions",
         "DELETE FROM marketplace_public_profiles",
         "DELETE FROM one_kyc_workflows",
+        "DELETE FROM one_location_events",
+        "DELETE FROM one_location_referrals",
+        "DELETE FROM one_location_access_requests",
+        "DELETE FROM one_location_envelopes",
+        "DELETE FROM one_location_share_grants",
+        "DELETE FROM one_location_recipient_keys",
         "DELETE FROM actor_verified_email_aliases",
         "DELETE FROM actor_identity_cache",
         "DELETE FROM runtime_persona_state",
@@ -112,6 +118,12 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     )
     assert executed_sql.index("DELETE FROM relationship_share_grants") < executed_sql.index(
         "DELETE FROM advisor_investor_relationships"
+    )
+    assert executed_sql.index("DELETE FROM one_location_events") < executed_sql.index(
+        "DELETE FROM one_location_share_grants"
+    )
+    assert executed_sql.index("DELETE FROM one_location_share_grants") < executed_sql.index(
+        "DELETE FROM actor_identity_cache"
     )
 
 

@@ -54,6 +54,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/profile/pkm-agent-lab")).toBe("profile_pkm_agent_lab");
     expect(resolveRouteId("/profile/receipts")).toBe("profile_receipts");
     expect(resolveRouteId("/profile/gmail/oauth/return")).toBe("profile_gmail_oauth_return");
+    expect(resolveRouteId("/one/location")).toBe("one_location");
     expect(resolveRouteId("/agent")).toBe("agent");
     expect(resolveRouteId("/portfolio/shared")).toBe("portfolio_shared");
     expect(resolveRouteId("/ria/clients")).toBe("ria_clients");
@@ -112,6 +113,9 @@ describe("observability route map", () => {
     );
     expect(normalizeApiPathToTemplate("/api/one/kyc/workflows/wf_123/redraft")).toBe(
       "/api/one/kyc/workflows/{workflow_id}/redraft"
+    );
+    expect(normalizeApiPathToTemplate("/api/one/location/grants/grant_123/envelope")).toBe(
+      "/api/one/location/grants/{grant_id}/envelope"
     );
   });
 

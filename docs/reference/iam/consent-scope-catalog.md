@@ -24,7 +24,10 @@ Define canonical scope families and template policy for Investor + RIA consent r
 1. User-private PKM scopes use `attr.{domain}.{path}.*`.
 2. Domain wildcards use `attr.{domain}.*` only when exposure rules allow the full top-level domain to be shared.
 3. Relationship-share entitlements such as `ria_active_picks_feed_v1` are separate from `attr.*` PKM scopes.
-4. No broad cross-domain wildcard scopes are allowed by default.
+4. Live location uses `cap.location.live.*` capability scopes, not
+   `attr.location.*` PKM scopes. `attr.location.*` remains for durable
+   user-approved preferences or PKM facts, not live coordinates.
+5. No broad cross-domain wildcard scopes are allowed by default.
 
 ## Display Metadata Contract
 
@@ -61,6 +64,24 @@ These are UX bundles, not a second authorization system. Bundles expand into can
 | `risk_assessment` | Risk Assessment | `attr.financial.profile.*`, `attr.financial.portfolio.*` |
 | `health_wellness` | Health & Wellness | `attr.health.*` |
 | `lifestyle_preferences` | Lifestyle Preferences | `attr.food.*`, `attr.travel.*`, `attr.entertainment.*`, `attr.shopping.*` |
+
+## One Location Agent Capability Scopes
+
+These are workflow capabilities rather than durable PKM attributes.
+`phone_verified = true` is an eligibility signal only and does not imply
+consent.
+
+| Scope | Intended Use |
+| --- | --- |
+| `cap.location.live.share` | Owner creates a duration-bounded live-location grant |
+| `cap.location.live.view` | Exact approved recipient reads ciphertext for an active grant |
+| `cap.location.live.request` | Verified user requests access from an owner |
+| `cap.location.live.revoke` | Owner revokes active grant |
+| `cap.location.live.refer_request` | Recipient refers another verified user into a request flow |
+
+Consent and audit metadata for these scopes may include actor ids, request ids,
+grant ids, duration, timestamps, status, and reason codes. It must not include
+coordinates, addresses, map previews, or movement traces.
 
 ## One Email Disclosure Bundles
 

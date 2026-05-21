@@ -34,6 +34,14 @@
     }
   },
   {
+    "route": "/one/location",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/location/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]
+    }
+  },
+  {
     "route": "/register-phone",
     "mode": "hidden",
     "exemptionReason": "Mandatory post-login phone verification flow intentionally bypasses the signed-in app shell."
