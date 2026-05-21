@@ -8,7 +8,21 @@ import {
 import { cn } from "@/lib/utils";
 
 // =============================================================================
-// STRUCTURAL CONSTANTS & MAP CORES
+// LEGACY COMPATIBILITY EXPORTS (Restored to fix TS2305 error blocks)
+// =============================================================================
+
+export const APP_SHELL_FRAME_STYLE: CSSProperties = {
+  maxWidth: "90rem",
+};
+
+export const APP_MEASURE_STYLES: Record<"reading" | "standard" | "expanded", CSSProperties> = {
+  reading: { maxWidth: "54rem" },
+  standard: { maxWidth: "90rem" },
+  expanded: { maxWidth: "96rem" },
+} as const;
+
+// =============================================================================
+// MODERN TAILWIND CONSTANTS & CONFIGURATIONS
 // =============================================================================
 
 export type AppPageShellWidth =
@@ -36,7 +50,7 @@ export const APP_SHELL_FRAME_CLASSNAME =
   "mx-auto w-full px-[var(--page-inline-gutter-standard,1rem)] md:px-[var(--page-inline-gutter-desktop,2rem)]";
 
 // =============================================================================
-// POLYMORPHIC TYPE CONSTRAINTS DEFINTIONS
+// POLYMORPHIC TYPE CONSTRAINTS DEFINITIONS
 // =============================================================================
 
 type PolymorphicProps<T extends ElementType, Props = {}> = Props & {
@@ -78,7 +92,7 @@ export function AppPageShell<T extends ElementType = "main">({
 
   return (
     <Component
-      id={id ?? "main-application-content"} // Anchor mapping point for standard keyboard navigation skiplinks
+      id={id ?? "main-application-content"} // Anchor point for standard accessibility skiplinks
       className={cn(
         "app-page-shell flex flex-col w-full min-h-screen grow",
         APP_SHELL_FRAME_CLASSNAME,
@@ -136,7 +150,7 @@ export function AppPageContentRegion<T extends ElementType = "div">({
 }
 
 // =============================================================================
-// NEW FEATURES: SPLIT SUB-REGIONS FOR DASHBOARDS
+// DASHBOARD SUB-REGIONS
 // =============================================================================
 
 export function AppPageSidebarRegion<T extends ElementType = "aside">({
