@@ -518,7 +518,12 @@ async function ensurePersona(page, persona) {
   }
   await titleTrigger.click({ force: true });
   await page.getByRole("menuitem", { name: new RegExp(label, "i") }).first().click();
-  await page.waitForTimeout(1500);
+  const expectedNavTourId = persona === "ria" ? "nav-ria-home" : "nav-market";
+  await page
+    .locator(`[data-tour-id="${expectedNavTourId}"]`)
+    .first()
+    .waitFor({ state: "attached", timeout: NAVIGATION_TIMEOUT_MS });
+  await page.waitForTimeout(500);
 }
 
 async function clickBottomNav(page, label) {
