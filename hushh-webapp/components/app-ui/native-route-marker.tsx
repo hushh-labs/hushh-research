@@ -18,7 +18,9 @@ export type NativeDataTelemetryState =
   | "empty-valid" 
   | "stale-fallback" 
   | "error-upstream"
-  | "error"; // Added to maintain backward compatibility with legacy views
+  | "error"
+  | "booting"
+  | "unavailable-valid"; // Added to resolve the TS2322 error regarding currentDataState string values
 
 export interface NativeRouteMarkerProps {
   routeId: string;
