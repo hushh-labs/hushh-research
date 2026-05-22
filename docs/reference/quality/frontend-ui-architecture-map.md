@@ -75,5 +75,6 @@ Project skills live under `.codex/skills/`:
 3. `frontend-architecture`
 4. `frontend-surface-placement`
 5. `frontend-native-surface-mapper`
+6. `frontend-cache-coherence`
 
 These skills must stay aligned with the docs and verification commands in this quality section.

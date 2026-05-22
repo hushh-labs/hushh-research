@@ -20,13 +20,15 @@
     "new-feature-tri-flow",
     "bug-triage",
     "docs-sync",
-    "frontend-native-surface-map"
+    "frontend-native-surface-map",
+    "frontend-cache-coherence"
   ],
   "required_reads": [
     "docs/reference/quality/frontend-ui-architecture-map.md",
     "docs/reference/quality/design-system.md",
     "hushh-webapp/components/README.md",
-    "hushh-webapp/lib/services/README.md"
+    "hushh-webapp/lib/services/README.md",
+    ".codex/skills/frontend/references/browser-ux-runtime.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run verify:docs",
@@ -52,6 +54,7 @@
     "frontend-design-system",
     "frontend-architecture",
     "frontend-surface-placement",
+    "frontend-cache-coherence",
     "mobile-native",
     "repo-context"
   ],
@@ -59,6 +62,7 @@
     "frontend-design-system",
     "frontend-architecture",
     "frontend-surface-placement",
+    "frontend-cache-coherence",
     "mobile-native",
     "backend-api-contracts",
     "quality-contracts"

@@ -488,6 +488,14 @@ class PlaidPortfolioService:
         )
         return result.data
 
+    def _has_active_investment_items(self, *, user_id: str) -> bool:
+        rows = self._list_item_rows(user_id=user_id)
+        return any(
+            self._is_investment_item(row)
+            and _clean_text(row.get("status"), default="active") in _READONLY_ITEM_STATUSES
+            for row in rows
+        )
+
     def _latest_run_by_item(self, *, user_id: str) -> dict[str, dict[str, Any]]:
         result = self.db.execute_raw(
             """
@@ -673,6 +681,53 @@ class PlaidPortfolioService:
             {"user_id": user_id, "active_source": active_source},
         )
         return active_source
+
+    async def remove_item(self, *, user_id: str, item_id: str) -> dict[str, Any] | None:
+        row = self._fetch_item_row(user_id=user_id, item_id=item_id)
+        if row is None:
+            return None
+        if not self._is_investment_item(row):
+            raise RuntimeError("Plaid item does not belong to the portfolio source.")
+
+        status = _clean_text(row.get("status"), default="active")
+        if status != "removed":
+            access_token = self._decrypt_access_token(row)
+            await self._post("/item/remove", {"access_token": access_token})
+
+        metadata = self._row_metadata(row)
+        metadata.update(
+            {
+                "removed_at": _utcnow_iso(),
+                "removal_source": "kai_portfolio_delete",
+            }
+        )
+        self.db.execute_raw(
+            """
+            UPDATE kai_plaid_items
+            SET status = 'removed',
+                sync_status = 'completed',
+                last_error_code = NULL,
+                last_error_message = NULL,
+                latest_accounts_json = '[]'::jsonb,
+                latest_holdings_json = '[]'::jsonb,
+                latest_securities_json = '[]'::jsonb,
+                latest_transactions_json = '[]'::jsonb,
+                latest_summary_json = '{}'::jsonb,
+                latest_portfolio_json = '{}'::jsonb,
+                latest_metadata_json = CAST(:metadata AS JSONB),
+                updated_at = NOW()
+            WHERE user_id = :user_id
+              AND item_id = :item_id
+            """,
+            {
+                "user_id": user_id,
+                "item_id": item_id,
+                "metadata": json.dumps(metadata),
+            },
+        )
+        if not self._has_active_investment_items(user_id=user_id):
+            self.set_active_source(user_id=user_id, active_source="statement")
+        return self._aggregate_status_payload(user_id=user_id)
 
     def _create_refresh_run(
         self,

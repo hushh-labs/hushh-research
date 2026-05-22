@@ -30,7 +30,7 @@ import {
 } from "@/lib/services/personal-knowledge-model-service";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { type DomainManifest } from "@/lib/personal-knowledge-model/manifest";
-import { KYC_WORKFLOW_PKM_DOMAIN } from "@/lib/services/kyc-pkm-write-service";
+import { isConsumerVisiblePkmDomain } from "@/lib/profile/pkm-profile-presentation";
 
 type DomainInspectorState = {
   manifest: DomainManifest | null;
@@ -96,10 +96,11 @@ export function PkmExplorerPanel() {
         if (cancelled) return;
         setMetadata(nextMetadata);
         setSelectedDomain((current) => {
-          if (current && nextMetadata.domains.some((domain) => domain.key === current)) {
+          const nextVisibleDomains = nextMetadata.domains.filter(isConsumerVisiblePkmDomain);
+          if (current && nextVisibleDomains.some((domain) => domain.key === current)) {
             return current;
           }
-          return nextMetadata.domains[0]?.key || null;
+          return nextVisibleDomains[0]?.key || null;
         });
       } catch (nextError) {
         if (!cancelled) {
@@ -186,6 +187,11 @@ export function PkmExplorerPanel() {
     return metadata.domains.find((domain) => domain.key === selectedDomain) || null;
   }, [metadata, selectedDomain]);
 
+  const visibleDomains = useMemo(
+    () => (metadata?.domains || []).filter(isConsumerVisiblePkmDomain),
+    [metadata?.domains]
+  );
+
   const selectedScopeEntries = useMemo(
     () => domainState.manifest?.scope_registry || [],
     [domainState.manifest]
@@ -206,10 +212,11 @@ export function PkmExplorerPanel() {
       );
       setMetadata(nextMetadata);
       setSelectedDomain((current) => {
-        if (current && nextMetadata.domains.some((domain) => domain.key === current)) {
+        const nextVisibleDomains = nextMetadata.domains.filter(isConsumerVisiblePkmDomain);
+        if (current && nextVisibleDomains.some((domain) => domain.key === current)) {
           return current;
         }
-        return nextMetadata.domains[0]?.key || null;
+        return nextVisibleDomains[0]?.key || null;
       });
     } catch (nextError) {
       setBootstrapError(
@@ -250,7 +257,7 @@ export function PkmExplorerPanel() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {metadata ? <Badge variant="secondary">{metadata.domains.length} domains</Badge> : null}
+          {metadata ? <Badge variant="secondary">{visibleDomains.length} domains</Badge> : null}
           {metadata ? (
             <Badge variant="secondary">{metadata.totalAttributes} attributes</Badge>
           ) : null}
@@ -294,7 +301,7 @@ export function PkmExplorerPanel() {
           />
           {metadata?.domains.length ? (
             <div className="space-y-3">
-              {metadata.domains.map((domain) => {
+              {visibleDomains.map((domain) => {
                 const isActive = selectedDomain === domain.key;
                 return (
                   <button
@@ -314,14 +321,6 @@ export function PkmExplorerPanel() {
                       </div>
                       <div className="flex flex-col items-end gap-1">
                         <Badge variant="secondary">{domain.attributeCount}</Badge>
-                        {domain.key === KYC_WORKFLOW_PKM_DOMAIN ? (
-                          <Badge
-                            variant="outline"
-                            className="border-emerald-300 text-[10px] text-emerald-600"
-                          >
-                            KYC workflow
-                          </Badge>
-                        ) : null}
                       </div>
                     </div>
                     <p className="mt-2 text-xs text-muted-foreground">

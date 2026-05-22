@@ -6,6 +6,21 @@
 
 import { registerPlugin } from "@capacitor/core";
 
+export interface PkmSyncCheckpointPluginMetadata {
+  schemaVersion: "pkm_sync_checkpoint.v1";
+  checkpointKey: string;
+  domain: string;
+  source: string;
+  attempt: number;
+  expectedDataVersion: number | null;
+  resultDataVersion?: number | null;
+  currentManifestVersion: number | null;
+  targetManifestVersion: number | null;
+  upgradedInSession: boolean;
+  conflictRetry: boolean;
+  upgradeRunId?: string | null;
+}
+
 export interface HushhPersonalKnowledgeModelPlugin {
   getMetadata(options: { userId: string; vaultOwnerToken?: string }): Promise<{
     userId: string;
@@ -57,6 +72,7 @@ export interface HushhPersonalKnowledgeModelPlugin {
     }>;
     allScopes: string[];
     wildcardScopes: string[];
+    scopeEntries?: Array<Record<string, unknown>>;
   }>;
 
   getEncryptedData(options: {
@@ -106,6 +122,7 @@ export interface HushhPersonalKnowledgeModelPlugin {
       newReadableSummaryVersion?: number;
       retryCount?: number;
     };
+    syncCheckpoint?: PkmSyncCheckpointPluginMetadata;
     vaultOwnerToken?: string;
   }): Promise<{
     success: boolean;

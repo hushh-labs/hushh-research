@@ -961,6 +961,34 @@ export interface KaiDashboardProfilePicksResponse {
   context?: Record<string, unknown>;
 }
 
+export interface AccountIdentity {
+  user_id?: string;
+  display_name?: string | null;
+  email?: string | null;
+  phone_number?: string | null;
+  photo_url?: string | null;
+  email_verified?: boolean;
+  phone_verified?: boolean;
+  source?: string | null;
+  last_synced_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface AccountPhoneClaimResponse {
+  success: boolean;
+  user_id: string;
+  identity: AccountIdentity | null;
+  phone_verified: boolean;
+}
+
+export interface AccountPhoneTestStartResponse {
+  success: boolean;
+  eligible: boolean;
+  verification_id?: string;
+  reason?: string;
+}
+
 /**
  * API Service for platform-aware API calls
  */
@@ -1364,6 +1392,135 @@ export class ApiService {
         Authorization: `Bearer ${firebaseIdToken}`,
       },
     });
+  }
+
+  static async claimAccountPhone(
+    phoneIdToken: string,
+    idToken?: string
+  ): Promise<AccountPhoneClaimResponse> {
+    const normalizedPhoneIdToken = String(phoneIdToken || "").trim();
+    if (!normalizedPhoneIdToken) {
+      throw new Error("Missing phone verification token");
+    }
+
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      throw new Error("Missing Firebase ID token");
+    }
+
+    const response = await apiFetch("/api/account/phone/claim", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firebaseIdToken}`,
+      },
+      body: JSON.stringify({
+        phone_id_token: normalizedPhoneIdToken,
+      }),
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      const detail = payload.detail;
+      const message =
+        typeof detail === "object" &&
+        detail !== null &&
+        typeof (detail as Record<string, unknown>).message === "string"
+          ? String((detail as Record<string, unknown>).message)
+          : typeof detail === "string"
+            ? detail
+            : typeof payload.error === "string"
+              ? payload.error
+              : `Phone claim failed with HTTP ${response.status}`;
+      throw new Error(message);
+    }
+
+    return payload as unknown as AccountPhoneClaimResponse;
+  }
+
+  static async startUatPhoneTestVerification(
+    phoneNumber: string,
+    idToken?: string
+  ): Promise<AccountPhoneTestStartResponse> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      return {
+        success: false,
+        eligible: false,
+        reason: "missing_firebase_id_token",
+      };
+    }
+
+    const response = await apiFetch("/api/account/phone/uat-test/start", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firebaseIdToken}`,
+      },
+      body: JSON.stringify({
+        phone_number: phoneNumber,
+      }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+
+    if (!response.ok) {
+      return {
+        success: false,
+        eligible: false,
+        reason:
+          typeof payload.error === "string"
+            ? payload.error
+            : `uat_phone_test_start_${response.status}`,
+      };
+    }
+
+    return {
+      success: payload.success === true,
+      eligible: payload.eligible === true,
+      verification_id:
+        typeof payload.verification_id === "string" ? payload.verification_id : undefined,
+      reason: typeof payload.reason === "string" ? payload.reason : undefined,
+    };
+  }
+
+  static async confirmUatPhoneTestVerification(
+    phoneNumber: string,
+    verificationCode: string,
+    verificationId: string,
+    idToken?: string
+  ): Promise<AccountPhoneClaimResponse> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      throw new Error("Missing Firebase ID token");
+    }
+
+    const response = await apiFetch("/api/account/phone/uat-test/confirm", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firebaseIdToken}`,
+      },
+      body: JSON.stringify({
+        phone_number: phoneNumber,
+        verification_code: verificationCode,
+        verification_id: verificationId,
+      }),
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      const detail = payload.detail;
+      const message =
+        typeof detail === "object" &&
+        detail !== null &&
+        typeof (detail as Record<string, unknown>).message === "string"
+          ? String((detail as Record<string, unknown>).message)
+          : typeof detail === "string"
+            ? detail
+            : typeof payload.error === "string"
+              ? payload.error
+              : `UAT phone test verification failed with HTTP ${response.status}`;
+      throw new Error(message);
+    }
+
+    return payload as unknown as AccountPhoneClaimResponse;
   }
 
   /**
@@ -2171,9 +2328,9 @@ export class ApiService {
     userId: string;
     scopes?: string[];
   }): Promise<Response> {
-    // Updated to use dynamic attr.* scopes instead of legacy vault.read.*/vault.write.*
+    // Uses dynamic attr.* scopes instead of legacy vault wildcard scopes.
     const scopes = data.scopes || [
-      "attr.financial.risk_profile",  // Replaces vault.read.risk_profile
+      "attr.financial.risk_profile",
       "agent.kai.analyze",
     ];
 
@@ -2316,6 +2473,105 @@ export class ApiService {
         conversation_id: data.conversationId,
       }),
     });
+  }
+
+  /**
+   * Stream a broad Agent text chat response.
+   *
+   * This is intentionally separate from Kai finance chat and the OpenAI realtime
+   * voice session. The backend uses Gemini and stores encrypted Agent history.
+   */
+  static async streamAgentChat(data: {
+    userId: string;
+    message: string;
+    conversationId?: string;
+    vaultOwnerToken: string;
+    pkmContext?: string;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return ApiService.apiFetchStream("/api/kai/agent/chat/stream", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: data.userId,
+        message: data.message,
+        conversation_id: data.conversationId,
+        pkm_context: data.pkmContext,
+      }),
+      signal: data.signal,
+    });
+  }
+
+  static async listAgentChatConversations(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    limit?: number;
+  }): Promise<Response> {
+    const query = new URLSearchParams();
+    if (data.limit) query.set("limit", String(data.limit));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return apiFetch(
+      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.userId)}${suffix}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+      }
+    );
+  }
+
+  static async getAgentChatHistory(data: {
+    conversationId: string;
+    vaultOwnerToken: string;
+    limit?: number;
+  }): Promise<Response> {
+    const query = new URLSearchParams();
+    if (data.limit) query.set("limit", String(data.limit));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return apiFetch(
+      `/api/kai/agent/chat/history/${encodeURIComponent(data.conversationId)}${suffix}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+      }
+    );
+  }
+
+  static async renameAgentChatConversation(data: {
+    conversationId: string;
+    title: string;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    return apiFetch(
+      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.conversationId)}`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+        body: JSON.stringify({ title: data.title }),
+      }
+    );
+  }
+
+  static async deleteAgentChatConversation(data: {
+    conversationId: string;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    return apiFetch(
+      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.conversationId)}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+      }
+    );
   }
 
   /**

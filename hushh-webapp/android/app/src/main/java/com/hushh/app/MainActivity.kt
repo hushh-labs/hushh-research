@@ -10,6 +10,7 @@ import com.hushh.app.plugins.HushhKeystore.HushhKeystorePlugin
 import com.hushh.app.plugins.HushhSettings.HushhSettingsPlugin
 import com.hushh.app.plugins.HushhSync.HushhSyncPlugin
 import com.hushh.app.plugins.HushhAccount.HushhAccountPlugin
+import com.hushh.app.plugins.HushhLocation.HushhLocationPlugin
 import com.hushh.app.plugins.HushhNotifications.HushhNotificationsPlugin
 import com.hushh.app.plugins.Kai.KaiPlugin
 import com.hushh.app.plugins.PersonalKnowledgeModel.PersonalKnowledgeModelPlugin
@@ -29,8 +30,9 @@ class MainActivity : BridgeActivity() {
         registerPlugin(KaiPlugin::class.java) // Agent Kai plugin
         registerPlugin(PersonalKnowledgeModelPlugin::class.java) // PKM plugin
         registerPlugin(HushhAccountPlugin::class.java) // Account management (deletion)
+        registerPlugin(HushhLocationPlugin::class.java) // Foreground location capture
         
-        Log.d("MainActivity", "✅ [MainActivity] All 10 plugins registered successfully")
+        Log.d("MainActivity", "✅ [MainActivity] All 11 plugins registered successfully")
         
         super.onCreate(savedInstanceState)
     }

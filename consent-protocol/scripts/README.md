@@ -40,7 +40,8 @@ Legacy/bootstrap SQL and one-off repair scripts here are not the release lane.
 
 - `inspect_pkm_upgrade_state.py`: inspect per-user PKM upgrade status, runs, steps, and failure context.
 - `audit_legacy_pkm_readonly.py`: read-only redacted audit for legacy world-model / PKM blobs; decrypts locally in memory and emits structure-only output with no plaintext values.
-- `eval_pkm_structure_agent.py`: evaluate PKM structure-agent output.
+- `audit_active_pkm_shape_readonly.py`: read-only redacted audit for active `pkm_blobs`; uses the env-wired reviewer by default, can resolve reviewer secrets from Secret Manager with `--gcp-secret-project`, decrypts locally in memory, and emits structural painpoints without plaintext values.
+- `eval_pkm_structure_agent.py`: evaluate PKM structure-agent output; use `--enforce-gates` for protocol/prompt hardening so fallback, mutation, domain, fragmentation, finance-contamination, and unresolved-domain drift fail nonzero.
 - `eval_portfolio_stream_quality.py`: evaluate portfolio/stream quality signals.
 - `run_kai_accuracy_suite.py`: maintainer-only Kai quality suite.
 

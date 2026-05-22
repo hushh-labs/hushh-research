@@ -10,6 +10,7 @@ Canonical storage:
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
@@ -141,6 +142,9 @@ class ScopeRegistryEntry:
     sensitivity_tier: str = "confidential"
     scope_kind: str = "subtree"
     exposure_enabled: bool = True
+    visibility_posture: str = "consent_required"
+    default_projection_ready: bool = False
+    default_projection_updated_at: Optional[str] = None
     summary_projection: dict = field(default_factory=dict)
 
 
@@ -193,6 +197,15 @@ class PersonalKnowledgeModelService:
         "domain_intent",
         "schema_version",
         "updated_at",
+    }
+    _VISIBILITY_POSTURES = {"private", "consent_required", "default_available"}
+    _DEFAULT_AVAILABLE_BLOCKED_KEYS = {
+        "hash",
+        "metadata",
+        "provenance",
+        "schema_version",
+        "workflow",
+        "workflow_id",
     }
 
     @property
@@ -651,6 +664,30 @@ class PersonalKnowledgeModelService:
         return bool(normalized) and normalized not in cls._STRUCTURAL_TOP_LEVEL_SCOPE_PATHS
 
     @classmethod
+    def _normalize_visibility_posture(
+        cls,
+        value: object,
+        *,
+        exposure_enabled: bool = True,
+        consumer_visible: bool = True,
+        sensitivity_tier: str | None = None,
+        top_level_scope_path: str | None = None,
+    ) -> str:
+        if not exposure_enabled or not consumer_visible:
+            return "private"
+        requested = str(value or "").strip().lower()
+        requested = requested if requested in cls._VISIBILITY_POSTURES else "consent_required"
+        normalized_path = cls._normalize_manifest_path(top_level_scope_path)
+        if requested == "default_available":
+            if str(sensitivity_tier or "").strip().lower() == "restricted":
+                return "consent_required"
+            if any(
+                part in cls._DEFAULT_AVAILABLE_BLOCKED_KEYS for part in normalized_path.split(".")
+            ):
+                return "consent_required"
+        return requested
+
+    @classmethod
     def _scope_visibility_projection(cls, top_level_scope_path: str | None) -> dict[str, object]:
         normalized = cls._normalize_manifest_path(top_level_scope_path)
         consumer_visible = cls._is_consumer_visible_scope_path(normalized)
@@ -679,6 +716,9 @@ class PersonalKnowledgeModelService:
                 "sensitivity_tier": row.sensitivity_tier,
                 "scope_kind": row.scope_kind,
                 "exposure_enabled": row.exposure_enabled,
+                "visibility_posture": row.visibility_posture,
+                "default_projection_ready": row.default_projection_ready,
+                "default_projection_updated_at": row.default_projection_updated_at,
                 "summary_projection": dict(row.summary_projection or {}),
             }
         elif isinstance(row, dict):
@@ -725,6 +765,28 @@ class PersonalKnowledgeModelService:
         if not isinstance(segment_ids, list):
             segment_ids = []
 
+        sensitivity_tier = (
+            cls._clean_text(str(raw_row.get("sensitivity_tier") or ""), allow_none=True)
+            or "confidential"
+        )
+        exposure_enabled = raw_row.get("exposure_enabled") is not False
+        visibility_posture = cls._normalize_visibility_posture(
+            raw_row.get("visibility_posture"),
+            exposure_enabled=exposure_enabled,
+            consumer_visible=visibility_projection.get("consumer_visible") is not False
+            and visibility_projection.get("internal_only") is not True,
+            sensitivity_tier=sensitivity_tier,
+            top_level_scope_path=top_level_scope_path,
+        )
+        default_projection_updated_at = cls._clean_text(
+            str(raw_row.get("default_projection_updated_at") or ""),
+            allow_none=True,
+        )
+        default_projection_ready = (
+            visibility_posture == "default_available"
+            and raw_row.get("default_projection_ready") is True
+        )
+
         return {
             "domain": cls._canonicalize_domain_key(domain),
             "scope_handle": cls._clean_text(
@@ -741,17 +803,18 @@ class PersonalKnowledgeModelService:
                 for segment_id in segment_ids
                 if cls._clean_text(str(segment_id), allow_none=True)
             ],
-            "sensitivity_tier": cls._clean_text(
-                str(raw_row.get("sensitivity_tier") or ""),
-                allow_none=True,
-            )
-            or "confidential",
+            "sensitivity_tier": sensitivity_tier,
             "scope_kind": cls._clean_text(
                 str(raw_row.get("scope_kind") or ""),
                 allow_none=True,
             )
             or "subtree",
-            "exposure_enabled": raw_row.get("exposure_enabled") is not False,
+            "exposure_enabled": visibility_posture != "private",
+            "visibility_posture": visibility_posture,
+            "default_projection_ready": default_projection_ready,
+            "default_projection_updated_at": default_projection_updated_at
+            if default_projection_ready
+            else None,
             "summary_projection": summary_projection,
             "manifest_version": cls._to_non_negative_int(raw_row.get("manifest_version")),
         }
@@ -866,6 +929,8 @@ class PersonalKnowledgeModelService:
                     sensitivity_tier=sensitivity_tier,
                     scope_kind="subtree",
                     exposure_enabled=True,
+                    visibility_posture="consent_required",
+                    default_projection_ready=False,
                     summary_projection={
                         **self._scope_visibility_projection(normalized_path),
                         "manifest_version": manifest_version,
@@ -935,6 +1000,9 @@ class PersonalKnowledgeModelService:
             "sensitivity_tier": entry.sensitivity_tier,
             "scope_kind": entry.scope_kind,
             "exposure_enabled": entry.exposure_enabled,
+            "visibility_posture": entry.visibility_posture,
+            "default_projection_ready": entry.default_projection_ready,
+            "default_projection_updated_at": entry.default_projection_updated_at,
             "summary_projection": json.dumps(entry.summary_projection or {}),
             "manifest_version": manifest.manifest_version,
         }
@@ -946,10 +1014,12 @@ class PersonalKnowledgeModelService:
             summary.get("attribute_count"),
             summary.get("holdings_count"),
             summary.get("item_count"),
+            summary.get("externalizable_path_count"),
+            summary.get("path_count"),
         )
         for candidate in candidates:
             parsed = self._to_non_negative_int(candidate)
-            if parsed is not None:
+            if parsed is not None and parsed > 0:
                 return parsed
         return 0
 
@@ -1949,25 +2019,70 @@ class PersonalKnowledgeModelService:
         )
         exposure_by_handle: dict[str, bool] = {}
         exposure_by_top_level: dict[str, bool] = {}
+        posture_by_handle: dict[str, str] = {}
+        posture_by_top_level: dict[str, str] = {}
+        default_ready_by_handle: dict[str, bool] = {}
+        default_ready_by_top_level: dict[str, bool] = {}
+        default_updated_by_handle: dict[str, str | None] = {}
+        default_updated_by_top_level: dict[str, str | None] = {}
         for row in current_registry_rows:
             if not isinstance(row, dict):
                 continue
             handle = self._clean_text(str(row.get("scope_handle") or ""), allow_none=True)
+            row_posture = self._normalize_visibility_posture(
+                row.get("visibility_posture"),
+                exposure_enabled=row.get("exposure_enabled") is not False,
+                consumer_visible=True,
+                sensitivity_tier=str(row.get("sensitivity_tier") or "confidential"),
+                top_level_scope_path=self._top_level_scope_path_for_registry_entry(row),
+            )
+            row_default_ready = (
+                row_posture == "default_available" and row.get("default_projection_ready") is True
+            )
+            row_default_updated = self._clean_text(
+                str(row.get("default_projection_updated_at") or ""),
+                allow_none=True,
+            )
             if handle:
                 exposure_by_handle[handle] = row.get("exposure_enabled") is not False
+                posture_by_handle[handle] = row_posture
+                default_ready_by_handle[handle] = row_default_ready
+                default_updated_by_handle[handle] = row_default_updated
             top_level_path = self._top_level_scope_path_for_registry_entry(row)
             if top_level_path:
                 exposure_by_top_level[top_level_path] = row.get("exposure_enabled") is not False
+                posture_by_top_level[top_level_path] = row_posture
+                default_ready_by_top_level[top_level_path] = row_default_ready
+                default_updated_by_top_level[top_level_path] = row_default_updated
 
         for entry in normalized_manifest.scope_registry:
             if entry.scope_handle in exposure_by_handle:
                 entry.exposure_enabled = exposure_by_handle[entry.scope_handle]
+                entry.visibility_posture = posture_by_handle.get(
+                    entry.scope_handle, entry.visibility_posture
+                )
+                entry.default_projection_ready = default_ready_by_handle.get(
+                    entry.scope_handle, False
+                )
+                entry.default_projection_updated_at = default_updated_by_handle.get(
+                    entry.scope_handle
+                )
                 continue
             top_level_path = self._top_level_scope_path_for_registry_entry(entry)
             if top_level_path in exposure_by_top_level:
                 entry.exposure_enabled = exposure_by_top_level[top_level_path]
+                entry.visibility_posture = posture_by_top_level.get(
+                    top_level_path, entry.visibility_posture
+                )
+                entry.default_projection_ready = default_ready_by_top_level.get(
+                    top_level_path, False
+                )
+                entry.default_projection_updated_at = default_updated_by_top_level.get(
+                    top_level_path
+                )
 
         changed_scope_paths: set[str] = set()
+        projection_revoke_paths: set[str] = set()
         for raw_change in changes:
             if not isinstance(raw_change, dict):
                 continue
@@ -1976,18 +2091,45 @@ class PersonalKnowledgeModelService:
                 allow_none=True,
             )
             target_top_level = self._normalize_manifest_path(raw_change.get("top_level_scope_path"))
+            explicit_posture = self._clean_text(
+                str(raw_change.get("visibility_posture") or ""),
+                allow_none=True,
+            )
             exposure_enabled = raw_change.get("exposure_enabled") is not False
             matched = False
             for entry in normalized_manifest.scope_registry:
                 entry_top_level = self._top_level_scope_path_for_registry_entry(entry)
+                next_posture = self._normalize_visibility_posture(
+                    explicit_posture
+                    if explicit_posture
+                    else ("consent_required" if exposure_enabled else "private"),
+                    exposure_enabled=exposure_enabled,
+                    consumer_visible=(
+                        entry.summary_projection.get("consumer_visible") is not False
+                        and entry.summary_projection.get("internal_only") is not True
+                    ),
+                    sensitivity_tier=entry.sensitivity_tier,
+                    top_level_scope_path=entry_top_level,
+                )
                 if target_handle and entry.scope_handle == target_handle:
-                    entry.exposure_enabled = exposure_enabled
+                    entry.visibility_posture = next_posture
+                    entry.exposure_enabled = next_posture != "private"
+                    if next_posture != "default_available":
+                        entry.default_projection_ready = False
+                        entry.default_projection_updated_at = None
+                        if entry_top_level:
+                            projection_revoke_paths.add(entry_top_level)
                     matched = True
                     if entry_top_level:
                         changed_scope_paths.add(entry_top_level)
                     continue
                 if target_top_level and entry_top_level == target_top_level:
-                    entry.exposure_enabled = exposure_enabled
+                    entry.visibility_posture = next_posture
+                    entry.exposure_enabled = next_posture != "private"
+                    if next_posture != "default_available":
+                        entry.default_projection_ready = False
+                        entry.default_projection_updated_at = None
+                        projection_revoke_paths.add(entry_top_level)
                     matched = True
                     changed_scope_paths.add(entry_top_level)
             if not matched:
@@ -2042,7 +2184,7 @@ class PersonalKnowledgeModelService:
                 f"attr.{canonical_domain}.{top_level_path}.*"
                 for entry in normalized_manifest.scope_registry
                 for top_level_path in [self._top_level_scope_path_for_registry_entry(entry)]
-                if top_level_path and entry.exposure_enabled is False
+                if top_level_path and entry.visibility_posture == "private"
             }
         )
         revoked_grant_ids = (
@@ -2053,6 +2195,13 @@ class PersonalKnowledgeModelService:
             if revoke_matching_active_grants
             else []
         )
+        for top_level_path in projection_revoke_paths:
+            await self.revoke_default_available_projection(
+                user_id=user_id,
+                domain=canonical_domain,
+                top_level_scope_path=top_level_path,
+                reason="visibility_posture_changed",
+            )
 
         await self.record_mutation_event(
             user_id=user_id,
@@ -2081,6 +2230,215 @@ class PersonalKnowledgeModelService:
             }
         )
         return result
+
+    @staticmethod
+    def _projection_payload_hash(payload: dict[str, Any]) -> str:
+        canonical = json.dumps(payload or {}, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    async def store_default_available_projection(
+        self,
+        *,
+        user_id: str,
+        domain: str,
+        scope: str,
+        top_level_scope_path: str,
+        projection_payload: dict[str, Any],
+        scope_handle: str | None = None,
+        projection_version: int = 1,
+        manifest_version: int | None = None,
+        content_revision: int | None = None,
+        source_content_revision: int | None = None,
+        source_manifest_revision: int | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        canonical_domain = self._canonicalize_domain_key(domain)
+        normalized_path = self._normalize_manifest_path(top_level_scope_path)
+        result: dict[str, Any] = {"success": False, "message": None, "projection_hash": None}
+        if not canonical_domain or not normalized_path:
+            result["message"] = "Domain and section are required."
+            return result
+        manifest = await self.get_domain_manifest(user_id, canonical_domain)
+        if not manifest:
+            result["message"] = f"No manifest found for {canonical_domain}."
+            return result
+        registry = manifest.get("scope_registry") if isinstance(manifest, dict) else []
+        matching_entry = next(
+            (
+                entry
+                for entry in registry
+                if isinstance(entry, dict)
+                and self._top_level_scope_path_for_registry_entry(entry) == normalized_path
+            ),
+            None,
+        )
+        if not matching_entry:
+            result["message"] = "Section is not registered for sharing."
+            return result
+        posture = self._normalize_visibility_posture(
+            matching_entry.get("visibility_posture"),
+            exposure_enabled=matching_entry.get("exposure_enabled") is not False,
+            consumer_visible=(
+                (matching_entry.get("summary_projection") or {}).get("consumer_visible")
+                is not False
+                and (matching_entry.get("summary_projection") or {}).get("internal_only")
+                is not True
+            )
+            if isinstance(matching_entry.get("summary_projection"), dict)
+            else True,
+            sensitivity_tier=str(matching_entry.get("sensitivity_tier") or "confidential"),
+            top_level_scope_path=normalized_path,
+        )
+        if posture != "default_available":
+            result["message"] = "Section is not set to available by default."
+            return result
+        if not isinstance(projection_payload, dict) or not projection_payload:
+            result["message"] = "A safe projection payload is required."
+            return result
+
+        now = datetime.now(UTC)
+        projection_hash = self._projection_payload_hash(projection_payload)
+        row = {
+            "user_id": user_id,
+            "domain": canonical_domain,
+            "scope": scope,
+            "scope_handle": scope_handle or matching_entry.get("scope_handle"),
+            "top_level_scope_path": normalized_path,
+            "projection_payload": json.dumps(projection_payload),
+            "projection_hash": projection_hash,
+            "projection_version": max(1, int(projection_version or 1)),
+            "manifest_version": manifest_version or manifest.get("manifest_version"),
+            "content_revision": content_revision,
+            "source_content_revision": source_content_revision,
+            "source_manifest_revision": source_manifest_revision,
+            "updated_at": now.isoformat(),
+            "revoked_at": None,
+            "revoked_reason": None,
+            "metadata": json.dumps(metadata or {}),
+        }
+        await self.revoke_default_available_projection(
+            user_id=user_id,
+            domain=canonical_domain,
+            top_level_scope_path=normalized_path,
+            reason="replaced",
+        )
+        await self._execute_query(
+            self.supabase.table("pkm_default_available_projections").insert(row)
+        )
+
+        current_manifest = self._normalize_manifest_payload(
+            user_id,
+            canonical_domain,
+            manifest,
+            self._normalize_structure_decision(
+                canonical_domain,
+                manifest.get("structure_decision"),
+            ),
+        )
+        for entry in current_manifest.scope_registry:
+            if self._top_level_scope_path_for_registry_entry(entry) == normalized_path:
+                entry.default_projection_ready = True
+                entry.default_projection_updated_at = now.isoformat()
+        await self.upsert_domain_manifest(current_manifest)
+        await self.record_mutation_event(
+            user_id=user_id,
+            domain=canonical_domain,
+            operation_type="default_projection_publish",
+            path_set=[normalized_path],
+            source_agent="pkm_scope_manager",
+            metadata={
+                "scope": scope,
+                "scope_handle": scope_handle or matching_entry.get("scope_handle"),
+                "projection_hash": projection_hash,
+            },
+        )
+        result.update(
+            {
+                "success": True,
+                "projection_hash": projection_hash,
+                "projection_updated_at": now.isoformat(),
+                "manifest": await self.get_domain_manifest(user_id, canonical_domain) or {},
+            }
+        )
+        return result
+
+    async def get_default_available_projection(
+        self,
+        *,
+        user_id: str,
+        scope: str,
+    ) -> dict[str, Any] | None:
+        try:
+            result = await self._execute_query(
+                self.supabase.table("pkm_default_available_projections")
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("scope", scope)
+                .is_("revoked_at", "null")
+                .order("updated_at", desc=True)
+                .limit(1)
+            )
+        except Exception as exc:
+            logger.warning(
+                "Default-available projection lookup failed user=%s scope=%s: %s",
+                user_id,
+                scope,
+                exc,
+            )
+            return None
+        rows = result.data or []
+        if not rows:
+            return None
+        row = dict(rows[0])
+        payload = row.get("projection_payload")
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except Exception:
+                payload = {}
+        row["projection_payload"] = payload if isinstance(payload, dict) else {}
+        return row
+
+    async def revoke_default_available_projection(
+        self,
+        *,
+        user_id: str,
+        domain: str,
+        top_level_scope_path: str,
+        reason: str = "revoked",
+    ) -> bool:
+        canonical_domain = self._canonicalize_domain_key(domain)
+        normalized_path = self._normalize_manifest_path(top_level_scope_path)
+        if not canonical_domain or not normalized_path:
+            return True
+        now = datetime.now(UTC).isoformat()
+        try:
+            await self._execute_query(
+                self.supabase.table("pkm_default_available_projections")
+                .update({"revoked_at": now, "revoked_reason": reason, "updated_at": now})
+                .eq("user_id", user_id)
+                .eq("domain", canonical_domain)
+                .eq("top_level_scope_path", normalized_path)
+                .is_("revoked_at", "null")
+            )
+            await self.record_mutation_event(
+                user_id=user_id,
+                domain=canonical_domain,
+                operation_type="default_projection_revoke",
+                path_set=[normalized_path],
+                source_agent="pkm_scope_manager",
+                metadata={"reason": reason},
+            )
+            return True
+        except Exception as exc:
+            logger.warning(
+                "Default-available projection revoke failed user=%s domain=%s path=%s: %s",
+                user_id,
+                canonical_domain,
+                normalized_path,
+                exc,
+            )
+            return False
 
     # ==================== ATTRIBUTE OPERATIONS (DEPRECATED) ====================
     # These methods wrote to the now-removed legacy attribute tables.
@@ -2845,6 +3203,9 @@ class PersonalKnowledgeModelService:
             self.supabase.table("pkm_blobs").delete().eq("user_id", user_id).execute()
             self.supabase.table("pkm_manifest_paths").delete().eq("user_id", user_id).execute()
             self.supabase.table("pkm_scope_registry").delete().eq("user_id", user_id).execute()
+            self.supabase.table("pkm_default_available_projections").delete().eq(
+                "user_id", user_id
+            ).execute()
             self.supabase.table("pkm_manifests").delete().eq("user_id", user_id).execute()
             self.supabase.table("pkm_events").delete().eq("user_id", user_id).execute()
             self.supabase.table("pkm_migration_state").delete().eq("user_id", user_id).execute()
@@ -2890,6 +3251,9 @@ class PersonalKnowledgeModelService:
             self.supabase.table("pkm_scope_registry").delete().eq("user_id", user_id).eq(
                 "domain", domain
             ).execute()
+            self.supabase.table("pkm_default_available_projections").delete().eq(
+                "user_id", user_id
+            ).eq("domain", domain).execute()
             self.supabase.table("pkm_manifests").delete().eq("user_id", user_id).eq(
                 "domain", domain
             ).execute()

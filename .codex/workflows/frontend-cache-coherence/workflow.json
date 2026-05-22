@@ -1,0 +1,75 @@
+{
+  "id": "frontend-cache-coherence",
+  "title": "Frontend Cache Coherence",
+  "goal": "Ensure each app screen declares and verifies cache-first behavior so warm cache renders immediately and stale data refreshes in the background without weakening PKM/vault boundaries.",
+  "owner_skill": "frontend",
+  "default_spoke": "frontend-cache-coherence",
+  "task_type": "frontend-cache-coherence",
+  "affected_surfaces": [
+    "hushh-webapp/app",
+    "hushh-webapp/components",
+    "hushh-webapp/lib/cache",
+    "hushh-webapp/lib/services/cache-service.ts",
+    "hushh-webapp/lib/cache/cache-sync-service.ts",
+    "hushh-webapp/cache-coherence-screen-manifest.generated.json",
+    "hushh-webapp/scripts/architecture/audit-cache-coherence.mjs",
+    "docs/reference/architecture/cache-coherence.md",
+    "docs/reference/quality/app-surface-design-system.md"
+  ],
+  "required_reads": [
+    ".codex/skills/frontend-cache-coherence/SKILL.md",
+    "docs/reference/architecture/cache-coherence.md",
+    "docs/reference/quality/app-surface-design-system.md",
+    "hushh-webapp/cache-coherence-screen-manifest.generated.json",
+    "hushh-webapp/scripts/testing/verify-signed-in-routes.mjs"
+  ],
+  "required_commands": [
+    "cd hushh-webapp && npm run verify:cache",
+    "cd hushh-webapp && npm run audit:cache-coherence",
+    "cd hushh-webapp && npm run verify:surface-map",
+    "cd hushh-webapp && npm run verify:service-boundary"
+  ],
+  "verification_bundle": {
+    "id": "frontend-cache-coherence",
+    "commands": [
+      "cd hushh-webapp && npm run verify:cache",
+      "cd hushh-webapp && npm run audit:cache-coherence",
+      "cd hushh-webapp && npm run verify:surface-map",
+      "cd hushh-webapp && npm run verify:service-boundary"
+    ],
+    "tests": [
+      "cd hushh-webapp && npm run verify:cache",
+      "cd hushh-webapp && npm run audit:cache-coherence",
+      "cd hushh-webapp && npm run verify:surface-map"
+    ]
+  },
+  "deliverables": [
+    "current screen cache manifest",
+    "warm-cache behavior proof or gap list",
+    "route/surface-map drift correction",
+    "smallest safe screen fixes"
+  ],
+  "impact_fields": [
+    "Screens affected",
+    "Cache keys and TTL policy",
+    "PKM/vault boundary impact",
+    "Reviewer route coverage",
+    "Verification commands executed"
+  ],
+  "handoff_chain": [
+    "frontend",
+    "frontend-cache-coherence",
+    "frontend-architecture",
+    "frontend-native-surface-mapper",
+    "vault-pkm-governance",
+    "quality-contracts"
+  ],
+  "common_failures": [
+    "adding a new screen without cache posture in the manifest",
+    "showing a blocking loader when fresh cached data exists",
+    "refreshing on unchanged token churn instead of TTL or explicit user action",
+    "persisting decrypted PKM or vault secrets outside memory",
+    "invalidating cache directly in a component mutation flow",
+    "using hardcoded reviewer IDs instead of the reviewer env resolver"
+  ]
+}

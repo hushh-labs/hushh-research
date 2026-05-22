@@ -29,8 +29,10 @@ import {
   type DomainManifest,
 } from "@/lib/personal-knowledge-model/manifest";
 import {
+  CURRENT_PKM_CONTRACT_VERSION,
   CURRENT_PKM_MODEL_VERSION,
   CURRENT_READABLE_SUMMARY_VERSION,
+  CURRENT_READABLE_PROJECTION_VERSION,
   currentDomainContractVersion,
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
 
@@ -60,6 +62,12 @@ export interface PkmUpgradeDomainState {
   targetDomainContractVersion: number;
   currentReadableSummaryVersion: number;
   targetReadableSummaryVersion: number;
+  currentPkmContractVersion?: string | null;
+  targetPkmContractVersion?: string | null;
+  currentReadableProjectionVersion?: string | null;
+  targetReadableProjectionVersion?: string | null;
+  capabilitiesApplied?: string[];
+  blockedReasons?: string[];
   upgradedAt: string | null;
   needsUpgrade: boolean;
 }
@@ -73,6 +81,10 @@ export interface PersonalKnowledgeModelMetadata {
   storedModelVersion: number;
   effectiveModelVersion: number;
   targetModelVersion: number;
+  currentPkmContractVersion?: string | null;
+  targetPkmContractVersion?: string | null;
+  currentReadableProjectionVersion?: string | null;
+  targetReadableProjectionVersion?: string | null;
   upgradeStatus: string;
   upgradableDomains: PkmUpgradeDomainState[];
   lastUpgradedAt: string | null;
@@ -118,6 +130,21 @@ export interface PkmUpgradeContext {
   retryCount?: number;
 }
 
+export interface PkmSyncCheckpointMetadata {
+  schemaVersion: "pkm_sync_checkpoint.v1";
+  checkpointKey: string;
+  domain: string;
+  source: string;
+  attempt: number;
+  expectedDataVersion: number | null;
+  resultDataVersion?: number | null;
+  currentManifestVersion: number | null;
+  targetManifestVersion: number | null;
+  upgradedInSession: boolean;
+  conflictRetry: boolean;
+  upgradeRunId?: string | null;
+}
+
 type DecryptedFullBlobCacheEntry = {
   marker: string;
   blob: Record<string, unknown>;
@@ -132,6 +159,7 @@ export interface ScopeDiscovery {
   }[];
   allScopes: string[];
   wildcardScopes: string[];
+  scopeEntries?: Array<Record<string, unknown>>;
 }
 
 export interface PkmMergeDecision {
@@ -149,10 +177,13 @@ export interface PkmWriteProjection {
   payload: Record<string, unknown>;
 }
 
+export type PkmVisibilityPosture = "private" | "consent_required" | "default_available";
+
 export interface PkmScopeExposureChange {
   scopeHandle?: string;
   topLevelScopePath?: string;
-  exposureEnabled: boolean;
+  exposureEnabled?: boolean;
+  visibilityPosture?: PkmVisibilityPosture;
 }
 
 export interface PkmScopeExposureResult {
@@ -161,6 +192,14 @@ export interface PkmScopeExposureResult {
   manifestVersion?: number;
   revokedGrantCount: number;
   revokedGrantIds: string[];
+  manifest: DomainManifest | null;
+}
+
+export interface PkmDefaultAvailableProjectionResult {
+  success: boolean;
+  message?: string;
+  projectionHash?: string | null;
+  projectionUpdatedAt?: string | null;
   manifest: DomainManifest | null;
 }
 
@@ -243,6 +282,27 @@ export class PersonalKnowledgeModelService {
   private static tickerSyncLastAt = new Map<string, number>();
   private static migrationInflight = new Map<string, Promise<void>>();
   private static readonly TICKER_SYNC_THROTTLE_MS = 5 * 60 * 1000;
+
+  static invalidateSessionStateAfterVaultRekey(userId: string): void {
+    CacheSyncService.onVaultRekeyed(userId);
+    for (const map of [
+      this.metadataInflight,
+      this.encryptedDataInflight,
+      this.domainDataInflight,
+      this.domainManifestInflight,
+      this.tickerSyncInflight,
+      this.migrationInflight,
+    ]) {
+      for (const key of map.keys()) {
+        if (key.includes(userId)) {
+          map.delete(key);
+        }
+      }
+    }
+    this.tickerSyncSignatureByUser.delete(userId);
+    this.tickerSyncLastAt.delete(userId);
+    void DeviceResourceCacheService.invalidateResourcePrefix(userId, "pkm:").catch(() => undefined);
+  }
 
   private static async pause(ms: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, ms));
@@ -372,6 +432,10 @@ export class PersonalKnowledgeModelService {
       storedModelVersion: CURRENT_PKM_MODEL_VERSION,
       effectiveModelVersion: CURRENT_PKM_MODEL_VERSION,
       targetModelVersion: CURRENT_PKM_MODEL_VERSION,
+      currentPkmContractVersion: CURRENT_PKM_CONTRACT_VERSION,
+      targetPkmContractVersion: CURRENT_PKM_CONTRACT_VERSION,
+      currentReadableProjectionVersion: CURRENT_READABLE_PROJECTION_VERSION,
+      targetReadableProjectionVersion: CURRENT_READABLE_PROJECTION_VERSION,
       upgradeStatus: "current",
       upgradableDomains: [],
       lastUpgradedAt: null,
@@ -482,24 +546,87 @@ export class PersonalKnowledgeModelService {
     return null;
   }
 
+  private static extractMergeTarget(
+    mergeDecision?: PkmMergeDecision
+  ): { scopePath: string; entityId: string } | null {
+    const explicitEntityPath = String(mergeDecision?.target_entity_path || "").trim();
+    const explicitSegments = this.normalizePathSegments(explicitEntityPath);
+    const entityIndex = explicitSegments.indexOf("entities");
+    if (entityIndex >= 0 && explicitSegments[entityIndex + 1]) {
+      const scopePath = explicitSegments.slice(0, entityIndex).join(".");
+      const entityId = explicitSegments[entityIndex + 1] || "";
+      if (scopePath && entityId) {
+        return { scopePath, entityId };
+      }
+    }
+    return null;
+  }
+
+  private static pruneEmptyEntityScope(
+    root: Record<string, unknown>,
+    scopePath: string
+  ): void {
+    const segments = this.normalizePathSegments(scopePath);
+    if (!segments.length) return;
+
+    let parent: Record<string, unknown> = root;
+    for (const segment of segments.slice(0, -1)) {
+      if (!this.isPlainObject(parent[segment])) return;
+      parent = parent[segment] as Record<string, unknown>;
+    }
+    const scopeKey = segments[segments.length - 1];
+    if (!scopeKey) return;
+    const scopeObject = parent[scopeKey];
+    if (!this.isPlainObject(scopeObject)) return;
+
+    const entities = scopeObject.entities;
+    if (this.isPlainObject(entities) && Object.keys(entities).length === 0) {
+      delete scopeObject.entities;
+    }
+    if (Object.keys(scopeObject).length === 0) {
+      delete parent[scopeKey];
+    }
+  }
+
   private static applyMergeDecisionToDomain(params: {
     existingDomainData: Record<string, unknown>;
     candidateDomainData: Record<string, unknown>;
     mergeDecision?: PkmMergeDecision;
   }): Record<string, unknown> {
     const mergeMode = String(params.mergeDecision?.merge_mode || "create_entity").trim().toLowerCase();
+    if (mergeMode === "replace_domain") {
+      return this.cloneRecord(params.candidateDomainData);
+    }
     if (mergeMode === "no_op") {
       return this.cloneRecord(params.existingDomainData);
     }
 
     const existing = this.cloneRecord(params.existingDomainData);
     const candidate = this.cloneRecord(params.candidateDomainData);
+    const mergeTarget = this.extractMergeTarget(params.mergeDecision);
     const incoming = this.extractEntityPayload(candidate, params.mergeDecision);
+
+    if (mergeMode === "delete_entity") {
+      const deleteTarget = mergeTarget || (incoming ? { scopePath: incoming.scopePath, entityId: incoming.entityId } : null);
+      if (!deleteTarget) return existing;
+      const scopeObject = this.getValueAtPath(existing, deleteTarget.scopePath);
+      if (!this.isPlainObject(scopeObject) || !this.isPlainObject(scopeObject.entities)) {
+        return existing;
+      }
+      delete scopeObject.entities[deleteTarget.entityId];
+      this.pruneEmptyEntityScope(existing, deleteTarget.scopePath);
+      return existing;
+    }
+
     if (!incoming) {
+      if (mergeMode === "correct_entity") {
+        return existing;
+      }
       return this.deepMergeRecords(existing, candidate);
     }
 
-    const targetScope = incoming.scopePath || "notes";
+    const targetScope = mergeTarget?.scopePath || incoming.scopePath || "notes";
+    const targetEntityId = mergeTarget?.entityId || incoming.entityId;
     const scopeObject = this.ensureObjectAtPath(existing, targetScope);
     if (!this.isPlainObject(scopeObject.entities)) {
       scopeObject.entities = {};
@@ -508,19 +635,22 @@ export class PersonalKnowledgeModelService {
     const nowIso = new Date().toISOString();
     const incomingEntity = this.cloneRecord(incoming.entity);
     if (!incomingEntity.entity_id) {
-      incomingEntity.entity_id = incoming.entityId;
+      incomingEntity.entity_id = targetEntityId;
     }
     if (!incomingEntity.created_at) {
       incomingEntity.created_at = nowIso;
     }
     incomingEntity.updated_at = nowIso;
 
-    const existingEntity = this.isPlainObject(entities[incoming.entityId])
-      ? (this.cloneRecord(entities[incoming.entityId] as Record<string, unknown>) as Record<string, unknown>)
+    const existingEntity = this.isPlainObject(entities[targetEntityId])
+      ? (this.cloneRecord(entities[targetEntityId] as Record<string, unknown>) as Record<string, unknown>)
       : null;
 
     if (mergeMode === "create_entity" || !existingEntity) {
-      entities[incoming.entityId] = incomingEntity;
+      entities[targetEntityId] = {
+        ...incomingEntity,
+        entity_id: targetEntityId,
+      };
       return existing;
     }
 
@@ -536,9 +666,10 @@ export class PersonalKnowledgeModelService {
           observations.push(observation);
         }
       }
-      entities[incoming.entityId] = {
+      entities[targetEntityId] = {
         ...existingEntity,
         ...incomingEntity,
+        entity_id: targetEntityId,
         observations,
         status: "active",
         updated_at: nowIso,
@@ -546,33 +677,13 @@ export class PersonalKnowledgeModelService {
       return existing;
     }
 
-    if (mergeMode === "delete_entity") {
-      entities[incoming.entityId] = {
-        ...existingEntity,
-        status: "deleted",
-        updated_at: nowIso,
-      };
-      return existing;
-    }
-
     if (mergeMode === "correct_entity") {
-      entities[incoming.entityId] = {
+      entities[targetEntityId] = {
         ...existingEntity,
-        status: "corrected",
-        updated_at: nowIso,
-      };
-      const candidateReplacementId =
-        String(incomingEntity.entity_id || "").trim() || `${incoming.entityId}_v2`;
-      const replacementId =
-        candidateReplacementId === incoming.entityId
-          ? `${incoming.entityId}_corr`
-          : candidateReplacementId;
-      entities[replacementId] = {
         ...incomingEntity,
-        entity_id: replacementId,
-        supersedes_entity_id: incoming.entityId,
+        entity_id: targetEntityId,
+        created_at: existingEntity.created_at || incomingEntity.created_at || nowIso,
         status: "active",
-        created_at: nowIso,
         updated_at: nowIso,
       };
       return existing;
@@ -1165,10 +1276,25 @@ export class PersonalKnowledgeModelService {
             CURRENT_PKM_MODEL_VERSION,
           targetModelVersion:
             raw.target_model_version || raw.targetModelVersion || CURRENT_PKM_MODEL_VERSION,
+          currentPkmContractVersion:
+            (raw.current_pkm_contract_version || raw.currentPkmContractVersion || null) as string | null,
+          targetPkmContractVersion:
+            (raw.target_pkm_contract_version || raw.targetPkmContractVersion || null) as string | null,
+          currentReadableProjectionVersion:
+            (raw.current_readable_projection_version ||
+              raw.currentReadableProjectionVersion ||
+              null) as string | null,
+          targetReadableProjectionVersion:
+            (raw.target_readable_projection_version ||
+              raw.targetReadableProjectionVersion ||
+              null) as string | null,
           upgradeStatus: raw.upgrade_status || raw.upgradeStatus || "current",
           upgradableDomains: Array.isArray(raw.upgradable_domains || raw.upgradableDomains)
             ? ((raw.upgradable_domains || raw.upgradableDomains) as Array<Record<string, unknown>>).map(
-                (domain) => ({
+                (domain) => {
+                  const capabilities = domain.capabilities_applied || domain.capabilitiesApplied;
+                  const blockers = domain.blocked_reasons || domain.blockedReasons;
+                  return {
                   domain: String(domain.domain || ""),
                   currentDomainContractVersion: Number(
                     domain.current_domain_contract_version ??
@@ -1190,9 +1316,28 @@ export class PersonalKnowledgeModelService {
                       domain.targetReadableSummaryVersion ??
                       CURRENT_READABLE_SUMMARY_VERSION
                   ),
+                  currentPkmContractVersion:
+                    (domain.current_pkm_contract_version ||
+                      domain.currentPkmContractVersion ||
+                      null) as string | null,
+                  targetPkmContractVersion:
+                    (domain.target_pkm_contract_version ||
+                      domain.targetPkmContractVersion ||
+                      null) as string | null,
+                  currentReadableProjectionVersion:
+                    (domain.current_readable_projection_version ||
+                      domain.currentReadableProjectionVersion ||
+                      null) as string | null,
+                  targetReadableProjectionVersion:
+                    (domain.target_readable_projection_version ||
+                      domain.targetReadableProjectionVersion ||
+                      null) as string | null,
+                  capabilitiesApplied: Array.isArray(capabilities) ? capabilities.map(String) : [],
+                  blockedReasons: Array.isArray(blockers) ? blockers.map(String) : [],
                   upgradedAt: (domain.upgraded_at || domain.upgradedAt || null) as string | null,
                   needsUpgrade: Boolean(domain.needs_upgrade ?? domain.needsUpgrade),
-                })
+                };
+                }
               )
             : [],
           lastUpgradedAt:
@@ -1295,9 +1440,18 @@ export class PersonalKnowledgeModelService {
               data.model_version ??
               CURRENT_PKM_MODEL_VERSION,
             targetModelVersion: data.target_model_version || CURRENT_PKM_MODEL_VERSION,
+            currentPkmContractVersion: (data.current_pkm_contract_version || null) as string | null,
+            targetPkmContractVersion: (data.target_pkm_contract_version || null) as string | null,
+            currentReadableProjectionVersion:
+              (data.current_readable_projection_version || null) as string | null,
+            targetReadableProjectionVersion:
+              (data.target_readable_projection_version || null) as string | null,
             upgradeStatus: data.upgrade_status || "current",
             upgradableDomains: Array.isArray(data.upgradable_domains)
-              ? (data.upgradable_domains as Array<Record<string, unknown>>).map((domain) => ({
+              ? (data.upgradable_domains as Array<Record<string, unknown>>).map((domain) => {
+                  const capabilities = domain.capabilities_applied;
+                  const blockers = domain.blocked_reasons;
+                  return {
                   domain: String(domain.domain || ""),
                   currentDomainContractVersion: Number(
                     domain.current_domain_contract_version ?? 1
@@ -1311,9 +1465,20 @@ export class PersonalKnowledgeModelService {
                   targetReadableSummaryVersion: Number(
                     domain.target_readable_summary_version ?? CURRENT_READABLE_SUMMARY_VERSION
                   ),
+                  currentPkmContractVersion:
+                    (domain.current_pkm_contract_version || null) as string | null,
+                  targetPkmContractVersion:
+                    (domain.target_pkm_contract_version || null) as string | null,
+                  currentReadableProjectionVersion:
+                    (domain.current_readable_projection_version || null) as string | null,
+                  targetReadableProjectionVersion:
+                    (domain.target_readable_projection_version || null) as string | null,
+                  capabilitiesApplied: Array.isArray(capabilities) ? capabilities.map(String) : [],
+                  blockedReasons: Array.isArray(blockers) ? blockers.map(String) : [],
                   upgradedAt: (domain.upgraded_at || null) as string | null,
                   needsUpgrade: Boolean(domain.needs_upgrade),
-                }))
+                };
+                })
               : [],
             lastUpgradedAt: (data.last_upgraded_at || null) as string | null,
             suggestedDomains: data.suggested_domains || [],
@@ -1368,8 +1533,10 @@ export class PersonalKnowledgeModelService {
     manifest?: DomainManifest;
     writeProjections?: PkmWriteProjection[];
     portfolioData?: CachedPortfolioData;
+    domainData?: Record<string, unknown>;
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
   }): Promise<StoreDomainDataResult> {
     const metadataTimestamp = new Date().toISOString();
@@ -1435,6 +1602,7 @@ export class PersonalKnowledgeModelService {
         writeProjections: params.writeProjections,
         expectedDataVersion: params.expectedDataVersion,
         upgradeContext: params.upgradeContext,
+        syncCheckpoint: params.syncCheckpoint,
         vaultOwnerToken: this.getVaultOwnerToken(params.vaultOwnerToken),
       });
 
@@ -1454,6 +1622,7 @@ export class PersonalKnowledgeModelService {
         };
         CacheSyncService.onPkmDomainStored(params.userId, params.domain, {
           portfolioData: params.portfolioData,
+          domainData: params.domainData,
           encryptedBlob: enrichedEncryptedBlob,
           domainSummary: normalizedSummary,
           metadataTimestamp,
@@ -1499,6 +1668,22 @@ export class PersonalKnowledgeModelService {
         prior_readable_summary_version: params.upgradeContext.priorReadableSummaryVersion,
         new_readable_summary_version: params.upgradeContext.newReadableSummaryVersion,
         retry_count: params.upgradeContext.retryCount,
+      };
+    }
+    if (params.syncCheckpoint) {
+      payload.sync_checkpoint = {
+        schema_version: params.syncCheckpoint.schemaVersion,
+        checkpoint_key: params.syncCheckpoint.checkpointKey,
+        domain: params.syncCheckpoint.domain,
+        source: params.syncCheckpoint.source,
+        attempt: params.syncCheckpoint.attempt,
+        expected_data_version: params.syncCheckpoint.expectedDataVersion,
+        result_data_version: params.syncCheckpoint.resultDataVersion,
+        current_manifest_version: params.syncCheckpoint.currentManifestVersion,
+        target_manifest_version: params.syncCheckpoint.targetManifestVersion,
+        upgraded_in_session: params.syncCheckpoint.upgradedInSession,
+        conflict_retry: params.syncCheckpoint.conflictRetry,
+        upgrade_run_id: params.syncCheckpoint.upgradeRunId,
       };
     }
 
@@ -1563,6 +1748,7 @@ export class PersonalKnowledgeModelService {
     // Invalidate caches after successful store
     CacheSyncService.onPkmDomainStored(params.userId, params.domain, {
       portfolioData: params.portfolioData,
+      domainData: params.domainData,
       encryptedBlob: enrichedEncryptedBlob,
       domainSummary: normalizedSummary,
       metadataTimestamp,
@@ -1602,6 +1788,7 @@ export class PersonalKnowledgeModelService {
         ),
         allScopes: raw.all_scopes || raw.allScopes || [],
         wildcardScopes: raw.wildcard_scopes || raw.wildcardScopes || [],
+        scopeEntries: raw.scope_entries || raw.scopeEntries || [],
       };
     }
 
@@ -1646,6 +1833,7 @@ export class PersonalKnowledgeModelService {
         rawScopes.filter(
           (scope) => scope === "pkm.read" || scope.endsWith(".*")
         ),
+      scopeEntries: Array.isArray(data.scope_entries) ? data.scope_entries : undefined,
     };
   }
 
@@ -1850,7 +2038,13 @@ export class PersonalKnowledgeModelService {
           changes: params.changes.map((change) => ({
             scope_handle: change.scopeHandle,
             top_level_scope_path: change.topLevelScopePath,
-            exposure_enabled: change.exposureEnabled,
+            exposure_enabled:
+              typeof change.exposureEnabled === "boolean"
+                ? change.exposureEnabled
+                : change.visibilityPosture
+                  ? change.visibilityPosture !== "private"
+                  : undefined,
+            visibility_posture: change.visibilityPosture,
           })),
         }),
       }
@@ -1909,6 +2103,80 @@ export class PersonalKnowledgeModelService {
             (value): value is string => typeof value === "string"
           )
         : [],
+      manifest,
+    };
+  }
+
+  static async publishDefaultAvailableProjection(params: {
+    userId: string;
+    domain: string;
+    scope: string;
+    scopeHandle?: string | null;
+    topLevelScopePath: string;
+    projectionPayload: Record<string, unknown>;
+    projectionVersion?: number;
+    manifestVersion?: number;
+    contentRevision?: number;
+    sourceContentRevision?: number;
+    sourceManifestRevision?: number;
+    metadata?: Record<string, unknown>;
+    vaultOwnerToken?: string;
+  }): Promise<PkmDefaultAvailableProjectionResult> {
+    const response = await ApiService.apiFetch(
+      `${this.PKM_API_PREFIX}/domains/${encodeURIComponent(params.domain)}/default-available-projection`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...this.getAuthHeaders(params.vaultOwnerToken),
+        },
+        body: JSON.stringify({
+          user_id: params.userId,
+          scope: params.scope,
+          scope_handle: params.scopeHandle || undefined,
+          top_level_scope_path: params.topLevelScopePath,
+          projection_payload: params.projectionPayload,
+          projection_version: params.projectionVersion || 1,
+          manifest_version: params.manifestVersion,
+          content_revision: params.contentRevision,
+          source_content_revision: params.sourceContentRevision,
+          source_manifest_revision: params.sourceManifestRevision,
+          metadata: params.metadata || {},
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      let detail: string | null = null;
+      try {
+        const contentType = response.headers.get("content-type") || "";
+        detail = contentType.includes("application/json")
+          ? this.extractResponseDetail(await response.json())
+          : await response.text();
+      } catch {
+        detail = null;
+      }
+      throw new Error(detail || `Failed to publish default-available projection: ${response.status}`);
+    }
+
+    const payload = (await response.json()) as Record<string, unknown>;
+    const manifest =
+      payload.manifest && typeof payload.manifest === "object"
+        ? (payload.manifest as DomainManifest)
+        : null;
+    const cache = CacheService.getInstance();
+    cache.set(CACHE_KEYS.DOMAIN_MANIFEST(params.userId, params.domain), manifest, CACHE_TTL.MEDIUM);
+    cache.invalidate(CACHE_KEYS.PKM_METADATA(params.userId));
+    CacheSyncService.onConsentMutated(params.userId);
+    return {
+      success: payload.success === true,
+      message: typeof payload.message === "string" ? payload.message : undefined,
+      projectionHash:
+        typeof payload.projection_hash === "string" ? payload.projection_hash : null,
+      projectionUpdatedAt:
+        typeof payload.projection_updated_at === "string"
+          ? payload.projection_updated_at
+          : null,
       manifest,
     };
   }
@@ -2095,6 +2363,7 @@ export class PersonalKnowledgeModelService {
           structureDecision: structureArtifacts.structureDecision,
           manifest: structureArtifacts.manifest,
           portfolioData,
+          domainData,
           vaultOwnerToken: params.vaultOwnerToken,
         });
       }
@@ -2205,6 +2474,7 @@ export class PersonalKnowledgeModelService {
     domain: string;
     domainData: Record<string, unknown>;
     summary: Record<string, unknown>;
+    mergeDecision?: PkmMergeDecision;
     manifest?: DomainManifest;
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
@@ -2242,10 +2512,12 @@ export class PersonalKnowledgeModelService {
     domainData: Record<string, unknown>;
     summary: Record<string, unknown>;
     baseFullBlob: Record<string, unknown>;
+    mergeDecision?: PkmMergeDecision;
     manifest?: DomainManifest;
     writeProjections?: PkmWriteProjection[];
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
     cacheFullBlob?: boolean;
   }): Promise<{
@@ -2266,10 +2538,11 @@ export class PersonalKnowledgeModelService {
       vaultKey: params.vaultKey,
       domain: params.domain,
       domainData: params.domainData,
+      mergeDecision: params.mergeDecision,
     });
     const structureArtifacts = buildPersonalKnowledgeModelStructureArtifacts({
       domain: params.domain,
-      domainData: params.domainData,
+      domainData: merged.domainData,
       previousManifest,
     });
     const nextManifest = params.manifest || structureArtifacts.manifest;
@@ -2284,7 +2557,7 @@ export class PersonalKnowledgeModelService {
     };
     const portfolioData = this.resolvePortfolioDataForDomain({
       domain: params.domain,
-      domainData: params.domainData,
+      domainData: merged.domainData,
     });
 
     const result = await this.storeDomainData({
@@ -2296,8 +2569,10 @@ export class PersonalKnowledgeModelService {
       manifest: nextManifest,
       writeProjections: params.writeProjections,
       portfolioData,
+      domainData: merged.domainData,
       expectedDataVersion: params.expectedDataVersion,
       upgradeContext: params.upgradeContext,
+      syncCheckpoint: params.syncCheckpoint,
       vaultOwnerToken: params.vaultOwnerToken,
     });
 
@@ -2348,6 +2623,7 @@ export class PersonalKnowledgeModelService {
     writeProjections?: PkmWriteProjection[];
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
   }): Promise<{
     success: boolean;
@@ -2384,6 +2660,7 @@ export class PersonalKnowledgeModelService {
     writeProjections?: PkmWriteProjection[];
     expectedDataVersion?: number;
     upgradeContext?: PkmUpgradeContext;
+    syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
     cacheFullBlob?: boolean;
   }): Promise<{
@@ -2438,8 +2715,10 @@ export class PersonalKnowledgeModelService {
       manifest,
       writeProjections: params.writeProjections,
       portfolioData,
+      domainData: merged.domainData,
       expectedDataVersion: params.expectedDataVersion,
       upgradeContext: params.upgradeContext,
+      syncCheckpoint: params.syncCheckpoint,
       vaultOwnerToken: params.vaultOwnerToken,
     });
 
@@ -2645,9 +2924,12 @@ export class PersonalKnowledgeModelService {
     const canUseCache = normalizedSegmentIds.length === 0;
     const cacheKey = CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain);
     if (canUseCache) {
-      const cached = cache.get<EncryptedDomainBlob>(cacheKey);
-      if (cached) {
-        return cached;
+      const cached = cache.peek<EncryptedDomainBlob | null>(cacheKey);
+      if (cached?.isFresh) {
+        return cached.data;
+      }
+      if (cached?.isStale) {
+        cache.invalidate(cacheKey);
       }
     }
 
@@ -2774,7 +3056,7 @@ export class PersonalKnowledgeModelService {
       if (encryptedBlob && canUseCache) {
         cache.set(cacheKey, encryptedBlob, CACHE_TTL.SESSION);
       } else if (!encryptedBlob && canUseCache) {
-        cache.invalidate(cacheKey);
+        cache.set(cacheKey, null, CACHE_TTL.SHORT);
       }
 
       return encryptedBlob;
