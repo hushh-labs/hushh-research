@@ -112,6 +112,12 @@ describe("SettingsSegmentedTabs", () => {
     fireEvent.click(inactive);
     expect(handleValueChange).toHaveBeenCalledWith("kai");
   });
+    it("preserves title rendering when description is empty", () => {
+    render(<SettingsRow title="Profile visibility" description="" />);
+
+    expect(screen.getByText("Profile visibility")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /profile visibility/i })).toBeNull();
+  });
 });
 
 describe("SettingsDetailPanel", () => {
