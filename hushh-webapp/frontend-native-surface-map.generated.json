@@ -1289,6 +1289,30 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/location/request/[token]",
+      "page_file": "app/one/location/request/[token]/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Public one-location invite route is a standalone external-request form outside the signed-in app shell.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/portfolio/shared",
       "page_file": "app/portfolio/shared/page.tsx",
       "physical_page_exists": true,
