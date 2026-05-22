@@ -5,7 +5,19 @@ import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import type { PkmWriteCoordinatorResult } from "@/lib/services/pkm-write-coordinator";
 import type { OneKycWorkflow } from "@/lib/services/one-kyc-service";
 import { OneKycService } from "@/lib/services/one-kyc-service";
+import {
+  APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID,
+  buildApprovedDisclosureHtml,
+  buildApprovedDisclosurePlainText,
+  redraftTransformFromInstructions,
+  type ApprovedDisclosureRenderModel,
+  type RedraftTransform,
+  type RenderFact,
+  type RenderSection,
+} from "@/lib/services/one-kyc-approved-disclosure-renderer";
 import { bytesToBase64 } from "@/lib/vault/base64";
+
+export { APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID };
 
 export const KYC_CONNECTOR_PKM_DOMAIN = "kyc_connector" as const;
 export const KYC_CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM" as const;
@@ -60,52 +72,10 @@ type KycDraftExportPayload = {
   payload: Record<string, unknown>;
 };
 
-export type KycDraftStyle = {
-  compact: boolean;
-  formal: boolean;
-  bulletList: boolean;
-  structured: boolean;
-  table: boolean;
-  fullDetail: boolean;
-  human: boolean;
-  cleanHeaders: boolean;
-};
-
-export type KycDraftRenderEntry = {
-  field: string;
-  label: string;
-  value: string;
-  scope: string;
-};
-
-export type KycDraftRenderSection = {
-  scope: string;
-  title: string;
-  entries: KycDraftRenderEntry[];
-  missingFields: string[];
-};
-
-export type KycDraftRenderModel = {
-  accountHolder: string;
-  style: KycDraftStyle;
-  sections: KycDraftRenderSection[];
-  missingFields: string[];
-};
-
-const MAX_DRAFT_BODY_LENGTH = 12000;
-
-const EMAIL_THEME = {
-  accent: "#D4A847",
-  accentBorder: "#E7C969",
-  background: "#18181b",
-  border: "#3f3f46",
-  card: "#242426",
-  chip: "#2f3033",
-  heading: "#f8fafc",
-  muted: "#a1a1aa",
-  panel: "#1f2023",
-  text: "#e5e7eb",
-};
+export type KycDraftStyle = RedraftTransform;
+export type KycDraftRenderEntry = RenderFact;
+export type KycDraftRenderSection = RenderSection;
+export type KycDraftRenderModel = ApprovedDisclosureRenderModel;
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytes.byteLength);
@@ -1053,6 +1023,47 @@ function scopeTitle(scope: string | null | undefined): string {
   return "Approved information";
 }
 
+function workflowCandidateForScope(
+  workflow: OneKycWorkflow,
+  scope: string | null | undefined
+): { label?: string; description?: string } | null {
+  const normalized = String(scope || "");
+  if (!normalized) return null;
+  return (
+    workflow.candidate_scopes?.find((candidate) => candidate.scope === normalized) || null
+  );
+}
+
+function presentationSourceForScope(
+  workflow: OneKycWorkflow,
+  scope: string | null | undefined
+): KycDraftRenderSection["presentationSource"] {
+  const normalized = String(scope || "");
+  if (
+    normalized.startsWith("attr.identity") ||
+    normalized.startsWith("attr.financial")
+  ) {
+    return "first_party_adapter";
+  }
+  const candidate = workflowCandidateForScope(workflow, scope);
+  if (candidate?.label || candidate?.description) return "scope_metadata";
+  return "generic_projection";
+}
+
+function missingPresentationMetadataForScope(
+  workflow: OneKycWorkflow,
+  scope: string | null | undefined
+): string | null {
+  const source = presentationSourceForScope(workflow, scope);
+  return source === "generic_projection" ? String(scope || "") || null : null;
+}
+
+function workflowScopeTitle(workflow: OneKycWorkflow, scope: string | null | undefined): string {
+  const candidate = workflowCandidateForScope(workflow, scope);
+  const label = truncate(candidate?.label, 80);
+  return label || scopeTitle(scope);
+}
+
 function uniqueApprovedKey(
   approvedValues: Record<string, string>,
   field: string,
@@ -1109,368 +1120,10 @@ function accountHolderLabel(workflow: OneKycWorkflow): string {
   return "the account holder";
 }
 
-function accountHolderSubject(label: string): string {
-  if (label === "the account holder") return label;
-  const first = label.split(/\s+/)[0]?.trim();
-  return first || label;
-}
-
 function sentenceCase(value: string): string {
   const text = value.trim();
   if (!text) return text;
   return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
-}
-
-function cleanSentence(value: string): string {
-  const text = value.replace(/\s+/g, " ").trim();
-  if (!text) return text;
-  return /[.!?]$/.test(text) ? text : `${text}.`;
-}
-
-function escapeHtml(value: unknown): string {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function normalizePreferencePhrase(value: string): string | null {
-  const text = value
-    .replace(/^actually[, ]*/i, "")
-    .replace(/^prefers\s+/i, "")
-    .replace(/^i\s+(now\s+)?prefer\s+/i, "")
-    .replace(/^i\s+(usually\s+|generally\s+)?choose\s+/i, "")
-    .replace(/\bwork(s)? better now\b/i, "")
-    .replace(/\bare better now\b/i, "")
-    .replace(/\bis better now\b/i, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/[.!?]+$/g, "")
-    .trim();
-  if (!text) return null;
-  return text.charAt(0).toLowerCase() + text.slice(1);
-}
-
-function naturalApprovedSentence(params: {
-  field: string;
-  value: string;
-  scope?: string | null;
-  accountHolder: string;
-}): string {
-  if (params.value.includes("\n")) return params.value;
-  const label = approvedFieldLabel(params.field, params.scope);
-  const holder = accountHolderSubject(params.accountHolder);
-  const normalizedField = params.field.toLowerCase();
-  const normalizedLabel = label.toLowerCase();
-  if (normalizedField === "portfolio" || params.scope?.includes("financial.portfolio")) {
-    return `${sentenceCase(holder)}'s portfolio ${cleanSentence(params.value)}`;
-  }
-  if (normalizedField.includes("preference") || normalizedLabel.includes("preference")) {
-    const phrase = normalizePreferencePhrase(params.value);
-    if (phrase) return `${sentenceCase(holder)} prefers ${phrase}.`;
-  }
-  const verb = params.field.endsWith("s") || params.value.includes(",") ? "are" : "is";
-  return `${sentenceCase(holder)}'s ${label} ${verb} ${cleanSentence(params.value)}`;
-}
-
-function approvedEntryBlock(field: string, value: string, scope?: string | null): string {
-  const label = approvedFieldLabel(field, scope);
-  if (value.includes("\n")) {
-    if (/^(Portfolio summary|Financial profile|Financial documents|Holdings)\n/.test(value)) {
-      return value;
-    }
-    return `${sentenceCase(label)}\n${value}`;
-  }
-  return `- ${label}: ${value}`;
-}
-
-function draftSubBlocks(value: string): string[] {
-  return value
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean);
-}
-
-function draftBlockHeading(value: string): string {
-  const lines = value.split("\n");
-  return lines[0]?.trim() || "";
-}
-
-function isGenericSectionTitle(title: string): boolean {
-  const key = normalizedObjectKey(title);
-  return (
-    key === "approved_information" ||
-    key.endsWith("_information") ||
-    key.endsWith("_details") ||
-    key.endsWith("_data")
-  );
-}
-
-function isRedundantEntryHeading(sectionTitle: string, heading: string): boolean {
-  const sectionKey = normalizedObjectKey(sectionTitle);
-  const headingKey = normalizedObjectKey(heading);
-  return (
-    headingKey === sectionKey ||
-    headingKey === `${sectionKey}_summary` ||
-    headingKey === `${sectionKey}_details`
-  );
-}
-
-function hasMultipleHeadedSubBlocks(value: string): boolean {
-  return (
-    draftSubBlocks(value).filter((block) => {
-      const heading = draftBlockHeading(block);
-      return Boolean(
-        heading &&
-          !heading.startsWith("-") &&
-          heading.length <= 80 &&
-          !/[.!?]$/.test(heading)
-      );
-    }).length > 1
-  );
-}
-
-function displayTitleForSection(
-  sectionTitle: string,
-  entryBlocks: string[]
-): string {
-  if (entryBlocks.length !== 1) return sectionTitle;
-  const entryHeading = draftBlockHeading(entryBlocks[0] || "");
-  if (!entryHeading || entryHeading.startsWith("-")) return sectionTitle;
-  if (entryHeading.length > 80 || /[.!?]$/.test(entryHeading)) return sectionTitle;
-  if (isRedundantEntryHeading(sectionTitle, entryHeading)) return entryHeading;
-  if (isGenericSectionTitle(sectionTitle) && !hasMultipleHeadedSubBlocks(entryBlocks[0] || "")) {
-    return entryHeading;
-  }
-  return sectionTitle;
-}
-
-function stripDuplicateSectionHeading(value: string, sectionTitle: string): string {
-  const lines = value.split("\n");
-  const first = draftBlockHeading(value);
-  if (first && normalizedObjectKey(first) === normalizedObjectKey(sectionTitle) && lines.length > 1) {
-    return lines.slice(1).join("\n").trim();
-  }
-  return value;
-}
-
-function draftStyleFromInstructions(instructions?: string): KycDraftStyle {
-  const text = String(instructions || "").toLowerCase();
-  const human = /\b(human|natural|plain english|readable|less programmatic|rewrite|polish|polished|email)\b/.test(text);
-  const structured = /\b(format|formatted|structure|structured|headings|sections|readable|clean|beautiful)\b/.test(text);
-  const table = /\b(table|tabular|columns|spreadsheet)\b/.test(text);
-  return {
-    compact: /\b(shorter|short|concise|brief|direct|tighten)\b/.test(text),
-    formal: /\b(formal|professional|polished)\b/.test(text),
-    bulletList: structured || table || /\b(bullet|bullets|list)\b/.test(text),
-    structured,
-    table,
-    fullDetail: /\b(full detail|all details|complete|everything|full)\b/.test(text),
-    human,
-    cleanHeaders: /\b(double headers?|duplicate headers?|remove headers?|clean headers?|headings?)\b/.test(text),
-  };
-}
-
-function buildApprovedReplyBody(params: {
-  renderModel: KycDraftRenderModel;
-}): string {
-  const { accountHolder, missingFields, sections, style } = params.renderModel;
-  const opening = style.formal
-    ? `I am replying on behalf of ${accountHolder} with the approved information below.`
-    : `I am replying on behalf of ${accountHolder}.`;
-  const entries = sections.flatMap((section) => section.entries);
-  const signature = "Best,\nhussh One";
-
-  if (
-    sections.length === 1 &&
-    entries.length === 1 &&
-    missingFields.length === 0 &&
-    !style.bulletList &&
-    !style.structured &&
-    !style.table &&
-    !style.fullDetail &&
-    !style.human
-  ) {
-    const firstEntry = entries[0];
-    if (!firstEntry) return `${opening}\n\n${signature}`;
-    return `${opening}
-
-${naturalApprovedSentence({
-  field: firstEntry.field,
-  value: firstEntry.value,
-  scope: firstEntry.scope,
-  accountHolder,
-})}
-
-${signature}`;
-  }
-
-  const sectionBlocks = sections
-    .filter((section) => section.entries.length)
-    .map((section) => {
-      const rawEntryBlocks = section.entries
-        .map((entry) =>
-          style.human && !entry.value.includes("\n")
-            ? naturalApprovedSentence({
-                field: entry.field,
-                value: entry.value,
-                scope: entry.scope,
-                accountHolder,
-              })
-            : approvedEntryBlock(entry.field, entry.value, entry.scope)
-        )
-        .filter(Boolean);
-      const sectionTitle = displayTitleForSection(section.title, rawEntryBlocks);
-      const entryBlocks = rawEntryBlocks
-        .map((entryBlock) => stripDuplicateSectionHeading(entryBlock, sectionTitle))
-        .filter(Boolean)
-        .join("\n\n");
-      return `${sectionTitle}\n\n${entryBlocks}`;
-    })
-    .join("\n\n");
-  const missingLines = missingFields
-    .map((field) => `- ${field.replaceAll("_", " ")}`)
-    .join("\n");
-  const missingCopy = missingLines
-    ? `\nNot found in the approved data:\n${missingLines}\n`
-    : "";
-
-  return `${opening}
-
-${sectionBlocks || "No requested values were present in the approved data."}
-${missingCopy}
-${signature}`.slice(0, MAX_DRAFT_BODY_LENGTH);
-}
-
-type DraftHoldingRow = {
-  asset: string;
-  quantity: string;
-  value: string;
-  price: string;
-  gainLoss: string;
-  type: string;
-};
-
-function parseDraftBullet(line: string): string {
-  return line.replace(/^[-*]\s*/, "").trim();
-}
-
-function parseDraftHoldingRow(line: string): DraftHoldingRow | null {
-  const text = parseDraftBullet(line);
-  const [rawAsset = "", rawDetails = ""] = text.split(/:\s*/, 2);
-  const asset = rawAsset.trim();
-  if (!asset) return null;
-  const details = rawDetails
-    .split(";")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  const row: DraftHoldingRow = {
-    asset,
-    quantity: "",
-    value: "",
-    price: "",
-    gainLoss: "",
-    type: "",
-  };
-  if (asset.toLowerCase() === "cash" && rawDetails.trim().startsWith("$")) {
-    row.value = rawDetails.trim();
-    return row;
-  }
-  for (const detail of details) {
-    if (detail.endsWith(" shares")) {
-      row.quantity = detail.replace(/\s+shares$/, "");
-    } else if (detail.endsWith(" value")) {
-      row.value = detail.replace(/\s+value$/, "");
-    } else if (detail.endsWith(" per share")) {
-      row.price = detail.replace(/\s+per share$/, "");
-    } else if (detail.endsWith(" unrealized gain/loss")) {
-      row.gainLoss = detail.replace(/\s+unrealized gain\/loss$/, "");
-    } else if (!row.type) {
-      row.type = detail;
-    }
-  }
-  return row;
-}
-
-function htmlParagraph(block: string): string {
-  return `<p style="margin:0;color:${EMAIL_THEME.text};font-size:15px;line-height:1.6;white-space:pre-wrap;">${escapeHtml(block)}</p>`;
-}
-
-function htmlKeyValueSection(heading: string, bulletLines: string[]): string {
-  const items = bulletLines
-    .map((line) => {
-      const text = parseDraftBullet(line);
-      const [rawLabel = "Detail", ...valueParts] = text.split(":");
-      const label = rawLabel.trim() || "Detail";
-      const value = valueParts.join(":").trim() || "-";
-      return `<td style="width:50%;padding:6px;vertical-align:top;word-break:break-word;"><div style="border:1px solid ${EMAIL_THEME.border};border-radius:12px;background:${EMAIL_THEME.panel};padding:12px;"><div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:${EMAIL_THEME.muted};font-weight:700;">${escapeHtml(label)}</div><div style="margin-top:5px;font-size:15px;line-height:1.4;color:${EMAIL_THEME.heading};font-weight:650;word-break:break-word;">${escapeHtml(value)}</div></div></td>`;
-    })
-    .reduce<string[]>((rows, cell, index) => {
-      if (index % 2 === 0) rows.push(`<tr>${cell}`);
-      else rows[rows.length - 1] = `${rows[rows.length - 1]}${cell}</tr>`;
-      return rows;
-    }, [])
-    .map((row) => (row.endsWith("</tr>") ? row : `${row}<td style="width:50%;padding:6px;"></td></tr>`))
-    .join("");
-  return `<section style="margin:0;"><h2 style="margin:0 0 10px;color:${EMAIL_THEME.heading};font-size:17px;line-height:1.25;">${escapeHtml(heading)}</h2><table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:100%;border-collapse:collapse;table-layout:fixed;"><tbody>${items}</tbody></table></section>`;
-}
-
-function htmlHoldingsTable(lines: string[]): string {
-  const rows = lines
-    .map(parseDraftHoldingRow)
-    .filter((row): row is DraftHoldingRow => Boolean(row));
-  if (!rows.length) return htmlKeyValueSection("Holdings", lines);
-  const bodyRows = rows
-    .map(
-      (row) => `<tr>
-        <td style="padding:8px 10px;border-top:1px solid ${EMAIL_THEME.border};font-weight:700;color:${EMAIL_THEME.heading};white-space:nowrap;">${escapeHtml(row.asset)}</td>
-        <td style="padding:8px 10px;border-top:1px solid ${EMAIL_THEME.border};color:${EMAIL_THEME.text};white-space:nowrap;">${escapeHtml(row.quantity || "-")}</td>
-        <td style="padding:8px 10px;border-top:1px solid ${EMAIL_THEME.border};color:${EMAIL_THEME.text};white-space:nowrap;">${escapeHtml(row.value || "-")}</td>
-        <td style="padding:8px 10px;border-top:1px solid ${EMAIL_THEME.border};color:${EMAIL_THEME.text};white-space:nowrap;">${escapeHtml(row.price || "-")}</td>
-        <td style="padding:8px 10px;border-top:1px solid ${EMAIL_THEME.border};color:${EMAIL_THEME.text};white-space:nowrap;">${escapeHtml(row.gainLoss || "-")}</td>
-        <td style="padding:8px 10px;border-top:1px solid ${EMAIL_THEME.border};color:${EMAIL_THEME.text};white-space:nowrap;">${escapeHtml(row.type || "-")}</td>
-      </tr>`
-    )
-    .join("");
-  return `<section style="margin:0;"><h2 style="margin:0 0 10px;color:${EMAIL_THEME.heading};font-size:17px;line-height:1.25;">Holdings</h2><div style="width:100%;max-width:100%;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;border:1px solid ${EMAIL_THEME.border};border-radius:14px;background:${EMAIL_THEME.panel};"><table cellpadding="0" cellspacing="0" style="width:720px;min-width:720px;max-width:none;border-collapse:collapse;font-size:13px;table-layout:auto;"><thead><tr style="background:${EMAIL_THEME.chip};"><th align="left" style="padding:8px 10px;color:${EMAIL_THEME.muted};font-size:10px;letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;">Asset</th><th align="left" style="padding:8px 10px;color:${EMAIL_THEME.muted};font-size:10px;letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;">Quantity</th><th align="left" style="padding:8px 10px;color:${EMAIL_THEME.muted};font-size:10px;letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;">Value</th><th align="left" style="padding:8px 10px;color:${EMAIL_THEME.muted};font-size:10px;letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;">Price</th><th align="left" style="padding:8px 10px;color:${EMAIL_THEME.muted};font-size:10px;letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;">Gain/loss</th><th align="left" style="padding:8px 10px;color:${EMAIL_THEME.muted};font-size:10px;letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;">Type</th></tr></thead><tbody>${bodyRows}</tbody></table></div></section>`;
-}
-
-export function buildApprovedReplyHtml(body: string): string {
-  const blocks = body
-    .trim()
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean);
-  const content = blocks
-    .map((block) => {
-      const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
-      const heading = lines[0] || "";
-      const rest = lines.slice(1);
-      const allBullets = lines.every((line) => /^[-*]\s+/.test(line));
-      const restBullets = rest.length > 0 && rest.every((line) => /^[-*]\s+/.test(line));
-      if (heading.toLowerCase() === "holdings" && restBullets) {
-        return htmlHoldingsTable(rest);
-      }
-      if (restBullets) return htmlKeyValueSection(heading, rest);
-      if (allBullets) {
-        const items = lines
-          .map((line) => `<li style="margin:0 0 8px;color:${EMAIL_THEME.text};line-height:1.5;">${escapeHtml(parseDraftBullet(line))}</li>`)
-          .join("");
-        return `<ul style="margin:0;padding-left:20px;">${items}</ul>`;
-      }
-      if (block === "Best,\nhussh One") {
-        return `<p style="margin:0;padding-top:14px;border-top:1px solid ${EMAIL_THEME.border};color:${EMAIL_THEME.heading};font-weight:650;line-height:1.5;">Best,<br/>hussh One</p>`;
-      }
-      if (lines.length === 1 && !/[.!?]$/.test(heading) && heading.length <= 80) {
-        return `<h2 style="margin:0;color:${EMAIL_THEME.heading};font-size:18px;line-height:1.25;">${escapeHtml(heading)}</h2>`;
-      }
-      return htmlParagraph(block);
-    })
-    .join('<div style="height:18px;line-height:18px;">&nbsp;</div>');
-
-  return `<div style="margin:0;padding:16px;background:${EMAIL_THEME.background};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"><div style="width:100%;max-width:820px;margin:0 auto;border:1px solid ${EMAIL_THEME.border};border-radius:18px;background:${EMAIL_THEME.card};overflow:hidden;"><div style="padding:16px 20px;border-bottom:1px solid ${EMAIL_THEME.border};background:${EMAIL_THEME.panel};"><table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td style="width:42px;vertical-align:middle;"><div style="width:34px;height:34px;border-radius:12px;border:1px solid ${EMAIL_THEME.accentBorder};background:${EMAIL_THEME.accent};color:${EMAIL_THEME.background};font-size:19px;line-height:34px;text-align:center;font-weight:800;">🤫</div></td><td style="vertical-align:middle;"><div style="font-size:14px;line-height:1.2;color:${EMAIL_THEME.heading};font-weight:800;">hussh One</div><div style="margin-top:2px;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:${EMAIL_THEME.accent};font-weight:750;">approved reply</div></td></tr></table></div><div style="padding:20px;">${content}</div></div></div>`;
 }
 
 function replySubject(subject: string | null | undefined): string {
@@ -1710,6 +1363,7 @@ export class OneKycClientZkService {
     const missingFields: string[] = [];
     const scopeSummaries: KycDraftBuildResult["scopeSummaries"] = [];
     const sections: KycDraftRenderSection[] = [];
+    const missingPresentationMetadata: string[] = [];
     const selectedScopes = payloads
       .map((item) => item.scope || params.workflow.requested_scope || "attr.identity.*")
       .filter((scope): scope is string => Boolean(scope));
@@ -1740,27 +1394,33 @@ export class OneKycClientZkService {
       }
       sections.push({
         scope,
-        title: scopeTitle(scope),
+        title: workflowScopeTitle(params.workflow, scope),
         entries: sectionEntries,
         missingFields: extracted.missingFields,
+        presentationSource: presentationSourceForScope(params.workflow, scope),
       });
+      const missingMetadataScope = missingPresentationMetadataForScope(params.workflow, scope);
+      if (missingMetadataScope && !missingPresentationMetadata.includes(missingMetadataScope)) {
+        missingPresentationMetadata.push(missingMetadataScope);
+      }
       scopeSummaries.push({
         scope,
         approvedFields: Object.keys(extracted.approvedValues),
         missingFields: extracted.missingFields,
       });
     }
-    const style = draftStyleFromInstructions(params.instructions);
+    const style = redraftTransformFromInstructions(params.instructions);
     const renderModel: KycDraftRenderModel = {
+      contractId: APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID,
+      contractVersion: "1.0.0",
       accountHolder: accountHolderLabel(params.workflow),
       style,
       sections,
       missingFields,
+      missingPresentationMetadata,
     };
-    const body = buildApprovedReplyBody({
-      renderModel,
-    });
-    const htmlBody = buildApprovedReplyHtml(body);
+    const body = buildApprovedDisclosurePlainText(renderModel);
+    const htmlBody = buildApprovedDisclosureHtml(renderModel);
     return {
       subject: replySubject(params.workflow.subject),
       body,

@@ -720,6 +720,33 @@ export const HushhNotifications = registerPlugin<HushhNotificationsPlugin>(
   },
 );
 
+// ==================== HushhLocationPlugin ====================
+// Foreground-only location capture for One Location Agent.
+
+export type HushhLocationPermissionState = {
+  state: "granted" | "denied" | "prompt" | "restricted" | "unavailable";
+  precise: boolean | null;
+  background: "foreground-only" | "available" | "restricted" | "unavailable";
+};
+
+export interface HushhLocationPlugin {
+  getPermissionState(): Promise<HushhLocationPermissionState>;
+  getCurrentPosition(options?: {
+    enableHighAccuracy?: boolean;
+    timeoutMs?: number;
+  }): Promise<{
+    latitude: number;
+    longitude: number;
+    accuracyM: number | null;
+    capturedAt: string;
+    sourcePlatform: "web" | "ios" | "android" | "native";
+  }>;
+}
+
+export const HushhLocation = registerPlugin<HushhLocationPlugin>("HushhLocation", {
+  web: () => import("./plugins/location-web").then((m) => new m.HushhLocationWeb()),
+});
+
 // ==================== HushhPersonalKnowledgeModelPlugin ====================
 // PKM operations for dynamic domain/attribute management
 

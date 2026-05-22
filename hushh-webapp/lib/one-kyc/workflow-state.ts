@@ -70,6 +70,24 @@ export function detectedDomains(workflow: OneKycWorkflow): string[] {
   return Array.isArray(metadata) ? metadata.map(String) : [];
 }
 
+function selectedDefaultAvailableCandidates(workflow: OneKycWorkflow): OneKycScopeCandidate[] {
+  const selected = new Set(selectedScopesForWorkflow(workflow, {}));
+  if (!selected.size) return [];
+  return scopeCandidates(workflow).filter(
+    (candidate) =>
+      selected.has(candidate.scope) &&
+      candidate.visibility_posture === "default_available" &&
+      candidate.default_projection_ready === true
+  );
+}
+
+function allSelectedScopesAreDefaultAvailable(workflow: OneKycWorkflow): boolean {
+  const selected = selectedScopesForWorkflow(workflow, {});
+  if (!selected.length) return false;
+  const ready = selectedDefaultAvailableCandidates(workflow);
+  return ready.length === selected.length;
+}
+
 export function isKycClientDraftReady(workflow: OneKycWorkflow): boolean {
   return workflow.status === "waiting_on_user" && workflow.draft_status === "ready";
 }
@@ -85,6 +103,7 @@ function metadataArray(workflow: OneKycWorkflow, key: string): unknown[] {
 
 export function hasApprovedKycWorkflowAccess(workflow: OneKycWorkflow): boolean {
   if (isKycClientDraftReady(workflow)) return true;
+  if (allSelectedScopesAreDefaultAvailable(workflow)) return true;
   const consentRequests = workflow.consent_requests || [];
   if (
     consentRequests.length > 0 &&

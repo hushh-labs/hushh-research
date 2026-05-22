@@ -127,6 +127,7 @@ function computeAnalyzeEligibilityFromHolding(holding: Record<string, unknown>):
 }
 
 export function KaiCommandBarGlobal() {
+  const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -167,6 +168,10 @@ export function KaiCommandBarGlobal() {
     enabled: false,
     reason: null,
   });
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = AppBackgroundTaskService.subscribe((state) => {
@@ -713,7 +718,7 @@ export function KaiCommandBarGlobal() {
     ]
   );
 
-  if (loading || !user || reviewScreenActive) {
+  if (!mounted || loading || !user || reviewScreenActive) {
     return null;
   }
 

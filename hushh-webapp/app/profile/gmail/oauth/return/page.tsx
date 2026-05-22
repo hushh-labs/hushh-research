@@ -6,12 +6,12 @@ function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] || "" : value || "";
 }
 
-export default function ProfileGmailOAuthReturnPage({
+export default async function ProfileGmailOAuthReturnPage({
   searchParams,
 }: {
-  searchParams?: SearchParamsInput;
+  searchParams?: Promise<SearchParamsInput>;
 }) {
-  const resolvedSearchParams = searchParams || {};
+  const resolvedSearchParams = (await searchParams) || {};
   return (
     <ProfileGmailOAuthReturnPageClient
       initialCode={firstParam(resolvedSearchParams.code).trim()}
