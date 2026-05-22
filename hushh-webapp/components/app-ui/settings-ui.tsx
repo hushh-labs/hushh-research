@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { cn } from "@/lib/utils"; // Ensure this path is correct for your project
+import { cn } from "@/lib/utils";
 
 export interface SettingsGroupProps {
   title?: ReactNode;
@@ -11,8 +11,10 @@ export interface SettingsGroupProps {
   embedded?: boolean;
   description?: ReactNode;
   trailing?: ReactNode;
+  [key: string]: any;
 }
 
+// Ensure the "export" keyword is here
 export function SettingsGroup({
   title,
   eyebrow,
@@ -21,9 +23,10 @@ export function SettingsGroup({
   embedded,
   description,
   trailing,
+  ...props
 }: SettingsGroupProps) {
   return (
-    <section className={cn("space-y-3 pt-2", embedded && "pt-0", className)}>
+    <section className={cn("space-y-3 pt-2", embedded && "pt-0", className)} {...props}>
       <h3 role="heading" aria-level={3} className="text-xs font-bold uppercase flex items-center gap-x-2">
         {eyebrow && (
           <span className="tracking-[0.22em] opacity-75 text-[10px] font-medium bg-muted px-1.5 py-0.5 rounded-md">
@@ -31,7 +34,6 @@ export function SettingsGroup({
           </span>
         )}
         <span>{title}</span>
-        {trailing && <span className="ml-auto">{trailing}</span>}
       </h3>
       
       {description && <p className="text-sm text-muted-foreground">{description}</p>}
@@ -46,17 +48,37 @@ export function SettingsGroup({
   );
 }
 
+// Ensure the "export" keyword is here
 export function SettingsRow({ 
   title, 
-  description 
+  description,
+  icon,
+  trailing,
+  chevron,
+  onClick,
+  ...props
 }: { 
   title: ReactNode; 
-  description?: ReactNode 
+  description?: ReactNode;
+  icon?: any;
+  trailing?: ReactNode;
+  chevron?: boolean;
+  onClick?: () => void;
+  [key: string]: any;
 }) {
   return (
-    <div className="px-4 py-3 text-sm">
-      <div className="font-medium text-foreground">{title}</div>
-      {description && <div className="text-muted-foreground">{description}</div>}
+    <div 
+      className={cn("px-4 py-3 text-sm flex items-center gap-3", onClick && "cursor-pointer hover:bg-muted/50")}
+      onClick={onClick}
+      {...props}
+    >
+      {icon && <div className="text-muted-foreground">{icon}</div>}
+      <div className="flex-1">
+        <div className="font-medium text-foreground">{title}</div>
+        {description && <div className="text-muted-foreground">{description}</div>}
+      </div>
+      {trailing && <div>{trailing}</div>}
+      {chevron && <div className="text-muted-foreground">›</div>}
     </div>
   );
 }
