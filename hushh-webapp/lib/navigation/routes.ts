@@ -169,7 +169,8 @@ export function isPublicRoute(pathname: string): boolean {
     pathname === ROUTES.LOGIN ||
     pathname === ROUTES.PHONE_MANDATE ||
     pathname === ROUTES.LOGOUT ||
-    pathname === ROUTES.PROFILE
+    pathname === ROUTES.PROFILE ||
+    pathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
   );
 }
 
