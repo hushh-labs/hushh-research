@@ -60,4 +60,26 @@ describe("SectionHeader", () => {
     expect(actions?.className).toContain("sm:justify-end");
     expect(screen.getByRole("button", { name: "Template" })).toBeTruthy();
   });
+    it("preserves updated action rendering across rerenders", () => {
+    const { rerender } = render(
+      <PageHeader
+        title="Workspace"
+        actions={<button type="button">Upload</button>}
+        icon={FileSpreadsheet}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Upload" })).toBeTruthy();
+
+    rerender(
+      <PageHeader
+        title="Workspace"
+        actions={<button type="button">Export</button>}
+        icon={FileSpreadsheet}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: "Upload" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Export" })).toBeTruthy();
+  });
 });
