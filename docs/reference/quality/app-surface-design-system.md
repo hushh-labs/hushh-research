@@ -293,6 +293,7 @@ Use the `Subtle Apple` depth model:
    - critical params
 4. Visibility and interval refreshes should be stale-aware, not unconditional.
 5. Unlock warmup can seed cache, but route loaders must still own stale-refresh policy.
+6. New or changed screens must stay covered by `cd hushh-webapp && npm run audit:cache-coherence`.
 
 ## Icon Policy
 

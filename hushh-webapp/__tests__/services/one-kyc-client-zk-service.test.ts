@@ -20,6 +20,7 @@ vi.mock("@/lib/services/one-kyc-service", () => ({
 }));
 
 import {
+  APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID,
   effectiveOneKycRequiredFields,
   KYC_CONNECTOR_WRAPPING_ALG,
   OneKycClientZkService,
@@ -80,6 +81,8 @@ describe("OneKycClientZkService", () => {
 
     expect(first).toEqual(second);
     expect(first.subject).toBe("Re: KYC request");
+    expect(first.renderModel.contractId).toBe(APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID);
+    expect(first.renderModel.contractVersion).toBe("1.0.0");
     expect(first.body).toContain("full name: Ada Lovelace");
     expect(first.body).toContain("date of birth: 1815-12-10");
     expect(first.missingFields).toEqual([]);
@@ -760,6 +763,10 @@ describe("OneKycClientZkService", () => {
     expect(draft.body).toContain("cabin comfort");
     expect(draft.body).toContain("Prefers quiet cabins and extra legroom.");
     expect(draft.body).not.toContain("No requested values were present");
+    expect(draft.renderModel.sections[0]?.presentationSource).toBe("generic_projection");
+    expect(draft.renderModel.missingPresentationMetadata).toEqual([
+      "attr.mobility.cabin_comfort.*",
+    ]);
   });
 
   it("rejects consent exports wrapped to a different connector before decrypting", async () => {

@@ -56,6 +56,9 @@ export type DomainManifest = {
     sensitivity_tier?: string;
     scope_kind?: string;
     exposure_enabled?: boolean;
+    visibility_posture?: "private" | "consent_required" | "default_available";
+    default_projection_ready?: boolean;
+    default_projection_updated_at?: string | null;
     summary_projection?: Record<string, unknown> & {
       top_level_scope_path?: string;
       consumer_visible?: boolean;

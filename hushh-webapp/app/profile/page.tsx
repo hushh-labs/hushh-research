@@ -167,6 +167,7 @@ import {
   PersonalKnowledgeModelService,
   type PersonalKnowledgeModelMetadata,
   PkmScopeExposureError,
+  type PkmVisibilityPosture,
   type PkmUpgradeDomainState,
 } from "@/lib/services/personal-knowledge-model-service";
 import {
@@ -220,7 +221,7 @@ function cloneManifest(manifest: DomainManifest | null): DomainManifest | null {
 function applyManifestExposureChange(
   manifest: DomainManifest | null | undefined,
   target: { scopeHandle?: string | null; topLevelScopePath: string },
-  exposureEnabled: boolean,
+  visibilityPosture: PkmVisibilityPosture,
 ): DomainManifest | null | undefined {
   if (!manifest) return manifest;
   const nextManifest = cloneManifest(manifest);
@@ -244,7 +245,16 @@ function applyManifestExposureChange(
       updated = true;
       return {
         ...entry,
-        exposure_enabled: exposureEnabled,
+        exposure_enabled: visibilityPosture !== "private",
+        visibility_posture: visibilityPosture,
+        default_projection_ready:
+          visibilityPosture === "default_available"
+            ? entry.default_projection_ready === true
+            : false,
+        default_projection_updated_at:
+          visibilityPosture === "default_available"
+            ? entry.default_projection_updated_at || null
+            : null,
       };
     });
   }
@@ -256,6 +266,31 @@ function applyManifestExposureChange(
   }
 
   return updated ? nextManifest : manifest;
+}
+
+function defaultAvailableScopeForPermission(domainKey: string, topLevelScopePath: string): string {
+  return `attr.${domainKey}.${topLevelScopePath}.*`;
+}
+
+function buildDefaultAvailableProjectionPayload(params: {
+  domainKey: string;
+  domainTitle: string;
+  permission: {
+    label: string;
+    description?: string | null;
+    topLevelScopePath: string;
+  };
+  presentation: PkmSectionPreviewPresentation;
+}): Record<string, unknown> {
+  return {
+    projection_kind: "pkm_default_available_section_v1",
+    domain: params.domainKey,
+    domain_title: params.domainTitle,
+    section: params.permission.topLevelScopePath,
+    label: params.permission.label,
+    description: params.permission.description || null,
+    presentation: params.presentation,
+  };
 }
 
 function buildPkmEntityDeletionCandidate(
@@ -2606,10 +2641,17 @@ function ProfilePageContent() {
       scopeHandle: string | null;
       topLevelScopePath: string;
       exposureEnabled: boolean;
+      visibilityPosture: PkmVisibilityPosture;
+      label: string;
+      description?: string | null;
     },
-    nextValue: boolean,
+    nextPosture: PkmVisibilityPosture,
   ) => {
     if (!user?.uid || !vaultOwnerToken) {
+      requestVaultUnlock("profile_data");
+      return;
+    }
+    if (nextPosture === "default_available" && !vaultKey) {
       requestVaultUnlock("profile_data");
       return;
     }
@@ -2627,7 +2669,7 @@ function ProfilePageContent() {
         scopeHandle: permission.scopeHandle,
         topLevelScopePath: permission.topLevelScopePath,
       },
-      nextValue,
+      nextPosture,
     );
 
     setPendingPermissionToggles((current) => ({
@@ -2641,6 +2683,31 @@ function ProfilePageContent() {
     setDomainManifestErrors((current) => ({ ...current, [domainKey]: null }));
 
     try {
+      let projectionPayload: Record<string, unknown> | null = null;
+      if (nextPosture === "default_available" && vaultKey) {
+        const sectionData = await PersonalKnowledgeModelService.loadDomainData({
+          userId: user.uid,
+          domain: domainKey,
+          vaultKey,
+          vaultOwnerToken,
+          segmentIds: [permission.topLevelScopePath],
+        });
+        const presentation = buildPkmSectionPreviewPresentation({
+          domain: domainKey,
+          domainTitle: selectedDomain?.title || domainKey,
+          permissionLabel: permission.label,
+          permissionDescription: permission.description || null,
+          topLevelScopePath: permission.topLevelScopePath,
+          value: sectionData,
+        });
+        projectionPayload = buildDefaultAvailableProjectionPayload({
+          domainKey,
+          domainTitle: selectedDomain?.title || domainKey,
+          permission,
+          presentation,
+        });
+      }
+
       const result = await PersonalKnowledgeModelService.updateScopeExposure({
         userId: user.uid,
         domain: domainKey,
@@ -2650,20 +2717,42 @@ function ProfilePageContent() {
           {
             scopeHandle: permission.scopeHandle || undefined,
             topLevelScopePath: permission.topLevelScopePath,
-            exposureEnabled: nextValue,
+            exposureEnabled: nextPosture !== "private",
+            visibilityPosture: nextPosture,
           },
         ],
       });
 
+      let updatedManifest = result.manifest ?? optimisticManifest ?? previousManifest;
+      if (nextPosture === "default_available" && projectionPayload) {
+        const projectionResult =
+          await PersonalKnowledgeModelService.publishDefaultAvailableProjection({
+            userId: user.uid,
+            domain: domainKey,
+            scope: defaultAvailableScopeForPermission(domainKey, permission.topLevelScopePath),
+            scopeHandle: permission.scopeHandle || undefined,
+            topLevelScopePath: permission.topLevelScopePath,
+            projectionPayload,
+            manifestVersion: result.manifestVersion ?? previousManifest.manifest_version,
+            vaultOwnerToken,
+            metadata: {
+              source: "profile_visibility_posture",
+            },
+          });
+        updatedManifest = projectionResult.manifest ?? updatedManifest;
+      }
+
       setDomainManifests((current) => ({
         ...current,
-        [domainKey]: result.manifest ?? optimisticManifest ?? previousManifest,
+        [domainKey]: updatedManifest,
       }));
       await Promise.all([refreshConsentCenter(true), refreshPkmMetadata(true)]);
       toast.success(
-        nextValue
-          ? "Sharing section is available for future approvals."
-          : "Sharing section is now hidden.",
+        nextPosture === "private"
+          ? "This section is private."
+          : nextPosture === "default_available"
+            ? "This section is available by default."
+            : "One will ask before sharing this section.",
       );
     } catch (error) {
       const message =
@@ -3477,11 +3566,11 @@ function ProfilePageContent() {
             onDeletePreviewEntity={(entity) =>
               void handleDeletePkmPreviewEntity(entity)
             }
-            onTogglePermission={(permission, nextValue) =>
+            onTogglePermission={(permission, nextPosture) =>
               void handleToggleDomainPermission(
                 selectedDomain.key,
                 permission,
-                nextValue,
+                nextPosture,
               )
             }
           />

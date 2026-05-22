@@ -1559,6 +1559,53 @@ async def test_select_scopes_reuses_existing_email_agent_grant_for_draft_readine
 
 
 @pytest.mark.asyncio
+async def test_select_scopes_marks_default_available_projection_ready_without_consent():
+    db = _FakeDb()
+    consent_db = _FakeConsentDb()
+    service = _service(db, consent_db)
+    db.workflows.append(
+        _workflow_row(
+            "default_available_financial",
+            metadata={
+                "scope_selection_required": True,
+                "candidate_scopes": [
+                    {
+                        "scope": "attr.financial.portfolio.*",
+                        "domain": "financial",
+                        "label": "Portfolio",
+                        "recommended": True,
+                        "visibility_posture": "default_available",
+                        "default_projection_ready": True,
+                        "default_projection_updated_at": "2026-05-21T10:00:00Z",
+                    }
+                ],
+            },
+        )
+    )
+
+    selected = await service.select_scopes(
+        user_id="user_123",
+        workflow_id="default_available_financial",
+        selected_scopes=["attr.financial.portfolio.*"],
+    )
+
+    assert selected["status"] == "waiting_on_user"
+    assert selected["draft_status"] == "ready"
+    assert selected["consent_request_id"] is None
+    assert selected["metadata"]["reused_default_available_projection"] is True
+    assert selected["metadata"]["default_available_scopes"] == ["attr.financial.portfolio.*"]
+    assert selected["metadata"]["consent_requests"] == []
+    assert selected["metadata"]["consent_statuses"] == [
+        {
+            "scope": "attr.financial.portfolio.*",
+            "action": "DEFAULT_AVAILABLE",
+            "visibility_posture": "default_available",
+        }
+    ]
+    assert consent_db.events == []
+
+
+@pytest.mark.asyncio
 async def test_refresh_sibling_email_reuses_scope_granted_from_another_workflow():
     db = _FakeDb()
     consent_db = _FakeConsentDb()

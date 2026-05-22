@@ -26,6 +26,7 @@ export function getRouteScope(pathname: string): RouteScope {
 
   if (
     isRoute(pathname, ROUTES.CONSENTS) ||
+    isRoute(pathname, ROUTES.ONE_LOCATION) ||
     isRoute(pathname, ROUTES.PROFILE) ||
     isRoute(pathname, ROUTES.MARKETPLACE)
   ) {

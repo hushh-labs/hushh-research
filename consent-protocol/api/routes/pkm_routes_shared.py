@@ -700,7 +700,8 @@ async def get_domain_manifest(
 class ScopeExposureChangePayload(BaseModel):
     scope_handle: Optional[str] = Field(default=None)
     top_level_scope_path: Optional[str] = Field(default=None)
-    exposure_enabled: bool
+    exposure_enabled: Optional[bool] = Field(default=None)
+    visibility_posture: Optional[str] = Field(default=None)
 
 
 class ScopeExposureRequest(BaseModel):
@@ -716,6 +717,28 @@ class ScopeExposureResponse(BaseModel):
     manifest_version: Optional[int] = None
     revoked_grant_count: int = 0
     revoked_grant_ids: List[str] = Field(default_factory=list)
+    manifest: dict = Field(default_factory=dict)
+
+
+class DefaultAvailableProjectionRequest(BaseModel):
+    user_id: str = Field(..., description="User's ID")
+    scope: str
+    scope_handle: Optional[str] = None
+    top_level_scope_path: str
+    projection_payload: dict = Field(default_factory=dict)
+    projection_version: int = Field(default=1, ge=1)
+    manifest_version: Optional[int] = Field(default=None, ge=1)
+    content_revision: Optional[int] = Field(default=None, ge=1)
+    source_content_revision: Optional[int] = Field(default=None, ge=1)
+    source_manifest_revision: Optional[int] = Field(default=None, ge=1)
+    metadata: dict = Field(default_factory=dict)
+
+
+class DefaultAvailableProjectionResponse(BaseModel):
+    success: bool
+    message: Optional[str] = None
+    projection_hash: Optional[str] = None
+    projection_updated_at: Optional[str] = None
     manifest: dict = Field(default_factory=dict)
 
 
@@ -776,6 +799,49 @@ async def update_scope_exposure(
         revoked_grant_ids=list(result.get("revoked_grant_ids") or []),
         manifest=dict(result.get("manifest") or {}),
     )
+
+
+@router.post(
+    "/domains/{domain}/default-available-projection",
+    response_model=DefaultAvailableProjectionResponse,
+)
+async def publish_default_available_projection(
+    domain: str,
+    request: DefaultAvailableProjectionRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+    if not request.projection_payload:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A safe projection payload is required.",
+        )
+
+    pkm_service = get_pkm_service()
+    result = await pkm_service.store_default_available_projection(
+        user_id=request.user_id,
+        domain=canonical_top_level_domain(domain),
+        scope=request.scope,
+        scope_handle=request.scope_handle,
+        top_level_scope_path=request.top_level_scope_path,
+        projection_payload=request.projection_payload,
+        projection_version=request.projection_version,
+        manifest_version=request.manifest_version,
+        content_revision=request.content_revision,
+        source_content_revision=request.source_content_revision,
+        source_manifest_revision=request.source_manifest_revision,
+        metadata=request.metadata,
+    )
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("message") or "Default-available projection could not be saved.",
+        )
+    return DefaultAvailableProjectionResponse(**result)
 
 
 class DeleteDomainResponse(BaseModel):

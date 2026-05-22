@@ -2,7 +2,7 @@
 """
 Consent management endpoints (pending, approve, deny, revoke, history, active).
 
-NOTE: Uses dynamic attr.{domain}.* scopes instead of legacy vault.read.*/vault.write.* scopes.
+NOTE: Uses dynamic attr.{domain}.* scopes instead of legacy vault wildcard scopes.
 Legacy scopes are mapped to dynamic scopes for backward compatibility.
 
 SECURITY: All consent management endpoints require VAULT_OWNER token authentication.

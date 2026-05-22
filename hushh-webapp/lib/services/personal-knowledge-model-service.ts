@@ -159,6 +159,7 @@ export interface ScopeDiscovery {
   }[];
   allScopes: string[];
   wildcardScopes: string[];
+  scopeEntries?: Array<Record<string, unknown>>;
 }
 
 export interface PkmMergeDecision {
@@ -176,10 +177,13 @@ export interface PkmWriteProjection {
   payload: Record<string, unknown>;
 }
 
+export type PkmVisibilityPosture = "private" | "consent_required" | "default_available";
+
 export interface PkmScopeExposureChange {
   scopeHandle?: string;
   topLevelScopePath?: string;
-  exposureEnabled: boolean;
+  exposureEnabled?: boolean;
+  visibilityPosture?: PkmVisibilityPosture;
 }
 
 export interface PkmScopeExposureResult {
@@ -188,6 +192,14 @@ export interface PkmScopeExposureResult {
   manifestVersion?: number;
   revokedGrantCount: number;
   revokedGrantIds: string[];
+  manifest: DomainManifest | null;
+}
+
+export interface PkmDefaultAvailableProjectionResult {
+  success: boolean;
+  message?: string;
+  projectionHash?: string | null;
+  projectionUpdatedAt?: string | null;
   manifest: DomainManifest | null;
 }
 
@@ -1776,6 +1788,7 @@ export class PersonalKnowledgeModelService {
         ),
         allScopes: raw.all_scopes || raw.allScopes || [],
         wildcardScopes: raw.wildcard_scopes || raw.wildcardScopes || [],
+        scopeEntries: raw.scope_entries || raw.scopeEntries || [],
       };
     }
 
@@ -1820,6 +1833,7 @@ export class PersonalKnowledgeModelService {
         rawScopes.filter(
           (scope) => scope === "pkm.read" || scope.endsWith(".*")
         ),
+      scopeEntries: Array.isArray(data.scope_entries) ? data.scope_entries : undefined,
     };
   }
 
@@ -2024,7 +2038,13 @@ export class PersonalKnowledgeModelService {
           changes: params.changes.map((change) => ({
             scope_handle: change.scopeHandle,
             top_level_scope_path: change.topLevelScopePath,
-            exposure_enabled: change.exposureEnabled,
+            exposure_enabled:
+              typeof change.exposureEnabled === "boolean"
+                ? change.exposureEnabled
+                : change.visibilityPosture
+                  ? change.visibilityPosture !== "private"
+                  : undefined,
+            visibility_posture: change.visibilityPosture,
           })),
         }),
       }
@@ -2083,6 +2103,80 @@ export class PersonalKnowledgeModelService {
             (value): value is string => typeof value === "string"
           )
         : [],
+      manifest,
+    };
+  }
+
+  static async publishDefaultAvailableProjection(params: {
+    userId: string;
+    domain: string;
+    scope: string;
+    scopeHandle?: string | null;
+    topLevelScopePath: string;
+    projectionPayload: Record<string, unknown>;
+    projectionVersion?: number;
+    manifestVersion?: number;
+    contentRevision?: number;
+    sourceContentRevision?: number;
+    sourceManifestRevision?: number;
+    metadata?: Record<string, unknown>;
+    vaultOwnerToken?: string;
+  }): Promise<PkmDefaultAvailableProjectionResult> {
+    const response = await ApiService.apiFetch(
+      `${this.PKM_API_PREFIX}/domains/${encodeURIComponent(params.domain)}/default-available-projection`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...this.getAuthHeaders(params.vaultOwnerToken),
+        },
+        body: JSON.stringify({
+          user_id: params.userId,
+          scope: params.scope,
+          scope_handle: params.scopeHandle || undefined,
+          top_level_scope_path: params.topLevelScopePath,
+          projection_payload: params.projectionPayload,
+          projection_version: params.projectionVersion || 1,
+          manifest_version: params.manifestVersion,
+          content_revision: params.contentRevision,
+          source_content_revision: params.sourceContentRevision,
+          source_manifest_revision: params.sourceManifestRevision,
+          metadata: params.metadata || {},
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      let detail: string | null = null;
+      try {
+        const contentType = response.headers.get("content-type") || "";
+        detail = contentType.includes("application/json")
+          ? this.extractResponseDetail(await response.json())
+          : await response.text();
+      } catch {
+        detail = null;
+      }
+      throw new Error(detail || `Failed to publish default-available projection: ${response.status}`);
+    }
+
+    const payload = (await response.json()) as Record<string, unknown>;
+    const manifest =
+      payload.manifest && typeof payload.manifest === "object"
+        ? (payload.manifest as DomainManifest)
+        : null;
+    const cache = CacheService.getInstance();
+    cache.set(CACHE_KEYS.DOMAIN_MANIFEST(params.userId, params.domain), manifest, CACHE_TTL.MEDIUM);
+    cache.invalidate(CACHE_KEYS.PKM_METADATA(params.userId));
+    CacheSyncService.onConsentMutated(params.userId);
+    return {
+      success: payload.success === true,
+      message: typeof payload.message === "string" ? payload.message : undefined,
+      projectionHash:
+        typeof payload.projection_hash === "string" ? payload.projection_hash : null,
+      projectionUpdatedAt:
+        typeof payload.projection_updated_at === "string"
+          ? payload.projection_updated_at
+          : null,
       manifest,
     };
   }
