@@ -13,9 +13,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Bot,
   BriefcaseBusiness,
-  Bug,
   ChevronDown,
-  Copy,
   Mic,
   MicOff,
   Send,
@@ -379,56 +377,6 @@ function AgentBubble({ message }: { message: AgentMessage }) {
   );
 }
 
-function AgentDebugPanel({
-  events,
-  onCopyLatest,
-}: {
-  events: AgentDebugEvent[];
-  onCopyLatest: () => void;
-}) {
-  return (
-    <div className="rounded-lg border border-border/70 bg-background/80 p-3 text-xs">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="font-medium text-foreground">Tool debug</div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 gap-2"
-          onClick={onCopyLatest}
-          disabled={events.length === 0}
-        >
-          <Copy className="h-3.5 w-3.5" />
-          Copy debug
-        </Button>
-      </div>
-      {events.length === 0 ? (
-        <p className="text-muted-foreground">No tool calls for the latest turn.</p>
-      ) : (
-        <div className="max-h-64 space-y-2 overflow-y-auto">
-          {events.map((event) => (
-            <div key={event.id} className="rounded-md border border-border/60 bg-card p-2">
-              <div className="mb-1 flex items-center justify-between gap-3">
-                <span className="font-medium text-foreground">{event.event}</span>
-                <span className="text-muted-foreground">
-                  {new Intl.DateTimeFormat(undefined, {
-                    hour: "numeric",
-                    minute: "2-digit",
-                    second: "2-digit",
-                  }).format(new Date(event.timestamp))}
-                </span>
-              </div>
-              <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-4 text-muted-foreground">
-                {JSON.stringify(event.payload, null, 2)}
-              </pre>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function AgentPkmActivityLine({ item }: { item: AgentPkmActivity }) {
   return (
     <div
@@ -515,9 +463,6 @@ export function AgentChatWorkspace({
   const [isStreaming, setIsStreaming] = useState(false);
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
-  const [debugOpen, setDebugOpen] = useState(false);
-  const [debugEvents, setDebugEvents] = useState<AgentDebugEvent[]>([]);
-  const [latestDebugTurnId, setLatestDebugTurnId] = useState<string | null>(null);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
   const [pkmActivity, setPkmActivity] = useState<AgentPkmActivity[]>([]);
   const [voiceState, setVoiceState] = useState<AgentRealtimeVoiceState>("idle");
@@ -785,8 +730,6 @@ export function AgentChatWorkspace({
     setIsStreaming(false);
     setActiveFrontendToolCount(0);
     setActivePkmToolCount(0);
-    setDebugEvents([]);
-    setLatestDebugTurnId(null);
     setPkmReviews([]);
     setPkmActivity([]);
     setVoiceState("idle");
@@ -814,40 +757,11 @@ export function AgentChatWorkspace({
   };
 
   const appendDebugEvent = useCallback(
-    (turnId: string, event: string, payload: unknown) => {
-      setDebugEvents((current) => [
-        ...current.slice(-79),
-        {
-          id: `${turnId}-${event}-${Date.now()}-${current.length}`,
-          turnId,
-          timestamp: new Date().toISOString(),
-          event,
-          payload,
-        },
-      ]);
+    (_turnId: string, _event: AgentDebugEvent["event"], _payload: AgentDebugEvent["payload"]) => {
+      // Debug events are intentionally kept internal while the Agent debug UI is disabled.
     },
     []
   );
-
-  const latestDebugEvents = useMemo(
-    () =>
-      latestDebugTurnId
-        ? debugEvents.filter((event) => event.turnId === latestDebugTurnId)
-        : [],
-    [debugEvents, latestDebugTurnId]
-  );
-
-  const handleCopyLatestDebug = useCallback(() => {
-    if (!latestDebugTurnId || latestDebugEvents.length === 0) return;
-    const payload = {
-      turn_id: latestDebugTurnId,
-      events: latestDebugEvents,
-    };
-    void navigator.clipboard
-      .writeText(JSON.stringify(payload, null, 2))
-      .then(() => toast.success("Agent debug copied."))
-      .catch(() => toast.error("Could not copy Agent debug."));
-  }, [latestDebugEvents, latestDebugTurnId]);
 
   const addErrorMessage = (text: string) => {
     appendMessage({
@@ -924,8 +838,6 @@ export function AgentChatWorkspace({
       setConversationId(nextConversationId);
       setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
       setPkmActivity([]);
-      setDebugEvents([]);
-      setLatestDebugTurnId(null);
       setPkmReviews([]);
     },
     []
@@ -950,8 +862,6 @@ export function AgentChatWorkspace({
     setConversationId(null);
     setMessages([createGreetingMessage()]);
     setInput("");
-    setDebugEvents([]);
-    setLatestDebugTurnId(null);
     setPkmReviews([]);
     setPkmActivity([]);
   }, [abortAgentTurnWork]);
@@ -1616,7 +1526,6 @@ export function AgentChatWorkspace({
     setPkmActivity([]);
     setIsChatLoading(true);
     setIsStreaming(true);
-    setLatestDebugTurnId(debugTurnId);
 
     if (!token) {
       updateMessage(assistantMessageId, (message) => ({
@@ -1919,7 +1828,7 @@ export function AgentChatWorkspace({
           </div>
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-primary">
-              Agent
+              Kai
             </p>
             <h1
               className={cn(
@@ -1941,18 +1850,6 @@ export function AgentChatWorkspace({
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          <Button
-            type="button"
-            variant={debugOpen ? "secondary" : "outline"}
-            size="icon"
-            className="h-9 w-9"
-            onClick={() => setDebugOpen((current) => !current)}
-            aria-label={debugOpen ? "Hide Agent debug" : "Show Agent debug"}
-            aria-pressed={debugOpen}
-            title={debugOpen ? "Hide Agent debug" : "Show Agent debug"}
-          >
-            <Bug className="h-4 w-4" />
-          </Button>
           <span className="hidden rounded-md border border-border/70 bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground sm:inline-flex">
             {statusText}
           </span>
@@ -2004,13 +1901,6 @@ export function AgentChatWorkspace({
               <div className="rounded-lg border border-border/70 bg-background px-4 py-5 text-sm text-muted-foreground">
                 {accessMessage}
               </div>
-            ) : null}
-
-            {debugOpen ? (
-              <AgentDebugPanel
-                events={latestDebugEvents}
-                onCopyLatest={handleCopyLatestDebug}
-              />
             ) : null}
 
             {messages.map((message) => (
