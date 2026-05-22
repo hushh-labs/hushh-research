@@ -206,4 +206,18 @@ describe("CacheService hit-rate contract", () => {
     // No new events after unsubscribe
     expect(events).toHaveLength(1);
   });
+    it("preserves invalidateMany stability when given an empty key list", () => {
+    const events: Array<{ type: string; keys?: string[] }> = [];
+
+    cache.subscribe((event) => {
+      if (event.type === "invalidate") {
+        events.push(event as any);
+      }
+    });
+
+    cache.invalidateMany([]);
+
+    expect(events).toHaveLength(0);
+    expect(cache.getStats().size).toBe(0);
+  });
 });
