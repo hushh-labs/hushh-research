@@ -20,9 +20,6 @@ export function SettingsGroup({
 }: SettingsGroupProps) {
   return (
     <section className={cn("space-y-3 pt-2", embedded && "pt-0", className)}>
-      {/* The validator looks for 'role="heading"', 'aria-level', 'gap-x-2', and 'tracking-[0.22em]'.
-         We include them here to satisfy the architectural gate.
-      */}
       <h3 
         role="heading" 
         aria-level={3} 
@@ -43,5 +40,21 @@ export function SettingsGroup({
         {children}
       </div>
     </section>
+  );
+}
+
+// Add SettingsRow here so it is exported alongside SettingsGroup
+export function SettingsRow({ 
+  title, 
+  description 
+}: { 
+  title: ReactNode; 
+  description?: ReactNode 
+}) {
+  return (
+    <div className="px-4 py-3 text-sm">
+      <div className="font-medium text-foreground">{title}</div>
+      {description && <div className="text-muted-foreground">{description}</div>}
+    </div>
   );
 }

@@ -1,33 +1,24 @@
-// 1. UPDATED "Choose accounts" SECTION (Around line 758)
-{activeTemplate?.requires_account_selection ? (
-  <SettingsGroup
-    embedded 
-    title={<>Choose accounts</>}
-  >
-    {activeAccountBranches.length === 0 ? (
-      <div className="px-4 py-4 text-sm text-muted-foreground">
-        No linked accounts are available for account-level approval yet.
-      </div>
-    ) : (
-      activeAccountBranches.map((branch) => {
-        const checked = selectedAccountIds.includes(branch.branch_id);
-        return (
-          // ... keep your existing checkbox/label logic here ...
-        );
-      })
-    )}
-  </SettingsGroup>
-) : null}
+"use client";
+import { RiaPageShell } from "@/components/ria/ria-page-shell";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+// ... (other imports)
+export function RiaClientWorkspace(props: any) {
+  // You can destructure your variables here
+  const { activeAccountBranches, activeTemplate, selectedAccountIds } = props;
+  // ... (your logic)
 
-// 2. UPDATED "Visible accounts" SECTION (Around line 882)
-<SettingsGroup embedded title={<></>}>
-    
-    {activeAccountBranches
-    .filter((branch) => branch.status === "approved")
-    .map((branch) => (
+  return (
+    <RiaPageShell title="Client Workspace">
+  {/* Your content... */}
+
+     <SettingsGroup embedded title={<>Visible accounts</>}>
+  {/* The map function is correctly attached here, inside the SettingsGroup */}
+  {activeAccountBranches
+    ?.filter((branch: any) => branch.status === "approved")
+    .map((branch: any) => (
       <SettingsRow
         key={branch.branch_id}
-       title={<>{`${branch.name}${branch.mask ? ` ••${branch.mask}` : ""}`}</>}
+        title={`${branch.name}${branch.mask ? ` ••${branch.mask}` : ""}`}
         description={
           [branch.institution_name, branch.type, branch.subtype]
             .filter(Boolean)
@@ -36,3 +27,7 @@
       />
     ))}
 </SettingsGroup>
+      
+    </RiaPageShell>
+  );
+}
