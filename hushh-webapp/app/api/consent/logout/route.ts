@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 // app/api/consent/logout/route.ts
 
 /**

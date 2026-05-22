@@ -1,3 +1,4 @@
+const PYTHON_API_URL = getPythonApiUrl();
 import { NextRequest } from "next/server";
 
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
@@ -13,7 +14,7 @@ import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 export const dynamic = "force-dynamic";
 
-const PYTHON_API_URL = getPythonApiUrl();
+
 const UPSTREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(20_000);
 const hotPost = createHotGetJsonCache({
   freshTtlMs: 30 * 1000,

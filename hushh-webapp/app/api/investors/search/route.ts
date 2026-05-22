@@ -1,7 +1,11 @@
+export const dynamic = "force-dynamic";
+
 import { NextRequest, NextResponse } from "next/server";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
 
 const BACKEND_URL = getPythonApiUrl();
+
+
 
 /**
  * Proxy for /api/investors/search
