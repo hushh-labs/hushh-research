@@ -206,4 +206,12 @@ describe("CacheService hit-rate contract", () => {
     // No new events after unsubscribe
     expect(events).toHaveLength(1);
   });
+    it("preserves empty cache size stability after repeated clears", () => {
+    cache.set("persisted_key", "value", CACHE_TTL.SHORT);
+
+    cache.clear();
+    cache.clear();
+
+    expect(cache.getStats().size).toBe(0);
+  });
 });
