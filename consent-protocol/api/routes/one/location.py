@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
@@ -76,6 +76,16 @@ def _user_id(token_data: dict[str, Any]) -> str:
     return str(token_data.get("user_id") or "").strip()
 
 
+def _request_fingerprint_hash(request: Request) -> str | None:
+    from hushh_mcp.services.one_location_agent_service import _hash_public_value
+
+    forwarded_for = str(request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    client_host = forwarded_for or (request.client.host if request.client else "")
+    user_agent = str(request.headers.get("user-agent") or "")[:160]
+    fingerprint_source = "|".join(item for item in (client_host, user_agent) if item)
+    return _hash_public_value(fingerprint_source) if fingerprint_source else None
+
+
 def _handle_error(exc: Exception) -> HTTPException:
     if isinstance(exc, OneLocationAgentError):
         return HTTPException(status_code=exc.status_code, detail=location_error_detail(exc))
@@ -133,6 +143,7 @@ async def resolve_public_location_invite(public_token: str):
 async def submit_public_location_invite(
     public_token: str,
     payload: SubmitPublicInviteRequest,
+    request: Request,
 ):
     try:
         return _service().submit_public_invite_request(
@@ -140,6 +151,7 @@ async def submit_public_location_invite(
             visitor_display_name=payload.visitor_display_name,
             phone_number=payload.phone_number,
             message=payload.message,
+            submitter_fingerprint_hash=_request_fingerprint_hash(request),
         )
     except Exception as exc:
         raise _handle_error(exc) from exc

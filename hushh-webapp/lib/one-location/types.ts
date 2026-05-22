@@ -66,6 +66,7 @@ export type OneLocationReferral = {
 export type OneLocationPublicInvite = {
   id: string;
   ownerUserId: string;
+  ownerLabel?: string | null;
   ownerDisplayName?: string | null;
   ownerMaskedPhone?: string | null;
   status: "active" | "expired" | "revoked" | string;

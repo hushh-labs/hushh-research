@@ -133,7 +133,7 @@ export class OneLocationService {
     message?: string;
   }): Promise<{
     submission: OneLocationPublicInviteSubmission;
-    request: OneLocationAccessRequest | null;
+    request?: OneLocationAccessRequest | null;
   }> {
     return apiJsonWithRetry(
       `/api/one/location/public-invites/${encodeURIComponent(params.publicToken)}/submit`,

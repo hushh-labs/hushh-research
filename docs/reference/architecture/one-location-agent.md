@@ -118,20 +118,24 @@ viewer.
 1. The authenticated owner creates a duration-bounded public request link from
    `/one/location`.
 2. The backend returns the raw token once and stores only its hash.
-3. The public page `/location/request/{token}` asks the visitor for name, phone,
+3. The public page `/one/location/request/{token}` asks the visitor for name, phone,
    and optional message.
-4. The public page submits metadata only. It never displays a map or location.
-5. If the phone maps to a verified/keyed Hussh user, One creates a normal
+4. The public resolve response exposes only a safe owner label, status,
+   duration, and expiry. By default the safe label is "a trusted person".
+5. The public page submits metadata only. It never displays a map or location.
+6. If the phone maps to a verified/keyed Hussh user, One creates a normal
    pending access request for owner approval.
-6. If the phone does not have usable Hussh identity/key material, the submission
+7. If the phone does not have usable Hussh identity/key material, the submission
    stays pending identity/key setup.
-7. Owner approval still creates a fresh recipient-scoped grant and the owner
+8. Owner approval still creates a fresh recipient-scoped grant and the owner
    device still encrypts the coordinate envelope for that recipient.
 
 Public invite tables store token hashes, status, expiry, visitor display name,
 phone hash/last4, matched user id when available, and request linkage. They must
 not store raw phone numbers, raw invite tokens, coordinates, addresses, map
-previews, or movement/freshness trails.
+previews, or movement/freshness trails. Public submissions are bounded per token,
+throttled per phone/fingerprint hash, and never return request internals, grants,
+ciphertext, or location payloads to the anonymous caller.
 
 ## Notification Contract
 

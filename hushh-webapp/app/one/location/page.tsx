@@ -970,7 +970,7 @@ export function OneLocationAgentPageContent() {
   const handleSharePublicInvite = useCallback(async () => {
     if (!publicInviteUrl) return;
     const text =
-      "Please request access to my live location here. I approve before anything is shared.";
+      "Please send a One Location request here. I approve before anything is shared.";
     try {
       if (navigator.share) {
         await navigator.share({

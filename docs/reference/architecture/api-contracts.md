@@ -173,8 +173,8 @@ not the product owner for live location.
 | GET | `/api/one/location/recipients` | VAULT_OWNER Bearer | List phone-verified users excluding self, with masked labels and active public key metadata only |
 | POST | `/api/one/location/recipient-keys` | VAULT_OWNER Bearer | Register the authenticated user's recipient public key; private key remains device-local |
 | POST | `/api/one/location/public-invites` | VAULT_OWNER Bearer | Create a duration-bounded public request link; the raw token is returned once and only its hash is stored |
-| GET | `/api/one/location/public-invites/{public_token}` | Public | Resolve request-link metadata only: owner label, status, duration, and expiry |
-| POST | `/api/one/location/public-invites/{public_token}/submit` | Public | Submit visitor name, phone, and optional message as metadata-only request intent; creates an owner approval request only for matched verified/keyed Hussh users |
+| GET | `/api/one/location/public-invites/{public_token}` | Public | Resolve request-link metadata only: safe owner label, status, duration, and expiry |
+| POST | `/api/one/location/public-invites/{public_token}/submit` | Public | Submit visitor name, phone, and optional message as metadata-only request intent; creates an owner approval request only for matched verified/keyed Hussh users; response stays submission-only |
 | DELETE | `/api/one/location/public-invites/{invite_id}` | VAULT_OWNER Bearer | Revoke an active public request link |
 | POST | `/api/one/location/grants` | VAULT_OWNER Bearer | Create a duration-bounded owner-approved grant for one verified recipient identity/key |
 | POST | `/api/one/location/grants/{grant_id}/envelopes` | VAULT_OWNER Bearer | Store the owner-device encrypted latest-location envelope; backend receives ciphertext and metadata only |

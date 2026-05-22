@@ -74,7 +74,7 @@ export function resolveRouteId(pathname: string): RouteId {
   }
   if (pathname === ROUTES.ONE_KYC) return "one_kyc";
   if (pathname === ROUTES.ONE_LOCATION) return "one_location";
-  if (pathname.startsWith("/location/request/")) return "one_location_public_request";
+  if (pathname.startsWith("/one/location/request/")) return "one_location_public_request";
   if (pathname === "/portfolio/shared") return "portfolio_shared";
   if (pathname === ROUTES.RIA_HOME) return "ria_home";
   if (pathname === ROUTES.RIA_ONBOARDING) return "ria_onboarding";

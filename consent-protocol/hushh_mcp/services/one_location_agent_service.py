@@ -45,6 +45,32 @@ COORDINATE_METADATA_KEYS = {
 }
 
 
+def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(value, maximum))
+
+
+PUBLIC_INVITE_DEFAULT_OWNER_LABEL = "A trusted person"
+PUBLIC_INVITE_MAX_SUBMISSIONS_PER_TOKEN = _bounded_int_env(
+    "ONE_LOCATION_PUBLIC_INVITE_MAX_SUBMISSIONS_PER_TOKEN", 25, 1, 100
+)
+PUBLIC_INVITE_MAX_SUBMISSIONS_PER_PHONE = _bounded_int_env(
+    "ONE_LOCATION_PUBLIC_INVITE_MAX_SUBMISSIONS_PER_PHONE", 1, 1, 5
+)
+PUBLIC_INVITE_PHONE_THROTTLE_MINUTES = _bounded_int_env(
+    "ONE_LOCATION_PUBLIC_INVITE_PHONE_THROTTLE_MINUTES", 15, 1, 1440
+)
+PUBLIC_INVITE_FINGERPRINT_THROTTLE_MINUTES = _bounded_int_env(
+    "ONE_LOCATION_PUBLIC_INVITE_FINGERPRINT_THROTTLE_MINUTES", 10, 1, 1440
+)
+PUBLIC_INVITE_MAX_SUBMISSIONS_PER_FINGERPRINT_WINDOW = _bounded_int_env(
+    "ONE_LOCATION_PUBLIC_INVITE_MAX_SUBMISSIONS_PER_FINGERPRINT_WINDOW", 3, 1, 20
+)
+
+
 class OneLocationAgentError(RuntimeError):
     def __init__(self, code: str, message: str, *, status_code: int = 400) -> None:
         self.code = code
@@ -190,7 +216,7 @@ def _public_invite_url(token: str) -> str:
         .strip()
         .rstrip("/")
     )
-    path = f"/location/request/{token}"
+    path = f"/one/location/request/{token}"
     return f"{base}{path}" if base else path
 
 
@@ -515,16 +541,25 @@ class OneLocationAgentService:
         }
 
     @staticmethod
-    def _public_invite_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _public_invite_payload(
+        row: dict[str, Any] | None, *, public: bool = False
+    ) -> dict[str, Any] | None:
         if not row:
             return None
-        owner_label = str(row.get("owner_display_name") or "").strip()
-        owner_masked_phone = _mask_phone(row.get("owner_phone_number"))
-        return {
+        metadata = _loads_json(row.get("metadata")) or {}
+        safe_label = ""
+        if isinstance(metadata, dict):
+            safe_label = str(metadata.get("owner_safe_label") or "").strip()
+        if public:
+            return {
+                "status": str(row.get("status") or "active"),
+                "durationHours": float(row.get("duration_hours") or 0),
+                "expiresAt": _iso(row.get("expires_at")),
+                "ownerLabel": safe_label or PUBLIC_INVITE_DEFAULT_OWNER_LABEL,
+            }
+        payload = {
             "id": str(row.get("id") or ""),
             "ownerUserId": str(row.get("owner_user_id") or ""),
-            "ownerDisplayName": owner_label or None,
-            "ownerMaskedPhone": owner_masked_phone,
             "status": str(row.get("status") or "active"),
             "durationHours": float(row.get("duration_hours") or 0),
             "expiresAt": _iso(row.get("expires_at")),
@@ -532,11 +567,21 @@ class OneLocationAgentService:
             "updatedAt": _iso(row.get("updated_at")),
             "revokedAt": _iso(row.get("revoked_at")),
         }
+        if safe_label:
+            payload["ownerLabel"] = safe_label
+        return payload
 
     @staticmethod
-    def _public_submission_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _public_submission_payload(
+        row: dict[str, Any] | None, *, public: bool = False
+    ) -> dict[str, Any] | None:
         if not row:
             return None
+        if public:
+            return {
+                "status": str(row.get("status") or "pending_identity"),
+                "submittedAt": _iso(row.get("submitted_at")),
+            }
         return {
             "id": str(row.get("id") or ""),
             "inviteId": str(row.get("invite_id") or ""),
@@ -1066,7 +1111,7 @@ class OneLocationAgentService:
             "publicUrl": _public_invite_url(raw_token),
         }
 
-    def resolve_public_invite(self, *, public_token: str) -> dict[str, Any]:
+    def _public_invite_row_for_token(self, *, public_token: str) -> dict[str, Any]:
         normalized_token = str(public_token or "").strip()
         if len(normalized_token) < 16:
             raise OneLocationAgentError(
@@ -1076,26 +1121,90 @@ class OneLocationAgentService:
             )
         row = self._execute_one(
             """
-            SELECT
-              i.*,
-              owner.display_name AS owner_display_name,
-              owner.phone_number AS owner_phone_number
+            SELECT i.*
             FROM one_location_public_invites i
-            LEFT JOIN actor_identity_cache owner ON owner.user_id = i.owner_user_id
             WHERE i.public_code_hash = :public_code_hash
             LIMIT 1
             """,
             {"public_code_hash": _hash_public_value(normalized_token)},
         )
         row = self._expire_public_invite(row)
-        invite = self._public_invite_payload(row)
-        if not invite or invite["status"] != "active":
+        if not row or str(row.get("status") or "") != "active":
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_NOT_ACTIVE",
                 "This request link is no longer active.",
-                status_code=410 if invite else 404,
+                status_code=410 if row else 404,
             )
+        return row
+
+    def resolve_public_invite(self, *, public_token: str) -> dict[str, Any]:
+        row = self._public_invite_row_for_token(public_token=public_token)
+        invite = self._public_invite_payload(row, public=True)
         return {"invite": invite}
+
+    def _check_public_submission_limits(
+        self,
+        *,
+        invite_id: str,
+        visitor_phone_hash: str,
+        submitter_fingerprint_hash: str | None,
+    ) -> None:
+        row = self._execute_one(
+            """
+            SELECT
+              COUNT(*)::int AS total_submissions,
+              COUNT(*) FILTER (
+                WHERE visitor_phone_hash = :visitor_phone_hash
+              )::int AS phone_submissions,
+              COUNT(*) FILTER (
+                WHERE visitor_phone_hash = :visitor_phone_hash
+                  AND submitted_at >= NOW() - (:phone_window_minutes * INTERVAL '1 minute')
+              )::int AS recent_phone_submissions,
+              COUNT(*) FILTER (
+                WHERE :submitter_fingerprint_hash IS NOT NULL
+                  AND metadata->>'submitter_fingerprint_hash' = :submitter_fingerprint_hash
+                  AND submitted_at >= NOW() - (:fingerprint_window_minutes * INTERVAL '1 minute')
+              )::int AS recent_fingerprint_submissions
+            FROM one_location_public_invite_submissions
+            WHERE invite_id = CAST(:invite_id AS UUID)
+            """,
+            {
+                "invite_id": invite_id,
+                "visitor_phone_hash": visitor_phone_hash,
+                "submitter_fingerprint_hash": submitter_fingerprint_hash,
+                "phone_window_minutes": PUBLIC_INVITE_PHONE_THROTTLE_MINUTES,
+                "fingerprint_window_minutes": PUBLIC_INVITE_FINGERPRINT_THROTTLE_MINUTES,
+            },
+        ) or {}
+        total_submissions = int(row.get("total_submissions") or 0)
+        phone_submissions = int(row.get("phone_submissions") or 0)
+        recent_phone_submissions = int(row.get("recent_phone_submissions") or 0)
+        recent_fingerprint_submissions = int(row.get("recent_fingerprint_submissions") or 0)
+        if total_submissions >= PUBLIC_INVITE_MAX_SUBMISSIONS_PER_TOKEN:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_INVITE_SUBMISSION_LIMIT",
+                "This request link has reached its submission limit.",
+                status_code=429,
+            )
+        if (
+            phone_submissions >= PUBLIC_INVITE_MAX_SUBMISSIONS_PER_PHONE
+            or recent_phone_submissions >= PUBLIC_INVITE_MAX_SUBMISSIONS_PER_PHONE
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_INVITE_ALREADY_SUBMITTED",
+                "This phone number has already sent a request for this link.",
+                status_code=429,
+            )
+        if (
+            submitter_fingerprint_hash
+            and recent_fingerprint_submissions
+            >= PUBLIC_INVITE_MAX_SUBMISSIONS_PER_FINGERPRINT_WINDOW
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_INVITE_THROTTLED",
+                "Too many requests were sent recently. Try again later.",
+                status_code=429,
+            )
 
     def submit_public_invite_request(
         self,
@@ -1104,8 +1213,10 @@ class OneLocationAgentService:
         visitor_display_name: str,
         phone_number: str,
         message: str | None = None,
+        submitter_fingerprint_hash: str | None = None,
     ) -> dict[str, Any]:
-        invite = self.resolve_public_invite(public_token=public_token)["invite"]
+        invite_row = self._public_invite_row_for_token(public_token=public_token)
+        invite = self._public_invite_payload(invite_row) or {}
         display_name = str(visitor_display_name or "").strip()
         if len(display_name) < 2:
             raise OneLocationAgentError(
@@ -1120,6 +1231,12 @@ class OneLocationAgentService:
                 "Enter a valid phone number before requesting location access.",
                 status_code=422,
             )
+        visitor_phone_hash = _hash_public_value(phone_digits)
+        self._check_public_submission_limits(
+            invite_id=str(invite_row.get("id") or ""),
+            visitor_phone_hash=visitor_phone_hash,
+            submitter_fingerprint_hash=submitter_fingerprint_hash,
+        )
         message_value = (message or "").strip()[:500] or None
         owner_user_id = invite["ownerUserId"]
         matched_identity = self._identity_row_by_phone_digits(phone_digits)
@@ -1151,7 +1268,8 @@ class OneLocationAgentService:
             VALUES (
               CAST(:invite_id AS UUID), :owner_user_id, :visitor_display_name,
               :visitor_phone_hash, :visitor_phone_last4, :matched_user_id,
-              CAST(:request_id AS UUID), :status, :message, NOW(), '{}'::jsonb
+              CAST(:request_id AS UUID), :status, :message, NOW(),
+              CAST(:metadata_json AS JSONB)
             )
             RETURNING *
             """,
@@ -1159,12 +1277,18 @@ class OneLocationAgentService:
                 "invite_id": invite["id"],
                 "owner_user_id": owner_user_id,
                 "visitor_display_name": display_name[:120],
-                "visitor_phone_hash": _hash_public_value(phone_digits),
+                "visitor_phone_hash": visitor_phone_hash,
                 "visitor_phone_last4": phone_digits[-4:],
                 "matched_user_id": matched_user_id,
                 "request_id": request["id"] if request else None,
                 "status": status_value,
                 "message": message_value,
+                "metadata_json": _json_param(
+                    {
+                        "intake_only": True,
+                        "submitter_fingerprint_hash": submitter_fingerprint_hash,
+                    }
+                ),
             },
         )
         submission = self._public_submission_payload(row)
@@ -1185,6 +1309,7 @@ class OneLocationAgentService:
                 "submission_id": submission["id"],
                 "matched": bool(matched_user_id),
                 "request_created": bool(request),
+                "intake_only": True,
             },
         )
         self._send_metadata_notification(
@@ -1204,7 +1329,7 @@ class OneLocationAgentService:
                 "status": status_value,
             },
         )
-        return {"submission": submission, "request": request}
+        return {"submission": self._public_submission_payload(row, public=True)}
 
     def revoke_public_invite(self, *, owner_user_id: str, invite_id: str) -> dict[str, Any]:
         row = self._execute_one(

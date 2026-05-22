@@ -499,6 +499,31 @@ class FourUserMemoryService(OneLocationAgentService):
                 invite["status"] = "expired"
                 return invite
             return None
+        if "COUNT(*)::int AS total_submissions" in sql:
+            invite_submissions = [
+                submission
+                for submission in self.public_submissions.values()
+                if submission["invite_id"] == params["invite_id"]
+            ]
+            phone_submissions = [
+                submission
+                for submission in invite_submissions
+                if submission["visitor_phone_hash"] == params["visitor_phone_hash"]
+            ]
+            fingerprint = params.get("submitter_fingerprint_hash")
+            fingerprint_submissions = [
+                submission
+                for submission in invite_submissions
+                if fingerprint
+                and (submission.get("metadata") or {}).get("submitter_fingerprint_hash")
+                == fingerprint
+            ]
+            return {
+                "total_submissions": len(invite_submissions),
+                "phone_submissions": len(phone_submissions),
+                "recent_phone_submissions": len(phone_submissions),
+                "recent_fingerprint_submissions": len(fingerprint_submissions),
+            }
         if "INSERT INTO one_location_public_invite_submissions" in sql:
             submission_id = str(uuid.uuid4())
             row = {
@@ -514,6 +539,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 "message": params.get("message"),
                 "submitted_at": datetime.now(timezone.utc),
                 "resolved_at": None,
+                "metadata": json.loads(params.get("metadata_json") or "{}"),
             }
             self.public_submissions[submission_id] = row
             return row
@@ -665,12 +691,19 @@ def test_public_invite_is_request_only_and_token_hash_only() -> None:
     token = created["publicToken"]
 
     assert created["publicUrl"].endswith(token)
+    assert created["publicUrl"].startswith("/one/location/request/")
     assert token not in json.dumps(service.public_invites, default=str)
 
     resolved = service.resolve_public_invite(public_token=token)
-    assert resolved["invite"]["ownerUserId"] == "user_a"
-    assert "latitude" not in json.dumps(resolved)
-    assert "longitude" not in json.dumps(resolved)
+    assert resolved["invite"]["ownerLabel"] == "A trusted person"
+    serialized_resolve = json.dumps(resolved)
+    assert "ownerUserId" not in serialized_resolve
+    assert "ownerDisplayName" not in serialized_resolve
+    assert "ownerMaskedPhone" not in serialized_resolve
+    assert "grant" not in serialized_resolve
+    assert "ciphertext" not in serialized_resolve
+    assert "latitude" not in serialized_resolve
+    assert "longitude" not in serialized_resolve
 
     submitted = service.submit_public_invite_request(
         public_token=token,
@@ -680,10 +713,13 @@ def test_public_invite_is_request_only_and_token_hash_only() -> None:
     )
 
     assert submitted["submission"]["status"] == "matched_request_pending"
-    assert submitted["request"]["status"] == "pending"
-    assert submitted["request"]["requesterUserId"] == "user_b"
+    assert "request" not in submitted
+    assert len(service.requests) == 1
+    assert next(iter(service.requests.values()))["status"] == "pending"
+    assert next(iter(service.requests.values()))["requester_user_id"] == "user_b"
     assert "latitude" not in json.dumps(service.public_submissions, default=str)
     assert "longitude" not in json.dumps(service.notifications, default=str)
+    assert token not in json.dumps(service.notifications, default=str)
     assert {item["notification_type"] for item in service.notifications} >= {
         "location_public_invite_submitted"
     }
@@ -700,6 +736,36 @@ def test_public_invite_submission_without_key_never_creates_access() -> None:
     )
 
     assert submitted["submission"]["status"] == "identity_pending_key"
-    assert submitted["submission"]["matchedUserId"] == "user_c"
-    assert submitted["request"] is None
+    assert "matchedUserId" not in submitted["submission"]
+    assert "request" not in submitted
     assert service.requests == {}
+
+
+def test_public_invite_submission_limits_bound_duplicate_phone_requests() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+
+    service.submit_public_invite_request(
+        public_token=created["publicToken"],
+        visitor_display_name="User B",
+        phone_number="+1 555 010 0002",
+        submitter_fingerprint_hash="fingerprint-hash",
+    )
+
+    with pytest.raises(OneLocationAgentError) as duplicate:
+        service.submit_public_invite_request(
+            public_token=created["publicToken"],
+            visitor_display_name="User B",
+            phone_number="+1 555 010 0002",
+            submitter_fingerprint_hash="fingerprint-hash",
+        )
+
+    assert duplicate.value.code == "LOCATION_PUBLIC_INVITE_ALREADY_SUBMITTED"
+    assert duplicate.value.status_code == 429
+    assert len(service.public_submissions) == 1
+    assert len(service.requests) == 1

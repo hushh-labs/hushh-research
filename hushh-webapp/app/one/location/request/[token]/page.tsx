@@ -35,12 +35,7 @@ function formatDateTime(value?: string | null): string {
 }
 
 function ownerLabel(invite: OneLocationPublicInvite | null): string {
-  if (!invite) return "A trusted person";
-  return (
-    [invite.ownerDisplayName, invite.ownerMaskedPhone]
-      .filter(Boolean)
-      .join(" - ") || "A trusted person"
-  );
+  return invite?.ownerLabel || "a trusted person";
 }
 
 export default function PublicLocationRequestPage() {

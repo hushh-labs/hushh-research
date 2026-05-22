@@ -56,6 +56,16 @@ CREATE INDEX IF NOT EXISTS idx_one_location_public_invite_submissions_owner_stat
 CREATE INDEX IF NOT EXISTS idx_one_location_public_invite_submissions_invite
   ON one_location_public_invite_submissions (invite_id, submitted_at DESC);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_one_location_public_invite_submissions_phone_once
+  ON one_location_public_invite_submissions (invite_id, visitor_phone_hash);
+
+CREATE INDEX IF NOT EXISTS idx_one_location_public_invite_submissions_fingerprint_window
+  ON one_location_public_invite_submissions (
+    invite_id,
+    (metadata->>'submitter_fingerprint_hash'),
+    submitted_at DESC
+  );
+
 ALTER TABLE one_location_events
   DROP CONSTRAINT IF EXISTS one_location_events_event_type_check;
 
