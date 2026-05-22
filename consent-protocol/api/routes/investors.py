@@ -147,7 +147,7 @@ async def get_investor(investor_id: int):
 
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.error("investor.fetch.error investor_id=%s", investor_id, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -227,7 +227,7 @@ async def create_investor(investor: InvestorCreateRequest):
         logger.info(f"Created/updated investor profile: {investor.name} (id={result.get('id')})")
         return {"id": result.get("id"), "name": investor.name, "status": "created"}
 
-    except Exception as e:
+    except Exception:
         logger.error("investor.create.error", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
