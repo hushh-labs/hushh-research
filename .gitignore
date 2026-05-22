@@ -127,3 +127,48 @@ test_kai_endpoints.py
 ehthumbs.db
 ehthumbs_vista.db
 [Tt]humbs.db
+
+# Local data security hardening
+# Keep developer databases, raw exports, model snapshots, and PKM caches out of git.
+# Existing tracked files remain tracked; new raw dumps should be reviewed before force-adding.
+
+# Local SQLite databases and sidecars
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-shm
+*.sqlite3-wal
+
+# Raw tabular dumps from local experiments or user-model analysis
+*.csv
+*.csv.gz
+*.tsv
+*.tsv.gz
+*.xls
+*.xlsb
+*.xlsm
+*.xlsx
+
+# Serialized Python/model-cache artifacts
+*.pkl
+*.pickle
+
+# Local Personal Knowledge Model caches
+.pkm_cache/
+**/.pkm_cache/
+
+# Reviewed fixtures/templates that are safe to version.
+!hushh-webapp/public/templates/ria-picks-template.csv
+!**/fixtures/**/mock-telemetry-baseline*.csv
+!**/fixtures/**/mock-telemetry-baseline*.tsv
+!**/__fixtures__/**/mock-telemetry-baseline*.csv
+!**/__fixtures__/**/mock-telemetry-baseline*.tsv
+!**/testdata/**/mock-telemetry-baseline*.csv
+!**/testdata/**/mock-telemetry-baseline*.tsv
