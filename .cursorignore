@@ -1,1 +1,29 @@
-# Add directories or file patterns to ignore during indexing (e.g. foo/ or *.csv)
+# =========================================================================
+# Cursor AI Indexing Restrictions - Hushh Research Workspace
+# =========================================================================
+# Prevent local AI models from context-scraping transient local data assets
+
+# Heavy Local Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+node_modules/
+
+# Local Cryptographic & PKM Caches
+.pkm_cache/
+pkm_cache/
+.env
+.env.local
+.env.production
+
+# Sandbox Telemetry & Data Logs
+*.db
+*.sqlite
+*.sqlite3
+*.pkl
+*.pickle
+*.csv
+*.xlsx
+*.log
+data_dumps/
