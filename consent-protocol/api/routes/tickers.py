@@ -44,8 +44,8 @@ async def search_tickers(
         results = await service.search_tickers(q, limit=limit)
         return results
     except Exception as e:
-        logger.error(f"Error searching tickers: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("ticker.search.error", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/all", response_model=List[dict])
@@ -58,8 +58,8 @@ async def all_tickers(refresh: bool = Query(False)):
 
         return ticker_cache.all()
     except Exception as e:
-        logger.error(f"Error returning all tickers: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("ticker.all.error", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/cache-status")
@@ -96,5 +96,5 @@ async def sync_tickers_from_holdings(
         )
         return {"success": True, **result}
     except Exception as e:
-        logger.error("Error syncing tickers from holdings for %s: %s", user_id, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("ticker.sync_holdings.error user_id=%s", user_id, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")

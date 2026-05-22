@@ -777,11 +777,10 @@ async def get_vault_status(
 
         return status
 
-    except ValueError as e:
-        # Consent validation errors
-        raise HTTPException(status_code=401, detail=str(e))
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Unauthorized")
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"❌ Vault status error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.error("vault.status.error", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
