@@ -62,6 +62,15 @@ class ConsentScope(str, Enum):
     AGENT_KYC_DRAFT = "agent.kyc.draft"
     AGENT_KYC_WRITEBACK = "agent.kyc.writeback"
 
+    # ==================== LIVE LOCATION CAPABILITIES ====================
+    # Capability scopes for One Location Agent. These are workflow/action
+    # scopes, not durable attr.location.* PKM scopes.
+    CAP_LOCATION_LIVE_SHARE = "cap.location.live.share"
+    CAP_LOCATION_LIVE_VIEW = "cap.location.live.view"
+    CAP_LOCATION_LIVE_REQUEST = "cap.location.live.request"
+    CAP_LOCATION_LIVE_REVOKE = "cap.location.live.revoke"
+    CAP_LOCATION_LIVE_REFER_REQUEST = "cap.location.live.refer_request"
+
     # ==================== EXTERNAL DATA SOURCES ====================
     # Hybrid mode - per-request consent
     EXTERNAL_SEC_FILINGS = "external.sec.filings"
@@ -207,6 +216,17 @@ class ConsentScope(str, Enum):
             cls.AGENT_KYC_PROCESS,
             cls.AGENT_KYC_DRAFT,
             cls.AGENT_KYC_WRITEBACK,
+        ]
+
+    @classmethod
+    def capability_scopes(cls):
+        """Return workflow capability scopes that are not durable attr.* PKM scopes."""
+        return [
+            cls.CAP_LOCATION_LIVE_SHARE,
+            cls.CAP_LOCATION_LIVE_VIEW,
+            cls.CAP_LOCATION_LIVE_REQUEST,
+            cls.CAP_LOCATION_LIVE_REVOKE,
+            cls.CAP_LOCATION_LIVE_REFER_REQUEST,
         ]
 
     @classmethod

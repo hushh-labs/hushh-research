@@ -8,19 +8,16 @@ function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] || "" : value || "";
 }
 
-export default function MarketplaceConnectionsCompatibilityPage({
+export default async function MarketplaceConnectionsCompatibilityPage({
   searchParams,
 }: {
-  searchParams?: SearchParamsInput;
+  searchParams?: Promise<SearchParamsInput>;
 }) {
-  const resolvedSearchParams = searchParams || {};
+  const resolvedSearchParams = (await searchParams) || {};
+  const tabParam = firstParam(resolvedSearchParams.tab).trim();
   redirect(
     buildMarketplaceConnectionsRoute({
-      tab:
-        firstParam(resolvedSearchParams.tab).trim() === "active" ||
-        firstParam(resolvedSearchParams.tab).trim() === "previous"
-          ? (firstParam(resolvedSearchParams.tab).trim() as "active" | "previous")
-          : "pending",
+      tab: tabParam === "active" || tabParam === "previous" ? tabParam : "pending",
       selected: firstParam(resolvedSearchParams.selected).trim() || null,
     })
   );

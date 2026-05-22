@@ -58,6 +58,11 @@ describe("PkmDomainDetailPanel", () => {
             label: "Portfolio",
             description: "Holdings, balances, and imported account details.",
             exposureEnabled: true,
+            visibilityPosture: "consent_required",
+            defaultProjectionReady: false,
+            defaultProjectionUpdatedAt: null,
+            stateLabel: "Ask first",
+            stateDescription: "One asks you before sharing this section.",
             sensitivityTier: "confidential",
             activeReaderCount: 0,
             requesterLabels: [],
@@ -128,6 +133,11 @@ describe("PkmDomainDetailPanel", () => {
             label: "Portfolio",
             description: "Holdings, balances, and imported account details.",
             exposureEnabled: true,
+            visibilityPosture: "consent_required",
+            defaultProjectionReady: false,
+            defaultProjectionUpdatedAt: null,
+            stateLabel: "Ask first",
+            stateDescription: "One asks you before sharing this section.",
             sensitivityTier: "confidential",
             activeReaderCount: 0,
             requesterLabels: [],
@@ -163,7 +173,7 @@ describe("PkmDomainDetailPanel", () => {
     expect(screen.getByText("$412,000")).toBeTruthy();
     expect(screen.queryByText("saved_data")).toBeNull();
     const dialogContent = document.querySelector('[data-slot="dialog-content"]');
-    expect(dialogContent?.className).toContain("sm:max-w-[min(26rem,calc(100vw-8rem))]");
+    expect(dialogContent?.className).toContain("sm:max-w-[min(42rem,calc(100vw-4rem))]");
     expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
   });
 });

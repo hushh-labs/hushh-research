@@ -129,6 +129,81 @@ class _AliasFakeConnection:
         return None
 
 
+class _PhoneClaimFakeConnection:
+    def __init__(self) -> None:
+        now = datetime.now(timezone.utc)
+        self.rows: dict[str, dict[str, object]] = {
+            "other-firebase-user-1234567890": {
+                "user_id": "other-firebase-user-1234567890",
+                "display_name": "Other User",
+                "email": "other@example.com",
+                "phone_number": "+16505550101",
+                "photo_url": None,
+                "email_verified": True,
+                "phone_verified": True,
+                "source": "firebase_phone_claim",
+                "last_synced_at": now,
+                "created_at": now,
+                "updated_at": now,
+            },
+            "firebase-user-123456789012": {
+                "user_id": "firebase-user-123456789012",
+                "display_name": "Kai User",
+                "email": "kai@example.com",
+                "phone_number": None,
+                "photo_url": None,
+                "email_verified": True,
+                "phone_verified": False,
+                "source": "firebase_auth",
+                "last_synced_at": now,
+                "created_at": now,
+                "updated_at": now,
+            },
+        }
+
+    async def execute(self, query: str, *args):
+        normalized = " ".join(query.lower().split())
+        if "update actor_identity_cache" not in normalized:
+            return "UPDATE 0"
+        user_id, phone_number = args
+        cleared = 0
+        for row in self.rows.values():
+            if row["user_id"] != user_id and row["phone_number"] == phone_number:
+                row["phone_number"] = None
+                row["phone_verified"] = False
+                row["updated_at"] = datetime.now(timezone.utc)
+                cleared += 1
+        return f"UPDATE {cleared}"
+
+    async def fetchrow(self, query: str, *args):
+        normalized = " ".join(query.lower().split())
+        if "insert into actor_identity_cache" not in normalized:
+            return None
+        user_id, phone_number, source = args
+        now = datetime.now(timezone.utc)
+        row = self.rows.setdefault(
+            user_id,
+            {
+                "user_id": user_id,
+                "display_name": None,
+                "email": None,
+                "photo_url": None,
+                "email_verified": False,
+                "created_at": now,
+            },
+        )
+        row.update(
+            {
+                "phone_number": phone_number,
+                "phone_verified": True,
+                "source": source,
+                "last_synced_at": now,
+                "updated_at": now,
+            }
+        )
+        return row
+
+
 @pytest.mark.asyncio
 async def test_sync_from_firebase_mirrors_phone_number(monkeypatch: pytest.MonkeyPatch) -> None:
     service = ActorIdentityService()
@@ -164,6 +239,75 @@ async def test_sync_from_firebase_mirrors_phone_number(monkeypatch: pytest.Monke
     assert captured["phone_number"] == "+16505550101"
     assert captured["phone_verified"] is True
     assert captured["source"] == "firebase_auth"
+
+
+@pytest.mark.asyncio
+async def test_sync_from_firebase_preserves_backend_phone_claim_when_firebase_has_no_phone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = ActorIdentityService()
+
+    async def fake_get_many(user_ids: list[str]) -> dict[str, dict]:
+        assert user_ids == ["firebase-user-123456789012"]
+        return {
+            "firebase-user-123456789012": {
+                "user_id": "firebase-user-123456789012",
+                "phone_number": "+16505550101",
+                "phone_verified": True,
+                "last_synced_at": datetime.now(timezone.utc),
+            }
+        }
+
+    captured: dict[str, object] = {}
+
+    async def fake_upsert_identity(**kwargs):
+        captured.update(kwargs)
+        return {"user_id": kwargs["user_id"], "phone_verified": True}
+
+    monkeypatch.setattr(service, "get_many", fake_get_many)
+    monkeypatch.setattr(service, "upsert_identity", fake_upsert_identity)
+    monkeypatch.setattr(actor_identity_service, "get_firebase_auth_app", lambda: object())
+
+    fake_user_record = types.SimpleNamespace(
+        display_name="Kai User",
+        email="kai@example.com",
+        phone_number=None,
+        photo_url=None,
+        email_verified=True,
+    )
+    fake_auth = types.SimpleNamespace(get_user=lambda uid, app=None: fake_user_record)
+    monkeypatch.setitem(sys.modules, "firebase_admin", types.SimpleNamespace(auth=fake_auth))
+
+    await service.sync_from_firebase("firebase-user-123456789012", force=True)
+
+    assert captured["phone_number"] is None
+    assert captured["phone_verified"] is None
+
+
+@pytest.mark.asyncio
+async def test_claim_verified_phone_moves_duplicate_shadow_to_current_actor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = ActorIdentityService()
+    conn = _PhoneClaimFakeConnection()
+
+    async def fake_get_pool() -> _AliasFakePool:
+        return _AliasFakePool(conn)
+
+    monkeypatch.setattr(actor_identity_service, "get_pool", fake_get_pool)
+
+    identity = await service.claim_verified_phone(
+        user_id="firebase-user-123456789012",
+        phone_number="+16505550101",
+    )
+
+    assert identity is not None
+    assert identity["phone_number"] == "+16505550101"
+    assert identity["phone_verified"] is True
+    assert identity["source"] == "firebase_phone_claim"
+    previous_owner = conn.rows["other-firebase-user-1234567890"]
+    assert previous_owner["phone_number"] is None
+    assert previous_owner["phone_verified"] is False
 
 
 @pytest.mark.asyncio
@@ -231,6 +375,49 @@ async def test_get_many_tolerates_pre_phone_shadow_schema(
     assert identity["phone_number"] is None
     assert identity["phone_verified"] is False
     assert conn.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_list_account_identifiers_uses_verified_account_aliases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = ActorIdentityService()
+
+    async def fake_sync_from_firebase(user_id: str):
+        assert user_id == "firebase-user-123456789012"
+        return {
+            "email": "Primary@Example.com",
+            "email_verified": True,
+            "phone_number": "+16505550101",
+            "phone_verified": True,
+        }
+
+    async def fake_list_aliases(user_id: str):
+        assert user_id == "firebase-user-123456789012"
+        return [
+            {
+                "email_normalized": "relay@privaterelay.appleid.com",
+                "verification_status": "verified",
+                "revoked_at": None,
+            },
+            {
+                "email_normalized": "pending@example.com",
+                "verification_status": "pending",
+                "revoked_at": None,
+            },
+        ]
+
+    monkeypatch.setattr(service, "sync_from_firebase", fake_sync_from_firebase)
+    monkeypatch.setattr(service, "list_verified_email_aliases", fake_list_aliases)
+
+    identifiers = await service.list_account_identifiers("firebase-user-123456789012")
+
+    assert identifiers == [
+        "firebase-user-123456789012",
+        "primary@example.com",
+        "+16505550101",
+        "relay@privaterelay.appleid.com",
+    ]
 
 
 @pytest.mark.asyncio

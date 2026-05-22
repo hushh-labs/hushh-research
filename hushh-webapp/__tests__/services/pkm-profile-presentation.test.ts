@@ -4,6 +4,8 @@ import {
   buildPkmDomainPresentation,
   buildPkmDomainPermissionPresentation,
   buildPkmDomainUpgradePresentation,
+  buildPkmProfileSummaryPresentation,
+  isConsumerVisiblePkmDomain,
 } from "@/lib/profile/pkm-profile-presentation";
 
 const domain = {
@@ -75,12 +77,60 @@ describe("pkm profile presentation", () => {
         key: "financial:portfolio",
         label: "Portfolio",
         exposureEnabled: true,
+        visibilityPosture: "consent_required",
+        defaultProjectionReady: false,
+        stateLabel: "Ask first",
         requesterLabels: ["Planner Pro"],
         includesBroadAccess: true,
       }),
     ]);
     expect(permissions[0]?.counterpartSummary).toContain("broad or direct access");
     expect(permissions).toHaveLength(1);
+  });
+
+  it("presents default-available posture as a plain-language sharing state", () => {
+    const permissions = buildPkmDomainPermissionPresentation({
+      domain,
+      manifest: {
+        domain: "financial",
+        manifest_version: 4,
+        domain_contract_version: 2,
+        readable_summary_version: 1,
+        summary_projection: {},
+        top_level_scope_paths: ["portfolio"],
+        externalizable_paths: [],
+        paths: [],
+        scope_registry: [
+          {
+            scope_handle: "financial.portfolio",
+            scope_label: "Portfolio",
+            segment_ids: ["portfolio"],
+            sensitivity_tier: "confidential",
+            exposure_enabled: true,
+            visibility_posture: "default_available",
+            default_projection_ready: true,
+            default_projection_updated_at: "2026-05-21T10:00:00Z",
+            summary_projection: {
+              top_level_scope_path: "portfolio",
+            },
+          },
+        ],
+      },
+      activeGrants: [],
+      upgradeState: null,
+    });
+
+    expect(permissions).toEqual([
+      expect.objectContaining({
+        label: "Portfolio",
+        exposureEnabled: true,
+        visibilityPosture: "default_available",
+        defaultProjectionReady: true,
+        defaultProjectionUpdatedAt: "2026-05-21T10:00:00Z",
+        stateLabel: "Available by default",
+      }),
+    ]);
+    expect(permissions[0]?.stateDescription).not.toMatch(/scope|manifest|registry|PKM/i);
   });
 
   it("keeps upgrade compatibility separate from manifest concurrency", () => {
@@ -162,5 +212,77 @@ describe("pkm profile presentation", () => {
     });
 
     expect(presentation.highlights).toEqual(["Latest import synced from brokerage statement"]);
+  });
+
+  it("hides internal runtime domains and ignores structural path counts for consumer rows", () => {
+    expect(
+      isConsumerVisiblePkmDomain({
+        ...domain,
+        key: "kyc_workflow",
+        displayName: "Kyc Workflow",
+      })
+    ).toBe(false);
+
+    const presentation = buildPkmDomainPresentation({
+      domain: {
+        ...domain,
+        key: "travel",
+        displayName: "Travel",
+        attributeCount: 0,
+        summary: {
+          path_count: 18,
+          consumer_item_count: 1,
+          last_content_at: "2026-04-16T05:54:38Z",
+          readable_source_label: "PKM Upgrade",
+        },
+        readableSourceLabel: "PKM Upgrade",
+      },
+      activeGrants: [],
+      manifest: null,
+      upgradeState: null,
+    });
+
+    expect(presentation.detailCount).toBe(1);
+    expect(presentation.sourceLabels).toEqual(["Saved memory"]);
+
+    const summary = buildPkmProfileSummaryPresentation({
+      metadata: null,
+      domains: [presentation],
+      activeGrants: [],
+    });
+    expect(summary.totalDomains).toBe(1);
+    expect(summary.totalAttributes).toBe(1);
+  });
+
+  it("does not treat structural-only path counts as user memory", () => {
+    const presentation = buildPkmDomainPresentation({
+      domain: {
+        ...domain,
+        key: "shopping",
+        displayName: "Shopping",
+        attributeCount: 0,
+        summary: {
+          path_count: 43,
+          externalizable_path_count: 41,
+          last_content_at: "2026-05-17T10:00:00Z",
+        },
+      },
+      activeGrants: [],
+      manifest: {
+        domain: "shopping",
+        manifest_version: 4,
+        domain_contract_version: 2,
+        readable_summary_version: 2,
+        summary_projection: {},
+        top_level_scope_paths: ["receipts_memory"],
+        externalizable_paths: [],
+        paths: [],
+      },
+      upgradeState: null,
+    });
+
+    expect(presentation.detailCount).toBe(0);
+    expect(presentation.statusLabel).toBe("Ready");
+    expect(presentation.attentionFlags).not.toContain("Refresh recommended");
   });
 });

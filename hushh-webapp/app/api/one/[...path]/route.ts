@@ -10,8 +10,8 @@ import {
 } from "@/app/api/_utils/request-id";
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
-const ONE_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(20_000, {
-  developmentFloorMs: 20_000,
+const ONE_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
+  developmentFloorMs: 45_000,
   overrideEnvKey: "HUSHH_ONE_API_TIMEOUT_MS",
 });
 
@@ -80,6 +80,20 @@ export async function GET(
 }
 
 export async function POST(
+  request: NextRequest,
+  props: { params: Promise<{ path: string[] }> }
+) {
+  return proxyRequest(request, await props.params);
+}
+
+export async function PATCH(
+  request: NextRequest,
+  props: { params: Promise<{ path: string[] }> }
+) {
+  return proxyRequest(request, await props.params);
+}
+
+export async function DELETE(
   request: NextRequest,
   props: { params: Promise<{ path: string[] }> }
 ) {

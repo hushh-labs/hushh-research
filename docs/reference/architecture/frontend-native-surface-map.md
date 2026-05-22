@@ -31,6 +31,7 @@ endpoint family, native transport, plugin dependency, and voice/action contract.
 - Generated contract: `hushh-webapp/frontend-native-surface-map.generated.json`
 - Generator: `hushh-webapp/scripts/architecture/generate-surface-map.mjs`
 - Check command: `cd hushh-webapp && npm run verify:surface-map`
+- Cache posture companion: `hushh-webapp/cache-coherence-screen-manifest.generated.json`
 
 ## Rules
 

@@ -13,6 +13,14 @@
     }
   },
   {
+    "route": "/agent",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/agent/agent-screen.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]
+    }
+  },
+  {
     "route": "/login",
     "mode": "hidden",
     "exemptionReason": "Auth-only route intentionally bypasses the signed-in app shell."
@@ -22,6 +30,14 @@
     "mode": "standard",
     "shellVerification": {
       "file": "app/one/kyc/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]
+    }
+  },
+  {
+    "route": "/one/location",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/location/page.tsx",
       "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]
     }
   },
@@ -180,6 +196,22 @@
     }
   },
   {
+    "route": "/profile/gmail/oauth/return",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/gmail/oauth/return/page-client.tsx",
+      "includes": ["AppPageShell", "AppPageContentRegion", "HushhLoader"]
+    }
+  },
+  {
+    "route": "/profile/receipts",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/receipts/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
+    }
+  },
+  {
     "route": "/profile/pkm",
     "mode": "redirect",
     "exemptionReason": "Redirect route that forwards to /profile/pkm-agent-lab or /profile in production."
@@ -234,10 +266,11 @@
   },
   {
     "route": "/ria/onboarding",
-    "mode": "standard",
+    "mode": "flow",
+    "exemptionReason": "RIA onboarding is a five-step fullscreen setup flow that owns its own compact content rhythm.",
     "shellVerification": {
-      "file": "components/ria/ria-page-shell.tsx",
-      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
+      "file": "app/ria/onboarding/page.tsx",
+      "includes": ["FullscreenFlowShell", "OnboardingShell"]
     }
   },
   {

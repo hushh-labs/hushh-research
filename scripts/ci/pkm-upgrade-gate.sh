@@ -51,4 +51,17 @@ HUSHH_DEVELOPER_TOKEN="${HUSHH_DEVELOPER_TOKEN:-test_hushh_developer_token_for_c
 PYTHONPATH=. \
   $PYTEST_RUNNER -q "${BACKEND_TESTS[@]}"
 
+if [ "${PKM_UPGRADE_REVIEWER_SHAPE_AUDIT:-}" = "1" ]; then
+  echo "Running reviewer-backed active PKM shape audit..."
+  SHAPE_AUDIT_ARGS=(--env-file .env)
+  if [ -n "${PKM_UPGRADE_REVIEWER_SECRET_PROJECT:-}" ]; then
+    SHAPE_AUDIT_ARGS+=(--gcp-secret-project "$PKM_UPGRADE_REVIEWER_SECRET_PROJECT")
+  fi
+  if [ -n "${PKM_UPGRADE_REVIEWER_SECRET_VERSION:-}" ]; then
+    SHAPE_AUDIT_ARGS+=(--gcp-secret-version "$PKM_UPGRADE_REVIEWER_SECRET_VERSION")
+  fi
+  python3 scripts/audit_active_pkm_shape_readonly.py "${SHAPE_AUDIT_ARGS[@]}" >/tmp/hushh-pkm-shape-audit.json
+  echo "Reviewer-backed active PKM shape audit passed with redacted output."
+fi
+
 echo "✅ PKM upgrade gate passed."

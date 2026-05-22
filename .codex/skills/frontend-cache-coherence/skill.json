@@ -1,0 +1,77 @@
+{
+  "id": "frontend-cache-coherence",
+  "role": "spoke",
+  "owner_family": "frontend",
+  "primary_scope": "frontend-cache-coherence",
+  "description": "Use when auditing or changing Hussh frontend cache-first screen behavior, warm-cache UX, stale-while-revalidate resources, route TTL policy, or reviewer-backed cache coherence checks.",
+  "owned_paths": [
+    "hushh-webapp/lib/cache",
+    "hushh-webapp/lib/services/cache-service.ts",
+    "hushh-webapp/lib/cache/cache-sync-service.ts",
+    "hushh-webapp/scripts/architecture/audit-cache-coherence.mjs",
+    "hushh-webapp/cache-coherence-screen-manifest.generated.json",
+    "docs/reference/architecture/cache-coherence.md",
+    "docs/reference/quality/app-surface-design-system.md"
+  ],
+  "non_owned_paths": [
+    "frontend",
+    "frontend-architecture",
+    "frontend-native-surface-mapper",
+    "vault-pkm-governance"
+  ],
+  "task_types": [
+    "frontend-cache-coherence",
+    "new-feature-tri-flow",
+    "pre-pr-readiness"
+  ],
+  "required_reads": [
+    "docs/reference/architecture/cache-coherence.md",
+    "docs/reference/quality/app-surface-design-system.md",
+    "hushh-webapp/cache-coherence-screen-manifest.generated.json",
+    "hushh-webapp/scripts/testing/verify-signed-in-routes.mjs",
+    "hushh-webapp/lib/cache/use-stale-resource.ts"
+  ],
+  "required_commands": [
+    "cd hushh-webapp && npm run verify:cache",
+    "cd hushh-webapp && npm run audit:cache-coherence",
+    "cd hushh-webapp && npm run verify:surface-map",
+    "cd hushh-webapp && npm run verify:service-boundary"
+  ],
+  "verification_bundles": [
+    {
+      "id": "frontend-cache-coherence",
+      "commands": [
+        "cd hushh-webapp && npm run verify:cache",
+        "cd hushh-webapp && npm run audit:cache-coherence",
+        "cd hushh-webapp && npm run verify:surface-map",
+        "cd hushh-webapp && npm run verify:service-boundary"
+      ],
+      "tests": [
+        "cd hushh-webapp && npm run verify:cache",
+        "cd hushh-webapp && npm run audit:cache-coherence",
+        "cd hushh-webapp && npm run verify:surface-map"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "frontend",
+    "frontend-architecture",
+    "frontend-native-surface-mapper",
+    "vault-pkm-governance",
+    "quality-contracts"
+  ],
+  "adjacent_skills": [
+    "frontend",
+    "frontend-architecture",
+    "frontend-native-surface-mapper",
+    "vault-pkm-governance",
+    "quality-contracts"
+  ],
+  "risk_tags": [
+    "warm-cache-regression",
+    "loader-regression",
+    "cache-invalidation-drift",
+    "pkm-plaintext-persistence",
+    "reviewer-fixture-drift"
+  ]
+}

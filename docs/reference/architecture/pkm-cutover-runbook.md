@@ -42,7 +42,7 @@ This is the bounded runbook for cutting Kai from legacy encrypted storage to the
 
 ## Local/UAT drill user
 
-- `REVIEWER_UID=s3xmA4lNSAQFrIaOytnSGAOzXlL2`
+- `REVIEWER_UID=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2`
 - passphrase is stored only in ignored local/UAT env files and secret storage
 - never commit the real passphrase into tracked examples or production env
 
@@ -77,11 +77,12 @@ Legacy cutover and ongoing PKM evolution are different:
 - `pkm_migration_state` is only for the bounded legacy-to-PKM repartition window.
 - Ongoing PKM schema/readability evolution uses resumable `pkm_upgrade_runs` + `pkm_upgrade_steps`.
 - Generic PKM upgrades still happen client-side after unlock:
-  1. detect stale model/domain/readable versions
+  1. detect stale model, semantic contract, domain, readable, or capability metadata
   2. decrypt one encrypted domain locally
-  3. transform it to the current contract
-  4. rebuild manifests/readable metadata
-  5. re-encrypt and store with optimistic concurrency
+  3. transform it through the generic dynamic PKM capability pipeline
+  4. rebuild manifests, scope registry, readable metadata, consumer visibility, and semantic counts
+  5. preserve the section visibility posture as a protocol field: `private`, `consent_required`, or `default_available`
+  6. re-encrypt and store with optimistic concurrency
 - If the app is interrupted, resume is allowed only after local vault re-auth. There is no silent server-side decrypt or key recovery.
 
 ## Compatibility gate
@@ -90,8 +91,9 @@ Production rollout is blocked unless all supported stored-version paths are gree
 
 1. legacy world-model cutover source -> PKM
 2. prior PKM model versions -> current `CURRENT_PKM_MODEL_VERSION`
-3. prior domain-contract versions -> current domain contract
-4. prior readable-summary versions -> current readable summary
+3. prior semantic PKM contracts -> current `CURRENT_PKM_CONTRACT_VERSION`
+4. prior domain-contract versions -> current dynamic domain contract
+5. prior readable-summary/projection versions -> current readable projection
 
 The minimum blocking proof set is:
 
@@ -110,7 +112,9 @@ Manifest fetch failures must be treated as P0:
 When a domain manifest exists, it is the authoritative source for:
 
 - `domain_contract_version`
+- `pkm_contract_version`
 - `readable_summary_version`
+- `readable_projection_version`
 - `upgraded_at`
 
 Index summary versions remain useful as a fallback when no manifest exists, but stale summary data must not force a false rerun of the PKM upgrade.
@@ -132,6 +136,55 @@ The required automated companion for this drill is:
 1. [scripts/ci/pkm-upgrade-gate.sh](../../../scripts/ci/pkm-upgrade-gate.sh)
 2. it runs the PKM upgrade contract/orchestration suites by default
 3. when `PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL` is present, it also runs the live investor onboarding, PKM migration, and RIA onboarding browser audits against that runtime
+
+## Reviewer-backed active PKM shape audit
+
+Protocol upgrades must be tested against the env-wired reviewer account, not a synthetic user that happens to pass unit tests.
+
+Use the active shape audit before changing a PKM contract version or presentation projection:
+
+```bash
+cd consent-protocol
+python3 scripts/audit_active_pkm_shape_readonly.py --env-file .env
+```
+
+If the local maintainer overlay does not contain the reviewer secrets, resolve them directly from Secret Manager without writing them to `.env`:
+
+```bash
+python3 scripts/audit_active_pkm_shape_readonly.py --env-file .env --gcp-secret-project hushh-pda-uat
+```
+
+Rules:
+
+1. the script resolves `REVIEWER_UID` and `REVIEWER_VAULT_PASSPHRASE` from maintainer-only env by default
+2. when `--gcp-secret-project` is provided, missing reviewer secrets are read from Secret Manager into process memory only
+3. it decrypts active `pkm_blobs` locally in memory and never writes to PKM tables
+4. it emits only structural metadata, redacted paths, counts, and presentation painpoints
+5. it must not print plaintext values, entity ids, emails, hashes, or raw user facts
+6. if the reviewer fixture lacks the domain needed for a change, reseed or repair the same reviewer fixture instead of testing a different UID
+
+Pair the shape audit with the structure-agent chain eval:
+
+```bash
+cd consent-protocol
+python3 scripts/eval_pkm_structure_agent.py --phase fresh_chain_60 --env-file .env
+```
+
+The eval uses `REVIEWER_UID` as its first shadow user when present. This keeps daily prompt-chain checks aligned to the real reviewer-shaped domain/scope surface while still avoiding plaintext PKM in model prompts.
+
+## Default-available projection rehearsal
+
+When changing the third visibility posture, test it as the env-wired reviewer vault owner:
+
+1. unlock locally with the reviewer passphrase overlay
+2. choose one low-risk consumer-visible section
+3. publish only the safe client-generated projection
+4. verify developer discovery marks it `visibility_posture=default_available` and `default_projection_ready=true`
+5. read it through `/api/v1/default-available-export`
+6. confirm an audit event is recorded
+7. reset to `consent_required` unless the test is intentionally persistent
+
+Do not use raw PKM blobs, `pkm.read`, workflow artifacts, hashes, provenance, or internal manifest paths as a default-available payload.
 
 ## Wrapper selection rule
 

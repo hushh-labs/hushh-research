@@ -17,6 +17,12 @@ describe("consent sheet route helpers", () => {
     ).toBe("/consents?tab=pending&requestId=req_123");
   });
 
+  it("normalizes Email Helper workflow links to internal app routes", () => {
+    expect(
+      normalizeInternalAppHref("http://localhost:3000/one/kyc?workflowId=wf_123")
+    ).toBe("/one/kyc?workflowId=wf_123");
+  });
+
   it("does not rewrite external non-app links", () => {
     expect(normalizeInternalAppHref("https://example.com/disclosures/request-123")).toBe(
       "https://example.com/disclosures/request-123"
@@ -48,6 +54,16 @@ describe("consent sheet route helpers", () => {
       kind: "internal",
       href: "/consents?tab=pending&requestId=req_123",
       pathname: "/consents",
+    });
+  });
+
+  it("classifies Email Helper workflow links as SPA routes", () => {
+    expect(
+      resolveConsentNavigationTarget("http://localhost:3000/one/kyc?workflowId=wf_123")
+    ).toEqual({
+      kind: "internal",
+      href: "/one/kyc?workflowId=wf_123",
+      pathname: "/one/kyc",
     });
   });
 
