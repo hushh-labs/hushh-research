@@ -14,6 +14,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock3,
+  Copy,
+  ExternalLink,
   KeyRound,
   Loader2,
   LocateFixed,
@@ -69,6 +71,8 @@ import { OneLocationService } from "@/lib/one-location/service";
 import type {
   OneLocationAccessRequest,
   OneLocationGrant,
+  OneLocationPublicInvite,
+  OneLocationPublicInviteSubmission,
   OneLocationRecipient,
   OneLocationState,
   PlainLocationPoint,
@@ -97,6 +101,8 @@ type BusyState =
   | "deny"
   | "refer"
   | "revoke"
+  | "publicInvite"
+  | "publicRevoke"
   | null;
 
 function formatDateTime(value?: string | null): string {
@@ -149,6 +155,23 @@ function requestLabel(request: OneLocationAccessRequest): string {
       .filter(Boolean)
       .join(" - ") || request.requesterUserId
   );
+}
+
+function publicSubmissionLabel(
+  submission: OneLocationPublicInviteSubmission,
+): string {
+  return (
+    [submission.visitorDisplayName, submission.visitorMaskedPhone]
+      .filter(Boolean)
+      .join(" - ") || "Public request"
+  );
+}
+
+function publicInviteUrlLabel(value: string): string {
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  if (typeof window === "undefined") return value;
+  return new URL(value, window.location.origin).toString();
 }
 
 function statusVariant(
@@ -367,6 +390,7 @@ export function OneLocationAgentPageContent() {
   const [referralTargets, setReferralTargets] = useState<
     Record<string, string>
   >({});
+  const [publicInviteUrl, setPublicInviteUrl] = useState("");
   const [decryptedPoints, setDecryptedPoints] = useState<
     Record<string, PlainLocationPoint>
   >({});
@@ -430,6 +454,17 @@ export function OneLocationAgentPageContent() {
       grant.status === "active" &&
       !isOneLocationGrantOpened(auth.userId, grant.id),
   ).length;
+  const activePublicInvites = useMemo(
+    () =>
+      (state?.publicInvites ?? []).filter(
+        (invite) => invite.status === "active",
+      ),
+    [state?.publicInvites],
+  );
+  const publicSubmissions = useMemo(
+    () => state?.publicInviteSubmissions ?? [],
+    [state?.publicInviteSubmissions],
+  );
 
   const openLocationShareFromNotification = useCallback(
     (grantId: string) => {
@@ -896,6 +931,89 @@ export function OneLocationAgentPageContent() {
     }
   }, [refresh, requestMessage, selectedRequestOwner, vaultOwnerToken]);
 
+  const handleCreatePublicInvite = useCallback(async () => {
+    if (!vaultOwnerToken) return;
+    setBusy("publicInvite");
+    try {
+      const response = await OneLocationService.createPublicInvite({
+        vaultOwnerToken,
+        durationHours: Number(durationHours),
+      });
+      const url = publicInviteUrlLabel(response.publicUrl);
+      setPublicInviteUrl(url);
+      if (navigator.clipboard && url) {
+        await navigator.clipboard.writeText(url).catch(() => undefined);
+      }
+      toast.success(
+        "Public request link created. You still approve before sharing.",
+      );
+      await refresh();
+    } catch (error) {
+      toast.error(
+        oneLocationErrorMessage(error, "Could not create public request link."),
+      );
+    } finally {
+      setBusy(null);
+    }
+  }, [durationHours, refresh, vaultOwnerToken]);
+
+  const handleCopyPublicInvite = useCallback(async () => {
+    if (!publicInviteUrl) return;
+    try {
+      await navigator.clipboard.writeText(publicInviteUrl);
+      toast.success("Request link copied.");
+    } catch {
+      toast.error("Could not copy the request link.");
+    }
+  }, [publicInviteUrl]);
+
+  const handleSharePublicInvite = useCallback(async () => {
+    if (!publicInviteUrl) return;
+    const text =
+      "Please send a One Location request here. I approve before anything is shared.";
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: "Request my location",
+          text,
+          url: publicInviteUrl,
+        });
+        return;
+      }
+      await navigator.clipboard.writeText(publicInviteUrl);
+      toast.success("Request link copied.");
+    } catch (error) {
+      if ((error as Error)?.name === "AbortError") return;
+      toast.error("Could not open the share sheet.");
+    }
+  }, [publicInviteUrl]);
+
+  const handleRevokePublicInvite = useCallback(
+    async (invite: OneLocationPublicInvite) => {
+      if (!vaultOwnerToken) return;
+      setBusy("publicRevoke");
+      try {
+        await OneLocationService.revokePublicInvite({
+          vaultOwnerToken,
+          inviteId: invite.id,
+        });
+        setPublicInviteUrl("");
+        toast.success("Public request link revoked.");
+        await refresh();
+      } catch (error) {
+        toast.error(
+          oneLocationErrorMessage(
+            error,
+            "Could not revoke public request link.",
+          ),
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh, vaultOwnerToken],
+  );
+
   const handleApprove = useCallback(
     async (request: OneLocationAccessRequest) => {
       if (!vaultOwnerToken) return;
@@ -1213,6 +1331,89 @@ export function OneLocationAgentPageContent() {
                   </ActionButton>
                 </div>
               </SettingsGroup>
+
+              <SettingsGroup
+                eyebrow="Public"
+                title="Create request link"
+                description="Share a request link with family or friends. The link asks for their details and never shows your location until you approve an encrypted grant."
+              >
+                <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_160px]">
+                    <div className="rounded-[var(--app-card-radius-standard)] border border-border/70 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                      {publicInviteUrl ||
+                        "Create a fresh request link to copy or share."}
+                    </div>
+                    <Select
+                      value={durationHours}
+                      onValueChange={setDurationHours}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DURATION_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <ActionButton
+                      busy={busy}
+                      busyKey="publicInvite"
+                      onClick={() => void handleCreatePublicInvite()}
+                      disabled={!vaultOwnerToken}
+                    >
+                      <ExternalLink
+                        className="mr-2 h-4 w-4"
+                        aria-hidden="true"
+                      />
+                      Create Request Link
+                    </ActionButton>
+                    <Button
+                      variant="outline"
+                      onClick={() => void handleSharePublicInvite()}
+                      disabled={!publicInviteUrl}
+                    >
+                      <Send className="mr-2 h-4 w-4" aria-hidden="true" />
+                      Share
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => void handleCopyPublicInvite()}
+                      disabled={!publicInviteUrl}
+                    >
+                      <Copy className="mr-2 h-4 w-4" aria-hidden="true" />
+                      Copy
+                    </Button>
+                  </div>
+                </div>
+                {activePublicInvites.length
+                  ? activePublicInvites.map((invite) => (
+                      <SettingsRow
+                        key={invite.id}
+                        icon={ExternalLink}
+                        title="Active request link"
+                        description={`Requests expire ${formatDateTime(invite.expiresAt)} - ${invite.durationHours}h`}
+                        stackTrailingOnMobile
+                        trailing={
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              void handleRevokePublicInvite(invite)
+                            }
+                            disabled={busy === "publicRevoke"}
+                          >
+                            Revoke
+                          </Button>
+                        }
+                      />
+                    ))
+                  : null}
+              </SettingsGroup>
             </div>
 
             <div className="space-y-6">
@@ -1401,6 +1602,38 @@ export function OneLocationAgentPageContent() {
                     icon={Clock3}
                     title="No pending requests"
                     description="Referral and direct access requests wait here."
+                  />
+                )}
+              </SettingsGroup>
+
+              <SettingsGroup
+                eyebrow="Public"
+                title="Public link responses"
+                description="People who use your public request link appear here. Location still waits for owner approval."
+              >
+                {publicSubmissions.length ? (
+                  publicSubmissions.map((submission) => (
+                    <SettingsRow
+                      key={submission.id}
+                      icon={Clock3}
+                      title={publicSubmissionLabel(submission)}
+                      description={
+                        submission.message ||
+                        `Status ${submission.status} - ${formatDateTime(submission.submittedAt)}`
+                      }
+                      stackTrailingOnMobile
+                      trailing={
+                        <Badge variant={statusVariant(submission.status)}>
+                          {submission.requestStatus || submission.status}
+                        </Badge>
+                      }
+                    />
+                  ))
+                ) : (
+                  <EmptyState
+                    icon={ExternalLink}
+                    title="No public responses"
+                    description="Responses from your request link show up here without exposing your location."
                   />
                 )}
               </SettingsGroup>

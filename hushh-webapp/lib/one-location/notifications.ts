@@ -20,7 +20,8 @@ export type OneLocationWorkflowNotificationType =
   | "location_share_expired"
   | "location_access_request"
   | "location_access_denied"
-  | "location_referral_invite";
+  | "location_referral_invite"
+  | "location_public_invite_submitted";
 
 const WORKFLOW_COPY: Record<
   OneLocationWorkflowNotificationType,
@@ -53,6 +54,10 @@ const WORKFLOW_COPY: Record<
   location_referral_invite: {
     title: "Location referral pending",
     fallbackDescription: "A trusted person referred you into a location request flow.",
+  },
+  location_public_invite_submitted: {
+    title: "Public location request",
+    fallbackDescription: "Someone requested location access from your public link.",
   },
 };
 
@@ -178,11 +183,13 @@ export function locationWorkflowNotificationCopy(params: {
   ownerLabel?: string | null;
   requesterLabel?: string | null;
   referringLabel?: string | null;
+  visitorLabel?: string | null;
 }): { title: string; description: string } {
   const copy = WORKFLOW_COPY[params.type];
   const ownerLabel = String(params.ownerLabel || "").trim() || "A trusted person";
   const requesterLabel = String(params.requesterLabel || "").trim() || "Someone";
   const referringLabel = String(params.referringLabel || "").trim() || "A trusted person";
+  const visitorLabel = String(params.visitorLabel || "").trim() || "Someone";
 
   switch (params.type) {
     case "location_share_created":
@@ -215,6 +222,11 @@ export function locationWorkflowNotificationCopy(params: {
       return {
         title: copy.title,
         description: `${referringLabel} referred you into a location request for ${ownerLabel}.`,
+      };
+    case "location_public_invite_submitted":
+      return {
+        title: copy.title,
+        description: `${visitorLabel} requested location access from your public link.`,
       };
     default:
       return { title: copy.title, description: copy.fallbackDescription };
