@@ -163,7 +163,7 @@ Codex supports project-scoped custom agents under `.codex/agents/`. In this repo
 ### `plaid`
 
 1. Confirm the agent can query Plaid docs.
-2. Try a sandbox question like “What are the default sandbox credentials?”
+2. Try a sandbox question like "What are the default sandbox credentials?"
 
 ### Hussh Consent MCP
 
@@ -194,10 +194,11 @@ Purpose:
 Codex streamable HTTP config:
 
 ```bash
-codex mcp add hussh_founder_wiki --url "https://hussh-mcp-ci75e66ukq-ue.a.run.app/mcp" --bearer-token-env-var <LOCAL_FOUNDER_WIKI_TOKEN_ENV>
+codex mcp add hussh_founder_wiki --url "https://mcp.hushh.ai" --bearer-token-env-var HUSHH_FOUNDER_WIKI_MCP_TOKEN
 ```
 
-Equivalent config key: `bearer_token_env_var = "HUSSH_FOUNDER_WIKI_MCP_TOKEN"`.
+Codex records the streamable HTTP mount as `https://mcp.hushh.ai/mcp`.
+Equivalent config key: `bearer_token_env_var = "HUSHH_FOUNDER_WIKI_MCP_TOKEN"`.
 
 Required local secret:
 
@@ -216,12 +217,12 @@ Rules:
 Private workspace audit:
 
 ```bash
-HUSSH_FOUNDER_WIKI_MCP_TOKEN="$(pbpaste)" \
-  python3 .codex/skills/codex-skill-authoring/scripts/founder_wiki_workspace_audit.py \
+python3 .codex/skills/codex-skill-authoring/scripts/founder_wiki_workspace_audit.py \
+  --mcp-url https://mcp.hushh.ai/mcp \
   --output tmp/founder-wiki-workspace-audit-$(date +%F).md
 ```
 
-The audit confirms the authenticated tool/page surface, reads Product Canon pages, compares them with repo docs and skills, and writes only classifications plus page names. It must not write raw HCTs or private wiki page bodies.
+Run the audit only after `HUSHH_FOUNDER_WIKI_MCP_TOKEN` is already present in the local environment. Do not paste the token into a shell command. The audit confirms the authenticated tool/page surface, reads Product Canon pages, compares them with repo docs and skills, and writes only classifications plus page names. It must not write bearer tokens, credentials, or private wiki page bodies.
 
 ## Developer instructions
 
@@ -248,11 +249,14 @@ When working in this repo:
    - `.codex/skills/subtree-upstream-governance/`
 10. Use spoke skills only after the domain is narrowed to a specific frontend, backend, mobile, security, or repo-operations workflow.
 11. Use `.codex/skills/github-contribution-governance/` for GitHub contribution attribution, author-email checks, PR targeting, and green-dot eligibility.
-12. Use `.codex/skills/frontend-native-surface-mapper/` before route/API/native/plugin/voice mapping work.
-13. Use `.codex/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
-14. Use `.codex/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
-15. Use `.codex/skills/planning-board/` for `Hussh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
-16. Use `.codex/skills/agent-orchestration-governance/` when changing repo-scoped custom agents, `.codex/config.toml` agent limits, or delegation authority and handoff rules.
+12. Use `.codex/skills/uat-scoped-deploy/` for scoped UAT deploys and Cloud Run region/provenance proof.
+13. Use `.codex/skills/frontend-native-surface-mapper/` before route/API/native/plugin/voice mapping work.
+14. Use `.codex/skills/frontend-cache-coherence/` for warm-cache UX, TTL, stale background refresh, and reviewer-backed screen cache proof.
+15. Use `.codex/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
+16. Use `.codex/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
+17. Use `.codex/skills/planning-board/` for `Hussh Engineering Core` board work and `.codex/skills/comms-community/` for public/community explanation workflows.
+18. Use `.codex/skills/agent-orchestration-governance/` when changing repo-scoped custom agents, `.codex/config.toml` agent limits, or delegation authority and handoff rules.
+19. Use [hussh-code-persona.md](./hussh-code-persona.md) as the durable engineering persona contract before turning founder-language or product non-deviation guidance into skill or agent policy.
 
 If a developer has not configured MCP yet:
 

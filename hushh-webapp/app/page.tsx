@@ -21,6 +21,9 @@ function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectPath = searchParams.get("redirect") || "";
+  const loginUrl = redirectPath
+    ? `${ROUTES.LOGIN}?redirect=${encodeURIComponent(redirectPath)}`
+    : ROUTES.LOGIN;
 
   const { user, loading } = useAuth();
   const [step, setStep] = useState<HomeStep | null>(null);
@@ -103,15 +106,15 @@ function HomeContent() {
           authState={user ? "authenticated" : "anonymous"}
           dataState="loaded"
         />
-        <IntroStep onNext={() => setStep("preview")} />
+        <IntroStep
+          onNext={() => setStep("preview")}
+          onLogin={() => router.push(loginUrl)}
+        />
       </>
     );
   }
 
   if (step === "preview") {
-    const loginUrl = redirectPath
-      ? `${ROUTES.LOGIN}?redirect=${encodeURIComponent(redirectPath)}`
-      : ROUTES.LOGIN;
     return (
       <>
         <NativeTestBeacon

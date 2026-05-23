@@ -206,7 +206,30 @@ UAT and production now use the same frontend runtime contract shape:
      --report-path /tmp/prod-backup-posture-report.json
    ```
 
-   This checker requires ADC-capable credentials (`gcloud auth application-default login`) or a service account credential source.
+  This checker requires ADC-capable credentials (`gcloud auth application-default login`) or a service account credential source.
+
+5. **Configure RIA marketplace investor replenisher** (UAT first)
+
+   Provision or update the Cloud Run Job plus Cloud Scheduler trigger that
+   refreshes public SEC-backed investor discovery rows every 8 hours:
+
+   ```bash
+   PROJECT_ID=hushh-pda-uat REGION=us-central1 \
+     bash deploy/marketplace/setup_investor_replenisher_scheduler.sh
+   ```
+
+   Run a one-off seed after UAT deploy:
+
+   ```bash
+   gcloud run jobs execute marketplace-investor-replenisher \
+     --project hushh-pda-uat \
+     --region us-central1 \
+     --wait
+   ```
+
+   The job reuses the deployed `consent-protocol` image, writes only
+   official/public investor reference rows into `investor_profiles`, and logs
+   run counts in `marketplace_investor_replenisher_runs`.
 
 ---
 

@@ -16,6 +16,7 @@ import { BrandMark, Icon } from "@/lib/morphy-ux/ui";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
+import { AuthLegalFooter } from "@/components/onboarding/auth-legal-footer";
 import { AuthLegalDialog } from "@/components/onboarding/AuthLegalDialog";
 import {
   isOnboardingFlowActiveCookieEnabled,
@@ -532,11 +533,11 @@ export function AuthStep({
         }
       >
         <header className="flex-none text-center">
-          <BrandMark label="Kai" size={compact ? "sm" : "md"} className="mx-auto" />
+          <BrandMark size={compact ? "sm" : "md"} unframed className="mx-auto" />
           {compact ? (
             <>
               <h1 className="mt-6 text-[clamp(1.75rem,5.8vw,2.35rem)] font-black tracking-tight leading-[1.12]">
-                Sign in to Kai
+                Sign in to One
               </h1>
               <p className="mx-auto mt-3 max-w-[17.5rem] text-sm leading-relaxed text-muted-foreground">
                 Continue with your preferred provider.
@@ -545,7 +546,7 @@ export function AuthStep({
           ) : (
             <>
               <h1 className="mt-8 text-[clamp(2.2rem,7vw,3rem)] font-black tracking-tight leading-[1.08]">
-                Meet Kai,
+                Meet One,
                 <br />
                 Your Personal
                 <br />
@@ -584,27 +585,7 @@ export function AuthStep({
           </div>
         </section>
 
-        <footer className={compact ? "flex-none pt-4" : "flex-none pt-3"}>
-          <p className="mx-auto max-w-[18.75rem] text-center text-[11px] leading-normal text-muted-foreground/80">
-            By continuing, you agree to Kai&apos;s{" "}
-            <button
-              type="button"
-              onClick={() => openLegalDoc("terms")}
-              className="font-semibold text-foreground underline underline-offset-2 transition-opacity hover:opacity-70"
-            >
-              Terms
-            </button>{" "}
-            and{" "}
-            <button
-              type="button"
-              onClick={() => openLegalDoc("privacy")}
-              className="font-semibold text-foreground underline underline-offset-2 transition-opacity hover:opacity-70"
-            >
-              Privacy Policy
-            </button>
-            .
-          </p>
-        </footer>
+        <AuthLegalFooter compact={compact} onOpenLegalDoc={openLegalDoc} />
       </div>
       <AuthLegalDialog
         docType={activeLegalDoc}
