@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { buildStructuredScreenContext } from "@/lib/voice/screen-context-builder";
+import {
+  ARRAY_DIMENSION_CAP_ERROR,
+  STRUCTURED_CONTEXT_ARRAY_CAP,
+  buildStructuredScreenContext,
+  enforceArrayDimensionCap,
+} from "@/lib/voice/screen-context-builder";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import {
   clearVoiceSurfaceMetadata,
@@ -97,6 +102,52 @@ describe("buildStructuredScreenContext", () => {
     expect(context.route.page_title).toBe("Profile Settings");
     expect(context.ui.visible_modules).toEqual(
       expect.arrayContaining(["Support Panel", "Gmail Connector", "Session Controls"])
+    );
+  });
+
+  it("caps multi-source context arrays before they enter the voice planner payload", () => {
+    const oversizedActions = Array.from({ length: 12 }, (_, index) => ({
+      id: `action_${index}`,
+      label: `Action ${index}`,
+    }));
+    const capResult = enforceArrayDimensionCap(oversizedActions);
+
+    expect(capResult.isValidAllocation).toBe(false);
+    expect(capResult.errorLabel).toBe(ARRAY_DIMENSION_CAP_ERROR);
+    expect(capResult.items).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
+
+    publishVoiceSurfaceMetadata("test_surface", {
+      actions: oversizedActions,
+      availableActions: Array.from(
+        { length: 12 },
+        (_, index) => `Surface action ${index}`
+      ),
+      visibleModules: Array.from(
+        { length: 12 },
+        (_, index) => `Surface module ${index}`
+      ),
+    });
+
+    const context = buildStructuredScreenContext({
+      appRuntimeState: makeRuntimeState("/kai", "kai_home"),
+      voiceContext: {
+        available_actions: Array.from(
+          { length: 12 },
+          (_, index) => `Raw action ${index}`
+        ),
+        visible_modules: Array.from(
+          { length: 12 },
+          (_, index) => `Raw module ${index}`
+        ),
+      },
+    });
+
+    expect(context.surface.actions).toHaveLength(STRUCTURED_CONTEXT_ARRAY_CAP);
+    expect(context.ui.available_actions.length).toBeLessThanOrEqual(
+      STRUCTURED_CONTEXT_ARRAY_CAP
+    );
+    expect(context.ui.visible_modules.length).toBeLessThanOrEqual(
+      STRUCTURED_CONTEXT_ARRAY_CAP
     );
   });
 
