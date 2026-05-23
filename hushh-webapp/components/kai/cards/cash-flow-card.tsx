@@ -1,236 +1,76 @@
-// components/kai/cards/cash-flow-card.tsx
-
-/**
- * Cash Flow Card - Cash activity summary
- * 
- * Features:
- * - Shows opening and closing cash balances
- * - Displays deposits, withdrawals, and net activity
- * - Color-coded positive/negative flows
- * - Responsive and mobile-friendly
- */
-
 "use client";
 
-import { Banknote, ArrowDownLeft, ArrowUpRight, TrendingUp, TrendingDown } from "lucide-react";
+import { useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
-import { Icon } from "@/lib/morphy-ux/ui";
 
-// =============================================================================
-// TYPES
-// =============================================================================
-
-export interface CashFlow {
-  opening_balance?: number;
-  deposits?: number;
-  withdrawals?: number;
-  dividends_received?: number;
-  interest_received?: number;
-  trades_proceeds?: number;
-  trades_cost?: number;
-  fees_paid?: number;
-  closing_balance?: number;
+interface AllocationStripProps {
+  readonly cashPct?: number;
+  readonly equitiesPct?: number;
+  readonly bondsPct?: number;
+  readonly className?: string;
 }
 
-interface CashFlowCardProps {
-  cashFlow?: CashFlow;
-  className?: string;
-}
+type Segment = {
+  readonly label: string;
+  readonly value: number;
+  readonly className: string;
+};
 
-// =============================================================================
-// HELPER FUNCTIONS
-// =============================================================================
+const clamp = (value: number) => Math.max(0, Math.min(100, value));
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
+export function AllocationStrip({ cashPct, equitiesPct, bondsPct, className }: AllocationStripProps) {
+  const { segments, totalValue } = useMemo(() => {
+    const raw: Segment[] = [
+      { label: "Equities", value: clamp(equitiesPct ?? 0), className: "bg-foreground" },
+      { label: "Bonds", value: clamp(bondsPct ?? 0), className: "bg-[var(--brand-500)]" },
+      { label: "Cash", value: clamp(cashPct ?? 0), className: "bg-muted-foreground/30" },
+    ];
 
-// =============================================================================
-// FLOW ROW
-// =============================================================================
+    const total = raw.reduce((sum, s) => sum + s.value, 0);
+    
+    return {
+      segments: total > 0 
+        ? raw.map(s => ({ ...s, value: (s.value / total) * 100 }))
+        : [{ label: "Equities", value: 33.3, className: "bg-foreground" }, { label: "Bonds", value: 33.3, className: "bg-[var(--brand-500)]" }, { label: "Cash", value: 33.4, className: "bg-muted-foreground/30" }],
+      totalValue: total
+    };
+  }, [bondsPct, cashPct, equitiesPct]);
 
-interface FlowRowProps {
-  label: string;
-  value: number;
-  type?: "positive" | "negative" | "neutral";
-  highlight?: boolean;
-  icon?: React.ReactNode;
-}
-
-function FlowRow({ label, value, type = "neutral", highlight, icon }: FlowRowProps) {
-  const colorClass = type === "positive" 
-    ? "text-emerald-500" 
-    : type === "negative" 
-      ? "text-red-500" 
-      : "text-foreground";
-  
   return (
-    <div className={cn(
-      "flex justify-between items-center",
-      highlight ? "py-2" : "py-1"
-    )}>
-      <div className="flex items-center gap-2">
-        {icon}
-        <span className={cn(
-          "text-sm",
-          highlight ? "font-medium text-foreground" : "text-muted-foreground"
-        )}>
-          {label}
-        </span>
+    <div className={cn("space-y-3 rounded-xl border border-border/60 bg-card/70 p-4 shadow-sm", className)}>
+      <div className="flex justify-between items-center">
+        <h3 className="text-[11px] font-black uppercase tracking-[0.16em] text-muted-foreground">Allocation</h3>
+        {totalValue === 0 && <span className="text-[10px] text-amber-500 italic">No data available</span>}
       </div>
-      <span className={cn(
-        "text-sm font-medium",
-        highlight ? "text-lg font-bold" : "",
-        colorClass
-      )}>
-        {type === "positive" && value > 0 && "+"}
-        {type === "negative" && value > 0 && "-"}
-        {formatCurrency(Math.abs(value))}
-      </span>
+      
+      <div 
+        className="h-3 w-full overflow-hidden rounded-full bg-muted flex border border-border/20"
+        role="progressbar"
+        aria-label="Portfolio Allocation"
+        aria-valuemin={0}
+        aria-valuemax={100}
+      >
+        {segments.map((s) => (
+          <div
+            key={s.label}
+            className={cn(s.className, "transition-all duration-700 ease-in-out hover:opacity-80 cursor-pointer")}
+            style={{ width: `${s.value}%` }}
+            aria-valuenow={s.value}
+            title={`${s.label}: ${s.value.toFixed(1)}%`}
+          />
+        ))}
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        {segments.map((s) => (
+          <div key={s.label} className="flex items-center gap-1.5 truncate">
+            <span className={cn("h-2 w-2 rounded-full ring-1 ring-background/20", s.className)} />
+            <span className="truncate">
+              {s.label} {s.value.toFixed(0)}%
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
-
-// =============================================================================
-// MAIN COMPONENT
-// =============================================================================
-
-export function CashFlowCard({ cashFlow, className }: CashFlowCardProps) {
-  if (!cashFlow) {
-    return null;
-  }
-
-  const {
-    opening_balance = 0,
-    deposits = 0,
-    withdrawals = 0,
-    dividends_received = 0,
-    interest_received = 0,
-    trades_proceeds = 0,
-    trades_cost = 0,
-    fees_paid = 0,
-    closing_balance = 0,
-  } = cashFlow;
-
-  // Calculate net activity
-  const netActivity = closing_balance - opening_balance;
-  const isPositiveNet = netActivity >= 0;
-
-  // Check if we have meaningful data
-  const hasData = opening_balance > 0 || closing_balance > 0 || 
-    deposits > 0 || withdrawals > 0;
-
-  if (!hasData) {
-    return null;
-  }
-
-  return (
-    <Card variant="none" effect="glass" showRipple={false} className={className}>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <Icon icon={Banknote} size="md" />
-          Cash Flow
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-1">
-        {/* Opening Balance */}
-        <FlowRow 
-          label="Opening Balance" 
-          value={opening_balance}
-        />
-        
-        {/* Credits */}
-        {deposits > 0 && (
-          <FlowRow 
-            label="Deposits" 
-            value={deposits}
-            type="positive"
-            icon={<Icon icon={ArrowDownLeft} size="sm" className="text-emerald-500" />}
-          />
-        )}
-        {dividends_received > 0 && (
-          <FlowRow 
-            label="Dividends" 
-            value={dividends_received}
-            type="positive"
-          />
-        )}
-        {interest_received > 0 && (
-          <FlowRow 
-            label="Interest" 
-            value={interest_received}
-            type="positive"
-          />
-        )}
-        {trades_proceeds > 0 && (
-          <FlowRow 
-            label="Trade Proceeds" 
-            value={trades_proceeds}
-            type="positive"
-          />
-        )}
-        
-        {/* Debits */}
-        {withdrawals > 0 && (
-          <FlowRow 
-            label="Withdrawals" 
-            value={withdrawals}
-            type="negative"
-            icon={<Icon icon={ArrowUpRight} size="sm" className="text-red-500" />}
-          />
-        )}
-        {trades_cost > 0 && (
-          <FlowRow 
-            label="Trade Costs" 
-            value={trades_cost}
-            type="negative"
-          />
-        )}
-        {fees_paid > 0 && (
-          <FlowRow 
-            label="Fees" 
-            value={fees_paid}
-            type="negative"
-          />
-        )}
-        
-        {/* Net Activity */}
-        <div className="pt-2 mt-2 border-t border-border">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              {isPositiveNet ? (
-                <Icon icon={TrendingUp} size="md" className="text-emerald-500" />
-              ) : (
-                <Icon icon={TrendingDown} size="md" className="text-red-500" />
-              )}
-              <span className="text-sm text-muted-foreground">Net Activity</span>
-            </div>
-            <span className={cn(
-              "text-sm font-medium",
-              isPositiveNet ? "text-emerald-500" : "text-red-500"
-            )}>
-              {isPositiveNet ? "+" : ""}{formatCurrency(netActivity)}
-            </span>
-          </div>
-        </div>
-        
-        {/* Closing Balance */}
-        <div className="pt-2 border-t border-border">
-          <FlowRow 
-            label="Closing Balance" 
-            value={closing_balance}
-            highlight
-          />
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-export default CashFlowCard;
