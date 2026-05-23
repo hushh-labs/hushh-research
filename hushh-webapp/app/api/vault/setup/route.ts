@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import {
+  invalidJsonPayloadResponse,
+  readJsonObject,
+} from "@/app/api/_utils/json-body";
 import { validateFirebaseToken } from "@/lib/auth/validate";
 import { isDevelopment, logSecurityEvent } from "@/lib/config";
 
@@ -24,7 +28,19 @@ type VaultWrapper = {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = (await readJsonObject(request)) as {
+      userId?: string;
+      vaultKeyHash?: string;
+      primaryMethod?: string;
+      primaryWrapperId?: string;
+      recoveryEncryptedVaultKey?: string;
+      recoverySalt?: string;
+      recoveryIv?: string;
+      wrappers?: VaultWrapper[];
+    } | null;
+    if (!body) {
+      return invalidJsonPayloadResponse();
+    }
     const {
       userId,
       vaultKeyHash,
@@ -34,16 +50,7 @@ export async function POST(request: NextRequest) {
       recoverySalt,
       recoveryIv,
       wrappers,
-    } = body as {
-      userId?: string;
-      vaultKeyHash?: string;
-      primaryMethod?: string;
-      primaryWrapperId?: string;
-      recoveryEncryptedVaultKey?: string;
-      recoverySalt?: string;
-      recoveryIv?: string;
-      wrappers?: VaultWrapper[];
-    };
+    } = body;
 
     if (
       !userId ||
@@ -57,14 +64,14 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json(
         { error: "Missing required vault state fields" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (!wrappers.some((wrapper) => wrapper.method === "passphrase")) {
       return NextResponse.json(
         { error: "Passphrase wrapper is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -74,7 +81,7 @@ export async function POST(request: NextRequest) {
       if (!validation.valid && !isDevelopment()) {
         return NextResponse.json(
           { error: "Authentication failed", code: "AUTH_INVALID" },
-          { status: 401 }
+          { status: 401 },
         );
       }
     }
@@ -108,7 +115,7 @@ export async function POST(request: NextRequest) {
       const errorText = await response.text();
       return NextResponse.json(
         { error: errorText || "Backend error" },
-        { status: response.status }
+        { status: response.status },
       );
     }
 
@@ -119,7 +126,7 @@ export async function POST(request: NextRequest) {
     console.error("Vault setup error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

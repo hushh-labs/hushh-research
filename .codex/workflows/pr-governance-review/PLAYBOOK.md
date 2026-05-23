@@ -9,46 +9,55 @@ Review the current PR head, not stale history, and decide whether the change is 
 ## Steps
 
 1. Start with `pr-governance-review`.
-2. Run `python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo <repo> --pr <number> --text`.
-3. For batched review, run `python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo <repo> --prs <n1,n2,...> --text` first and use that output to identify overlap, duplication, and safe batching boundaries before looking at merge order.
-4. Treat helper-detected main-overlap and parallel-architecture findings as first-class review inputs, not optional notes. Exact file overlap is not the only duplication signal that matters.
-5. Lock the review to the current head SHA and current `CI Status Gate` result.
-6. Use a two-pass review model on every lane:
+2. Run the delegation router before final review selection:
+   `python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt "<user request>" --paths "<changed paths>" --text`.
+3. Spawn/read the returned read-only evidence lanes when the task spans multiple PRs, sensitive surfaces, or any async train. Record the lanes used or why they were unavailable; the writer-lane exception does not make evidence lanes writable.
+4. For a single PR, run `python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo <repo> --pr <number> --text`.
+5. For batched, backlog, repass, or train review, use `.codex/skills/pr-governance-review/references/pr-train-review-sop.md` and refresh the hybrid live report before choosing trains:
+   `python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --selection-order oldest --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md`.
+6. Exclude PRs with failing, missing, stale, or auxiliary-failing checks from executable trains. Put them in `Check Failure Holds` unless the task is explicitly CI repair.
+7. Build trains from hard edges: exact files, lockfiles, generated contracts, schema/migrations, sensitive runtime families, local dirty-file overlap, stacked/conflicting state, and queue/main dependencies.
+8. Run independent trains in parallel through broad evidence lanes; sequence only PRs that share a hard edge. The train is the delegation unit, not the individual PR, and the five-worker pool refills with the next oldest non-touching train when a lane finishes or blocks.
+9. Treat helper-detected main-overlap and parallel-architecture findings as first-class review inputs, not optional notes. Exact file overlap is not the only duplication signal that matters.
+10. Lock the review to the current head SHA and current `CI Status Gate` result.
+11. Use a two-pass review model on every lane:
    - Pass 1: verify against current `main`, the current PR head, and product architecture truth before taking action
    - Pass 2: verify the authoritative workflow chain after action, including PR validation, queue validation, and main post-merge smoke where applicable
-7. Assess findings in blocker-first order:
+12. Assess findings in blocker-first order:
    - north-star drift
    - trust-boundary regression
    - caller/proxy/backend mismatch
    - deploy/runtime reproducibility drift
    - proof gaps
    - main-overlap / parallel-architecture drift
-8. Choose exactly one lane:
+13. Choose exactly one lane:
    - `merge_now`
    - `patch_then_merge`
    - `block`
-9. Choose exactly one action flow before writing to GitHub:
+14. Choose exactly one action flow before writing to GitHub:
    - `review_only`: analyze and report, no GitHub write.
    - `comment_only`: post or edit a comment/review, no approval or merge.
    - `approve_only`: approve the current head, then stop before merge.
    - `approve_then_merge`: approve, trigger merge/auto-merge/merge queue, then monitor through terminal state.
    - `patch_then_merge`: patch first, rerun checks, then approve and merge only after the updated head is clean.
-10. Do not infer merge from approval. "Approve" means `approve_only`; "merge", "land", "queue", or "complete the PR job end-to-end" means `approve_then_merge` when the lane is `merge_now`.
-11. If the lane is `patch_then_merge`, do not merge the contributor head directly. Apply the smallest maintainer integration patch first, rerun checks, then communicate the adopted fix back to the author.
-12. Prefer patching the contributor branch directly when maintainers are allowed to modify it. Use a short-lived `temp/pr-<number>-patch` branch only when direct patching is not possible or isolated maintainer staging is safer.
-13. In a batch, do not recommend “merge all healthy PRs” unless the review explicitly proves there is no meaningful overlap or ordering dependency between them.
-14. Before triggering merge, auto-merge, or merge-queue entry, produce the contributor-facing note for the selected lane. Do not post it yet.
-15. When replying on the PR, use natural, concise, founder-facing technical language. For low-risk approvals, prefer two or three compact paragraphs: approval SHA, what was accepted, why it matters, current gate/mergeability/lean-risk/overlap status, and the recheck condition if the branch moves.
-16. Use fuller sections only when they help future readers understand a patch, blocker, trust boundary, or related surface.
-17. Once the action flow is finalized, do not ask for a second confirmation before posting the contributor-facing note. The note should be posted automatically after the monitored merge result reaches the required terminal state when the selected flow includes merge.
-18. Do not stop monitoring after `gh pr merge`, `gh pr merge --auto`, queue entry, or green PR checks. Stay attached until the authoritative workflow chain is terminal for that PR:
+15. Do not infer merge from approval. "Approve" means `approve_only`; "merge", "land", "queue", or "complete the PR job end-to-end" means `approve_then_merge` when the lane is `merge_now`.
+16. If the lane is `patch_then_merge`, do not merge the contributor head directly. Apply the smallest maintainer integration patch first, rerun checks, then communicate the adopted fix back to the author.
+17. Prefer patching the contributor branch directly when maintainers are allowed to modify it. Use a short-lived `temp/pr-<number>-patch` branch only when direct patching is not possible or isolated maintainer staging is safer.
+18. In a batch, do not recommend “merge all healthy PRs” unless the review explicitly proves there is no meaningful overlap or ordering dependency between them.
+19. Before triggering merge, auto-merge, or merge-queue entry, produce the contributor-facing note for the selected lane. Do not post it yet.
+20. When replying on the PR, use the lane-to-comment map in `.codex/skills/pr-governance-review/references/comment-and-report-contract.md`. Edit an existing maintainer record when possible.
+21. Use natural, concise, founder-facing technical language. For low-risk approvals, prefer two or three compact paragraphs: approval SHA, what was accepted, why it matters, current gate/mergeability/lean-risk/overlap status, and the recheck condition if the branch moves.
+22. Use fuller sections only when they help future readers understand a patch, blocker, trust boundary, or related surface.
+23. Once the action flow is finalized, do not ask for a second confirmation before posting the contributor-facing note. The note should be posted automatically after the monitored merge result reaches the required terminal state when the selected flow includes merge.
+24. Do not stop monitoring after `gh pr merge`, `gh pr merge --auto`, queue entry, or green PR checks. Stay attached until the authoritative workflow chain is terminal for that PR:
    - `Queue Validation` terminal when merge queue is involved
    - `Main Post-Merge Smoke` terminal if the PR lands on `main`
-19. Before the final response, update the active working report when one exists. For `tmp/pr-governance-live-report.md`, this means updating the progress ledger, per-PR register entries, head SHAs, lanes, batch counts, recommended next order, and terminal queue/smoke evidence.
-20. If the working report has a live update checklist, execute it before closing the turn.
-21. Treat early stop as process drift. Codex should not need a user reminder to continue monitoring or refresh the working record once it initiated the merge path.
-22. Hand off only when the blocker lives inside another owner family.
-23. Do not imply approval or recommend merge while blocker findings remain on the current merge candidate.
+25. Return the parent worktree to the recorded developer branch after any temporary PR checkout, detached HEAD, review worktree, or queue-monitoring branch movement.
+26. Before the final response, update the active working report when one exists. For `tmp/pr-governance-live-report.md`, this means updating the progress ledger, per-PR register entries, head SHAs, lanes, batch counts, recommended next order, and terminal queue/smoke evidence.
+27. If the working report has a live update checklist, execute it before closing the turn.
+28. Treat early stop as process drift. Codex should not need a user reminder to continue monitoring or refresh the working record once it initiated the merge path.
+29. Hand off only when the blocker lives inside another owner family.
+30. Do not imply approval or recommend merge while blocker findings remain on the current merge candidate.
 
 ## Common Drift Risks
 

@@ -15,7 +15,7 @@ import uuid
 from typing import Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, verify_user_id_match
 from hushh_mcp.consent.token import issue_token
@@ -33,11 +33,11 @@ router = APIRouter()
 
 
 class GrantConsentRequest(BaseModel):
-    user_id: str
-    scopes: List[str] = [
-        "attr.financial.*",
-        "agent.kai.analyze",
-    ]
+    user_id: str = Field(min_length=1, max_length=128)
+    scopes: List[str] = Field(
+        default_factory=lambda: ["attr.financial.*", "agent.kai.analyze"],
+        max_length=20,
+    )
 
 
 class GrantConsentResponse(BaseModel):
@@ -92,13 +92,13 @@ async def grant_consent(
             )
 
         except Exception as e:
-            logger.error(f"Failed to issue token for scope {scope_str}: {e}")
+            logger.error("Failed to issue token for scope %s: %s", scope_str, e)
             raise HTTPException(status_code=400, detail=f"Invalid scope: {scope_str}")
 
     if not tokens:
         raise HTTPException(status_code=400, detail="No valid scopes provided")
 
-    logger.info(f"[Kai] Consent granted for user: {request.user_id}")
+    logger.info("[Kai] Consent granted for user: %s", request.user_id)
 
     return GrantConsentResponse(
         consent_id=consent_id,
