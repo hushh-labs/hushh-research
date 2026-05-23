@@ -11,6 +11,12 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[4]
 SKILLS_ROOT = REPO_ROOT / ".codex/skills"
 WORKFLOWS_ROOT = REPO_ROOT / ".codex/workflows"
+MASTER_SKILL_MAX_LINES = 110
+SPOKE_SKILL_MAX_LINES = 85
+REFERENCE_MAX_LINES = 220
+READ_FIRST_MAX_ITEMS = 8
+REQUIRED_CHECKS_MAX_COMMANDS = 8
+REFERENCE_LINE_ALLOWLIST: set[str] = set()
 REQUIRED_SKILL_SECTIONS = [
     "Purpose and Trigger",
     "Coverage and Ownership",
@@ -58,6 +64,7 @@ EXPECTED_WORKFLOW_IDS = [
     "repo-orientation",
     "new-feature-tri-flow",
     "frontend-native-surface-map",
+    "frontend-cache-coherence",
     "api-contract-change",
     "pr-governance-review",
     "analytics-observability-review",
@@ -65,6 +72,7 @@ EXPECTED_WORKFLOW_IDS = [
     "ci-watch-and-heal",
     "data-model-audit",
     "github-contribution-governance",
+    "uat-scoped-deploy",
     "pre-pr-readiness",
     "security-consent-audit",
     "mobile-parity-check",
@@ -260,12 +268,60 @@ def validate_verification_bundle(value: Any, origin: str, errors: list[str]) -> 
         errors.append(f"{origin}: verification bundle `tests` must be a string list")
 
 
+def line_count(path: Path) -> int:
+    return len(path.read_text(encoding="utf-8").splitlines())
+
+
+def compact_kernel_label(role: str) -> str:
+    return "master" if role == "owner" else "spoke"
+
+
+def compact_kernel_line_budget(role: str) -> int:
+    return MASTER_SKILL_MAX_LINES if role == "owner" else SPOKE_SKILL_MAX_LINES
+
+
+def compact_kernel_budget_errors(
+    *,
+    origin: str,
+    role: str,
+    skill_lines: int,
+    read_first_count: int,
+    required_check_count: int,
+) -> list[str]:
+    errors: list[str] = []
+    max_lines = compact_kernel_line_budget(role)
+    if role in {"owner", "spoke"} and skill_lines > max_lines:
+        label = compact_kernel_label(role)
+        errors.append(
+            f"{origin}: {label} compact-kernel budget exceeded: {skill_lines} lines > {max_lines}; move durable detail to references/scripts/workflows"
+        )
+    if read_first_count > READ_FIRST_MAX_ITEMS:
+        errors.append(
+            f"{origin}: Read First budget exceeded: {read_first_count} items > {READ_FIRST_MAX_ITEMS}; keep only canonical entrypoints"
+        )
+    if required_check_count > REQUIRED_CHECKS_MAX_COMMANDS:
+        errors.append(
+            f"{origin}: Required Checks budget exceeded: {required_check_count} commands > {REQUIRED_CHECKS_MAX_COMMANDS}; move scenarios into smoke scripts"
+        )
+    return errors
+
+
+def reference_budget_error(origin: str, reference_lines: int) -> str | None:
+    if reference_lines <= REFERENCE_MAX_LINES:
+        return None
+    return (
+        f"{origin}: reference budget exceeded: {reference_lines} lines > {REFERENCE_MAX_LINES}; "
+        "split into focused references or move repeatable logic into scripts"
+    )
+
+
 def collect_skill_bodies() -> tuple[list[dict[str, Any]], list[str]]:
     errors: list[str] = []
     skills: list[dict[str, Any]] = []
     for skill_file in sorted(SKILLS_ROOT.glob("*/SKILL.md")):
         rel = skill_file.relative_to(REPO_ROOT)
         text = skill_file.read_text(encoding="utf-8")
+        skill_line_count = len(text.splitlines())
         frontmatter = parse_frontmatter(text)
         sections = parse_sections(text)
 
@@ -294,6 +350,17 @@ def collect_skill_bodies() -> tuple[list[dict[str, Any]], list[str]]:
             errors.append(f"{rel}: Coverage and Ownership must declare non-owned surfaces")
         if "1." not in sections["Do Not Use"]:
             errors.append(f"{rel}: Do Not Use must contain at least one numbered item")
+        read_first_items = extract_backticks(sections["Read First"])
+        required_checks = parse_required_checks(sections["Required Checks"])
+        errors.extend(
+            compact_kernel_budget_errors(
+                origin=str(rel),
+                role=coverage["role"],
+                skill_lines=skill_line_count,
+                read_first_count=len(read_first_items),
+                required_check_count=len(required_checks),
+            )
+        )
 
         for candidate in extract_code_paths(text):
             if candidate.startswith("npm run "):
@@ -313,10 +380,22 @@ def collect_skill_bodies() -> tuple[list[dict[str, Any]], list[str]]:
                 "owner_family": coverage["owner_family"],
                 "owned_surfaces": [value.rstrip("/") for value in coverage["owned_surfaces"]],
                 "non_owned_surfaces": [value.rstrip("/") for value in coverage["non_owned_surfaces"]],
-                "required_checks": parse_required_checks(sections["Required Checks"]),
+                "required_checks": required_checks,
+                "line_count": skill_line_count,
             }
         )
     return skills, errors
+
+
+def validate_reference_budgets(errors: list[str]) -> None:
+    for path in sorted(SKILLS_ROOT.glob("*/references/*.md")):
+        rel = str(path.relative_to(REPO_ROOT))
+        if rel in REFERENCE_LINE_ALLOWLIST:
+            continue
+        count = line_count(path)
+        error = reference_budget_error(rel, count)
+        if error:
+            errors.append(error)
 
 
 def validate_skill_manifests(skills: list[dict[str, Any]], errors: list[str]) -> dict[str, dict[str, Any]]:
@@ -522,6 +601,10 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
     pr_comment_contract = (
         SKILLS_ROOT / "pr-governance-review" / "references" / "comment-and-report-contract.md"
     )
+    pr_train_sop = (
+        SKILLS_ROOT / "pr-governance-review" / "references" / "pr-train-review-sop.md"
+    )
+    pr_workflow_playbook = WORKFLOWS_ROOT / "pr-governance-review" / "PLAYBOOK.md"
     pr_operator_question_fixtures = (
         SKILLS_ROOT / "pr-governance-review" / "references" / "operator-question-fixtures.json"
     )
@@ -626,6 +709,28 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
 
     if pr_governance_skill.exists():
         pr_skill_text = pr_governance_skill.read_text(encoding="utf-8")
+        pr_reference_paths = [
+            pr_operator_contract,
+            pr_comment_contract,
+            pr_train_sop,
+            SKILLS_ROOT / "pr-governance-review" / "references" / "blocker-gates.md",
+            SKILLS_ROOT / "pr-governance-review" / "references" / "review-axes.md",
+        ]
+        pr_contract_text = pr_skill_text + "\n" + "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in pr_reference_paths
+            if path.exists()
+        )
+        required_pr_skill_phrases = [
+            "Default PR-Train Mode",
+            "Use the async PR-train method as the default",
+            "Run the delegation router at intake",
+        ]
+        for phrase in required_pr_skill_phrases:
+            if phrase not in pr_skill_text:
+                errors.append(
+                    f"{pr_governance_skill.relative_to(REPO_ROOT)}: missing PR governance skill phrase `{phrase}`"
+                )
         required_pr_phrases = [
             "contract_set",
             "duplicate_group",
@@ -653,24 +758,76 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
             "private wiki evidence stays local-only",
         ]
         for phrase in required_pr_phrases:
-            if phrase not in pr_skill_text:
+            if phrase not in pr_contract_text:
                 errors.append(
-                    f"{pr_governance_skill.relative_to(REPO_ROOT)}: missing PR governance contract phrase `{phrase}`"
+                    f"{pr_governance_skill.relative_to(REPO_ROOT)} references: missing PR governance contract phrase `{phrase}`"
+                )
+
+    if pr_train_sop.exists():
+        train_sop_text = pr_train_sop.read_text(encoding="utf-8")
+        required_train_sop_phrases = [
+            "Async Train Default",
+            "This SOP is the canonical behavior source for multi-PR governance",
+            "Move failing, missing, stale, or auxiliary-failing checks into",
+            "Start one read-only evidence lane per independent train family",
+            "Run independent trains in parallel",
+            "N-Train Parallel Model",
+            "process PRs one after another in ascending PR creation time",
+            "Before requesting changes, explicitly evaluate whether the useful contribution",
+            "Pre-Wave Operator Question",
+            "Dynamic Decision Wave Sizing",
+            "If this order conflicts with another PR-governance reference",
+        ]
+        for phrase in required_train_sop_phrases:
+            if phrase not in train_sop_text:
+                errors.append(
+                    f"{pr_train_sop.relative_to(REPO_ROOT)}: missing PR train SOP phrase `{phrase}`"
+                )
+
+    if pr_workflow_playbook.exists():
+        playbook_text = pr_workflow_playbook.read_text(encoding="utf-8")
+        required_pr_playbook_phrases = [
+            "Run the delegation router before final review selection",
+            "Spawn/read the returned read-only evidence lanes",
+            "For batched, backlog, repass, or train review",
+            "Exclude PRs with failing, missing, stale, or auxiliary-failing checks",
+            "Run independent trains in parallel through broad evidence lanes",
+            "writer-lane exception does not make evidence lanes writable",
+            "use the lane-to-comment map",
+        ]
+        for phrase in required_pr_playbook_phrases:
+            if phrase not in playbook_text:
+                errors.append(
+                    f"{pr_workflow_playbook.relative_to(REPO_ROOT)}: missing PR workflow playbook phrase `{phrase}`"
                 )
 
     if pr_operator_contract.exists():
         operator_text = pr_operator_contract.read_text(encoding="utf-8")
         required_operator_phrases = [
             "Research Basis",
+            "All Async Trains",
+            "Question Before Wave",
+            "Recommended Wave Size",
+            "Why This Size",
+            "Exact PR Links",
+            "Comment/Edit Policy",
             "Decision Questions",
             "current truth",
             "recommended path",
             "risk if accepted blindly",
             "recommended option first",
+            "Pre-Wave Operator Question",
+            "Dynamic acknowledgement sizing",
             "Blind-merge risk",
             "Smallest proof",
             "After-Merge Kickoff",
+            "After-Wave Handoff",
             "Automatic next train",
+            "Train-to-subagent map",
+            "Check Failure Holds",
+            "Repass/correction waves must normalize editable maintainer records",
+            "Independent trains run in parallel through separate evidence lanes",
+            "Maintainer patch or harvest is evaluated before requested changes",
         ]
         for phrase in required_operator_phrases:
             if phrase not in operator_text:
@@ -683,8 +840,16 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
         required_comment_phrases = [
             "Prefer low-friction maintainer patching",
             "Edit the current maintainer record when possible",
+            "Repass/correction waves must normalize editable maintainer records",
             "Use changes-requested when the PR needs contributor clarity",
             "A maintainer harvest is not a merge approval",
+            "Lane To Comment Map",
+            "`merge_now`",
+            "`patch_then_merge`",
+            "`review_only`",
+            "`### Proof Needed` is allowed only inside `## Changes Requested`",
+            "Every `## Changes Requested` record must include exactly these public sections",
+            "After every state-changing wave, the chat handoff must include",
             "## Changes Requested: <blocker>",
             "## Merged: <contract or outcome>",
             "## Closed: <reason>",
@@ -777,6 +942,8 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
             "Decision Questions",
             "Risk if accepted blindly",
             "After-Merge Kickoff",
+            "All Async Trains",
+            "train_to_subagent_map",
             "pr_claim_changed_surface_mismatch",
             "new_export_without_app_or_backend_caller",
             "stacked_branch_diff_not_reviewable",
@@ -902,7 +1069,7 @@ def validate_truth_first_contract(errors: list[str]) -> None:
             errors.append(f"{FOUNDER_WIKI_AUDIT_SCRIPT}: missing product canon page `{phrase}`")
 
     required_founder_wiki_audit_phrases = [
-        "HUSSH_FOUNDER_WIKI_MCP_TOKEN",
+        "HUSHH_FOUNDER_WIKI_MCP_TOKEN",
         "tools/list",
         "resources/list",
         "wiki_list",
@@ -966,6 +1133,7 @@ def main() -> int:
     skills, errors = collect_skill_bodies()
     skill_manifests = validate_skill_manifests(skills, errors)
     validate_workflows(skill_manifests, errors)
+    validate_reference_budgets(errors)
     validate_special_skill_contracts(errors)
     validate_truth_first_contract(errors)
 

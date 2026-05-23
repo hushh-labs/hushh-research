@@ -9,7 +9,8 @@ import {
 } from "@/lib/services/consent-export-refresh-service";
 
 const TASK_KIND = "consent_export_refresh";
-const TASK_ROUTE = "/profile/pkm-agent-lab?tab=natural";
+const TASK_ROUTE = "/consents";
+const TASK_RUNNING_STALE_AFTER_MS = 90_000;
 
 class ConsentExportRefreshPausedError extends Error {
   constructor(userId: string) {
@@ -25,8 +26,12 @@ function taskIdForUser(userId: string): string {
 function describeJob(job: ConsentExportRefreshJob): string {
   const scopeLabel = job.grantedScope
     .replace(/^attr\./, "")
-    .replace(/^pkm\.read$/, "your Personal Knowledge Model");
-  return `Refreshing the encrypted shared export for ${scopeLabel}.`;
+    .replace(/\.\*$/, "")
+    .replace(/\*$/, "")
+    .replace(/^pkm\.read$/, "your saved data")
+    .replace(/[._-]+/g, " ")
+    .trim();
+  return `Refreshing approved sharing for ${scopeLabel}.`;
 }
 
 export class ConsentExportRefreshOrchestrator {
@@ -36,7 +41,7 @@ export class ConsentExportRefreshOrchestrator {
   static pauseForLocalAuthResume(params: { userId: string }): void {
     this.pauseRequestedByUser.add(params.userId);
     AppBackgroundTaskService.updateTask(taskIdForUser(params.userId), {
-      description: "Unlock your vault to resume refreshing encrypted shared exports.",
+      description: "Unlock your vault to resume updating approved sharing.",
       routeHref: TASK_ROUTE,
       metadata: {
         pausedForLocalAuth: true,
@@ -55,11 +60,24 @@ export class ConsentExportRefreshOrchestrator {
     if (existing) {
       return existing;
     }
-    const request = this.runInternal(params).finally(() => {
-      if (this.inFlightByUser.get(params.userId) === request) {
-        this.inFlightByUser.delete(params.userId);
-      }
-    });
+    const request = this.runInternal(params)
+      .catch((error) => {
+        const taskId = taskIdForUser(params.userId);
+        AppBackgroundTaskService.failTask(
+          taskId,
+          "Could not update approved sharing.",
+          "We could not finish updating approved sharing. It will retry after Vault unlock.",
+          {
+            failureKind:
+              error instanceof Error ? error.name || "Error" : "unknown",
+          },
+        );
+      })
+      .finally(() => {
+        if (this.inFlightByUser.get(params.userId) === request) {
+          this.inFlightByUser.delete(params.userId);
+        }
+      });
     this.inFlightByUser.set(params.userId, request);
     return request;
   }
@@ -76,16 +94,17 @@ export class ConsentExportRefreshOrchestrator {
       taskId,
       userId,
       kind: TASK_KIND,
-      title: "Refreshing shared encrypted exports",
+      title: "Updating approved sharing",
       description:
         jobCount === 1
-          ? "Refreshing 1 encrypted export you have already approved."
-          : `Refreshing ${jobCount} encrypted exports you have already approved.`,
+          ? "Refreshing 1 sharing permission you have already approved."
+          : `Refreshing ${jobCount} sharing permissions you have already approved.`,
       routeHref: TASK_ROUTE,
       metadata: {
         pendingJobCount: jobCount,
         initiatedBy: initiatedBy || "unlock_warm",
       },
+      runningStaleAfterMs: TASK_RUNNING_STALE_AFTER_MS,
     });
     return taskId;
   }
@@ -102,7 +121,7 @@ export class ConsentExportRefreshOrchestrator {
     });
     const taskId = taskIdForUser(params.userId);
     if (jobs.length === 0) {
-      AppBackgroundTaskService.completeTask(taskId, "Your shared encrypted exports are current.");
+      AppBackgroundTaskService.completeTask(taskId, "Your approved sharing is up to date.");
       return;
     }
 
@@ -182,10 +201,7 @@ export class ConsentExportRefreshOrchestrator {
             throw error;
           }
           failureCount += 1;
-          const message =
-            error instanceof Error
-              ? error.message
-              : "Failed to refresh encrypted shared export.";
+          const message = "Could not update approved sharing.";
           await ConsentExportRefreshService.failJob({
             userId: params.userId,
             consentToken: job.consentToken,
@@ -197,7 +213,7 @@ export class ConsentExportRefreshOrchestrator {
     } catch (error) {
       if (error instanceof ConsentExportRefreshPausedError) {
         AppBackgroundTaskService.updateTask(taskId, {
-          description: "Unlock your vault to resume refreshing encrypted shared exports.",
+          description: "Unlock your vault to resume updating approved sharing.",
           routeHref: TASK_ROUTE,
           metadata: {
             pausedForLocalAuth: true,
@@ -217,16 +233,16 @@ export class ConsentExportRefreshOrchestrator {
     if (failureCount > 0) {
       AppBackgroundTaskService.failTask(
         taskId,
-        `${failureCount} encrypted export refresh${
-          failureCount === 1 ? "" : "es"
+        `${failureCount} approved sharing update${
+          failureCount === 1 ? "" : "s"
         } need another attempt.`,
         successCount > 0
-          ? `Refreshed ${successCount} export${
+          ? `Updated ${successCount} sharing permission${
               successCount === 1 ? "" : "s"
-            } and left ${failureCount} refresh${
-              failureCount === 1 ? "" : "es"
+            } and left ${failureCount} update${
+              failureCount === 1 ? "" : "s"
             } pending for retry.`
-          : "We paused while refreshing encrypted shared exports. Try again after unlocking your vault."
+          : "We paused while updating approved sharing. Try again after unlocking your vault."
       );
       return;
     }
@@ -234,8 +250,8 @@ export class ConsentExportRefreshOrchestrator {
     AppBackgroundTaskService.completeTask(
       taskId,
       successCount > 0
-        ? `Refreshed ${successCount} encrypted export${successCount === 1 ? "" : "s"}.`
-        : "Your shared encrypted exports are current."
+        ? `Updated ${successCount} sharing permission${successCount === 1 ? "" : "s"}.`
+        : "Your approved sharing is up to date."
     );
   }
 }
