@@ -72,6 +72,31 @@ updates:
         update-types:
           - "version-update:semver-major"
 
+  - package-ecosystem: "swift"
+    directory: "/apps/one-mac"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "15:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 2
+    labels:
+      - "dependencies"
+      - "security"
+      - "one-mac"
+    groups:
+      one-mac-patch-minor:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

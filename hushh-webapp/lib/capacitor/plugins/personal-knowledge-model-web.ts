@@ -129,6 +129,7 @@ export class HushhPersonalKnowledgeModelWeb
     }>;
     allScopes: string[];
     wildcardScopes: string[];
+    scopeEntries?: Array<Record<string, unknown>>;
   }> {
     const response = await fetch(`/api/pkm/scopes/${options.userId}`, {
       headers: {
@@ -172,6 +173,7 @@ export class HushhPersonalKnowledgeModelWeb
         rawScopes.filter(
           (scope) => scope === "pkm.read" || scope.endsWith(".*")
         ),
+      scopeEntries: Array.isArray(data.scope_entries) ? data.scope_entries : undefined,
     };
   }
 

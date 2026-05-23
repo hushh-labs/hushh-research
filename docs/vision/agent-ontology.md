@@ -32,6 +32,20 @@ flowchart TB
 
 Future specialists slot below One. Do not add a second top-level personal agent unless the product ontology itself changes.
 
+## Scaling Rule
+
+The ontology scales by adding reachable specialist capabilities below One, not by creating parallel top-level agents or standalone product roots.
+
+Use this rule for new product surfaces:
+
+- signature and document flows belong under consented One/Nav/KYC-style trust workflows
+- brokerage and investing flows belong under Kai unless the work is pure identity, consent, or vault policy
+- email/KYC flows belong under the KYC specialist and structured PKM writeback, not a broad autonomous email agent
+- OpenClaw-style, LLM Wiki, and portable-brain ideas belong only when they preserve Hussh's encrypted PKM and consented runtime authority
+- brand-side or developer-facing access belongs under PCHP, Developer API, MCP, and scoped consent, not a separate trust plane
+
+If a proposed surface cannot name the One handoff, specialist owner, consent scope, vault boundary, and action route, it is not ready to become part of the product ontology.
+
 ## One Motions
 
 One's durable product model is four motions:
