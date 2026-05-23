@@ -31,7 +31,7 @@ describe("resolveGmailSyncFeedback", () => {
           duplicates_dropped: 0,
           extraction_success_rate: 1,
         },
-      })
+      }),
     ).toEqual({
       kind: "message",
       message: "We're still syncing your receipts.",
@@ -49,7 +49,7 @@ describe("resolveGmailSyncFeedback", () => {
         last_sync_error: "Mailbox locked.",
         auto_sync_enabled: true,
         revoked: false,
-      })
+      }),
     ).toEqual({
       kind: "error",
       message: "Mailbox locked.",
@@ -66,7 +66,7 @@ describe("resolveGmailSyncFeedback", () => {
         last_sync_status: "completed",
         auto_sync_enabled: true,
         revoked: false,
-      })
+      }),
     ).toEqual({
       kind: "success",
       message: "Receipts updated.",
@@ -81,7 +81,7 @@ describe("resolveGmailConnectionPresentation", () => {
         status: null,
         loading: true,
         errorText: null,
-      })
+      }),
     ).toMatchObject({
       state: "loading",
       badgeLabel: "Checking",
@@ -103,7 +103,7 @@ describe("resolveGmailConnectionPresentation", () => {
           auto_sync_enabled: true,
           revoked: false,
         },
-      })
+      }),
     ).toMatchObject({
       state: "sync_failed",
       badgeLabel: "Try again",
@@ -117,7 +117,7 @@ describe("resolveGmailConnectionPresentation", () => {
         status: null,
         loading: false,
         errorText: "Failed to load Gmail connector state.",
-      })
+      }),
     ).toMatchObject({
       state: "sync_failed",
       badgeLabel: "Try again",
@@ -152,10 +152,46 @@ describe("resolveGmailConnectionPresentation", () => {
             extraction_success_rate: 1,
           },
         },
-      })
+      }),
     ).toMatchObject({
       state: "connected_backfill_running",
       badgeLabel: "Connected",
+      isConnected: true,
+    });
+  });
+
+  it("does not keep completed backfill runs in the background running state", () => {
+    expect(
+      resolveGmailConnectionPresentation({
+        status: {
+          configured: true,
+          connected: true,
+          status: "connected",
+          google_email: "dev@hushh.ai",
+          scope_csv: "gmail.readonly",
+          last_sync_status: "completed",
+          auto_sync_enabled: true,
+          revoked: false,
+          sync_state: "backfill_running",
+          latest_run: {
+            run_id: "run-backfill-complete",
+            user_id: "user-1",
+            trigger_source: "backfill",
+            sync_mode: "backfill",
+            status: "completed",
+            listed_count: 4,
+            filtered_count: 3,
+            synced_count: 3,
+            extracted_count: 3,
+            duplicates_dropped: 0,
+            extraction_success_rate: 1,
+          },
+        },
+      }),
+    ).toMatchObject({
+      state: "connected",
+      badgeLabel: "Connected",
+      latestSyncBadge: "completed",
       isConnected: true,
     });
   });
@@ -167,18 +203,24 @@ describe("sanitizeGmailUserMessage", () => {
       sanitizeGmailUserMessage(
         "DB operation failed [<raw_sql>.execute_raw]: (psycopg2.OperationalError) server closed the connection unexpectedly",
         {
-          fallback: "Something went wrong while syncing your emails. Please try again in a moment.",
-        }
-      )
-    ).toBe("Something went wrong while syncing your emails. Please try again in a moment.");
+          fallback:
+            "Something went wrong while syncing your emails. Please try again in a moment.",
+        },
+      ),
+    ).toBe(
+      "Something went wrong while syncing your emails. Please try again in a moment.",
+    );
   });
 
   it("hides proxy timeout and connection errors", () => {
     expect(
       sanitizeGmailUserMessage("fetch failed: connection refused", {
-        fallback: "Something went wrong while syncing your emails. Please try again in a moment.",
-      })
-    ).toBe("Something went wrong while syncing your emails. Please try again in a moment.");
+        fallback:
+          "Something went wrong while syncing your emails. Please try again in a moment.",
+      }),
+    ).toBe(
+      "Something went wrong while syncing your emails. Please try again in a moment.",
+    );
   });
 });
 
@@ -197,7 +239,7 @@ describe("resolveGmailStatusSummary", () => {
           auto_sync_enabled: true,
           revoked: false,
         },
-      })
+      }),
     ).toMatchObject({
       tone: "success",
       title: "Your receipts are up to date",
