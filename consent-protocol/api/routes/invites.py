@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.responses import JSONResponse
 
 from api.middleware import require_firebase_auth
@@ -27,7 +27,7 @@ def _iam_schema_not_ready_response(message: str | None = None) -> JSONResponse:
 
 
 @router.get("/{invite_token}")
-async def get_invite(invite_token: str):
+async def get_invite(invite_token: str = Path(..., max_length=512)):
     service = RIAIAMService()
     try:
         return await service.get_ria_invite(invite_token)
@@ -39,7 +39,7 @@ async def get_invite(invite_token: str):
 
 @router.post("/{invite_token}/accept")
 async def accept_invite(
-    invite_token: str,
+    invite_token: str = Path(..., max_length=512),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     service = RIAIAMService()

@@ -2,7 +2,11 @@
 
 import type { User } from "firebase/auth";
 
-import { ApiService, type AccountIdentity } from "@/lib/services/api-service";
+import {
+  ApiService,
+  type AccountIdentity,
+  type AccountPhoneTestStartResponse,
+} from "@/lib/services/api-service";
 
 export class AccountIdentityService {
   static hasVerifiedPhone(identity: AccountIdentity | null | undefined): boolean {
@@ -52,6 +56,50 @@ export class AccountIdentityService {
     }
 
     const response = await ApiService.claimAccountPhone(phoneIdToken, idToken);
+    return response.identity ?? null;
+  }
+
+  static async startUatTestPhoneVerification(
+    user: User | null | undefined,
+    phoneNumber: string
+  ): Promise<AccountPhoneTestStartResponse | null> {
+    if (!user) {
+      return null;
+    }
+
+    const idToken = await user.getIdToken().catch(() => undefined);
+    if (!idToken) {
+      return null;
+    }
+
+    return ApiService.startUatPhoneTestVerification(phoneNumber, idToken).catch(
+      () => null
+    );
+  }
+
+  static async confirmUatTestPhoneVerification(
+    user: User | null | undefined,
+    params: {
+      phoneNumber: string;
+      verificationCode: string;
+      verificationId: string;
+    }
+  ): Promise<AccountIdentity | null> {
+    if (!user) {
+      return null;
+    }
+
+    const idToken = await user.getIdToken(true).catch(() => undefined);
+    if (!idToken) {
+      return null;
+    }
+
+    const response = await ApiService.confirmUatPhoneTestVerification(
+      params.phoneNumber,
+      params.verificationCode,
+      params.verificationId,
+      idToken
+    );
     return response.identity ?? null;
   }
 

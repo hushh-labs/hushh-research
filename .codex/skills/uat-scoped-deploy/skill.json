@@ -1,0 +1,65 @@
+{
+  "id": "uat-scoped-deploy",
+  "role": "spoke",
+  "owner_family": "repo-operations",
+  "primary_scope": "uat-scoped-deploy-scope",
+  "description": "Use when choosing, running, or verifying scoped UAT deploys for Hussh Cloud Run services, including frontend-only/backend-only scope, Cloud Build timing proof, Cloud Run region discovery, and service provenance evidence.",
+  "owned_paths": [
+    ".github/workflows/deploy-uat.yml",
+    "deploy"
+  ],
+  "non_owned_paths": [
+    "repo-operations",
+    "frontend",
+    "backend",
+    "security-audit"
+  ],
+  "task_types": [
+    "uat-scoped-deploy"
+  ],
+  "required_reads": [
+    ".github/workflows/deploy-uat.yml",
+    "deploy/README.md",
+    "deploy/frontend.cloudbuild.yaml",
+    "deploy/backend.cloudbuild.yaml",
+    ".codex/skills/uat-scoped-deploy/references/deploy-proof.md"
+  ],
+  "required_commands": [
+    "gh run list --workflow deploy-uat.yml --limit 5 --json databaseId,status,conclusion,headSha,event,url",
+    "python3 .codex/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py --project hushh-pda-uat --service hushh-webapp --service consent-protocol --format text",
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+  ],
+  "verification_bundles": [
+    {
+      "id": "uat-scoped-deploy",
+      "commands": [
+        "gh run list --workflow deploy-uat.yml --limit 5 --json databaseId,status,conclusion,headSha,event,url",
+        "python3 .codex/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py --project hushh-pda-uat --service hushh-webapp --service consent-protocol --format text",
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+      ],
+      "tests": [
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "repo-operations",
+    "frontend",
+    "backend",
+    "backend-api-contracts",
+    "security-audit"
+  ],
+  "adjacent_skills": [
+    "repo-operations",
+    "frontend",
+    "backend",
+    "backend-api-contracts",
+    "security-audit"
+  ],
+  "risk_tags": [
+    "deploy-scope-drift",
+    "cloud-run-region-drift",
+    "release-evidence-drift",
+    "uat-runtime-drift"
+  ]
+}

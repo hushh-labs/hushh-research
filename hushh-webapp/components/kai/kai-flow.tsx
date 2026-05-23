@@ -18,7 +18,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
-import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { useCache } from "@/lib/cache/cache-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -721,12 +720,14 @@ export function KaiFlow({
   const [flowData, setFlowData] = useState<FlowData>({
     hasFinancialData: false,
   });
-  const [error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
   const isDashboardMode = mode === "dashboard";
   const stateRef = useRef<FlowState>("checking");
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [resumeImportAfterVault, setResumeImportAfterVault] = useState(false);
+  const [pendingPlaidConnection, setPendingPlaidConnection] = useState(false);
+  const [resumePlaidAfterVault, setResumePlaidAfterVault] = useState(false);
   const [pendingSchemaPreload, setPendingSchemaPreload] = useState(false);
   const [resumePreloadAfterVault, setResumePreloadAfterVault] = useState(false);
   const [isPreloadingSchema, setIsPreloadingSchema] = useState(false);
@@ -1033,6 +1034,7 @@ export function KaiFlow({
 
     if (snapshot.status === "failed" && snapshot.errorMessage) {
       setError(snapshot.errorMessage);
+      toast.error(snapshot.errorMessage);
       setState("import_required");
     }
   }, [mode, userId]);
@@ -1061,7 +1063,9 @@ export function KaiFlow({
       }
 
       if (snapshot.status === "failed") {
-        setError(snapshot.errorMessage || "Import failed. Please try again.");
+        const message = snapshot.errorMessage || "Import failed. Please try again.";
+        setError(message);
+        toast.error(message);
         setState("import_required");
         return;
       }
@@ -2890,6 +2894,19 @@ export function KaiFlow({
     effectiveVaultOwnerToken,
   ]);
 
+  useEffect(() => {
+    if (vaultDialogOpen || resumePlaidAfterVault) return;
+    if (!pendingPlaidConnection) return;
+    if (vaultKey && effectiveVaultOwnerToken) return;
+    setPendingPlaidConnection(false);
+  }, [
+    vaultDialogOpen,
+    resumePlaidAfterVault,
+    pendingPlaidConnection,
+    vaultKey,
+    effectiveVaultOwnerToken,
+  ]);
+
   // Handle cancel import
   const handleCancelImport = useCallback(() => {
     userRequestedImportCancelRef.current = true;
@@ -3058,11 +3075,6 @@ export function KaiFlow({
   }, [flowData.portfolioData, mode, router]);
 
   const handleConnectPlaid = useCallback(async () => {
-    if (!effectiveVaultOwnerToken) {
-      toast.error("Please unlock your Vault first.");
-      return;
-    }
-
     setIsConnectingPlaid(true);
     try {
       const redirectUri = resolvePlaidRedirectUri();
@@ -3121,7 +3133,12 @@ export function KaiFlow({
                     [],
                 }));
                 toast.success("Brokerage connected with Plaid.");
-                if (mode === "import") {
+                if (!vaultKey || !effectiveVaultOwnerToken) {
+                  setPendingPlaidConnection(true);
+                  setResumePlaidAfterVault(false);
+                  setVaultDialogOpen(true);
+                  toast.info("Create or unlock your Vault to save Plaid details.");
+                } else if (mode === "import") {
                   setOnboardingFlowActiveCookie(false);
                   router.push(ROUTES.KAI_DASHBOARD);
                 } else {
@@ -3169,7 +3186,42 @@ export function KaiFlow({
       setIsConnectingPlaid(false);
       await loadPlaidStatusSnapshot();
     }
-  }, [effectiveVaultOwnerToken, loadPlaidStatusSnapshot, mode, router, userId]);
+  }, [
+    effectiveVaultOwnerToken,
+    loadPlaidStatusSnapshot,
+    mode,
+    router,
+    userId,
+    vaultKey,
+  ]);
+
+  useEffect(() => {
+    if (!resumePlaidAfterVault) return;
+    if (!vaultKey || !effectiveVaultOwnerToken) return;
+    setResumePlaidAfterVault(false);
+    setPendingPlaidConnection(false);
+    void (async () => {
+      const status = await loadPlaidStatusSnapshot();
+      if (!status) {
+        toast.error("Could not save Plaid details to Vault. Please retry.");
+        return;
+      }
+      toast.success("Plaid details saved to Vault.");
+      if (mode === "import") {
+        setOnboardingFlowActiveCookie(false);
+        router.push(ROUTES.KAI_DASHBOARD);
+      } else {
+        setState("dashboard");
+      }
+    })();
+  }, [
+    resumePlaidAfterVault,
+    vaultKey,
+    effectiveVaultOwnerToken,
+    loadPlaidStatusSnapshot,
+    mode,
+    router,
+  ]);
 
   // Handle re-import (upload new statement)
   const handleReimport = useCallback(() => {
@@ -3227,19 +3279,6 @@ export function KaiFlow({
   ]);
 
   useEffect(() => {
-    if (mode !== "import" || state !== "reviewing") return;
-    if (flowData.parsedPortfolio) return;
-
-    const timer = window.setTimeout(() => {
-      if (stateRef.current !== "reviewing" || flowData.parsedPortfolio) return;
-      setError("Could not open review data. Please load sample data again.");
-      setState("import_required");
-    }, 250);
-
-    return () => window.clearTimeout(timer);
-  }, [mode, state, flowData.parsedPortfolio]);
-
-  useEffect(() => {
     if (!resumePreloadAfterVault) return;
     if (!vaultKey || !effectiveVaultOwnerToken) return;
     setResumePreloadAfterVault(false);
@@ -3279,36 +3318,6 @@ export function KaiFlow({
 
   return (
     <div className="flex w-full flex-col">
-      {/* Error display */}
-      {error && state !== "importing" && state !== "import_complete" && (
-        <SurfaceCard tone="critical" className="mb-4">
-          <SurfaceCardContent className="space-y-3 pt-5">
-            <div className="flex items-start gap-2 text-red-600 dark:text-red-400">
-              <svg
-                className="mt-0.5 h-5 w-5 shrink-0"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <span className="text-sm font-medium">{error}</span>
-            </div>
-            <button
-              onClick={() => setError(null)}
-              className="text-left text-sm font-medium text-red-700 underline underline-offset-4 hover:no-underline dark:text-red-300"
-            >
-              Dismiss
-            </button>
-          </SurfaceCardContent>
-        </SurfaceCard>
-      )}
-
       {/* State-based rendering */}
       {state === "import_required" && (
         <PortfolioImportView
@@ -3450,11 +3459,23 @@ export function KaiFlow({
           user={user}
           open={vaultDialogOpen}
           onOpenChange={setVaultDialogOpen}
-          title="Create or unlock Vault to import portfolio"
-          description="You need to create or unlock your Vault before importing your statement."
+          title={
+            pendingPlaidConnection
+              ? "Create or unlock Vault to save Plaid details"
+              : "Create or unlock Vault to import portfolio"
+          }
+          description={
+            pendingPlaidConnection
+              ? "Your brokerage is connected. Create or unlock your Vault to save the Plaid portfolio details in your PKM."
+              : "You need to create or unlock your Vault before importing your statement."
+          }
           enableGeneratedDefault
           onSuccess={() => {
             setVaultDialogOpen(false);
+            if (pendingPlaidConnection) {
+              setResumePlaidAfterVault(true);
+              return;
+            }
             if (pendingImportFile) {
               setResumeImportAfterVault(true);
               return;

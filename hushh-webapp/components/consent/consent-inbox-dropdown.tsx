@@ -6,14 +6,13 @@ import { ExternalLink, Loader2, Shield } from "lucide-react";
 
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   TOP_SHELL_DROPDOWN_BODY_CLASSNAME,
-  TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME,
   TOP_SHELL_DROPDOWN_FOOTER_CLASSNAME,
   TOP_SHELL_DROPDOWN_HEADER_CLASSNAME,
+  TopShellDropdownContent,
 } from "@/components/app-ui/top-shell-dropdown";
 import { useAuth } from "@/hooks/use-auth";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
@@ -26,6 +25,10 @@ import {
   buildRiaConsentManagerHref,
 } from "@/lib/consent/consent-sheet-route";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
+import {
+  emailHelperConsentSummary,
+  isEmailHelperConsent,
+} from "@/lib/consent/email-helper-consent";
 import { Button } from "@/lib/morphy-ux/button";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import {
@@ -39,6 +42,7 @@ import {
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 
 function entrySummary(entry: ConsentCenterEntry) {
+  if (isEmailHelperConsent(entry.metadata)) return emailHelperConsentSummary(entry.metadata);
   if (entry.additional_access_summary) return entry.additional_access_summary;
   if (entry.scope_description) return entry.scope_description;
   if (entry.reason) return entry.reason;
@@ -229,10 +233,7 @@ export function ConsentInboxDropdown({
         )}
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent
-        align="end"
-        className={TOP_SHELL_DROPDOWN_CONTENT_CLASSNAME}
-      >
+      <TopShellDropdownContent align="end">
         <div className={TOP_SHELL_DROPDOWN_HEADER_CLASSNAME}>
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -323,7 +324,7 @@ export function ConsentInboxDropdown({
             ) : null}
           </div>
         </div>
-      </DropdownMenuContent>
+      </TopShellDropdownContent>
     </DropdownMenu>
   );
 }
