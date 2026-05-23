@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import re
+from dataclasses import FrozenInstanceError
 
 import pytest
-from dataclasses import FrozenInstanceError
 
 from hushh_mcp.services.domain_contracts import (
     CANONICAL_DOMAIN_KEYS,
