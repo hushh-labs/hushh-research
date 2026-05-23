@@ -2,6 +2,7 @@
 
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { ApiService } from "@/lib/services/api-service";
+import { AuthService } from "@/lib/services/auth-service";
 import type {
   PlaidFundingTradeIntentRef,
   PlaidFundingStatusResponse,
@@ -60,6 +61,18 @@ export interface PlaidFundedTradeIntentCreateResponse {
 const PLAID_STATUS_CACHE_TTL_MS = 15_000;
 const DEFAULT_FUNDING_TERMS_VERSION =
   String(process.env.NEXT_PUBLIC_KAI_FUNDING_TERMS_VERSION || "").trim() || "v1";
+
+async function buildPlaidAuthHeaders(vaultOwnerToken?: string | null): Promise<Record<string, string>> {
+  const token = String(vaultOwnerToken || "").trim();
+  if (token) {
+    return { Authorization: `Bearer ${token}` };
+  }
+  const firebaseIdToken = await AuthService.getIdToken();
+  if (!firebaseIdToken) {
+    throw new Error("Sign in again to connect Plaid.");
+  }
+  return { Authorization: `Bearer ${firebaseIdToken}` };
+}
 
 async function extractPlaidError(response: Response, fallback: string): Promise<string> {
   const raw = await response.text().catch(() => "");
@@ -191,7 +204,7 @@ export class PlaidPortfolioService {
 
   static async createLinkToken(params: {
     userId: string;
-    vaultOwnerToken: string;
+    vaultOwnerToken?: string | null;
     itemId?: string;
     updateMode?: boolean;
     redirectUri?: string;
@@ -203,7 +216,7 @@ export class PlaidPortfolioService {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${params.vaultOwnerToken}`,
+        ...(await buildPlaidAuthHeaders(params.vaultOwnerToken)),
       },
       body: JSON.stringify({
         user_id: params.userId,
@@ -224,7 +237,7 @@ export class PlaidPortfolioService {
   static async exchangePublicToken(params: {
     userId: string;
     publicToken: string;
-    vaultOwnerToken: string;
+    vaultOwnerToken?: string | null;
     metadata?: Record<string, unknown> | null;
     resumeSessionId?: string | null;
   }): Promise<PlaidPortfolioStatusResponse> {
@@ -232,7 +245,7 @@ export class PlaidPortfolioService {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${params.vaultOwnerToken}`,
+        ...(await buildPlaidAuthHeaders(params.vaultOwnerToken)),
       },
       body: JSON.stringify({
         user_id: params.userId,
@@ -279,6 +292,37 @@ export class PlaidPortfolioService {
     }
     this.invalidateStatusCache(params.userId);
     return (await response.json()) as PlaidRefreshResponse;
+  }
+
+  static async removeItem(params: {
+    userId: string;
+    itemId: string;
+    vaultOwnerToken: string;
+  }): Promise<PlaidPortfolioStatusResponse> {
+    const response = await ApiService.apiFetch(
+      `/api/kai/plaid/items/${encodeURIComponent(params.itemId)}/remove`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${params.vaultOwnerToken}`,
+        },
+        body: JSON.stringify({
+          user_id: params.userId,
+        }),
+      }
+    );
+    if (!response.ok) {
+      const detail = await extractPlaidError(
+        response,
+        "Plaid could not delete this brokerage portfolio."
+      );
+      throw new Error(detail);
+    }
+    const payload = (await response.json()) as PlaidPortfolioStatusResponse;
+    this.invalidateStatusCache(params.userId);
+    CacheSyncService.onPlaidSourceProjected(params.userId);
+    return payload;
   }
 
   static async resumeOAuth(params: {

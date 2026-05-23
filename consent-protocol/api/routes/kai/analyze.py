@@ -8,11 +8,12 @@ SECURITY: This endpoint requires VAULT_OWNER token for all data access.
 No Firebase Auth fallback - consistent with Consent-First Architecture.
 """
 
+import json
 import logging
 from typing import Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
 from hushh_mcp.operons.kai.fetchers import RealtimeDataUnavailable
@@ -28,13 +29,13 @@ router = APIRouter()
 
 
 class AnalyzeRequest(BaseModel):
-    user_id: str
-    ticker: str
-    consent_token: Optional[str] = None
+    user_id: str = Field(min_length=1, max_length=128)
+    ticker: str = Field(min_length=1, max_length=20)
+    consent_token: Optional[str] = Field(default=None, max_length=2048)
     # Client provides context explicitly (Stateless)
     risk_profile: Literal["conservative", "balanced", "aggressive"] = "balanced"
     processing_mode: Literal["on_device", "hybrid"] = "hybrid"
-    context: Optional[Dict[str, Any]] = None  # Decrypted user profile context
+    context: Optional[Dict[str, Any]] = None  # Decrypted user profile context; validated by service
 
 
 class AnalyzeResponse(BaseModel):
@@ -85,7 +86,9 @@ async def analyze_ticker(
     # Security: Verify token matches requested user
     if token_data["user_id"] != request.user_id:
         logger.warning(
-            f"[Kai] User ID mismatch - token={token_data['user_id']}, request={request.user_id}"
+            "[Kai] User ID mismatch - token=%s, request=%s",
+            token_data["user_id"],
+            request.user_id,
         )
         raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
 
@@ -107,11 +110,9 @@ async def analyze_ticker(
 
         # Convert to dictionary for response
         raw_card = orchestrator.decision_generator.to_json(decision_card)
-        import json
-
         raw_dict = json.loads(raw_card)
 
-        logger.info(f"[Kai] Generated analysis for {request.ticker} ({request.risk_profile})")
+        logger.info("[Kai] Generated analysis for %s (%s)", request.ticker, request.risk_profile)
 
         return AnalyzeResponse(
             decision_id=decision_card.decision_id,
@@ -125,10 +126,12 @@ async def analyze_ticker(
         )
 
     except ValueError as e:
-        logger.error(f"[Kai] Analysis failed: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("[Kai] Analysis failed: %s", e)
+        raise HTTPException(
+            status_code=400, detail="Invalid analysis request. Check ticker and parameters."
+        )
     except RealtimeDataUnavailable as e:
-        logger.error(f"[Kai] Realtime dependency unavailable: {e.detail}")
+        logger.error("[Kai] Realtime dependency unavailable: %s", e.detail)
         raise HTTPException(
             status_code=503,
             detail={
@@ -138,6 +141,6 @@ async def analyze_ticker(
                 "retryable": e.retryable,
             },
         )
-    except Exception as e:
+    except Exception:
         logger.exception("[Kai] Unexpected error during analysis")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Analysis is temporarily unavailable.")

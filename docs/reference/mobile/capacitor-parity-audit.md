@@ -62,6 +62,8 @@ Current shared wrappers:
 - navigation mutations / external open: `hushh-webapp/lib/utils/browser-navigation.ts`
 - local/session storage access: `hushh-webapp/lib/utils/session-storage.ts`
 - download/export: `hushh-webapp/lib/utils/native-download.ts`
+- foreground location: `hushh-webapp/lib/capacitor/index.ts` via
+  `HushhLocation`
 
 Direct usage is allowed only in:
 
@@ -92,8 +94,16 @@ Native parity for authenticated flows now includes the verified phone mandate af
 - `/register-phone` is a contract route even though it bypasses the standard shell.
 - Kai voice surfaces require native microphone permission metadata:
   `NSMicrophoneUsageDescription` on iOS and `android.permission.RECORD_AUDIO` on Android.
+- One Location Agent requires foreground-only location parity:
+  `NSLocationWhenInUseUsageDescription` on iOS,
+  `android.permission.ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` on
+  Android, and the `HushhLocation` plugin on web, iOS, and Android.
+- One Location Agent v1 must not add iOS background location mode or Android
+  background location permission.
 - `/kai/funding-trade` is part of the native route inventory because voice/action parity can
   land users on the funding trade surface.
+- `/one/location` is part of the native route inventory because live location is
+  a platform permission surface, not a web-only route.
 - Web, iOS, and Android must all produce the same product truth: a signed-in user without
   `FirebaseAuth.currentUser.phoneNumber` cannot continue past the mandate.
 - Android still requires a documented OTP smoke on device or UAT because the repo does not
