@@ -12,6 +12,7 @@ Routes covered:
   POST /api/tickers/sync-holdings/{user_id}
   GET  /api/investors/{investor_id}
   POST /api/investors/
+  POST /db/vault/status
 """
 
 from __future__ import annotations
@@ -21,8 +22,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import api.routes.db_proxy as db_proxy_module
 import api.routes.investors as investors_module
 import api.routes.tickers as tickers_module
+from api.routes.db_proxy import router as db_proxy_router
 from api.routes.investors import router as investors_router
 from api.routes.tickers import router as tickers_router
 
@@ -149,4 +152,82 @@ class TestInvestorCreateDoesNotLeakDetail:
                 json={"name": "Test Fund", "cik": "0001234567"},
             )
         assert r.status_code == 500
+        assert _SENTINEL not in r.text
+
+
+# ---------------------------------------------------------------------------
+# db_proxy vault/status route
+# ---------------------------------------------------------------------------
+
+
+def _db_proxy_client() -> TestClient:
+    """Client with Firebase auth bypassed (uid = 'user-vault-test')."""
+    app = FastAPI()
+    app.include_router(db_proxy_router)
+
+    from api.middleware import require_firebase_auth
+
+    async def _fake_firebase_auth():
+        return "user-vault-test"
+
+    app.dependency_overrides[require_firebase_auth] = _fake_firebase_auth
+    return TestClient(app, raise_server_exceptions=False)
+
+
+_VAULT_STATUS_BODY = {"userId": "user-vault-test", "consentToken": "tok_fake"}
+
+
+class TestVaultStatusDoesNotLeakDetail:
+    def test_internal_exception_returns_500_without_detail(self):
+        """General Exception from get_vault_status must yield 500 with no raw message."""
+        client = _db_proxy_client()
+        with patch.object(
+            db_proxy_module.VaultKeysService,
+            "get_vault_status",
+            new=AsyncMock(side_effect=RuntimeError(_SENTINEL)),
+        ):
+            with patch.object(
+                db_proxy_module,
+                "validate_vault_owner_token",
+                new=AsyncMock(return_value=None),
+            ):
+                r = client.post("/db/vault/status", json=_VAULT_STATUS_BODY)
+        assert r.status_code == 500
+        assert _SENTINEL not in r.text
+        assert r.json().get("detail") == "Internal server error"
+
+    def test_value_error_returns_401_without_detail(self):
+        """ValueError (e.g. user ID mismatch) must yield 401 Unauthorized with no raw message."""
+        client = _db_proxy_client()
+        with patch.object(
+            db_proxy_module,
+            "verify_user_id_match",
+            side_effect=ValueError(_SENTINEL),
+        ):
+            r = client.post("/db/vault/status", json=_VAULT_STATUS_BODY)
+        assert r.status_code == 401
+        assert _SENTINEL not in r.text
+        assert r.json().get("detail") == "Unauthorized"
+
+    def test_db_exception_detail_does_not_expose_connection_string(self):
+        """DB connection errors must not reveal DSN or internal stack details."""
+        internal_db_err = (
+            f"psycopg2.OperationalError: could not connect to server: Connection refused "
+            f"host=db.prod.example.com port=5432 dbname=hushh_prod {_SENTINEL}"
+        )
+        client = _db_proxy_client()
+        with patch.object(
+            db_proxy_module.VaultKeysService,
+            "get_vault_status",
+            new=AsyncMock(side_effect=RuntimeError(internal_db_err)),
+        ):
+            with patch.object(
+                db_proxy_module,
+                "validate_vault_owner_token",
+                new=AsyncMock(return_value=None),
+            ):
+                r = client.post("/db/vault/status", json=_VAULT_STATUS_BODY)
+        assert r.status_code == 500
+        assert "psycopg2" not in r.text
+        assert "db.prod.example.com" not in r.text
         assert _SENTINEL not in r.text
