@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "scripts": {
+    "workspace:audit": "node scripts/validate-env.js && node scripts/check-encryption-compliance.js"
+  }
+}
