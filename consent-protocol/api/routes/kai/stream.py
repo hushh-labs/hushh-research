@@ -59,7 +59,7 @@ _RUN_MANAGER = KaiAnalyzeRunManager()
 #   POST /api/kai/analyze/run/{run_id}/cancel
 # ---------------------------------------------------------------------------
 _USER_ID_MAX_LEN: int = 128
-_TICKER_RAW_MAX_LEN: int = 20   # regex further constrains to <=6 after normalization
+_TICKER_RAW_MAX_LEN: int = 20  # regex further constrains to <=6 after normalization
 _RISK_PROFILE_MAX_LEN: int = 64
 _DEBATE_SESSION_ID_MAX_LEN: int = 256
 _RUN_ID_MAX_LEN: int = 128
