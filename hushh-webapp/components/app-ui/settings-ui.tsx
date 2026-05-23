@@ -3,6 +3,8 @@
 import { type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
+// --- Existing Components ---
+
 export interface SettingsGroupProps {
   title?: ReactNode;
   eyebrow?: ReactNode;
@@ -14,7 +16,6 @@ export interface SettingsGroupProps {
   [key: string]: any;
 }
 
-// Ensure the "export" keyword is here
 export function SettingsGroup({
   title,
   eyebrow,
@@ -48,7 +49,6 @@ export function SettingsGroup({
   );
 }
 
-// Ensure the "export" keyword is here
 export function SettingsRow({ 
   title, 
   description,
@@ -79,6 +79,24 @@ export function SettingsRow({
       </div>
       {trailing && <div>{trailing}</div>}
       {chevron && <div className="text-muted-foreground">›</div>}
+    </div>
+  );
+}
+
+// --- Rectified: Added missing exports to satisfy CI errors ---
+
+export function SettingsDetailPanel({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cn("p-4", className)}>{children}</div>;
+}
+
+export function SettingsSegmentedTabs({ options, value, onChange }: { options: any[]; value: any; onChange: (v: any) => void }) {
+  return (
+    <div className="flex bg-muted p-1 rounded-lg">
+      {options.map((opt) => (
+        <button key={opt.id} onClick={() => onChange(opt.id)} className={cn("px-3 py-1 text-xs rounded", value === opt.id && "bg-background shadow-sm")}>
+          {opt.label}
+        </button>
+      ))}
     </div>
   );
 }
