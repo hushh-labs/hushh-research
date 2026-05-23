@@ -3,17 +3,17 @@
 import { type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-// 1. Add the missing properties to the interface
+// Make sure you only have ONE interface block like this:
 export interface NativeRouteMarkerProps {
   children?: ReactNode;
   className?: string;
   routeId: string;
   marker: string;
-  authState: "authenticated" | "unauthenticated" | "loading";
+  // Combine all types into one line here
+  authState: "authenticated" | "unauthenticated" | "loading" | "anonymous";
   dataState: "loaded" | "loading" | "error";
 }
 
-// 2. Accept these props in the component
 export function NativeRouteMarker({ 
   children, 
   className,
