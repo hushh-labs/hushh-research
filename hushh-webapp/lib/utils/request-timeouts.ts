@@ -1,4 +1,12 @@
+// lib/utils/request-timeouts.ts
+
 const DEVELOPMENT_SLOW_REQUEST_TIMEOUT_MS = 75_000;
+
+/**
+ * Strict type definition for supported runtime environments.
+ * Prevents logic errors from typos in environment strings.
+ */
+type RuntimeEnv = 'development' | 'production' | 'test' | 'staging' | 'dev' | 'local-uatdb' | 'uat';
 
 function parsePositiveInteger(value: string | undefined): number | null {
   if (!value) return null;
@@ -6,7 +14,11 @@ function parsePositiveInteger(value: string | undefined): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function resolveRuntimeEnvironment(): string {
+/**
+ * Resolves the current runtime environment by checking common environment variables.
+ * Prioritizes custom app environment variables over generic NODE_ENV.
+ */
+function resolveRuntimeEnvironment(): RuntimeEnv {
   const candidates = [
     process.env.NEXT_PUBLIC_APP_ENV,
     process.env.ENVIRONMENT,
@@ -17,22 +29,27 @@ function resolveRuntimeEnvironment(): string {
   for (const value of candidates) {
     const normalized = String(value || "").trim().toLowerCase();
     if (normalized) {
-      return normalized;
+      return normalized as RuntimeEnv;
     }
   }
 
   return "development";
 }
 
-function isDevelopmentRuntime(): boolean {
+/**
+ * Helper to determine if the current environment should be treated as a local 
+ * or development instance for timeout relaxation.
+ */
+export function isDevelopmentRuntime(): boolean {
   const environment = resolveRuntimeEnvironment();
-  return (
-    environment === "development" ||
-    environment === "dev" ||
-    environment === "local-uatdb"
-  );
+  const devEnvs: RuntimeEnv[] = ["development", "dev", "local-uatdb"];
+  return devEnvs.includes(environment);
 }
 
+/**
+ * Resolves a timeout value based on the runtime environment.
+ * In development, timeouts are often relaxed to account for local debugging or cold starts.
+ */
 export function resolveSlowRequestTimeoutMs(
   defaultMs: number,
   options?: {
@@ -44,6 +61,8 @@ export function resolveSlowRequestTimeoutMs(
     Number.isFinite(defaultMs) && defaultMs > 0
       ? Math.round(defaultMs)
       : DEVELOPMENT_SLOW_REQUEST_TIMEOUT_MS;
+
+  // Check for an explicit override via environment variables
   const override = parsePositiveInteger(
     process.env[options?.overrideEnvKey || "HUSHH_SLOW_REQUEST_TIMEOUT_MS"]
   );
