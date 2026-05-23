@@ -8,11 +8,12 @@ import {
   type AnalysisHistoryEntry,
 } from "@/lib/services/kai-history-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
+import { enforceMinimumRetryDelayMs } from "@/lib/runtime/retry-delay";
 import { getSessionItem, setSessionItem } from "@/lib/utils/session-storage";
 
 const RUN_MANAGER_STORAGE_KEY = "kai_debate_run_manager_v1";
 const RUN_MANAGER_SESSION_KEY = "kai_debate_session_id_v1";
-const RETRY_DELAYS_MS = [750, 2000, 4500];
+const RETRY_DELAYS_MS = [750, 2000, 4500].map(enforceMinimumRetryDelayMs);
 const FINANCIAL_WRITE_WAIT_TIMEOUT_MS = 20_000;
 const FINANCIAL_WRITE_POLL_MS = 400;
 
