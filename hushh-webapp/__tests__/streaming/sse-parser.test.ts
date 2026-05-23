@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
+import { MAX_FRAME_BYTES, parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import { isKaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
 
 describe("parseSSEBlocks", () => {
@@ -59,5 +59,34 @@ describe("parseSSEBlocks", () => {
   it("ignores blocks without event and data", () => {
     const result = parseSSEBlocks(": ping\n\n\n");
     expect(result.events).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseSSEBlocks — MAX_FRAME_BYTES size guard (CWE-400)
+// ---------------------------------------------------------------------------
+
+describe("parseSSEBlocks — MAX_FRAME_BYTES size guard", () => {
+  it("throws when frame data exceeds MAX_FRAME_BYTES", () => {
+    const oversizeData = "x".repeat(MAX_FRAME_BYTES + 1);
+    const input = `event: stage\nid: 1\ndata: ${oversizeData}\n\n`;
+    expect(() => parseSSEBlocks(input)).toThrow(/exceeds maximum allowed size/i);
+  });
+
+  it("does not throw for a normal-sized production envelope", () => {
+    const input =
+      "event: stage\n" +
+      "id: 99\n" +
+      'data: {"schema_version":"1.0","stream_id":"strm_prod","stream_kind":"portfolio_import","seq":99,"event":"stage","terminal":false,"payload":{"stage":"complete"}}\n\n';
+    expect(() => parseSSEBlocks(input)).not.toThrow();
+  });
+
+  it("throws only on the oversized frame, not subsequent frames", () => {
+    const oversizeData = "y".repeat(MAX_FRAME_BYTES + 100);
+    const badFrame = `event: stage\nid: 1\ndata: ${oversizeData}\n\n`;
+    const goodFrame =
+      "event: stage\nid: 2\n" +
+      'data: {"schema_version":"1.0","stream_id":"s","stream_kind":"portfolio_import","seq":2,"event":"stage","terminal":false,"payload":{}}\n\n';
+    expect(() => parseSSEBlocks(badFrame + goodFrame)).toThrow(/exceeds maximum allowed size/i);
   });
 });

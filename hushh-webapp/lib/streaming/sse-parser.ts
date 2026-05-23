@@ -5,6 +5,13 @@ export interface ParseSSEBlocksResult {
   remainder: string;
 }
 
+/**
+ * Maximum byte length of a single SSE frame data payload (CWE-400).
+ * Prevents a malicious or runaway backend from crashing the browser tab
+ * by sending an unbounded JSON frame into the parser.
+ */
+export const MAX_FRAME_BYTES = 1 * 1024 * 1024; // 1 MB
+
 export function parseSSEBlocks(chunk: string, remainder = ""): ParseSSEBlocksResult {
   const normalized = (remainder + chunk).replace(/\r\n/g, "\n");
   const blocks = normalized.split("\n\n");
@@ -34,10 +41,18 @@ export function parseSSEBlocks(chunk: string, remainder = ""): ParseSSEBlocksRes
       continue;
     }
 
+    const rawData = dataLines.join("\n");
+    const byteLength = new TextEncoder().encode(rawData).length;
+    if (byteLength > MAX_FRAME_BYTES) {
+      throw new Error(
+        `SSE frame data exceeds maximum allowed size of ${MAX_FRAME_BYTES} bytes`
+      );
+    }
+
     events.push({
       event: eventName,
       id: eventId,
-      data: dataLines.join("\n"),
+      data: rawData,
     });
   }
 
