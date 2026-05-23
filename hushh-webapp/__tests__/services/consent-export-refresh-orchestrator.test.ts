@@ -189,10 +189,55 @@ describe("ConsentExportRefreshOrchestrator", () => {
 
       expect(completeTaskMock).toHaveBeenCalledWith(
         expect.stringContaining(BASE_PARAMS.userId),
-        expect.stringContaining("current")
+        expect.stringContaining("up to date"),
       );
       expect(startTaskMock).not.toHaveBeenCalled();
       expect(uploadRefreshedExportMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("task lifecycle", () => {
+    it("starts refresh tasks with a stale-running timeout", async () => {
+      listJobsMock.mockResolvedValue([makeJob()]);
+      uploadRefreshedExportMock.mockResolvedValue({});
+
+      await ConsentExportRefreshOrchestrator.ensureRunning(BASE_PARAMS);
+
+      expect(startTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "consent_export_refresh",
+          runningStaleAfterMs: 90_000,
+        }),
+      );
+    });
+
+    it("cleans wildcard scope labels in running descriptions", async () => {
+      listJobsMock.mockResolvedValue([
+        makeJob({ grantedScope: "attr.financial.portfolio.*" }),
+      ]);
+      uploadRefreshedExportMock.mockResolvedValue({});
+
+      await ConsentExportRefreshOrchestrator.ensureRunning(BASE_PARAMS);
+
+      expect(updateTaskMock).toHaveBeenCalledWith(
+        expect.stringContaining(BASE_PARAMS.userId),
+        expect.objectContaining({
+          description: "Refreshing approved sharing for financial portfolio.",
+        }),
+      );
+    });
+
+    it("marks the task failed when the refresh runner exits unexpectedly", async () => {
+      listJobsMock.mockRejectedValue(new Error("aborted"));
+
+      await ConsentExportRefreshOrchestrator.ensureRunning(BASE_PARAMS);
+
+      expect(failTaskMock).toHaveBeenCalledWith(
+        expect.stringContaining(BASE_PARAMS.userId),
+        "Could not update approved sharing.",
+        expect.stringContaining("retry after Vault unlock"),
+        expect.objectContaining({ failureKind: "Error" }),
+      );
     });
   });
 

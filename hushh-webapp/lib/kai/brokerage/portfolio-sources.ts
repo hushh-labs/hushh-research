@@ -353,6 +353,30 @@ export function resolveAvailableSources(params: {
   return sources;
 }
 
+export function resolvePreferredPortfolioSource(params: {
+  storedActiveSource?: PortfolioSource | string | null;
+  backendPreferredSource?: PortfolioSource | string | null;
+  hasStatementPortfolio: boolean;
+  hasPlaidPortfolio: boolean;
+}): PortfolioSource {
+  const stored =
+    params.storedActiveSource === "statement" || params.storedActiveSource === "plaid"
+      ? params.storedActiveSource
+      : null;
+  const backend =
+    params.backendPreferredSource === "statement" || params.backendPreferredSource === "plaid"
+      ? params.backendPreferredSource
+      : null;
+
+  if (stored === "statement" && params.hasStatementPortfolio) return "statement";
+  if (stored === "plaid" && params.hasPlaidPortfolio) return "plaid";
+  if (backend === "statement" && params.hasStatementPortfolio) return "statement";
+  if (backend === "plaid" && params.hasPlaidPortfolio) return "plaid";
+  if (params.hasStatementPortfolio) return "statement";
+  if (params.hasPlaidPortfolio) return "plaid";
+  return "statement";
+}
+
 export function resolvePortfolioFreshness(
   plaidStatus: PlaidPortfolioStatusResponse | null | undefined
 ): PortfolioFreshness | null {

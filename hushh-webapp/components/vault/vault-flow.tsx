@@ -111,6 +111,17 @@ export function VaultFlow({
     isGeneratedVaultMode && availableGeneratedMethod === vaultMode;
   const shouldShowPassphraseUnlock =
     !hasActiveGeneratedWrapper || unlockWithPassphraseFallback;
+  const createPassphraseTooShort =
+    step === "create" && passphrase.length > 0 && passphrase.length < 8;
+  const createPassphraseMismatch =
+    step === "create" &&
+    confirmPassphrase.length > 0 &&
+    passphrase !== confirmPassphrase;
+  const createPassphraseHelperText = createPassphraseTooShort
+    ? "Minimum 8 characters required."
+    : createPassphraseMismatch
+      ? "Passphrases do not match."
+      : null;
 
   const generatedUnlockLabel =
     vaultMode === "generated_default_web_prf" ||
@@ -648,6 +659,11 @@ export function VaultFlow({
                   onChange={(e) => setConfirmPassphrase(e.target.value)}
                   className="h-11 px-3 text-base sm:h-12 sm:px-4 sm:text-lg"
                 />
+                {createPassphraseHelperText && (
+                  <p className="text-xs font-medium text-destructive" role="status">
+                    {createPassphraseHelperText}
+                  </p>
+                )}
               </div>
               <div className="rounded-xl border border-border/60 bg-muted/20 p-2.5 text-[11px] text-muted-foreground sm:p-3 sm:text-sm">
                 <p className="font-semibold text-foreground">Passphrase requirements</p>

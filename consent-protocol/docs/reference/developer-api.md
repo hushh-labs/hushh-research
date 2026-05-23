@@ -185,6 +185,14 @@ The response contains ciphertext only:
 
 Hussh does not return plaintext user data to developer callers. The external connector unwraps the export key locally, decrypts the payload locally, and narrows the export locally when `granted_scope` is broader than `expected_scope`. That is the current implementation shape behind the founder-language `Cryptographic Primitives` claim.
 
+## Partner Storage Boundary
+
+The Developer API authorizes an encrypted, scoped export. It does not authorize a partner to persist the export broadly.
+
+External systems such as Salesforce should store only CRM-native metadata and the minimum approved fields needed for the workflow: app identity, request reason, consent receipt id, scope, status, expiry, audit reference, and narrow workflow payloads when there is a clear business or legal purpose. Raw PKM, KYC documents, full email bodies, vault data, user keys, connector private keys, and broad personal profiles are not default partner-storage data.
+
+If a connector decrypts PII and sends plaintext into a partner CRM, that copy is outside the Hussh zero-knowledge boundary. The partner path must have explicit purpose, consent scope, retention, encryption or masking, access control, deletion, and audit ownership before persistence is acceptable.
+
 ## Coverage And Upgrade Rules
 
 - If an app already has a broader active grant and asks for a narrower scope, Hussh reuses the existing broader token immediately.

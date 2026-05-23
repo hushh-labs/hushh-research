@@ -204,6 +204,13 @@ The data flow is:
 - encrypted export back to the external connector
 - local decryption on the connector side
 
+Storage boundary:
+
+- The MCP flow authorizes one scoped export, not broad partner persistence.
+- Store consent receipt ids, scope labels, status, expiry, and audit references as workflow metadata.
+- Store plaintext PII in a partner CRM only when the workflow has explicit purpose, consent, retention, encryption or masking, access control, deletion, and audit ownership.
+- Do not persist raw PKM, KYC documents, full email bodies, vault data, user keys, connector private keys, or broad personal profiles by default.
+
 ## License
 
 This package is licensed under `Apache-2.0`.
