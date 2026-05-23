@@ -331,12 +331,12 @@ async def vault_bootstrap_state(
             preNavTourSkippedAt=state.get("preNavTourSkippedAt"),
             preStateUpdatedAt=state.get("preStateUpdatedAt"),
         )
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
-            status_code=400, detail={"error": str(e), "code": "VAULT_VALIDATION_ERROR"}
+            status_code=400, detail={"error": "Validation error", "code": "VAULT_VALIDATION_ERROR"}
         )
     except Exception as e:
-        logger.error("vault/bootstrap-state error user=%s: %s", _mask_user_id(user_id), e)
+        logger.error("vault/bootstrap-state error user=%s", _mask_user_id(user_id), exc_info=True)
         _raise_database_http_exception(e)
 
 
@@ -377,12 +377,12 @@ async def vault_pre_vault_state(
             preNavTourSkippedAt=state.get("preNavTourSkippedAt"),
             preStateUpdatedAt=state.get("preStateUpdatedAt"),
         )
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
-            status_code=400, detail={"error": str(e), "code": "VAULT_VALIDATION_ERROR"}
+            status_code=400, detail={"error": "Validation error", "code": "VAULT_VALIDATION_ERROR"}
         )
     except Exception as e:
-        logger.error("vault/pre-vault-state error user=%s: %s", _mask_user_id(user_id), e)
+        logger.error("vault/pre-vault-state error user=%s", _mask_user_id(user_id), exc_info=True)
         _raise_database_http_exception(e)
 
 
