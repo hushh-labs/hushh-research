@@ -16,6 +16,23 @@ def _build_app() -> FastAPI:
     return app
 
 
+def test_user_lookup_invalid_identifier_returns_static_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HUSHH_DEVELOPER_TOKEN", "dev-token")
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/user/lookup",
+        headers={"X-MCP-Developer-Token": "dev-token"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Invalid lookup identifier. Provide a valid email, phone number, or user ID."
+    )
+
+
 def test_user_lookup_supports_phone_number(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HUSHH_DEVELOPER_TOKEN", "dev-token")
     monkeypatch.setattr(session, "get_firebase_auth_app", lambda: object())
