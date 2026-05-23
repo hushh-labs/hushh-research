@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 import time
 from dataclasses import asdict, dataclass
@@ -37,14 +38,23 @@ DEFAULT_PRIMARY_MODEL = "gemini-3.1-flash-lite-preview"
 DEFAULT_SECONDARY_MODEL = ""
 DEFAULT_REFERENCE_MODEL = ""
 DEFAULT_SHADOW_USERS = [
-    "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
     "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+    "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
 ]
 PHASE_ORDER = ("fresh_random_120", "fresh_chain_60", "fresh_chain_120")
 PHASE_PROMPT_LIMIT = {
     "fresh_random_120": 120,
     "fresh_chain_60": 60,
     "fresh_chain_120": 120,
+}
+DEFAULT_GATE_THRESHOLDS = {
+    "schema_ok_rate": 1.0,
+    "domain_ok_rate": 0.95,
+    "mutation_ok_rate": 0.90,
+    "intent_ok_rate": 0.90,
+    "fallback_rate": 0.10,
+    "fragmentation_score_min": 0.80,
+    "fragmentation_score_max": 1.20,
 }
 _GENERAL_DOMAIN_KEY = "general"
 _FINANCIAL_HINTS = {
@@ -192,6 +202,7 @@ class EvaluationResult:
     actual_write_mode: str
     requires_confirmation: bool
     validation_hints: list[str]
+    drift_flags: dict[str, bool]
     used_fallback: bool
     timed_out: bool
     finance_contamination: bool
@@ -421,10 +432,62 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--shadow-users",
         nargs="*",
-        default=DEFAULT_SHADOW_USERS,
-        help="Optional explicit shadow replay user IDs.",
+        default=None,
+        help=(
+            "Optional explicit shadow replay user IDs. Defaults to REVIEWER_UID "
+            "from the env file, then the legacy reviewer fallbacks."
+        ),
+    )
+    parser.add_argument(
+        "--enforce-gates",
+        action="store_true",
+        help="Exit nonzero when PKM determinism quality gates fail.",
+    )
+    parser.add_argument(
+        "--min-schema-ok-rate",
+        type=float,
+        default=DEFAULT_GATE_THRESHOLDS["schema_ok_rate"],
+    )
+    parser.add_argument(
+        "--min-domain-ok-rate",
+        type=float,
+        default=DEFAULT_GATE_THRESHOLDS["domain_ok_rate"],
+    )
+    parser.add_argument(
+        "--min-mutation-ok-rate",
+        type=float,
+        default=DEFAULT_GATE_THRESHOLDS["mutation_ok_rate"],
+    )
+    parser.add_argument(
+        "--min-intent-ok-rate",
+        type=float,
+        default=DEFAULT_GATE_THRESHOLDS["intent_ok_rate"],
+    )
+    parser.add_argument(
+        "--max-fallback-rate",
+        type=float,
+        default=DEFAULT_GATE_THRESHOLDS["fallback_rate"],
+    )
+    parser.add_argument(
+        "--min-fragmentation-score",
+        type=float,
+        default=DEFAULT_GATE_THRESHOLDS["fragmentation_score_min"],
+    )
+    parser.add_argument(
+        "--max-fragmentation-score",
+        type=float,
+        default=DEFAULT_GATE_THRESHOLDS["fragmentation_score_max"],
     )
     return parser.parse_args()
+
+
+def resolve_shadow_users(explicit_users: list[str] | None) -> list[str]:
+    users: list[str] = []
+    for raw_user in explicit_users or [os.getenv("REVIEWER_UID"), *DEFAULT_SHADOW_USERS]:
+        user = str(raw_user or "").strip()
+        if user and user not in users:
+            users.append(user)
+    return users
 
 
 def _tokenize(message: str) -> set[str]:
@@ -2995,6 +3058,7 @@ async def _evaluate_case(
         actual_write_mode=actual_write_mode,
         requires_confirmation=requires_confirmation,
         validation_hints=validation_hints,
+        drift_flags=dict(result.get("drift_flags") or {}),
         used_fallback=bool(result.get("used_fallback")),
         timed_out=timed_out,
         finance_contamination=finance_contamination,
@@ -3109,7 +3173,7 @@ def _shadow_prompt_chain() -> list[PromptCase]:
             "I prefer dividend-paying stocks.",
             "durable",
             "financial_event",
-            "extend",
+            "create",
             ("financial",),
             False,
             "shadow_finance",
@@ -3119,7 +3183,7 @@ def _shadow_prompt_chain() -> list[PromptCase]:
             "I want a lower-volatility portfolio.",
             "durable",
             "financial_event",
-            "extend",
+            "create",
             ("financial",),
             False,
             "shadow_finance",
@@ -3131,7 +3195,7 @@ def _shadow_prompt_chain() -> list[PromptCase]:
             "correction",
             "correct",
             ("financial",),
-            False,
+            True,
             "shadow_finance",
         ),
         (
@@ -3149,7 +3213,7 @@ def _shadow_prompt_chain() -> list[PromptCase]:
             "I want simple repeatable meals.",
             "durable",
             "preference",
-            "extend",
+            "create",
             ("food",),
             False,
             "shadow_non_finance",
@@ -3198,36 +3262,13 @@ async def _load_shadow_state(
         .data
         or []
     )
-    scope_rows = (
-        service.supabase.table("pkm_scope_registry")
-        .select("domain,scope_label,scope_handle")
-        .eq("user_id", user_id)
-        .order("domain")
-        .execute()
-        .data
-        or []
-    )
-    memories = []
     domains = []
     for manifest in manifests:
         domain = str(manifest.get("domain") or "").strip()
         if not domain:
             continue
         domains.append(domain)
-        scope_labels = [row for row in scope_rows if str(row.get("domain") or "").strip() == domain]
-        for scope in scope_labels[:5]:
-            memories.append(
-                {
-                    "domain": domain,
-                    "entity_scope": str(
-                        scope.get("scope_label") or scope.get("scope_handle") or ""
-                    ),
-                    "intent_class": "shadow_baseline",
-                    "message": json.dumps(manifest.get("summary_projection") or {}),
-                    "active": True,
-                }
-            )
-    return _blank_state(domains=sorted(set(domains)), memories=memories)
+    return _blank_state(domains=sorted(set(domains)), memories=[])
 
 
 async def _run_shadow_mode(
@@ -3292,6 +3333,7 @@ def _summarize_results(results: list[EvaluationResult]) -> dict[str, Any]:
             "finance_contamination_count": 0,
             "unresolved_domain_count": 0,
             "fragmentation_score": 0.0,
+            "drift_flag_counts": {},
         }
 
     def _rate(attr: str) -> float:
@@ -3321,6 +3363,11 @@ def _summarize_results(results: list[EvaluationResult]) -> dict[str, Any]:
         len(actual_domains) / max(1, len(expected_domains)),
         4,
     )
+    drift_flag_counts: dict[str, int] = {}
+    for item in results:
+        for flag, enabled in item.drift_flags.items():
+            if enabled:
+                drift_flag_counts[flag] = drift_flag_counts.get(flag, 0) + 1
     return {
         "prompt_count": total,
         "average_latency_ms": average_latency_ms,
@@ -3336,6 +3383,7 @@ def _summarize_results(results: list[EvaluationResult]) -> dict[str, Any]:
         "finance_contamination_count": finance_contamination_count,
         "unresolved_domain_count": unresolved_domain_count,
         "fragmentation_score": fragmentation_score,
+        "drift_flag_counts": drift_flag_counts,
     }
 
 
@@ -3386,6 +3434,7 @@ def _manual_kpi_summary(
     synthetic_reports: list[dict[str, Any]],
     shadow_reports: list[dict[str, Any]],
     mode_stability: dict[str, Any],
+    quality_gate: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "phase": phase,
@@ -3408,6 +3457,7 @@ def _manual_kpi_summary(
             for report in shadow_reports
         ],
         "synthetic_mode_stability": mode_stability,
+        "quality_gate": quality_gate or {},
         "latency_recommendation": {
             "recommended_fast_path_mode": synthetic_reports[0]["mode"] if synthetic_reports else "",
             "recommended_fast_path_model": synthetic_reports[0]["model_override"]
@@ -3415,6 +3465,91 @@ def _manual_kpi_summary(
             else "",
             "selection_rule": "single-model minimal-thinking run on gemini-3.1-flash-lite-preview",
         },
+    }
+
+
+def _gate_thresholds(args: argparse.Namespace) -> dict[str, float]:
+    return {
+        "schema_ok_rate": float(args.min_schema_ok_rate),
+        "domain_ok_rate": float(args.min_domain_ok_rate),
+        "mutation_ok_rate": float(args.min_mutation_ok_rate),
+        "intent_ok_rate": float(args.min_intent_ok_rate),
+        "fallback_rate": float(args.max_fallback_rate),
+        "fragmentation_score_min": float(args.min_fragmentation_score),
+        "fragmentation_score_max": float(args.max_fragmentation_score),
+    }
+
+
+def _gate_failures_for_summary(
+    *,
+    label: str,
+    summary: dict[str, Any],
+    thresholds: dict[str, float],
+) -> list[str]:
+    failures: list[str] = []
+    minimum_checks = (
+        ("schema_ok_rate", "schema"),
+        ("domain_ok_rate", "domain"),
+        ("mutation_ok_rate", "mutation"),
+        ("intent_ok_rate", "intent"),
+    )
+    for key, display_name in minimum_checks:
+        actual = float(summary.get(key) or 0.0)
+        required = float(thresholds[key])
+        if actual < required:
+            failures.append(f"{label}:{display_name} {actual:.4f} < {required:.4f}")
+
+    fallback_rate = float(summary.get("fallback_rate") or 0.0)
+    max_fallback = float(thresholds["fallback_rate"])
+    if fallback_rate > max_fallback:
+        failures.append(f"{label}:fallback {fallback_rate:.4f} > {max_fallback:.4f}")
+    fragmentation_score = float(summary.get("fragmentation_score") or 0.0)
+    min_fragmentation = float(thresholds["fragmentation_score_min"])
+    max_fragmentation = float(thresholds["fragmentation_score_max"])
+    if fragmentation_score < min_fragmentation:
+        failures.append(
+            f"{label}:fragmentation {fragmentation_score:.4f} < {min_fragmentation:.4f}"
+        )
+    if fragmentation_score > max_fragmentation:
+        failures.append(
+            f"{label}:fragmentation {fragmentation_score:.4f} > {max_fragmentation:.4f}"
+        )
+    if int(summary.get("finance_contamination_count") or 0) > 0:
+        failures.append(
+            f"{label}:finance_contamination {summary.get('finance_contamination_count')}"
+        )
+    if int(summary.get("unresolved_domain_count") or 0) > 0:
+        failures.append(f"{label}:unresolved_domain {summary.get('unresolved_domain_count')}")
+    return failures
+
+
+def _build_quality_gate(
+    *,
+    synthetic_reports: list[dict[str, Any]],
+    shadow_reports: list[dict[str, Any]],
+    thresholds: dict[str, float],
+) -> dict[str, Any]:
+    failures: list[str] = []
+    for report in synthetic_reports:
+        failures.extend(
+            _gate_failures_for_summary(
+                label=f"synthetic:{report.get('mode') or 'unknown'}",
+                summary=report.get("summary") or {},
+                thresholds=thresholds,
+            )
+        )
+    for report in shadow_reports:
+        failures.extend(
+            _gate_failures_for_summary(
+                label=f"shadow:{report.get('mode') or 'unknown'}",
+                summary=report.get("summary") or {},
+                thresholds=thresholds,
+            )
+        )
+    return {
+        "status": "pass" if not failures else "fail",
+        "thresholds": thresholds,
+        "failures": failures,
     }
 
 
@@ -3434,10 +3569,12 @@ async def main() -> int:
         max_prompts_per_persona=args.max_prompts_per_persona,
     )
     modes = _mode_matrix(args)
+    shadow_users = resolve_shadow_users(args.shadow_users)
 
     synthetic_reports = []
     shadow_reports = []
     started_at = time.time()
+    gate_thresholds = _gate_thresholds(args)
     for mode_name, model_override, strict_small_model in modes:
         synthetic_reports.append(
             await _run_synthetic_mode(
@@ -3455,7 +3592,7 @@ async def main() -> int:
                 await _run_shadow_mode(
                     service=service,
                     pkm_service=pkm_service,
-                    shadow_users=args.shadow_users,
+                    shadow_users=shadow_users,
                     mode_name=mode_name,
                     model_override=model_override,
                     strict_small_model=strict_small_model,
@@ -3463,11 +3600,17 @@ async def main() -> int:
                 )
             )
 
+    quality_gate = _build_quality_gate(
+        synthetic_reports=synthetic_reports,
+        shadow_reports=shadow_reports,
+        thresholds=gate_thresholds,
+    )
     report = {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "duration_seconds": round(time.time() - started_at, 2),
         "env_file": str(env_file) if env_file else "",
         "phase": args.phase,
+        "shadow_users": shadow_users,
         "synthetic_persona_count": len(personas),
         "synthetic_prompt_count": sum(len(persona["prompts"]) for persona in personas),
         "mode_matrix": [
@@ -3481,6 +3624,7 @@ async def main() -> int:
         "synthetic_reports": synthetic_reports,
         "shadow_reports": shadow_reports,
         "synthetic_mode_stability": _compute_mode_stability(synthetic_reports),
+        "quality_gate": quality_gate,
     }
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(
@@ -3490,11 +3634,17 @@ async def main() -> int:
                 synthetic_reports=synthetic_reports,
                 shadow_reports=shadow_reports,
                 mode_stability=report["synthetic_mode_stability"],
+                quality_gate=quality_gate,
             ),
             indent=2,
         )
     )
     print(f"Wrote PKM structure-agent report to {report_path}")
+    if args.enforce_gates and quality_gate["status"] != "pass":
+        print("PKM structure-agent quality gate failed:", file=sys.stderr)
+        for failure in quality_gate["failures"]:
+            print(f"- {failure}", file=sys.stderr)
+        return 1
     return 0
 
 

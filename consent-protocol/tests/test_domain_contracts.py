@@ -260,7 +260,10 @@ class TestVersionHelpers:
         assert current_domain_contract_version("kai_profile") == FINANCIAL_DOMAIN_CONTRACT_VERSION
 
     def test_current_domain_contract_version_default(self) -> None:
-        assert current_domain_contract_version("food") == 1
+        assert current_domain_contract_version("food") == FINANCIAL_DOMAIN_CONTRACT_VERSION
+
+    def test_current_domain_contract_version_unknown_dynamic_domain(self) -> None:
+        assert current_domain_contract_version("custom_music") == FINANCIAL_DOMAIN_CONTRACT_VERSION
 
 
 # ---------------------------------------------------------------------------

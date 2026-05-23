@@ -15,9 +15,11 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 
 from hushh_mcp.runtime_settings import get_app_runtime_settings  # noqa: E402
+from mcp_modules.log_redaction import install_sensitive_log_filter  # noqa: E402
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
+install_sensitive_log_filter()
 logger = logging.getLogger(__name__)
 _APP_RUNTIME_SETTINGS = get_app_runtime_settings()
 
@@ -397,6 +399,27 @@ async def startup_ticker_cache():
         ticker_cache.load_from_db()
     except Exception as e:
         logger.warning("[startup] Ticker cache preload failed (routes will fall back to DB): %s", e)
+
+
+@app.on_event("startup")
+async def startup_pkm_scope_validator_warmup() -> None:
+    """Prewarm PKM scope validation helpers before the first consent request."""
+    started_at = time.perf_counter()
+    try:
+        from hushh_mcp.consent.scope_generator import get_scope_generator
+
+        await get_scope_generator().prewarm_validator()
+    except Exception as exc:
+        logger.warning(
+            "startup.pkm_scope_validator_warmup_failed reason=%s",
+            exc,
+        )
+        return
+
+    logger.info(
+        "startup.pkm_scope_validator_warmed duration_ms=%.2f",
+        (time.perf_counter() - started_at) * 1000,
+    )
 
 
 @app.on_event("startup")

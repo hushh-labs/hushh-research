@@ -11,12 +11,20 @@ export const dynamic = "force-dynamic";
 const HOT_GET_CACHE_TTL_MS = 30 * 1000;
 const DEFAULT_PROXY_TIMEOUT_MS = 12_000;
 const ONBOARDING_PROXY_TIMEOUT_MS = Number(
-  process.env.RIA_ONBOARDING_PROXY_TIMEOUT_MS || 90_000
+  process.env.RIA_ONBOARDING_PROXY_TIMEOUT_MS || 90_000,
 );
-const hotGetCache = new Map<string, { status: number; payload: unknown; cachedAt: number }>();
-const hotGetInflight = new Map<string, Promise<{ status: number; payload: unknown }>>();
+const hotGetCache = new Map<
+  string,
+  { status: number; payload: unknown; cachedAt: number }
+>();
+const hotGetInflight = new Map<
+  string,
+  Promise<{ status: number; payload: unknown }>
+>();
 
-function readHotGetCache(key: string): { status: number; payload: unknown } | null {
+function readHotGetCache(
+  key: string,
+): { status: number; payload: unknown } | null {
   const cached = hotGetCache.get(key);
   if (!cached) return null;
   if (Date.now() - cached.cachedAt > HOT_GET_CACHE_TTL_MS) {
@@ -29,7 +37,10 @@ function readHotGetCache(key: string): { status: number; payload: unknown } | nu
   };
 }
 
-function writeHotGetCache(key: string, value: { status: number; payload: unknown }): void {
+function writeHotGetCache(
+  key: string,
+  value: { status: number; payload: unknown },
+): void {
   hotGetCache.set(key, {
     ...value,
     cachedAt: Date.now(),
@@ -39,10 +50,10 @@ function writeHotGetCache(key: string, value: { status: number; payload: unknown
 function resolveProxyTimeoutMs(path: string, method: "GET" | "POST"): number {
   if (
     method === "POST" &&
-    (
-      path.startsWith("onboarding/submit") ||
-      path.startsWith("onboarding/verify-name")
-    )
+    (path.startsWith("onboarding/submit") ||
+      path.startsWith("onboarding/verify-name") ||
+      path.startsWith("onboarding/verify-license") ||
+      path.startsWith("profile/refresh-license"))
   ) {
     return ONBOARDING_PROXY_TIMEOUT_MS;
   }
@@ -52,19 +63,27 @@ function resolveProxyTimeoutMs(path: string, method: "GET" | "POST"): number {
 function isTimeoutError(error: unknown): boolean {
   if (!error) return false;
   if (typeof error === "string") {
-    return error.includes("TimeoutError") || error.includes("aborted due to timeout");
+    return (
+      error.includes("TimeoutError") || error.includes("aborted due to timeout")
+    );
   }
-  const candidate = error as { name?: unknown; code?: unknown; message?: unknown };
+  const candidate = error as {
+    name?: unknown;
+    code?: unknown;
+    message?: unknown;
+  };
   if (candidate.name === "TimeoutError") return true;
   if (candidate.code === 23) return true;
   const text = String(candidate.message || error);
-  return text.includes("TimeoutError") || text.includes("aborted due to timeout");
+  return (
+    text.includes("TimeoutError") || text.includes("aborted due to timeout")
+  );
 }
 
 async function proxyRequest(
   request: NextRequest,
   params: { path: string[] },
-  method: "GET" | "POST"
+  method: "GET" | "POST",
 ) {
   const requestId = resolveRequestId(request);
   const path = params.path.join("/");
@@ -81,7 +100,10 @@ async function proxyRequest(
     ...(authHeader ? { Authorization: authHeader } : {}),
     ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
   });
-  const body = method === "POST" ? JSON.stringify(await request.json().catch(() => ({}))) : undefined;
+  const body =
+    method === "POST"
+      ? JSON.stringify(await request.json().catch(() => ({})))
+      : undefined;
 
   if (hotCacheKey) {
     const cached = readHotGetCache(hotCacheKey);
@@ -124,6 +146,10 @@ async function proxyRequest(
 
     const result = await load;
 
+    if (method === "POST" && path === "profile/refresh-license" && authHeader) {
+      hotGetCache.delete(`onboarding/status:${authHeader}`);
+    }
+
     if (hotCacheKey && result.status < 500) {
       writeHotGetCache(hotCacheKey, result);
     }
@@ -132,23 +158,27 @@ async function proxyRequest(
       status: result.status,
     });
   } catch (error) {
-    console.error(`[RIA API] request_id=${requestId} proxy_error path=${path}`, error);
+    console.error(
+      `[RIA API] request_id=${requestId} proxy_error path=${path}`,
+      error,
+    );
     if (isTimeoutError(error)) {
       return withRequestIdJson(
         requestId,
         {
-          error: "RIA request timed out while waiting for backend verification.",
+          error:
+            "RIA request timed out while waiting for backend verification.",
           code: "RIA_PROXY_TIMEOUT",
           timeout_ms: timeoutMs,
           path,
         },
-        { status: 504 }
+        { status: 504 },
       );
     }
     return withRequestIdJson(
       requestId,
       { error: "Failed to proxy RIA request" },
-      { status: 500 }
+      { status: 500 },
     );
   } finally {
     if (hotCacheKey) {
@@ -159,14 +189,14 @@ async function proxyRequest(
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ path: string[] }> }
+  { params }: { params: Promise<{ path: string[] }> },
 ) {
   return proxyRequest(request, await params, "GET");
 }
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ path: string[] }> }
+  { params }: { params: Promise<{ path: string[] }> },
 ) {
   return proxyRequest(request, await params, "POST");
 }
