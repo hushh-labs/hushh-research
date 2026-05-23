@@ -75,6 +75,7 @@ import {
   buildFinancialDomainSummary,
   buildStatementSource,
 } from "@/lib/kai/brokerage/financial-sources";
+import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { consolidateHoldingsBySymbol } from "@/lib/utils/portfolio-normalize";
 
 
@@ -667,48 +668,6 @@ function hasAllocationValues(allocation: AssetAllocation): boolean {
   );
 }
 
-function mergeAccountSummary(primary: AccountSummary, fallback: AccountSummary): AccountSummary {
-  return compactRecord({
-    beginning_value: primary.beginning_value ?? fallback.beginning_value,
-    ending_value: primary.ending_value ?? fallback.ending_value,
-    cash_balance: primary.cash_balance ?? fallback.cash_balance,
-    equities_value: primary.equities_value ?? fallback.equities_value,
-    change_in_value: primary.change_in_value ?? fallback.change_in_value,
-    total_change: primary.total_change ?? fallback.total_change,
-    net_deposits_withdrawals:
-      primary.net_deposits_withdrawals ?? fallback.net_deposits_withdrawals,
-    net_deposits_period: primary.net_deposits_period ?? fallback.net_deposits_period,
-    net_deposits_ytd: primary.net_deposits_ytd ?? fallback.net_deposits_ytd,
-    investment_gain_loss: primary.investment_gain_loss ?? fallback.investment_gain_loss,
-    total_income_period: primary.total_income_period ?? fallback.total_income_period,
-    total_income_ytd: primary.total_income_ytd ?? fallback.total_income_ytd,
-    total_fees: primary.total_fees ?? fallback.total_fees,
-  } satisfies AccountSummary) as AccountSummary;
-}
-
-function _mergeAssetAllocation(primary: AssetAllocation, fallback: AssetAllocation): AssetAllocation {
-  return compactRecord({
-    cash_pct: primary.cash_pct ?? fallback.cash_pct,
-    cash_value: primary.cash_value ?? fallback.cash_value,
-    equities_pct: primary.equities_pct ?? fallback.equities_pct,
-    equities_value: primary.equities_value ?? fallback.equities_value,
-    bonds_pct: primary.bonds_pct ?? fallback.bonds_pct,
-    bonds_value: primary.bonds_value ?? fallback.bonds_value,
-    real_assets_pct: primary.real_assets_pct ?? fallback.real_assets_pct,
-    real_assets_value: primary.real_assets_value ?? fallback.real_assets_value,
-    other_pct: primary.other_pct ?? fallback.other_pct,
-    other_value: primary.other_value ?? fallback.other_value,
-  } satisfies AssetAllocation) as AssetAllocation;
-}
-
-function pickRicherAccountSummary(left: AccountSummary, right: AccountSummary): AccountSummary {
-  return Object.keys(right).length > Object.keys(left).length ? right : left;
-}
-
-function pickRicherAssetAllocation(left: AssetAllocation, right: AssetAllocation): AssetAllocation {
-  return Object.keys(right).length > Object.keys(left).length ? right : left;
-}
-
 function isCashLikeHolding(holding: Holding): boolean {
   const symbol = String(holding.symbol || "").trim().toUpperCase();
   const name = String(holding.name || "").trim().toLowerCase();
@@ -789,28 +748,6 @@ function deriveAssetAllocationFromHoldings(holdings: Holding[]): AssetAllocation
   } satisfies AssetAllocation) as AssetAllocation;
 }
 
-function statementCompletenessScore(statement: Record<string, unknown>): number {
-  const summary = sanitizeAccountSummary(statement.account_summary);
-  const allocation = sanitizeAssetAllocation(statement.asset_allocation);
-  const holdings = Array.isArray(statement.holdings) ? statement.holdings.length : 0;
-  const quality = toRecord(statement.quality_report_v2);
-  const validated = toFiniteNumber(quality?.validated_count);
-
-  const summaryCount = Object.keys(summary).length;
-  const allocationCount = Object.keys(allocation).length;
-  return summaryCount * 6 + allocationCount * 4 + Math.min(holdings, 25) + (validated ?? 0) / 10;
-}
-
-function pickBestStatementSnapshot(statements: unknown): Record<string, unknown> | undefined {
-  if (!Array.isArray(statements) || statements.length === 0) return undefined;
-  const candidates = statements
-    .map((entry) => toRecord(entry))
-    .filter((entry): entry is Record<string, unknown> => Boolean(entry));
-  if (candidates.length === 0) return undefined;
-  candidates.sort((left, right) => statementCompletenessScore(right) - statementCompletenessScore(left));
-  return candidates[0];
-}
-
 // =============================================================================
 // MAIN COMPONENT
 // =============================================================================
@@ -874,6 +811,7 @@ export function PortfolioReviewView({
   const createdVaultCopyRef = useRef(false);
   const createdVaultModeRef = useRef<string | null>(null);
   const continuationInFlightRef = useRef(false);
+  const vaultUnlockSucceededRef = useRef(false);
   const handleSaveRef = useRef<() => Promise<void>>(async () => {});
   const saveInFlightRef = useRef(false);
   const isMountedRef = useRef(true);
@@ -1519,9 +1457,6 @@ export function PortfolioReviewView({
       logSavePhase("blob load", blobLoadStartedAt);
       const mergeBuildStartedAt = nowMs();
 
-      const existingPortfolioCandidate =
-        toRecord(existingFinancial.portfolio) ?? existingFinancial;
-
       const parsedAccountSummary = sanitizeAccountSummary(accountSummary);
       const parsedAssetAllocation = sanitizeAssetAllocation(assetAllocation);
       const parsedCashBalance =
@@ -1546,40 +1481,6 @@ export function PortfolioReviewView({
       const existingStatements = Array.isArray(existingStatementsValue)
         ? [...existingStatementsValue]
         : [];
-      const bestStatementSnapshot = pickBestStatementSnapshot(existingStatements);
-
-      const existingPortfolioSummary = sanitizeAccountSummary(
-        existingPortfolioCandidate.account_summary
-      );
-      const existingStatementSummary = sanitizeAccountSummary(
-        bestStatementSnapshot?.account_summary
-      );
-      const fallbackAccountSummary = pickRicherAccountSummary(
-        existingPortfolioSummary,
-        existingStatementSummary
-      );
-
-      const existingPortfolioAllocation = sanitizeAssetAllocation(
-        existingPortfolioCandidate.asset_allocation
-      );
-      const existingStatementAllocation = sanitizeAssetAllocation(
-        bestStatementSnapshot?.asset_allocation
-      );
-      const fallbackAssetAllocation = pickRicherAssetAllocation(
-        existingPortfolioAllocation,
-        existingStatementAllocation
-      );
-
-      const fallbackCashBalance =
-        toFiniteNumber(existingPortfolioCandidate.cash_balance) ??
-        existingPortfolioSummary.cash_balance ??
-        toFiniteNumber(bestStatementSnapshot?.cash_balance) ??
-        existingStatementSummary.cash_balance;
-      const fallbackTotalValue =
-        toFiniteNumber(existingPortfolioCandidate.total_value) ??
-        existingPortfolioSummary.ending_value ??
-        toFiniteNumber(bestStatementSnapshot?.total_value) ??
-        existingStatementSummary.ending_value;
 
       const statementTotalValue =
         toFiniteNumber(initialData.total_value) ??
@@ -1588,23 +1489,23 @@ export function PortfolioReviewView({
           ? holdingsTotal +
             (holdingsIncludeCash ? 0 : parsedCashBalance ?? derivedCashBalance ?? 0)
           : undefined);
-      const resolvedCashBalance = parsedCashBalance ?? derivedCashBalance ?? fallbackCashBalance;
+      const resolvedCashBalance = parsedCashBalance ?? derivedCashBalance;
       const resolvedTotalValue =
         statementTotalValue ??
         (holdingsTotal > 0
           ? holdingsTotal + (holdingsIncludeCash ? 0 : resolvedCashBalance ?? 0)
           : undefined) ??
-        fallbackTotalValue ??
         0;
+      const derivedAssetAllocation = deriveAssetAllocationFromHoldings(consolidatedActiveHoldings);
 
       const resolvedAccountSummary = compactRecord({
-        ...mergeAccountSummary(parsedAccountSummary, fallbackAccountSummary),
+        ...parsedAccountSummary,
         ending_value: resolvedTotalValue > 0 ? resolvedTotalValue : undefined,
         cash_balance: resolvedCashBalance,
       } satisfies AccountSummary) as AccountSummary;
       const resolvedAssetAllocation = hasAllocationValues(parsedAssetAllocation)
         ? parsedAssetAllocation
-        : fallbackAssetAllocation;
+        : derivedAssetAllocation;
 
       const sparseSections: string[] = [];
       if (!hasSummaryValues(parsedAccountSummary)) sparseSections.push("account_summary");
@@ -1712,7 +1613,7 @@ export function PortfolioReviewView({
         parse_context: {
           parse_fallback: parseFallback,
           sparse_sections: sparseSections,
-          fallback_merge_applied: sparseSections.length > 0,
+          fallback_merge_applied: false,
         },
       };
       existingStatements.unshift(snapshot);
@@ -1744,15 +1645,6 @@ export function PortfolioReviewView({
         lastQualityRawCount > 0
           ? Number((lastQualityValidatedCount / lastQualityRawCount).toFixed(4))
           : undefined;
-      const bestSnapshotSource = toRecord(bestStatementSnapshot?.source);
-      const bestSnapshotStatementEnd =
-        typeof bestSnapshotSource?.statement_period_end === "string"
-          ? bestSnapshotSource.statement_period_end
-          : undefined;
-      const bestSnapshotBrokerage =
-        typeof bestSnapshotSource?.brokerage === "string"
-          ? bestSnapshotSource.brokerage
-          : undefined;
       const existingDocsStatementEnd =
         typeof existingDocs.last_statement_end === "string"
           ? (existingDocs.last_statement_end as string)
@@ -1766,11 +1658,10 @@ export function PortfolioReviewView({
         documents_count: nextDocsDomain.statements.length,
         last_statement_end:
           accountInfo.statement_period_end ||
-          bestSnapshotStatementEnd ||
           existingDocsStatementEnd ||
           null,
         last_brokerage:
-          accountInfo.brokerage || bestSnapshotBrokerage || existingDocsBrokerage || null,
+          accountInfo.brokerage || existingDocsBrokerage || null,
         parse_fallback_last_import: parseFallback,
         sparse_sections_last_import: sparseSections,
         last_updated: nowIso,
@@ -1876,6 +1767,12 @@ export function PortfolioReviewView({
           build: () => ({
             domainData: nextFinancialDomain as unknown as Record<string, unknown>,
             summary: financialSummary,
+            mergeDecision: {
+              merge_mode: "replace_domain",
+              target_domain: "financial",
+              match_reason:
+                "Statement import is authoritative for the active financial portfolio projection.",
+            },
           }),
         });
 
@@ -1915,6 +1812,17 @@ export function PortfolioReviewView({
         }
         throw new Error("Backend returned failure on store");
       }
+
+      await PlaidPortfolioService.setActiveSource({
+        userId,
+        activeSource: "statement",
+        vaultOwnerToken: resolvedVaultOwnerToken,
+      }).catch((sourcePreferenceError) => {
+        console.warn(
+          "[PortfolioReview] Saved statement portfolio but could not update active source preference:",
+          sourcePreferenceError
+        );
+      });
 
       const postSaveSyncStartedAt = nowMs();
       // 5. Prime/invalidate deterministic cache entries for all financial reads.
@@ -2535,8 +2443,17 @@ export function PortfolioReviewView({
           open={vaultDialogOpen}
           onOpenChange={(open) => {
             if (isBusySaving) return;
+            if (open) {
+              vaultUnlockSucceededRef.current = false;
+              setVaultDialogOpen(true);
+              return;
+            }
             setVaultDialogOpen(open);
-            if (!open) setPendingVaultSave(false);
+            if (vaultUnlockSucceededRef.current) {
+              vaultUnlockSucceededRef.current = false;
+              return;
+            }
+            setPendingVaultSave(false);
           }}
           title={
             hasVault === false
@@ -2547,17 +2464,8 @@ export function PortfolioReviewView({
           enableGeneratedDefault={hasVault === false}
           onSuccess={(meta) => {
             createdVaultModeRef.current = meta?.mode ?? null;
+            vaultUnlockSucceededRef.current = true;
             setVaultDialogOpen(false);
-            if (
-              effectiveVaultKey &&
-              !continuationInFlightRef.current
-            ) {
-              continuationInFlightRef.current = true;
-              void handleSave().finally(() => {
-                continuationInFlightRef.current = false;
-              });
-              return;
-            }
             setPendingVaultSave(true);
           }}
         />

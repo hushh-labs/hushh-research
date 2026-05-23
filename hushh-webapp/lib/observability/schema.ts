@@ -120,6 +120,7 @@ const DENYLIST_KEY_REGEX =
   /(^|_)(user(id)?|uid|email|name|phone|address|token|secret|symbol|ticker|amount|price|value|message|text|prompt|query|run_id|request_id|debate_session_id)(_|$)/i;
 
 const EMAIL_VALUE_REGEX = /[^\s]+@[^\s]+\.[^\s]+/;
+const COUNTER_KEY_REGEX = /(^|_)count$/;
 
 function isPrimitiveValue(value: unknown): value is PrimitiveEventValue {
   return (
@@ -141,6 +142,14 @@ function looksSensitiveValue(value: PrimitiveEventValue): boolean {
   if (/^[A-Za-z0-9_\-]{24,}$/.test(trimmed)) return true;
 
   return false;
+}
+
+function isInvalidCounterValue(key: string, value: PrimitiveEventValue): boolean {
+  return (
+    COUNTER_KEY_REGEX.test(key) &&
+    typeof value === "number" &&
+    (!Number.isFinite(value) || value < 0)
+  );
 }
 
 export interface EventValidationResult {
@@ -175,6 +184,12 @@ export function validateAndSanitizeEvent<T extends ObservabilityEventName>(
 
     if (looksSensitiveValue(value)) {
       droppedKeys.push(key);
+      continue;
+    }
+
+    if (isInvalidCounterValue(key, value)) {
+      droppedKeys.push(key);
+      sanitized[key] = 0;
       continue;
     }
 

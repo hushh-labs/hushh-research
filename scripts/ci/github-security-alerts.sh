@@ -118,9 +118,10 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 
-def parse_iso8601(value: str | None) -> datetime | None:
+def parse_iso8601(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
     normalized = value.strip()
@@ -131,7 +132,7 @@ def parse_iso8601(value: str | None) -> datetime | None:
     return datetime.fromisoformat(normalized).astimezone(timezone.utc)
 
 
-def filter_alerts(alerts: list[dict], cutoff: datetime | None) -> list[dict]:
+def filter_alerts(alerts: list[dict], cutoff: Optional[datetime]) -> list[dict]:
     if cutoff is None:
         return alerts
     filtered: list[dict] = []

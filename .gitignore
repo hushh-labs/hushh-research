@@ -87,10 +87,25 @@ continue-dev-tools-usage.md
 temp/
 tmp/
 .playwright-artifacts/
+.playwright-mcp/
 /test-results/
 hushh-webapp/test-results/
 hushh-webapp/npm-audit-report.json
 **/build.log
+
+# Local debug/runtime artifacts
+*.tsbuildinfo
+*.stackdump
+*.pid
+*.seed
+*.pid.lock
+
+# Runtime-generated PKM debug logs
+**/pkm-debug.log*
+**/pkm-debug-*.log*
+**/pkm-debug-*.jsonl
+**/pkm-debug-*.ndjson
+**/.pkm-debug/
 
 # Generated native/build artifacts
 hushh-webapp/.next/
