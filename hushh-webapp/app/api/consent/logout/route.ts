@@ -9,18 +9,25 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import {
+  invalidJsonPayloadResponse,
+  readJsonObject,
+} from "@/app/api/_utils/json-body";
 
 const BACKEND_URL = getPythonApiUrl();
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = (await readJsonObject(request)) as { userId?: string } | null;
+    if (!body) {
+      return invalidJsonPayloadResponse();
+    }
     const { userId } = body;
 
     if (!userId) {
       return NextResponse.json(
         { error: "userId is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -37,7 +44,7 @@ export async function POST(request: NextRequest) {
       console.error("[API] Backend error:", error);
       return NextResponse.json(
         { error: "Failed to destroy session tokens" },
-        { status: response.status }
+        { status: response.status },
       );
     }
 
@@ -49,7 +56,7 @@ export async function POST(request: NextRequest) {
     console.error("[API] Logout error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

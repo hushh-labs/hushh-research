@@ -36,8 +36,8 @@ function initializeFirebaseAdmin() {
       return admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
       });
-    } catch (e) {
-      console.warn("Failed to read service account file:", e);
+    } catch (_e) {
+      console.warn("Failed to read service account file");
     }
   }
 
@@ -45,16 +45,30 @@ function initializeFirebaseAdmin() {
   const serviceAccountEnv = resolveServerFirebaseAdminCredentialsJson();
 
   if (serviceAccountEnv) {
-    try {
-      const parsedServiceAccount = JSON.parse(serviceAccountEnv);
+  try {
+    const parsedServiceAccount = JSON.parse(serviceAccountEnv);
+
+    if (
+      !parsedServiceAccount ||
+      typeof parsedServiceAccount.project_id !== "string" ||
+      typeof parsedServiceAccount.client_email !== "string" ||
+      typeof parsedServiceAccount.private_key !== "string"
+    ) {
+      console.warn(
+        `[FirebaseAdmin] Skipping ${DEFAULT_SERVICE_ACCOUNT_ENV}: missing required service account fields.`
+      );
+    } else {
       console.log("✅ Firebase Admin initialized from env variable");
       return admin.initializeApp({
         credential: admin.credential.cert(parsedServiceAccount),
       });
-    } catch (e) {
-      console.warn(`Failed to parse ${DEFAULT_SERVICE_ACCOUNT_ENV}:`, e);
     }
+  } catch (_e) {
+    console.warn(
+      `[FirebaseAdmin] Skipping ${DEFAULT_SERVICE_ACCOUNT_ENV}: invalid JSON.`
+    );
   }
+}
 
   // Fallback: Use application default credentials (for Cloud Run, etc.)
   console.log("ℹ️ Firebase Admin using application default credentials");
