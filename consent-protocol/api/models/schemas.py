@@ -10,7 +10,7 @@ All request and response schemas are centralized here for:
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # ============================================================================
 # AGENT CHAT MODELS
@@ -62,7 +62,7 @@ class ConsentRequest(BaseModel):
 
     user_id: str
     developer_token: str  # Developer's API key
-    scope: str  # e.g. "attr.food.*", "world_model.read"
+    scope: str  # e.g. "attr.food.*", "pkm.read"
     reason: Optional[str] = None
     expiry_hours: int = 24  # How long consent lasts
 
@@ -101,7 +101,11 @@ class SessionTokenRequest(BaseModel):
     """Request to issue a session token."""
 
     userId: str
-    scope: str = "session"
+    scope: str = Field(
+        default="session",
+        min_length=1,
+        max_length=64,
+    )
 
 
 class SessionTokenResponse(BaseModel):

@@ -11,12 +11,19 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import {
+  invalidJsonPayloadResponse,
+  readJsonObject,
+} from "@/app/api/_utils/json-body";
 
 const BACKEND_URL = getPythonApiUrl();
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = (await readJsonObject(request)) as { userId?: string } | null;
+    if (!body) {
+      return invalidJsonPayloadResponse();
+    }
     const { userId } = body;
 
     // Get Authorization header from request
@@ -25,14 +32,14 @@ export async function POST(request: NextRequest) {
     if (!userId) {
       return NextResponse.json(
         { error: "userId is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (!authHeader) {
       return NextResponse.json(
         { error: "Authorization header is required" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -52,7 +59,7 @@ export async function POST(request: NextRequest) {
       console.error("[API] Backend error:", error);
       return NextResponse.json(
         { error: "Failed to issue session token" },
-        { status: response.status }
+        { status: response.status },
       );
     }
 
@@ -64,7 +71,7 @@ export async function POST(request: NextRequest) {
     console.error("[API] Session token error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

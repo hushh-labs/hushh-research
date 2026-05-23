@@ -43,7 +43,10 @@ except EnvironmentError as e:
     sys.exit(1)
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
-CONSENT_EVOLUTION_MIGRATION_FILES = ("035_strict_zero_knowledge_consent_exports.sql",)
+CONSENT_EVOLUTION_MIGRATION_FILES = (
+    "035_strict_zero_knowledge_consent_exports.sql",
+    "062_consent_exports_export_key_guard.sql",
+)
 RELEASE_MANIFEST_PATH = Path(__file__).resolve().parent / "release_migration_manifest.json"
 
 
@@ -1095,6 +1098,7 @@ async def show_status(pool: asyncpg.Pool):
         "pkm_manifests",
         "pkm_manifest_paths",
         "pkm_scope_registry",
+        "pkm_default_available_projections",
         "pkm_events",
         "pkm_migration_state",
         "pkm_upgrade_runs",
