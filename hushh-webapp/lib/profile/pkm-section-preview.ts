@@ -23,6 +23,7 @@ export type PkmSectionPreviewEntity = {
   subtitle?: string;
   fields: PkmSectionPreviewField[];
   sections?: PkmSectionPreviewEntitySection[];
+  deletable?: boolean;
 };
 
 export type PkmSectionPreviewGroup =
@@ -157,6 +158,73 @@ function arrayToStrings(value: unknown[]): string[] {
     .filter((item): item is string => Boolean(item));
 }
 
+function toItemsArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (isPlainObject(value) && Array.isArray(value.items)) return value.items;
+  return [];
+}
+
+function getNestedRecord(record: Record<string, unknown>, path: string): Record<string, unknown> | null {
+  let current: unknown = record;
+  for (const segment of path.split(".")) {
+    if (!isPlainObject(current)) return null;
+    current = current[segment];
+  }
+  return isPlainObject(current) ? current : null;
+}
+
+function getNestedItems(record: Record<string, unknown>, path: string): unknown[] {
+  const nested = getNestedRecord(record, path);
+  return nested ? toItemsArray(nested) : [];
+}
+
+function formatPercent(value: unknown): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const normalized = value <= 1 ? value * 100 : value;
+  return `${Math.round(normalized)}%`;
+}
+
+function formatAmountValue(amount: unknown, currency: unknown): string | null {
+  if (typeof amount !== "number" || !Number.isFinite(amount)) return null;
+  const code = typeof currency === "string" && currency.trim() ? currency.trim().toUpperCase() : "USD";
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: code,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${code} ${amount.toFixed(2)}`;
+  }
+}
+
+function receiptPreviewEntity(
+  key: string,
+  value: Record<string, unknown>,
+  fallbackTitle: string
+): PkmSectionPreviewEntity {
+  const fields = objectToFields(value);
+  const amount = formatAmountValue(value.amount, value.currency);
+  const confidence = formatPercent(value.confidence);
+  const affinity = formatPercent(value.affinity_score);
+  const fieldMap = new Map(fields.map((field) => [field.label, field]));
+  if (amount) {
+    fieldMap.set("Amount", { label: "Amount", value: amount });
+    fieldMap.delete("Currency");
+  }
+  if (confidence) fieldMap.set("Confidence", { label: "Confidence", value: confidence });
+  if (affinity) fieldMap.set("Affinity Score", { label: "Affinity Score", value: affinity });
+
+  const sections = buildEntitySections(value);
+  return {
+    key,
+    title: extractEntityTitle(value, fallbackTitle),
+    subtitle: extractEntitySubtitle(value),
+    fields: Array.from(fieldMap.values()).filter((field) => field.value !== extractEntityTitle(value, fallbackTitle)),
+    sections,
+  };
+}
+
 function objectToFields(record: Record<string, unknown>): PkmSectionPreviewField[] {
   return Object.entries(record)
     .filter(([key, value]) => !HIDDEN_CONSUMER_KEYS.has(key) && !Array.isArray(value) && !isPlainObject(value))
@@ -232,7 +300,8 @@ function buildEntitySections(record: Record<string, unknown>): PkmSectionPreview
 
 function buildEntityItem(
   key: string,
-  value: Record<string, unknown>
+  value: Record<string, unknown>,
+  options?: { deletable?: boolean }
 ): PkmSectionPreviewEntity {
   const title = extractEntityTitle(value, humanizeKey(key));
   const fields = objectToFields(value).filter((field) => field.value !== title);
@@ -242,6 +311,7 @@ function buildEntityItem(
     subtitle: extractEntitySubtitle(value),
     fields,
     sections: buildEntitySections(value),
+    deletable: options?.deletable === true,
   };
 }
 
@@ -259,7 +329,9 @@ function maybeBuildEntitiesGroup(
   if (isPlainObject(value) && isPlainObject(value.entities)) {
     const entities = Object.entries(value.entities)
       .filter(([, entity]) => isPlainObject(entity))
-      .map(([entityKey, entity]) => buildEntityItem(entityKey, entity as Record<string, unknown>));
+      .map(([entityKey, entity]) =>
+        buildEntityItem(entityKey, entity as Record<string, unknown>, { deletable: true })
+      );
     if (entities.length > 0) {
       return {
         kind: "entities",
@@ -341,42 +413,96 @@ function buildReceiptsPreview(
   record: Record<string, unknown>
 ): PkmSectionPreviewPresentation {
   const groups: PkmSectionPreviewGroup[] = [];
-  const inferred = Array.isArray(record.inferred_preferences)
-    ? arrayToStrings(record.inferred_preferences)
-    : [];
-  if (inferred.length > 0) {
+
+  const readableSummary =
+    typeof record.readable_summary === "string"
+      ? record.readable_summary.trim()
+      : isPlainObject(record.readable_summary) && typeof record.readable_summary.text === "string"
+        ? record.readable_summary.text.trim()
+        : maybeSummary(record);
+  const readableHighlights =
+    isPlainObject(record.readable_summary) && Array.isArray(record.readable_summary.highlights)
+      ? arrayToStrings(record.readable_summary.highlights)
+      : [];
+  if (readableHighlights.length > 0) {
     groups.push({
-      kind: "chips",
-      title: "Inferred preferences",
-      items: inferred,
+      kind: readableHighlights.every((item) => item.length <= 42) ? "chips" : "list",
+      title: "Receipt highlights",
+      items: readableHighlights,
     });
   }
-  const observed = Array.isArray(record.observed_facts) ? arrayToStrings(record.observed_facts) : [];
-  if (observed.length > 0) {
+
+  const recentHighlights = getNestedItems(record, "observed_facts.recent_highlights")
+    .filter(isPlainObject)
+    .map((item, index) => receiptPreviewEntity(`recent-${index + 1}`, item, `Receipt ${index + 1}`));
+  if (recentHighlights.length > 0) {
+    groups.push({
+      kind: "entities",
+      title: "Recent purchases",
+      items: recentHighlights,
+    });
+  }
+
+  const merchantAffinity = getNestedItems(record, "observed_facts.merchant_affinity")
+    .filter(isPlainObject)
+    .map((item, index) => receiptPreviewEntity(`merchant-${index + 1}`, item, `Merchant ${index + 1}`));
+  if (merchantAffinity.length > 0) {
+    groups.push({
+      kind: "entities",
+      title: "Merchant patterns",
+      items: merchantAffinity,
+    });
+  }
+
+  const preferenceSignals = getNestedItems(record, "inferred_preferences.preference_signals")
+    .filter(isPlainObject)
+    .map((item, index) => receiptPreviewEntity(`preference-${index + 1}`, item, `Preference ${index + 1}`));
+  const legacyInferred = Array.isArray(record.inferred_preferences)
+    ? arrayToStrings(record.inferred_preferences)
+    : [];
+  if (preferenceSignals.length > 0) {
+    groups.push({
+      kind: "entities",
+      title: "Preference signals",
+      items: preferenceSignals,
+    });
+  } else if (legacyInferred.length > 0) {
+    groups.push({
+      kind: "chips",
+      title: "Preference signals",
+      items: legacyInferred,
+    });
+  }
+
+  const legacyObserved = Array.isArray(record.observed_facts) ? arrayToStrings(record.observed_facts) : [];
+  if (legacyObserved.length > 0) {
     groups.push({
       kind: "list",
       title: "Observed facts",
-      items: observed,
+      items: legacyObserved,
     });
   }
-  if (isPlainObject(record.provenance)) {
-    const provenanceFields = objectToFields(record.provenance);
-    if (provenanceFields.length > 0) {
-      groups.push({
-        kind: "fields",
-        title: "Source",
-        fields: provenanceFields,
-      });
-    }
+
+  const provenance = isPlainObject(record.provenance) ? record.provenance : {};
+  const receiptCount =
+    typeof provenance.receipt_count_used === "number" && Number.isFinite(provenance.receipt_count_used)
+      ? String(provenance.receipt_count_used)
+      : null;
+  const stats: PkmSectionPreviewStat[] = [];
+  if (receiptCount) stats.push({ label: "Receipts", value: receiptCount });
+  if (recentHighlights.length > 0) {
+    stats.push({ label: "Purchases", value: String(recentHighlights.length) });
   }
+  const preferenceCount = preferenceSignals.length || legacyInferred.length;
+  if (preferenceCount > 0) {
+    stats.push({ label: "Preferences", value: String(preferenceCount) });
+  }
+
   return {
     title,
     description,
-    summary: maybeSummary(record),
-    stats: [
-      { label: "Signals", value: String(observed.length) },
-      { label: "Preferences", value: String(inferred.length) },
-    ],
+    summary: readableSummary,
+    stats,
     groups,
   };
 }
@@ -402,42 +528,49 @@ function buildGenericPreview(
     });
   }
 
-  for (const [key, value] of Object.entries(record)) {
-    if (HIDDEN_CONSUMER_KEYS.has(key) || !value) {
-      continue;
-    }
-    if (Array.isArray(value)) {
-      if (value.every((item) => !isPlainObject(item))) {
-        const items = arrayToStrings(value);
-        if (items.length > 0) {
-          groups.push({
-            kind: items.length <= 5 && items.every((item) => item.length <= 28) ? "chips" : "list",
-            title: humanizeKey(key),
-            items,
-          });
+  const rootEntitiesGroup = isPlainObject(record.entities)
+    ? maybeBuildEntitiesGroup(undefined, record)
+    : null;
+  if (rootEntitiesGroup) {
+    groups.push(rootEntitiesGroup);
+  } else {
+    for (const [key, value] of Object.entries(record)) {
+      if (HIDDEN_CONSUMER_KEYS.has(key) || !value) {
+        continue;
+      }
+      if (Array.isArray(value)) {
+        if (value.every((item) => !isPlainObject(item))) {
+          const items = arrayToStrings(value);
+          if (items.length > 0) {
+            groups.push({
+              kind: items.length <= 5 && items.every((item) => item.length <= 28) ? "chips" : "list",
+              title: humanizeKey(key),
+              items,
+            });
+          }
+          continue;
+        }
+        const entitiesGroup = maybeBuildEntitiesGroup(humanizeKey(key), value);
+        if (entitiesGroup) {
+          groups.push(entitiesGroup);
         }
         continue;
       }
-      const entitiesGroup = maybeBuildEntitiesGroup(humanizeKey(key), value);
-      if (entitiesGroup) {
-        groups.push(entitiesGroup);
-      }
-      continue;
-    }
 
-    if (isPlainObject(value)) {
-      const entitiesGroup = maybeBuildEntitiesGroup(humanizeKey(key), value);
-      if (entitiesGroup) {
-        groups.push(entitiesGroup);
-        continue;
-      }
-      const nestedFields = objectToFields(value);
-      if (nestedFields.length > 0) {
-        groups.push({
-          kind: "fields",
-          title: humanizeKey(key),
-          fields: nestedFields,
-        });
+      if (isPlainObject(value)) {
+        const entitiesGroup = maybeBuildEntitiesGroup(humanizeKey(key), value);
+        if (entitiesGroup) {
+          groups.push(entitiesGroup);
+          continue;
+        }
+        const nestedFields = objectToFields(value);
+        if (nestedFields.length > 0) {
+          groups.push({
+            kind: "fields",
+            title: humanizeKey(key),
+            fields: nestedFields,
+          });
+        }
       }
     }
   }
