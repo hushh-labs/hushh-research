@@ -19,6 +19,9 @@ type VoiceDebugDrawerProps = {
   vaultStatus: string;
   voiceAvailabilityReason: string;
   mobilePlacement?: "bottom-right" | "above-searchbar";
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  showTrigger?: boolean;
 };
 
 export function VoiceDebugDrawer({
@@ -31,14 +34,29 @@ export function VoiceDebugDrawer({
   vaultStatus,
   voiceAvailabilityReason,
   mobilePlacement = "bottom-right",
+  open,
+  onOpenChange,
+  showTrigger = true,
 }: VoiceDebugDrawerProps) {
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const isMobile = useIsMobile();
   const debugEvents = useVoiceSession((s) => s.debugEvents);
   const clearDebugEvents = useVoiceSession((s) => s.clearDebugEvents);
   const lastTurnId = useVoiceSession((s) => s.lastTurnId);
   const useMobileSearchbarAnchor =
     mobilePlacement === "above-searchbar" && isMobile;
+  const drawerOpen = open ?? uncontrolledOpen;
+
+  const setDrawerOpen = useCallback(
+    (next: boolean | ((current: boolean) => boolean)) => {
+      const resolved = typeof next === "function" ? next(drawerOpen) : next;
+      if (open === undefined) {
+        setUncontrolledOpen(resolved);
+      }
+      onOpenChange?.(resolved);
+    },
+    [drawerOpen, onOpenChange, open],
+  );
 
   const recentEvents = useMemo(() => {
     const slice = [...debugEvents].slice(-80).reverse();
@@ -253,7 +271,7 @@ export function VoiceDebugDrawer({
       <div
         className={cn(
           "pointer-events-auto overflow-hidden rounded-2xl border border-border/70 bg-background/95 shadow-2xl backdrop-blur transition-all duration-200",
-          open
+          drawerOpen
             ? "max-h-[65vh] opacity-100"
             : "pointer-events-none max-h-0 opacity-0",
         )}
@@ -371,21 +389,23 @@ export function VoiceDebugDrawer({
         </div>
       </div>
 
-      <div className="pointer-events-auto mt-2 flex justify-center sm:justify-end">
-        <button
-          type="button"
-          className="inline-flex h-9 items-center gap-2 rounded-full border border-border/70 bg-background/95 px-3 text-xs font-semibold text-foreground shadow-md backdrop-blur hover:bg-muted"
-          onClick={() => setOpen((v) => !v)}
-        >
-          <Bug className="h-3.5 w-3.5" />
-          Voice Debug
-          {open ? (
-            <ChevronDown className="h-3.5 w-3.5" />
-          ) : (
-            <ChevronUp className="h-3.5 w-3.5" />
-          )}
-        </button>
-      </div>
+      {showTrigger ? (
+        <div className="pointer-events-auto mt-2 flex justify-center sm:justify-end">
+          <button
+            type="button"
+            className="inline-flex h-9 items-center gap-2 rounded-full border border-border/70 bg-background/95 px-3 text-xs font-semibold text-foreground shadow-md backdrop-blur hover:bg-muted"
+            onClick={() => setDrawerOpen((v) => !v)}
+          >
+            <Bug className="h-3.5 w-3.5" />
+            Voice Debug
+            {drawerOpen ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronUp className="h-3.5 w-3.5" />
+            )}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

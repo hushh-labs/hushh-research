@@ -276,6 +276,7 @@ def test_approve_consent_reused_developer_token_records_current_request(monkeypa
             return {
                 "scope": "attr.identity.*",
                 "refresh_status": "current",
+                "source_content_revision": 1,
                 "connector_key_id": "one-kyc-key",
                 "connector_wrapping_alg": "X25519-AES256-GCM",
                 "is_strict_zero_knowledge": True,

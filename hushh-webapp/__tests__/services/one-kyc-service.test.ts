@@ -57,6 +57,7 @@ describe("OneKycService", () => {
       workflowId: "wf_1",
       approvedSubject: "Re: KYC",
       approvedBody: "Approved final body",
+      approvedHtml: "<p>Approved final body</p>",
       clientDraftHash: "draft-hash",
       consentExportRevision: 3,
       pkmWritebackArtifactHash: "a".repeat(64),
@@ -72,11 +73,71 @@ describe("OneKycService", () => {
         user_id: "user_1",
         approved_subject: "Re: KYC",
         approved_body: "Approved final body",
+        approved_html: "<p>Approved final body</p>",
         client_draft_hash: "draft-hash",
         consent_export_revision: 3,
         pkm_writeback_artifact_hash: "a".repeat(64),
       }),
     });
+  });
+
+  it("lists workflows with pagination and status filters", async () => {
+    await OneKycService.listWorkflows({
+      userId: "user_1",
+      vaultOwnerToken: "vault-token",
+      limit: 25,
+      cursor: "cursor-token",
+      status: "waiting_on_user",
+    });
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/one/kyc/workflows?user_id=user_1&limit=25&cursor=cursor-token&status=waiting_on_user",
+      {
+        headers: {
+          Authorization: "Bearer vault-token",
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  });
+
+  it("syncs recent One mailbox messages before refreshing the request list", async () => {
+    await OneKycService.syncRecentEmails({
+      userId: "user_1",
+      vaultOwnerToken: "vault-token",
+      maxResults: 12,
+    });
+
+    expect(mockApiJson).toHaveBeenCalledWith("/api/one/email/sync/recent", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer vault-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        user_id: "user_1",
+        max_results: 12,
+      }),
+    });
+  });
+
+  it("archives a workflow through the request-list delete endpoint", async () => {
+    await OneKycService.archiveWorkflow({
+      userId: "user_1",
+      vaultOwnerToken: "vault-token",
+      workflowId: "wf_1",
+    });
+
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/one/kyc/workflows/wf_1?user_id=user_1",
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: "Bearer vault-token",
+          "Content-Type": "application/json",
+        },
+      },
+    );
   });
 
   it("loads encrypted consent exports through the workflow-scoped vault endpoint", async () => {

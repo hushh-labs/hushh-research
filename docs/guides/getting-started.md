@@ -152,6 +152,27 @@ When you do need the full local stack:
 
 That separate-terminal backend + frontend flow is the preferred maintainer path. Use `./bin/hushh terminal stack --mode local` only if you deliberately want one visible terminal window to own both processes.
 
+### Optional Container Backend Support
+
+Use the Docker-backed helper only when you intentionally want local backend
+support services in containers:
+
+```bash
+./bin/hushh compose init
+./bin/hushh compose up dev
+```
+
+The `dev` compose profile starts the backend, Redis, and Mailhog. It does not
+replace `./bin/hushh web`, and it does not switch the repo to a Docker-first
+workflow. The local Postgres profile is standalone and opt-in:
+
+```bash
+./bin/hushh compose up db
+```
+
+The backend continues to follow `consent-protocol/.env` unless an operator
+explicitly changes those values.
+
 The local backend path is the only place that uses:
 
 - `CLOUDSQL_INSTANCE_CONNECTION_NAME=hushh-pda-uat:us-central1:hushh-uat-pg`
