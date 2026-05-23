@@ -1149,8 +1149,9 @@ class OneLocationAgentService:
         visitor_phone_hash: str,
         submitter_fingerprint_hash: str | None,
     ) -> None:
-        row = self._execute_one(
-            """
+        row = (
+            self._execute_one(
+                """
             SELECT
               COUNT(*)::int AS total_submissions,
               COUNT(*) FILTER (
@@ -1168,14 +1169,16 @@ class OneLocationAgentService:
             FROM one_location_public_invite_submissions
             WHERE invite_id = CAST(:invite_id AS UUID)
             """,
-            {
-                "invite_id": invite_id,
-                "visitor_phone_hash": visitor_phone_hash,
-                "submitter_fingerprint_hash": submitter_fingerprint_hash,
-                "phone_window_minutes": PUBLIC_INVITE_PHONE_THROTTLE_MINUTES,
-                "fingerprint_window_minutes": PUBLIC_INVITE_FINGERPRINT_THROTTLE_MINUTES,
-            },
-        ) or {}
+                {
+                    "invite_id": invite_id,
+                    "visitor_phone_hash": visitor_phone_hash,
+                    "submitter_fingerprint_hash": submitter_fingerprint_hash,
+                    "phone_window_minutes": PUBLIC_INVITE_PHONE_THROTTLE_MINUTES,
+                    "fingerprint_window_minutes": PUBLIC_INVITE_FINGERPRINT_THROTTLE_MINUTES,
+                },
+            )
+            or {}
+        )
         total_submissions = int(row.get("total_submissions") or 0)
         phone_submissions = int(row.get("phone_submissions") or 0)
         recent_phone_submissions = int(row.get("recent_phone_submissions") or 0)
