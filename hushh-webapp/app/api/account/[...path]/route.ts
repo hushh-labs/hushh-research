@@ -17,11 +17,15 @@ const ACCOUNT_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(20_000, {
 
 function isUpstreamTimeoutError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
+
   const causeCode =
-    typeof (error as Error & { cause?: { code?: unknown } }).cause?.code === "string"
+    typeof (error as Error & { cause?: { code?: unknown } }).cause?.code ===
+    "string"
       ? (error as Error & { cause: { code: string } }).cause.code
       : "";
+
   const message = error.message.toLowerCase();
+
   return (
     error.name === "TimeoutError" ||
     message.includes("timeout") ||
@@ -30,18 +34,45 @@ function isUpstreamTimeoutError(error: unknown): boolean {
   );
 }
 
-async function proxyRequest(request: NextRequest, params: { path: string[] }) {
+async function safeParseUpstreamResponse(response: Response) {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    const text = await response.text().catch(() => "");
+    return text ? { detail: text } : {};
+  }
+
+  try {
+    return await response.json();
+  } catch {
+    const text = await response.text().catch(() => "");
+    return text ? { detail: text } : {};
+  }
+}
+
+async function proxyRequest(
+  request: NextRequest,
+  params: { path: string[] }
+) {
   const requestId = resolveRequestId(request);
+
   const path = params.path.join("/");
+
   const url = `${getPythonApiUrl()}/api/account/${path}${request.nextUrl.search}`;
+
   const authHeader = request.headers.get("authorization");
+
   const contentType = request.headers.get("content-type") || "";
 
   try {
     const headers = createUpstreamHeaders(requestId);
-    if (authHeader) headers.set("Authorization", authHeader);
+
+    if (authHeader) {
+      headers.set("Authorization", authHeader);
+    }
 
     let body: BodyInit | undefined;
+
     if (request.method !== "GET" && request.method !== "DELETE") {
       headers.set("Content-Type", contentType || "application/json");
       body = await request.text();
@@ -53,10 +84,15 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       body,
       signal: AbortSignal.timeout(ACCOUNT_API_TIMEOUT_MS),
     });
-    const data = await response.json().catch(() => ({}));
-    return withRequestIdJson(requestId, data, { status: response.status });
+
+    const data = await safeParseUpstreamResponse(response);
+
+    return withRequestIdJson(requestId, data, {
+      status: response.status,
+    });
   } catch (error) {
     const statusCode = isUpstreamTimeoutError(error) ? 504 : 502;
+
     return withRequestIdJson(
       requestId,
       {
