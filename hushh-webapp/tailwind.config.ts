@@ -34,7 +34,6 @@ const config: Config = {
         mono: ["var(--font-mono)", "ui-monospace", "monospace"],
       },
       fontSize: {
-        // University typography scale
         xs: ["0.75rem", { lineHeight: "1rem" }],
         sm: ["0.875rem", { lineHeight: "1.25rem" }],
         base: ["1rem", { lineHeight: "1.5rem" }],
@@ -83,40 +82,35 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        // Hussh brand colors
         hushh: {
-          // Primary blue palette
           blue: {
             50: "#eff6ff",
             100: "#dbeafe",
             200: "#bfdbfe",
             300: "#93c5fd",
             400: "#60a5fa",
-            500: "#0071e3", // Primary - Apple Blue
+            500: "#0071e3", 
             600: "#0051a8",
             700: "#003d7a",
             800: "#002952",
             900: "#001429",
           },
-          // Secondary emerald palette
           emerald: {
             50: "#ecfdf5",
             100: "#d1fae5",
             200: "#a7f3d0",
             300: "#6ee7b7",
             400: "#34d399",
-            500: "#10b981", // Primary - Emerald
+            500: "#10b981", 
             600: "#059669",
             700: "#047857",
             800: "#065f46",
             900: "#064e3b",
           },
-          // Accent teal
           teal: {
             500: "#0d7590",
             600: "#0a5a70",
           },
-          // Dark navy
           navy: {
             500: "#13405d",
             600: "#0d2e42",
