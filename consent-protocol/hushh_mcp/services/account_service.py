@@ -134,6 +134,16 @@ class AccountService:
                    OR recipient_user_id = :user_id
                 """
             ),
+            "one_location_public_invite_submissions": text(
+                """
+                DELETE FROM one_location_public_invite_submissions
+                WHERE owner_user_id = :user_id
+                   OR matched_user_id = :user_id
+                """
+            ),
+            "one_location_public_invites": text(
+                "DELETE FROM one_location_public_invites WHERE owner_user_id = :user_id"
+            ),
             "one_location_recipient_keys": text(
                 "DELETE FROM one_location_recipient_keys WHERE user_id = :user_id"
             ),
@@ -429,6 +439,8 @@ class AccountService:
             "one_location_referrals": False,
             "one_location_access_requests": False,
             "one_location_envelopes": False,
+            "one_location_public_invite_submissions": False,
+            "one_location_public_invites": False,
             "one_location_share_grants": False,
             "one_location_recipient_keys": False,
             "runtime_persona_state": False,
@@ -621,6 +633,8 @@ class AccountService:
                 for table_name in (
                     "one_location_events",
                     "one_location_referrals",
+                    "one_location_public_invite_submissions",
+                    "one_location_public_invites",
                     "one_location_access_requests",
                     "one_location_envelopes",
                     "one_location_share_grants",

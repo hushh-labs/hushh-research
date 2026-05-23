@@ -1,4 +1,9 @@
-export type LocationSourcePlatform = "web" | "ios" | "android" | "native" | "unknown";
+export type LocationSourcePlatform =
+  | "web"
+  | "ios"
+  | "android"
+  | "native"
+  | "unknown";
 
 export type OneLocationRecipient = {
   userId: string;
@@ -58,12 +63,50 @@ export type OneLocationReferral = {
   resolvedAt?: string | null;
 };
 
+export type OneLocationPublicInvite = {
+  id: string;
+  ownerUserId: string;
+  ownerLabel?: string | null;
+  ownerDisplayName?: string | null;
+  ownerMaskedPhone?: string | null;
+  status: "active" | "expired" | "revoked" | string;
+  durationHours: number;
+  expiresAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  revokedAt?: string | null;
+};
+
+export type OneLocationPublicInviteSubmission = {
+  id: string;
+  inviteId: string;
+  ownerUserId: string;
+  visitorDisplayName: string;
+  visitorMaskedPhone?: string | null;
+  matchedUserId?: string | null;
+  requestId?: string | null;
+  requestStatus?: string | null;
+  status:
+    | "pending_identity"
+    | "identity_pending_key"
+    | "matched_request_pending"
+    | "approved"
+    | "denied"
+    | "cancelled"
+    | string;
+  message?: string | null;
+  submittedAt?: string | null;
+  resolvedAt?: string | null;
+};
+
 export type OneLocationState = {
   recipients: OneLocationRecipient[];
   ownerGrants: OneLocationGrant[];
   receivedGrants: OneLocationGrant[];
   requests: OneLocationAccessRequest[];
   referrals: OneLocationReferral[];
+  publicInvites: OneLocationPublicInvite[];
+  publicInviteSubmissions: OneLocationPublicInviteSubmission[];
   capabilityScopes: string[];
 };
 
