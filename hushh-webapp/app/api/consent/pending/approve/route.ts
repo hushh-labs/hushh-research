@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 // app/api/consent/pending/approve/route.ts
 
 /**
