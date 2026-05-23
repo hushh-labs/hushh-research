@@ -1,4 +1,4 @@
-"""
+﻿"""
 Tests for PII redaction in consent system logs.
 
 Covers the fix for user_id and token value leakage
@@ -6,7 +6,6 @@ in sse.py and token.py log statements.
 """
 import logging
 
-import pytest
 
 
 class TestPIIRedactionInLogs:
