@@ -808,10 +808,10 @@ async def stream_gemini_response(
     This is more reliable than async iteration which may not yield correctly.
     """
     if not _require_gemini_ready():
-        logger.error("[Gemini Streaming] No client configured!")
+        logger.error("[Gemini Streaming] No client configured: %s", _gemini_unavailable_reason)
         yield {
             "type": "error",
-            "message": _gemini_unavailable_reason or "Gemini client not configured",
+            "message": "The analysis service is temporarily unavailable.",
         }
         return
 
