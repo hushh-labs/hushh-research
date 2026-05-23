@@ -1,35 +1,33 @@
-"use client";
-
-import { type ReactNode } from "react";
-import { cn } from "@/lib/utils";
-
-// ... [Keep your SettingsGroup and SettingsRow definitions as they were] ...
-
-// Add these explicit type exports so they can be imported correctly
-export function SettingsDetailPanel({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("p-4", className)}>{children}</div>;
-}
-
-export function SettingsSegmentedTabs({ 
-  options, 
-  value, 
-  onChange 
-}: { 
-  options: { id: string; label: string }[]; 
-  value: string; 
-  onChange: (v: string) => void 
-}) {
+export function SettingsGroup({
+  title,
+  eyebrow,
+  children,
+  className,
+  embedded,
+  description,
+  trailing,
+  ...props
+}: SettingsGroupProps) {
   return (
-    <div className="flex bg-muted p-1 rounded-lg">
-      {options.map((opt) => (
-        <button 
-          key={opt.id} 
-          onClick={() => onChange(opt.id)} 
-          className={cn("px-3 py-1 text-xs rounded", value === opt.id && "bg-background shadow-sm")}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
+    <section className={cn("space-y-3 pt-2", embedded && "pt-0", className)} {...props}>
+      {/* Rectified: Using h3 with specific classes for accessibility and inline alignment */}
+      <h3 role="heading" aria-level={3} className="text-xs font-bold uppercase flex items-center gap-x-2">
+        {eyebrow && (
+          <span className="tracking-[0.22em] opacity-75 text-[10px] font-medium bg-muted px-1.5 py-0.5 rounded-md">
+            {eyebrow}
+          </span>
+        )}
+        <span className="truncate">{title}</span>
+      </h3>
+      
+      {description && <p className="text-sm text-muted-foreground">{description}</p>}
+      
+      <div className={cn(
+        "rounded-[20px] border border-border/60 bg-card p-1 divide-y divide-border/40 overflow-hidden shadow-sm",
+        embedded && "border-none bg-transparent shadow-none"
+      )}>
+        {children}
+      </div>
+    </section>
   );
 }
