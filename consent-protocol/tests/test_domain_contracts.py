@@ -25,6 +25,7 @@ from hushh_mcp.services.domain_contracts import (
     DomainContractEntry,
     DomainSubintentEntry,
     build_domain_intent,
+    build_financial_summary_defaults,
     canonical_domain_metadata_map,
     canonical_subpath_for_domain,
     canonical_top_level_domain,
@@ -375,3 +376,69 @@ class TestBuildDomainIntent:
     def test_build_normalizes_primary(self) -> None:
         intent = build_domain_intent(primary="Financial", source="user", updated_at="2026-04-21")
         assert intent["primary"] == "financial"
+
+
+class TestPayloadSchemaConsistency:
+    def test_payload_returns_a_list(self) -> None:
+        assert isinstance(domain_registry_payload(), list)
+
+    def test_payload_rows_have_valid_color_hex_format(self) -> None:
+        for row in domain_registry_payload():
+            color = row.get("color_hex")
+            assert isinstance(color, str), f"color_hex missing on row {row.get('domain_key')!r}"
+            assert re.match(r"^#[0-9A-Fa-f]{6}$", color), (
+                f"row {row.get('domain_key')!r} has invalid color_hex: {color!r}"
+            )
+
+    def test_payload_rows_have_non_empty_status(self) -> None:
+        for row in domain_registry_payload():
+            status = row.get("status")
+            assert isinstance(status, str) and status.strip(), (
+                f"row {row.get('domain_key')!r} has missing or empty status"
+            )
+
+    def test_payload_subintent_rows_have_parent_domain_set(self) -> None:
+        subintent_keys = set(CANONICAL_SUBINTENT_KEYS)
+        for row in domain_registry_payload():
+            if row["domain_key"] in subintent_keys:
+                assert row.get("parent_domain") is not None, (
+                    f"subintent row {row['domain_key']!r} is missing parent_domain"
+                )
+
+    def test_payload_canonical_top_level_rows_have_no_parent_domain(self) -> None:
+        for row in domain_registry_payload():
+            if row["domain_key"] in CANONICAL_DOMAIN_KEYS and not row["is_legacy_alias"]:
+                assert row.get("parent_domain") is None, (
+                    f"top-level row {row['domain_key']!r} should have parent_domain=None"
+                )
+
+    def test_payload_domain_keys_unique_across_all_rows(self) -> None:
+        keys = [row["domain_key"] for row in domain_registry_payload()]
+        duplicates = {k for k in keys if keys.count(k) > 1}
+        assert len(keys) == len(set(keys)), (
+            f"domain_registry_payload contains duplicate domain_key values: {sorted(duplicates)}"
+        )
+
+
+class TestBuildFinancialSummaryDefaults:
+    def test_returns_required_keys(self) -> None:
+        result = build_financial_summary_defaults()
+        assert "domain_contract_version" in result
+        assert "intent_map" in result
+
+    def test_domain_contract_version_matches_constant(self) -> None:
+        result = build_financial_summary_defaults()
+        assert result["domain_contract_version"] == FINANCIAL_DOMAIN_CONTRACT_VERSION
+
+    def test_intent_map_matches_financial_intent_map(self) -> None:
+        result = build_financial_summary_defaults()
+        assert result["intent_map"] == list(FINANCIAL_INTENT_MAP)
+
+    def test_intent_map_is_a_list_not_tuple(self) -> None:
+        result = build_financial_summary_defaults()
+        assert isinstance(result["intent_map"], list)
+
+    def test_result_is_a_new_dict_on_each_call(self) -> None:
+        r1 = build_financial_summary_defaults()
+        r2 = build_financial_summary_defaults()
+        assert r1 is not r2
