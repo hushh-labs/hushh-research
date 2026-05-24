@@ -383,6 +383,7 @@ export default function RiaHomePage() {
                   <Link
                     href={item.href}
                     data-voice-control-id={`ria_home_priority_item_open_${index + 1}`}
+                    aria-label={`Open ${item.title}`}
                     className="shrink-0 text-sm font-medium text-foreground/82 transition-colors hover:text-foreground"
                   >
                     Open
