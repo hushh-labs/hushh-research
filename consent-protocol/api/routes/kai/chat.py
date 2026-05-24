@@ -376,6 +376,6 @@ async def analyze_portfolio_loser(
             saved_to_pkm=result.get("saved_to_pkm", False),
         )
 
-    except Exception as e:
-        logger.error(f"Error analyzing loser {ticker}: {e}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+    except Exception:
+        logger.error("kai.chat.analyze_loser.error ticker=%s", ticker, exc_info=True)
+        raise HTTPException(status_code=500, detail="Analysis failed")

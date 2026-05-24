@@ -150,6 +150,59 @@ describe("OneLocationService", () => {
     });
   });
 
+  it("creates public request links without sending location coordinates", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      invite: { id: "invite_1", status: "active" },
+      publicToken: "token_1",
+      publicUrl: "/one/location/request/token_1",
+    });
+
+    await OneLocationService.createPublicInvite({
+      vaultOwnerToken: "vault-token",
+      durationHours: 1,
+    });
+
+    const body = String(mockApiJson.mock.calls[0]?.[1]?.body || "");
+    expect(mockApiJson).toHaveBeenCalledWith(
+      "/api/one/location/public-invites",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer vault-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ durationHours: 1 }),
+      },
+    );
+    expect(body).not.toContain("latitude");
+    expect(body).not.toContain("longitude");
+  });
+
+  it("submits public invite requests without an auth token or coordinates", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      submission: { id: "submission_1", status: "pending_identity" },
+      request: null,
+    });
+
+    await OneLocationService.submitPublicInviteRequest({
+      publicToken: "public-token",
+      visitorDisplayName: "Relative",
+      phoneNumber: "+917023488012",
+      message: "Please share.",
+    });
+
+    const [, options] = mockApiJson.mock.calls[0] || [];
+    const body = String(options?.body || "");
+    expect(mockApiJson.mock.calls[0]?.[0]).toBe(
+      "/api/one/location/public-invites/public-token/submit",
+    );
+    expect(options?.headers).toEqual({ "Content-Type": "application/json" });
+    expect(body).toContain("Relative");
+    expect(body).not.toContain("latitude");
+    expect(body).not.toContain("longitude");
+    expect(body).not.toContain("Authorization");
+  });
+
   it("delegates foreground capture to the Capacitor location plugin", async () => {
     mockGetCurrentPosition.mockResolvedValueOnce({
       latitude: 1,

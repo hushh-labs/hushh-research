@@ -94,6 +94,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM one_kyc_workflows",
         "DELETE FROM one_location_events",
         "DELETE FROM one_location_referrals",
+        "DELETE FROM one_location_public_invite_submissions",
+        "DELETE FROM one_location_public_invites",
         "DELETE FROM one_location_access_requests",
         "DELETE FROM one_location_envelopes",
         "DELETE FROM one_location_share_grants",
