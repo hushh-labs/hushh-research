@@ -9,10 +9,9 @@ or the IAM/PKM surface that consumes this data.
 from __future__ import annotations
 
 import re
+from dataclasses import FrozenInstanceError
 
 import pytest
-
-from dataclasses import FrozenInstanceError
 
 from hushh_mcp.services.domain_contracts import (
     CANONICAL_DOMAIN_KEYS,
@@ -443,15 +442,17 @@ class TestRetiredDomainIsolation:
 
 
 class TestPayloadStructuralConsistency:
-    _REQUIRED_FIELDS: frozenset[str] = frozenset({
-        "domain_key",
-        "display_name",
-        "icon_name",
-        "color_hex",
-        "description",
-        "status",
-        "is_legacy_alias",
-    })
+    _REQUIRED_FIELDS: frozenset[str] = frozenset(
+        {
+            "domain_key",
+            "display_name",
+            "icon_name",
+            "color_hex",
+            "description",
+            "status",
+            "is_legacy_alias",
+        }
+    )
 
     def test_payload_total_count_matches_sum_of_all_registries(self) -> None:
         payload = domain_registry_payload()
@@ -465,9 +466,7 @@ class TestPayloadStructuralConsistency:
     def test_payload_every_row_has_required_fields(self) -> None:
         for row in domain_registry_payload():
             missing = self._REQUIRED_FIELDS - set(row.keys())
-            assert not missing, (
-                f"row {row.get('domain_key')!r} is missing fields: {missing}"
-            )
+            assert not missing, f"row {row.get('domain_key')!r} is missing fields: {missing}"
 
     def test_payload_domain_keys_are_all_strings(self) -> None:
         for row in domain_registry_payload():
