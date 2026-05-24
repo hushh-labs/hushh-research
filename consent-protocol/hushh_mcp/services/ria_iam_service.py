@@ -7105,7 +7105,7 @@ class RIAIAMService:
         finally:
             await conn.close()
 
-    async def get_ria_invite(self, invite_token: str) -> dict[str, Any]:
+    async def get_ria_invite(self, invite_token: str, *, include_target_pii: bool = False) -> dict[str, Any]:
         conn = await self._conn()
         try:
             await self._ensure_iam_schema_ready(conn)
@@ -7202,7 +7202,7 @@ class RIAIAMService:
             if payload["status"] == "expired":
                 raise RIAIAMPolicyError("Invite has expired", status_code=410)
 
-            return {
+            result: dict[str, Any] = {
                 "invite_id": str(payload["id"]),
                 "invite_token": payload["invite_token"],
                 "status": payload["status"],
@@ -7212,9 +7212,6 @@ class RIAIAMService:
                 "duration_hours": payload["duration_hours"],
                 "reason": payload["reason"],
                 "expires_at": payload["expires_at"],
-                "target_display_name": payload["target_display_name"],
-                "target_email": payload["target_email"],
-                "target_phone": payload["target_phone"],
                 "accepted_by_user_id": payload["accepted_by_user_id"],
                 "accepted_request_id": payload["accepted_request_id"],
                 "ria": {
@@ -7228,6 +7225,15 @@ class RIAIAMService:
                     "firms": payload["firms"] or [],
                 },
             }
+            # SECURITY: target contact fields (email, phone, display_name) are PII
+            # that must not appear in the unauthenticated public GET response.  Only
+            # include them when the caller has proven it is an authenticated party
+            # that legitimately needs the data (e.g. internal accept flow).
+            if include_target_pii:
+                result["target_display_name"] = payload["target_display_name"]
+                result["target_email"] = payload["target_email"]
+                result["target_phone"] = payload["target_phone"]
+            return result
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
