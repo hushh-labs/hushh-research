@@ -6,11 +6,15 @@ Covers the three resolution paths:
 3. IP-address fallback for unauthenticated or invalid requests.
 """
 
+# Governance note:
+# These tests are intentionally isolated to the current mainline
+# rate-limit contract and do not depend on unresolved predecessor PRs
+# or middleware-train ordering assumptions.
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi import Request
 
 _SENTINEL = object()
