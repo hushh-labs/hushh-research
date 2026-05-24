@@ -58,7 +58,7 @@ async def switch_persona(
     service = RIAIAMService()
     try:
         return await service.switch_persona(firebase_uid, payload.persona)
-    except IAMSchemaNotReadyError as exc:
+    except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -72,5 +72,5 @@ async def update_marketplace_opt_in(
     service = RIAIAMService()
     try:
         return await service.set_marketplace_opt_in(firebase_uid, payload.enabled)
-    except IAMSchemaNotReadyError as exc:
+    except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()

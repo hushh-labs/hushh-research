@@ -30,7 +30,7 @@ async def get_invite(invite_token: str = Path(..., max_length=512)):
     service = RIAIAMService()
     try:
         return await service.get_ria_invite(invite_token)
-    except IAMSchemaNotReadyError as exc:
+    except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -44,7 +44,7 @@ async def accept_invite(
     service = RIAIAMService()
     try:
         return await service.accept_ria_invite(invite_token, firebase_uid)
-    except IAMSchemaNotReadyError as exc:
+    except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
