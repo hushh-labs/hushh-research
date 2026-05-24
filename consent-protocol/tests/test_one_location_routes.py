@@ -130,3 +130,69 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
     )
     assert "latitude" not in serialized
     assert "longitude" not in serialized
+
+
+def test_public_location_invite_route_creates_request_without_returning_location(
+    monkeypatch,
+) -> None:
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+
+    _register_key(client, current_user, "user_b")
+    current_user["user_id"] = "user_a"
+
+    invite_response = client.post(
+        "/api/one/location/public-invites",
+        json={"durationHours": 1},
+    )
+    assert invite_response.status_code == 200
+    token = invite_response.json()["publicToken"]
+
+    resolve_response = client.get(f"/api/one/location/public-invites/{token}")
+    assert resolve_response.status_code == 200
+    resolve_payload = resolve_response.json()
+    assert resolve_payload["invite"]["ownerLabel"] == "A trusted person"
+    assert "ownerUserId" not in json.dumps(resolve_payload)
+    assert "ownerDisplayName" not in json.dumps(resolve_payload)
+    assert "ownerMaskedPhone" not in json.dumps(resolve_payload)
+
+    submit_response = client.post(
+        f"/api/one/location/public-invites/{token}/submit",
+        json={
+            "visitorDisplayName": "User B",
+            "phoneNumber": "+1 555 010 0002",
+            "message": "Can you share?",
+        },
+    )
+    assert submit_response.status_code == 200
+    payload = submit_response.json()
+    assert payload["submission"]["status"] == "matched_request_pending"
+    assert "request" not in payload
+    assert len(service.requests) == 1
+    assert next(iter(service.requests.values()))["status"] == "pending"
+
+    serialized = json.dumps(
+        {
+            "invite": invite_response.json(),
+            "resolve": resolve_response.json(),
+            "submit": payload,
+            "notifications": service.notifications,
+        },
+        default=str,
+    )
+    assert token not in json.dumps(
+        {
+            "resolve": resolve_response.json(),
+            "submit": payload,
+            "notifications": service.notifications,
+        },
+        default=str,
+    )
+    assert "grant" not in json.dumps(payload)
+    assert "ciphertext" not in serialized
+    assert "latitude" not in serialized
+    assert "longitude" not in serialized
+    assert "map" not in serialized
+    assert "address" not in serialized
+    assert "reverse_geocode" not in serialized

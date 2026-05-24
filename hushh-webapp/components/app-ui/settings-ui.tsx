@@ -387,16 +387,25 @@ export function SettingsDetailPanel({
   if (isMobile) {
     return (
       <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent className="h-[100dvh] max-h-[100dvh] rounded-none border-none bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)]">
+        <DrawerContent
+          className="h-[100dvh] max-h-[100dvh] rounded-none border-none bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)]"
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            (e.currentTarget as HTMLElement).focus();
+          }}
+        >
           <DrawerHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 text-left sm:px-5 sm:py-4">
             <DrawerTitle className="text-base font-semibold tracking-tight">
               {title}
             </DrawerTitle>
-            {description ? (
-              <DrawerDescription className="text-sm leading-5 sm:leading-6">
-                {description}
-              </DrawerDescription>
-            ) : null}
+            <DrawerDescription
+              className={cn(
+                "text-sm leading-5 sm:leading-6",
+                !description && "sr-only"
+              )}
+            >
+              {description ?? "Settings"}
+          </DrawerDescription>
           </DrawerHeader>
           <div className="flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+2rem)] pt-3 sm:px-4 sm:pt-4">
             {children}

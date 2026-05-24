@@ -504,7 +504,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
               >
                 <div
                   data-testid="top-app-bar-actions"
-                  className="pointer-events-auto flex flex-nowrap items-center justify-end gap-1.5 sm:gap-2"
+                  className="pointer-events-auto flex flex-nowrap items-center justify-end gap-1.5 sm:gap-2 pr-[env(safe-area-inset-right)]"
                 >
                   {showOnboardingActions ? (
                     <OnboardingRouteActions />
