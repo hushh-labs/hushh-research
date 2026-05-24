@@ -64,7 +64,7 @@ async def handle_validate_token(args: dict) -> list[TextContent]:
             )
         ]
 
-    logger.info(f"✅ Token VALID for user={token_obj.user_id}")
+    logger.info("✅ Token VALID (user=[redacted])")
 
     return [
         TextContent(
