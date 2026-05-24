@@ -434,7 +434,10 @@ export function DataTable<TData, TValue>({
             </div>
 
             <Pagination className="justify-end">
-              <PaginationContent data-no-route-swipe>
+              <PaginationContent
+                data-no-route-swipe
+                className="flex-wrap gap-y-1"
+              >
                 <PaginationItem>
                   <PaginationPrevious
                     href="#"
@@ -452,11 +455,19 @@ export function DataTable<TData, TValue>({
                 </PaginationItem>
                 {paginationItems.map((item, index) =>
                   item === "ellipsis" ? (
-                    <PaginationItem key={`ellipsis-${index}`}>
+                    <PaginationItem
+                      key={`ellipsis-${index}`}
+                      className="hidden sm:flex"
+                    >
                       <PaginationEllipsis />
                     </PaginationItem>
                   ) : (
-                    <PaginationItem key={item}>
+                    <PaginationItem
+                      key={item}
+                      className={
+                        item === currentPage ? undefined : "hidden sm:flex"
+                      }
+                    >
                       <PaginationLink
                         href="#"
                         isActive={item === currentPage}

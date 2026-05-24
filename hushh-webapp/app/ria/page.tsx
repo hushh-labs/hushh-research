@@ -116,7 +116,11 @@ function SummaryCell({
   helper: string;
 }) {
   return (
-    <div className="space-y-1 bg-background/58 px-4 py-4 sm:px-5">
+    <div
+      role="group"
+      aria-label={label}
+      className="space-y-1 bg-background/58 px-4 py-4 sm:px-5"
+    >
       <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
         {label}
       </p>
@@ -286,7 +290,7 @@ export default function RiaHomePage() {
               </div>
             </div>
 
-            <div className="grid gap-px overflow-hidden rounded-[22px] bg-border/60 md:grid-cols-3">
+            <div className="grid gap-px overflow-hidden rounded-[22px] bg-border/60 sm:grid-cols-2 md:grid-cols-3 [&>*:last-child:nth-child(2n+1)]:sm:col-span-2 [&>*:last-child:nth-child(2n+1)]:md:col-span-1">
               <SummaryCell
                 label="Relationships"
                 value={String(activeClients)}
