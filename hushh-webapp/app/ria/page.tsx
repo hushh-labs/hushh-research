@@ -290,7 +290,7 @@ export default function RiaHomePage() {
               </div>
             </div>
 
-            <div className="grid gap-px overflow-hidden rounded-[22px] bg-border/60 md:grid-cols-3">
+            <div className="grid gap-px overflow-hidden rounded-[22px] bg-border/60 sm:grid-cols-2 md:grid-cols-3 [&>*:last-child:nth-child(2n+1)]:sm:col-span-2 [&>*:last-child:nth-child(2n+1)]:md:col-span-1">
               <SummaryCell
                 label="Relationships"
                 value={String(activeClients)}
