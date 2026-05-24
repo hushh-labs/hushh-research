@@ -70,4 +70,15 @@ describe("backend runtime resolution", () => {
     const helper = await loadHelper();
     expect(helper.getDeveloperApiUrl()).toBe("https://consent-protocol-uat.example.com");
   });
+    it("preserves hosted localhost rejection for uppercase backend urls", async () => {
+    process.env.K_SERVICE = "hushh-webapp";
+    process.env.NEXT_PUBLIC_APP_ENV = "production";
+    process.env.BACKEND_URL = "http://LOCALHOST:8000";
+
+    const helper = await loadHelper();
+
+    expect(() => helper.getPythonApiUrl()).toThrow(
+      /resolved backend origin to localhost/i
+    );
+  });
 });
