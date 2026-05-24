@@ -1,5 +1,6 @@
 "use client";
 
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import {
   useCallback,
   useEffect,
@@ -325,6 +326,11 @@ export function KaiSearchBar({
   const [lastReplyText, setLastReplyText] = useState<string>("");
   const [micPermissionStatus, setMicPermissionStatus] =
     useState<string>("unknown");
+    // If the text is stored in finalTranscript:
+const debouncedSearch = useDebouncedValue(finalTranscript, 500);
+
+// OR, if there is a standard text input state further down like 'query':
+// const debouncedSearch = useDebouncedValue(query, 500);
   const [stableMicDisabledReason, setStableMicDisabledReason] = useState<
     string | null
   >(null);
@@ -1651,8 +1657,8 @@ export function KaiSearchBar({
             stageText={processingStageText}
             replyText={
               showSpeakingCompact || showRetryCompact
-                ? lastReplyText || finalTranscript
-                : finalTranscript
+                ? lastReplyText || debouncedSearch
+                : debouncedSearch
             }
             smoothedLevel={smoothedLevel}
             disabled={disabled}
