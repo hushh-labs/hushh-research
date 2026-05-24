@@ -200,4 +200,22 @@ describe("PostAuthRouteService", () => {
       })
     ).resolves.toBe(ROUTES.KAI_HOME);
   });
+    it("skips the phone mandate for localhost hostname variants in development", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: false,
+      preOnboardingCompleted: true,
+      preOnboardingCompletedAt: 1,
+      preOnboardingSkipped: false,
+    });
+    loadPendingOnboardingMock.mockResolvedValue(null);
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        phoneNumber: null,
+        hostname: "127.0.0.1",
+      })
+    ).resolves.toBe(ROUTES.KAI_HOME);
+  });
 });

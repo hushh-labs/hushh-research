@@ -3,12 +3,11 @@
 
 import Foundation
 import OneShared
-import OneIndexer
-import OneMCPServer
 
 @main
-struct OneDaemon {
+enum OneDaemon {
     static func main() {
-        FileHandle.standardOutput.write(Data("ai.hushh.one.daemon stub\n".utf8))
+        let log = OneLog.logger(.daemon)
+        log.notice("ai.hushh.one.daemon stub starting; full lifecycle lands in Phase 1 PR-7")
     }
 }
