@@ -418,7 +418,7 @@ async def delete_account(
     result = await service.delete_account(user_id, target=target)
 
     if not result["success"]:
-        raise HTTPException(status_code=500, detail=f"Deletion failed: {result.get('error')}")
+        raise HTTPException(status_code=500, detail="Account deletion failed")
 
     if target == "both" and result.get("account_deleted") is True:
         details = result.get("details")
