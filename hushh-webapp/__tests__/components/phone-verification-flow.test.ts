@@ -27,4 +27,11 @@ describe("PhoneVerificationFlow phone input normalization", () => {
       localPhoneNumber: "6505550101",
     });
   });
+    it("preserves normalized local digits across repeated formatting input", () => {
+    const first = resolvePhoneInputChange("(650) 555-4567");
+    const second = resolvePhoneInputChange("650-555-4567");
+
+    expect(first.localPhoneNumber).toBe("6505554567");
+    expect(second.localPhoneNumber).toBe("6505554567");
+  });
 });
