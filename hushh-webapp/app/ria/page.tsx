@@ -116,7 +116,11 @@ function SummaryCell({
   helper: string;
 }) {
   return (
-    <div className="space-y-1 bg-background/58 px-4 py-4 sm:px-5">
+    <div
+      role="group"
+      aria-label={label}
+      className="space-y-1 bg-background/58 px-4 py-4 sm:px-5"
+    >
       <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
         {label}
       </p>
