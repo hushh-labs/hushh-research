@@ -392,11 +392,14 @@ export function SettingsDetailPanel({
             <DrawerTitle className="text-base font-semibold tracking-tight">
               {title}
             </DrawerTitle>
-            {description ? (
-              <DrawerDescription className="text-sm leading-5 sm:leading-6">
-                {description}
-              </DrawerDescription>
-            ) : null}
+            <DrawerDescription
+              className={cn(
+                "text-sm leading-5 sm:leading-6",
+                !description && "sr-only"
+              )}
+            >
+              {description ?? "Settings"}
+          </DrawerDescription>
           </DrawerHeader>
           <div className="flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+2rem)] pt-3 sm:px-4 sm:pt-4">
             {children}
