@@ -331,12 +331,12 @@ async def vault_bootstrap_state(
             preNavTourSkippedAt=state.get("preNavTourSkippedAt"),
             preStateUpdatedAt=state.get("preStateUpdatedAt"),
         )
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
-            status_code=400, detail={"error": str(e), "code": "VAULT_VALIDATION_ERROR"}
+            status_code=400, detail={"error": "Validation error", "code": "VAULT_VALIDATION_ERROR"}
         )
     except Exception as e:
-        logger.error("vault/bootstrap-state error user=%s: %s", _mask_user_id(user_id), e)
+        logger.error("vault/bootstrap-state error user=%s", _mask_user_id(user_id), exc_info=True)
         _raise_database_http_exception(e)
 
 
@@ -377,12 +377,12 @@ async def vault_pre_vault_state(
             preNavTourSkippedAt=state.get("preNavTourSkippedAt"),
             preStateUpdatedAt=state.get("preStateUpdatedAt"),
         )
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
-            status_code=400, detail={"error": str(e), "code": "VAULT_VALIDATION_ERROR"}
+            status_code=400, detail={"error": "Validation error", "code": "VAULT_VALIDATION_ERROR"}
         )
     except Exception as e:
-        logger.error("vault/pre-vault-state error user=%s: %s", _mask_user_id(user_id), e)
+        logger.error("vault/pre-vault-state error user=%s", _mask_user_id(user_id), exc_info=True)
         _raise_database_http_exception(e)
 
 
@@ -777,11 +777,10 @@ async def get_vault_status(
 
         return status
 
-    except ValueError as e:
-        # Consent validation errors
-        raise HTTPException(status_code=401, detail=str(e))
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Unauthorized")
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"❌ Vault status error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.error("vault.status.error", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")

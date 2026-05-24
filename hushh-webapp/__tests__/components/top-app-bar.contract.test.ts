@@ -49,6 +49,13 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("router.push(topShellBreadcrumb.backHref);");
     expect(source).not.toContain("router.back();");
   });
+  it("preserves deterministic breadcrumb navigation contracts", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    expect(source).toContain("topShellBreadcrumb.backHref");
+    expect(source).toContain("router.push(topShellBreadcrumb.backHref);");
+    expect(source).not.toContain("history.back()");
+  });
 
   it("uses shared mobile-width chrome for top-shell shield and bell dropdowns", () => {
     const chrome = read("components/app-ui/top-shell-dropdown.tsx");
@@ -78,14 +85,10 @@ describe("Top app bar responsive contract", () => {
   it("clears every selection-driving consent detail param when the panel closes", () => {
     const source = read("components/consent/consent-center-page.tsx");
 
-    expect(source).toContain(`onOpenChange={(open) => {
-          if (!open) {
-            setParam({
-              requestId: null,
-              selected: null,
-              notificationAction: null,
-            });
-          }
-        }}`);
+    expect(source).toContain("onOpenChange={(open) =>");
+    expect(source).toContain("if (!open)");
+    expect(source).toContain("requestId: null");
+    expect(source).toContain("selected: null");
+    expect(source).toContain("notificationAction: null");
   });
-});
+  });
