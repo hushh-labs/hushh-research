@@ -14,6 +14,7 @@ import {
 import type {
   DomainSummary,
   PersonalKnowledgeModelMetadata,
+  PkmVisibilityPosture,
   PkmUpgradeDomainState,
 } from "@/lib/services/personal-knowledge-model-service";
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
@@ -54,6 +55,11 @@ export type PkmDomainPermissionPresentation = {
   label: string;
   description: string;
   exposureEnabled: boolean;
+  visibilityPosture: PkmVisibilityPosture;
+  defaultProjectionReady: boolean;
+  defaultProjectionUpdatedAt: string | null;
+  stateLabel: string;
+  stateDescription: string;
   sensitivityTier: string;
   activeReaderCount: number;
   requesterLabels: string[];
@@ -96,6 +102,11 @@ export type PkmProfileSummaryPresentation = {
   attentionItems: string[];
 };
 
+const CONSUMER_HIDDEN_DOMAIN_KEYS = new Set([
+  "kyc_connector",
+  "kyc_workflow",
+]);
+
 const INTERNAL_ONLY_TOP_LEVEL_SCOPE_PATHS = new Set([
   "domain_intent",
   "schema_version",
@@ -123,12 +134,71 @@ function humanizePath(value: string | null | undefined): string {
     .join(" ");
 }
 
-function daysSince(value: string | null | undefined): number | null {
+function parseTimestamp(value: string | null | undefined): number | null {
   const text = String(value || "").trim();
   if (!text) return null;
   const timestamp = new Date(text).getTime();
-  if (!Number.isFinite(timestamp)) return null;
-  return Math.max(0, (Date.now() - timestamp) / (1000 * 60 * 60 * 24));
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function newestTimestamp(values: Array<string | null | undefined>): string | null {
+  const newest = values
+    .map((value) => {
+      const timestamp = parseTimestamp(value);
+      return timestamp === null ? null : { value: String(value), timestamp };
+    })
+    .filter((entry): entry is { value: string; timestamp: number } => Boolean(entry))
+    .sort((left, right) => right.timestamp - left.timestamp)[0];
+  return newest?.value || null;
+}
+
+function toNonNegativeInteger(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Math.floor(value);
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed >= 0) return Math.floor(parsed);
+  }
+  return null;
+}
+
+function firstPositiveInteger(values: unknown[]): number | null {
+  for (const value of values) {
+    const parsed = toNonNegativeInteger(value);
+    if (typeof parsed === "number" && parsed > 0) return parsed;
+  }
+  return null;
+}
+
+function resolveDomainDetailCount(domain: DomainSummary): number {
+  const summary = domain.summary || {};
+  return (
+    firstPositiveInteger([
+      summary.consumer_item_count,
+      summary.memory_count,
+      summary.entity_count,
+      summary.entities_count,
+      summary.preference_count,
+      summary.preferences_count,
+      summary.receipt_count_used,
+      summary.receipt_count,
+      summary.holdings_count,
+      summary.account_count,
+      summary.item_count,
+      domain.attributeCount,
+      summary.attribute_count,
+    ]) ?? 0
+  );
+}
+
+export function isConsumerVisiblePkmDomain(domain: DomainSummary): boolean {
+  const key = normalizeToken(domain.key);
+  if (!key || CONSUMER_HIDDEN_DOMAIN_KEYS.has(key)) return false;
+  if (domain.summary?.internal_only === true || domain.summary?.consumer_visible === false) {
+    return false;
+  }
+  return true;
 }
 
 function inferSourceLabels(
@@ -136,8 +206,9 @@ function inferSourceLabels(
   presentation: NaturalDomainPresentation
 ): string[] {
   const labels = new Set<string>();
-  if (presentation.sourceLabel) {
-    labels.add(presentation.sourceLabel);
+  const readableSourceLabel = presentation.sourceLabel?.trim();
+  if (readableSourceLabel && !/^pkm upgrade$/i.test(readableSourceLabel)) {
+    labels.add(readableSourceLabel);
   }
 
   const key = normalizeToken(domain.key);
@@ -171,13 +242,15 @@ function inferSourceLabels(
 
 function toStatus(
   domain: DomainSummary,
-  presentation: NaturalDomainPresentation
+  presentation: NaturalDomainPresentation,
+  detailCount: number
 ): { status: PkmDomainStatus; statusLabel: string } {
-  const ageDays = daysSince(presentation.updatedAt);
-  if (domain.attributeCount <= 0) {
-    return { status: "missing", statusLabel: "Missing" };
+  if (detailCount <= 0) {
+    return presentation.sections.length > 0
+      ? { status: "partial", statusLabel: "Ready" }
+      : { status: "missing", statusLabel: "No saved data" };
   }
-  if (ageDays !== null && ageDays >= 30) {
+  if (domain.summary?.refresh_recommended === true) {
     return { status: "stale", statusLabel: "Stale" };
   }
   if (domain.attributeCount < 4 || presentation.sections.length < 2) {
@@ -240,7 +313,18 @@ export function buildPkmDomainPresentation(params: {
   });
 
   const sourceLabels = inferSourceLabels(params.domain, presentation);
-  const { status, statusLabel } = toStatus(params.domain, presentation);
+  const detailCount = resolveDomainDetailCount(params.domain);
+  const updatedAt = newestTimestamp([
+    presentation.updatedAt,
+    typeof params.domain.summary?.last_content_at === "string"
+      ? params.domain.summary.last_content_at
+      : null,
+    typeof params.domain.summary?.updated_at === "string"
+      ? params.domain.summary.updated_at
+      : null,
+    params.domain.lastUpdated,
+  ]);
+  const { status, statusLabel } = toStatus(params.domain, { ...presentation, updatedAt }, detailCount);
   const attentionFlags: string[] = [];
   if (status === "missing") attentionFlags.push("Needs data");
   if (status === "stale") attentionFlags.push("Refresh recommended");
@@ -266,8 +350,8 @@ export function buildPkmDomainPresentation(params: {
     highlights: presentation.highlights.filter(isConsumerHighlightUseful).slice(0, 4),
     sections: presentation.sections,
     sourceLabels,
-    updatedAt: presentation.updatedAt,
-    detailCount: params.domain.attributeCount,
+    updatedAt,
+    detailCount,
     status,
     statusLabel,
     accessEntries,
@@ -360,8 +444,8 @@ export function buildPkmProfileSummaryPresentation(params: {
   return {
     metadataResolved: params.metadataResolved ?? params.metadata !== null,
     sharingResolved: params.sharingResolved ?? true,
-    totalDomains: params.metadata?.domains.length ?? 0,
-    totalAttributes: params.metadata?.totalAttributes ?? 0,
+    totalDomains: params.domains.length,
+    totalAttributes: params.domains.reduce((total, domain) => total + domain.detailCount, 0),
     totalSourceCount,
     activeGrantCount: params.activeGrants.length,
     sharedDomainCount,
@@ -413,6 +497,53 @@ function isConsumerVisibleScopeEntry(
 function isConsumerVisibleTopLevelScopePath(path: string | null | undefined): boolean {
   const normalized = normalizeToken(path);
   return Boolean(normalized) && !INTERNAL_ONLY_TOP_LEVEL_SCOPE_PATHS.has(normalized);
+}
+
+function normalizeVisibilityPosture(params: {
+  visibilityPosture?: unknown;
+  exposureEnabled?: boolean;
+}): PkmVisibilityPosture {
+  const posture = String(params.visibilityPosture || "").trim().toLowerCase();
+  if (posture === "private" || posture === "consent_required" || posture === "default_available") {
+    return posture;
+  }
+  return params.exposureEnabled === false ? "private" : "consent_required";
+}
+
+function visibilityPostureCopy(params: {
+  posture: PkmVisibilityPosture;
+  defaultProjectionReady: boolean;
+  readerSummary: ReturnType<typeof summarizePermissionReaders>;
+}): { label: string; description: string; counterpartSummary: string } {
+  if (params.posture === "private") {
+    return {
+      label: "Private",
+      description: "Only you can see this section.",
+      counterpartSummary:
+        params.readerSummary.activeReaderCount > 0
+          ? params.readerSummary.counterpartSummary
+          : "Hidden from new sharing",
+    };
+  }
+  if (params.posture === "default_available") {
+    return {
+      label: params.defaultProjectionReady ? "Available by default" : "Preview needed",
+      description: params.defaultProjectionReady
+        ? "One can use this saved section without asking again."
+        : "Preview this section once before One can use it by default.",
+      counterpartSummary: params.defaultProjectionReady
+        ? "Ready to use when you ask One"
+        : "Preview required before this is available by default",
+    };
+  }
+  return {
+    label: "Ask first",
+    description: "One asks you before sharing this section.",
+    counterpartSummary:
+      params.readerSummary.activeReaderCount > 0
+        ? params.readerSummary.counterpartSummary
+        : "One will ask before sharing",
+  };
 }
 
 function scopeTouchesPermission(
@@ -533,7 +664,17 @@ export function buildPkmDomainPermissionPresentation(params: {
           scopeHandle: entry.scope_handle || null,
           scopeLabel: entry.scope_label || humanizePath(extractTopLevelScopePath(entry)),
           topLevelScopePath: extractTopLevelScopePath(entry),
-          exposureEnabled: entry.exposure_enabled !== false,
+          visibilityPosture: normalizeVisibilityPosture({
+            visibilityPosture: entry.visibility_posture,
+            exposureEnabled: entry.exposure_enabled,
+          }),
+          exposureEnabled:
+            normalizeVisibilityPosture({
+              visibilityPosture: entry.visibility_posture,
+              exposureEnabled: entry.exposure_enabled,
+            }) !== "private",
+          defaultProjectionReady: entry.default_projection_ready === true,
+          defaultProjectionUpdatedAt: entry.default_projection_updated_at || null,
           sensitivityTier: entry.sensitivity_tier || "confidential",
           preferenceRank:
             typeof entry.summary_projection?.manifest_version === "number"
@@ -549,6 +690,9 @@ export function buildPkmDomainPermissionPresentation(params: {
           scopeLabel: humanizePath(path),
           topLevelScopePath: path,
           exposureEnabled: true,
+          visibilityPosture: "consent_required" as const,
+          defaultProjectionReady: false,
+          defaultProjectionUpdatedAt: null,
           sensitivityTier: "confidential",
           preferenceRank: 0,
         }));
@@ -578,23 +722,27 @@ export function buildPkmDomainPermissionPresentation(params: {
       const disabledReason = upgrade.canManagePermissions
         ? undefined
         : "Section-level sharing will appear once this domain manifest is ready.";
+      const postureCopy = visibilityPostureCopy({
+        posture: entry.visibilityPosture,
+        defaultProjectionReady: entry.defaultProjectionReady,
+        readerSummary,
+      });
       return {
         key: `${params.domain.key}:${entry.topLevelScopePath}`,
         scopeHandle: entry.scopeHandle,
         topLevelScopePath: entry.topLevelScopePath,
         label: entry.scopeLabel,
-        description: `Controls whether approved apps or advisors can request the ${entry.scopeLabel.toLowerCase()} section of your ${params.domain.displayName.toLowerCase()} data.`,
+        description: `Manage how One can use the ${entry.scopeLabel.toLowerCase()} section of your ${params.domain.displayName.toLowerCase()} data.`,
         exposureEnabled: entry.exposureEnabled,
+        visibilityPosture: entry.visibilityPosture,
+        defaultProjectionReady: entry.defaultProjectionReady,
+        defaultProjectionUpdatedAt: entry.defaultProjectionUpdatedAt,
+        stateLabel: postureCopy.label,
+        stateDescription: postureCopy.description,
         sensitivityTier: entry.sensitivityTier,
         activeReaderCount: readerSummary.activeReaderCount,
         requesterLabels: readerSummary.requesterLabels,
-        counterpartSummary: entry.exposureEnabled
-          ? readerSummary.activeReaderCount > 0
-            ? readerSummary.counterpartSummary
-            : "Ready to share when you approve access"
-          : readerSummary.activeReaderCount > 0
-            ? readerSummary.counterpartSummary
-            : "Hidden from new sharing",
+        counterpartSummary: postureCopy.counterpartSummary,
         includesBroadAccess: readerSummary.includesBroadAccess,
         disabledReason,
       };

@@ -5,6 +5,11 @@ import type { Persona } from "@/lib/services/ria-service";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type { VoiceExecuteKaiCommandCall, VoiceToolCall } from "@/lib/voice/voice-types";
 import {
+  getDirectPkmVoiceSaveBlockReason,
+  previewPkmAgentLabCapture,
+  savePkmAgentLabResponse,
+} from "@/lib/profile/pkm-agent-lab-capture";
+import {
   buildVoiceActionResult,
   type ExecuteKaiCommandResult,
   type VoiceActionResult,
@@ -111,7 +116,8 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
     toolName === "execute_kai_command" ||
     toolName === "resume_active_analysis" ||
     toolName === "cancel_active_analysis" ||
-    toolName === "switch_persona";
+    toolName === "switch_persona" ||
+    toolName === "capture_pkm_memory";
 
   const canonicalAction = getInvestorKaiActionByVoiceToolCall(toolCall);
   const canonicalActionId = canonicalAction?.id ?? null;
@@ -298,6 +304,133 @@ export async function dispatchVoiceToolCall(input: VoiceDispatchInput): Promise<
         },
       }),
     });
+  }
+
+  if (toolCall.tool_name === "capture_pkm_memory") {
+    const message = String(toolCall.args.message || "").trim();
+    const directSave =
+      toolCall.args.mode === "direct_save" || toolCall.args.direct_save === true;
+    if (!message) {
+      const routeAfter = "/profile/pkm-agent-lab";
+      router.push(routeAfter);
+      return buildDispatchResult({
+        status: "blocked",
+        toolName: "capture_pkm_memory",
+        reason: "missing_pkm_capture_message",
+        actionResult: buildVoiceActionResult({
+          status: "blocked",
+          actionId: canonicalActionId,
+          routeBefore: currentRoute,
+          routeAfter,
+          screenBefore: currentScreen,
+          screenAfter: "profile_pkm_agent_lab",
+          resultSummary: "Tell One the memory to save, then try again.",
+          data: {
+            toolName: "capture_pkm_memory",
+            reason: "missing_pkm_capture_message",
+          },
+        }),
+      });
+    }
+    if (directSave && !vaultKey) {
+      toast.error("Unlock your vault to save this memory.");
+      return buildDispatchResult({
+        status: "blocked",
+        toolName: "capture_pkm_memory",
+        reason: "missing_vault_key",
+        actionResult: buildVoiceActionResult({
+          status: "blocked",
+          actionId: canonicalActionId,
+          routeBefore: currentRoute,
+          screenBefore: currentScreen,
+          resultSummary: "Unlock the vault before saving this memory.",
+          data: {
+            toolName: "capture_pkm_memory",
+            reason: "missing_vault_key",
+          },
+        }),
+      });
+    }
+
+    try {
+      const preview = await previewPkmAgentLabCapture({
+        userId,
+        message,
+        vaultOwnerToken,
+      });
+      const blockReason = directSave ? getDirectPkmVoiceSaveBlockReason(preview) : null;
+      if (!directSave || blockReason) {
+        const routeAfter = "/profile/pkm-agent-lab";
+        router.push(routeAfter);
+        toast.info(blockReason || "Review the PKM preview before saving.");
+        return buildDispatchResult({
+          status: blockReason ? "blocked" : "executed",
+          toolName: "capture_pkm_memory",
+          reason: blockReason ? "pkm_capture_review_required" : undefined,
+          actionResult: buildVoiceActionResult({
+            status: blockReason ? "blocked" : "succeeded",
+            actionId: canonicalActionId,
+            routeBefore: currentRoute,
+            routeAfter,
+            screenBefore: currentScreen,
+            screenAfter: "profile_pkm_agent_lab",
+            resultSummary: blockReason || "Prepared a PKM capture preview.",
+            data: {
+              toolName: "capture_pkm_memory",
+              reason: blockReason || null,
+              writeMode: preview.preview_summary?.primary_write_mode || null,
+            },
+          }),
+        });
+      }
+
+      await savePkmAgentLabResponse({
+        userId,
+        message,
+        vaultKey: vaultKey || "",
+        vaultOwnerToken,
+        response: preview,
+      });
+      toast.success("Saved to your Personal Knowledge Model.");
+      return buildDispatchResult({
+        status: "executed",
+        toolName: "capture_pkm_memory",
+        actionResult: buildVoiceActionResult({
+          status: "succeeded",
+          actionId: canonicalActionId,
+          routeBefore: currentRoute,
+          screenBefore: currentScreen,
+          resultSummary: "Saved the memory to the Personal Knowledge Model.",
+          data: {
+            toolName: "capture_pkm_memory",
+            targetDomain: preview.preview_summary?.primary_target_domain || null,
+          },
+        }),
+      });
+    } catch (error) {
+      toast.error("Could not save this memory.", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+      return buildDispatchResult({
+        status: "failed",
+        toolName: "capture_pkm_memory",
+        reason: "pkm_capture_failed",
+        actionResult: buildVoiceActionResult({
+          status: "failed",
+          actionId: canonicalActionId,
+          routeBefore: currentRoute,
+          screenBefore: currentScreen,
+          resultSummary:
+            error instanceof Error && error.message.trim()
+              ? error.message.trim()
+              : "Could not save this memory.",
+          data: {
+            toolName: "capture_pkm_memory",
+            reason: "pkm_capture_failed",
+          },
+        }),
+      });
+    }
   }
 
   if (toolCall.tool_name === "resume_active_analysis") {

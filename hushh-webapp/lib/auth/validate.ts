@@ -47,7 +47,7 @@ export interface FirebaseValidationResult {
  * - Verifies scope matches
  *
  * @param token - The HCT:base64.signature token string
- * @param expectedScope - Optional scope to verify (e.g., "vault.write.food")
+ * @param expectedScope - Optional scope to verify (e.g., "attr.food.*")
  */
 export async function validateConsentToken(
   token: string,
@@ -118,8 +118,9 @@ export async function validateConsentToken(
 /**
  * Validate a session token (used for dashboard data access).
  *
- * Session tokens have scope "vault.read.all" and are issued after
- * passphrase verification.
+ * Session tokens are issued after passphrase verification. Data access should
+ * still use a scoped consent token such as a discovered attr.* scope, pkm.read,
+ * or vault.owner where explicitly required.
  */
 export async function validateSessionToken(
   token: string

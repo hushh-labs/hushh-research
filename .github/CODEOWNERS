@@ -21,3 +21,9 @@
 
 # Scripts and utilities
 /scripts/ @kushaltrivedi5
+
+# Native macOS app (One for macOS)
+/apps/one-mac/ @kushaltrivedi5
+/.codex/skills/desktop-mac/ @kushaltrivedi5
+/.codex/skills/desktop-mac-connectors/ @kushaltrivedi5
+/.codex/skills/desktop-mac-mcp-host/ @kushaltrivedi5

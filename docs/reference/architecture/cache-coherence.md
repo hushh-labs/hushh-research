@@ -59,6 +59,9 @@ Source files:
 - `hushh-webapp/lib/services/cache-service.ts`
 - `hushh-webapp/lib/cache/cache-sync-service.ts`
 - `hushh-webapp/lib/cache/cache-context.tsx`
+- `hushh-webapp/lib/cache/use-stale-resource.ts`
+- `hushh-webapp/cache-coherence-screen-manifest.generated.json`
+- `hushh-webapp/scripts/architecture/audit-cache-coherence.mjs`
 - `hushh-webapp/lib/services/secure-resource-cache-service.ts`
 - `hushh-webapp/lib/pkm/pkm-domain-resource.ts`
 - `hushh-webapp/lib/services/pkm-write-coordinator.ts`
@@ -155,9 +158,11 @@ Don't:
 
 Run:
 - `cd hushh-webapp && npm run verify:cache`
+- `cd hushh-webapp && npm run audit:cache-coherence`
 - `./bin/hushh native ios --mode uat`
 
 The `verify:cache` script hard-fails when critical mutation/auth paths bypass `CacheSyncService`.
+The `audit:cache-coherence` script hard-fails when the screen cache manifest is stale or when a physical screen is missing route/surface-map coverage.
 
 ## Reconciliation Notes
 
