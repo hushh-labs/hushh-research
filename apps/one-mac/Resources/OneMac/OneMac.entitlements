@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 Hushh
+SPDX-License-Identifier: Apache-2.0
+
+Developer ID entitlements for the One Mac app (v1 distribution).
+Every entitlement here is documented in apps/one-mac/docs/threat-model.md
+and apps/one-mac/docs/distribution.md with a least-privilege justification.
+
+Hardened Runtime is on (set in project.yml). App Sandbox is OFF for v1 —
+v1 needs SMAppService LaunchAgent + AppleEvents (Apple Notes bridge) +
+MailKit private SPI + broad filesystem read for FSEvents watcher. The
+sandboxed MAS variant lives in OneMac.MAS.entitlements and ships in v2.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Outbound HTTPS to the existing hosted Consent MCP for ciphertext relay. -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- Loopback MCP HTTP/SSE server on 127.0.0.1:31070. Bind-fail-fast enforces loopback only. -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+
+    <!-- AppleScript bridge to Apple Notes. Falls back to Archive import if denied. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+
+    <!-- Calendar / Reminders / Contacts read for the v1 connector set. -->
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
+
+    <!--
+    File access: user-selected via NSOpenPanel only, no broad disk read.
+    Bookmarks let the daemon re-open the same scope on next launch.
+    -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    <key>com.apple.security.files.bookmarks.app-scope</key>
+    <true/>
+
+    <!--
+    Hardened-runtime opt-outs we deliberately leave OFF. mlx-swift uses
+    MTLBuffer pinning, not JIT, so allow-jit stays false. We sign every
+    binary, so disable-library-validation stays false.
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <false/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <false/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <false/>
+
+    <!-- SMAppService LaunchAgent registration (daemon plist lives in Resources/). -->
+    <key>com.apple.developer.service-management.managed-by-main-app</key>
+    <true/>
+</dict>
+</plist>

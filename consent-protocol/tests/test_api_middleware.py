@@ -84,3 +84,70 @@ async def test_require_vault_owner_token_accepts_explicit_consent_header(monkeyp
 
     assert token_data["user_id"] == "user-123"
     assert token_data["token"] == example_consent_value
+
+
+@pytest.mark.asyncio
+async def test_require_vault_owner_token_reuses_validated_scope_within_request(monkeypatch):
+    calls: list[tuple[str, object]] = []
+    request = SimpleNamespace(state=SimpleNamespace())
+
+    async def _fake_validate(token: str, scope):
+        calls.append((token, scope))
+        return (
+            True,
+            None,
+            SimpleNamespace(
+                user_id="user-123",
+                agent_id="kai",
+                scope=scope,
+                scope_str=None,
+            ),
+        )
+
+    monkeypatch.setattr(middleware, "validate_token_with_db", _fake_validate)
+
+    first = await middleware.require_vault_owner_token(
+        request=request,
+        authorization="Bearer consent-token",
+    )
+    second = await middleware.require_vault_owner_token(
+        request=request,
+        authorization="Bearer consent-token",
+    )
+
+    assert first["user_id"] == "user-123"
+    assert second["user_id"] == "user-123"
+    assert calls == [("consent-token", middleware.ConsentScope.VAULT_OWNER)]
+
+
+@pytest.mark.asyncio
+async def test_require_consent_scope_cache_is_scope_specific(monkeypatch):
+    calls: list[tuple[str, object]] = []
+    request = SimpleNamespace(state=SimpleNamespace())
+
+    async def _fake_validate(token: str, scope):
+        calls.append((token, scope))
+        return (
+            True,
+            None,
+            SimpleNamespace(
+                user_id="user-123",
+                agent_id="kai",
+                scope=scope,
+                scope_str=None,
+            ),
+        )
+
+    monkeypatch.setattr(middleware, "validate_token_with_db", _fake_validate)
+
+    read_financial = middleware.require_consent_scope("attr.financial.*")
+    read_health = middleware.require_consent_scope("attr.health.*")
+
+    await read_financial(request=request, authorization="Bearer consent-token")
+    await read_financial(request=request, authorization="Bearer consent-token")
+    await read_health(request=request, authorization="Bearer consent-token")
+
+    assert calls == [
+        ("consent-token", "attr.financial.*"),
+        ("consent-token", "attr.health.*"),
+    ]

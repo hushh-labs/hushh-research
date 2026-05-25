@@ -107,7 +107,10 @@ async function canUseNativeBiometricVault(): Promise<boolean> {
     const result = await HushhKeychain.isBiometricAvailable();
     return result.available;
   } catch (error) {
-    console.warn("[VaultBootstrapService] Native biometric availability check failed:", error);
+    console.warn(
+      "[VaultBootstrapService] Native biometric availability check failed:",
+      error,
+    );
     return false;
   }
 }
@@ -119,13 +122,64 @@ function resolveRpId(): string {
   });
 }
 
+function resolveWebPasskeyDeviceLabel(): string {
+  if (typeof navigator === "undefined") return "Browser passkey";
+
+  const nav = navigator as Navigator & {
+    userAgentData?: {
+      brands?: Array<{ brand?: string; version?: string }>;
+      platform?: string;
+    };
+  };
+  const brands = nav.userAgentData?.brands || [];
+  const brand =
+    brands.find(
+      (item) =>
+        item.brand && !/chromium|not.a\/brand|not a brand/i.test(item.brand),
+    )?.brand || "";
+  const platform = nav.userAgentData?.platform || "";
+  const ua = navigator.userAgent || "";
+
+  let browser = brand;
+  if (!browser) {
+    if (/Edg\//.test(ua)) browser = "Edge";
+    else if (/Chrome\//.test(ua)) browser = "Chrome";
+    else if (/Safari\//.test(ua) && !/Chrome\//.test(ua)) browser = "Safari";
+    else if (/Firefox\//.test(ua)) browser = "Firefox";
+  }
+
+  let device = platform;
+  if (!device) {
+    if (/Macintosh|Mac OS X/i.test(ua)) device = "Mac";
+    else if (/iPhone/i.test(ua)) device = "iPhone";
+    else if (/iPad/i.test(ua)) device = "iPad";
+    else if (/Android/i.test(ua)) device = "Android";
+    else if (/Windows/i.test(ua)) device = "Windows";
+  }
+
+  if (browser && device) return `${browser} passkey on ${device}`;
+  if (browser) return `${browser} passkey`;
+  if (device) return `Passkey on ${device}`;
+  return "Browser passkey";
+}
+
+function resolveNativePasskeyDeviceLabel(): string {
+  const platform = Capacitor.getPlatform();
+  if (platform === "ios") return "iOS passkey";
+  if (platform === "android") return "Android passkey";
+  return "Device passkey";
+}
+
 async function canUseNativePasskeyVault(): Promise<boolean> {
   if (!Capacitor.isNativePlatform()) return false;
   try {
     const result = await HushhVault.isPasskeyAvailable({ rpId: resolveRpId() });
     return !!result.available;
   } catch (error) {
-    console.warn("[VaultBootstrapService] Native passkey availability check failed:", error);
+    console.warn(
+      "[VaultBootstrapService] Native passkey availability check failed:",
+      error,
+    );
     return false;
   }
 }
@@ -243,10 +297,14 @@ export class VaultBootstrapService {
         passkeyPrfSalt: registered.prfSalt,
         passkeyRpId: rpId,
         passkeyProvider: "native_passkey",
+        passkeyDeviceLabel: resolveNativePasskeyDeviceLabel(),
       };
     }
 
-    const prfRegistration = await registerWithPrf(params.userId, params.displayName);
+    const prfRegistration = await registerWithPrf(
+      params.userId,
+      params.displayName,
+    );
     const rpId = resolveRpId();
 
     return {
@@ -257,12 +315,13 @@ export class VaultBootstrapService {
       passkeyPrfSalt: prfRegistration.prfSalt,
       passkeyRpId: rpId,
       passkeyProvider: "webauthn_prf",
+      passkeyDeviceLabel: resolveWebPasskeyDeviceLabel(),
     };
   }
 
   static async clearGeneratedDefaultMaterial(
     userId: string,
-    mode?: GeneratedVaultKeyMode | null
+    mode?: GeneratedVaultKeyMode | null,
   ): Promise<void> {
     if (mode !== "generated_default_native_biometric") return;
 
@@ -271,12 +330,15 @@ export class VaultBootstrapService {
         key: keychainSecretKey(userId),
       });
     } catch (error) {
-      console.warn("[VaultBootstrapService] Failed to clear native biometric secret:", error);
+      console.warn(
+        "[VaultBootstrapService] Failed to clear native biometric secret:",
+        error,
+      );
     }
   }
 
   static async unlockGeneratedDefaultVault(
-    input: GeneratedVaultUnlockInput
+    input: GeneratedVaultUnlockInput,
   ): Promise<string | null> {
     const mode = normalizeKeyMode(input);
     if (!mode) return null;
@@ -295,7 +357,7 @@ export class VaultBootstrapService {
         secret.value,
         input.encryptedVaultKey,
         input.salt,
-        input.iv
+        input.iv,
       );
     }
 
@@ -313,7 +375,7 @@ export class VaultBootstrapService {
         auth.vaultKeyHex,
         input.encryptedVaultKey,
         input.salt,
-        input.iv
+        input.iv,
       );
     }
 
@@ -324,14 +386,14 @@ export class VaultBootstrapService {
     const auth = await authenticateWithPrf(
       input.userId,
       input.passkeyPrfSalt,
-      input.passkeyCredentialId ?? undefined
+      input.passkeyCredentialId ?? undefined,
     );
 
     return unlockVaultWithPassphrase(
       auth.vaultKeyHex,
       input.encryptedVaultKey,
       input.salt,
-      input.iv
+      input.iv,
     );
   }
 }

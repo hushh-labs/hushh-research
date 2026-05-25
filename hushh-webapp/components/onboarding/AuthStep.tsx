@@ -532,11 +532,11 @@ export function AuthStep({
         }
       >
         <header className="flex-none text-center">
-          <BrandMark label="Kai" size={compact ? "sm" : "md"} className="mx-auto" />
+          <BrandMark size={compact ? "sm" : "md"} unframed className="mx-auto" />
           {compact ? (
             <>
               <h1 className="mt-6 text-[clamp(1.75rem,5.8vw,2.35rem)] font-black tracking-tight leading-[1.12]">
-                Sign in to Kai
+                Sign in to One
               </h1>
               <p className="mx-auto mt-3 max-w-[17.5rem] text-sm leading-relaxed text-muted-foreground">
                 Continue with your preferred provider.
@@ -545,7 +545,7 @@ export function AuthStep({
           ) : (
             <>
               <h1 className="mt-8 text-[clamp(2.2rem,7vw,3rem)] font-black tracking-tight leading-[1.08]">
-                Meet Kai,
+                Meet One,
                 <br />
                 Your Personal
                 <br />

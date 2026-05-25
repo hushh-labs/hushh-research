@@ -2,8 +2,8 @@
 """
 Utility tool handlers (validate_token, delegate, list_scopes, discover_user_domains).
 
-Only world-model scopes are supported: world_model.read, world_model.write,
-attr.{domain}.*, and optional nested attr.{domain}.{subintent}.* scopes.
+Supported data scopes are pkm.read, pkm.write, attr.{domain}.*, and optional
+nested attr.{domain}.{subintent}.* scopes discovered per user.
 """
 
 import json
@@ -64,7 +64,7 @@ async def handle_validate_token(args: dict) -> list[TextContent]:
             )
         ]
 
-    logger.info(f"✅ Token VALID for user={token_obj.user_id}")
+    logger.info("✅ Token VALID (user=[redacted])")
 
     return [
         TextContent(
@@ -163,12 +163,12 @@ async def handle_list_scopes(_args: dict | None = None) -> list[TextContent]:
         fallback = {
             "scopes": [
                 {
-                    "name": "world_model.read",
-                    "description": get_scope_description("world_model.read"),
+                    "name": "pkm.read",
+                    "description": get_scope_description("pkm.read"),
                 },
                 {
-                    "name": "world_model.write",
-                    "description": get_scope_description("world_model.write"),
+                    "name": "pkm.write",
+                    "description": get_scope_description("pkm.write"),
                 },
                 {
                     "name": "attr.{domain}.*",
@@ -245,8 +245,8 @@ async def handle_discover_user_domains(args: dict) -> list[TextContent]:
                                 "user_id": uid,
                                 "domains": [],
                                 "scopes": [],
-                                "message": "No world model data for this user (new user or no domains yet)",
-                                "usage": "Call request_consent with scope='world_model.read' or attr.{domain}.* after user adds data",
+                                "message": "No PKM domains for this user yet (new user or no domains yet)",
+                                "usage": "Call request_consent with a discovered attr.{domain}.* scope after the user adds data; pkm.read is reserved for approved first-party/internal full-PKM access.",
                             }
                         ),
                     )

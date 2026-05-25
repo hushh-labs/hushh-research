@@ -63,6 +63,16 @@ def test_token_expiry_boundary():
     assert reason == "Token expired"
 
 
+def test_expired_token_returns_expired_before_scope_mismatch():
+    token_obj = issue_token(USER_ID, AGENT_ID, VALID_SCOPE, expires_in_ms=0)
+
+    valid, reason, parsed = validate_token(token_obj.token, ConsentScope.PKM_WRITE)
+
+    assert valid is False
+    assert reason == "Token expired"
+    assert parsed is None
+
+
 def test_token_missing_signature_separator_is_malformed():
     token_obj = issue_token(USER_ID, AGENT_ID, VALID_SCOPE)
     prefix, signed_part = token_obj.token.split(":", 1)
@@ -101,3 +111,13 @@ def test_signature_tampering():
     valid, reason, _ = validate_token(tampered, VALID_SCOPE)
     assert valid is False
     assert "Malformed token" in reason or "Invalid token prefix" in reason
+
+
+def test_invalid_base64_token_is_rejected():
+    malformed = "HCT:%%%%.signature"
+
+    valid, reason, token = validate_token(malformed)
+
+    assert valid is False
+    assert "Malformed token" in reason
+    assert token is None
