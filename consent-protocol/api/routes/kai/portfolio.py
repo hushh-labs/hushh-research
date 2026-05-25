@@ -1,6 +1,8 @@
 # consent-protocol/api/routes/kai/portfolio.py
 """
-Kai Portfolio API Route - Portfolio import and analysis endpoints.
+Kai Portfolio API Route with bounded path parameters (CWE-400).
+
+Portfolio import and analysis endpoints.
 
 Handles:
 - File upload (CSV/PDF) for brokerage statements
@@ -23,9 +25,9 @@ import re
 import time
 from collections import Counter
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Optional
+from typing import Annotated, Any, AsyncGenerator, Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Path, Query, Request, UploadFile, status
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -70,6 +72,10 @@ from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_UserId = Annotated[str, Path(min_length=1, max_length=128)]
+_RunId = Annotated[str, Path(min_length=1, max_length=128)]
+
 _IMPORT_RUN_MANAGER = KaiPortfolioImportRunManager()
 _PICK_TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 _MAX_PROFILE_PICKS = 8
@@ -2134,7 +2140,7 @@ async def import_portfolio(
 
 @router.get("/portfolio/summary/{user_id}", response_model=PortfolioSummaryResponse)
 async def get_portfolio_summary(
-    user_id: str,
+    user_id: _UserId,
     token_data: dict = Depends(require_vault_owner_token),
 ) -> PortfolioSummaryResponse:
     """
