@@ -78,6 +78,7 @@ REQUIRED_WORKFLOWS = [
     "ci-watch-and-heal",
     "data-model-audit",
     "github-contribution-governance",
+    "uat-scoped-deploy",
     "pre-pr-readiness",
     "security-consent-audit",
     "mobile-parity-check",
@@ -497,7 +498,12 @@ def build_frontend_section() -> dict[str, Any]:
         ],
         recommended_entrypoint="frontend",
         next_owner_skills=["frontend", "mobile-native"],
-        spoke_skills=["frontend-design-system", "frontend-architecture", "frontend-surface-placement"],
+        spoke_skills=[
+            "frontend-design-system",
+            "frontend-architecture",
+            "frontend-surface-placement",
+            "frontend-native-surface-mapper",
+        ],
     )
 
 

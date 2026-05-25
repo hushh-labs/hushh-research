@@ -7,6 +7,7 @@ This folder is the canonical home for signed-in shell primitives, page chrome, a
 - `app-page-shell.tsx`: page root, header region, and content region contract.
 - `page-sections.tsx`: `PageHeader` and `SectionHeader`.
 - `surfaces.tsx`: semantic bridge to the Morphy-owned surface primitives and `SurfaceStack`.
+- `settings-ui.tsx`: shared grouped settings rows, segmented tabs, and mobile drawer/desktop detail-panel primitives.
 - `top-app-bar.tsx`: top chrome, persona switcher, shield consent inbox, and bell trigger.
 - `shell-action-surface.tsx`: canonical interaction surface for top-shell buttons and pills.
 - `top-shell-dropdown.ts`: shared dropdown chrome contract for shield/bell overlays.

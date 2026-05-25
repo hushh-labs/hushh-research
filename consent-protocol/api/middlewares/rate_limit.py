@@ -23,10 +23,17 @@ def get_rate_limit_key(request: Request) -> str:
     """
     Extract rate limit key from request.
 
-    Derives the bucket from the signature-verified consent bearer token so a
-    caller cannot mint new quota by spoofing an identity header. Falls back
-    to the remote IP when no valid token is present.
+    Reads the user_id decoded by ``observability_middleware`` from
+    ``request.state.rate_limit_user_id`` on the normal request path, avoiding
+    a second JWT decode. If a caller reaches this function without middleware
+    state, validate the bearer token here so authenticated traffic still gets
+    the signed user bucket instead of silently falling back to the IP bucket.
     """
+    state = getattr(request, "state", None)
+    user_id = getattr(state, "rate_limit_user_id", None)
+    if user_id:
+        return f"user:{user_id}"
+
     authorization = request.headers.get("Authorization") or request.headers.get("authorization")
     if authorization and authorization.startswith("Bearer "):
         consent_token = authorization.removeprefix("Bearer ").strip()

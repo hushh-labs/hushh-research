@@ -27,6 +27,8 @@ Use this reference after the initial scan to choose the correct owner skill firs
 1. `frontend-design-system`
 2. `frontend-architecture`
 3. `frontend-surface-placement`
+4. `frontend-native-surface-mapper`
+5. `frontend-cache-coherence`
 
 ### `mobile-native`
 
@@ -50,6 +52,7 @@ Use this reference after the initial scan to choose the correct owner skill firs
 ### `repo-operations`
 
 1. `github-contribution-governance`
+2. `uat-scoped-deploy`
 
 ## Canonical workflow packs
 
@@ -72,4 +75,7 @@ Use this reference after the initial scan to choose the correct owner skill firs
 17. `contributor-onboarding`
 18. `subtree-upstream-governance`
 19. `github-contribution-governance`
+20. `uat-scoped-deploy`
 20. `data-model-audit`
+21. `frontend-native-surface-map`
+22. `frontend-cache-coherence`

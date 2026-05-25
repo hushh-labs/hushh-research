@@ -22,3 +22,4 @@ Within the seven-layer platform architecture, mobile is the main Layer 6 and Lay
 
 - [capacitor-parity-audit.md](./capacitor-parity-audit.md): parity contract and audit gate.
 - [capacitor-parity-audit-report.md](./capacitor-parity-audit-report.md): latest release-ready audit findings.
+- [../architecture/frontend-native-surface-map.md](../architecture/frontend-native-surface-map.md): route to API/native/plugin/voice mapper scaffold.

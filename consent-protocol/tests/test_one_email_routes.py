@@ -25,6 +25,24 @@ def test_one_kyc_route_rejects_user_mismatch():
     assert response.status_code == 403
 
 
+def test_one_kyc_archive_route_uses_delete_method(monkeypatch):
+    calls: list[dict] = []
+
+    class _Service:
+        async def archive_workflow(self, *, user_id: str, workflow_id: str):
+            calls.append({"user_id": user_id, "workflow_id": workflow_id})
+            return {"workflow_id": workflow_id, "user_id": user_id, "archived": True}
+
+    monkeypatch.setattr(one_email, "_service", lambda: _Service())
+    client = _build_app(user_id="user_123")
+
+    response = client.delete("/api/one/kyc/workflows/workflow_123?user_id=user_123")
+
+    assert response.status_code == 200
+    assert response.json()["archived"] is True
+    assert calls == [{"user_id": "user_123", "workflow_id": "workflow_123"}]
+
+
 def test_one_watch_renew_rejects_missing_maintenance_token(monkeypatch):
     monkeypatch.setenv("ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED", "true")
     monkeypatch.setenv("ONE_EMAIL_WATCH_RENEW_TOKEN", "expected-token")
@@ -47,6 +65,33 @@ def test_one_watch_renew_auth_follows_deploy_environment(monkeypatch):
 
     assert response.status_code == 401
     assert response.json()["detail"]["code"] == "ONE_EMAIL_WATCH_RENEW_UNAUTHORIZED"
+
+
+def test_one_email_sync_recent_uses_authenticated_user(monkeypatch):
+    calls: list[dict] = []
+
+    class _Service:
+        async def sync_recent_messages(self, *, user_id: str, max_results: int):
+            calls.append({"user_id": user_id, "max_results": max_results})
+            return {
+                "accepted": True,
+                "scanned_count": 1,
+                "processed_count": 1,
+                "matched_count": 1,
+                "workflows": [{"workflow_id": "workflow_123", "user_id": user_id}],
+            }
+
+    monkeypatch.setattr(one_email, "_service", lambda: _Service())
+    client = _build_app(user_id="user_123")
+
+    response = client.post(
+        "/api/one/email/sync/recent",
+        json={"user_id": "user_123", "max_results": 12},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["matched_count"] == 1
+    assert calls == [{"user_id": "user_123", "max_results": 12}]
 
 
 def test_one_kyc_reject_route_uses_authenticated_user(monkeypatch):
@@ -93,6 +138,7 @@ def test_one_kyc_send_approved_reply_forwards_transient_body(monkeypatch):
             "user_id": "user_123",
             "approved_subject": "Re: KYC",
             "approved_body": "Approved body",
+            "approved_html": "<p>Approved body</p>",
             "client_draft_hash": "hash_1",
             "consent_export_revision": 1,
             "pkm_writeback_artifact_hash": artifact_hash,
@@ -107,9 +153,42 @@ def test_one_kyc_send_approved_reply_forwards_transient_body(monkeypatch):
             "workflow_id": "workflow_123",
             "approved_subject": "Re: KYC",
             "approved_body": "Approved body",
+            "approved_html": "<p>Approved body</p>",
             "client_draft_hash": "hash_1",
             "consent_export_revision": 1,
             "pkm_writeback_artifact_hash": artifact_hash,
+        }
+    ]
+
+
+def test_one_kyc_scope_selection_uses_authenticated_user(monkeypatch):
+    calls: list[dict] = []
+
+    class _Service:
+        async def select_scopes(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "workflow_id": kwargs["workflow_id"],
+                "user_id": kwargs["user_id"],
+                "status": "needs_scope",
+                "requested_scopes": kwargs["selected_scopes"],
+            }
+
+    monkeypatch.setattr(one_email, "_service", lambda: _Service())
+    client = _build_app(user_id="user_123")
+
+    response = client.post(
+        "/api/one/kyc/workflows/workflow_123/scope-selection",
+        json={"user_id": "user_123", "selected_scopes": ["attr.identity.*", "attr.financial.*"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["requested_scopes"] == ["attr.identity.*", "attr.financial.*"]
+    assert calls == [
+        {
+            "user_id": "user_123",
+            "workflow_id": "workflow_123",
+            "selected_scopes": ["attr.identity.*", "attr.financial.*"],
         }
     ]
 
@@ -173,5 +252,36 @@ def test_one_kyc_workflow_consent_export_uses_vault_user_without_consent_token(m
 
     assert response.status_code == 200
     assert response.json()["encrypted_data"] == "ciphertext"
+    assert "consent_token" not in response.text
+    assert calls == [{"user_id": "user_123", "workflow_id": "workflow_123"}]
+
+
+def test_one_kyc_workflow_consent_exports_uses_vault_user_without_consent_token(monkeypatch):
+    calls: list[dict] = []
+
+    class _Service:
+        async def get_workflow_consent_exports(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "status": "success",
+                "exports": [
+                    {
+                        "request_id": "okyc_1",
+                        "scope": "attr.identity.*",
+                        "encrypted_data": "ciphertext",
+                        "iv": "iv",
+                        "tag": "tag",
+                        "wrapped_key_bundle": {"connector_key_id": "one-kyc-test"},
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(one_email, "_service", lambda: _Service())
+    client = _build_app(user_id="user_123")
+
+    response = client.get("/api/one/kyc/workflows/workflow_123/consent-exports?user_id=user_123")
+
+    assert response.status_code == 200
+    assert response.json()["exports"][0]["scope"] == "attr.identity.*"
     assert "consent_token" not in response.text
     assert calls == [{"user_id": "user_123", "workflow_id": "workflow_123"}]

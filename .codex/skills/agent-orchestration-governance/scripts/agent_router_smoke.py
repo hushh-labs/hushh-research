@@ -101,7 +101,7 @@ SCENARIOS: tuple[dict[str, Any], ...] = (
         "prompt": "verify One Gmail push notifications and encrypted draft storage caveats",
         "paths": [
             "consent-protocol/hushh_mcp/services/one_email_kyc_service.py",
-            "docs/future/one-email-intake-roadmap.md",
+            "docs/reference/architecture/one-email-kyc.md",
         ],
         "required_agents": {
             "backend_architect",
@@ -136,6 +136,33 @@ SCENARIOS: tuple[dict[str, Any], ...] = (
         ],
         "required_agents": {"mobile_native_architect"},
         "forbidden_agents": set(),
+        "should_delegate": True,
+    },
+    {
+        "name": "pr-train-no-paths",
+        "workflow": "pr-governance-review",
+        "phase": "start",
+        "prompt": "scan max PRs and build async PR trains with queue cohorts, patch trains, and decision waves",
+        "paths": [],
+        "required_agents": {
+            "repo_operator",
+            "backend_architect",
+            "frontend_architect",
+            "security_consent_auditor",
+            "analytics_observability_architect",
+            "reviewer",
+        },
+        "forbidden_agents": set(),
+        "should_delegate": True,
+    },
+    {
+        "name": "pr-governance-sparse-current-head",
+        "workflow": "pr-governance-review",
+        "phase": "start",
+        "prompt": "audit 123",
+        "paths": [],
+        "required_agents": {"reviewer"},
+        "forbidden_agents": {"backend_architect", "frontend_architect"},
         "should_delegate": True,
     },
     {

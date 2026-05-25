@@ -8,10 +8,12 @@ flowchart TD
   root["Hussh Architecture Index"]
   stack["Seven-layer platform architecture"]
   contracts["API and route contracts"]
+  views["Architecture view catalog"]
   data["Data, provenance, and storage"]
   runtime["Runtime and loading policies"]
 
   root --> stack
+  root --> views
   root --> contracts
   root --> data
   root --> runtime
@@ -26,9 +28,12 @@ Brand and compatibility rules live in [../operations/brand-and-compatibility-con
 ## References
 
 - [architecture.md](./architecture.md): canonical seven-layer Hussh platform architecture, plus integration, deployment, and runtime sequence model.
+- [architecture-view-catalog.md](./architecture-view-catalog.md): C4 + ISO 42010 architecture views for system landscape, context, containers, components, dynamic flows, deployment/network/physical topology, and data boundaries.
 - [founder-language-matrix.md](./founder-language-matrix.md): canonical founder-term to implementation-term mapping and audit checklist.
 - [api-contracts.md](./api-contracts.md): API surface and proxy/backend contracts.
 - [route-contracts.md](./route-contracts.md): app route inventory and parity governance.
+- [one-email-kyc.md](./one-email-kyc.md): current One-led KYC mailbox, consent, draft, send, and PKM writeback contract.
+- [frontend-native-surface-map.md](./frontend-native-surface-map.md): generated route/API/native/plugin/voice mapper scaffold.
 - [loading-policy.md](./loading-policy.md): canonical loading and empty-state policy.
 - [cache-coherence.md](./cache-coherence.md): cache invalidation and freshness model.
 - [data-model-governance.md](./data-model-governance.md): maintainer SOP for schema, data classes, retention, deletion, and table-family changes.

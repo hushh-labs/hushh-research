@@ -1,0 +1,69 @@
+{
+  "id": "frontend-native-surface-mapper",
+  "role": "spoke",
+  "owner_family": "frontend",
+  "primary_scope": "frontend-native-surface-map",
+  "description": "Use when changing or auditing the generated mapping between app routes, page files, Next.js API proxies, backend endpoint families, native transport, Capacitor plugins, and voice/action contracts.",
+  "owned_paths": [
+    "hushh-webapp/frontend-native-surface-map.generated.json",
+    "hushh-webapp/scripts/architecture/generate-surface-map.mjs",
+    "docs/reference/architecture/frontend-native-surface-map.md"
+  ],
+  "non_owned_paths": [
+    "frontend",
+    "mobile-native",
+    "backend-api-contracts",
+    "kai-voice-governance",
+    "docs-governance"
+  ],
+  "task_types": [
+    "frontend-native-surface-map",
+    "mobile-parity-check",
+    "api-contract-change"
+  ],
+  "required_reads": [
+    "docs/reference/architecture/frontend-native-surface-map.md",
+    "docs/reference/architecture/route-contracts.md",
+    "docs/reference/mobile/capacitor-parity-audit.md",
+    "hushh-webapp/frontend-native-surface-map.generated.json"
+  ],
+  "required_commands": [
+    "cd hushh-webapp && npm run verify:surface-map",
+    "cd hushh-webapp && npm run verify:capacitor:static",
+    "cd hushh-webapp && npm run verify:docs"
+  ],
+  "verification_bundles": [
+    {
+      "id": "frontend-native-surface-mapper",
+      "commands": [
+        "cd hushh-webapp && npm run verify:surface-map",
+        "cd hushh-webapp && npm run verify:capacitor:static",
+        "cd hushh-webapp && npm run verify:docs"
+      ],
+      "tests": [
+        "cd hushh-webapp && npm run verify:surface-map"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "frontend",
+    "frontend-architecture",
+    "mobile-parity-audit",
+    "backend-api-contracts",
+    "kai-voice-governance",
+    "docs-governance"
+  ],
+  "adjacent_skills": [
+    "frontend-architecture",
+    "mobile-native",
+    "backend-api-contracts",
+    "kai-voice-governance",
+    "docs-governance"
+  ],
+  "risk_tags": [
+    "route-api-drift",
+    "native-transport-drift",
+    "plugin-contract-drift",
+    "voice-action-drift"
+  ]
+}

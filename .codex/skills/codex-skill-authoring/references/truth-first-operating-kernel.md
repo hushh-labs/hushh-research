@@ -35,9 +35,22 @@ Prefer evidence in this order:
 3. Tests that prove the current contract.
 4. Runtime logs, CI, deployment, and environment signals when relevant.
 5. Durable docs that explicitly distinguish current state from future state.
-6. Founder drafts, PR descriptions, issue text, and chat prompts only as claims to verify.
+6. Founder wiki product canon for north-star direction, founder language, non-negotiables, and future-state alignment.
+7. Founder drafts, PR descriptions, issue text, and chat prompts only as claims to verify.
 
 When sources disagree, current executable code plus checked contracts beat prose. Create a docs follow-up when durable docs drift from runtime truth.
+
+## Founder Wiki North-Star Probe
+
+The founder wiki MCP is a north-star evidence lane, not a current-state implementation source. Use `.codex/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md` when a task touches product direction, founder language, One/Kai/Nav ontology, PCHP/BYOA/on-device posture, PKM/World Model authority, or material PR governance.
+
+Default boundary:
+
+- repo code, generated contracts, schemas, tests, CI, and runtime logs define what exists today
+- founder wiki product canon defines direction, language, and future-state alignment
+- conflicts should be classified as `current_state_vs_north_star_drift`
+- private wiki evidence stays local-only unless the user explicitly asks for a public-safe citation
+- Codex should not write, cache, or mirror private wiki pages by default
 
 ## Default Answer Shape
 
@@ -50,6 +63,20 @@ For repo-backed Q&A and contributor guidance, answer in this order:
 5. Smallest acceptable next PR.
 
 Do not write as if the project is blank. Hussh already has shipped contracts, and Codex must actively find and reuse them.
+
+## Planning Question Contract
+
+For non-trivial plans, do not ask bare choices. Research first, synthesize the likely solution, then ask only the user-owned decision that remains.
+
+Every material planning question should include:
+
+1. `Current truth`: verified facts from repo, GitHub, CI, docs, runtime logs, or generated contracts.
+2. `Recommended path`: the solution Codex would choose and the expected output.
+3. `Risk if accepted blindly`: what could break if the prompt or PR is accepted without the decision.
+4. `Decision needed`: the precise unresolved choice.
+5. `Options`: mutually exclusive choices with the recommended option first and a short outcome for each.
+
+Keep this concise. Include enough research for the operator to approve the recommended path without opening unrelated context, but do not dump every inspected detail. Do not ask the user to discover facts Codex can verify.
 
 ## Agent Evidence Handoff
 
@@ -121,6 +148,17 @@ Default boundary:
 
 - green CI is intake only
 - duplicate, schema, trust-boundary, and runtime reachability findings override green gates
+
+### Founder Wiki North-Star
+
+Check the founder wiki product canon before accepting material product-direction, roadmap, founder-language, or PR-value claims.
+
+Default boundary:
+
+- use the Product Canon pages first: non-negotiables, wiki index, One, Kai, Nav, PCHP, Personal Operating Layer, BYOA, World Model, Aha Moment, MLX/on-device, App Intents, LLM Wiki pattern, OpenClaw, Hu-SSH, Signature Vault, One Lens, iBrokerage, One Email KYC, and PCHP brand-side endpoint
+- use the wiki to detect north-star drift, not to invent current implementation facts
+- public PR comments must not expose private wiki details
+- classify repo/wiki disagreement as `current_state_vs_north_star_drift` and report it locally
 
 ### Frontend
 

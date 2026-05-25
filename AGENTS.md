@@ -41,6 +41,8 @@ Default response shape for repo-backed Q&A:
 4. `What not to build`
 5. `Smallest acceptable next PR`
 
+For non-trivial planning, questions must be research-backed instead of bare choices. Before asking, state the `Current truth`, `Recommended path`, `Risk if accepted blindly`, and the exact `Decision needed`; put the recommended option first. Do not ask the user to discover facts Codex can verify from repo, GitHub, CI, docs, runtime logs, or generated contracts.
+
 Do not write as if the project is blank. Hussh already has many shipped contracts. Codex must actively find and reuse them.
 
 ## Project-Wide Delegation Checkpoint

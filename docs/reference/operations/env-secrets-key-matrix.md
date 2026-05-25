@@ -37,7 +37,8 @@ Profile bootstrap rule:
 |---|---|---|---|---|---|---|---|---|---|
 | `APP_SIGNING_KEY` | `consent-protocol/hushh_mcp/config.py` | Y | N | Y | secret | N | secret | N | required |
 | `VAULT_DATA_KEY` | `consent-protocol/hushh_mcp/config.py` | Y | N | Y | secret | N | secret | N | required |
-| `GOOGLE_API_KEY` | `consent-protocol/hushh_mcp/config.py` | Y | N | Y | secret | N | secret | N | required |
+| `GOOGLE_API_KEY` | `consent-protocol/hushh_mcp/config.py`, `consent-protocol/hushh_mcp/services/agent_chat_service.py` | Y | N | Y | secret | N | secret | N | required |
+| `AGENT_GEMINI_MODEL` | `consent-protocol/hushh_mcp/services/agent_chat_service.py` | Y | N | N | env | N | env | N | optional |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `consent-protocol/api/utils/firebase_admin.py`, `consent-protocol/hushh_mcp/runtime_settings.py`, `hushh-webapp/lib/firebase/admin.ts` | Y | Y | Y | secret | secret | secret | secret | required |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `consent-protocol/hushh_mcp/runtime_settings.py` | Y | N | Y | N | N | alias | N | optional alias |
 | `ONE_EMAIL_ADDRESS` | `consent-protocol/hushh_mcp/services/support_email_service.py`, `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | optional |
@@ -47,6 +48,8 @@ Profile bootstrap rule:
 | `ONE_EMAIL_WEBHOOK_AUTH_ENABLED` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | required true for hosted One email intake |
 | `ONE_EMAIL_WATCH_RENEW_TOKEN` | `consent-protocol/api/routes/one/email.py` | Y | N | Y | secret | N | secret | N | required for hosted One watch renewal |
 | `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | `consent-protocol/api/routes/one/email.py` | Y | N | N | env | N | env | N | required true for hosted One watch renewal |
+| `ONE_LOCATION_RETENTION_TOKEN` | `consent-protocol/api/routes/one/location.py` | Y | N | Y | secret | N | secret | N | required dedicated token for hosted One Location retention purge |
+| `ONE_LOCATION_RETENTION_AUTH_ENABLED` | `consent-protocol/api/routes/one/location.py` | Y | N | N | env | N | env | N | optional local/test override; hosted auth remains enabled |
 | `ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | strict client-side ZK guard; defaults true |
 | `ONE_EMAIL_KYC_DEFAULT_SCOPE` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | optional allowlisted |
 | `SUPPORT_EMAIL_DELEGATED_USER` | `consent-protocol/hushh_mcp/services/support_email_service.py` | Y | N | N | env | N | env | N | optional |
@@ -62,7 +65,7 @@ Profile bootstrap rule:
 | `GMAIL_OAUTH_CLIENT_SECRET` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required |
 | `GMAIL_OAUTH_REDIRECT_URI` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required |
 | `GMAIL_OAUTH_TOKEN_KEY` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required |
-| `OPENAI_API_KEY` | `consent-protocol/hushh_mcp/services/voice_intent_service.py` | Y | N | Y | secret | N | secret | N | required |
+| `OPENAI_API_KEY` | `consent-protocol/api/routes/kai/agent_realtime.py`, `consent-protocol/hushh_mcp/services/voice_intent_service.py` | Y | N | Y | secret | N | secret | N | required |
 | `VOICE_RUNTIME_CONFIG_JSON` | `consent-protocol/hushh_mcp/runtime_settings.py`, `consent-protocol/api/routes/kai/voice.py`, `consent-protocol/hushh_mcp/services/voice_intent_service.py` | Y | N | Y | secret | N | secret | N | required |
 | `HUSHH_DEVELOPER_TOKEN` | `consent-protocol/api/routes/session.py` | Y | N | N | N | N | N | N | optional |
 | `ENVIRONMENT` | `consent-protocol/hushh_mcp/config.py` | Y | N | N | env | N | env | N | required |

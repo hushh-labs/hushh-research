@@ -26,6 +26,7 @@ import asyncio
 import json
 import logging
 import sys
+import time
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -39,6 +40,7 @@ from mcp_modules.developer_context import (
     get_current_visible_tool_names,
     is_tool_allowed,
 )
+from mcp_modules.log_redaction import install_sensitive_log_filter, redact_mcp_arguments
 from mcp_modules.tools import (
     get_tool_definitions,
     handle_check_consent_status,
@@ -76,6 +78,7 @@ logging.basicConfig(
     format="[HUSHH-MCP] %(levelname)s: %(message)s",
     stream=sys.stderr,  # CRITICAL: Don't pollute stdout
 )
+install_sensitive_log_filter()
 logger = logging.getLogger("hushh-mcp-server")
 
 
@@ -140,8 +143,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     Compliance: MCP tools/call specification
     Logging: All calls logged for audit trail
     """
+    start_time = time.perf_counter()
     logger.info(f"🔧 Tool called: {name}")
-    logger.info(f"   Arguments: {json.dumps(arguments, default=str)}")
+    logger.info("   Arguments: %s", json.dumps(redact_mcp_arguments(arguments), default=str))
 
     handler = HANDLERS.get(name)
     if not handler:
@@ -172,10 +176,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     try:
         result = await handler(arguments)
+        end_time = time.perf_counter()
+        elapsed_ms = (end_time - start_time) * 1000
         logger.info(f"✅ Tool {name} completed successfully")
+        logger.info(f"⏱️ Performance: Tool {name} execution took {elapsed_ms:.2f}ms")
         return result
     except Exception as e:
+        end_time = time.perf_counter()
+        elapsed_ms = (end_time - start_time) * 1000
         logger.error(f"❌ Tool {name} failed: {str(e)}")
+        logger.info(f"⏱️ Performance: Tool {name} failed after {elapsed_ms:.2f}ms")
         return [
             TextContent(
                 type="text", text=json.dumps({"error": str(e), "tool": name, "status": "failed"})

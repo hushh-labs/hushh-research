@@ -9,6 +9,7 @@ import re
 import time
 import uuid
 from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -17,7 +18,20 @@ from fastapi.responses import JSONResponse
 logger = logging.getLogger(__name__)
 
 REQUEST_ID_HEADER = "x-request-id"
-_request_id_ctx: ContextVar[str] = ContextVar("request_id", default="")
+TRACE_ID_HEADER = "x-trace-id"
+
+
+@dataclass(frozen=True)
+class RequestTraceMetadata:
+    request_id: str
+    trace_id: str
+    method: str
+    route_template: str
+
+
+_request_trace_ctx: ContextVar[RequestTraceMetadata | None] = ContextVar(
+    "request_trace_metadata", default=None
+)
 
 _SAFE_REQUEST_ID_REGEX = re.compile(r"^[a-zA-Z0-9_.:-]{8,128}$")
 
@@ -93,18 +107,69 @@ def _resolve_request_id(request: Request) -> str:
     return incoming or str(uuid.uuid4())
 
 
+def _resolve_trace_id(request: Request, request_id: str) -> str:
+    incoming = _sanitize_request_id(request.headers.get(TRACE_ID_HEADER))
+    if incoming:
+        return incoming
+    traceparent = str(request.headers.get("traceparent") or "").strip()
+    parts = traceparent.split("-")
+    if len(parts) >= 2 and re.fullmatch(r"[0-9a-fA-F]{32}", parts[1]):
+        return parts[1].lower()
+    return request_id
+
+
+def get_request_trace_metadata() -> RequestTraceMetadata | None:
+    return _request_trace_ctx.get(None)
+
+
 def get_request_id() -> str:
-    return _request_id_ctx.get("")
+    metadata = get_request_trace_metadata()
+    return metadata.request_id if metadata else ""
+
+
+def _extract_bearer_user_id(request: Request) -> str | None:
+    """
+    Decode the Bearer token once per request and return the user_id string.
+
+    Result is cached on ``request.state.rate_limit_user_id`` so the rate-limit
+    key function can read it without performing a second JWT decode.
+    Returns ``None`` when no valid authenticated token is present.
+    """
+    authorization = request.headers.get("Authorization") or request.headers.get("authorization")
+    if not (authorization and authorization.startswith("Bearer ")):
+        return None
+    consent_token = authorization.removeprefix("Bearer ").strip()
+    if not consent_token:
+        return None
+    # Import here to avoid a circular import between middlewares and consent layer.
+    from hushh_mcp.consent.token import validate_token
+
+    valid, _reason, payload = validate_token(consent_token)
+    if valid and payload and payload.user_id:
+        return str(payload.user_id)
+    return None
 
 
 async def observability_middleware(request: Request, call_next):
     request_id = _resolve_request_id(request)
+    trace_id = _resolve_trace_id(request, request_id)
     request.state.request_id = request_id
-    token = _request_id_ctx.set(request_id)
+    request.state.trace_id = trace_id
+    # Decode the JWT once here; rate_limit.py reads this cached value instead
+    # of calling validate_token a second time on every request.
+    request.state.rate_limit_user_id = _extract_bearer_user_id(request)
 
     method = request.method.upper()
     start = time.perf_counter()
     route_template = _route_template(request)
+    trace_metadata = RequestTraceMetadata(
+        request_id=request_id,
+        trace_id=trace_id,
+        method=method,
+        route_template=route_template,
+    )
+    request.state.trace_metadata = trace_metadata
+    token = _request_trace_ctx.set(trace_metadata)
 
     try:
         response = await call_next(request)
@@ -115,6 +180,7 @@ async def observability_middleware(request: Request, call_next):
         payload: dict[str, Any] = {
             "message": "request.summary",
             "request_id": request_id,
+            "trace_id": trace_id,
             "method": method,
             "route_template": route_template,
             "status_code": status_code,
@@ -131,11 +197,13 @@ async def observability_middleware(request: Request, call_next):
             content={"detail": "Internal server error"},
         )
         error_response.headers[REQUEST_ID_HEADER] = request_id
-        _request_id_ctx.reset(token)
+        error_response.headers[TRACE_ID_HEADER] = trace_id
+        _request_trace_ctx.reset(token)
         return error_response
 
     duration_ms = round((time.perf_counter() - start) * 1000, 2)
     response.headers[REQUEST_ID_HEADER] = request_id
+    response.headers[TRACE_ID_HEADER] = trace_id
 
     status_code = int(response.status_code)
     status_bucket = _status_bucket(method, route_template, status_code)
@@ -144,6 +212,7 @@ async def observability_middleware(request: Request, call_next):
     payload = {
         "message": "request.summary",
         "request_id": request_id,
+        "trace_id": trace_id,
         "method": method,
         "route_template": route_template,
         "status_code": status_code,
@@ -156,7 +225,7 @@ async def observability_middleware(request: Request, call_next):
     }
     logger.info(json.dumps(payload, separators=(",", ":")))
 
-    _request_id_ctx.reset(token)
+    _request_trace_ctx.reset(token)
     return response
 
 

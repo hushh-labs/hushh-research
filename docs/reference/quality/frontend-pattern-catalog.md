@@ -136,6 +136,8 @@ Rules:
 1. Do not surface abbreviations such as `PKM` in consumer-facing profile, privacy, or settings copy.
 2. Prefer descriptive labels such as `Personal Data` when the surface is user-facing.
 3. Developer-only routes such as `PKM Agent Lab` may keep internal product terms when the audience is explicitly technical.
+4. Consumer notifications and background-task rows must not show implementation diagnostics such as manifests, schemas, timings, tokens, correlation ids, route names, raw provider errors, or dummy-save language.
+5. Put diagnostics in logs, task metadata, or developer-only panels. The default copy should tell the user what is happening and what they can do next.
 
 ## Pattern: Signed-In Route Dogfooding
 Use the route-contract Playwright sweep for signed-in route families.
@@ -186,13 +188,55 @@ Do not use:
 3. `@/components/ui/data-table`
 
 ## Pattern: Toast Usage
-Use Morphy toast helper for app notifications.
+Use the shadcn Sonner stack for transient app notifications. Prefer the Morphy
+toast helper where the route already uses Morphy helpers; direct `sonner` usage
+is acceptable in routes already standardized on shadcn Sonner.
 
 ```tsx
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 
 morphyToast.success("Saved");
 ```
+
+Do not create inline route banners for row-level saves, deletes, refreshes, or
+short-lived failures. Inline errors are for stable page-blocking states only.
+
+## Pattern: Destructive Confirmation
+Use shadcn `AlertDialog` before destructive mutations such as delete, remove,
+disconnect, revoke, or archive actions. Keep loading state in the dialog action
+or initiating row, and report success/failure through Sonner.
+
+```tsx
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+```
+
+## Pattern: Gmail-Safe Email Draft HTML
+Email Helper and other approval-gated replies must be generated through the
+strict-ZK draft renderer, not route-local HTML.
+
+```ts
+import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
+
+const draft = service.buildDraft({ workflow, exportPayloads, instructions });
+```
+
+Rules:
+1. Build plaintext and sanitized HTML from the same render model.
+2. Keep approved plaintext as the fallback and hash anchor.
+3. Use inline styles, table-safe markup, no scripts, no external CSS, and no app-only class names.
+4. Render dense numeric lists as tables when tables are clearer than prose.
+5. Wrap dense tables in an inline-styled `overflow-x:auto` container with `-webkit-overflow-scrolling:touch` and a fixed/minimum table width.
+6. Do not force nested email tables to `w-full` or `max-w-full` in the app preview if it makes columns overlap.
+7. Keep developer metadata out of both plaintext and HTML: no hashes, ids, manifests, provenance, parser metadata, route names, or raw entity paths.
 
 ## Pattern: Icon Usage
 Use Lucide through the icon wrapper for consistent sizing behavior.
@@ -208,7 +252,7 @@ import { Icon } from "@/lib/morphy-ux/ui";
 Use `SettingsRow` for clickable list rows across the app, not only on Profile.
 
 ```tsx
-import { SettingsRow } from "@/components/profile/settings-ui";
+import { SettingsRow } from "@/components/app-ui/settings-ui";
 
 <SettingsRow
   leading={<span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl">AAPL</span>}

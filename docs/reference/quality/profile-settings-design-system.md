@@ -5,7 +5,7 @@
 
 Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
-This document is the canonical contract for Apple-like settings surfaces in Hussh. The current reference implementation is the Profile page and its shared primitives in `hushh-webapp/components/profile/settings-ui.tsx`.
+This document is the canonical contract for Apple-like settings surfaces in Hussh. The current reference implementation is the Profile page, backed by shared primitives in `hushh-webapp/components/app-ui/settings-ui.tsx` and a compatibility re-export at `hushh-webapp/components/profile/settings-ui.tsx`.
 
 For broader page-shell, header, and content-surface rules beyond settings, use [App Surface Design System](./app-surface-design-system.md).
 
@@ -177,8 +177,9 @@ Rules:
 
 Primary files:
 
-1. `hushh-webapp/components/profile/settings-ui.tsx`
+1. `hushh-webapp/components/app-ui/settings-ui.tsx`
 2. `hushh-webapp/app/profile/page.tsx`
-3. `hushh-webapp/components/ui/switch.tsx`
+3. `hushh-webapp/components/profile/settings-ui.tsx`
+4. `hushh-webapp/components/ui/switch.tsx`
 
 Any new settings-like surface should match these patterns before introducing a new abstraction.

@@ -15,6 +15,19 @@ Use this workflow when adding or retrofitting repo-local skills.
 6. Update the repo-context index and agent-facing discoverability docs when a new owner, spoke, or workflow pack becomes an expected entrypoint.
 7. Re-run the lint tool after the change.
 
+## Retrofit rule
+
+When tightening an existing skill, do not keep appending one-off fixes to the main `SKILL.md`.
+
+1. Scan the skill for duplicated rules, stale incident examples, and sections doing more than one job.
+2. Keep the main skill as a compact operating kernel.
+3. Move detailed gates and templates into `references/`.
+4. Move repeatable classification or report generation into `scripts/`.
+5. Keep `skill.json` and workflow packs aligned with the final routing surface.
+6. Re-run `skill_lint.py` and a representative domain fixture after extraction.
+
+Use this pattern for all owner skills, not only PR governance.
+
 ## New skill decision rule
 
 Create a new skill only when all of these are true:
