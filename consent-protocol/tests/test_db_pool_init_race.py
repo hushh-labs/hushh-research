@@ -14,7 +14,6 @@ database by patching asyncpg.create_pool.
 """
 
 import asyncio
-import importlib
 import sys
 import types
 from unittest.mock import AsyncMock, MagicMock, patch
