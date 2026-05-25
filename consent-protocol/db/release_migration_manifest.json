@@ -41,7 +41,8 @@
     "061_one_location_agent.sql",
     "062_consent_exports_export_key_guard.sql",
     "063_pkm_default_available_visibility.sql",
-    "064_one_location_public_invites.sql"
+    "064_one_location_public_invites.sql",
+    "065_one_location_retention_indexes.sql"
   ],
   "groups": {
     "iam": [
@@ -69,7 +70,8 @@
       "059_marketplace_investor_replenisher_runs.sql",
       "060_kai_location_sharing.sql",
       "061_one_location_agent.sql",
-      "064_one_location_public_invites.sql"
+      "064_one_location_public_invites.sql",
+      "065_one_location_retention_indexes.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

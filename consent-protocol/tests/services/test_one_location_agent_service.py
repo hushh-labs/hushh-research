@@ -193,6 +193,7 @@ class FourUserMemoryService(OneLocationAgentService):
         self.referrals: dict[str, dict] = {}
         self.public_invites: dict[str, dict] = {}
         self.public_submissions: dict[str, dict] = {}
+        self.events: dict[str, dict] = {}
         self.notifications: list[dict] = []
 
     def _send_metadata_notification(self, **kwargs) -> None:
@@ -292,7 +293,172 @@ class FourUserMemoryService(OneLocationAgentService):
 
     def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
         params = params or {}
+        if "WITH stale_grants AS" in sql and "deleted_grants" in sql:
+            hours = float(params.get("hours") or 12)
+            user_id = params.get("user_id")
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+            def in_user_scope(row: dict, fields: tuple[str, ...]) -> bool:
+                if not user_id:
+                    return True
+                return any(row.get(field) == user_id for field in fields)
+
+            stale_grant_ids = {
+                grant_id
+                for grant_id, grant in self.grants.items()
+                if in_user_scope(grant, ("owner_user_id", "recipient_user_id"))
+                and (
+                    (
+                        grant["status"] == "expired"
+                        and grant.get("expires_at")
+                        and grant["expires_at"] <= cutoff
+                    )
+                    or (
+                        grant["status"] == "revoked"
+                        and (
+                            grant.get("revoked_at")
+                            or grant.get("updated_at")
+                            or grant.get("expires_at")
+                            or grant.get("created_at")
+                        )
+                        <= cutoff
+                    )
+                )
+            }
+            stale_request_ids = {
+                request_id
+                for request_id, request in self.requests.items()
+                if in_user_scope(
+                    request,
+                    ("owner_user_id", "requester_user_id", "referred_by_user_id"),
+                )
+                and (
+                    (
+                        request["status"] in {"approved", "denied", "cancelled"}
+                        and (request.get("resolved_at") or request.get("requested_at")) <= cutoff
+                    )
+                    or request.get("approved_grant_id") in stale_grant_ids
+                )
+            }
+            stale_referral_ids = {
+                referral_id
+                for referral_id, referral in self.referrals.items()
+                if in_user_scope(
+                    referral,
+                    ("owner_user_id", "referring_user_id", "referred_user_id"),
+                )
+                and (
+                    (
+                        referral["status"] in {"approved", "denied", "cancelled"}
+                        and (referral.get("resolved_at") or referral.get("created_at")) <= cutoff
+                    )
+                    or referral.get("grant_id") in stale_grant_ids
+                    or referral.get("request_id") in stale_request_ids
+                )
+            }
+            stale_public_invite_ids = {
+                invite_id
+                for invite_id, invite in self.public_invites.items()
+                if in_user_scope(invite, ("owner_user_id",))
+                and (
+                    invite["status"] == "expired"
+                    and invite.get("expires_at")
+                    and invite["expires_at"] <= cutoff
+                    or invite["status"] == "revoked"
+                    and (
+                        invite.get("revoked_at")
+                        or invite.get("updated_at")
+                        or invite.get("expires_at")
+                        or invite.get("created_at")
+                    )
+                    <= cutoff
+                )
+            }
+            stale_public_submission_ids = {
+                submission_id
+                for submission_id, submission in self.public_submissions.items()
+                if in_user_scope(submission, ("owner_user_id", "matched_user_id"))
+                and (
+                    (
+                        submission["status"] in {"approved", "denied", "cancelled"}
+                        and (submission.get("resolved_at") or submission.get("submitted_at"))
+                        <= cutoff
+                    )
+                    or submission.get("invite_id") in stale_public_invite_ids
+                    or submission.get("request_id") in stale_request_ids
+                )
+            }
+
+            deleted_events = 0
+            for event_id, event in list(self.events.items()):
+                metadata = event.get("metadata") or {}
+                if (
+                    event.get("grant_id") in stale_grant_ids
+                    or event.get("request_id") in stale_request_ids
+                    or event.get("referral_id") in stale_referral_ids
+                    or metadata.get("invite_id") in stale_public_invite_ids
+                    or metadata.get("submission_id") in stale_public_submission_ids
+                ):
+                    deleted_events += 1
+                    del self.events[event_id]
+            deleted_public_submissions = 0
+            for submission_id in list(stale_public_submission_ids):
+                if submission_id in self.public_submissions:
+                    deleted_public_submissions += 1
+                    del self.public_submissions[submission_id]
+            deleted_envelopes = 0
+            for envelope_id, envelope in list(self.envelopes.items()):
+                if envelope.get("grant_id") in stale_grant_ids:
+                    deleted_envelopes += 1
+                    del self.envelopes[envelope_id]
+            deleted_referrals = 0
+            for referral_id, referral in list(self.referrals.items()):
+                if (
+                    referral_id in stale_referral_ids
+                    or referral.get("grant_id") in stale_grant_ids
+                    or referral.get("request_id") in stale_request_ids
+                ):
+                    deleted_referrals += 1
+                    del self.referrals[referral_id]
+            deleted_requests = 0
+            for request_id in list(stale_request_ids):
+                if request_id in self.requests:
+                    deleted_requests += 1
+                    del self.requests[request_id]
+            deleted_grants = 0
+            for grant_id in list(stale_grant_ids):
+                if grant_id in self.grants:
+                    deleted_grants += 1
+                    del self.grants[grant_id]
+            deleted_public_invites = 0
+            for invite_id in list(stale_public_invite_ids):
+                if invite_id in self.public_invites:
+                    deleted_public_invites += 1
+                    del self.public_invites[invite_id]
+            return {
+                "deleted_grants": deleted_grants,
+                "deleted_envelopes": deleted_envelopes,
+                "deleted_requests": deleted_requests,
+                "deleted_referrals": deleted_referrals,
+                "deleted_public_invites": deleted_public_invites,
+                "deleted_public_submissions": deleted_public_submissions,
+                "deleted_events": deleted_events,
+            }
         if "INSERT INTO one_location_events" in sql:
+            event_id = str(uuid.uuid4())
+            self.events[event_id] = {
+                "id": event_id,
+                "owner_user_id": params.get("owner_user_id"),
+                "actor_user_id": params.get("actor_user_id"),
+                "recipient_user_id": params.get("recipient_user_id"),
+                "grant_id": params.get("grant_id"),
+                "envelope_id": params.get("envelope_id"),
+                "request_id": params.get("request_id"),
+                "referral_id": params.get("referral_id"),
+                "event_type": params.get("event_type"),
+                "metadata": json.loads(params.get("metadata_json") or "{}"),
+                "created_at": datetime.now(timezone.utc),
+            }
             return None
         if "UPDATE one_location_recipient_keys" in sql:
             return None
@@ -579,6 +745,166 @@ def encrypted_envelope(key_id: str, ciphertext: str = "ciphertext") -> dict:
         "sourcePlatform": "web",
         "metadata": {"plaintext": False},
     }
+
+
+def test_terminal_location_work_is_deleted_after_twelve_hour_retention() -> None:
+    service = FourUserMemoryService()
+    now = datetime.now(timezone.utc)
+    old_grant_id = str(uuid.uuid4())
+    active_grant_id = str(uuid.uuid4())
+    old_request_id = str(uuid.uuid4())
+    old_referral_id = str(uuid.uuid4())
+    old_envelope_id = str(uuid.uuid4())
+    active_envelope_id = str(uuid.uuid4())
+    old_invite_id = str(uuid.uuid4())
+    old_submission_id = str(uuid.uuid4())
+    current_invite_id = str(uuid.uuid4())
+    current_submission_id = str(uuid.uuid4())
+    old_event_id = str(uuid.uuid4())
+    active_event_id = str(uuid.uuid4())
+
+    service.grants[old_grant_id] = {
+        "id": old_grant_id,
+        "owner_user_id": "user_a",
+        "recipient_user_id": "user_b",
+        "recipient_key_id": "key-user_b",
+        "status": "expired",
+        "consent_scope": "cap.location.live.view",
+        "capability_scopes": json.dumps(["cap.location.live.view"]),
+        "duration_hours": 1,
+        "expires_at": now - timedelta(hours=13),
+        "created_at": now - timedelta(hours=14),
+        "updated_at": now - timedelta(hours=13),
+        "revoked_at": None,
+        "latest_envelope_id": old_envelope_id,
+    }
+    service.grants[active_grant_id] = {
+        **service.grants[old_grant_id],
+        "id": active_grant_id,
+        "status": "active",
+        "expires_at": now + timedelta(hours=1),
+        "latest_envelope_id": active_envelope_id,
+    }
+    service.envelopes[old_envelope_id] = {
+        "id": old_envelope_id,
+        "grant_id": old_grant_id,
+        "owner_user_id": "user_a",
+        "recipient_user_id": "user_b",
+        "recipient_key_id": "key-user_b",
+    }
+    service.envelopes[active_envelope_id] = {
+        "id": active_envelope_id,
+        "grant_id": active_grant_id,
+        "owner_user_id": "user_a",
+        "recipient_user_id": "user_b",
+        "recipient_key_id": "key-user_b",
+        "ciphertext": "current-ciphertext",
+    }
+    service.requests[old_request_id] = {
+        "id": old_request_id,
+        "owner_user_id": "user_a",
+        "requester_user_id": "user_b",
+        "referred_by_user_id": None,
+        "status": "approved",
+        "requested_at": now - timedelta(hours=14),
+        "resolved_at": now - timedelta(hours=13),
+        "approved_grant_id": old_grant_id,
+    }
+    service.referrals[old_referral_id] = {
+        "id": old_referral_id,
+        "grant_id": old_grant_id,
+        "owner_user_id": "user_a",
+        "referring_user_id": "user_b",
+        "referred_user_id": "user_c",
+        "request_id": old_request_id,
+        "status": "denied",
+        "created_at": now - timedelta(hours=14),
+        "resolved_at": now - timedelta(hours=13),
+    }
+    service.public_invites[old_invite_id] = {
+        "id": old_invite_id,
+        "owner_user_id": "user_a",
+        "public_code_hash": "old-hash",
+        "status": "expired",
+        "duration_hours": 1,
+        "expires_at": now - timedelta(hours=13),
+        "created_at": now - timedelta(hours=14),
+        "updated_at": now - timedelta(hours=13),
+        "revoked_at": None,
+    }
+    service.public_invites[current_invite_id] = {
+        **service.public_invites[old_invite_id],
+        "id": current_invite_id,
+        "public_code_hash": "current-hash",
+        "status": "active",
+        "expires_at": now + timedelta(hours=1),
+        "created_at": now,
+        "updated_at": now,
+    }
+    service.public_submissions[old_submission_id] = {
+        "id": old_submission_id,
+        "invite_id": old_invite_id,
+        "owner_user_id": "user_a",
+        "visitor_display_name": "Old Visitor",
+        "visitor_phone_hash": "old-phone-hash",
+        "visitor_phone_last4": "0002",
+        "matched_user_id": "user_b",
+        "request_id": old_request_id,
+        "status": "denied",
+        "message": "old request",
+        "submitted_at": now - timedelta(hours=14),
+        "resolved_at": now - timedelta(hours=13),
+        "metadata": {},
+    }
+    service.public_submissions[current_submission_id] = {
+        **service.public_submissions[old_submission_id],
+        "id": current_submission_id,
+        "invite_id": current_invite_id,
+        "request_id": None,
+        "status": "pending_identity",
+        "submitted_at": now,
+        "resolved_at": None,
+    }
+    service.events[old_event_id] = {
+        "id": old_event_id,
+        "grant_id": old_grant_id,
+        "request_id": old_request_id,
+        "referral_id": old_referral_id,
+        "event_type": "location_public_invite_submitted",
+        "metadata": {"invite_id": old_invite_id, "submission_id": old_submission_id},
+    }
+    service.events[active_event_id] = {
+        "id": active_event_id,
+        "grant_id": active_grant_id,
+        "request_id": None,
+        "referral_id": None,
+        "event_type": "location_envelope_updated",
+        "metadata": {},
+    }
+
+    result = service.purge_terminal_work(older_than_hours=12)
+
+    assert result["retention_hours"] == 12
+    assert result["deleted_grants"] == 1
+    assert result["deleted_envelopes"] == 1
+    assert result["deleted_requests"] == 1
+    assert result["deleted_referrals"] == 1
+    assert result["deleted_public_invites"] == 1
+    assert result["deleted_public_submissions"] == 1
+    assert result["deleted_events"] == 1
+    assert old_grant_id not in service.grants
+    assert old_envelope_id not in service.envelopes
+    assert old_request_id not in service.requests
+    assert old_referral_id not in service.referrals
+    assert old_invite_id not in service.public_invites
+    assert old_submission_id not in service.public_submissions
+    assert old_event_id not in service.events
+    assert active_grant_id in service.grants
+    assert active_envelope_id in service.envelopes
+    assert service.envelopes[active_envelope_id]["ciphertext"] == "current-ciphertext"
+    assert current_invite_id in service.public_invites
+    assert current_submission_id in service.public_submissions
+    assert active_event_id in service.events
 
 
 def test_four_user_location_workflow_contract() -> None:
