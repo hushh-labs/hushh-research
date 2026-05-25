@@ -95,4 +95,26 @@ describe("voice-debug-drawer", () => {
     expect(copied).toContain('"event": "session_state_changed"');
     expect(toastSuccessMock).toHaveBeenCalledWith("Voice debug copied");
   });
+  it("keeps the debug drawer dismissible through the trigger toggle", () => {
+    render(
+      <VoiceDebugDrawer
+        enabled
+        currentState="idle"
+        sessionId="vsession_1"
+        route="/kai"
+        screen="kai_market"
+        authStatus="signed_in"
+        vaultStatus="unlocked_valid"
+        voiceAvailabilityReason="available"
+      />
+    );
+
+    const trigger = screen.getByRole("button", { name: /^Voice Debug$/i });
+
+    fireEvent.click(trigger);
+    expect(screen.getByLabelText("Copy voice debug")).toBeTruthy();
+
+    fireEvent.click(trigger);
+    expect(screen.queryByLabelText("Copy voice debug")).toBeNull();
+  });
 });
