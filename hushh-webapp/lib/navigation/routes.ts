@@ -21,6 +21,7 @@ export const ROUTES = {
   MARKETPLACE_CONNECTIONS: "/marketplace/connections",
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
   ONE_KYC: "/one/kyc",
+  ONE_LOCATION: "/one/location",
   RIA_HOME: "/ria",
   RIA_ONBOARDING: "/ria/onboarding",
   RIA_CLIENTS: "/ria/clients",
@@ -168,7 +169,8 @@ export function isPublicRoute(pathname: string): boolean {
     pathname === ROUTES.LOGIN ||
     pathname === ROUTES.PHONE_MANDATE ||
     pathname === ROUTES.LOGOUT ||
-    pathname === ROUTES.PROFILE
+    pathname === ROUTES.PROFILE ||
+    pathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
   );
 }
 

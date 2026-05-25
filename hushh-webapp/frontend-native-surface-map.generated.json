@@ -1,9 +1,11 @@
 {
   "schema_version": "hushh.frontend_native_surface_map.v1",
-  "generated_at": "2026-05-08",
+  "generated_at": "2026-05-21",
   "purpose": "Scaffolded contract mapping app routes to Next.js API, backend, native parity, plugin, and voice/action surfaces.",
   "sources": {
     "route_contract": "lib/navigation/routes.ts",
+    "route_layout_contract": "lib/navigation/app-route-layout.contract.json",
+    "physical_pages": "app/**/page.tsx",
     "native_inventory": "native-route-inventory.json",
     "api_routes": "app/api/**/route.ts",
     "route_docs": "../docs/reference/architecture/route-contracts.md",
@@ -75,6 +77,10 @@
       "file": "app/api/consent/export-refresh/upload/route.ts"
     },
     {
+      "template": "/api/consent/handshake/history",
+      "file": "app/api/consent/handshake/history/route.ts"
+    },
+    {
       "template": "/api/consent/history",
       "file": "app/api/consent/history/route.ts"
     },
@@ -93,6 +99,14 @@
     {
       "template": "/api/consent/pending/deny",
       "file": "app/api/consent/pending/deny/route.ts"
+    },
+    {
+      "template": "/api/consent/pending/lookup",
+      "file": "app/api/consent/pending/lookup/route.ts"
+    },
+    {
+      "template": "/api/consent/pending/opened",
+      "file": "app/api/consent/pending/opened/route.ts"
     },
     {
       "template": "/api/consent/requests",
@@ -141,6 +155,10 @@
     {
       "template": "/api/kai/{path*}",
       "file": "app/api/kai/[...path]/route.ts"
+    },
+    {
+      "template": "/api/legal/{doc}",
+      "file": "app/api/legal/[doc]/route.ts"
     },
     {
       "template": "/api/marketplace/{path*}",
@@ -215,6 +233,10 @@
       "file": "app/api/vault/store-preferences/route.ts"
     },
     {
+      "template": "/api/vault/wrapper/delete",
+      "file": "app/api/vault/wrapper/delete/route.ts"
+    },
+    {
       "template": "/api/vault/wrapper/upsert",
       "file": "app/api/vault/wrapper/upsert/route.ts"
     },
@@ -247,6 +269,13 @@
     {
       "route": "/",
       "page_file": "app/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Public landing route uses chrome-free marketing layout.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
       "native": {
         "route": "/",
         "classification": "native-required-functional",
@@ -273,8 +302,49 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/agent",
+      "page_file": "app/agent/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/agent/agent-screen.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ]
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/consents",
       "page_file": "app/consents/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/consent/consent-center-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "SurfaceStack"
+        ]
+      },
       "native": {
         "route": "/consents",
         "classification": "native-required-functional",
@@ -303,6 +373,17 @@
     {
       "route": "/developers",
       "page_file": "app/developers/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/developers/developer-docs-hub.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion"
+        ]
+      },
       "native": {
         "route": "/developers",
         "classification": "excluded-web-only"
@@ -323,6 +404,18 @@
     {
       "route": "/kai",
       "page_file": "app/kai/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/kai/views/kai-market-preview-view.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageContentRegion",
+          "SurfaceStack",
+          "SectionHeader"
+        ]
+      },
       "native": {
         "route": "/kai",
         "classification": "native-required-functional",
@@ -351,6 +444,16 @@
     {
       "route": "/kai/alpaca/oauth/return",
       "page_file": "app/kai/alpaca/oauth/return/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/kai/alpaca/oauth/return/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageContentRegion"
+        ]
+      },
       "native": {
         "route": "/kai/alpaca/oauth/return",
         "classification": "native-required-callback",
@@ -380,6 +483,18 @@
     {
       "route": "/kai/analysis",
       "page_file": "app/kai/analysis/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/kai/analysis/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "SurfaceStack"
+        ]
+      },
       "native": {
         "route": "/kai/analysis",
         "classification": "native-required-functional",
@@ -413,8 +528,94 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/kai/dashboard",
+      "page_file": "app/kai/dashboard/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect route only launches the canonical portfolio/dashboard entry.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
+      "native": {
+        "route": "/kai/dashboard",
+        "classification": "native-required-functional",
+        "legacyAlias": true,
+        "initialRoute": "/login?redirect=%2Fkai%2Fdashboard",
+        "expectedMarker": "native-route-kai-portfolio",
+        "expectedRoute": "/kai/portfolio",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/kai/dashboard/analysis",
+      "page_file": "app/kai/dashboard/analysis/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect route only launches the canonical analysis entry.",
+        "shell_verification_file": "app/kai/dashboard/analysis/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell"
+        ]
+      },
+      "native": {
+        "route": "/kai/dashboard/analysis",
+        "classification": "native-required-functional",
+        "legacyAlias": true,
+        "initialRoute": "/login?redirect=%2Fkai%2Fdashboard%2Fanalysis%3Fticker%3DAAPL",
+        "expectedMarker": "native-route-kai-analysis",
+        "expectedRoute": "/kai/analysis",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/kai/funding-trade",
       "page_file": "app/kai/funding-trade/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/kai/views/funding-trade-view.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "SurfaceStack"
+        ]
+      },
       "native": {
         "route": "/kai/funding-trade",
         "classification": "native-required-functional",
@@ -444,6 +645,16 @@
     {
       "route": "/kai/import",
       "page_file": "app/kai/import/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "flow",
+        "exemption_reason": "Fullscreen import flow uses FullscreenFlowShell instead of standard AppPageShell.",
+        "shell_verification_file": "app/kai/import/page.tsx",
+        "shell_verification_includes": [
+          "FullscreenFlowShell",
+          "KaiFlow"
+        ]
+      },
       "native": {
         "route": "/kai/import",
         "classification": "native-required-functional",
@@ -472,6 +683,18 @@
     {
       "route": "/kai/investments",
       "page_file": "app/kai/investments/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/kai/views/investments-master-view.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "SurfaceStack"
+        ]
+      },
       "native": {
         "route": "/kai/investments",
         "classification": "native-required-functional",
@@ -500,6 +723,13 @@
     {
       "route": "/kai/onboarding",
       "page_file": "app/kai/onboarding/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "flow",
+        "exemption_reason": "Fullscreen onboarding flow owns its own shell and safe-area spacing.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
       "native": {
         "route": "/kai/onboarding",
         "classification": "native-required-functional",
@@ -528,6 +758,19 @@
     {
       "route": "/kai/optimize",
       "page_file": "app/kai/optimize/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/kai/optimize/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "SurfaceStack",
+          "PageHeader"
+        ]
+      },
       "native": {
         "route": "/kai/optimize",
         "classification": "native-required-functional",
@@ -558,6 +801,16 @@
     {
       "route": "/kai/plaid/oauth/return",
       "page_file": "app/kai/plaid/oauth/return/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/kai/plaid/oauth/return/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageContentRegion"
+        ]
+      },
       "native": {
         "route": "/kai/plaid/oauth/return",
         "classification": "native-required-callback",
@@ -587,6 +840,16 @@
     {
       "route": "/kai/portfolio",
       "page_file": "app/kai/portfolio/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/kai/portfolio/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageContentRegion"
+        ]
+      },
       "native": {
         "route": "/kai/portfolio",
         "classification": "native-required-functional",
@@ -615,6 +878,13 @@
     {
       "route": "/labs/profile-appearance",
       "page_file": "app/labs/profile-appearance/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Labs route is intentionally isolated from the primary app shell.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
       "native": {
         "route": "/labs/profile-appearance",
         "classification": "excluded-web-only"
@@ -635,6 +905,13 @@
     {
       "route": "/login",
       "page_file": "app/login/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Auth-only route intentionally bypasses the signed-in app shell.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
       "native": {
         "route": "/login",
         "classification": "native-required-functional",
@@ -663,6 +940,13 @@
     {
       "route": "/logout",
       "page_file": "app/logout/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Logout route is a transitional auth screen, not a standard content page.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
       "native": {
         "route": "/logout",
         "classification": "native-required-functional",
@@ -691,6 +975,18 @@
     {
       "route": "/marketplace",
       "page_file": "app/marketplace/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/ria/ria-page-shell.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "SurfaceStack"
+        ]
+      },
       "native": {
         "route": "/marketplace",
         "classification": "native-required-functional",
@@ -721,6 +1017,13 @@
     {
       "route": "/marketplace/connections",
       "page_file": "app/marketplace/connections/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Legacy connection route now deep-links into the canonical /consents access manager.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
       "native": {
         "route": "/marketplace/connections",
         "classification": "native-required-functional",
@@ -748,8 +1051,58 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/marketplace/connections/portfolio",
+      "page_file": "app/marketplace/connections/portfolio/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Legacy portfolio explorer route now deep-links into the dedicated /ria/clients/[userId] workspace.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
+      "native": {
+        "route": "/marketplace/connections/portfolio",
+        "classification": "native-required-functional",
+        "legacyAlias": true,
+        "initialRoute": "/login?redirect=%2Fmarketplace%2Fconnections%2Fportfolio",
+        "expectedMarker": "native-route-ria-clients",
+        "expectedRoute": "/ria/clients",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/marketplace/ria",
       "page_file": "app/marketplace/ria/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/ria/ria-page-shell.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "SurfaceStack"
+        ]
+      },
       "native": {
         "route": "/marketplace/ria",
         "classification": "native-required-functional",
@@ -779,6 +1132,18 @@
     {
       "route": "/one/kyc",
       "page_file": "app/one/kyc/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/one/kyc/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ]
+      },
       "native": {
         "route": "/one/kyc",
         "classification": "native-required-functional",
@@ -795,7 +1160,7 @@
         "app_page_shell": true,
         "page_header": true,
         "settings_ui": true,
-        "shared_loader": true,
+        "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": "app/one/kyc/page.voice-action-contract.json",
@@ -869,8 +1234,58 @@
       }
     },
     {
+      "route": "/portfolio/shared",
+      "page_file": "app/portfolio/shared/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Public shared portfolio view uses chrome-free layout for external recipients.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
+      "native": {
+        "route": "/portfolio/shared",
+        "classification": "native-required-functional",
+        "legacyAlias": true,
+        "initialRoute": "/portfolio/shared",
+        "expectedMarker": "native-route-portfolio-shared",
+        "expectedRoute": "/portfolio/shared",
+        "autoReviewerLogin": false,
+        "expectedAuth": "public",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/profile",
       "page_file": "app/profile/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ]
+      },
       "native": {
         "route": "/profile",
         "classification": "native-required-functional",
@@ -909,6 +1324,17 @@
     {
       "route": "/profile/gmail/oauth/return",
       "page_file": "app/profile/gmail/oauth/return/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/gmail/oauth/return/page-client.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageContentRegion",
+          "HushhLoader"
+        ]
+      },
       "native": {
         "route": "/profile/gmail/oauth/return",
         "classification": "native-required-callback",
@@ -938,6 +1364,13 @@
     {
       "route": "/profile/pkm",
       "page_file": "app/profile/pkm/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Redirect route that forwards to /profile/pkm-agent-lab or /profile in production.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
       "native": {
         "route": "/profile/pkm",
         "classification": "native-required-functional",
@@ -967,6 +1400,19 @@
     {
       "route": "/profile/pkm-agent-lab",
       "page_file": "app/profile/pkm-agent-lab/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/profile/pkm-settings-shell.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ]
+      },
       "native": {
         "route": "/profile/pkm-agent-lab",
         "classification": "excluded-web-only"
@@ -987,6 +1433,19 @@
     {
       "route": "/profile/receipts",
       "page_file": "app/profile/receipts/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/receipts/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ]
+      },
       "native": {
         "route": "/profile/receipts",
         "classification": "native-required-functional",
@@ -1024,6 +1483,13 @@
     {
       "route": "/register-phone",
       "page_file": "app/register-phone/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Mandatory post-login phone verification flow intentionally bypasses the signed-in app shell.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
       "native": {
         "route": "/register-phone",
         "classification": "native-required-functional",
@@ -1052,6 +1518,18 @@
     {
       "route": "/ria",
       "page_file": "app/ria/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/ria/ria-page-shell.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "SurfaceStack"
+        ]
+      },
       "native": {
         "route": "/ria",
         "classification": "native-required-functional",
@@ -1084,6 +1562,18 @@
     {
       "route": "/ria/clients",
       "page_file": "app/ria/clients/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/ria/clients/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ]
+      },
       "native": {
         "route": "/ria/clients",
         "classification": "native-required-functional",
@@ -1116,8 +1606,105 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/ria/clients/[userId]",
+      "page_file": "app/ria/clients/[userId]/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/ria/ria-client-workspace.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "SurfaceStack"
+        ]
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/ria/clients/[userId]/accounts/[accountId]",
+      "page_file": "app/ria/clients/[userId]/accounts/[accountId]/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/ria/ria-client-account-detail.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "SurfaceStack"
+        ]
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/ria/clients/[userId]/requests/[requestId]",
+      "page_file": "app/ria/clients/[userId]/requests/[requestId]/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/ria/ria-client-request-detail.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "SurfaceStack"
+        ]
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/ria/onboarding",
       "page_file": "app/ria/onboarding/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "flow",
+        "exemption_reason": "RIA onboarding is a five-step fullscreen setup flow that owns its own compact content rhythm.",
+        "shell_verification_file": "app/ria/onboarding/page.tsx",
+        "shell_verification_includes": [
+          "FullscreenFlowShell",
+          "OnboardingShell"
+        ]
+      },
       "native": {
         "route": "/ria/onboarding",
         "classification": "native-required-functional",
@@ -1134,7 +1721,7 @@
       "shell": {
         "app_page_shell": false,
         "page_header": false,
-        "settings_ui": true,
+        "settings_ui": false,
         "shared_loader": false,
         "back_button_pattern": "route-local-check-required"
       },
@@ -1152,6 +1739,18 @@
     {
       "route": "/ria/picks",
       "page_file": "app/ria/picks/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/ria/ria-page-shell.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "SurfaceStack"
+        ]
+      },
       "native": {
         "route": "/ria/picks",
         "classification": "native-required-functional",
@@ -1195,6 +1794,13 @@
     {
       "route": "/ria/requests",
       "page_file": "app/ria/requests/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Compatibility alias routes into the shared consent workspace.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
       "native": {
         "route": "/ria/requests",
         "classification": "native-required-functional",
@@ -1225,6 +1831,13 @@
     {
       "route": "/ria/settings",
       "page_file": "app/ria/settings/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Compatibility alias routes into the canonical profile/settings surface.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
       "native": {
         "route": "/ria/settings",
         "classification": "native-required-functional",
@@ -1255,6 +1868,13 @@
     {
       "route": "/ria/workspace",
       "page_file": "app/ria/workspace/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Compatibility alias now redirects into the dedicated /ria/clients/[userId] client workspace.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
       "native": {
         "route": "/ria/workspace",
         "classification": "native-required-functional",

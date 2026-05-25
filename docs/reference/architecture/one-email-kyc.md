@@ -29,15 +29,18 @@ policy.
 - Frontend route: `hushh-webapp/app/one/kyc/page.tsx`.
 - Frontend service: `hushh-webapp/lib/services/one-kyc-service.ts`.
 - Client ZK service: `hushh-webapp/lib/services/one-kyc-client-zk-service.ts`.
+- Approved disclosure renderer:
+  `hushh-webapp/lib/services/one-kyc-approved-disclosure-renderer.ts`.
 - Surface map: `hushh-webapp/frontend-native-surface-map.generated.json`.
 
 The backend owns mailbox intake, workflow metadata, consent status, Gmail send,
 retention metadata, and PKM writeback receipts. The frontend owns vault unlock,
 per-user connector private keys, scoped export decrypt, local deterministic
 draft generation, user review, and encrypted PKM writeback. The KYC ADK
-manifest owns the approved-reply drafting contract, but strict client-side
-zero-knowledge mode executes that contract in the browser so decrypted PKM
-plaintext is never sent to a backend drafting agent.
+manifest owns the `agent_kyc.approved_disclosure_formatter.v1` approved-reply
+drafting contract, but strict client-side zero-knowledge mode executes that
+contract in the browser so decrypted PKM plaintext is never sent to a backend
+drafting agent.
 
 ## Invariants
 
@@ -62,10 +65,13 @@ plaintext is never sent to a backend drafting agent.
    or parser metadata.
 6. If any selected scope is denied or stale, One blocks the external reply.
 7. The canonical approved-reply renderer is
-   `hushh-webapp/lib/services/one-kyc-client-zk-service.ts`. Route code must
-   not create parallel email HTML templates. Portfolio, financial, and other
-   dense dynamic-scope drafts must preserve all useful approved values and use
-   Gmail-safe horizontal table scrolling instead of overlapping mobile columns.
+   `hushh-webapp/lib/services/one-kyc-approved-disclosure-renderer.ts`, called
+   only by the strict-ZK client service after local decrypt. Route code must not
+   create parallel email HTML templates. Plain text and Gmail-safe HTML must
+   come from the same `ApprovedDisclosureRenderModel`. Portfolio, financial,
+   and other dense dynamic-scope drafts must preserve all useful approved values
+   and use Gmail-safe horizontal table scrolling instead of overlapping mobile
+   columns.
 8. Approved KYC sends must reply in the original Gmail thread and preserve reply
    headers. The backend uses the approved body only transiently for Gmail send.
    The send contract requires plain text and may include sanitized HTML for

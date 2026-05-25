@@ -83,7 +83,7 @@ class HushhAgent(LlmAgent):
 
         Replaces standard .run() with one that requires Auth.
         """
-        logger.info(f"🤖 Agent '{self.hushh_name}' invoked by {user_id}")
+        logger.info("🤖 Agent '%s' invoked (user=[redacted])", self.hushh_name)
 
         # 1. Base Validation
         # Check if token allows accessing THIS agent
