@@ -110,7 +110,7 @@ const MARKET_SIGNAL_CARD_CLASSNAME = cn(
 
 const MARKET_SIGNAL_INSET_CLASSNAME = marketInsetClassName;
 
-function normalizeTrackedSymbols(symbols: string[] | null | undefined): string[] {
+export function normalizeTrackedSymbols(symbols: string[] | null | undefined): string[] {
   if (!Array.isArray(symbols)) return [];
   return symbols
     .map((symbol) => String(symbol || "").trim().toUpperCase())
