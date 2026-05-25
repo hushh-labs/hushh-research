@@ -97,7 +97,19 @@ final class AppUITests: XCTestCase {
     func testConsentAndProfileRoutes() throws {
         try assertRoutes([
             reviewerRoute(name: "consents", redirect: "/consents", marker: "native-route-consents"),
+            reviewerRoute(
+                name: "agent",
+                redirect: "/agent",
+                marker: "native-route-agent",
+                allowedDataStates: ["loaded", "empty-valid", "unavailable-valid"]
+            ),
             reviewerRoute(name: "one-kyc", redirect: "/one/kyc", marker: "native-route-one-kyc"),
+            reviewerRoute(
+                name: "one-location",
+                redirect: "/one/location",
+                marker: "native-route-one-location",
+                allowedDataStates: ["loaded", "empty-valid", "unavailable-valid"]
+            ),
             reviewerRoute(name: "profile", redirect: "/profile", marker: "native-route-profile"),
             RouteCase(
                 name: "profile-pkm",
