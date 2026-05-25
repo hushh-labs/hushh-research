@@ -23,7 +23,6 @@ from api.models.schemas import (
     ValidateTokenRequest,
 )
 
-
 # ---------------------------------------------------------------------------
 # ChatRequest
 # ---------------------------------------------------------------------------
@@ -64,8 +63,8 @@ class TestChatRequestBounds:
 
 class TestValidateTokenRequestBounds:
     def test_valid_token_accepted(self):
-        req = ValidateTokenRequest(token="tok_abc123")
-        assert req.token == "tok_abc123"
+        req = ValidateTokenRequest(token="tok_abc123")  # noqa: S106
+        assert req.token == "tok_abc123"  # noqa: S105
 
     def test_empty_token_rejected(self):
         with pytest.raises(ValidationError):
@@ -143,16 +142,16 @@ class TestConsentRequestBounds:
 
 class TestDataAccessRequestBounds:
     def test_valid_request_accepted(self):
-        req = DataAccessRequest(user_id="uid123", consent_token="tok_abc")
+        req = DataAccessRequest(user_id="uid123", consent_token="tok_abc")  # noqa: S106
         assert req.user_id == "uid123"
 
     def test_empty_user_id_rejected(self):
         with pytest.raises(ValidationError):
-            DataAccessRequest(user_id="", consent_token="tok_abc")
+            DataAccessRequest(user_id="", consent_token="tok_abc")  # noqa: S106
 
     def test_oversized_user_id_rejected(self):
         with pytest.raises(ValidationError):
-            DataAccessRequest(user_id="x" * 129, consent_token="tok_abc")
+            DataAccessRequest(user_id="x" * 129, consent_token="tok_abc")  # noqa: S106
 
     def test_empty_consent_token_rejected(self):
         with pytest.raises(ValidationError):
