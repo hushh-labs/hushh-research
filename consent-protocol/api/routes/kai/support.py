@@ -80,11 +80,12 @@ async def send_support_message(
             "from_email": cfg.from_email,
         }
     except SupportEmailNotConfiguredError as exc:
+        logger.warning("kai.support.not_configured user_id=%s reason=%s", payload.user_id, exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "code": "SUPPORT_EMAIL_NOT_CONFIGURED",
-                "message": str(exc),
+                "message": "Support messaging is temporarily unavailable.",
             },
         ) from exc
     except Exception as exc:
@@ -93,6 +94,6 @@ async def send_support_message(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 "code": "SUPPORT_MESSAGE_FAILED",
-                "message": str(exc),
+                "message": "Failed to queue support message. Please try again later.",
             },
         ) from exc
