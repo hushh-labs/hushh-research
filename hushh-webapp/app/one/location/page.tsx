@@ -20,12 +20,16 @@ import {
   Loader2,
   LocateFixed,
   MapPin,
+  Pencil,
+  Plus,
+  Radar,
   RefreshCw,
+  Search,
   Send,
   ShieldCheck,
   UserRoundCheck,
   UsersRound,
-  XCircle,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -34,8 +38,7 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { PageHeader } from "@/components/app-ui/page-sections";
-import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -80,6 +83,7 @@ import type {
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { useVault } from "@/lib/vault/vault-context";
+import { cn } from "@/lib/utils";
 
 const DURATION_OPTIONS = [
   { value: "0.25", label: "15 min" },
@@ -196,51 +200,6 @@ function oneLocationErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
-function permissionCopy(permission: HushhLocationPermissionState | null): {
-  title: string;
-  description: string;
-  tone: "default" | "destructive";
-} {
-  if (!permission) {
-    return {
-      title: "Checking location permission",
-      description:
-        "One is checking foreground location access for this device.",
-      tone: "default",
-    };
-  }
-  if (permission.state === "denied") {
-    return {
-      title: "Location permission not granted",
-      description:
-        "Enable foreground location permission before sharing your live location.",
-      tone: "destructive",
-    };
-  }
-  if (permission.state === "restricted" || permission.state === "unavailable") {
-    return {
-      title: "Precise location unavailable",
-      description:
-        "This device cannot provide a precise foreground location right now.",
-      tone: "destructive",
-    };
-  }
-  if (permission.background === "foreground-only") {
-    return {
-      title: "Foreground sharing only",
-      description:
-        "v1 publishes one foreground update at a time. Background sharing is not enabled.",
-      tone: "default",
-    };
-  }
-  return {
-    title: "Ready for foreground sharing",
-    description:
-      "Coordinates are encrypted on this device before One stores the envelope.",
-    tone: "default",
-  };
-}
-
 function LocalMapPreview({ point }: { point: PlainLocationPoint }) {
   const captured = formatDateTime(point.capturedAt);
   return (
@@ -278,30 +237,6 @@ function LocalMapPreview({ point }: { point: PlainLocationPoint }) {
   );
 }
 
-function EmptyState({
-  icon: Icon,
-  title,
-  description,
-}: {
-  icon: LucideIcon;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="flex min-h-24 items-center gap-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-sm">
-      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-muted/65 text-muted-foreground">
-        <Icon className="h-4 w-4" aria-hidden="true" />
-      </span>
-      <div className="min-w-0">
-        <div className="font-medium text-foreground">{title}</div>
-        <div className="text-xs leading-5 text-muted-foreground">
-          {description}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ActionButton({
   busy,
   busyKey,
@@ -327,6 +262,185 @@ function SkeletonRow({ wide = false }: { wide?: boolean }) {
         <Skeleton className="h-3 w-full max-w-md" />
       </div>
       <Skeleton className="hidden h-8 w-20 rounded-full sm:block" />
+    </div>
+  );
+}
+
+type ShareMode = "share" | "request";
+
+const onePanelClassName =
+  "overflow-hidden rounded-[20px] border border-black/[0.05] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_30px_rgba(15,23,42,0.05)] dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_38px_rgba(0,0,0,0.28)]";
+const oneInsetClassName =
+  "rounded-[14px] border border-black/[0.04] bg-[#f7f7fa] text-[#1c1c1e] dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white";
+const oneSecondaryTextClassName = "text-[#8e8e93] dark:text-white/55";
+
+function sectionLabel(title: string, count?: number) {
+  return (
+    <h2 className="ml-1 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.08em] text-[#8e8e93] dark:text-white/45">
+      {title}
+      {typeof count === "number" && count > 0 ? (
+        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[#ff3b30] px-1.5 text-[10px] font-bold text-white">
+          {count}
+        </span>
+      ) : null}
+    </h2>
+  );
+}
+
+function displayNameFromRecipient(recipient: OneLocationRecipient): string {
+  return (
+    recipient.displayName ||
+    recipient.maskedPhone ||
+    recipient.userId ||
+    "Trusted contact"
+  );
+}
+
+function initialsForLabel(label: string): string {
+  const words = label
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length >= 2) {
+    const first = words[0]?.[0] || "";
+    const second = words[1]?.[0] || "";
+    return `${first}${second}`.toUpperCase();
+  }
+  return (words[0]?.slice(0, 2) || "?").toUpperCase();
+}
+
+function avatarColor(index: number): string {
+  const colors = [
+    "bg-[#007aff]",
+    "bg-[#34c759]",
+    "bg-[#5856d6]",
+    "bg-[#ff9500]",
+    "bg-[#ff3b30]",
+  ];
+  return colors[index % colors.length] || "bg-[#007aff]";
+}
+
+function AvatarBubble({
+  label,
+  index,
+  size = "md",
+  muted = false,
+}: {
+  label: string;
+  index: number;
+  size?: "sm" | "md" | "lg";
+  muted?: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center justify-center rounded-full font-semibold uppercase",
+        size === "sm" && "h-9 w-9 text-[15px]",
+        size === "md" && "h-[52px] w-[52px] text-[18px]",
+        size === "lg" && "h-11 w-11 text-[17px]",
+        muted
+          ? "bg-[#e5e5ea] text-[#8e8e93] dark:bg-white/10 dark:text-white/55"
+          : `${avatarColor(index)} text-white`,
+      )}
+      aria-hidden="true"
+    >
+      {initialsForLabel(label)}
+    </span>
+  );
+}
+
+function PromiseCard({
+  icon: Icon,
+  title,
+  description,
+  tone,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  tone: "blue" | "green" | "orange";
+}) {
+  const toneClassName = {
+    blue: "bg-[#eaf3ff] text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]",
+    green:
+      "bg-[#eaf9ef] text-[#2dbd5a] dark:bg-emerald-400/15 dark:text-emerald-200",
+    orange:
+      "bg-[#fff3e6] text-[#ff9500] dark:bg-orange-400/15 dark:text-orange-200",
+  }[tone];
+
+  return (
+    <div className="flex items-center gap-4 rounded-[20px] border border-black/[0.06] bg-white p-4 shadow-[0_2px_12px_rgba(15,23,42,0.06)] dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_30px_rgba(0,0,0,0.22)]">
+      <span
+        className={cn(
+          "flex h-11 w-11 shrink-0 items-center justify-center rounded-full",
+          toneClassName,
+        )}
+      >
+        <Icon className="h-5 w-5" aria-hidden="true" />
+      </span>
+      <div className="min-w-0">
+        <h3 className="text-[16px] font-bold tracking-tight text-[#1c1c1e] dark:text-white">
+          {title}
+        </h3>
+        <p className="mt-1 text-[14px] font-medium leading-snug text-[#8e8e93] dark:text-white/55">
+          {description}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function SegmentedModeControl({
+  value,
+  onChange,
+}: {
+  value: ShareMode;
+  onChange: (value: ShareMode) => void;
+}) {
+  return (
+    <div className="flex h-9 w-full items-center rounded-[9px] bg-[#efeff0] p-[3px] dark:bg-white/10">
+      {(["share", "request"] as const).map((mode) => (
+        <button
+          key={mode}
+          type="button"
+          onClick={() => onChange(mode)}
+          className={cn(
+            "h-full flex-1 rounded-[7px] text-[13px] capitalize transition-all",
+            value === mode
+              ? "bg-white font-semibold text-[#1c1c1e] shadow-[0_1px_3px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.04)] dark:bg-[#2c2c2e] dark:text-white"
+              : "font-medium text-[#8e8e93] hover:text-[#1c1c1e] dark:text-white/50 dark:hover:text-white",
+          )}
+        >
+          {mode}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function EmptyOneState({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="flex min-h-24 items-center gap-3 p-3.5 text-sm">
+      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f2f2f7] text-[#8e8e93] dark:bg-white/10 dark:text-white/55">
+        <Icon className="h-4 w-4" aria-hidden="true" />
+      </span>
+      <div className="min-w-0">
+        <div className="font-semibold text-[#1c1c1e] dark:text-white">
+          {title}
+        </div>
+        <div className="text-[13px] leading-5 text-[#8e8e93] dark:text-white/55">
+          {description}
+        </div>
+      </div>
     </div>
   );
 }
@@ -383,6 +497,7 @@ export function OneLocationAgentPageContent() {
     useState<HushhLocationPermissionState | null>(null);
   const [busy, setBusy] = useState<BusyState>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [activeMode, setActiveMode] = useState<ShareMode>("share");
   const [selectedRecipientId, setSelectedRecipientId] = useState("");
   const [selectedRequestOwnerId, setSelectedRequestOwnerId] = useState("");
   const [durationHours, setDurationHours] = useState("1");
@@ -1089,7 +1204,6 @@ export function OneLocationAgentPageContent() {
     [referralTargets, refresh, vaultOwnerToken],
   );
 
-  const permissionState = permissionCopy(permission);
   const canShare = Boolean(
     vaultOwnerToken &&
     selectedRecipient?.canReceiveLocation &&
@@ -1127,37 +1241,41 @@ export function OneLocationAgentPageContent() {
         errorMessage: loadError,
       }}
     >
-      <AppPageHeaderRegion>
-        <PageHeader
-          eyebrow="One"
-          title="One Location Agent"
-          description="Share live location with a trusted person through explicit duration, recipient encryption, revocation, and audit."
-          accent="consent"
-          icon={LocateFixed}
-          actions={
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void refresh()}
-              disabled={busy === "load"}
-            >
-              {busy === "load" ? (
-                <Loader2
-                  className="mr-2 h-4 w-4 animate-spin"
-                  aria-hidden="true"
-                />
-              ) : (
-                <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
-              )}
-              Refresh
-            </Button>
-          }
-        />
+      <AppPageHeaderRegion className="mx-auto w-full max-w-[1120px]">
+        <div className="flex flex-col gap-4 px-1 pt-3 sm:flex-row sm:items-end sm:justify-between">
+          <header className="max-w-[560px] space-y-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#007aff] dark:text-[#76b7ff]">
+              When it matters most
+            </span>
+            <h1 className="text-[34px] font-bold leading-[1.2] tracking-tight text-[#1c1c1e] sm:text-[42px] dark:text-white">
+              Your circle, safely connected.
+            </h1>
+            <h2 className="sr-only">One Location Agent</h2>
+            <p className="max-w-[440px] text-[16px] font-medium leading-snug text-[#8e8e93] dark:text-white/55">
+              Share your location with selected contacts, or ask to see theirs
+              after they approve.
+            </p>
+          </header>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void refresh()}
+            disabled={busy === "load"}
+            className="h-9 w-fit rounded-full border-black/[0.06] bg-white/80 px-3 text-[#1c1c1e] shadow-sm backdrop-blur-xl hover:bg-[#f2f2f7] dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15"
+          >
+            {busy === "load" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+            )}
+            Refresh
+          </Button>
+        </div>
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion className="space-y-6">
+      <AppPageContentRegion className="mx-auto w-full max-w-[1120px] space-y-6">
         {loadError ? (
-          <div className="rounded-[var(--app-card-radius-standard)] border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+          <div className="rounded-[20px] border border-[#ff3b30]/30 bg-[#ff3b30]/10 p-4 text-sm text-[#ff3b30] dark:text-[#ff9f9a]">
             {loadError}
           </div>
         ) : null}
@@ -1165,189 +1283,453 @@ export function OneLocationAgentPageContent() {
         {showInitialSkeleton ? (
           <OneLocationInitialSkeleton />
         ) : (
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-            <div className="space-y-6">
-              <SettingsGroup
-                eyebrow="Device"
-                title="Readiness"
-                description="One uses foreground location only for v1 and stores only encrypted envelopes."
-              >
-                <SettingsRow
-                  icon={
-                    permissionState.tone === "destructive"
-                      ? AlertTriangle
-                      : ShieldCheck
-                  }
-                  title={permissionState.title}
-                  description={permissionState.description}
-                  tone={permissionState.tone}
-                  trailing={
-                    <Badge
-                      variant={
-                        permissionState.tone === "destructive"
-                          ? "destructive"
-                          : "secondary"
-                      }
-                    >
-                      {permission?.state || "checking"}
-                    </Badge>
-                  }
-                />
-                <SettingsRow
-                  icon={KeyRound}
-                  title={isVaultUnlocked ? "Vault unlocked" : "Vault locked"}
-                  description="Recipient private keys and vault owner tokens stay on this device."
-                  trailing={
-                    <Badge
-                      variant={isVaultUnlocked ? "secondary" : "destructive"}
-                    >
-                      {isVaultUnlocked ? "Ready" : "Locked"}
-                    </Badge>
-                  }
-                />
-                <SettingsRow
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,520px)_minmax(0,1fr)] xl:items-start">
+            <div className="space-y-7">
+              <section className="space-y-3 px-1">
+                <PromiseCard
                   icon={LocateFixed}
-                  title={
-                    activeOwnerGrants.length
-                      ? "Live updates active"
-                      : "Live updates ready"
-                  }
-                  description={
-                    activeOwnerGrants.length
-                      ? "Foreground encrypted updates are published every 20 seconds while this page is open."
-                      : "Create a share to start foreground encrypted updates."
-                  }
-                  trailing={
-                    <Badge
-                      variant={
-                        activeOwnerGrants.length ? "secondary" : "outline"
-                      }
-                    >
-                      {activeOwnerGrants.length ? "Live" : "Idle"}
-                    </Badge>
-                  }
+                  title="Chosen People"
+                  description="Only selected contacts can see your location."
+                  tone="blue"
                 />
-              </SettingsGroup>
+                <PromiseCard
+                  icon={ShieldCheck}
+                  title="Approval First"
+                  description="Every location request needs approval."
+                  tone="green"
+                />
+                <PromiseCard
+                  icon={KeyRound}
+                  title="Stop Anytime"
+                  description="Change access, set a time limit, or stop sharing anytime."
+                  tone="orange"
+                />
+              </section>
 
-              <SettingsGroup
-                eyebrow="Share"
-                title="Share with trusted person"
-                description="Choose a verified Hussh user. Phone verification is eligibility only; this action creates the grant."
-              >
-                <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_160px]">
-                    <Select
-                      value={selectedRecipientId}
-                      onValueChange={setSelectedRecipientId}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select verified person" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {recipients.map((recipient) => (
-                          <SelectItem
+              <section className="space-y-4 px-1">
+                <SegmentedModeControl
+                  value={activeMode}
+                  onChange={setActiveMode}
+                />
+
+                <div className="space-y-2">
+                  {sectionLabel("Frequent contacts")}
+                  <div className="flex gap-4 overflow-x-auto px-1 pb-2 pt-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    {recipients.length ? (
+                      recipients.map((recipient, index) => {
+                        const label = displayNameFromRecipient(recipient);
+                        const selected =
+                          activeMode === "share"
+                            ? recipient.userId === selectedRecipientId
+                            : recipient.userId === selectedRequestOwnerId;
+                        return (
+                          <button
                             key={recipient.userId}
-                            value={recipient.userId}
+                            type="button"
+                            onClick={() => {
+                              if (activeMode === "share") {
+                                setSelectedRecipientId(recipient.userId);
+                              } else {
+                                setSelectedRequestOwnerId(recipient.userId);
+                              }
+                            }}
+                            className="flex shrink-0 flex-col items-center gap-1.5"
                           >
-                            {recipientLabel(recipient)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={durationHours}
-                      onValueChange={setDurationHours}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {DURATION_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                            <span className="relative">
+                              <AvatarBubble label={label} index={index} />
+                              <span
+                                className={cn(
+                                  "absolute bottom-0 right-0 flex h-[18px] w-[18px] items-center justify-center rounded-full border border-black/5 bg-white shadow-sm dark:border-white/10 dark:bg-[#2c2c2e]",
+                                  selected && "ring-2 ring-[#007aff]/30",
+                                )}
+                              >
+                                {selected ? (
+                                  <CheckCircle2 className="h-3 w-3 text-[#2e7d32] dark:text-emerald-300" />
+                                ) : recipient.canReceiveLocation ? (
+                                  <ShieldCheck className="h-3 w-3 text-[#8e8e93] dark:text-white/55" />
+                                ) : (
+                                  <AlertTriangle className="h-3 w-3 text-[#ff9500]" />
+                                )}
+                              </span>
+                            </span>
+                            <span className="max-w-[68px] truncate text-[12px] font-medium text-[#1c1c1e] dark:text-white">
+                              {label}
+                            </span>
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <p className="text-[13px] text-[#8e8e93] dark:text-white/55">
+                        Verified contacts will appear here.
+                      </p>
+                    )}
                   </div>
-                  {selectedRecipient &&
-                  !selectedRecipient.canReceiveLocation ? (
-                    <div className="rounded-[var(--app-card-radius-standard)] border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-800 dark:text-amber-200">
-                      Recipient key unavailable. Ask them to open One Location
-                      Agent once.
-                    </div>
-                  ) : null}
-                  <ActionButton
-                    busy={busy}
-                    busyKey="share"
-                    onClick={() => void handleShare()}
-                    disabled={!canShare}
-                  >
-                    <Send className="mr-2 h-4 w-4" aria-hidden="true" />
-                    Share Encrypted Update
-                  </ActionButton>
                 </div>
-              </SettingsGroup>
 
-              <SettingsGroup
-                eyebrow="Request"
-                title="Ask someone to share"
-                description="Requests wait for owner approval and never create access by themselves."
-              >
-                <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-                  <Select
-                    value={selectedRequestOwnerId}
-                    onValueChange={setSelectedRequestOwnerId}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select owner" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {recipients.map((recipient) => (
-                        <SelectItem
-                          key={recipient.userId}
-                          value={recipient.userId}
+                <div className="space-y-3">
+                  <div className="relative">
+                    <Search className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-[#8e8e93]" />
+                    <input
+                      className="h-10 w-full rounded-[14px] border border-black/[0.04] bg-white pl-10 pr-4 text-[15px] text-[#1c1c1e] shadow-sm outline-none transition-shadow placeholder:text-[#8e8e93] focus:ring-2 focus:ring-[#007aff]/20 dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white"
+                      placeholder="Search contacts..."
+                      type="text"
+                    />
+                  </div>
+
+                  <div className={onePanelClassName}>
+                    {recipients.length ? (
+                      recipients.map((recipient, index) => {
+                        const label = displayNameFromRecipient(recipient);
+                        const selected =
+                          activeMode === "share"
+                            ? recipient.userId === selectedRecipientId
+                            : recipient.userId === selectedRequestOwnerId;
+                        return (
+                          <div
+                            key={recipient.userId}
+                            className="relative flex flex-col gap-2.5 p-3.5 after:absolute after:bottom-0 after:left-[62px] after:right-0 after:border-b after:border-black/[0.05] last:after:hidden dark:after:border-white/[0.08]"
+                          >
+                            <div className="flex items-center gap-3">
+                              <AvatarBubble
+                                label={label}
+                                index={index}
+                                size="sm"
+                                muted={!recipient.canReceiveLocation}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex min-w-0 items-center gap-1.5">
+                                  <span className="truncate text-[16px] font-semibold tracking-tight text-[#1c1c1e] dark:text-white">
+                                    {recipientLabel(recipient)}
+                                  </span>
+                                  <span className="rounded-md bg-[#f0f5ff] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]">
+                                    {recipient.phoneVerified
+                                      ? "Verified"
+                                      : "Contact"}
+                                  </span>
+                                </div>
+                                <p className="mt-0.5 text-[12px] font-medium text-[#8e8e93] dark:text-white/55">
+                                  {recipient.canReceiveLocation
+                                    ? "Ready for encrypted location access"
+                                    : "Needs a recipient key"}
+                                </p>
+                              </div>
+                              {selected ? (
+                                <CheckCircle2 className="h-[22px] w-[22px] text-[#007aff] dark:text-[#76b7ff]" />
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (activeMode === "share") {
+                                      setSelectedRecipientId(recipient.userId);
+                                    } else {
+                                      setSelectedRequestOwnerId(
+                                        recipient.userId,
+                                      );
+                                    }
+                                  }}
+                                  className="inline-flex h-8 items-center gap-1 rounded-full bg-[#f2f2f7] px-3 text-[12px] font-semibold text-[#007aff] transition-colors hover:bg-[#e5e5ea] dark:bg-white/10 dark:text-[#76b7ff] dark:hover:bg-white/15"
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                  Select
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <EmptyOneState
+                        icon={UsersRound}
+                        title="No verified contacts"
+                        description="Sync a trusted person before starting a share or request."
+                      />
+                    )}
+                  </div>
+
+                  {activeMode === "share" ? (
+                    <div className="space-y-3">
+                      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_160px]">
+                        <Select
+                          value={selectedRecipientId}
+                          onValueChange={setSelectedRecipientId}
                         >
-                          {recipientLabel(recipient)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Textarea
-                    value={requestMessage}
-                    onChange={(event) => setRequestMessage(event.target.value)}
-                    placeholder="Optional reason"
-                    rows={3}
-                  />
-                  <ActionButton
-                    busy={busy}
-                    busyKey="request"
-                    onClick={() => void handleRequestAccess()}
-                    disabled={!vaultOwnerToken || !selectedRequestOwner}
-                    variant="outline"
-                  >
-                    <Send className="mr-2 h-4 w-4" aria-hidden="true" />
-                    Send Request
-                  </ActionButton>
+                          <SelectTrigger className="h-11 w-full rounded-[14px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]">
+                            <SelectValue placeholder="Select verified person" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {recipients.map((recipient) => (
+                              <SelectItem
+                                key={recipient.userId}
+                                value={recipient.userId}
+                              >
+                                {recipientLabel(recipient)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Select
+                          value={durationHours}
+                          onValueChange={setDurationHours}
+                        >
+                          <SelectTrigger className="h-11 w-full rounded-[14px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {DURATION_OPTIONS.map((option) => (
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                              >
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {selectedRecipient &&
+                      !selectedRecipient.canReceiveLocation ? (
+                        <div className="rounded-[14px] border border-[#ff9500]/30 bg-[#ff9500]/10 p-3 text-xs leading-5 text-[#9a5a00] dark:text-[#ffd79a]">
+                          Recipient key unavailable. Ask them to open One
+                          Location Agent once.
+                        </div>
+                      ) : null}
+                      <ActionButton
+                        busy={busy}
+                        busyKey="share"
+                        onClick={() => void handleShare()}
+                        disabled={!canShare}
+                        className="h-12 w-full rounded-[16px] bg-gradient-to-b from-[#1a85ff] to-[#0066ff] text-[16px] font-semibold text-white shadow-[0_4px_14px_rgba(0,122,255,0.35)] hover:opacity-95"
+                      >
+                        <Send className="mr-2 h-4 w-4" aria-hidden="true" />
+                        Start Sharing Location
+                        <span className="sr-only">Share Encrypted Update</span>
+                      </ActionButton>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <Select
+                        value={selectedRequestOwnerId}
+                        onValueChange={setSelectedRequestOwnerId}
+                      >
+                        <SelectTrigger className="h-11 w-full rounded-[14px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]">
+                          <SelectValue placeholder="Select owner" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {recipients.map((recipient) => (
+                            <SelectItem
+                              key={recipient.userId}
+                              value={recipient.userId}
+                            >
+                              {recipientLabel(recipient)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Textarea
+                        value={requestMessage}
+                        onChange={(event) =>
+                          setRequestMessage(event.target.value)
+                        }
+                        placeholder="Optional reason"
+                        rows={3}
+                        className="rounded-[14px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]"
+                      />
+                      <ActionButton
+                        busy={busy}
+                        busyKey="request"
+                        onClick={() => void handleRequestAccess()}
+                        disabled={!vaultOwnerToken || !selectedRequestOwner}
+                        className="h-12 w-full rounded-[16px] bg-gradient-to-b from-[#1a85ff] to-[#0066ff] text-[16px] font-semibold text-white shadow-[0_4px_14px_rgba(0,122,255,0.35)] hover:opacity-95"
+                      >
+                        <Send className="mr-2 h-4 w-4" aria-hidden="true" />
+                        Send Request
+                      </ActionButton>
+                    </div>
+                  )}
                 </div>
-              </SettingsGroup>
+              </section>
+            </div>
 
-              <SettingsGroup
-                eyebrow="Public"
-                title="Create request link"
-                description="Share a request link with family or friends. The link asks for their details and never shows your location until you approve an encrypted grant."
-              >
-                <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_160px]">
-                    <div className="rounded-[var(--app-card-radius-standard)] border border-border/70 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-                      {publicInviteUrl ||
-                        "Create a fresh request link to copy or share."}
+            <div className="space-y-6">
+              <section className="space-y-2 px-1">
+                {sectionLabel("People who can see me")}
+                <div className={onePanelClassName}>
+                  {(state?.ownerGrants ?? []).length ? (
+                    state?.ownerGrants.map((grant, index) => (
+                      <div
+                        key={grant.id}
+                        className="relative flex items-center gap-3 p-3.5 after:absolute after:bottom-0 after:left-[62px] after:right-0 after:border-b after:border-black/[0.05] last:after:hidden dark:after:border-white/[0.08]"
+                      >
+                        <AvatarBubble
+                          label={grantCounterpartyLabel(grant)}
+                          index={index}
+                          size="sm"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <h3 className="truncate text-[16px] font-medium tracking-tight text-[#1c1c1e] dark:text-white">
+                            {grantCounterpartyLabel(grant)}
+                          </h3>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                            <Badge variant={statusVariant(grant.status)}>
+                              {grant.status}
+                            </Badge>
+                            <span className="text-[12px] font-medium text-[#8e8e93] dark:text-white/55">
+                              {expiresLabel(grant)} - {grant.durationHours}h
+                            </span>
+                          </div>
+                        </div>
+                        {grant.status === "active" ? (
+                          <div className="flex shrink-0 gap-1.5">
+                            <Button
+                              aria-label="Update share"
+                              variant="outline"
+                              size="icon"
+                              onClick={() => void handlePublish(grant)}
+                              disabled={busy === "publish"}
+                              className="h-8 w-8 rounded-full border-0 bg-[#f2f2f7] text-[#8e8e93] hover:bg-[#e5e5ea] dark:bg-white/10 dark:text-white/55 dark:hover:bg-white/15"
+                            >
+                              {busy === "publish" ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Pencil className="h-4 w-4" />
+                              )}
+                            </Button>
+                            <Button
+                              aria-label="Revoke share"
+                              variant="outline"
+                              size="icon"
+                              onClick={() => void handleRevoke(grant.id)}
+                              disabled={busy === "revoke"}
+                              className="h-8 w-8 rounded-full border-0 bg-[#ff3b30]/10 text-[#ff3b30] hover:bg-[#ff3b30]/20 dark:bg-[#ff453a]/15 dark:text-[#ff9f9a]"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))
+                  ) : (
+                    <EmptyOneState
+                      icon={UsersRound}
+                      title="No active shares"
+                      description="Create one encrypted grant when you need a trusted person to see you."
+                    />
+                  )}
+                </div>
+              </section>
+
+              <section className="space-y-2 px-1">
+                {sectionLabel("Proximity alerts")}
+                <div className={cn(onePanelClassName, "p-3.5")}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f0f5ff] text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]">
+                        <Radar className="h-[18px] w-[18px]" />
+                      </span>
+                      <div className="min-w-0">
+                        <h3 className="text-[16px] font-semibold tracking-tight text-[#1c1c1e] dark:text-white">
+                          Advisor meetup
+                        </h3>
+                        <p className="text-[13px] font-medium text-[#8e8e93] dark:text-white/55">
+                          Notify when within{" "}
+                          <span className="text-[#1c1c1e] dark:text-white">
+                            2km
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                    <span
+                      aria-label="Proximity alert enabled"
+                      className="relative h-[31px] w-[51px] shrink-0 rounded-full bg-[#34c759] shadow-inner"
+                    >
+                      <span className="absolute right-[2px] top-[2px] h-[27px] w-[27px] rounded-full bg-white shadow-[0_3px_8px_rgba(0,0,0,0.15)]" />
+                    </span>
+                  </div>
+                  <div className="mt-3 flex items-center gap-3 pl-12">
+                    <div className="relative h-[6px] flex-1 rounded-full bg-[#f2f2f7] dark:bg-white/10">
+                      <div className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-[#007aff]" />
+                      <div className="absolute left-1/3 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/10 bg-white shadow-[0_2px_4px_rgba(0,0,0,0.20)]" />
+                    </div>
+                    <span className="w-8 text-right text-[12px] font-semibold text-[#8e8e93] dark:text-white/55">
+                      2km
+                    </span>
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-2 px-1">
+                {sectionLabel("Approvals", pendingOwnerRequests.length)}
+                <div
+                  className={cn(
+                    onePanelClassName,
+                    pendingOwnerRequests.length &&
+                      "relative before:absolute before:bottom-0 before:left-0 before:top-0 before:w-1 before:bg-[#ff3b30]",
+                  )}
+                >
+                  {pendingOwnerRequests.length ? (
+                    pendingOwnerRequests.map((request) => (
+                      <div key={request.id} className="flex items-start gap-3 p-3.5">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f2f2f7] text-[#8e8e93] dark:bg-white/10 dark:text-white/55">
+                          <UserRoundCheck className="h-[18px] w-[18px]" />
+                        </span>
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <h3 className="text-[16px] font-semibold tracking-tight text-[#1c1c1e] dark:text-white">
+                            {requestLabel(request)}
+                          </h3>
+                          <p className="text-[13px] font-medium leading-relaxed text-[#8e8e93] dark:text-white/55">
+                            {request.message ||
+                              `Requested ${formatDateTime(request.requestedAt)}`}
+                          </p>
+                          <div className="flex gap-2 pt-2">
+                            <Button
+                              variant="outline"
+                              onClick={() => void handleDeny(request.id)}
+                              disabled={busy === "deny"}
+                              className="h-9 flex-1 rounded-[12px] border-0 bg-[#f2f2f7] font-semibold text-[#1c1c1e] hover:bg-[#e5e5ea] dark:bg-white/10 dark:text-white dark:hover:bg-white/15"
+                            >
+                              Deny
+                            </Button>
+                            <ActionButton
+                              busy={busy}
+                              busyKey="approve"
+                              onClick={() => void handleApprove(request)}
+                              className="h-9 flex-1 rounded-[12px] bg-[#007aff] font-semibold text-white shadow-[0_2px_8px_rgba(0,122,255,0.25)] hover:bg-[#0066ff]"
+                            >
+                              Approve
+                            </ActionButton>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <EmptyOneState
+                      icon={Clock3}
+                      title="No pending requests"
+                      description="Referral and direct access requests wait here."
+                    />
+                  )}
+                </div>
+              </section>
+
+              <section className="space-y-2 px-1">
+                {sectionLabel("Create request link")}
+                <div className={cn(onePanelClassName, "space-y-4 p-3.5")}>
+                  <p className="text-[13px] leading-5 text-[#8e8e93] dark:text-white/55">
+                    Share a request link. It asks for their details and never
+                    shows your location until you approve an encrypted grant.
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_150px]">
+                    <div className={cn(oneInsetClassName, "px-3 py-2 text-sm")}>
+                      <span className={oneSecondaryTextClassName}>
+                        {publicInviteUrl ||
+                          "Create a fresh request link to copy or share."}
+                      </span>
                     </div>
                     <Select
                       value={durationHours}
                       onValueChange={setDurationHours}
                     >
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger className="h-10 w-full rounded-[12px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1365,358 +1747,263 @@ export function OneLocationAgentPageContent() {
                       busyKey="publicInvite"
                       onClick={() => void handleCreatePublicInvite()}
                       disabled={!vaultOwnerToken}
+                      className="rounded-full bg-[#007aff] text-white hover:bg-[#0066ff]"
                     >
-                      <ExternalLink
-                        className="mr-2 h-4 w-4"
-                        aria-hidden="true"
-                      />
+                      <ExternalLink className="mr-2 h-4 w-4" />
                       Create Request Link
                     </ActionButton>
                     <Button
                       variant="outline"
                       onClick={() => void handleSharePublicInvite()}
                       disabled={!publicInviteUrl}
+                      className="rounded-full border-black/[0.06] bg-[#f2f2f7] dark:border-white/[0.08] dark:bg-white/10"
                     >
-                      <Send className="mr-2 h-4 w-4" aria-hidden="true" />
+                      <Send className="mr-2 h-4 w-4" />
                       Share
                     </Button>
                     <Button
                       variant="outline"
                       onClick={() => void handleCopyPublicInvite()}
                       disabled={!publicInviteUrl}
+                      className="rounded-full border-black/[0.06] bg-[#f2f2f7] dark:border-white/[0.08] dark:bg-white/10"
                     >
-                      <Copy className="mr-2 h-4 w-4" aria-hidden="true" />
+                      <Copy className="mr-2 h-4 w-4" />
                       Copy
                     </Button>
                   </div>
-                </div>
-                {activePublicInvites.length
-                  ? activePublicInvites.map((invite) => (
-                      <SettingsRow
-                        key={invite.id}
-                        icon={ExternalLink}
-                        title="Active request link"
-                        description={`Requests expire ${formatDateTime(invite.expiresAt)} - ${invite.durationHours}h`}
-                        stackTrailingOnMobile
-                        trailing={
+                  {activePublicInvites.length ? (
+                    <div className="space-y-2">
+                      {activePublicInvites.map((invite) => (
+                        <div
+                          key={invite.id}
+                          className="flex items-center justify-between gap-3 rounded-[14px] bg-[#f2f2f7] p-3 dark:bg-white/10"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-[14px] font-semibold text-[#1c1c1e] dark:text-white">
+                              Active request link
+                            </p>
+                            <p className="truncate text-[12px] text-[#8e8e93] dark:text-white/55">
+                              Requests expire{" "}
+                              {formatDateTime(invite.expiresAt)} -{" "}
+                              {invite.durationHours}h
+                            </p>
+                          </div>
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() =>
-                              void handleRevokePublicInvite(invite)
-                            }
+                            onClick={() => void handleRevokePublicInvite(invite)}
                             disabled={busy === "publicRevoke"}
+                            className="rounded-full"
                           >
                             Revoke
                           </Button>
-                        }
-                      />
-                    ))
-                  : null}
-              </SettingsGroup>
-            </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </section>
 
-            <div className="space-y-6">
-              <SettingsGroup
-                eyebrow="Owner"
-                title="People who can see me"
-                description="Each active row is a separate recipient-scoped grant."
-              >
-                {(state?.ownerGrants ?? []).length ? (
-                  state?.ownerGrants.map((grant) => (
-                    <SettingsRow
-                      key={grant.id}
-                      icon={UserRoundCheck}
-                      title={grantCounterpartyLabel(grant)}
-                      description={`${expiresLabel(grant)} - ${grant.durationHours}h`}
-                      stackTrailingOnMobile
-                      trailing={
-                        <div className="flex flex-wrap justify-end gap-2">
-                          <Badge variant={statusVariant(grant.status)}>
-                            {grant.status}
-                          </Badge>
-                          {grant.status === "active" ? (
-                            <>
+              <section className="space-y-2 px-1">
+                {sectionLabel("Shared with me")}
+                <div className={onePanelClassName}>
+                  {visibleReceivedGrants.length ? (
+                    visibleReceivedGrants.map((grant, index) => {
+                      const point = decryptedPoints[grant.id];
+                      return (
+                        <div
+                          key={grant.id}
+                          className="border-b border-black/[0.05] last:border-b-0 dark:border-white/[0.08]"
+                        >
+                          <div className="flex items-center gap-3 p-3.5">
+                            <AvatarBubble
+                              label={receivedGrantOwnerLabel(grant)}
+                              index={index + 2}
+                              size="sm"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <h3 className="truncate text-[16px] font-medium tracking-tight text-[#1c1c1e] dark:text-white">
+                                {receivedGrantOwnerLabel(grant)}
+                              </h3>
+                              <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                                <Badge variant={statusVariant(grant.status)}>
+                                  {grant.status}
+                                </Badge>
+                                <span className="text-[12px] font-medium text-[#8e8e93] dark:text-white/55">
+                                  {expiresLabel(grant)}
+                                </span>
+                              </div>
+                            </div>
+                            {grant.status === "active" ? (
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => void handlePublish(grant)}
-                                disabled={busy === "publish"}
+                                onClick={() => void handleView(grant)}
+                                disabled={busy === "view"}
+                                className="rounded-full border-black/[0.06] bg-[#f2f2f7] dark:border-white/[0.08] dark:bg-white/10"
                               >
-                                {busy === "publish" ? (
-                                  <Loader2
-                                    className="mr-2 h-4 w-4 animate-spin"
-                                    aria-hidden="true"
-                                  />
+                                {busy === "view" ? (
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                 ) : (
-                                  <LocateFixed
-                                    className="mr-2 h-4 w-4"
-                                    aria-hidden="true"
-                                  />
+                                  <ShieldCheck className="mr-2 h-4 w-4" />
                                 )}
-                                Update
+                                View
                               </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={() => void handleRevoke(grant.id)}
-                                disabled={busy === "revoke"}
-                              >
-                                Revoke
-                              </Button>
-                            </>
+                            ) : null}
+                          </div>
+                          {point ? (
+                            <div className="px-3.5 pb-3.5">
+                              <LocalMapPreview point={point} />
+                            </div>
                           ) : null}
                         </div>
+                      );
+                    })
+                  ) : (
+                    <EmptyOneState
+                      icon={MapPin}
+                      title={
+                        hiddenReceivedGrantCount > 0
+                          ? "Open notification to view"
+                          : "Nothing shared with you"
+                      }
+                      description={
+                        hiddenReceivedGrantCount > 0
+                          ? "A location share is waiting in the notification bell."
+                          : "Approved recipient grants appear after you open their notification."
                       }
                     />
-                  ))
-                ) : (
-                  <EmptyState
-                    icon={UsersRound}
-                    title="No active shares"
-                    description="Create one encrypted grant when you need a trusted person to see you."
-                  />
-                )}
-              </SettingsGroup>
+                  )}
+                </div>
+              </section>
 
-              <SettingsGroup
-                eyebrow="Recipient"
-                title="Shared with me"
-                description="Open the notification first; One returns ciphertext only after authorization."
-              >
-                {visibleReceivedGrants.length ? (
-                  visibleReceivedGrants.map((grant) => {
-                    const point = decryptedPoints[grant.id];
-                    return (
+              <section className="space-y-2 px-1">
+                {sectionLabel("Public link responses")}
+                <div className={onePanelClassName}>
+                  {publicSubmissions.length ? (
+                    publicSubmissions.map((submission) => (
                       <div
-                        key={grant.id}
-                        className="border-b border-border/60 last:border-b-0"
+                        key={submission.id}
+                        className="flex items-center gap-3 p-3.5"
                       >
-                        <SettingsRow
-                          icon={MapPin}
-                          title={receivedGrantOwnerLabel(grant)}
-                          description={expiresLabel(grant)}
-                          stackTrailingOnMobile
-                          trailing={
-                            <div className="flex flex-wrap justify-end gap-2">
-                              <Badge variant={statusVariant(grant.status)}>
-                                {grant.status}
-                              </Badge>
-                              {grant.status === "active" ? (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => void handleView(grant)}
-                                  disabled={busy === "view"}
-                                >
-                                  {busy === "view" ? (
-                                    <Loader2
-                                      className="mr-2 h-4 w-4 animate-spin"
-                                      aria-hidden="true"
-                                    />
-                                  ) : (
-                                    <ShieldCheck
-                                      className="mr-2 h-4 w-4"
-                                      aria-hidden="true"
-                                    />
-                                  )}
-                                  View
-                                </Button>
-                              ) : null}
-                            </div>
-                          }
-                        />
-                        {point ? (
-                          <div className="px-[var(--settings-row-px)] pb-4">
-                            <LocalMapPreview point={point} />
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })
-                ) : (
-                  <EmptyState
-                    icon={MapPin}
-                    title={
-                      hiddenReceivedGrantCount > 0
-                        ? "Open notification to view"
-                        : "Nothing shared with you"
-                    }
-                    description={
-                      hiddenReceivedGrantCount > 0
-                        ? "A location share is waiting in the notification bell."
-                        : "Approved recipient grants appear after you open their notification."
-                    }
-                  />
-                )}
-              </SettingsGroup>
-
-              <SettingsGroup
-                eyebrow="Approvals"
-                title="Pending requests"
-                description="Owner approval creates a fresh identity-bound grant."
-              >
-                {pendingOwnerRequests.length ? (
-                  pendingOwnerRequests.map((request) => (
-                    <SettingsRow
-                      key={request.id}
-                      icon={Clock3}
-                      title={requestLabel(request)}
-                      description={
-                        request.message ||
-                        `Requested ${formatDateTime(request.requestedAt)}`
-                      }
-                      stackTrailingOnMobile
-                      trailing={
-                        <div className="flex flex-wrap justify-end gap-2">
-                          <ActionButton
-                            busy={busy}
-                            busyKey="approve"
-                            size="sm"
-                            onClick={() => void handleApprove(request)}
-                          >
-                            <CheckCircle2
-                              className="mr-2 h-4 w-4"
-                              aria-hidden="true"
-                            />
-                            Approve
-                          </ActionButton>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void handleDeny(request.id)}
-                            disabled={busy === "deny"}
-                          >
-                            <XCircle
-                              className="mr-2 h-4 w-4"
-                              aria-hidden="true"
-                            />
-                            Deny
-                          </Button>
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f2f2f7] text-[#8e8e93] dark:bg-white/10 dark:text-white/55">
+                          <ExternalLink className="h-[18px] w-[18px]" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="truncate text-[16px] font-medium text-[#1c1c1e] dark:text-white">
+                            {publicSubmissionLabel(submission)}
+                          </h3>
+                          <p className="truncate text-[12px] text-[#8e8e93] dark:text-white/55">
+                            {submission.message ||
+                              `Status ${submission.status} - ${formatDateTime(submission.submittedAt)}`}
+                          </p>
                         </div>
-                      }
-                    />
-                  ))
-                ) : (
-                  <EmptyState
-                    icon={Clock3}
-                    title="No pending requests"
-                    description="Referral and direct access requests wait here."
-                  />
-                )}
-              </SettingsGroup>
-
-              <SettingsGroup
-                eyebrow="Public"
-                title="Public link responses"
-                description="People who use your public request link appear here. Location still waits for owner approval."
-              >
-                {publicSubmissions.length ? (
-                  publicSubmissions.map((submission) => (
-                    <SettingsRow
-                      key={submission.id}
-                      icon={Clock3}
-                      title={publicSubmissionLabel(submission)}
-                      description={
-                        submission.message ||
-                        `Status ${submission.status} - ${formatDateTime(submission.submittedAt)}`
-                      }
-                      stackTrailingOnMobile
-                      trailing={
                         <Badge variant={statusVariant(submission.status)}>
                           {submission.requestStatus || submission.status}
                         </Badge>
-                      }
-                    />
-                  ))
-                ) : (
-                  <EmptyState
-                    icon={ExternalLink}
-                    title="No public responses"
-                    description="Responses from your request link show up here without exposing your location."
-                  />
-                )}
-              </SettingsGroup>
-
-              <SettingsGroup
-                eyebrow="Referral"
-                title="Refer someone else"
-                description="A referral opens a request for the owner; it never forwards your access."
-              >
-                {(state?.receivedGrants ?? []).filter(
-                  (grant) => grant.status === "active",
-                ).length ? (
-                  state?.receivedGrants
-                    .filter((grant) => grant.status === "active")
-                    .map((grant) => (
-                      <div
-                        key={grant.id}
-                        className="grid gap-3 px-[var(--settings-row-px)] py-[var(--settings-row-py)] sm:grid-cols-[minmax(0,1fr)_auto]"
-                      >
-                        <Select
-                          value={referralTargets[grant.id] || ""}
-                          onValueChange={(value) =>
-                            setReferralTargets((current) => ({
-                              ...current,
-                              [grant.id]: value,
-                            }))
-                          }
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Select referred person" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {recipients
-                              .filter(
-                                (recipient) =>
-                                  recipient.userId !== grant.ownerUserId,
-                              )
-                              .map((recipient) => (
-                                <SelectItem
-                                  key={recipient.userId}
-                                  value={recipient.userId}
-                                >
-                                  {recipientLabel(recipient)}
-                                </SelectItem>
-                              ))}
-                          </SelectContent>
-                        </Select>
-                        <ActionButton
-                          busy={busy}
-                          busyKey="refer"
-                          variant="outline"
-                          onClick={() => void handleRefer(grant)}
-                          disabled={!referralTargets[grant.id]}
-                        >
-                          Refer
-                        </ActionButton>
                       </div>
                     ))
-                ) : (
-                  <EmptyState
-                    icon={UsersRound}
-                    title="No active received grant"
-                    description="You can refer only from an active share, and the owner still decides."
-                  />
-                )}
-              </SettingsGroup>
+                  ) : (
+                    <EmptyOneState
+                      icon={ExternalLink}
+                      title="No public responses"
+                      description="Responses from your request link show up here without exposing your location."
+                    />
+                  )}
+                </div>
+              </section>
+
+              <section className="space-y-2 px-1">
+                {sectionLabel("Refer someone else")}
+                <div className={cn(onePanelClassName, "p-3.5")}>
+                  {(state?.receivedGrants ?? []).filter(
+                    (grant) => grant.status === "active",
+                  ).length ? (
+                    state?.receivedGrants
+                      .filter((grant) => grant.status === "active")
+                      .map((grant) => (
+                        <div
+                          key={grant.id}
+                          className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"
+                        >
+                          <Select
+                            value={referralTargets[grant.id] || ""}
+                            onValueChange={(value) =>
+                              setReferralTargets((current) => ({
+                                ...current,
+                                [grant.id]: value,
+                              }))
+                            }
+                          >
+                            <SelectTrigger className="h-10 w-full rounded-[12px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]">
+                              <SelectValue placeholder="Select referred person" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {recipients
+                                .filter(
+                                  (recipient) =>
+                                    recipient.userId !== grant.ownerUserId,
+                                )
+                                .map((recipient) => (
+                                  <SelectItem
+                                    key={recipient.userId}
+                                    value={recipient.userId}
+                                  >
+                                    {recipientLabel(recipient)}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                          <ActionButton
+                            busy={busy}
+                            busyKey="refer"
+                            variant="outline"
+                            onClick={() => void handleRefer(grant)}
+                            disabled={!referralTargets[grant.id]}
+                            className="rounded-full"
+                          >
+                            Refer
+                          </ActionButton>
+                        </div>
+                      ))
+                  ) : (
+                    <EmptyOneState
+                      icon={UsersRound}
+                      title="No active received grant"
+                      description="You can refer only from an active share, and the owner still decides."
+                    />
+                  )}
+                </div>
+              </section>
 
               {requestedByMe.length ? (
-                <SettingsGroup eyebrow="Activity" title="My requests">
-                  {requestedByMe.map((request) => (
-                    <SettingsRow
-                      key={request.id}
-                      icon={Clock3}
-                      title={request.ownerUserId}
-                      description={`Status ${request.status} - ${formatDateTime(request.requestedAt)}`}
-                      trailing={
+                <section className="space-y-2 px-1">
+                  {sectionLabel("My requests")}
+                  <div className={onePanelClassName}>
+                    {requestedByMe.map((request) => (
+                      <div
+                        key={request.id}
+                        className="flex items-center gap-3 p-3.5"
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f2f2f7] text-[#8e8e93] dark:bg-white/10 dark:text-white/55">
+                          <Clock3 className="h-[18px] w-[18px]" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="truncate text-[16px] font-medium text-[#1c1c1e] dark:text-white">
+                            {request.ownerUserId}
+                          </h3>
+                          <p className="truncate text-[12px] text-[#8e8e93] dark:text-white/55">
+                            Status {request.status} -{" "}
+                            {formatDateTime(request.requestedAt)}
+                          </p>
+                        </div>
                         <Badge variant={statusVariant(request.status)}>
                           {request.status}
                         </Badge>
-                      }
-                    />
-                  ))}
-                </SettingsGroup>
+                      </div>
+                    ))}
+                  </div>
+                </section>
               ) : null}
             </div>
           </div>
