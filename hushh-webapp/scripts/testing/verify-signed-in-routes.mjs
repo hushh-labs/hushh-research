@@ -498,7 +498,7 @@ async function ensurePersona(page, persona) {
     name: /stay in ria workspace/i,
   });
   const stayInInvestorWorkspace = page.getByRole("button", {
-    name: /stay in investor workspace/i,
+    name: /stay in (?:investor|kai) workspace/i,
   });
   const switchToInvestorWorkspace = page.getByRole("button", {
     name: /switch to investor workspace/i,
