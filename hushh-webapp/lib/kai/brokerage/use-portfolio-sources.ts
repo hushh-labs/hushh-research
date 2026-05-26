@@ -450,7 +450,6 @@ export function usePortfolioSources({
       }
     }
   }, [
-    initialStatementPortfolio,
     applyFinancialSnapshot,
     loadFinancialContext,
     refreshDerivedMarketCaches,

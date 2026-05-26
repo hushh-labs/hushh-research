@@ -474,7 +474,6 @@ function KaiAnalysisPageContent() {
   );
   const hasActiveRouteIntent = searchParams.get("focus") === "active";
   const hasRunRouteIntent = searchParams.has("run_id");
-  const hasWorkspaceRouteIntent = hasActiveRouteIntent || hasRunRouteIntent;
   const previewPickSourceFromQuery = useMemo(
     () => String(searchParams.get("pick_source") || "").trim(),
     [searchParams]
