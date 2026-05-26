@@ -1,7 +1,7 @@
 "use client";
 
 import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Check, ChevronsUpDown, FilePenLine, X } from "lucide-react";
+import { Check, ChevronsUpDown, FilePenLine, X, Sparkles } from "lucide-react";
 
 import {
   CommandDialog,
@@ -72,6 +72,7 @@ export function CommandPickerField<T = unknown>({
   options = [],
   loadOptions,
   onSelect,
+  shortcut,
   searchPlaceholder = "Search options",
   emptyText = "No matches yet.",
   invalid = false,
@@ -87,6 +88,7 @@ export function CommandPickerField<T = unknown>({
   options?: CommandPickerOption<T>[];
   loadOptions?: (query: string) => Promise<CommandPickerOption<T>[]>;
   onSelect: (option: CommandPickerOption<T> | null) => void;
+  shortcut?: string;
   searchPlaceholder?: string;
   emptyText?: string;
   invalid?: boolean;
@@ -96,6 +98,18 @@ export function CommandPickerField<T = unknown>({
   triggerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!shortcut) return;
+    const down = (e: KeyboardEvent) => {
+      if (e.key === shortcut && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setOpen((open) => !open);
+      }
+    };
+    document.addEventListener("keydown", down);
+    return () => document.removeEventListener("keydown", down);
+  }, [shortcut]);
   const [query, setQuery] = useState("");
   const [dynamicOptions, setDynamicOptions] = useState<CommandPickerOption<T>[]>([]);
   const [loading, setLoading] = useState(false);
@@ -163,6 +177,11 @@ export function CommandPickerField<T = unknown>({
           )}
         >
           <span className="truncate font-medium tracking-tight">{triggerValue || placeholder}</span>
+          {shortcut && (
+            <kbd className="hidden sm:inline-flex ml-auto px-1.5 py-0.5 rounded text-[10px] bg-muted border border-border select-none pointer-events-none font-sans font-normal text-muted-foreground">
+              ⌘{shortcut.toUpperCase()}
+            </kbd>
+          )}
           <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground/80" aria-hidden="true" />
         </button>
         {allowClear && value ? (
@@ -244,6 +263,7 @@ export function PopupTextEditorField({
   value,
   placeholder,
   onSave,
+  onDraftChange,
   invalid = false,
   previewPlaceholder,
   saveLabel = "Apply",
@@ -256,6 +276,7 @@ export function PopupTextEditorField({
   value: string;
   placeholder: string;
   onSave: (value: string) => void;
+  onDraftChange?: (value: string) => void;
   invalid?: boolean;
   previewPlaceholder?: string;
   saveLabel?: string;
@@ -271,6 +292,11 @@ export function PopupTextEditorField({
       setDraft(value); // Only sync draft when opening the dialog to avoid overriding user edits
     }
   }, [open, value]);
+
+  const handleDraftChange = (val: string) => {
+    setDraft(val);
+    onDraftChange?.(val);
+  };
 
   const preview = value.trim();
 
@@ -313,23 +339,31 @@ export function PopupTextEditorField({
       >
         <DialogContent className={cn(COMMAND_SHELL_CLASSNAME, "bg-[rgba(245,245,247,0.92)] backdrop-blur-xl dark:bg-[rgba(29,29,31,0.92)]")}>
           <DialogHeader className="border-b border-black/10 px-5 py-4 dark:border-white/10">
-            <DialogTitle className="text-base font-semibold tracking-tight">{title}</DialogTitle>
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-blue-500" />
+              <DialogTitle className="text-base font-semibold tracking-tight">{title}</DialogTitle>
+            </div>
             {description ? (
               <DialogDescription className="text-sm leading-6">{description}</DialogDescription>
             ) : null}
           </DialogHeader>
 
           <div className="overflow-y-auto px-4 py-4 sm:px-5">
-            <Textarea
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder={placeholder}
-              className={cn(
-                "min-h-[220px] resize-none rounded-[22px] border-border/80 bg-background/90 px-4 py-3 text-sm leading-6 sm:min-h-[260px]",
-                invalid ? "border-rose-300 dark:border-rose-500/50" : "",
-                textareaClassName
-              )}
-            />
+            <div className="relative">
+              <Textarea
+                value={draft}
+                onChange={(event) => handleDraftChange(event.target.value)}
+                placeholder={placeholder}
+                className={cn(
+                  "min-h-[220px] resize-none rounded-[22px] border-border/80 bg-background/90 px-4 py-3 pb-8 text-sm leading-6 sm:min-h-[260px]",
+                  invalid ? "border-rose-300 dark:border-rose-500/50" : "",
+                  textareaClassName
+                )}
+              />
+              <div className="absolute bottom-3 right-4 text-[10px] text-muted-foreground select-none pointer-events-none">
+                {draft.length} characters
+              </div>
+            </div>
           </div>
 
           <DialogFooter className="border-t border-black/10 px-5 py-4 dark:border-white/10">
