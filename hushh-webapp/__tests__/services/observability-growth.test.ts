@@ -26,8 +26,8 @@ describe("growth observability contract", () => {
     vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE", "1");
     vi.stubEnv("NEXT_PUBLIC_CLIENT_VERSION", "2.1.0");
     window.dataLayer = [];
-    window.localStorage.clear();
-    window.sessionStorage.clear();
+    window.localStorage?.clear();
+    window.sessionStorage?.clear();
     window.history.replaceState({}, "", "/login?redirect=%2Fkai&utm_source=growth");
   });
 

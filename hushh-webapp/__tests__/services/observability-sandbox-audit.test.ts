@@ -259,8 +259,8 @@ describe("observability sandbox audit", () => {
     vi.stubEnv("NEXT_PUBLIC_GTM_ID", "GTM-PENDING-PROD");
     vi.stubEnv("NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID", "G-2PCECPSKCR");
     vi.stubEnv("NEXT_PUBLIC_CLIENT_VERSION", "sandbox-audit");
-    window.localStorage.clear();
-    window.sessionStorage.clear();
+    window.localStorage?.clear();
+    window.sessionStorage?.clear();
     window.history.replaceState({}, "", "/login?redirect=%2Fkai&utm_source=sandbox");
     installTransportSpies();
   });
