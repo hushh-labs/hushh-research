@@ -22,7 +22,7 @@ router = APIRouter(tags=["Kai Support"])
 
 
 class SupportMessageRequest(BaseModel):
-    user_id: str
+    user_id: str = Field(..., min_length=1, max_length=128)
     kind: Literal["bug_report", "support_request", "developer_reachout"]
     subject: str = Field(min_length=3, max_length=140)
     message: str = Field(min_length=10, max_length=8000)
