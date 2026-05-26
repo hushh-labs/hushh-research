@@ -21,15 +21,14 @@ import pytest
 from pydantic import ValidationError
 
 from api.routes.kai.stream import (
-    StartAnalyzeRunRequest,
-    StreamAnalyzeRequest,
     _DEBATE_SESSION_ID_MAX_LEN,
     _RISK_PROFILE_MAX_LEN,
     _RUN_ID_MAX_LEN,
     _TICKER_RAW_MAX_LEN,
     _USER_ID_MAX_LEN,
+    StartAnalyzeRunRequest,
+    StreamAnalyzeRequest,
 )
-
 
 # ---------------------------------------------------------------------------
 # StreamAnalyzeRequest bounds
