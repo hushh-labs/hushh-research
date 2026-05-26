@@ -1042,7 +1042,7 @@ async def create_generic_consent_request(
 
 @router.get("/handshake/history")
 async def get_handshake_history(
-    counterpart_id: str = Query(..., min_length=1),
+    counterpart_id: str = Query(..., min_length=1, max_length=128),
     actor: str = Query(default="investor"),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=50, ge=1, le=200),
