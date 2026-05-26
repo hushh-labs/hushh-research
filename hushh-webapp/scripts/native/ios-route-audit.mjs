@@ -20,12 +20,22 @@ const derivedDataPath = path.resolve(
 const appPath =
   process.env.IOS_APP_PATH ||
   path.join(derivedDataPath, "Build/Products/Debug-iphonesimulator/App.app");
-const destination = process.env.IOS_TEST_DESTINATION || "platform=iOS Simulator,name=iPhone 14 Plus";
+const destination =
+  process.env.IOS_TEST_DESTINATION ||
+  resolveSimulatorDestination(process.env.IOS_TEST_DEVICE_NAME || "iPhone 14 Plus");
 const destinationDeviceId = destination.match(/(?:^|,)id=([^,]+)/)?.[1] || "";
 const simulatorDevice = destinationDeviceId || "booted";
 const bundleId = "com.hushh.app";
 const timeoutMs = Number(process.env.IOS_ROUTE_AUDIT_TIMEOUT_MS || "60000");
 const routeFilter = (process.env.IOS_ROUTE_FILTER || "").trim();
+const resetStateRoutes = new Set(
+  (process.env.IOS_ROUTE_AUDIT_RESET_ROUTES || "/logout,/login")
+    .split(",")
+    .map((route) => route.trim())
+    .filter(Boolean)
+);
+const reinstallResetRoutes =
+  process.env.IOS_ROUTE_AUDIT_REINSTALL_RESET_ROUTES !== "false";
 const xcodeProject = "ios/App/App.xcodeproj";
 const xcodeScheme = "App";
 
@@ -34,6 +44,29 @@ const reviewerIdentity = resolveReviewerTestIdentity({
 });
 const reviewerVaultPassphrase = reviewerIdentity.reviewerVaultPassphrase;
 const reviewerUid = reviewerIdentity.reviewerUid;
+
+function resolveSimulatorDestination(deviceName) {
+  try {
+    const output = execFileSync(
+      "xcrun",
+      ["simctl", "list", "devices", "available", "--json"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+    );
+    const payload = JSON.parse(output);
+    for (const devices of Object.values(payload.devices || {})) {
+      const device = devices.find(
+        (candidate) => candidate?.name === deviceName && candidate?.isAvailable
+      );
+      if (device?.udid) {
+        return `platform=iOS Simulator,id=${device.udid}`;
+      }
+    }
+  } catch {
+    // Fall back to Xcode's destination matching below.
+  }
+
+  return `platform=iOS Simulator,name=${deviceName}`;
+}
 
 function run(cmd, args, options = {}) {
   return execFileSync(cmd, args, {
@@ -106,6 +139,10 @@ function matchesRoute(parsedRoute, route) {
 
 function launchRoute(route) {
   tryRun("xcrun", ["simctl", "terminate", simulatorDevice, bundleId]);
+  if (reinstallResetRoutes && resetStateRoutes.has(route.route)) {
+    tryRun("xcrun", ["simctl", "uninstall", simulatorDevice, bundleId]);
+    run("xcrun", ["simctl", "install", simulatorDevice, appPath]);
+  }
   try {
     const container = run("xcrun", ["simctl", "get_app_container", simulatorDevice, bundleId, "data"]);
     const statusPath = path.join(container, "Documents", "native-test-status.txt");
@@ -121,7 +158,7 @@ function launchRoute(route) {
     args.push("-UITestExpectedRoute", route.expectedRoute);
   }
   args.push("-UITestAutoReviewerLogin", route.autoReviewerLogin ? "true" : "false");
-  args.push("-UITestResetAppState", "false");
+  args.push("-UITestResetAppState", resetStateRoutes.has(route.route) ? "true" : "false");
   args.push("-UITestVaultPassphrase", reviewerVaultPassphrase);
   args.push("-UITestExpectedUserId", reviewerUid);
   run("xcrun", args);

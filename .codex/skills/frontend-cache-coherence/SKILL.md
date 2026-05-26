@@ -61,6 +61,9 @@ Non-owned surfaces:
 4. Use `useStaleResource` or a service-owned resource wrapper for warm-cache rendering.
 5. Route all mutation invalidation through `CacheSyncService` or a domain service that delegates to it.
 6. Use reviewer env identity only through the existing resolver; never hardcode reviewer values.
+7. Treat performance as part of cache coherence: choose the safest available UX path before showing a blocking loader.
+8. Verify route/cache KPI coverage for changed screens: readiness, resource resolution, refresh completion, and warmup where applicable.
+9. Keep performance events metadata-only: route ID, resource class, cache tier, freshness, result, duration bucket, and footprint bucket. Never emit raw cache keys, user IDs, workflow IDs, PKM payloads, prompts, or decrypted values.
 
 ## Handoff Rules
 
@@ -74,6 +77,7 @@ Non-owned surfaces:
 ```bash
 cd hushh-webapp && npm run verify:cache
 cd hushh-webapp && npm run audit:cache-coherence
+cd hushh-webapp && npm run verify:analytics
 cd hushh-webapp && npm run verify:surface-map
 cd hushh-webapp && npm run verify:service-boundary
 ```

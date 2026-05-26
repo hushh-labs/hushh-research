@@ -46,6 +46,7 @@ import { PersonaProvider } from "@/lib/persona/persona-context";
 import { resolveSignedInShellContentOffset } from "@/components/app-ui/signed-in-shell-content-offset";
 import { NativeTestRouter } from "@/components/app-ui/native-test-router";
 import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
+import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-status";
 import {
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
   type InternalAppNavigationRequest,
@@ -252,6 +253,7 @@ export function Providers({ children }: ProvidersProps) {
                 <AgentPopoverProvider>
                   <NativeTestRouter />
                   <NativeTestBootstrap />
+                  <NativeTestRouteStatus />
                   <PersonaBootstrapRedirect />
                   <Suspense
                     fallback={

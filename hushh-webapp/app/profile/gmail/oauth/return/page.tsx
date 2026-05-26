@@ -1,23 +1,31 @@
+import { Suspense } from "react";
+
 import ProfileGmailOAuthReturnPageClient from "./page-client";
 
-type SearchParamsInput = Record<string, string | string[] | undefined>;
+type SearchParamValue = string | string[] | undefined;
 
-function firstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] || "" : value || "";
+function firstSearchParam(value: SearchParamValue): string {
+  if (Array.isArray(value)) {
+    return String(value[0] || "").trim();
+  }
+  return String(value || "").trim();
 }
 
 export default async function ProfileGmailOAuthReturnPage({
   searchParams,
 }: {
-  searchParams?: Promise<SearchParamsInput>;
+  searchParams?: Promise<Record<string, SearchParamValue>>;
 }) {
-  const resolvedSearchParams = (await searchParams) || {};
+  const params = searchParams ? await searchParams : {};
+
   return (
-    <ProfileGmailOAuthReturnPageClient
-      initialCode={firstParam(resolvedSearchParams.code).trim()}
-      initialState={firstParam(resolvedSearchParams.state).trim()}
-      initialError={firstParam(resolvedSearchParams.error).trim()}
-      initialErrorDescription={firstParam(resolvedSearchParams.error_description).trim()}
-    />
+    <Suspense fallback={null}>
+      <ProfileGmailOAuthReturnPageClient
+        initialCode={firstSearchParam(params.code)}
+        initialState={firstSearchParam(params.state)}
+        initialError={firstSearchParam(params.error)}
+        initialErrorDescription={firstSearchParam(params.error_description)}
+      />
+    </Suspense>
   );
 }

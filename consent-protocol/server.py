@@ -72,17 +72,24 @@ def _parse_cors_allowed_origins() -> list[str]:
     if frontend_url and frontend_url not in origins:
         origins.append(frontend_url)
 
+    if not _is_production():
+        for dev_origin in (
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3001",
+            "http://10.0.0.177:3000",
+        ):
+            if dev_origin not in origins:
+                origins.append(dev_origin)
+
     if origins:
         return origins
 
     if _is_production():
         return []
 
-    return [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://10.0.0.177:3000",
-    ]
+    return []
 
 
 # Import route modules

@@ -39,6 +39,11 @@ import { setOnboardingFlowActiveCookie } from "@/lib/services/onboarding-route-c
 import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { KAI_PORTFOLIO_IMPORT_IDLE_TIMEOUT_MS } from "@/lib/services/kai-import-stream-config";
+import type { LiveHoldingPreview } from "@/lib/kai/import/live-holdings-preview";
+import {
+  normalizeLiveHoldingPreviewRows,
+  replaceLiveHoldingPreviewRows,
+} from "@/lib/kai/import/live-holdings-preview";
 import { fetchDemoPortfolioTemplateAsset } from "@/lib/services/demo-mode-template-service";
 import { hasPortfolioHoldings, type PlaidPortfolioStatusResponse, type PortfolioSource } from "@/lib/kai/brokerage/portfolio-sources";
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
@@ -124,17 +129,6 @@ interface QualityReport {
   diagnostics?: Record<string, unknown>;
   dropped_reasons?: Record<string, number>;
   quality_gate?: Record<string, unknown>;
-}
-
-interface LiveHoldingPreview {
-  symbol?: string;
-  name?: string;
-  market_value?: number | null;
-  quantity?: number | null;
-  asset_type?: string;
-  position_side?: "long" | "short" | "liability";
-  is_short_position?: boolean;
-  is_liability_position?: boolean;
 }
 
 // Streaming state
@@ -318,7 +312,6 @@ const MAX_RAW_STREAM_LINES = 350;
 const STREAM_STALL_WARNING_MS = 45_000;
 const STREAM_STALL_ABORT_MS = 150_000;
 const STREAM_STALL_CHECK_INTERVAL_MS = 5_000;
-const GENERIC_IMPORT_STREAM_LINE = "Reviewing your statement...";
 
 function normalizeTickerSymbol(
   value: unknown,
@@ -354,31 +347,28 @@ function normalizeRawStreamLine(input: string): string {
     .trim();
   if (!stripped) return "";
   if (/^[\]\[\{\},:]+$/.test(stripped)) return "";
-  const looksStructuredPayload =
-    /^\s*[\[{]/.test(stripped) ||
-    /"[^"]+"\s*:/.test(stripped) ||
-    /(?:portfolio_data_v2|raw_extract_v2|analytics_v2|quality_report_v2|holdings_preview|progress_pct|chunk_count|total_chars|run_id|cursor|seq)\b/i.test(
-      stripped
-    );
   const tagged = stripped.match(/^\[([^\]]+)\]\s*(.*)$/);
+  const payloadText = tagged ? (tagged[2] || "").trim() : stripped;
+  const looksStructuredPayload =
+    (!tagged && /^\s*[\[{]/.test(stripped)) ||
+    /"[^"]+"\s*:/.test(payloadText) ||
+    /(?:portfolio_data_v2|raw_extract_v2|analytics_v2|quality_report_v2|holdings_preview|progress_pct|chunk_count|total_chars|run_id|cursor|seq)\b/i.test(
+      payloadText
+    );
   if (tagged) {
+    const tag = (tagged[1] || "").trim().toUpperCase();
     const cleaned = (tagged[2] || "").trim();
-    const message = looksStructuredPayload
-      ? GENERIC_IMPORT_STREAM_LINE
-      : toInvestorStreamText(cleaned);
-    return message;
+    const message = looksStructuredPayload ? "" : toInvestorStreamText(cleaned);
+    return message ? `[${tag}] ${message}` : "";
   }
   if (looksStructuredPayload) {
-    return GENERIC_IMPORT_STREAM_LINE;
+    return "";
   }
   return toInvestorStreamText(stripped);
 }
 
 function rawStreamLineKey(line: string): string {
   const normalized = normalizeRawStreamLine(line);
-  if (normalized.toLowerCase() === GENERIC_IMPORT_STREAM_LINE.toLowerCase()) {
-    return normalized.toLowerCase();
-  }
   const match = normalized.match(/^\[([^\]]+)\]\s*(.*)$/);
   if (!match) return normalized.toLowerCase();
   const tag = (match[1] || "").trim().toUpperCase();
@@ -396,12 +386,6 @@ function appendRawStreamLines(
     const line = normalizeRawStreamLine(raw);
     if (!line) continue;
     const lineKey = rawStreamLineKey(line);
-    if (
-      lineKey === GENERIC_IMPORT_STREAM_LINE.toLowerCase() &&
-      next.some((entry) => rawStreamLineKey(entry) === lineKey)
-    ) {
-      continue;
-    }
     if (next.length > 0) {
       const prevLine = next[next.length - 1];
       if (prevLine && rawStreamLineKey(prevLine) === lineKey) {
@@ -423,99 +407,15 @@ function sanitizeInvestorCopy(value: unknown, fallback = ""): string {
 }
 
 function dedupeLiveHoldingPreviewRows(rows: LiveHoldingPreview[]): LiveHoldingPreview[] {
-  if (rows.length <= 1) return rows;
-  const seen = new Set<string>();
-  const unique: LiveHoldingPreview[] = [];
-  for (const row of rows) {
-    const symbol = normalizeTickerSymbol(row.symbol, {
-      name: row.name,
-      assetType: row.asset_type,
-    });
-    const name = String(row.name || "").trim().toLowerCase();
-    const qty =
-      typeof row.quantity === "number" && Number.isFinite(row.quantity)
-        ? row.quantity.toFixed(6)
-        : "";
-    const value =
-      typeof row.market_value === "number" && Number.isFinite(row.market_value)
-        ? row.market_value.toFixed(2)
-        : "";
-    const assetType = String(row.asset_type || "").trim().toLowerCase();
-    const positionSide = String(row.position_side || "").trim().toLowerCase();
-    const key = [symbol, name, qty, value, assetType, positionSide].join("|");
-    if (!key.replace(/\|/g, "").trim()) continue;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push({
-      ...row,
-      symbol: symbol || row.symbol,
-    });
-  }
-  return unique;
+  return normalizeLiveHoldingPreviewRows(rows);
 }
 
 function mergeLiveHoldingPreviewRows(
   current: LiveHoldingPreview[],
   incoming: LiveHoldingPreview[]
 ): LiveHoldingPreview[] {
-  if (!incoming.length) return current;
-  const merged = dedupeLiveHoldingPreviewRows([...current, ...incoming]);
-  const bySymbol = new Map<string, LiveHoldingPreview>();
-  for (const row of merged) {
-    const symbol = normalizeTickerSymbol(row.symbol, {
-      name: row.name,
-      assetType: row.asset_type,
-    });
-    if (!symbol) continue;
-    const existing = bySymbol.get(symbol);
-    if (!existing) {
-      bySymbol.set(symbol, {
-        symbol,
-        name: row.name,
-        market_value: row.market_value ?? null,
-        quantity: row.quantity ?? null,
-        asset_type: row.asset_type,
-        position_side: row.position_side,
-        is_short_position: row.is_short_position,
-        is_liability_position: row.is_liability_position,
-      });
-      continue;
-    }
-    const existingQty =
-      typeof existing.quantity === "number" && Number.isFinite(existing.quantity)
-        ? existing.quantity
-        : 0;
-    const incomingQty =
-      typeof row.quantity === "number" && Number.isFinite(row.quantity)
-        ? row.quantity
-        : 0;
-    const existingValue =
-      typeof existing.market_value === "number" && Number.isFinite(existing.market_value)
-        ? existing.market_value
-        : 0;
-    const incomingValue =
-      typeof row.market_value === "number" && Number.isFinite(row.market_value)
-        ? row.market_value
-        : 0;
-    bySymbol.set(symbol, {
-      symbol,
-      name: existing.name || row.name,
-      quantity: existingQty + incomingQty,
-      market_value: existingValue + incomingValue,
-      asset_type: existing.asset_type || row.asset_type,
-      position_side:
-        existing.position_side === "liability" || row.position_side === "liability"
-          ? "liability"
-          : existing.position_side === "short" || row.position_side === "short"
-            ? "short"
-            : "long",
-      is_short_position:
-        Boolean(existing.is_short_position) || Boolean(row.is_short_position),
-      is_liability_position:
-        Boolean(existing.is_liability_position) || Boolean(row.is_liability_position),
-    });
-  }
-  return Array.from(bySymbol.values());
+  // Backend preview events are cumulative snapshots, not deltas.
+  return replaceLiveHoldingPreviewRows(current, incoming);
 }
 
 function readHoldingsPreview(value: unknown): LiveHoldingPreview[] | undefined {
@@ -1242,6 +1142,7 @@ export function KaiFlow({
               }
               case "progress": {
                 const statusMessage = sanitizeInvestorCopy(readString(payload.message), "");
+                const preview = readHoldingsPreview(payload.holdings_preview) ?? [];
                 applyStreaming((prev) => ({
                   ...prev,
                   statusMessage: statusMessage || prev.statusMessage,
@@ -1249,6 +1150,7 @@ export function KaiFlow({
                   holdingsExtracted:
                     readNumber(payload.holdings_extracted) ?? prev.holdingsExtracted,
                   holdingsTotal: readNumber(payload.holdings_total) ?? prev.holdingsTotal,
+                  liveHoldings: mergeLiveHoldingPreviewRows(prev.liveHoldings, preview),
                 }));
                 break;
               }
@@ -1271,12 +1173,17 @@ export function KaiFlow({
               }
               case "thinking": {
                 const statusMessage = sanitizeInvestorCopy(readString(payload.message), "");
+                const thought = sanitizeInvestorCopy(readString(payload.thought), "");
                 applyStreaming((prev) => ({
                   ...prev,
                   stage: "extracting",
-                  thoughtCount: prev.thoughtCount,
-                  thoughts: prev.thoughts,
+                  thoughtCount: readNumber(payload.count) ?? prev.thoughtCount + (thought ? 1 : 0),
+                  thoughts: thought ? [...prev.thoughts, thought].slice(-40) : prev.thoughts,
                   statusMessage: statusMessage || prev.statusMessage,
+                  rawStreamLines: appendRawStreamLines(
+                    prev.rawStreamLines,
+                    thought ? [`[THINKING] ${thought}`] : undefined
+                  ),
                   progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
                 }));
                 break;
@@ -2431,14 +2338,19 @@ export function KaiFlow({
               }
               case "thinking": {
                 const statusMessage = sanitizeInvestorCopy(readString(payload.message), "");
+                const thought = sanitizeInvestorCopy(readString(payload.thought), "");
                 applyStreaming((prev) => {
                   return {
                     ...prev,
                     stage: "extracting",
-                    thoughts: prev.thoughts,
-                    thoughtCount: prev.thoughtCount,
+                    thoughts: thought ? [...prev.thoughts, thought].slice(-40) : prev.thoughts,
+                    thoughtCount: readNumber(payload.count) ?? prev.thoughtCount + (thought ? 1 : 0),
                     progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
                     statusMessage: statusMessage || prev.statusMessage,
+                    rawStreamLines: appendRawStreamLines(
+                      prev.rawStreamLines,
+                      thought ? [`[THINKING] ${thought}`] : undefined
+                    ),
                     streamedText: fullModelTokenText || prev.streamedText,
                   };
                 });

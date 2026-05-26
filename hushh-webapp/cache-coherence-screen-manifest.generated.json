@@ -11,17 +11,17 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 41,
-    "physical_page_count": 41,
-    "route_contract_count": 41,
-    "surface_map_count": 41,
+    "total_screens": 43,
+    "physical_page_count": 43,
+    "route_contract_count": 43,
+    "surface_map_count": 43,
     "class_counts": {
       "public/static": 3,
       "realtime/SSE": 1,
-      "vault-backed": 8,
+      "vault-backed": 9,
       "auth/pre-vault": 6,
       "redirect/alias": 8,
-      "hidden flow": 4,
+      "hidden flow": 5,
       "RIA/provider": 8,
       "PKM-secure": 3
     },
@@ -32,6 +32,8 @@
     "fresh cache renders immediately without a full-page loader",
     "stale cache remains visible while background refresh runs",
     "cold cache may show a loader or skeleton",
+    "route readiness and cache performance emit bounded metadata-only observability events",
+    "cache performance events use route/resource classes and duration buckets, never raw cache keys or user payloads",
     "mutations route through CacheSyncService or a domain service that delegates to it",
     "realtime streams patch active state without blocking warm initial render",
     "decrypted PKM, vault keys, and consent secrets stay memory-only"
@@ -44,10 +46,20 @@
       "screen_class": "public/static",
       "cache_policy": "none",
       "cache_keys": [],
+      "resource_classes": [
+        "public_static"
+      ],
+      "sensitivity_class": "public",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
       "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/",
       "surface_map_present": true,
@@ -78,12 +90,27 @@
         "KAI_PROFILE",
         "ANALYSIS_HISTORY"
       ],
+      "resource_classes": [
+        "realtime_stream"
+      ],
+      "sensitivity_class": "app-metadata",
       "ttl_class": "CACHE_TTL.SHORT with active stream patching",
       "warm_source": "Route-local resource loader",
       "refresh_trigger": "SSE stream patch plus stale-aware background refresh",
       "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "background refresh",
+        "cold loader when missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "stream patch latency through route_refresh_completed"
+      ],
       "realtime_policy": "cached shell/data renders first; stream patches active view state and cache through service-layer adapters only",
-      "reviewer_fixture": "/agent",
+      "reviewer_fixture": "/login?redirect=%2Fagent",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -113,10 +140,23 @@
         "CONSENT_CENTER_SUMMARY",
         "CONSENT_CENTER_LIST"
       ],
+      "resource_classes": [
+        "consent_list"
+      ],
+      "sensitivity_class": "app-metadata",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "ConsentCenterService memory cache",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService.onConsentMutated",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fconsents",
       "surface_map_present": true,
@@ -143,10 +183,20 @@
       "screen_class": "public/static",
       "cache_policy": "none",
       "cache_keys": [],
+      "resource_classes": [
+        "public_static"
+      ],
+      "sensitivity_class": "public",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
       "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/developers",
       "surface_map_present": true,
@@ -177,10 +227,27 @@
         "KAI_MARKET_HOME_BASELINE",
         "KAI_DASHBOARD_PROFILE_PICKS"
       ],
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "secure device stale render",
+        "background refresh",
+        "cold loader when locked or missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fkai",
       "surface_map_present": true,
@@ -211,10 +278,24 @@
         "STOCK_CONTEXT",
         "PKM_METADATA"
       ],
+      "resource_classes": [
+        "auth_state"
+      ],
+      "sensitivity_class": "auth-state",
       "ttl_class": "single-use",
       "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fkai%2Falpaca%2Foauth%2Freturn",
       "surface_map_present": true,
@@ -245,10 +326,27 @@
         "ANALYSIS_HISTORY",
         "KAI_FINANCIAL_RESOURCE"
       ],
+      "resource_classes": [
+        "financial_resource",
+        "pkm_metadata"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "secure device stale render",
+        "background refresh",
+        "cold loader when locked or missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fkai%2Fanalysis%3Fticker%3DAAPL",
       "surface_map_present": true,
@@ -282,10 +380,21 @@
         "STOCK_CONTEXT",
         "PKM_METADATA"
       ],
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
       "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fkai%2Fdashboard",
       "surface_map_present": true,
@@ -316,10 +425,21 @@
         "STOCK_CONTEXT",
         "PKM_METADATA"
       ],
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
       "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fkai%2Fdashboard%2Fanalysis%3Fticker%3DAAPL",
       "surface_map_present": true,
@@ -350,10 +470,25 @@
         "STOCK_CONTEXT",
         "PKM_METADATA"
       ],
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fkai%2Ffunding-trade",
       "surface_map_present": true,
@@ -387,10 +522,25 @@
         "STOCK_CONTEXT",
         "PKM_METADATA"
       ],
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fkai%2Fimport",
       "surface_map_present": true,
@@ -423,10 +573,25 @@
         "STOCK_CONTEXT",
         "PKM_METADATA"
       ],
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fkai%2Finvestments",
       "surface_map_present": true,
@@ -460,10 +625,25 @@
         "STOCK_CONTEXT",
         "PKM_METADATA"
       ],
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fkai%2Fonboarding",
       "surface_map_present": true,
@@ -496,10 +676,25 @@
         "STOCK_CONTEXT",
         "PKM_METADATA"
       ],
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fkai%2Foptimize",
       "surface_map_present": true,
@@ -532,10 +727,24 @@
         "STOCK_CONTEXT",
         "PKM_METADATA"
       ],
+      "resource_classes": [
+        "auth_state"
+      ],
+      "sensitivity_class": "auth-state",
       "ttl_class": "single-use",
       "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fkai%2Fplaid%2Foauth%2Freturn",
       "surface_map_present": true,
@@ -566,10 +775,27 @@
         "PKM_METADATA",
         "DOMAIN_DATA(financial)"
       ],
+      "resource_classes": [
+        "financial_resource",
+        "pkm_metadata"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "secure device stale render",
+        "background refresh",
+        "cold loader when locked or missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fkai%2Fportfolio",
       "surface_map_present": true,
@@ -598,10 +824,23 @@
       "screen_class": "hidden flow",
       "cache_policy": "memory-only",
       "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "Route-local resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/labs/profile-appearance",
       "surface_map_present": true,
@@ -630,10 +869,23 @@
       "screen_class": "auth/pre-vault",
       "cache_policy": "memory-only",
       "cache_keys": [],
+      "resource_classes": [
+        "auth_state"
+      ],
+      "sensitivity_class": "auth-state",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "Route-local resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login",
       "surface_map_present": true,
@@ -660,10 +912,23 @@
       "screen_class": "auth/pre-vault",
       "cache_policy": "memory-only",
       "cache_keys": [],
+      "resource_classes": [
+        "auth_state"
+      ],
+      "sensitivity_class": "auth-state",
       "ttl_class": "single-use",
       "warm_source": "Route-local resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/logout",
       "surface_map_present": true,
@@ -693,10 +958,25 @@
         "MARKETPLACE_RIAS_SEARCH",
         "MARKETPLACE_INVESTORS_SEARCH"
       ],
+      "resource_classes": [
+        "ria_workspace"
+      ],
+      "sensitivity_class": "app-metadata",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "RIA service memory/device cache",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "RIA service invalidation plus CacheSyncService consent hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "plain device stale render",
+        "background refresh",
+        "cold loader when missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fmarketplace",
       "surface_map_present": true,
@@ -728,10 +1008,20 @@
         "MARKETPLACE_RIAS_SEARCH",
         "MARKETPLACE_INVESTORS_SEARCH"
       ],
+      "resource_classes": [
+        "ria_workspace"
+      ],
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
       "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fmarketplace%2Fconnections",
       "surface_map_present": true,
@@ -761,10 +1051,20 @@
         "MARKETPLACE_RIAS_SEARCH",
         "MARKETPLACE_INVESTORS_SEARCH"
       ],
+      "resource_classes": [
+        "ria_workspace"
+      ],
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
       "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fmarketplace%2Fconnections%2Fportfolio",
       "surface_map_present": true,
@@ -794,10 +1094,25 @@
         "MARKETPLACE_RIAS_SEARCH",
         "MARKETPLACE_INVESTORS_SEARCH"
       ],
+      "resource_classes": [
+        "ria_workspace"
+      ],
+      "sensitivity_class": "app-metadata",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "RIA service memory/device cache",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "RIA service invalidation plus CacheSyncService consent hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "plain device stale render",
+        "background refresh",
+        "cold loader when missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fmarketplace%2Fria%3FriaId%3Dmissing-demo-ria",
       "surface_map_present": true,
@@ -829,12 +1144,119 @@
         "PKM_DOMAIN_RESOURCE",
         "KYC workflow client state"
       ],
+      "resource_classes": [
+        "pkm_projection",
+        "consent_list"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.SESSION for metadata; secure resource revision controls payload freshness",
       "warm_source": "Vault unlock plus secure resource cache",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "secure device stale render",
+        "background refresh",
+        "cold loader when locked or missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fkyc",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/location",
+      "page_file": "app/one/location/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Flocation",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/location/request/[token]",
+      "page_file": "app/one/location/request/[token]/page.tsx",
+      "route_contract_mode": "hidden",
+      "screen_class": "hidden flow",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/location/request/[token]",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -861,10 +1283,20 @@
       "screen_class": "public/static",
       "cache_policy": "none",
       "cache_keys": [],
+      "resource_classes": [
+        "public_static"
+      ],
+      "sensitivity_class": "public",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
       "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/portfolio/shared",
       "surface_map_present": true,
@@ -895,10 +1327,25 @@
         "PKM_METADATA",
         "VAULT_STATUS"
       ],
+      "resource_classes": [
+        "vault_metadata",
+        "pkm_metadata"
+      ],
+      "sensitivity_class": "user-metadata",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "Route-local resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fprofile",
       "surface_map_present": true,
@@ -927,10 +1374,23 @@
       "screen_class": "auth/pre-vault",
       "cache_policy": "memory-only",
       "cache_keys": [],
+      "resource_classes": [
+        "auth_state"
+      ],
+      "sensitivity_class": "auth-state",
       "ttl_class": "single-use",
       "warm_source": "Route-local resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fprofile%2Fgmail%2Foauth%2Freturn",
       "surface_map_present": true,
@@ -957,10 +1417,21 @@
       "screen_class": "redirect/alias",
       "cache_policy": "none",
       "cache_keys": [],
+      "resource_classes": [
+        "pkm_metadata",
+        "pkm_projection"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
       "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fprofile%2Fpkm",
       "surface_map_present": true,
@@ -991,10 +1462,26 @@
         "PKM_DOMAIN_RESOURCE",
         "PKM_UPGRADE_STATUS"
       ],
+      "resource_classes": [
+        "pkm_metadata",
+        "pkm_projection"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.SESSION for metadata; secure resource revision controls payload freshness",
       "warm_source": "Vault unlock plus secure resource cache",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "secure device stale render",
+        "background refresh",
+        "cold loader when locked or missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/profile/pkm-agent-lab",
       "surface_map_present": true,
@@ -1026,10 +1513,26 @@
         "Gmail receipts resource cache",
         "PKM_DOMAIN_RESOURCE"
       ],
+      "resource_classes": [
+        "pkm_metadata",
+        "pkm_projection"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.SESSION for metadata; secure resource revision controls payload freshness",
       "warm_source": "Vault unlock plus secure resource cache",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "secure device stale render",
+        "background refresh",
+        "cold loader when locked or missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fprofile%2Freceipts",
       "surface_map_present": true,
@@ -1056,10 +1559,23 @@
       "screen_class": "auth/pre-vault",
       "cache_policy": "memory-only",
       "cache_keys": [],
+      "resource_classes": [
+        "auth_state"
+      ],
+      "sensitivity_class": "auth-state",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "Route-local resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fregister-phone",
       "surface_map_present": true,
@@ -1090,10 +1606,26 @@
         "PERSONA_STATE",
         "RIA_ONBOARDING_STATUS"
       ],
+      "resource_classes": [
+        "ria_workspace",
+        "consent_list"
+      ],
+      "sensitivity_class": "app-metadata",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "RIA service memory/device cache",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "RIA service invalidation plus CacheSyncService consent hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "plain device stale render",
+        "background refresh",
+        "cold loader when missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fria",
       "surface_map_present": true,
@@ -1122,10 +1654,26 @@
       "cache_keys": [
         "RIA_CLIENTS"
       ],
+      "resource_classes": [
+        "ria_workspace",
+        "consent_list"
+      ],
+      "sensitivity_class": "app-metadata",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "RIA service memory/device cache",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "RIA service invalidation plus CacheSyncService consent hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "plain device stale render",
+        "background refresh",
+        "cold loader when missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fria%2Fclients",
       "surface_map_present": true,
@@ -1155,10 +1703,26 @@
         "RIA_CLIENT_DETAIL",
         "RIA_WORKSPACE"
       ],
+      "resource_classes": [
+        "ria_workspace",
+        "consent_list"
+      ],
+      "sensitivity_class": "app-metadata",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "RIA service memory/device cache",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "RIA service invalidation plus CacheSyncService consent hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "plain device stale render",
+        "background refresh",
+        "cold loader when missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/ria/clients/${REVIEWER_UID}?tab=overview&test_profile=1",
       "surface_map_present": true,
@@ -1190,10 +1754,26 @@
         "RIA_CLIENT_DETAIL",
         "RIA_WORKSPACE"
       ],
+      "resource_classes": [
+        "ria_workspace",
+        "consent_list"
+      ],
+      "sensitivity_class": "app-metadata",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "RIA service memory/device cache",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "RIA service invalidation plus CacheSyncService consent hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "plain device stale render",
+        "background refresh",
+        "cold loader when missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/ria/clients/${REVIEWER_UID}/accounts/acct_demo_taxable_main?test_profile=1",
       "surface_map_present": true,
@@ -1225,10 +1805,26 @@
         "RIA_CLIENT_DETAIL",
         "CONSENT_CENTER_LIST"
       ],
+      "resource_classes": [
+        "ria_workspace",
+        "consent_list"
+      ],
+      "sensitivity_class": "app-metadata",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "RIA service memory/device cache",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService.onConsentMutated",
+      "best_available_ux_path": [
+        "fresh memory",
+        "plain device stale render",
+        "background refresh",
+        "cold loader when missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/ria/clients/${REVIEWER_UID}/requests/request_demo_kai_specialized_bundle?test_profile=1",
       "surface_map_present": true,
@@ -1257,10 +1853,24 @@
       "screen_class": "hidden flow",
       "cache_policy": "memory-only",
       "cache_keys": [],
+      "resource_classes": [
+        "ria_workspace",
+        "consent_list"
+      ],
+      "sensitivity_class": "app-metadata",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "RIA service memory/device cache",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "RIA service invalidation plus CacheSyncService consent hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fria%2Fonboarding",
       "surface_map_present": true,
@@ -1291,10 +1901,26 @@
       "cache_keys": [
         "RIA_PICKS"
       ],
+      "resource_classes": [
+        "ria_workspace",
+        "consent_list"
+      ],
+      "sensitivity_class": "app-metadata",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "RIA service memory/device cache",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "RIA service invalidation plus CacheSyncService consent hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "plain device stale render",
+        "background refresh",
+        "cold loader when missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fria%2Fpicks",
       "surface_map_present": true,
@@ -1321,10 +1947,21 @@
       "screen_class": "redirect/alias",
       "cache_policy": "none",
       "cache_keys": [],
+      "resource_classes": [
+        "ria_workspace",
+        "consent_list"
+      ],
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
       "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fria%2Frequests",
       "surface_map_present": true,
@@ -1351,10 +1988,21 @@
       "screen_class": "redirect/alias",
       "cache_policy": "none",
       "cache_keys": [],
+      "resource_classes": [
+        "ria_workspace",
+        "consent_list"
+      ],
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
       "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fria%2Fsettings",
       "surface_map_present": true,
@@ -1381,10 +2029,21 @@
       "screen_class": "redirect/alias",
       "cache_policy": "none",
       "cache_keys": [],
+      "resource_classes": [
+        "ria_workspace",
+        "consent_list"
+      ],
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
       "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fria%2Fworkspace",
       "surface_map_present": true,
