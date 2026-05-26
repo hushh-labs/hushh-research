@@ -64,6 +64,16 @@ struct NativeTestConfiguration {
           bridge.lastJsError = "";
           bridge.lastUnhandledRejection = "";
           try {
+            var root = document.documentElement;
+            if (root) {
+              root.setAttribute("data-hushh-native-test-enabled", bridge.enabled ? "true" : "false");
+              root.setAttribute("data-hushh-native-test-auto-reviewer-login", bridge.autoReviewerLogin ? "true" : "false");
+              root.setAttribute("data-hushh-native-test-expected-marker", bridge.expectedMarker || "");
+              root.setAttribute("data-hushh-native-test-initial-route", bridge.initialRoute || "");
+              root.setAttribute("data-hushh-native-test-expected-route", bridge.expectedRoute || "");
+            }
+          } catch (_) {}
+          try {
             window.addEventListener("error", function(event) {
               try {
                 bridge.lastJsError = String(event && (event.message || event.error || "unknown_js_error"));
@@ -249,14 +259,35 @@ struct NativeTestConfiguration {
         let expectedRoute = (self.expectedRoute ?? "")
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+        let initialRoute = (self.initialRoute ?? "")
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let autoReviewerLogin = self.autoReviewerLogin ? "true" : "false"
 
         return """
         (function() {
           var marker = "\(marker)";
           var expectedRoute = "\(expectedRoute)";
+          var initialRoute = "\(initialRoute)";
+          var autoReviewerLogin = \(autoReviewerLogin);
           var bridge = window.__HUSHH_NATIVE_TEST__ || {};
+          var previousInitialRoute = bridge.initialRoute || "";
           bridge.expectedMarker = marker;
           bridge.expectedRoute = expectedRoute;
+          bridge.initialRoute = initialRoute || null;
+          bridge.autoReviewerLogin = autoReviewerLogin === true;
+          try {
+            var root = document.documentElement;
+            if (root) {
+              root.setAttribute("data-hushh-native-test-auto-reviewer-login", bridge.autoReviewerLogin ? "true" : "false");
+              root.setAttribute("data-hushh-native-test-initial-route", bridge.initialRoute || "");
+              root.setAttribute("data-hushh-native-test-expected-marker", bridge.expectedMarker || "");
+              root.setAttribute("data-hushh-native-test-expected-route", bridge.expectedRoute || "");
+            }
+            if (previousInitialRoute !== (bridge.initialRoute || "")) {
+              window.dispatchEvent(new CustomEvent("hushh:native-test-config-updated"));
+            }
+          } catch (_) {}
           if (bridge.readStatus) {
             return JSON.stringify(bridge.readStatus());
           }

@@ -47,9 +47,7 @@ def test_one_location_public_invite_migration_has_hash_only_and_abuse_indexes() 
 
 
 def test_one_location_retention_migration_covers_public_request_state() -> None:
-    sql = (MIGRATIONS_DIR / "065_one_location_retention_indexes.sql").read_text(
-        encoding="utf-8"
-    )
+    sql = (MIGRATIONS_DIR / "065_one_location_retention_indexes.sql").read_text(encoding="utf-8")
 
     assert "idx_one_location_share_grants_terminal_retention" in sql
     assert "idx_one_location_public_invites_terminal_retention" in sql

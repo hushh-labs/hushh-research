@@ -14,7 +14,7 @@ import os
 import re
 import time
 from datetime import datetime, timezone
-from typing import Annotated, Any, AsyncGenerator, Dict, Optional
+from typing import Annotated, Any, AsyncGenerator, Callable, Dict, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
@@ -150,6 +150,10 @@ _stream_ctx: contextvars.ContextVar[CanonicalSSEStream | None] = contextvars.Con
     "kai_stream_ctx",
     default=None,
 )
+_stream_activity_ctx: contextvars.ContextVar[Callable[[], None] | None] = contextvars.ContextVar(
+    "kai_stream_activity_ctx",
+    default=None,
+)
 
 
 def create_event(event_type: str, data: dict, *, terminal: bool = False) -> dict[str, str]:
@@ -158,7 +162,11 @@ def create_event(event_type: str, data: dict, *, terminal: bool = False) -> dict
     if ctx is None:
         ctx = CanonicalSSEStream("stock_analyze")
         _stream_ctx.set(ctx)
-    return ctx.event(event_type, data, terminal=terminal)
+    frame = ctx.event(event_type, data, terminal=terminal)
+    activity_callback = _stream_activity_ctx.get()
+    if activity_callback is not None:
+        activity_callback()
+    return frame
 
 
 def _safe_round(value: Any, fallback: int) -> int:
@@ -1019,7 +1027,7 @@ async def analyze_stream_generator(
     stream_ctx = _stream_ctx.get()
     stream_id = stream_ctx.stream_id if stream_ctx is not None else None
     loop = asyncio.get_running_loop()
-    stream_started_at = loop.time()
+    last_activity_at = loop.time()
     llm_calls_count = 0
     provider_calls_count = 0
     retry_counts: dict[str, int] = {"fundamental": 0, "sentiment": 0, "valuation": 0}
@@ -1029,12 +1037,18 @@ async def analyze_stream_generator(
     eligibility_reason = "excluded_missing_equity_classification"
     eligibility_source = "request_symbol"
 
+    def mark_stream_activity() -> None:
+        nonlocal last_activity_at
+        last_activity_at = loop.time()
+
+    activity_token = _stream_activity_ctx.set(mark_stream_activity)
+
     def remaining_timeout() -> float:
-        elapsed = loop.time() - stream_started_at
-        remaining = STOCK_ANALYZE_TIMEOUT_SECONDS - elapsed
+        idle_seconds = loop.time() - last_activity_at
+        remaining = STOCK_ANALYZE_TIMEOUT_SECONDS - idle_seconds
         if remaining <= 0:
             raise asyncio.TimeoutError(
-                f"Analyze stream timed out after {STOCK_ANALYZE_TIMEOUT_SECONDS}s"
+                f"Analyze stream inactive for {STOCK_ANALYZE_TIMEOUT_SECONDS}s"
             )
         return remaining
 
@@ -2327,7 +2341,7 @@ async def analyze_stream_generator(
 
     except asyncio.TimeoutError:
         logger.warning(
-            "[Kai Stream] Hard timeout (%ss) reached for %s",
+            "[Kai Stream] Inactivity timeout (%ss) reached for %s",
             STOCK_ANALYZE_TIMEOUT_SECONDS,
             ticker,
         )
@@ -2335,7 +2349,9 @@ async def analyze_stream_generator(
             "error",
             {
                 "code": "ANALYZE_TIMEOUT",
-                "message": f"Analysis timed out after {STOCK_ANALYZE_TIMEOUT_SECONDS}s.",
+                "message": (
+                    f"Analysis stream paused without activity for {STOCK_ANALYZE_TIMEOUT_SECONDS}s."
+                ),
                 "ticker": ticker,
             },
             terminal=True,
@@ -2348,6 +2364,7 @@ async def analyze_stream_generator(
             terminal=True,
         )
     finally:
+        _stream_activity_ctx.reset(activity_token)
         _stream_ctx.reset(stream_token)
 
 

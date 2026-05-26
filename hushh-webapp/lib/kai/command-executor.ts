@@ -1,5 +1,5 @@
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type { KaiCommandAction, KaiCommandParams } from "@/lib/kai/kai-command-types";
 import {
@@ -154,7 +154,6 @@ export function executeKaiCommand(input: ExecuteKaiCommandInput): ExecuteKaiComm
     command,
     params,
     router,
-    userId,
     hasPortfolioData,
     reviewDirty,
     busyOperations,
@@ -254,12 +253,8 @@ export function executeKaiCommand(input: ExecuteKaiCommandInput): ExecuteKaiComm
       });
     }
 
-    setAnalysisParams({
-      ticker: symbol,
-      userId,
-      riskProfile: "balanced",
-    });
-    const routeAfter = getActiveAnalysisTarget(symbol);
+    setAnalysisParams(null);
+    const routeAfter = buildKaiAnalysisPreviewRoute({ ticker: symbol });
     router.push(routeAfter);
     return buildCommandResult({
       status: "executed",
@@ -269,7 +264,7 @@ export function executeKaiCommand(input: ExecuteKaiCommandInput): ExecuteKaiComm
       routeAfter,
       screenBefore: currentScreen,
       screenAfter: "kai_analysis",
-      resultSummary: `Started analysis for ${symbol} in the Kai analysis workspace.`,
+      resultSummary: `Opened the ${symbol} comparison preview before starting the debate.`,
       data: { command, symbol },
     });
   }

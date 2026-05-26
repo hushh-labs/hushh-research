@@ -294,6 +294,13 @@ Use the `Subtle Apple` depth model:
 4. Visibility and interval refreshes should be stale-aware, not unconditional.
 5. Unlock warmup can seed cache, but route loaders must still own stale-refresh policy.
 6. New or changed screens must stay covered by `cd hushh-webapp && npm run audit:cache-coherence`.
+7. Performance is part of the UX contract:
+   - use the safest available render path before showing a blocking loader
+   - preserve stale safe content while refresh runs
+   - avoid bounce or blank reload effects when a warm snapshot exists
+   - emit bounded route/cache KPI metadata for route readiness and refresh outcomes
+8. Cache and performance events must be consumer-safe metadata only. Never log raw user values, PKM payloads, workflow IDs, portfolio values, prompts, or cache keys.
+9. If a route cannot render from cache safely, the loading state must explain the real user-facing reason, such as locked vault, first setup, or reconnect needed.
 
 ## Icon Policy
 
