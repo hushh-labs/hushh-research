@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-05-07T04:31:00.520Z",
+  "generated_at": "2026-05-25T06:27:59.825Z",
   "destination": "platform=iOS Simulator,id=9C5B1D61-028C-474A-BDFC-523BACC3B02C",
-  "audited_routes": 32,
-  "passed_routes": 32,
+  "audited_routes": 36,
+  "passed_routes": 36,
   "failed_routes": 0,
   "results": [
     {
@@ -39,94 +39,55 @@
         "bootstrap": "",
         "bootstrap_uid": "",
         "bootstrap_error": "",
-        "jserr": "",
+        "jserr": "Error: Minified React error #418",
+        " visit https://react.dev/errors/418?args[]": "HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.",
         "jsrej": "",
-        "body": "Kai\nMeet Kai,\nYour Personal\nFinancial Advisor\n\nThe fastest path to actionable wealth insights.\nSeamless KYC\nAccelerating KYC with frictionless verification\nPort",
+        "body": "🤫\nMeet One,\nYour Personal\nFinancial Advisor\n\nThe fastest path to actionable wealth insights.\nSeamless KYC\nAccelerating KYC with frictionless verification\nPortf",
         "error": ""
       },
-      "raw": "route=/;ready=1;marker=native-route-home;auth=anonymous;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=0;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=;bootstrap_uid=;bootstrap_error=;jserr=;jsrej=;body=Kai\nMeet Kai,\nYour Personal\nFinancial Advisor\n\nThe fastest path to actionable wealth insights.\nSeamless KYC\nAccelerating KYC with frictionless verification\nPort;error="
+      "raw": "route=/;ready=1;marker=native-route-home;auth=anonymous;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=0;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=;bootstrap_uid=;bootstrap_error=;jserr=Error: Minified React error #418; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.;jsrej=;body=🤫\nMeet One,\nYour Personal\nFinancial Advisor\n\nThe fastest path to actionable wealth insights.\nSeamless KYC\nAccelerating KYC with frictionless verification\nPortf;error="
     },
     {
-      "route": "/login",
+      "route": "/register-phone",
       "ok": true,
       "expected": {
-        "route": "/login",
+        "route": "/register-phone",
         "classification": "native-required-functional",
-        "initialRoute": "/login",
-        "expectedMarker": "native-route-login",
-        "expectedRoute": "/login",
-        "autoReviewerLogin": false,
-        "expectedAuth": "anonymous",
+        "initialRoute": "/login?redirect=%2Fregister-phone",
+        "expectedMarker": "native-route-kai-home",
+        "expectedRoute": "/kai",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
         "allowedDataStates": [
           "loaded"
         ]
       },
       "observed": {
-        "route": "/login/",
+        "route": "/kai/",
         "ready": "1",
-        "marker": "native-route-login",
-        "auth": "anonymous",
+        "marker": "native-route-kai-home",
+        "auth": "authenticated",
         "data": "loaded",
         "doc": "complete",
         "found": "1",
         "routeok": "1",
         "test": "1",
-        "auto": "0",
-        "bridge": "1",
+        "auto": "1",
+        "bridge": "0",
         "trigger": "1",
         "domtest": "",
         "domauto": "",
         "reviewer": "0",
-        "bootstrap": "",
-        "bootstrap_uid": "",
+        "bootstrap": "vault_unlocked",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
-        "jserr": "",
+        "jserr": "Error: Minified React error #418",
+        " visit https://react.dev/errors/418?args[]": "HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.",
         "jsrej": "",
-        "body": "Kai\nSign in to Kai\nContinue with your preferred provider.\n\nContinue with Apple\n\nContinue with Google\nAfter sign-in, Kai requires a verified phone number before",
-        "error": "cfg_1_0"
-      },
-      "raw": "route=/login/;ready=1;marker=native-route-login;auth=anonymous;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=0;bridge=1;trigger=1;domtest=;domauto=;reviewer=0;bootstrap=;bootstrap_uid=;bootstrap_error=;jserr=;jsrej=;body=Kai\nSign in to Kai\nContinue with your preferred provider.\n\nContinue with Apple\n\nContinue with Google\nAfter sign-in, Kai requires a verified phone number before;error=cfg_1_0"
-    },
-    {
-      "route": "/logout",
-      "ok": true,
-      "expected": {
-        "route": "/logout",
-        "classification": "native-required-functional",
-        "initialRoute": "/logout",
-        "expectedMarker": "native-route-home",
-        "expectedRoute": "/",
-        "autoReviewerLogin": false,
-        "expectedAuth": "anonymous",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "observed": {
-        "route": "/",
-        "ready": "1",
-        "marker": "native-route-home",
-        "auth": "anonymous",
-        "data": "loaded",
-        "doc": "complete",
-        "found": "1",
-        "routeok": "1",
-        "test": "1",
-        "auto": "0",
-        "bridge": "1",
-        "trigger": "0",
-        "domtest": "",
-        "domauto": "",
-        "reviewer": "0",
-        "bootstrap": "",
-        "bootstrap_uid": "",
-        "bootstrap_error": "",
-        "jserr": "",
-        "jsrej": "",
-        "body": "Kai\nMeet Kai,\nYour Personal\nFinancial Advisor\n\nThe fastest path to actionable wealth insights.\nSeamless KYC\nAccelerating KYC with frictionless verification\nPort",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nAnalyze, dashboard, consent with Kai\n\nUnlock your vault to use voice\nCommand Palette\nSearch for a command to run",
         "error": ""
       },
-      "raw": "route=/;ready=1;marker=native-route-home;auth=anonymous;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=0;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=;bootstrap_uid=;bootstrap_error=;jserr=;jsrej=;body=Kai\nMeet Kai,\nYour Personal\nFinancial Advisor\n\nThe fastest path to actionable wealth insights.\nSeamless KYC\nAccelerating KYC with frictionless verification\nPort;error="
+      "raw": "route=/kai/;ready=1;marker=native-route-kai-home;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=0;trigger=1;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=Error: Minified React error #418; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nAnalyze, dashboard, consent with Kai\n\nUnlock your vault to use voice\nCommand Palette\nSearch for a command to run;error="
     },
     {
       "route": "/kai",
@@ -160,14 +121,15 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
-        "jserr": "",
+        "jserr": "Error: Minified React error #418",
+        " visit https://react.dev/errors/418?args[]": "HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nMarket\nTrack",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nMarket\nTrack the mar",
         "error": ""
       },
-      "raw": "route=/kai/;ready=1;marker=native-route-kai-home;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nMarket\nTrack;error="
+      "raw": "route=/kai/;ready=1;marker=native-route-kai-home;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=Error: Minified React error #418; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nMarket\nTrack the mar;error="
     },
     {
       "route": "/kai/analysis",
@@ -201,14 +163,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nAnalysis\n1",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n2\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nAnalysis\n1\nReview sa",
         "error": ""
       },
-      "raw": "route=/kai/analysis/?ticker=AAPL;ready=1;marker=native-route-kai-analysis;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nAnalysis\n1;error="
+      "raw": "route=/kai/analysis/?ticker=AAPL;ready=1;marker=native-route-kai-analysis;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n2\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nAnalysis\n1\nReview sa;error="
     },
     {
       "route": "/kai/dashboard",
@@ -216,6 +178,7 @@
       "expected": {
         "route": "/kai/dashboard",
         "classification": "native-required-functional",
+        "legacyAlias": true,
         "initialRoute": "/login?redirect=%2Fkai%2Fdashboard",
         "expectedMarker": "native-route-kai-portfolio",
         "expectedRoute": "/kai/portfolio",
@@ -242,14 +205,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI PORTFOLIO\nPo",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to",
         "error": ""
       },
-      "raw": "route=/kai/portfolio/;ready=1;marker=native-route-kai-portfolio;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI PORTFOLIO\nPo;error="
+      "raw": "route=/kai/portfolio/;ready=1;marker=native-route-kai-portfolio;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to;error="
     },
     {
       "route": "/kai/dashboard/analysis",
@@ -257,6 +220,7 @@
       "expected": {
         "route": "/kai/dashboard/analysis",
         "classification": "native-required-functional",
+        "legacyAlias": true,
         "initialRoute": "/login?redirect=%2Fkai%2Fdashboard%2Fanalysis%3Fticker%3DAAPL",
         "expectedMarker": "native-route-kai-analysis",
         "expectedRoute": "/kai/analysis",
@@ -283,14 +247,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nAnalysis\n1",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to",
         "error": ""
       },
-      "raw": "route=/kai/analysis/;ready=1;marker=native-route-kai-analysis;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nAnalysis\n1;error="
+      "raw": "route=/kai/analysis/;ready=1;marker=native-route-kai-analysis;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to;error="
     },
     {
       "route": "/kai/import",
@@ -324,14 +288,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nYour money\nYour",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to",
         "error": ""
       },
-      "raw": "route=/kai/import/;ready=1;marker=native-route-kai-import;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nYour money\nYour;error="
+      "raw": "route=/kai/import/;ready=1;marker=native-route-kai-import;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to;error="
     },
     {
       "route": "/kai/investments",
@@ -365,14 +329,56 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nLoading invest",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to",
         "error": ""
       },
-      "raw": "route=/kai/investments/;ready=1;marker=native-route-kai-investments;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nLoading invest;error="
+      "raw": "route=/kai/investments/;ready=1;marker=native-route-kai-investments;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to;error="
+    },
+    {
+      "route": "/kai/funding-trade",
+      "ok": true,
+      "expected": {
+        "route": "/kai/funding-trade",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fkai%2Ffunding-trade",
+        "expectedMarker": "native-route-kai-funding-trade",
+        "expectedRoute": "/kai/funding-trade",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "unavailable-valid"
+        ]
+      },
+      "observed": {
+        "route": "/kai/funding-trade/",
+        "ready": "1",
+        "marker": "native-route-kai-funding-trade",
+        "auth": "authenticated",
+        "data": "loaded",
+        "doc": "complete",
+        "found": "1",
+        "routeok": "1",
+        "test": "1",
+        "auto": "1",
+        "bridge": "1",
+        "trigger": "0",
+        "domtest": "",
+        "domauto": "",
+        "reviewer": "0",
+        "bootstrap": "vault_unlocked",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_error": "",
+        "jserr": "",
+        "jsrej": "",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to",
+        "error": ""
+      },
+      "raw": "route=/kai/funding-trade/;ready=1;marker=native-route-kai-funding-trade;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to;error="
     },
     {
       "route": "/kai/onboarding",
@@ -406,14 +412,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
         "body": "Get started\n\nStep 1 of 3\n100%\nThere are no right or wrong answers.\nHelp us tailor your investment plan.\n\nHow long do you expect to keep this money invested?\n\nLe",
         "error": ""
       },
-      "raw": "route=/kai/onboarding/;ready=1;marker=native-route-kai-onboarding;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Get started\n\nStep 1 of 3\n100%\nThere are no right or wrong answers.\nHelp us tailor your investment plan.\n\nHow long do you expect to keep this money invested?\n\nLe;error="
+      "raw": "route=/kai/onboarding/;ready=1;marker=native-route-kai-onboarding;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Get started\n\nStep 1 of 3\n100%\nThere are no right or wrong answers.\nHelp us tailor your investment plan.\n\nHow long do you expect to keep this money invested?\n\nLe;error="
     },
     {
       "route": "/kai/optimize",
@@ -449,14 +455,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI OPTIMIZE\nP",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI OPTIMIZE\nPortfolio O",
         "error": ""
       },
-      "raw": "route=/kai/optimize/;ready=1;marker=native-route-kai-optimize;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI OPTIMIZE\nP;error="
+      "raw": "route=/kai/optimize/;ready=1;marker=native-route-kai-optimize;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI OPTIMIZE\nPortfolio O;error="
     },
     {
       "route": "/kai/plaid/oauth/return",
@@ -491,14 +497,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nPlaid connecti",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to",
         "error": "plaid_resume"
       },
-      "raw": "route=/kai/plaid/oauth/return/;ready=1;marker=native-route-kai-plaid-return;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nPlaid connecti;error=plaid_resume"
+      "raw": "route=/kai/plaid/oauth/return/;ready=1;marker=native-route-kai-plaid-return;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to;error=plaid_resume"
     },
     {
       "route": "/kai/alpaca/oauth/return",
@@ -533,14 +539,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nAlpaca connect",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nAlpaca connection needs",
         "error": "alpaca_connect_resume"
       },
-      "raw": "route=/kai/alpaca/oauth/return/;ready=1;marker=native-route-kai-alpaca-return;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nAlpaca connect;error=alpaca_connect_resume"
+      "raw": "route=/kai/alpaca/oauth/return/;ready=1;marker=native-route-kai-alpaca-return;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nAlpaca connection needs;error=alpaca_connect_resume"
     },
     {
       "route": "/kai/portfolio",
@@ -574,14 +580,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI PORTFOLIO\nPo",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to",
         "error": ""
       },
-      "raw": "route=/kai/portfolio/;ready=1;marker=native-route-kai-portfolio;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI PORTFOLIO\nPo;error="
+      "raw": "route=/kai/portfolio/;ready=1;marker=native-route-kai-portfolio;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to;error="
     },
     {
       "route": "/portfolio/shared",
@@ -589,6 +595,7 @@
       "expected": {
         "route": "/portfolio/shared",
         "classification": "native-required-functional",
+        "legacyAlias": true,
         "initialRoute": "/portfolio/shared",
         "expectedMarker": "native-route-portfolio-shared",
         "expectedRoute": "/portfolio/shared",
@@ -657,14 +664,57 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSE",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSENT\nAccess",
         "error": ""
       },
-      "raw": "route=/consents/;ready=1;marker=native-route-consents;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSE;error="
+      "raw": "route=/consents/;ready=1;marker=native-route-consents;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSENT\nAccess;error="
+    },
+    {
+      "route": "/agent",
+      "ok": true,
+      "expected": {
+        "route": "/agent",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fagent",
+        "expectedMarker": "native-route-agent",
+        "expectedRoute": "/agent",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "observed": {
+        "route": "/agent/",
+        "ready": "1",
+        "marker": "native-route-agent",
+        "auth": "authenticated",
+        "data": "loaded",
+        "doc": "complete",
+        "found": "1",
+        "routeok": "1",
+        "test": "1",
+        "auto": "1",
+        "bridge": "1",
+        "trigger": "0",
+        "domtest": "",
+        "domauto": "",
+        "reviewer": "0",
+        "bootstrap": "vault_unlocked",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_error": "",
+        "jserr": "",
+        "jsrej": "",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n\nAnalyze, dashboard, consent with Kai\nCommand Palette\nSearch for a command to run...\nKAI\nAgent\nA Kai-focused cha",
+        "error": ""
+      },
+      "raw": "route=/agent/;ready=1;marker=native-route-agent;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n\nAnalyze, dashboard, consent with Kai\nCommand Palette\nSearch for a command to run...\nKAI\nAgent\nA Kai-focused cha;error="
     },
     {
       "route": "/one/kyc",
@@ -698,14 +748,57 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n\nAnalyze, dashboard, consent with Kai\nCommand Palette\nSearch for a command to run...\nONE\nKYC workflows\nReview br",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\nCommand Palette\nSearch for a command to run...\nONE\nEmail\nReview emails t",
         "error": ""
       },
-      "raw": "route=/one/kyc/;ready=1;marker=native-route-one-kyc;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n\nAnalyze, dashboard, consent with Kai\nCommand Palette\nSearch for a command to run...\nONE\nKYC workflows\nReview br;error="
+      "raw": "route=/one/kyc/;ready=1;marker=native-route-one-kyc;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\nCommand Palette\nSearch for a command to run...\nONE\nEmail\nReview emails t;error="
+    },
+    {
+      "route": "/one/location",
+      "ok": true,
+      "expected": {
+        "route": "/one/location",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Flocation",
+        "expectedMarker": "native-route-one-location",
+        "expectedRoute": "/one/location",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "observed": {
+        "route": "/one/location/",
+        "ready": "1",
+        "marker": "native-route-one-location",
+        "auth": "authenticated",
+        "data": "loaded",
+        "doc": "complete",
+        "found": "1",
+        "routeok": "1",
+        "test": "1",
+        "auto": "1",
+        "bridge": "1",
+        "trigger": "0",
+        "domtest": "",
+        "domauto": "",
+        "reviewer": "0",
+        "bootstrap": "vault_unlocked",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_error": "",
+        "jserr": "",
+        "jsrej": "",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\nCommand Palette\nSearch for a command to run...\nONE\nOne Location Agent\nSh",
+        "error": ""
+      },
+      "raw": "route=/one/location/;ready=1;marker=native-route-one-location;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\nCommand Palette\nSearch for a command to run...\nONE\nOne Location Agent\nSh;error="
     },
     {
       "route": "/profile",
@@ -739,14 +832,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKT\nKushal Triv",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\n\nKushal Trived",
         "error": ""
       },
-      "raw": "route=/profile/;ready=1;marker=native-route-profile;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKT\nKushal Triv;error="
+      "raw": "route=/profile/;ready=1;marker=native-route-profile;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\n\nKushal Trived;error="
     },
     {
       "route": "/profile/pkm",
@@ -754,20 +847,20 @@
       "expected": {
         "route": "/profile/pkm",
         "classification": "native-required-functional",
+        "legacyAlias": true,
         "initialRoute": "/login?redirect=%2Fprofile%2Fpkm",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile?panel=my-data",
+        "expectedMarker": "native-route-profile-pkm",
+        "expectedRoute": "/profile/pkm-agent-lab",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded",
-          "redirect-valid"
+          "loaded"
         ]
       },
       "observed": {
-        "route": "/profile/?panel=my-data",
+        "route": "/profile/pkm-agent-lab/",
         "ready": "1",
-        "marker": "native-route-profile",
+        "marker": "native-route-profile-pkm",
         "auth": "authenticated",
         "data": "loaded",
         "doc": "complete",
@@ -781,14 +874,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKT\nKushal Triv",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nPROFILE / PRI",
         "error": ""
       },
-      "raw": "route=/profile/?panel=my-data;ready=1;marker=native-route-profile;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKT\nKushal Triv;error="
+      "raw": "route=/profile/pkm-agent-lab/;ready=1;marker=native-route-profile-pkm;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nPROFILE / PRI;error="
     },
     {
       "route": "/profile/receipts",
@@ -824,14 +917,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
         "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nPROFILE\nRecei",
         "error": ""
       },
-      "raw": "route=/profile/receipts/;ready=1;marker=native-route-profile-receipts;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nPROFILE\nRecei;error="
+      "raw": "route=/profile/receipts/;ready=1;marker=native-route-profile-receipts;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nPROFILE\nRecei;error="
     },
     {
       "route": "/profile/gmail/oauth/return",
@@ -865,15 +958,15 @@
         "domtest": "",
         "domauto": "",
         "reviewer": "0",
-        "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap": "unlocking_vault",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nGmail connect",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nUnlock your vault to use voice\nCommand Palette\nSearch for a co",
         "error": "gmail_oauth"
       },
-      "raw": "route=/profile/gmail/oauth/return/;ready=1;marker=native-route-profile-gmail-return;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nGmail connect;error=gmail_oauth"
+      "raw": "route=/profile/gmail/oauth/return/;ready=1;marker=native-route-profile-gmail-return;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=unlocking_vault;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nUnlock your vault to use voice\nCommand Palette\nSearch for a co;error=gmail_oauth"
     },
     {
       "route": "/ria",
@@ -908,14 +1001,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nRIA\n\n\n1\nRIA HOME\nTrusted advisor ops\nSee readiness, what needs attention, and where to go next without scanning a",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nRIA HOME\nTrusted advisor ops\nSee readiness, what needs attention, and where to go next without scanning a sett",
         "error": ""
       },
-      "raw": "route=/ria/;ready=1;marker=native-route-ria-home;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nRIA\n\n\n1\nRIA HOME\nTrusted advisor ops\nSee readiness, what needs attention, and where to go next without scanning a;error="
+      "raw": "route=/ria/;ready=1;marker=native-route-ria-home;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nRIA HOME\nTrusted advisor ops\nSee readiness, what needs attention, and where to go next without scanning a sett;error="
     },
     {
       "route": "/ria/clients",
@@ -951,14 +1044,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nRIA\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai pa",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai parity,",
         "error": ""
       },
-      "raw": "route=/ria/clients/;ready=1;marker=native-route-ria-clients;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nRIA\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai pa;error="
+      "raw": "route=/ria/clients/;ready=1;marker=native-route-ria-clients;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai parity,;error="
     },
     {
       "route": "/ria/onboarding",
@@ -993,14 +1086,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nSet up RIA\n\n\n1\nPROFESSIONAL ONBOARDING\nBuild the advisor trust surface before Kai unlocks the workflow\nA calmer o",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n1 / 5\nWELCOME\n\nHow would you like to register?\nChoose whether you are onboarding as an individual advisor or r",
         "error": ""
       },
-      "raw": "route=/ria/onboarding/;ready=1;marker=native-route-ria-onboarding;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nSet up RIA\n\n\n1\nPROFESSIONAL ONBOARDING\nBuild the advisor trust surface before Kai unlocks the workflow\nA calmer o;error="
+      "raw": "route=/ria/onboarding/;ready=1;marker=native-route-ria-onboarding;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n1 / 5\nWELCOME\n\nHow would you like to register?\nChoose whether you are onboarding as an individual advisor or r;error="
     },
     {
       "route": "/ria/picks",
@@ -1035,14 +1128,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nRIA\n\n\n1\nPICKS\nStock universe\nSwitch between Kai's reference package and your live advisor package without losing",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nPICKS\nStock universe\nSwitch between Kai's reference package and your live advisor package without losing the a",
         "error": ""
       },
-      "raw": "route=/ria/picks/;ready=1;marker=native-route-ria-picks;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nRIA\n\n\n1\nPICKS\nStock universe\nSwitch between Kai's reference package and your live advisor package without losing;error="
+      "raw": "route=/ria/picks/;ready=1;marker=native-route-ria-picks;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nPICKS\nStock universe\nSwitch between Kai's reference package and your live advisor package without losing the a;error="
     },
     {
       "route": "/ria/requests",
@@ -1076,14 +1169,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSE",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSENT\nAccess",
         "error": ""
       },
-      "raw": "route=/consents/;ready=1;marker=native-route-consents;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSE;error="
+      "raw": "route=/consents/;ready=1;marker=native-route-consents;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSENT\nAccess;error="
     },
     {
       "route": "/ria/settings",
@@ -1117,14 +1210,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKT\nKushal Triv",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a c",
         "error": ""
       },
-      "raw": "route=/profile/;ready=1;marker=native-route-profile;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKT\nKushal Triv;error="
+      "raw": "route=/profile/;ready=1;marker=native-route-profile;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a c;error="
     },
     {
       "route": "/ria/workspace",
@@ -1160,14 +1253,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nRIA\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai pa",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai parity,",
         "error": ""
       },
-      "raw": "route=/ria/clients/;ready=1;marker=native-route-ria-clients;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nRIA\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai pa;error="
+      "raw": "route=/ria/clients/;ready=1;marker=native-route-ria-clients;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai parity,;error="
     },
     {
       "route": "/marketplace",
@@ -1203,14 +1296,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\nCONNECT\nFind advisors\nPublic discovery first. Private access only after consent.\n\nConnections\n\n\n\n\nD\nda",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nCONNECT\nFind advisors\nPublic discovery first. Private access only after consent.\n\nConnections\n\n\n\n\nHA\nHudson Ad",
         "error": ""
       },
-      "raw": "route=/marketplace/;ready=1;marker=native-route-marketplace;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\nCONNECT\nFind advisors\nPublic discovery first. Private access only after consent.\n\nConnections\n\n\n\n\nD\nda;error="
+      "raw": "route=/marketplace/;ready=1;marker=native-route-marketplace;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nCONNECT\nFind advisors\nPublic discovery first. Private access only after consent.\n\nConnections\n\n\n\n\nHA\nHudson Ad;error="
     },
     {
       "route": "/marketplace/connections",
@@ -1245,14 +1338,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSE",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSENT\nAccess",
         "error": ""
       },
-      "raw": "route=/consents/?tab=pending;ready=1;marker=native-route-consents;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSE;error="
+      "raw": "route=/consents/?tab=pending;ready=1;marker=native-route-consents;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSENT\nAccess;error="
     },
     {
       "route": "/marketplace/connections/portfolio",
@@ -1260,6 +1353,7 @@
       "expected": {
         "route": "/marketplace/connections/portfolio",
         "classification": "native-required-functional",
+        "legacyAlias": true,
         "initialRoute": "/login?redirect=%2Fmarketplace%2Fconnections%2Fportfolio",
         "expectedMarker": "native-route-ria-clients",
         "expectedRoute": "/ria/clients",
@@ -1288,14 +1382,14 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nRIA\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai pa",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai parity,",
         "error": ""
       },
-      "raw": "route=/ria/clients/;ready=1;marker=native-route-ria-clients;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nRIA\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai pa;error="
+      "raw": "route=/ria/clients/;ready=1;marker=native-route-ria-clients;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai parity,;error="
     },
     {
       "route": "/marketplace/ria",
@@ -1330,14 +1424,97 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
+        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\nMARKETPLACE PROFILE\nRIA profile\nVerified public profile metadata only. Private advisory access stays b",
+        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nMARKETPLACE PROFILE\nRIA profile\nVerified public profile metadata only. Private advisory access stays behind th",
         "error": "marketplace_ria"
       },
-      "raw": "route=/marketplace/ria/?riaId=missing-demo-ria;ready=1;marker=native-route-marketplace-ria;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=s3xmA4lNSAQFrIaOytnSGAOzXlL2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\nMARKETPLACE PROFILE\nRIA profile\nVerified public profile metadata only. Private advisory access stays b;error=marketplace_ria"
+      "raw": "route=/marketplace/ria/?riaId=missing-demo-ria;ready=1;marker=native-route-marketplace-ria;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nMARKETPLACE PROFILE\nRIA profile\nVerified public profile metadata only. Private advisory access stays behind th;error=marketplace_ria"
+    },
+    {
+      "route": "/logout",
+      "ok": true,
+      "expected": {
+        "route": "/logout",
+        "classification": "native-required-functional",
+        "initialRoute": "/logout",
+        "expectedMarker": "native-route-home",
+        "expectedRoute": "/",
+        "autoReviewerLogin": false,
+        "expectedAuth": "anonymous",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "observed": {
+        "route": "/",
+        "ready": "1",
+        "marker": "native-route-home",
+        "auth": "anonymous",
+        "data": "loaded",
+        "doc": "complete",
+        "found": "1",
+        "routeok": "1",
+        "test": "1",
+        "auto": "0",
+        "bridge": "1",
+        "trigger": "0",
+        "domtest": "",
+        "domauto": "",
+        "reviewer": "0",
+        "bootstrap": "",
+        "bootstrap_uid": "",
+        "bootstrap_error": "",
+        "jserr": "Error: Minified React error #418",
+        " visit https://react.dev/errors/418?args[]": "HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.",
+        "jsrej": "",
+        "body": "🤫\nMeet One,\nYour Personal\nFinancial Advisor\n\nThe fastest path to actionable wealth insights.\nSeamless KYC\nAccelerating KYC with frictionless verification\nPortf",
+        "error": ""
+      },
+      "raw": "route=/;ready=1;marker=native-route-home;auth=anonymous;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=0;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=;bootstrap_uid=;bootstrap_error=;jserr=Error: Minified React error #418; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.;jsrej=;body=🤫\nMeet One,\nYour Personal\nFinancial Advisor\n\nThe fastest path to actionable wealth insights.\nSeamless KYC\nAccelerating KYC with frictionless verification\nPortf;error="
+    },
+    {
+      "route": "/login",
+      "ok": true,
+      "expected": {
+        "route": "/login",
+        "classification": "native-required-functional",
+        "initialRoute": "/login",
+        "expectedMarker": "native-route-login",
+        "expectedRoute": "/login",
+        "autoReviewerLogin": false,
+        "expectedAuth": "anonymous",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "observed": {
+        "route": "/login/",
+        "ready": "1",
+        "marker": "native-route-login",
+        "auth": "anonymous",
+        "data": "loaded",
+        "doc": "complete",
+        "found": "1",
+        "routeok": "1",
+        "test": "1",
+        "auto": "0",
+        "bridge": "1",
+        "trigger": "1",
+        "domtest": "",
+        "domauto": "",
+        "reviewer": "0",
+        "bootstrap": "",
+        "bootstrap_uid": "",
+        "bootstrap_error": "",
+        "jserr": "",
+        "jsrej": "",
+        "body": "🤫\nSign in to One\nContinue with your preferred provider.\n\nContinue with Apple\n\nContinue with Google\nAfter sign-in, Kai requires a verified phone number before y",
+        "error": "cfg_1_0"
+      },
+      "raw": "route=/login/;ready=1;marker=native-route-login;auth=anonymous;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=0;bridge=1;trigger=1;domtest=;domauto=;reviewer=0;bootstrap=;bootstrap_uid=;bootstrap_error=;jserr=;jsrej=;body=🤫\nSign in to One\nContinue with your preferred provider.\n\nContinue with Apple\n\nContinue with Google\nAfter sign-in, Kai requires a verified phone number before y;error=cfg_1_0"
     }
   ]
 }

@@ -21,6 +21,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { VaultService } from "@/lib/services/vault-service";
@@ -55,6 +56,7 @@ function markSessionUnlocked() {
 
 export function VaultLockGuard({ children }: VaultLockGuardProps) {
   const { isVaultUnlocked } = useVault();
+  const router = useRouter();
 
   // Latch: once unlocked, remember for the rest of this JS session
   if (isVaultUnlocked && !sessionUnlockedOnce) {
@@ -91,9 +93,9 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
     if (typeof window !== "undefined") {
       const currentPath = window.location.pathname;
-      window.location.assign(`/login?redirect=${encodeURIComponent(currentPath)}`);
+      router.replace(`/login?redirect=${encodeURIComponent(currentPath)}`);
     }
-  }, [authLoading, userId]);
+  }, [authLoading, router, userId]);
 
   useEffect(() => {
     if (isVaultUnlocked) {

@@ -450,6 +450,26 @@ export interface HushhVaultPlugin {
     vaultOwnerToken: string;
     authToken: string;
   }): Promise<Record<string, unknown>>;
+
+  /**
+   * Legacy domain-specific preference read kept for native bridge compatibility.
+   * @deprecated Use token-enforced vault/domain flows instead.
+   */
+  getFoodPreferences(options: {
+    userId: string;
+    vaultOwnerToken: string;
+    authToken?: string;
+  }): Promise<{ domain: "food"; preferences: unknown | null }>;
+
+  /**
+   * Legacy domain-specific profile read kept for native bridge compatibility.
+   * @deprecated Use token-enforced vault/domain flows instead.
+   */
+  getProfessionalData(options: {
+    userId: string;
+    vaultOwnerToken: string;
+    authToken?: string;
+  }): Promise<{ domain: "professional"; preferences: unknown | null }>;
 }
 
 export const HushhVault = registerPlugin<HushhVaultPlugin>("HushhVault", {

@@ -401,7 +401,7 @@ def test_delete_account_maps_service_failure_to_500(monkeypatch):
     response = client.delete("/api/account/delete")
 
     assert response.status_code == 500
-    assert response.json()["detail"] == "Deletion failed: boom"
+    assert response.json()["detail"] == "Account deletion failed"
 
 
 def test_export_account_data_requires_vault_owner_token():

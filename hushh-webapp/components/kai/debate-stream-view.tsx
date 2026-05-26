@@ -35,7 +35,7 @@ import {
   pickPreferredMarketSnapshot,
 } from "@/lib/kai/market-snapshot";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
-import { assignWindowLocation } from "@/lib/utils/browser-navigation";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { trackEvent } from "@/lib/observability/client";
 import {
   getInitialRoundCollapseState,
@@ -1431,7 +1431,10 @@ export function DebateStreamView({
               action: {
                 label: "Open active",
                 onClick: () => {
-                  assignWindowLocation("/kai/analysis");
+                  requestInternalAppNavigation({
+                    href: "/kai/analysis",
+                    scroll: false,
+                  });
                 },
               },
             });
