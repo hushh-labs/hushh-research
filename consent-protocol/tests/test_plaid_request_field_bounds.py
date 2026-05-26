@@ -26,9 +26,7 @@ from pydantic import ValidationError
 
 from api.routes.kai.plaid import (
     AlpacaConnectCompleteRequest,
-    AlpacaConnectStartRequest,
     PlaidFundedTradeCreateRequest,
-    PlaidFundingDefaultAccountRequest,
     PlaidFundingEscalationRequest,
     PlaidFundingTransactionsSyncRequest,
     PlaidItemRemoveRequest,
@@ -36,10 +34,8 @@ from api.routes.kai.plaid import (
     PlaidOAuthResumeRequest,
     PlaidPublicTokenExchangeRequest,
     PlaidRefreshCancelRequest,
-    PlaidRefreshRequest,
     PlaidTransferCreateRequest,
 )
-
 
 # ---------------------------------------------------------------------------
 # PlaidLinkTokenRequest
