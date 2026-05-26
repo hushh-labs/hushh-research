@@ -479,17 +479,70 @@ async function hasNavTourId(page, tourId) {
   return false;
 }
 
+async function waitForVisibleNavTourId(page, tourId, timeout = 15_000) {
+  const navLocator = await firstVisible(page.locator(`[data-tour-id="${tourId}"]`));
+  return navLocator
+    .waitFor({ state: "visible", timeout })
+    .then(() => true)
+    .catch(() => false);
+}
+
+async function requestNativeTestRoute(page, route, allowedRouteIds = [route]) {
+  await page.evaluate((nextRoute) => {
+    const bridge = window.__HUSHH_NATIVE_TEST__ || {};
+    window.__HUSHH_NATIVE_TEST__ = {
+      ...bridge,
+      initialRoute: nextRoute,
+      expectedRoute: nextRoute,
+    };
+    window.dispatchEvent(new Event("hushh:native-test-config-updated"));
+  }, route);
+  try {
+    await waitForRouteBeacon(page, allowedRouteIds);
+  } finally {
+    await page.evaluate(() => {
+      if (!window.__HUSHH_NATIVE_TEST__) return;
+      delete window.__HUSHH_NATIVE_TEST__.initialRoute;
+      delete window.__HUSHH_NATIVE_TEST__.expectedRoute;
+      window.dispatchEvent(new Event("hushh:native-test-config-updated"));
+    });
+  }
+}
+
+async function acceptInvestorScopedRoutePrompt(page) {
+  const stayInInvestorWorkspace = page.getByRole("button", {
+    name: /stay in (?:investor|kai) workspace/i,
+  });
+  const promptVisible = await stayInInvestorWorkspace
+    .waitFor({ state: "visible", timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!promptVisible) {
+    return false;
+  }
+  await stayInInvestorWorkspace.click();
+  await page.waitForTimeout(1500);
+  return true;
+}
+
 async function ensurePersona(page, persona) {
   const initialPathname = new URL(page.url()).pathname;
   if (persona === "investor" && initialPathname.startsWith("/ria")) {
-    await clickBottomNav(page, "Profile");
-    await waitForRouteBeacon(page, ["/profile"]);
+    await requestNativeTestRoute(page, "/kai", ["/kai"]);
+    await acceptInvestorScopedRoutePrompt(page);
+    if (await waitForVisibleNavTourId(page, "nav-market")) {
+      return;
+    }
   }
   if (
     persona === "investor" &&
     initialPathname.startsWith("/kai") &&
     !(await hasNavTourId(page, "nav-market"))
   ) {
+    await acceptInvestorScopedRoutePrompt(page);
+    if (await waitForVisibleNavTourId(page, "nav-market")) {
+      return;
+    }
     await clickBottomNav(page, "Profile");
     await waitForRouteBeacon(page, ["/profile"]);
   }
@@ -514,8 +567,7 @@ async function ensurePersona(page, persona) {
     persona === "investor" &&
     (await stayInInvestorWorkspace.isVisible().catch(() => false))
   ) {
-    await stayInInvestorWorkspace.click();
-    await page.waitForTimeout(1500);
+    await acceptInvestorScopedRoutePrompt(page);
   }
 
   if (
@@ -558,11 +610,7 @@ async function ensurePersona(page, persona) {
   const label = persona === "ria" ? "RIA" : "Investor";
   const expectedNavTourId = persona === "ria" ? "nav-ria-home" : "nav-market";
   const waitForExpectedPersonaNav = async () => {
-    const navLocator = await firstVisible(page.locator(`[data-tour-id="${expectedNavTourId}"]`));
-    return navLocator
-      .waitFor({ state: "visible", timeout: 15_000 })
-      .then(() => true)
-      .catch(() => false);
+    return waitForVisibleNavTourId(page, expectedNavTourId);
   };
   const currentTitle = (await titleTrigger.textContent().catch(() => "")) || "";
   if (currentTitle.includes(label)) {
