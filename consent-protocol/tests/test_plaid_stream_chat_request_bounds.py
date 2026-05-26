@@ -95,24 +95,24 @@ class TestPlaidPublicTokenExchangeRequest:
         with pytest.raises(ValidationError):
             PlaidPublicTokenExchangeRequest(
                 user_id="u1",
-                public_token="t",
-                resume_session_id="r" * 129,  # noqa: S106
+                public_token="t",  # noqa: S106
+                resume_session_id="r" * 129,
             )
 
     def test_terms_version_too_long_raises(self):
         with pytest.raises(ValidationError):
             PlaidPublicTokenExchangeRequest(
                 user_id="u1",
-                public_token="t",
-                terms_version="v" * 51,  # noqa: S106
+                public_token="t",  # noqa: S106
+                terms_version="v" * 51,
             )
 
     def test_alpaca_account_id_too_long_raises(self):
         with pytest.raises(ValidationError):
             PlaidPublicTokenExchangeRequest(
                 user_id="u1",
-                public_token="t",
-                alpaca_account_id="a" * 129,  # noqa: S106
+                public_token="t",  # noqa: S106
+                alpaca_account_id="a" * 129,
             )
 
 
