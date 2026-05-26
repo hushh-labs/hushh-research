@@ -22,6 +22,10 @@ Founder-language note: this audit is one of the concrete proofs behind the platf
 - Canonical app routes: `hushh-webapp/lib/navigation/routes.ts`
 - Route governance reference: `docs/reference/architecture/route-contracts.md`
 - Frontend/native surface map: `hushh-webapp/frontend-native-surface-map.generated.json`
+- Native route inventory: `hushh-webapp/native-route-inventory.json`
+- Native route evidence:
+  - `hushh-webapp/native-ios-parity-report.json`
+  - `hushh-webapp/native-android-parity-report.json`
 - Mobile parity reference: `docs/reference/mobile/capacitor-parity-audit.md`
 - Docs/runtime verification: `bash scripts/ci/docs-parity-check.sh`
 - Full CI lane: `bash scripts/ci/orchestrate.sh all`
@@ -29,10 +33,14 @@ Founder-language note: this audit is one of the concrete proofs behind the platf
 ## Required Local Command
 
 ```bash
-bash scripts/ci/orchestrate.sh all
+cd hushh-webapp && npm run verify:capacitor:audit
 ```
 
-The audit must pass as one lane, not as a hand-waved collection of partial checks.
+The native audit must pass as one lane, not as a hand-waved collection of partial checks. The broader repo CI lane remains:
+
+```bash
+bash scripts/ci/orchestrate.sh all
+```
 
 ## Route Classification Policy
 
@@ -48,9 +56,16 @@ Current policy keeps the full visible app surface in scope, including:
 - public/auth content routes
 - visible labs routes
 
+Current inventory policy:
+
+- 36 routes are native-required and must pass on iOS and Android.
+- 3 routes are explicit web-only exclusions: `/developers`, `/labs/profile-appearance`, `/profile/pkm-agent-lab`.
+- New parity exceptions are not accepted unless this document and the route inventory change in the same PR.
+
 ## Browser API Policy
 
 Route-facing code must not directly own browser-only APIs when a shared wrapper should exist.
+Internal route changes must use Next.js routing (`router.push` / `router.replace`) or the shared internal navigation event handled by `app/providers.tsx`; direct `window.location` mutation is reserved for wrapper-owned external navigation because it can discard the in-memory BYOK vault key.
 Before changing a route that calls a service or plugin, run
 `cd hushh-webapp && npm run verify:surface-map` and update the generated map
 when the route's Next.js proxy, backend endpoint family, native transport, or
@@ -86,6 +101,14 @@ Parity is not complete until both projects still load structurally:
 - iOS: `xcodebuild -list -project ios/App/App.xcodeproj`
 - Android: `./gradlew tasks --all`
 
+Parity is also not complete until the native reports are fresh against the current inventory:
+
+- `cd hushh-webapp && npm run ios:test`
+- `cd hushh-webapp && npm run android:test`
+- `cd hushh-webapp && npm run verify:capacitor:reports`
+
+`verify:capacitor:reports` fails when either platform audits fewer native-required routes than the current inventory, or when an `ok: true` result lacks `ready=1`, `found=1`, the expected marker, route match, auth match, or allowed data state.
+
 ## Authentication Provider Parity
 
 Native parity for authenticated flows now includes the verified phone mandate after login.
@@ -112,3 +135,5 @@ Native parity for authenticated flows now includes the verified phone mandate af
 ## Release Standard
 
 Treat docs/runtime drift as a blocker. A route, native contract, or browser-sensitive flow is not parity-ready if the docs and audit registry do not describe it correctly.
+
+Native plugin drift is also a blocker. `cd hushh-webapp && npm run verify:capacitor:plugins` compares TypeScript `registerPlugin` contracts with iOS `CAPBridgedPlugin` metadata and Android `@CapacitorPlugin` / `@PluginMethod` declarations.

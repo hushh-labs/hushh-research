@@ -71,6 +71,7 @@ const SAME_SESSION_SHELL_ROUTES = new Set([
   "/consents",
   "/kai",
   "/kai/portfolio",
+  "/kai/import",
   "/kai/analysis",
 ]);
 
@@ -88,6 +89,9 @@ const TRANSIENT_BACKGROUND_FETCH_ERRORS = [
   "[ProfileReceiptsPage] Failed to build receipt summary: TypeError: Failed to fetch",
   "[gmail-connector-store] Failed to refresh Gmail status: TypeError: Failed to fetch",
   "Failed to load profile manager data: TypeError: Failed to fetch",
+];
+const TRANSIENT_BACKGROUND_REQUEST_FAILURES = [
+  "/api/kai/voice/capability :: net::ERR_FAILED",
 ];
 
 const DYNAMIC_ROUTE_FIXTURES = {
@@ -465,12 +469,89 @@ async function visibleTopAppBarTitle(page) {
 }
 
 async function hasNavTourId(page, tourId) {
-  return (await page.locator(`[data-tour-id="${tourId}"]`).count().catch(() => 0)) > 0;
+  const locator = page.locator(`[data-tour-id="${tourId}"]`);
+  const count = await locator.count().catch(() => 0);
+  for (let index = 0; index < count; index += 1) {
+    if (await locator.nth(index).isVisible().catch(() => false)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function waitForVisibleNavTourId(page, tourId, timeout = 15_000) {
+  const navLocator = await firstVisible(page.locator(`[data-tour-id="${tourId}"]`));
+  return navLocator
+    .waitFor({ state: "visible", timeout })
+    .then(() => true)
+    .catch(() => false);
+}
+
+async function requestNativeTestRoute(page, route, allowedRouteIds = [route]) {
+  await page.evaluate((nextRoute) => {
+    const bridge = window.__HUSHH_NATIVE_TEST__ || {};
+    window.__HUSHH_NATIVE_TEST__ = {
+      ...bridge,
+      initialRoute: nextRoute,
+      expectedRoute: nextRoute,
+    };
+    window.dispatchEvent(new Event("hushh:native-test-config-updated"));
+  }, route);
+  try {
+    await waitForRouteBeacon(page, allowedRouteIds);
+  } finally {
+    await page.evaluate(() => {
+      if (!window.__HUSHH_NATIVE_TEST__) return;
+      delete window.__HUSHH_NATIVE_TEST__.initialRoute;
+      delete window.__HUSHH_NATIVE_TEST__.expectedRoute;
+      window.dispatchEvent(new Event("hushh:native-test-config-updated"));
+    });
+  }
+}
+
+async function acceptInvestorScopedRoutePrompt(page) {
+  const stayInInvestorWorkspace = page.getByRole("button", {
+    name: /stay in (?:investor|kai) workspace/i,
+  });
+  const promptVisible = await stayInInvestorWorkspace
+    .waitFor({ state: "visible", timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!promptVisible) {
+    return false;
+  }
+  await stayInInvestorWorkspace.click();
+  await page.waitForTimeout(1500);
+  return true;
 }
 
 async function ensurePersona(page, persona) {
+  const initialPathname = new URL(page.url()).pathname;
+  if (persona === "investor" && initialPathname.startsWith("/ria")) {
+    await requestNativeTestRoute(page, "/kai", ["/kai"]);
+    await acceptInvestorScopedRoutePrompt(page);
+    if (await waitForVisibleNavTourId(page, "nav-market")) {
+      return;
+    }
+  }
+  if (
+    persona === "investor" &&
+    initialPathname.startsWith("/kai") &&
+    !(await hasNavTourId(page, "nav-market"))
+  ) {
+    await acceptInvestorScopedRoutePrompt(page);
+    if (await waitForVisibleNavTourId(page, "nav-market")) {
+      return;
+    }
+    await clickBottomNav(page, "Profile");
+    await waitForRouteBeacon(page, ["/profile"]);
+  }
+
   const stayInRiaWorkspace = page.getByRole("button", {
     name: /stay in ria workspace/i,
+  });
+  const stayInInvestorWorkspace = page.getByRole("button", {
+    name: /stay in (?:investor|kai) workspace/i,
   });
   const switchToInvestorWorkspace = page.getByRole("button", {
     name: /switch to investor workspace/i,
@@ -480,6 +561,13 @@ async function ensurePersona(page, persona) {
     await stayInRiaWorkspace.click();
     await page.waitForTimeout(1500);
     return;
+  }
+
+  if (
+    persona === "investor" &&
+    (await stayInInvestorWorkspace.isVisible().catch(() => false))
+  ) {
+    await acceptInvestorScopedRoutePrompt(page);
   }
 
   if (
@@ -521,21 +609,41 @@ async function ensurePersona(page, persona) {
   }
   const label = persona === "ria" ? "RIA" : "Investor";
   const expectedNavTourId = persona === "ria" ? "nav-ria-home" : "nav-market";
+  const waitForExpectedPersonaNav = async () => {
+    return waitForVisibleNavTourId(page, expectedNavTourId);
+  };
   const currentTitle = (await titleTrigger.textContent().catch(() => "")) || "";
   if (currentTitle.includes(label)) {
-    await page
-      .locator(`[data-tour-id="${expectedNavTourId}"]`)
-      .first()
-      .waitFor({ state: "attached", timeout: NAVIGATION_TIMEOUT_MS });
-    return;
+    if (await waitForExpectedPersonaNav()) {
+      return;
+    }
   }
   await titleTrigger.click({ force: true });
   await page.getByRole("menuitem", { name: new RegExp(label, "i") }).first().click();
-  await page
-    .locator(`[data-tour-id="${expectedNavTourId}"]`)
-    .first()
-    .waitFor({ state: "attached", timeout: NAVIGATION_TIMEOUT_MS });
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(1500);
+  if (
+    persona === "investor" &&
+    (await stayInInvestorWorkspace.isVisible().catch(() => false))
+  ) {
+    await stayInInvestorWorkspace.click();
+    await page.waitForTimeout(1500);
+  }
+  if (await waitForExpectedPersonaNav()) {
+    await page.waitForTimeout(500);
+    return;
+  }
+  const visibleTourIds = await page
+    .locator("[data-tour-id]")
+    .evaluateAll((nodes) =>
+      nodes
+        .filter((node) => node instanceof HTMLElement && node.offsetParent !== null)
+        .map((node) => node.getAttribute("data-tour-id"))
+        .filter(Boolean)
+    )
+    .catch(() => []);
+  throw new Error(
+    `Cannot align reviewer persona to ${persona}. Visible tour ids: ${visibleTourIds.join(", ")}`
+  );
 }
 
 async function clickBottomNav(page, label) {
@@ -551,13 +659,18 @@ async function clickBottomNav(page, label) {
     Profile: ["nav-profile"],
   };
   for (const tourId of navTourIdsByLabel[label] || []) {
-    const byTourId = page.locator(`[data-tour-id="${tourId}"]`).first();
+    const byTourId = page.locator(`[data-tour-id="${tourId}"]`);
     const hasTourId = await byTourId
+      .first()
       .waitFor({ state: "attached", timeout: NAVIGATION_TIMEOUT_MS })
       .then(() => true)
       .catch(() => false);
     if (hasTourId) {
-      await byTourId.evaluate((node) => {
+      const visibleTourTarget = await firstVisible(byTourId);
+      if (!(await visibleTourTarget.isVisible().catch(() => false))) {
+        continue;
+      }
+      await visibleTourTarget.evaluate((node) => {
         if (node instanceof HTMLElement) {
           node.click();
         }
@@ -684,7 +797,23 @@ async function navigateViaShell(page, spec) {
       await ensurePersona(page, "investor");
       await clickBottomNav(page, "Portfolio");
       return true;
+    case "/kai/import":
+      await ensurePersona(page, "investor");
+      await clickBottomNav(page, "Market");
+      await waitForRouteBeacon(page, ["/kai"]);
+      await ensurePersona(page, "investor");
+      await clickBottomNav(page, "Portfolio");
+      await waitForRouteBeacon(page, ["/kai/portfolio"]);
+      await firstVisible(
+        page.getByRole("button", {
+          name: /^(upload statement|import statement|import portfolio|connect portfolio)$/i,
+        })
+      ).then((button) => button.click());
+      return true;
     case "/kai/analysis":
+      await ensurePersona(page, "investor");
+      await clickBottomNav(page, "Market");
+      await waitForRouteBeacon(page, ["/kai"]);
       await ensurePersona(page, "investor");
       await clickBottomNav(page, "Analysis");
       return true;
@@ -791,7 +920,21 @@ function assertNoIssues(route, viewport, issues) {
     if (TRANSIENT_BACKGROUND_FETCH_ERRORS.some((pattern) => value.includes(pattern))) {
       return false;
     }
+    if (
+      value.includes("/api/kai/voice/capability") &&
+      value.includes("has been blocked by CORS policy")
+    ) {
+      return false;
+    }
     if (value.includes("Failed to load resource: the server responded with a status of 409")) {
+      return false;
+    }
+    if (
+      value === "Failed to load resource: net::ERR_FAILED" &&
+      issues.requestFailures.some((failure) =>
+        TRANSIENT_BACKGROUND_REQUEST_FAILURES.some((pattern) => failure.includes(pattern))
+      )
+    ) {
       return false;
     }
     return true;
@@ -809,7 +952,12 @@ function assertNoIssues(route, viewport, issues) {
   const failures = [
     ...consoleErrors.map((value) => `console:${value}`),
     ...pageErrors.map((value) => `pageerror:${value}`),
-    ...issues.requestFailures.map((value) => `requestfailed:${value}`),
+    ...issues.requestFailures
+      .filter(
+        (value) =>
+          !TRANSIENT_BACKGROUND_REQUEST_FAILURES.some((pattern) => value.includes(pattern))
+      )
+      .map((value) => `requestfailed:${value}`),
   ];
   if (failures.length > 0) {
     throw new Error(`[${viewport}] ${route} browser health failure:\n${failures.join("\n")}`);

@@ -345,7 +345,7 @@ async def run_stream_pass_v2(
             types_module.ThinkingLevel.LOW,
         )
         config_kwargs["thinking_config"] = types_module.ThinkingConfig(
-            include_thoughts=False,
+            include_thoughts=True,
             thinking_level=thinking_level,
         )
 
@@ -364,6 +364,7 @@ async def run_stream_pass_v2(
     pass_started = time.perf_counter()
     response_text = ""
     chunk_count = 0
+    thought_count = 0
     latest_holdings_preview: list[dict[str, Any]] = []
     streamed_holdings_confirmed = 0
     loop_started_at = asyncio.get_running_loop().time()
@@ -414,6 +415,7 @@ async def run_stream_pass_v2(
             break
 
         appended_response_text = False
+        saw_thought_text = False
         if hasattr(chunk, "candidates") and chunk.candidates:
             candidate = chunk.candidates[0]
             if hasattr(candidate, "content") and candidate.content:
@@ -422,8 +424,28 @@ async def run_stream_pass_v2(
                     part_text = str(getattr(part, "text", "") or "")
                     if not part_text:
                         continue
-                    # Import stream is investor-facing; never emit thought chunks.
                     if bool(getattr(part, "thought", False)):
+                        saw_thought_text = True
+                        thought_count += 1
+                        yield stream.event(
+                            "thinking",
+                            {
+                                "phase": phase,
+                                "message": "Gemini is reasoning through statement structure...",
+                                "thought": part_text,
+                                "count": thought_count,
+                                "thought_count": thought_count,
+                                "token_source": "thought",
+                                "total_chars": len(response_text),
+                                "chunk_count": chunk_count,
+                                "holdings_detected": streamed_holdings_confirmed,
+                                "holdings_preview": latest_holdings_preview,
+                                "progress_pct": _phase_progress_from_chunks_v2(
+                                    phase,
+                                    chunk_count,
+                                ),
+                            },
+                        )
                         continue
                     response_text += part_text
                     chunk_count += 1
@@ -454,7 +476,7 @@ async def run_stream_pass_v2(
                         },
                     )
 
-        if not appended_response_text and getattr(chunk, "text", None):
+        if not appended_response_text and not saw_thought_text and getattr(chunk, "text", None):
             text_chunk = str(chunk.text)
             response_text += text_chunk
             chunk_count += 1
@@ -514,7 +536,7 @@ async def run_stream_pass_v2(
             "parsed": parsed_payload,
             "text": response_text,
             "chunk_count": chunk_count,
-            "thought_count": 0,
+            "thought_count": thought_count,
             "elapsed_ms": pass_elapsed_ms,
             "holdings_detected": streamed_holdings_confirmed,
             "holdings_preview": latest_holdings_preview,
@@ -529,7 +551,7 @@ async def run_stream_pass_v2(
             "phase": phase,
             "message": f"{phase.replace('_', ' ').title()} pass complete ({chunk_count} chunks)",
             "chunk_count": chunk_count,
-            "thought_count": 0,
+            "thought_count": thought_count,
             "total_chars": len(response_text),
             "holdings_detected": streamed_holdings_confirmed,
             "holdings_preview": latest_holdings_preview,

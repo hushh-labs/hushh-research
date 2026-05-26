@@ -1,7 +1,7 @@
 # Mobile Development (iOS & Android)
 
 > Native mobile deployment with Capacitor 8 and local-first architecture.
-> Last verified: March 2026.
+> Last verified: May 25, 2026.
 
 
 ## Visual Map
@@ -120,21 +120,29 @@ Before calling iOS/Android parity complete, run:
 
 That release gate includes:
 
+- frontend/native surface-map verification
 - native microphone permission metadata verification
-- full route-contract verification
+- native route-inventory verification
 - native plugin parity verification
-- Capacitor route classification verification
 - Capacitor runtime config verification
-- mobile Firebase artifact verification
-- docs/runtime parity verification
-- browser-API/native compatibility audit
 - iOS project sanity (`xcodebuild -list`)
 - Android project sanity (`./gradlew tasks --all`)
+- iOS simulator route audit
+- Android emulator route audit
+- native report freshness against the current route inventory
+
+Current tracked route evidence is green on both simulator targets:
+
+- iOS simulator: 36 audited / 36 passed / 0 failed.
+- Android emulator: 36 audited / 36 passed / 0 failed.
+
+The dynamic route audits require the reviewer test identity env values used by the existing iOS audit, a bootable simulator/emulator, and the normal untracked native Firebase artifacts for platform builds.
 
 Accepted parity exceptions currently documented in the registry:
 
 - None. Full parity requires the registry and runtime to stay exception-free for visible route behavior.
-- Accepted direct browser-API usage that remains intentional must stay documented in this guide and the parity audit docs, especially for route recovery/navigation mutation and IndexedDB-backed cache services.
+- Internal route recovery/navigation must use Next.js routing (`router.push` / `router.replace`) or the shared internal navigation event in `app/providers.tsx`; do not use direct `window.location` mutation for internal routes because it can discard the in-memory BYOK vault key.
+- Accepted direct browser-API usage that remains intentional must stay documented in this guide and the parity audit docs, especially for external navigation wrappers and IndexedDB-backed cache services.
 
 ### Firebase artifact safety (no secret leak in git)
 
@@ -155,10 +163,10 @@ Accepted parity exceptions currently documented in the registry:
 │  └──────────────────────────────────────────────────────────┘  │
 │                          ↓ Capacitor.call()                     │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │       Native Plugins (10 per platform)                    │  │
+│  │       Native Plugins (11 per platform)                    │  │
 │  │  HushhAuth · HushhVault · HushhConsent · Kai             │  │
 │  │  HushhSync · HushhSettings · HushhKeystore · PKM         │  │
-│  │  HushhAccount · HushhNotifications                       │  │
+│  │  HushhAccount · HushhNotifications · HushhLocation       │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                          ↓ Native HTTP                          │
 │  ┌──────────────────────────────────────────────────────────┐  │
@@ -170,9 +178,9 @@ Accepted parity exceptions currently documented in the registry:
 
 ---
 
-## Native Plugins (10 Verified)
+## Native Plugins (11 Verified)
 
-All 10 plugins exist on both platforms with matching methods:
+All 11 plugins exist on both platforms with matching methods:
 
 | Plugin            | jsName          | Purpose                        | iOS                         | Android                  |
 | ----------------- | --------------- | ------------------------------ | --------------------------- | ------------------------ |
@@ -186,6 +194,7 @@ All 10 plugins exist on both platforms with matching methods:
 | **PKM**           | `PersonalKnowledgeModel` | Domain metadata/index access | `PersonalKnowledgeModelPlugin.swift` | `PersonalKnowledgeModelPlugin.kt` |
 | **HushhAccount**  | `HushhAccount`  | Account lifecycle actions      | `HushhAccountPlugin.swift`  | `HushhAccountPlugin.kt`  |
 | **HushhNotifications** | `HushhNotifications` | Push token registration | `HushhNotificationsPlugin.swift` | `HushhNotificationsPlugin.kt` |
+| **HushhLocation** | `HushhLocation` | Foreground location capture | `HushhLocationPlugin.swift` | `HushhLocationPlugin.kt` |
 
 > Note: HushhKeystore uses jsName `HushhKeychain` for historical compatibility.
 

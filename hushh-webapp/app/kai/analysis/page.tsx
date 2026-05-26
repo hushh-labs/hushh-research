@@ -169,6 +169,7 @@ function KaiAnalysisPageContent() {
 
   const localIntentReady =
     hasFreshAnalysisIntent &&
+    analysisParams?.launchConfirmed === true &&
     Boolean(analysisParams?.userId) &&
     analysisParams?.userId !== "__pending__";
   const canStartNewRun =
@@ -471,17 +472,21 @@ function KaiAnalysisPageContent() {
     () => String(searchParams.get("ticker") || "").trim().toUpperCase(),
     [searchParams]
   );
-  const hasWorkspaceRouteIntent =
-    searchParams.get("focus") === "active" || searchParams.has("run_id");
+  const hasActiveRouteIntent = searchParams.get("focus") === "active";
+  const hasRunRouteIntent = searchParams.has("run_id");
+  const hasWorkspaceRouteIntent = hasActiveRouteIntent || hasRunRouteIntent;
   const previewPickSourceFromQuery = useMemo(
     () => String(searchParams.get("pick_source") || "").trim(),
     [searchParams]
   );
+  const hasConfirmedAnalysisIntent = analysisParams?.launchConfirmed === true;
   const shouldShowPreview =
     Boolean(previewTickerRaw) &&
-    !hasWorkspaceRouteIntent &&
+    !hasRunRouteIntent &&
+    (!hasActiveRouteIntent || !hasConfirmedAnalysisIntent) &&
     !showHistoryWhileActive &&
     !debateId &&
+    !activeRunTask &&
     !hasFocusedRun &&
     !liveEntry &&
     !resolvedEntry;
@@ -507,6 +512,23 @@ function KaiAnalysisPageContent() {
     if (showWorkspace) return "";
     return rawTicker;
   }, [searchParams, showWorkspace]);
+
+  useEffect(() => {
+    if (!shouldShowPreview || !hasActiveRouteIntent || !previewTickerRaw) return;
+    router.replace(
+      buildKaiAnalysisPreviewRoute({
+        ticker: previewTickerRaw,
+        pickSource: previewPickSourceFromQuery || previewPickSource,
+      })
+    );
+  }, [
+    hasActiveRouteIntent,
+    previewPickSource,
+    previewPickSourceFromQuery,
+    previewTickerRaw,
+    router,
+    shouldShowPreview,
+  ]);
   const analysisVoiceSurfaceMetadata = useMemo(() => {
     const workspaceTabLabel =
       workspaceTab === "debate"
@@ -784,6 +806,7 @@ function KaiAnalysisPageContent() {
           ticker: currentPreviewTicker,
           userId,
           riskProfile: context.user_risk_profile || "balanced",
+          launchConfirmed: true,
           userContext: context,
           pickSource: previewPickSource,
           pickSourceLabel: resolvedPickSourceLabel,

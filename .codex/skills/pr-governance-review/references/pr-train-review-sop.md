@@ -21,6 +21,10 @@ Canonical order for every backlog, batch, repass, decision-wave, or scale pass:
 
 If this order conflicts with another PR-governance reference, this section wins.
 
+## Surface-Scoped Async Train Guard
+
+Async trains are parallelism inside the operator-approved surface scope, not permission to act on unrelated green PRs. Build trains only from PRs touching the named scope or hard dependencies; put unrelated green-clean PRs in `out_of_scope_candidates` until a separate checkpoint approves writes. For Location, PKM, vault, consent, KYC, voice, finance, deploy, or branch governance, default to one surface train plus direct hard-edge dependencies.
+
 ## Live Report Reuse
 
 1. Reuse `tmp/pr-governance-live-report.md` when it is complete, under `12` hours old, and the operator asks to continue from it.

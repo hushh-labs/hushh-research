@@ -71,7 +71,10 @@ import {
   getKaiActivePickSource,
   setKaiActivePickSource,
 } from "@/lib/kai/pick-source-selection";
-import { assignWindowLocation, openExternalUrl } from "@/lib/utils/browser-navigation";
+import {
+  openExternalUrl,
+  requestInternalAppNavigation,
+} from "@/lib/utils/browser-navigation";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import {
@@ -773,7 +776,7 @@ function SpotlightFeatureTile({
           openExternalUrl(primaryHref);
           return;
         }
-        assignWindowLocation(primaryHref);
+        requestInternalAppNavigation({ href: primaryHref, scroll: false });
       }}
       className={cn(
         surfaceInteractiveShellClassName,
