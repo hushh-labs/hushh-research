@@ -166,7 +166,13 @@ describe("OneLocationAgentPage", () => {
       await screen.findByRole("heading", { name: "One Location Agent" }),
     ).toBeTruthy();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    expect(await screen.findByText("People who can see me")).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: "People who can see me" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: "Proximity alerts" }),
+    ).toBeNull();
+    expect(screen.queryByText("Advisor meetup")).toBeNull();
     expect(
       screen.queryAllByText("Trusted B - ******8012").length,
     ).toBeGreaterThan(0);

@@ -22,7 +22,6 @@ import {
   MapPin,
   Pencil,
   Plus,
-  Radar,
   RefreshCw,
   Search,
   Send,
@@ -276,14 +275,18 @@ const oneSecondaryTextClassName = "text-[#8e8e93] dark:text-white/55";
 
 function sectionLabel(title: string, count?: number) {
   return (
-    <h2 className="ml-1 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.08em] text-[#8e8e93] dark:text-white/45">
+    <div
+      role="heading"
+      aria-level={2}
+      className="ml-1 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.08em] text-[#8e8e93] dark:text-white/45"
+    >
       {title}
       {typeof count === "number" && count > 0 ? (
         <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[#ff3b30] px-1.5 text-[10px] font-bold text-white">
           {count}
         </span>
       ) : null}
-    </h2>
+    </div>
   );
 }
 
@@ -1615,45 +1618,6 @@ export function OneLocationAgentPageContent() {
                       description="Create one encrypted grant when you need a trusted person to see you."
                     />
                   )}
-                </div>
-              </section>
-
-              <section className="space-y-2 px-1">
-                {sectionLabel("Proximity alerts")}
-                <div className={cn(onePanelClassName, "p-3.5")}>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f0f5ff] text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]">
-                        <Radar className="h-[18px] w-[18px]" />
-                      </span>
-                      <div className="min-w-0">
-                        <h3 className="text-[16px] font-semibold tracking-tight text-[#1c1c1e] dark:text-white">
-                          Advisor meetup
-                        </h3>
-                        <p className="text-[13px] font-medium text-[#8e8e93] dark:text-white/55">
-                          Notify when within{" "}
-                          <span className="text-[#1c1c1e] dark:text-white">
-                            2km
-                          </span>
-                        </p>
-                      </div>
-                    </div>
-                    <span
-                      aria-label="Proximity alert enabled"
-                      className="relative h-[31px] w-[51px] shrink-0 rounded-full bg-[#34c759] shadow-inner"
-                    >
-                      <span className="absolute right-[2px] top-[2px] h-[27px] w-[27px] rounded-full bg-white shadow-[0_3px_8px_rgba(0,0,0,0.15)]" />
-                    </span>
-                  </div>
-                  <div className="mt-3 flex items-center gap-3 pl-12">
-                    <div className="relative h-[6px] flex-1 rounded-full bg-[#f2f2f7] dark:bg-white/10">
-                      <div className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-[#007aff]" />
-                      <div className="absolute left-1/3 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/10 bg-white shadow-[0_2px_4px_rgba(0,0,0,0.20)]" />
-                    </div>
-                    <span className="w-8 text-right text-[12px] font-semibold text-[#8e8e93] dark:text-white/55">
-                      2km
-                    </span>
-                  </div>
                 </div>
               </section>
 
