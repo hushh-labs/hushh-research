@@ -121,25 +121,25 @@ async def _require_vault_owner_token(
 class StreamAnalyzeRequest(BaseModel):
     """Request for streaming analysis."""
 
-    user_id: str
-    ticker: str
-    risk_profile: str = "balanced"
+    user_id: str = Field(..., min_length=1, max_length=_USER_ID_MAX_LEN)
+    ticker: str = Field(..., min_length=1, max_length=_TICKER_RAW_MAX_LEN)
+    risk_profile: str = Field(default="balanced", max_length=_RISK_PROFILE_MAX_LEN)
     context: Optional[Dict[str, Any]] = None
-    run_id: Optional[str] = None
+    run_id: Optional[str] = Field(default=None, max_length=_RUN_ID_MAX_LEN)
     resume_cursor: Optional[int] = Field(default=0, ge=0)
 
 
 class StartAnalyzeRunRequest(BaseModel):
     """Request to create or attach to a session-locked analysis run."""
 
-    user_id: str
-    debate_session_id: str
-    ticker: str
-    risk_profile: str = "balanced"
+    user_id: str = Field(..., min_length=1, max_length=_USER_ID_MAX_LEN)
+    debate_session_id: str = Field(..., min_length=1, max_length=_DEBATE_SESSION_ID_MAX_LEN)
+    ticker: str = Field(..., min_length=1, max_length=_TICKER_RAW_MAX_LEN)
+    risk_profile: str = Field(default="balanced", max_length=_RISK_PROFILE_MAX_LEN)
     context: Optional[Dict[str, Any]] = None
-    pick_source: Optional[str] = None
-    pick_source_label: Optional[str] = None
-    pick_source_kind: Optional[str] = None
+    pick_source: Optional[str] = Field(default=None, max_length=_RUN_ID_MAX_LEN)
+    pick_source_label: Optional[str] = Field(default=None, max_length=256)
+    pick_source_kind: Optional[str] = Field(default=None, max_length=64)
 
 
 # ============================================================================
