@@ -1453,14 +1453,14 @@
       "native": {
         "route": "/profile/pkm",
         "classification": "native-required-functional",
+        "legacyAlias": true,
         "initialRoute": "/login?redirect=%2Fprofile%2Fpkm",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile?panel=my-data",
+        "expectedMarker": "native-route-profile-pkm",
+        "expectedRoute": "/profile/pkm-agent-lab",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded",
-          "redirect-valid"
+          "loaded"
         ]
       },
       "shell": {
@@ -1573,8 +1573,8 @@
         "route": "/register-phone",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fregister-phone",
-        "expectedMarker": "native-route-register-phone",
-        "expectedRoute": "/register-phone",
+        "expectedMarker": "native-route-kai-home",
+        "expectedRoute": "/kai",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [

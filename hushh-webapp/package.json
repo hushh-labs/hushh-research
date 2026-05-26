@@ -19,6 +19,11 @@
     "verify:design-system": "node ./scripts/architecture/verify-design-system.mjs",
     "verify:docs": "node ./scripts/architecture/verify-docs.mjs",
     "verify:surface-map": "node ./scripts/architecture/generate-surface-map.mjs --check",
+    "sync:native-firebase-configs": "node ./scripts/native/sync-native-firebase-configs.mjs",
+    "verify:capacitor:static": "node ./scripts/native/verify-native-static-parity.mjs",
+    "verify:capacitor:plugins": "node ./scripts/native/verify-native-plugin-contracts.mjs",
+    "verify:capacitor:reports": "node ./scripts/native/verify-native-parity-reports.mjs",
+    "verify:capacitor:audit": "node ./scripts/native/verify-capacitor-audit.mjs",
     "verify:routes": "node ./scripts/testing/verify-signed-in-routes.mjs",
     "verify:cache": "vitest run __tests__/services/cache-sync-mutation-cascade.test.ts __tests__/services/cache-service.test.ts __tests__/services/cache-hit-rate-contract.test.ts __tests__/services/use-stale-resource.test.tsx __tests__/services/use-stale-resource-lifecycle.test.tsx __tests__/services/pkm-cache.test.ts __tests__/services/pkm-domain-resource.test.ts",
     "report:contributor-impact:pdf": "node ./scripts/reports/export-contributor-impact-pdf.mjs",
@@ -33,7 +38,8 @@
     "ios:run": "npm run cap:build && npm run cap:sync:ios && npx cap run ios",
     "ios:verify-archive-symbols": "./scripts/native/verify-ios-archive-symbols.sh",
     "android:run": "npm run cap:build && npm run cap:sync:android && npx cap run android",
-    "ios:test": "npm run cap:build && npm run cap:sync:ios && ./scripts/native/ios-test.sh"
+    "ios:test": "npm run sync:native-firebase-configs && npm run cap:build && npm run cap:sync:ios && ./scripts/native/ios-test.sh",
+    "android:test": "npm run sync:native-firebase-configs && node ./scripts/native/android-route-audit.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",

@@ -60,6 +60,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { useVault } from "@/lib/vault/vault-context";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import { getTickerUniverseSnapshot, preloadTickerUniverse } from "@/lib/kai/ticker-universe-cache";
@@ -1036,7 +1037,7 @@ export function DashboardMasterView({
           returnPath: ROUTES.KAI_PORTFOLIO,
           startedAt: new Date().toISOString(),
         });
-        window.location.assign(connect.authorization_url);
+        openExternalUrl(connect.authorization_url);
       } catch (oauthError) {
         toast.error("Could not start Alpaca login.", {
           description:
@@ -2638,7 +2639,7 @@ export function DashboardMasterView({
           onRefreshPlaid={hasPlaidConnections ? () => handleRefreshPlaid() : undefined}
           onCancelRefreshPlaid={isPlaidRefreshing ? () => handleCancelPlaidRefresh() : undefined}
           onManageConnections={plaidConfigured !== false ? () => void openPlaidLinkFlow() : undefined}
-          onImportStatement={activeSource === "statement" ? onReupload : undefined}
+          onImportStatement={onReupload}
           onDeletePortfolio={
             canDeletePortfolio ? () => setDeleteImportedDialogOpen(true) : undefined
           }
@@ -2716,7 +2717,7 @@ export function DashboardMasterView({
         onRefreshPlaid={hasPlaidConnections ? () => handleRefreshPlaid() : undefined}
         onCancelRefreshPlaid={isPlaidRefreshing ? () => handleCancelPlaidRefresh() : undefined}
         onManageConnections={plaidConfigured !== false ? () => void openPlaidLinkFlow() : undefined}
-        onImportStatement={activeSource === "statement" ? onReupload : undefined}
+        onImportStatement={onReupload}
         onDeletePortfolio={
           canDeletePortfolio ? () => setDeleteImportedDialogOpen(true) : undefined
         }
