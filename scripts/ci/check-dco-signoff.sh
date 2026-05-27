@@ -49,7 +49,7 @@ fi
 missing=0
 for commit in "${COMMITS[@]}"; do
   body="$(git log -1 --format=%B "$commit")"
-  if ! printf '%s\n' "$body" | grep -qi '^Signed-off-by:'; then
+  if ! printf '%s\n' "$body" | grep -E -qi '(^|\\n|[[:space:]])Signed-off-by:'; then
     echo "Missing DCO signoff on commit ${commit}: $(git log -1 --format=%s "$commit")" >&2
     missing=1
   fi

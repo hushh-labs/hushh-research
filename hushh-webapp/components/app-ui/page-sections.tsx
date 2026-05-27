@@ -1,7 +1,8 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 import { SurfaceCard, type SurfaceAccent, type SurfaceTone } from "@/components/app-ui/surfaces";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -146,6 +147,8 @@ export function PageHeader({
   accent = "default",
   className,
   testId = "page-header",
+  loading = false,
+  isSticky = false,
 }: {
   eyebrow?: string;
   title: ReactNode;
@@ -158,11 +161,27 @@ export function PageHeader({
   accent?: SectionAccent;
   className?: string;
   testId?: string;
+  loading?: boolean;
+  isSticky?: boolean;
 }) {
   const styles = ACCENT_STYLES[accent];
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  if (loading) {
+    return (
+      <div className="space-y-4 animate-pulse" data-testid={`${testId}-skeleton`}>
+        <div className="h-8 w-1/3 bg-muted rounded-md" />
+        <div className="h-4 w-2/3 bg-muted rounded-md" />
+      </div>
+    );
+  }
   return (
     <header
-      className={cn("space-y-[var(--page-header-stack-gap)]", className)}
+      className={cn(
+        "space-y-[var(--page-header-stack-gap)]",
+        isSticky && "sticky top-0 z-10 bg-background/80 backdrop-blur-md py-2",
+        className
+      )}
       data-slot="page-header"
       data-page-primary="true"
       data-testid={testId}
@@ -202,11 +221,31 @@ export function PageHeader({
                 {title}
               </h1>
               {description && !descriptionFullWidth ? (
-                <div
-                  className="max-w-2xl line-clamp-2 text-sm leading-6 text-muted-foreground sm:line-clamp-none"
-                  data-slot="page-header-description"
-                >
-                  {description}
+                <div className="relative">
+                  <div
+                    className={cn(
+                      "max-w-2xl text-sm leading-6 text-muted-foreground transition-all duration-300",
+                      !isExpanded && "line-clamp-2"
+                    )}
+                    data-slot="page-header-description"
+                  >
+                    {description}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    className="text-xs font-medium text-primary flex items-center gap-1 mt-1 hover:underline outline-none"
+                  >
+                    {isExpanded ? (
+                      <>
+                        <ChevronUp className="w-3 h-3" /> Show less
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="w-3 h-3" /> Read more
+                      </>
+                    )}
+                  </button>
                 </div>
               ) : null}
             </div>
@@ -331,5 +370,19 @@ export function ContentSurface({
     <SurfaceCard tone={tone} accent={accent} className={className}>
       {children}
     </SurfaceCard>
+  );
+}
+
+// FEATURE: Add a Badge helper for the PageHeader actions
+export function HeaderBadge({ children, color = "neutral" }: { children: ReactNode; color?: SectionAccent }) {
+  return (
+    <span
+      className={cn(
+        "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider",
+        color === "kai" ? "bg-violet-100 text-violet-700" : "bg-muted text-muted-foreground"
+      )}
+    >
+      {children}
+    </span>
   );
 }
