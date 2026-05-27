@@ -442,6 +442,7 @@ export function DataTable<TData, TValue>({
                   <PaginationPrevious
                     href="#"
                     aria-disabled={!table.getCanPreviousPage()}
+                    tabIndex={!table.getCanPreviousPage() ? -1 : undefined}
                     className={cn(
                       !table.getCanPreviousPage() && "pointer-events-none opacity-50"
                     )}
@@ -485,6 +486,7 @@ export function DataTable<TData, TValue>({
                   <PaginationNext
                     href="#"
                     aria-disabled={!table.getCanNextPage()}
+                    tabIndex={!table.getCanNextPage() ? -1 : undefined}
                     className={cn(!table.getCanNextPage() && "pointer-events-none opacity-50")}
                     onClick={(event) => {
                       event.preventDefault();
