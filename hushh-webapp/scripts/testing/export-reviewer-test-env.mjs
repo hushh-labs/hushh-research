@@ -15,6 +15,8 @@ const identity = resolveReviewerTestIdentity({
 });
 
 process.stdout.write(`export REVIEWER_UID=${JSON.stringify(identity.reviewerUid)}\n`);
+process.stdout.write(`export NEXT_PUBLIC_REVIEWER_UID=${JSON.stringify(identity.reviewerUid)}\n`);
+process.stdout.write(`export NEXT_PUBLIC_KAI_TEST_USER_ID=${JSON.stringify(identity.reviewerUid)}\n`);
 process.stdout.write(
   `export REVIEWER_VAULT_PASSPHRASE=${JSON.stringify(identity.reviewerVaultPassphrase)}\n`
 );

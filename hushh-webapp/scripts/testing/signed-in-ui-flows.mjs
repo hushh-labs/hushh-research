@@ -5,7 +5,7 @@
  * Step types:
  * - ensure_persona: { persona: "ria" | "investor" }
  * - click_bottom_nav: { label: string }
- * - click_button: { name: string }  // case-insensitive exact match
+ * - click_button: { name: string, regex?: boolean }  // case-insensitive exact match unless regex=true
  * - click_voice_control: { controlId: string }
  * - click_testid: { testId: string }
  * - clear_import_background: {}
@@ -138,14 +138,14 @@ export const UI_FLOWS = [
       { type: "ensure_persona", persona: "ria" },
       { type: "click_bottom_nav", label: "Picks" },
       { type: "wait_beacon", routeIds: ["/ria/picks"] },
-      { type: "click_button", name: "kai list" },
-      { type: "assert_url_includes", value: "source=kai" },
-      { type: "click_button", name: "my list" },
+      { type: "click_button", name: "^my list", regex: true },
       { type: "assert_url_includes", value: "source=my" },
-      { type: "click_button", name: "top picks" },
-      { type: "assert_url_includes", value: "category=top-picks" },
+      { type: "click_button", name: "^kai list", regex: true },
+      { type: "assert_url_includes", value: "source=kai" },
       { type: "click_button", name: "avoid" },
       { type: "assert_url_includes", value: "category=avoid" },
+      { type: "click_button", name: "top picks" },
+      { type: "assert_url_includes", value: "category=top-picks" },
       { type: "click_button", name: "screening" },
       { type: "assert_url_includes", value: "category=screening" },
     ],
@@ -156,7 +156,7 @@ export const UI_FLOWS = [
     description: "RIA workspace -> taxable brokerage account",
     steps: [
       { type: "open_ria_workspace" },
-      { type: "click_button", name: "taxable brokerage" },
+      { type: "click_button", name: "^taxable brokerage", regex: true },
       {
         type: "wait_beacon",
         routeIds: ["/ria/clients/[userId]/accounts/[accountId]"],
