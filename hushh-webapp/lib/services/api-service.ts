@@ -105,6 +105,18 @@ function detectHostedToLocalMismatch(apiBase: string): string | null {
   return `Hosted WebView origin (${nativeServerOrigin}) cannot use local backend (${apiBase}). Set NEXT_PUBLIC_BACKEND_URL to hosted backend before native build.`;
 }
 
+function updateNativePortfolioImportDebug(
+  updates: Record<string, string | number | null | undefined>
+): void {
+  if (typeof window === "undefined") return;
+  const bridge = window.__HUSHH_NATIVE_TEST__;
+  if (!bridge?.enabled) return;
+  for (const [key, value] of Object.entries(updates)) {
+    (bridge as unknown as Record<string, string | number | undefined>)[key] =
+      value === null || value === undefined ? "" : value;
+  }
+}
+
 // API Base URL configuration
 const getApiBaseUrl = (): string => {
   if (Capacitor.isNativePlatform()) {
@@ -206,6 +218,19 @@ function toStatusBucketFromStatus(
   if (status >= 400 && status < 500) return "4xx_unexpected";
   if (status >= 500) return "5xx";
   return "network_error";
+}
+
+export class MarketInsightsEmptyError extends Error {
+  readonly status = 404;
+
+  constructor() {
+    super("Market insights are not ready yet.");
+    this.name = "MarketInsightsEmptyError";
+  }
+}
+
+export function isMarketInsightsEmptyError(error: unknown): error is MarketInsightsEmptyError {
+  return error instanceof MarketInsightsEmptyError;
 }
 
 async function classifyVaultOwnerAuthFailure(
@@ -2670,6 +2695,15 @@ export class ApiService {
                     fail(new Error("Native SSE event mismatch"));
                     return;
                   }
+                  const nativeBridge =
+                    typeof window !== "undefined" ? window.__HUSHH_NATIVE_TEST__ : undefined;
+                  if (nativeBridge?.enabled) {
+                    nativeBridge.portfolioStreamEventCount =
+                      (nativeBridge.portfolioStreamEventCount || 0) + 1;
+                    nativeBridge.portfolioStreamLastEvent = envelope.event;
+                    nativeBridge.portfolioStreamLastSeq = String(envelope.seq);
+                    nativeBridge.portfolioStreamLastError = "";
+                  }
 
                   controller.enqueue(
                     encoder.encode(
@@ -2692,11 +2726,23 @@ export class ApiService {
               });
 
               if (!sawTerminalEvent) {
-                fail(new Error("Native import stream ended without terminal event"));
+                const error = new Error("Native import stream ended without terminal event");
+                const nativeBridge =
+                  typeof window !== "undefined" ? window.__HUSHH_NATIVE_TEST__ : undefined;
+                if (nativeBridge?.enabled) {
+                  nativeBridge.portfolioStreamLastError = error.message;
+                }
+                fail(error);
                 return;
               }
               close();
             } catch (error) {
+              const nativeBridge =
+                typeof window !== "undefined" ? window.__HUSHH_NATIVE_TEST__ : undefined;
+              if (nativeBridge?.enabled) {
+                nativeBridge.portfolioStreamLastError =
+                  error instanceof Error ? error.message : String(error);
+              }
               fail(error);
             } finally {
               params.signal?.removeEventListener("abort", handleAbort);
@@ -2727,18 +2773,61 @@ export class ApiService {
     vaultOwnerToken: string;
     signal?: AbortSignal;
   }): Promise<Response> {
-    const response = await apiFetch("/api/kai/portfolio/import/run/start", {
-      method: "POST",
-      body: params.formData,
-      headers: {
-        Authorization: `Bearer ${params.vaultOwnerToken}`,
-      },
-      signal: params.signal,
+    updateNativePortfolioImportDebug({
+      portfolioImportStartState: "requesting",
+      portfolioImportStartStatus: "",
+      portfolioImportStartRunId: "",
+      portfolioImportStartError: "",
+      portfolioStreamState: "",
+      portfolioStreamRunId: "",
+      portfolioStreamEventCount: 0,
+      portfolioStreamLastEvent: "",
+      portfolioStreamLastSeq: "",
+      portfolioStreamLastError: "",
     });
-    trackEvent("import_upload_started", {
-      result: toResultFromStatus(response.status),
-    });
-    return response;
+    try {
+      const response = await apiFetch("/api/kai/portfolio/import/run/start", {
+        method: "POST",
+        body: params.formData,
+        headers: {
+          Authorization: `Bearer ${params.vaultOwnerToken}`,
+        },
+        signal: params.signal,
+      });
+      updateNativePortfolioImportDebug({
+        portfolioImportStartState: response.ok ? "ok" : "http_error",
+        portfolioImportStartStatus: String(response.status),
+      });
+      void response
+        .clone()
+        .json()
+        .then((payload: unknown) => {
+          const runId =
+            payload &&
+            typeof payload === "object" &&
+            typeof (payload as Record<string, unknown>).run_id === "string"
+              ? ((payload as Record<string, unknown>).run_id as string)
+              : "";
+          updateNativePortfolioImportDebug({
+            portfolioImportStartRunId: runId,
+          });
+        })
+        .catch(() => {
+          updateNativePortfolioImportDebug({
+            portfolioImportStartRunId: "",
+          });
+        });
+      trackEvent("import_upload_started", {
+        result: toResultFromStatus(response.status),
+      });
+      return response;
+    } catch (error) {
+      updateNativePortfolioImportDebug({
+        portfolioImportStartState: "error",
+        portfolioImportStartError: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
 
   static async getActivePortfolioImportRun(params: {
@@ -2761,10 +2850,22 @@ export class ApiService {
     cursor?: number;
     signal?: AbortSignal;
   }): Promise<Response> {
+    updateNativePortfolioImportDebug({
+      portfolioStreamState: "requested",
+      portfolioStreamRunId: params.runId,
+      portfolioStreamEventCount: 0,
+      portfolioStreamLastEvent: "",
+      portfolioStreamLastSeq: "",
+      portfolioStreamLastError: "",
+    });
     if (Capacitor.isNativePlatform()) {
       try {
         const vaultOwnerToken = params.vaultOwnerToken;
         if (!vaultOwnerToken) {
+          updateNativePortfolioImportDebug({
+            portfolioStreamState: "missing_token",
+            portfolioStreamLastError: "Vault must be unlocked",
+          });
           return new Response(
             JSON.stringify({ error: "Vault must be unlocked" }),
             { status: 401 }
@@ -2799,11 +2900,18 @@ export class ApiService {
               );
             };
             const handleAbort = () => {
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "aborted",
+                portfolioStreamLastError: "Aborted",
+              });
               fail(new DOMException("Aborted", "AbortError"));
             };
 
             try {
               params.signal?.addEventListener("abort", handleAbort, { once: true });
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "attaching_listener",
+              });
               listener = await Kai.addListener(
                 PORTFOLIO_STREAM_EVENT,
                 (event: Record<string, unknown>) => {
@@ -2821,6 +2929,16 @@ export class ApiService {
                     fail(new Error("Native SSE event mismatch"));
                     return;
                   }
+                  updateNativePortfolioImportDebug({
+                    portfolioStreamState: "event_received",
+                    portfolioStreamEventCount:
+                      ((typeof window !== "undefined" &&
+                        window.__HUSHH_NATIVE_TEST__?.portfolioStreamEventCount) ||
+                        0) + 1,
+                    portfolioStreamLastEvent: envelope.event,
+                    portfolioStreamLastSeq: String(envelope.seq),
+                    portfolioStreamLastError: "",
+                  });
 
                   controller.enqueue(
                     encoder.encode(
@@ -2830,23 +2948,47 @@ export class ApiService {
 
                   if (envelope.terminal) {
                     sawTerminalEvent = true;
+                    updateNativePortfolioImportDebug({
+                      portfolioStreamState: "terminal_seen",
+                    });
                   }
                 }
               );
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "listener_attached",
+              });
 
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "plugin_invoking",
+              });
               await Kai.streamPortfolioImportRun({
                 runId: params.runId,
                 userId: params.userId,
                 cursor: Math.max(0, params.cursor ?? 0),
                 vaultOwnerToken,
               });
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "plugin_returned",
+              });
 
               if (!sawTerminalEvent) {
-                fail(new Error("Native import stream ended without terminal event"));
+                const error = new Error("Native import stream ended without terminal event");
+                updateNativePortfolioImportDebug({
+                  portfolioStreamState: "missing_terminal",
+                  portfolioStreamLastError: error.message,
+                });
+                fail(error);
                 return;
               }
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "closed",
+              });
               close();
             } catch (error) {
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "error",
+                portfolioStreamLastError: error instanceof Error ? error.message : String(error),
+              });
               fail(error);
             } finally {
               params.signal?.removeEventListener("abort", handleAbort);
@@ -2860,6 +3002,10 @@ export class ApiService {
         });
       } catch (error) {
         console.error("[ApiService] Native streamPortfolioImportRun error:", error);
+        updateNativePortfolioImportDebug({
+          portfolioStreamState: "response_error",
+          portfolioStreamLastError: (error as Error).message,
+        });
         return new Response(JSON.stringify({ error: (error as Error).message }), {
           status: 500,
         });
@@ -3052,6 +3198,9 @@ export class ApiService {
       duration_ms_bucket: toDurationBucket(durationMs),
     });
     if (!response.ok) {
+      if (response.status === 404) {
+        throw new MarketInsightsEmptyError();
+      }
       throw new Error(`Failed to load baseline market insights: ${response.status}`);
     }
     return (await response.json()) as KaiHomeInsightsV2;
@@ -3096,6 +3245,9 @@ export class ApiService {
       duration_ms_bucket: toDurationBucket(durationMs),
     });
     if (!response.ok) {
+      if (response.status === 404) {
+        throw new MarketInsightsEmptyError();
+      }
       throw new Error(`Failed to load market insights: ${response.status}`);
     }
     return (await response.json()) as KaiHomeInsightsV2;

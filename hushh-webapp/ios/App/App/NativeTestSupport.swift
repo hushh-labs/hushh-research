@@ -12,6 +12,7 @@ struct NativeTestConfiguration {
     let vaultPassphrase: String?
     let expectedUserId: String?
     let resetAppState: Bool
+    let runUiFlows: Bool
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         enabled = arguments.contains("-UITestMode")
@@ -28,6 +29,7 @@ struct NativeTestConfiguration {
             in: arguments,
             defaultValue: true
         )
+        runUiFlows = NativeTestConfiguration.boolValue(for: "-UITestRunUiFlows", in: arguments)
     }
 
     var injectedScript: String {
@@ -39,6 +41,7 @@ struct NativeTestConfiguration {
             "autoReviewerLogin": autoReviewerLogin,
             "vaultPassphrase": vaultPassphrase ?? "",
             "expectedUserId": expectedUserId ?? "",
+            "runUiFlows": runUiFlows,
         ]
 
         guard
@@ -61,6 +64,7 @@ struct NativeTestConfiguration {
           bridge.autoReviewerLogin = config.autoReviewerLogin === true;
           bridge.vaultPassphrase = config.vaultPassphrase || "";
           bridge.expectedUserId = config.expectedUserId || "";
+          bridge.runUiFlows = config.runUiFlows === true;
           bridge.lastJsError = "";
           bridge.lastUnhandledRejection = "";
           try {
@@ -114,7 +118,6 @@ struct NativeTestConfiguration {
             }
             var markerFound = !!(beacon && (!bridge.expectedMarker || beacon.marker === bridge.expectedMarker));
             var reviewerButtonFound = false;
-            var bodySnippet = "";
             try {
               var buttons = Array.prototype.slice.call(document.querySelectorAll("button"));
               reviewerButtonFound = buttons.some(function(button) {
@@ -122,8 +125,13 @@ struct NativeTestConfiguration {
                 return text === "continue as reviewer";
               });
             } catch (_) {}
+            var bodySnippet = "";
+            var visible404 = false;
             try {
               bodySnippet = ((document.body && document.body.innerText) || "").trim().slice(0, 160);
+              visible404 =
+                bodySnippet.indexOf("404") >= 0 ||
+                bodySnippet.toLowerCase().indexOf("not found") >= 0;
             } catch (_) {}
             if (!markerFound && bridge.expectedMarker) {
               try {
@@ -139,6 +147,26 @@ struct NativeTestConfiguration {
               testEnabled: bridge.enabled === true,
               autoReviewerLogin: bridge.autoReviewerLogin === true,
               bridgeBeaconPresent: !!bridge.beacon,
+              nativeUiRunnerPresent: !!window.__HUSHH_NATIVE_UI_TEST__,
+              runUiFlows: bridge.runUiFlows === true,
+              uiFlowsStarted: bridge._uiFlowsStarted === true,
+              uiFlowsFailed: bridge.uiFlowsFailed === true,
+              uiFlowsOk: bridge.uiFlowsOk === true,
+              uiFlowBootstrapActive: !!bridge._uiFlowBootstrapTimer,
+              activePersona: bridge.activePersona || "",
+              primaryNavPersona: bridge.primaryNavPersona || "",
+              personaSwitchStatus: bridge.personaSwitchStatus || "",
+              personaSwitchError: bridge.personaSwitchError || "",
+              portfolioImportStartState: bridge.portfolioImportStartState || "",
+              portfolioImportStartStatus: bridge.portfolioImportStartStatus || "",
+              portfolioImportStartRunId: bridge.portfolioImportStartRunId || "",
+              portfolioImportStartError: bridge.portfolioImportStartError || "",
+              portfolioStreamState: bridge.portfolioStreamState || "",
+              portfolioStreamRunId: bridge.portfolioStreamRunId || "",
+              portfolioStreamEventCount: String(bridge.portfolioStreamEventCount || 0),
+              portfolioStreamLastEvent: bridge.portfolioStreamLastEvent || "",
+              portfolioStreamLastSeq: bridge.portfolioStreamLastSeq || "",
+              portfolioStreamLastError: bridge.portfolioStreamLastError || "",
               triggerReviewerLoginPresent: typeof bridge.triggerReviewerLogin === "function",
               domTestEnabled: "",
               domAutoReviewerLogin: "",
@@ -146,6 +174,7 @@ struct NativeTestConfiguration {
               jsError: bridge.lastJsError || "",
               jsRejection: bridge.lastUnhandledRejection || "",
               bodySnippet: bodySnippet,
+              visible404: visible404,
               markerFound: markerFound,
               bootstrapState: bridge.bootstrapState || "",
               bootstrapUserId: bridge.bootstrapUserId || "",
@@ -155,7 +184,14 @@ struct NativeTestConfiguration {
               authState: beacon ? (beacon.authState || "") : "",
               dataState: beacon ? (beacon.dataState || "") : "",
               errorCode: beacon ? (beacon.errorCode || "") : "",
-              errorMessage: beacon ? (beacon.errorMessage || "") : ""
+              errorMessage: beacon ? (beacon.errorMessage || "") : "",
+              uiFlowCurrent: bridge.uiFlowCurrent || "",
+              uiFlowStepIndex: String(bridge.uiFlowStepIndex ?? ""),
+              uiFlowStepType: bridge.uiFlowStepType || "",
+              uiFlowStepStartedAt: bridge.uiFlowStepStartedAt || "",
+              uiFlowError: bridge.uiFlowError || "",
+              uiFlowsComplete: bridge.uiFlowsComplete === true,
+              uiFlowsOk: bridge.uiFlowsOk === true
             };
           };
           bridge.start = function() {
@@ -187,15 +223,26 @@ struct NativeTestConfiguration {
               }, 400);
             }
 
-            if (bridge.vaultPassphrase && !bridge.expectedUserId && !bridge._vaultTimer) {
+            if (bridge.vaultPassphrase && !bridge._vaultTimer) {
               bridge._vaultTimer = window.setInterval(function() {
                 try {
                   if (typeof bridge.triggerVaultUnlock === "function") {
                     bridge.triggerVaultUnlock();
                     return;
                   }
+                  var buttons = Array.prototype.slice.call(document.querySelectorAll("button"));
                   var passphraseInput = document.querySelector('#unlock-passphrase');
                   if (!passphraseInput) {
+                    var fallbackButton = document.querySelector('[data-testid="vault-use-passphrase-instead"]');
+                    if (!fallbackButton) {
+                      fallbackButton = buttons.find(function(button) {
+                        var text = (button.textContent || "").trim().toLowerCase();
+                        return text === "use passphrase instead";
+                      });
+                    }
+                    if (fallbackButton && !fallbackButton.disabled) {
+                      fallbackButton.click();
+                    }
                     return;
                   }
                   var prototype = window.HTMLInputElement && window.HTMLInputElement.prototype;
@@ -207,7 +254,6 @@ struct NativeTestConfiguration {
                   }
                   passphraseInput.dispatchEvent(new Event("input", { bubbles: true }));
                   passphraseInput.dispatchEvent(new Event("change", { bubbles: true }));
-                  var buttons = Array.prototype.slice.call(document.querySelectorAll("button"));
                   var unlockButton = buttons.find(function(button) {
                     var text = (button.textContent || "").trim().toLowerCase();
                     return text === "unlock with passphrase";
@@ -247,6 +293,11 @@ struct NativeTestConfiguration {
           };
 
           window.__HUSHH_NATIVE_TEST__ = bridge;
+          try {
+            if (window.__HUSHH_NATIVE_UI_TEST__ && typeof window.__HUSHH_NATIVE_UI_TEST__.startUiFlowBootstrap === "function") {
+              window.__HUSHH_NATIVE_UI_TEST__.startUiFlowBootstrap();
+            }
+          } catch (_) {}
           setTimeout(function() { bridge.start(); }, 0);
         })();
         """
@@ -272,17 +323,30 @@ struct NativeTestConfiguration {
           var autoReviewerLogin = \(autoReviewerLogin);
           var bridge = window.__HUSHH_NATIVE_TEST__ || {};
           var previousInitialRoute = bridge.initialRoute || "";
-          bridge.expectedMarker = marker;
-          bridge.expectedRoute = expectedRoute;
-          bridge.initialRoute = initialRoute || null;
-          bridge.autoReviewerLogin = autoReviewerLogin === true;
+          var uiFlowsOwnRouting = bridge.runUiFlows === true && bridge._uiFlowsStarted === true;
+          if (!uiFlowsOwnRouting) {
+            bridge.expectedMarker = marker;
+            bridge.expectedRoute = expectedRoute;
+            bridge.initialRoute = initialRoute || null;
+            bridge.autoReviewerLogin = autoReviewerLogin === true;
+          } else {
+            marker = bridge.expectedMarker || "";
+            expectedRoute = bridge.expectedRoute || "";
+            initialRoute = bridge.initialRoute || "";
+          }
           try {
             var root = document.documentElement;
             if (root) {
-              root.setAttribute("data-hushh-native-test-auto-reviewer-login", bridge.autoReviewerLogin ? "true" : "false");
-              root.setAttribute("data-hushh-native-test-initial-route", bridge.initialRoute || "");
-              root.setAttribute("data-hushh-native-test-expected-marker", bridge.expectedMarker || "");
-              root.setAttribute("data-hushh-native-test-expected-route", bridge.expectedRoute || "");
+              if (!uiFlowsOwnRouting) {
+                root.setAttribute("data-hushh-native-test-auto-reviewer-login", bridge.autoReviewerLogin ? "true" : "false");
+                root.setAttribute("data-hushh-native-test-initial-route", bridge.initialRoute || "");
+                root.setAttribute("data-hushh-native-test-expected-marker", bridge.expectedMarker || "");
+                root.setAttribute("data-hushh-native-test-expected-route", bridge.expectedRoute || "");
+              } else {
+                root.setAttribute("data-hushh-native-test-initial-route", "");
+                root.setAttribute("data-hushh-native-test-expected-marker", "");
+                root.setAttribute("data-hushh-native-test-expected-route", "");
+              }
             }
             if (previousInitialRoute !== (bridge.initialRoute || "")) {
               window.dispatchEvent(new CustomEvent("hushh:native-test-config-updated"));
@@ -298,9 +362,23 @@ struct NativeTestConfiguration {
             expectedRoute: expectedRoute,
             testEnabled: bridge.enabled === true,
             autoReviewerLogin: bridge.autoReviewerLogin === true,
-            bridgeBeaconPresent: !!bridge.beacon,
-            triggerReviewerLoginPresent: typeof bridge.triggerReviewerLogin === "function",
-            domTestEnabled: "",
+              bridgeBeaconPresent: !!bridge.beacon,
+              nativeUiRunnerPresent: !!window.__HUSHH_NATIVE_UI_TEST__,
+              runUiFlows: bridge.runUiFlows === true,
+              uiFlowsStarted: bridge._uiFlowsStarted === true,
+              uiFlowsFailed: bridge.uiFlowsFailed === true,
+              uiFlowsOk: bridge.uiFlowsOk === true,
+              uiFlowBootstrapActive: !!bridge._uiFlowBootstrapTimer,
+              activePersona: bridge.activePersona || "",
+              primaryNavPersona: bridge.primaryNavPersona || "",
+              personaSwitchStatus: bridge.personaSwitchStatus || "",
+              personaSwitchError: bridge.personaSwitchError || "",
+              portfolioStreamEventCount: String(bridge.portfolioStreamEventCount || 0),
+              portfolioStreamLastEvent: bridge.portfolioStreamLastEvent || "",
+              portfolioStreamLastSeq: bridge.portfolioStreamLastSeq || "",
+              portfolioStreamLastError: bridge.portfolioStreamLastError || "",
+              triggerReviewerLoginPresent: typeof bridge.triggerReviewerLogin === "function",
+              domTestEnabled: "",
             domAutoReviewerLogin: "",
             reviewerButtonFound: false,
             bootstrapState: bridge.bootstrapState || "",
@@ -315,7 +393,14 @@ struct NativeTestConfiguration {
             authState: "",
             dataState: "",
             errorCode: "",
-            errorMessage: ""
+            errorMessage: "",
+            uiFlowCurrent: bridge.uiFlowCurrent || "",
+            uiFlowStepIndex: String(bridge.uiFlowStepIndex ?? ""),
+            uiFlowStepType: bridge.uiFlowStepType || "",
+            uiFlowStepStartedAt: bridge.uiFlowStepStartedAt || "",
+            uiFlowError: bridge.uiFlowError || "",
+            uiFlowsComplete: bridge.uiFlowsComplete === true,
+            uiFlowsOk: bridge.uiFlowsOk === true
           });
         })();
         """
@@ -435,6 +520,7 @@ final class NativeTestStatusLabel: UIButton {
 
 enum NativeTestStatusStore {
     private static let fileName = "native-test-status.txt"
+    private static let uiReportFileName = "native-ui-interaction-report.json"
 
     static func write(_ status: String) {
         guard let url = statusFileURL() else { return }
@@ -442,14 +528,27 @@ enum NativeTestStatusStore {
         UIPasteboard.general.string = status
     }
 
+    static func writeUiReport(_ report: String) {
+        guard let url = uiReportFileURL() else { return }
+        try? report.write(to: url, atomically: true, encoding: .utf8)
+    }
+
     static func reset() {
         guard let url = statusFileURL() else { return }
         try? FileManager.default.removeItem(at: url)
+        if let uiReportUrl = uiReportFileURL() {
+            try? FileManager.default.removeItem(at: uiReportUrl)
+        }
         UIPasteboard.general.string = nil
     }
 
     private static func statusFileURL() -> URL? {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
             .appendingPathComponent(fileName)
+    }
+
+    private static func uiReportFileURL() -> URL? {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
+            .appendingPathComponent(uiReportFileName)
     }
 }
