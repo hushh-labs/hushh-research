@@ -56,7 +56,6 @@ import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-servi
 import { useKaiFinancialResource } from "@/lib/kai/kai-financial-resource";
 import { useAuth } from "@/hooks/use-auth";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
-import { Capacitor } from "@capacitor/core";
 import {
   getSessionItem,
   removeSessionItem,
@@ -69,6 +68,7 @@ import {
   useVoiceSurfaceControlTracking,
 } from "@/lib/voice/voice-surface-metadata";
 import { trackEvent } from "@/lib/observability/client";
+import { preferPassphraseUnlockForAutomation } from "@/lib/testing/native-test";
 
 // =============================================================================
 // TYPES
@@ -1897,14 +1897,6 @@ export function KaiFlow({
         formData.append("user_id", userId);
 
         const runImportRequest = async (importToken: string): Promise<Response> => {
-          if (Capacitor.isNativePlatform()) {
-            return ApiService.importPortfolioStream({
-              formData,
-              vaultOwnerToken: importToken,
-              signal: abortControllerRef.current?.signal,
-            });
-          }
-
           const startResponse = await ApiService.startPortfolioImportRun({
             formData,
             vaultOwnerToken: importToken,
@@ -3381,7 +3373,7 @@ export function KaiFlow({
               ? "Your brokerage is connected. Create or unlock your Vault to save the Plaid portfolio details in your PKM."
               : "You need to create or unlock your Vault before importing your statement."
           }
-          enableGeneratedDefault
+          enableGeneratedDefault={!preferPassphraseUnlockForAutomation()}
           onSuccess={() => {
             setVaultDialogOpen(false);
             if (pendingPlaidConnection) {

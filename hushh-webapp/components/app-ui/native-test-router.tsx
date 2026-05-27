@@ -72,6 +72,14 @@ export function NativeTestRouter() {
       return;
     }
 
+    const bridge = window.__HUSHH_NATIVE_TEST__;
+    const navigateToRoute = (route: string) => {
+      router.replace(route, { scroll: false });
+    };
+    if (bridge?.enabled) {
+      bridge.navigateToRoute = navigateToRoute;
+    }
+
     let missingConfigAttempts = 0;
     const maybeRoute = () => {
       const config = getNativeTestConfig();
@@ -174,6 +182,10 @@ export function NativeTestRouter() {
     return () => {
       window.clearInterval(timer);
       window.removeEventListener(NATIVE_TEST_CONFIG_UPDATED_EVENT, maybeRoute);
+      const currentBridge = window.__HUSHH_NATIVE_TEST__;
+      if (currentBridge && currentBridge.navigateToRoute === navigateToRoute) {
+        currentBridge.navigateToRoute = null;
+      }
     };
   }, [pathname, router]);
 

@@ -1,13 +1,17 @@
 {
-  "generated_at": "2026-05-25T06:27:59.825Z",
+  "generated_at": "2026-05-27T01:07:15.802Z",
   "destination": "platform=iOS Simulator,id=9C5B1D61-028C-474A-BDFC-523BACC3B02C",
+  "screenshot_dir": "native-ios-screenshots",
   "audited_routes": 36,
   "passed_routes": 36,
   "failed_routes": 0,
+  "visible404_routes": 0,
   "results": [
     {
       "route": "/",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/root.png",
       "expected": {
         "route": "/",
         "classification": "native-required-functional",
@@ -39,17 +43,20 @@
         "bootstrap": "",
         "bootstrap_uid": "",
         "bootstrap_error": "",
-        "jserr": "Error: Minified React error #418",
+        "jserr": "<redacted>",
         " visit https://react.dev/errors/418?args[]": "HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.",
         "jsrej": "",
-        "body": "🤫\nMeet One,\nYour Personal\nFinancial Advisor\n\nThe fastest path to actionable wealth insights.\nSeamless KYC\nAccelerating KYC with frictionless verification\nPortf",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/;ready=1;marker=native-route-home;auth=anonymous;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=0;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=;bootstrap_uid=;bootstrap_error=;jserr=Error: Minified React error #418; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.;jsrej=;body=🤫\nMeet One,\nYour Personal\nFinancial Advisor\n\nThe fastest path to actionable wealth insights.\nSeamless KYC\nAccelerating KYC with frictionless verification\nPortf;error="
+      "raw": "route=/;ready=1;marker=native-route-home;auth=anonymous;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=0;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=;bootstrap_uid=;bootstrap_error=;jserr=<redacted>; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/register-phone",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/register-phone.png",
       "expected": {
         "route": "/register-phone",
         "classification": "native-required-functional",
@@ -79,19 +86,22 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
-        "jserr": "Error: Minified React error #418",
+        "jserr": "<redacted>",
         " visit https://react.dev/errors/418?args[]": "HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nAnalyze, dashboard, consent with Kai\n\nUnlock your vault to use voice\nCommand Palette\nSearch for a command to run",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/kai/;ready=1;marker=native-route-kai-home;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=0;trigger=1;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=Error: Minified React error #418; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nAnalyze, dashboard, consent with Kai\n\nUnlock your vault to use voice\nCommand Palette\nSearch for a command to run;error="
+      "raw": "route=/kai/;ready=1;marker=native-route-kai-home;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=0;trigger=1;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=<redacted>; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/kai",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/kai.png",
       "expected": {
         "route": "/kai",
         "classification": "native-required-functional",
@@ -121,19 +131,22 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
-        "jserr": "Error: Minified React error #418",
+        "jserr": "<redacted>",
         " visit https://react.dev/errors/418?args[]": "HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nMarket\nTrack the mar",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/kai/;ready=1;marker=native-route-kai-home;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=Error: Minified React error #418; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nMarket\nTrack the mar;error="
+      "raw": "route=/kai/;ready=1;marker=native-route-kai-home;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=<redacted>; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/kai/analysis",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/kai_analysis.png",
       "expected": {
         "route": "/kai/analysis",
         "classification": "native-required-functional",
@@ -163,18 +176,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n2\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nAnalysis\n1\nReview sa",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/kai/analysis/?ticker=AAPL;ready=1;marker=native-route-kai-analysis;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n2\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI\nAnalysis\n1\nReview sa;error="
+      "raw": "route=/kai/analysis/?ticker=AAPL;ready=1;marker=native-route-kai-analysis;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/kai/dashboard",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/kai_dashboard.png",
       "expected": {
         "route": "/kai/dashboard",
         "classification": "native-required-functional",
@@ -205,18 +221,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/kai/portfolio/;ready=1;marker=native-route-kai-portfolio;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to;error="
+      "raw": "route=/kai/portfolio/;ready=1;marker=native-route-kai-portfolio;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/kai/dashboard/analysis",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/kai_dashboard_analysis.png",
       "expected": {
         "route": "/kai/dashboard/analysis",
         "classification": "native-required-functional",
@@ -247,18 +266,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/kai/analysis/;ready=1;marker=native-route-kai-analysis;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to;error="
+      "raw": "route=/kai/analysis/;ready=1;marker=native-route-kai-analysis;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/kai/import",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/kai_import.png",
       "expected": {
         "route": "/kai/import",
         "classification": "native-required-functional",
@@ -288,18 +310,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/kai/import/;ready=1;marker=native-route-kai-import;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to;error="
+      "raw": "route=/kai/import/;ready=1;marker=native-route-kai-import;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/kai/investments",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/kai_investments.png",
       "expected": {
         "route": "/kai/investments",
         "classification": "native-required-functional",
@@ -329,18 +354,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/kai/investments/;ready=1;marker=native-route-kai-investments;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to;error="
+      "raw": "route=/kai/investments/;ready=1;marker=native-route-kai-investments;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/kai/funding-trade",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/kai_funding-trade.png",
       "expected": {
         "route": "/kai/funding-trade",
         "classification": "native-required-functional",
@@ -371,18 +399,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/kai/funding-trade/;ready=1;marker=native-route-kai-funding-trade;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to;error="
+      "raw": "route=/kai/funding-trade/;ready=1;marker=native-route-kai-funding-trade;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/kai/onboarding",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/kai_onboarding.png",
       "expected": {
         "route": "/kai/onboarding",
         "classification": "native-required-functional",
@@ -412,18 +443,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Get started\n\nStep 1 of 3\n100%\nThere are no right or wrong answers.\nHelp us tailor your investment plan.\n\nHow long do you expect to keep this money invested?\n\nLe",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/kai/onboarding/;ready=1;marker=native-route-kai-onboarding;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Get started\n\nStep 1 of 3\n100%\nThere are no right or wrong answers.\nHelp us tailor your investment plan.\n\nHow long do you expect to keep this money invested?\n\nLe;error="
+      "raw": "route=/kai/onboarding/;ready=1;marker=native-route-kai-onboarding;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/kai/optimize",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/kai_optimize.png",
       "expected": {
         "route": "/kai/optimize",
         "classification": "native-required-functional",
@@ -455,18 +489,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI OPTIMIZE\nPortfolio O",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/kai/optimize/;ready=1;marker=native-route-kai-optimize;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nKAI OPTIMIZE\nPortfolio O;error="
+      "raw": "route=/kai/optimize/;ready=1;marker=native-route-kai-optimize;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/kai/plaid/oauth/return",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/kai_plaid_oauth_return.png",
       "expected": {
         "route": "/kai/plaid/oauth/return",
         "classification": "native-required-callback",
@@ -497,18 +534,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": "plaid_resume"
       },
-      "raw": "route=/kai/plaid/oauth/return/;ready=1;marker=native-route-kai-plaid-return;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to;error=plaid_resume"
+      "raw": "route=/kai/plaid/oauth/return/;ready=1;marker=native-route-kai-plaid-return;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error=plaid_resume"
     },
     {
       "route": "/kai/alpaca/oauth/return",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/kai_alpaca_oauth_return.png",
       "expected": {
         "route": "/kai/alpaca/oauth/return",
         "classification": "native-required-callback",
@@ -539,18 +579,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nAlpaca connection needs",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": "alpaca_connect_resume"
       },
-      "raw": "route=/kai/alpaca/oauth/return/;ready=1;marker=native-route-kai-alpaca-return;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nAlpaca connection needs;error=alpaca_connect_resume"
+      "raw": "route=/kai/alpaca/oauth/return/;ready=1;marker=native-route-kai-alpaca-return;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error=alpaca_connect_resume"
     },
     {
       "route": "/kai/portfolio",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/kai_portfolio.png",
       "expected": {
         "route": "/kai/portfolio",
         "classification": "native-required-functional",
@@ -580,18 +623,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/kai/portfolio/;ready=1;marker=native-route-kai-portfolio;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a command to;error="
+      "raw": "route=/kai/portfolio/;ready=1;marker=native-route-kai-portfolio;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/portfolio/shared",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/portfolio_shared.png",
       "expected": {
         "route": "/portfolio/shared",
         "classification": "native-required-functional",
@@ -627,14 +673,17 @@
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "This share link is not available\n\nThe link may be invalid. Ask the portfolio owner to generate a new share link.",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/portfolio/shared/;ready=1;marker=native-route-portfolio-shared;auth=public;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=0;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=;bootstrap_uid=;bootstrap_error=;jserr=;jsrej=;body=This share link is not available\n\nThe link may be invalid. Ask the portfolio owner to generate a new share link.;error="
+      "raw": "route=/portfolio/shared/;ready=1;marker=native-route-portfolio-shared;auth=public;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=0;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=;bootstrap_uid=;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/consents",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/consents.png",
       "expected": {
         "route": "/consents",
         "classification": "native-required-functional",
@@ -664,18 +713,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSENT\nAccess",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/consents/;ready=1;marker=native-route-consents;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSENT\nAccess;error="
+      "raw": "route=/consents/;ready=1;marker=native-route-consents;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/agent",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/agent.png",
       "expected": {
         "route": "/agent",
         "classification": "native-required-functional",
@@ -707,18 +759,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n\nAnalyze, dashboard, consent with Kai\nCommand Palette\nSearch for a command to run...\nKAI\nAgent\nA Kai-focused cha",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/agent/;ready=1;marker=native-route-agent;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n\nAnalyze, dashboard, consent with Kai\nCommand Palette\nSearch for a command to run...\nKAI\nAgent\nA Kai-focused cha;error="
+      "raw": "route=/agent/;ready=1;marker=native-route-agent;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/one/kyc",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/one_kyc.png",
       "expected": {
         "route": "/one/kyc",
         "classification": "native-required-functional",
@@ -748,18 +803,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\nCommand Palette\nSearch for a command to run...\nONE\nEmail\nReview emails t",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/one/kyc/;ready=1;marker=native-route-one-kyc;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\nCommand Palette\nSearch for a command to run...\nONE\nEmail\nReview emails t;error="
+      "raw": "route=/one/kyc/;ready=1;marker=native-route-one-kyc;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/one/location",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/one_location.png",
       "expected": {
         "route": "/one/location",
         "classification": "native-required-functional",
@@ -791,18 +849,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\nCommand Palette\nSearch for a command to run...\nONE\nOne Location Agent\nSh",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/one/location/;ready=1;marker=native-route-one-location;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\nCommand Palette\nSearch for a command to run...\nONE\nOne Location Agent\nSh;error="
+      "raw": "route=/one/location/;ready=1;marker=native-route-one-location;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/profile",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/profile.png",
       "expected": {
         "route": "/profile",
         "classification": "native-required-functional",
@@ -832,18 +893,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\n\nKushal Trived",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/profile/;ready=1;marker=native-route-profile;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\n\nKushal Trived;error="
+      "raw": "route=/profile/;ready=1;marker=native-route-profile;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/profile/pkm",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/profile_pkm.png",
       "expected": {
         "route": "/profile/pkm",
         "classification": "native-required-functional",
@@ -868,24 +932,27 @@
         "routeok": "1",
         "test": "1",
         "auto": "1",
-        "bridge": "1",
+        "bridge": "0",
         "trigger": "0",
         "domtest": "",
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nPROFILE / PRI",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/profile/pkm-agent-lab/;ready=1;marker=native-route-profile-pkm;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nPROFILE / PRI;error="
+      "raw": "route=/profile/pkm-agent-lab/;ready=1;marker=native-route-profile-pkm;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=0;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/profile/receipts",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/profile_receipts.png",
       "expected": {
         "route": "/profile/receipts",
         "classification": "native-required-functional",
@@ -917,18 +984,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nPROFILE\nRecei",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/profile/receipts/;ready=1;marker=native-route-profile-receipts;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nPROFILE\nRecei;error="
+      "raw": "route=/profile/receipts/;ready=1;marker=native-route-profile-receipts;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/profile/gmail/oauth/return",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/profile_gmail_oauth_return.png",
       "expected": {
         "route": "/profile/gmail/oauth/return",
         "classification": "native-required-callback",
@@ -958,19 +1028,22 @@
         "domtest": "",
         "domauto": "",
         "reviewer": "0",
-        "bootstrap": "unlocking_vault",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap": "vault_unlocked",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nUnlock your vault to use voice\nCommand Palette\nSearch for a co",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": "gmail_oauth"
       },
-      "raw": "route=/profile/gmail/oauth/return/;ready=1;marker=native-route-profile-gmail-return;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=unlocking_vault;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\nInvestor\n\n\n\nAnalyze, dashboard, consent with Kai\n\nUnlock your vault to use voice\nCommand Palette\nSearch for a co;error=gmail_oauth"
+      "raw": "route=/profile/gmail/oauth/return/;ready=1;marker=native-route-profile-gmail-return;auth=authenticated;data=unavailable-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error=gmail_oauth"
     },
     {
       "route": "/ria",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/ria.png",
       "expected": {
         "route": "/ria",
         "classification": "native-required-functional",
@@ -1001,18 +1074,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nRIA HOME\nTrusted advisor ops\nSee readiness, what needs attention, and where to go next without scanning a sett",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/ria/;ready=1;marker=native-route-ria-home;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nRIA HOME\nTrusted advisor ops\nSee readiness, what needs attention, and where to go next without scanning a sett;error="
+      "raw": "route=/ria/;ready=1;marker=native-route-ria-home;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/ria/clients",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/ria_clients.png",
       "expected": {
         "route": "/ria/clients",
         "classification": "native-required-functional",
@@ -1044,18 +1120,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai parity,",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/ria/clients/;ready=1;marker=native-route-ria-clients;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai parity,;error="
+      "raw": "route=/ria/clients/;ready=1;marker=native-route-ria-clients;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/ria/onboarding",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/ria_onboarding.png",
       "expected": {
         "route": "/ria/onboarding",
         "classification": "native-required-functional",
@@ -1086,18 +1165,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n1 / 5\nWELCOME\n\nHow would you like to register?\nChoose whether you are onboarding as an individual advisor or r",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/ria/onboarding/;ready=1;marker=native-route-ria-onboarding;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n1 / 5\nWELCOME\n\nHow would you like to register?\nChoose whether you are onboarding as an individual advisor or r;error="
+      "raw": "route=/ria/onboarding/;ready=1;marker=native-route-ria-onboarding;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/ria/picks",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/ria_picks.png",
       "expected": {
         "route": "/ria/picks",
         "classification": "native-required-functional",
@@ -1128,18 +1210,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nPICKS\nStock universe\nSwitch between Kai's reference package and your live advisor package without losing the a",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/ria/picks/;ready=1;marker=native-route-ria-picks;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nPICKS\nStock universe\nSwitch between Kai's reference package and your live advisor package without losing the a;error="
+      "raw": "route=/ria/picks/;ready=1;marker=native-route-ria-picks;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/ria/requests",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/ria_requests.png",
       "expected": {
         "route": "/ria/requests",
         "classification": "native-required-functional",
@@ -1169,18 +1254,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSENT\nAccess",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/consents/;ready=1;marker=native-route-consents;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSENT\nAccess;error="
+      "raw": "route=/consents/;ready=1;marker=native-route-consents;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/ria/settings",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/ria_settings.png",
       "expected": {
         "route": "/ria/settings",
         "classification": "native-required-functional",
@@ -1210,18 +1298,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a c",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/profile/;ready=1;marker=native-route-profile;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\nInvestor\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nChecking voice availability...\nCommand Palette\nSearch for a c;error="
+      "raw": "route=/profile/;ready=1;marker=native-route-profile;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/ria/workspace",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/ria_workspace.png",
       "expected": {
         "route": "/ria/workspace",
         "classification": "native-required-functional",
@@ -1253,18 +1344,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai parity,",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/ria/clients/;ready=1;marker=native-route-ria-clients;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai parity,;error="
+      "raw": "route=/ria/clients/;ready=1;marker=native-route-ria-clients;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/marketplace",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/marketplace.png",
       "expected": {
         "route": "/marketplace",
         "classification": "native-required-functional",
@@ -1296,18 +1390,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nCONNECT\nFind advisors\nPublic discovery first. Private access only after consent.\n\nConnections\n\n\n\n\nHA\nHudson Ad",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/marketplace/;ready=1;marker=native-route-marketplace;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nCONNECT\nFind advisors\nPublic discovery first. Private access only after consent.\n\nConnections\n\n\n\n\nHA\nHudson Ad;error="
+      "raw": "route=/marketplace/;ready=1;marker=native-route-marketplace;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/marketplace/connections",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/marketplace_connections.png",
       "expected": {
         "route": "/marketplace/connections",
         "classification": "native-required-functional",
@@ -1338,18 +1435,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSENT\nAccess",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/consents/?tab=pending;ready=1;marker=native-route-consents;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\n\nAnalyze, dashboard, consent with Kai\n\nCommand Palette\nSearch for a command to run...\nACCESS / CONSENT\nAccess;error="
+      "raw": "route=/consents/?tab=pending;ready=1;marker=native-route-consents;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/marketplace/connections/portfolio",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/marketplace_connections_portfolio.png",
       "expected": {
         "route": "/marketplace/connections/portfolio",
         "classification": "native-required-functional",
@@ -1382,18 +1482,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai parity,",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/ria/clients/;ready=1;marker=native-route-ria-clients;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nCLIENTS\nClient roster\nOpen dedicated client workspaces for relationship status, access management, Kai parity,;error="
+      "raw": "route=/ria/clients/;ready=1;marker=native-route-ria-clients;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/marketplace/ria",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/marketplace_ria.png",
       "expected": {
         "route": "/marketplace/ria",
         "classification": "native-required-functional",
@@ -1424,18 +1527,21 @@
         "domauto": "",
         "reviewer": "0",
         "bootstrap": "vault_unlocked",
-        "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+        "bootstrap_uid": "<redacted>",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nMARKETPLACE PROFILE\nRIA profile\nVerified public profile metadata only. Private advisory access stays behind th",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": "marketplace_ria"
       },
-      "raw": "route=/marketplace/ria/?riaId=missing-demo-ria;ready=1;marker=native-route-marketplace-ria;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=UWHGeUyfUAbmEl5xwIPoWJ7Cyft2;bootstrap_error=;jserr=;jsrej=;body=Market\n\nPortfolio\n\nAnalysis\n\nConnect\n\nProfile\n\n\n1\nMARKETPLACE PROFILE\nRIA profile\nVerified public profile metadata only. Private advisory access stays behind th;error=marketplace_ria"
+      "raw": "route=/marketplace/ria/?riaId=missing-demo-ria;ready=1;marker=native-route-marketplace-ria;auth=authenticated;data=empty-valid;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error=marketplace_ria"
     },
     {
       "route": "/logout",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/logout.png",
       "expected": {
         "route": "/logout",
         "classification": "native-required-functional",
@@ -1467,17 +1573,20 @@
         "bootstrap": "",
         "bootstrap_uid": "",
         "bootstrap_error": "",
-        "jserr": "Error: Minified React error #418",
+        "jserr": "<redacted>",
         " visit https://react.dev/errors/418?args[]": "HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.",
         "jsrej": "",
-        "body": "🤫\nMeet One,\nYour Personal\nFinancial Advisor\n\nThe fastest path to actionable wealth insights.\nSeamless KYC\nAccelerating KYC with frictionless verification\nPortf",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": ""
       },
-      "raw": "route=/;ready=1;marker=native-route-home;auth=anonymous;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=0;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=;bootstrap_uid=;bootstrap_error=;jserr=Error: Minified React error #418; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.;jsrej=;body=🤫\nMeet One,\nYour Personal\nFinancial Advisor\n\nThe fastest path to actionable wealth insights.\nSeamless KYC\nAccelerating KYC with frictionless verification\nPortf;error="
+      "raw": "route=/;ready=1;marker=native-route-home;auth=anonymous;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=0;bridge=1;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=;bootstrap_uid=;bootstrap_error=;jserr=<redacted>; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.;jsrej=;body=<redacted>;visible404=0;error="
     },
     {
       "route": "/login",
       "ok": true,
+      "visible404": false,
+      "screenshotPath": "/Users/kushaltrivedi/Documents/GitHub/hushh-research/hushh-webapp/native-ios-screenshots/login.png",
       "expected": {
         "route": "/login",
         "classification": "native-required-functional",
@@ -1505,16 +1614,17 @@
         "trigger": "1",
         "domtest": "",
         "domauto": "",
-        "reviewer": "0",
+        "reviewer": "1",
         "bootstrap": "",
         "bootstrap_uid": "",
         "bootstrap_error": "",
         "jserr": "",
         "jsrej": "",
-        "body": "🤫\nSign in to One\nContinue with your preferred provider.\n\nContinue with Apple\n\nContinue with Google\nAfter sign-in, Kai requires a verified phone number before y",
+        "body": "<redacted>",
+        "visible404": "0",
         "error": "cfg_1_0"
       },
-      "raw": "route=/login/;ready=1;marker=native-route-login;auth=anonymous;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=0;bridge=1;trigger=1;domtest=;domauto=;reviewer=0;bootstrap=;bootstrap_uid=;bootstrap_error=;jserr=;jsrej=;body=🤫\nSign in to One\nContinue with your preferred provider.\n\nContinue with Apple\n\nContinue with Google\nAfter sign-in, Kai requires a verified phone number before y;error=cfg_1_0"
+      "raw": "route=/login/;ready=1;marker=native-route-login;auth=anonymous;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=0;bridge=1;trigger=1;domtest=;domauto=;reviewer=1;bootstrap=;bootstrap_uid=;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;error=cfg_1_0"
     }
   ]
 }

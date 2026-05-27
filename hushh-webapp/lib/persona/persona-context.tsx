@@ -287,6 +287,45 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
     ]
   );
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const bridge = window.__HUSHH_NATIVE_TEST__;
+    if (!bridge?.enabled) return;
+
+    bridge.activePersona = activePersona;
+    bridge.primaryNavPersona = primaryNavPersona;
+    if (personaTransitionTarget) {
+      bridge.personaSwitchStatus = `switching:${personaTransitionTarget}`;
+    } else if (bridge.personaSwitchStatus?.startsWith("switching:")) {
+      bridge.personaSwitchStatus = `ok:${activePersona}`;
+    } else {
+      bridge.personaSwitchStatus = bridge.personaSwitchStatus || "";
+    }
+    bridge.switchPersona = async (target) => {
+      bridge.personaSwitchStatus = `switching:${target}`;
+      bridge.personaSwitchError = "";
+      try {
+        const next = await switchPersona(target);
+        bridge.activePersona = next?.active_persona || target;
+        bridge.primaryNavPersona = next?.primary_nav_persona || bridge.activePersona || target;
+        bridge.personaSwitchStatus = `ok:${target}`;
+        return next;
+      } catch (error) {
+        bridge.personaSwitchStatus = `error:${target}`;
+        bridge.personaSwitchError =
+          error instanceof Error ? error.message : "native persona switch failed";
+        throw error;
+      }
+    };
+
+    return () => {
+      const currentBridge = window.__HUSHH_NATIVE_TEST__;
+      if (currentBridge && currentBridge.switchPersona === bridge.switchPersona) {
+        currentBridge.switchPersona = null;
+      }
+    };
+  }, [activePersona, personaTransitionTarget, primaryNavPersona, switchPersona]);
+
   return <PersonaContext.Provider value={value}>{children}</PersonaContext.Provider>;
 }
 
