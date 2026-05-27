@@ -47,9 +47,11 @@ import {
   ConsentCenterService,
   type ConsentCenterEntry,
 } from "@/lib/services/consent-center-service";
+import { buildMarketplaceContactLookups } from "@/lib/marketplace/contact-matching";
 import {
   isIAMSchemaNotReadyError,
   RiaService,
+  type MarketplaceContactMatch,
   type MarketplaceInvestor,
   type MarketplaceInvestorDeckResponse,
   type MarketplaceRia,
@@ -182,12 +184,11 @@ export default function MarketplacePage() {
   const currentPersona =
     personaState?.active_persona || personaState?.last_active_persona || "investor";
   const directoryKind = currentPersona === "ria" ? "investors" : "rias";
-  const searchPlaceholder =
-    currentPersona === "ria" ? "Search investors by name" : "Search RIAs by name or firm";
+  const searchPlaceholder = "Search people by name, advisor, or investor";
 
-  const [view, setView] = useState<DiscoveryView>("swipe");
+  const [view, setView] = useState<DiscoveryView>("list");
   const [query, setQuery] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(true);
   const [loading, setLoading] = useState(false);
   const [hasLoadedDirectory, setHasLoadedDirectory] = useState(false);
   const [actionLoadingUserId, setActionLoadingUserId] = useState<string | null>(null);
@@ -205,6 +206,10 @@ export default function MarketplacePage() {
   const [passedRiaIds, setPassedRiaIds] = useState<string[]>([]);
   const [passedInvestorIds, setPassedInvestorIds] = useState<string[]>([]);
   const [shortlistedInvestorIds, setShortlistedInvestorIds] = useState<string[]>([]);
+  const [contactMatches, setContactMatches] = useState<MarketplaceContactMatch[]>([]);
+  const [contactMatchLoading, setContactMatchLoading] = useState(false);
+  const [contactMatchError, setContactMatchError] = useState<string | null>(null);
+  const [contactScanSummary, setContactScanSummary] = useState<string | null>(null);
   const [deckRefreshNonce, setDeckRefreshNonce] = useState(0);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -501,50 +506,61 @@ export default function MarketplacePage() {
       setHasLoadedDirectory(false);
       setIamUnavailable(false);
       try {
-        if (directoryKind === "rias") {
-          setInvestorDeckMeta(null);
-          const data = await RiaService.searchRias({
+        const investorLoader = async (): Promise<MarketplaceInvestorDeckResponse> => {
+          if (user && currentPersona === "ria") {
+            const idToken = await user.getIdToken();
+            return RiaService.searchInvestorDeck(idToken, {
+              query,
+              limit: 32,
+              persona: "ria",
+              deck: "qualified",
+            });
+          }
+          const items = await RiaService.searchInvestors({
             query,
             limit: 32,
-            verification_status: "active",
-          });
-          if (!cancelled) setRias(data);
-          return;
-        }
-
-        if (user) {
-          const idToken = await user.getIdToken();
-          const deckResponse = await RiaService.searchInvestorDeck(idToken, {
-            query,
-            limit: 12,
             persona: "ria",
             deck: "qualified",
           });
-          if (!cancelled) {
-            setInvestors(deckResponse.items);
-            setInvestorDeckMeta(deckResponse);
-          }
-          return;
-        }
-
-        const data = await RiaService.searchInvestors({
-          query,
-          limit: 12,
-          persona: "ria",
-          deck: "qualified",
-        });
+          return {
+            items,
+            remaining_count: items.length,
+            handled_count: 0,
+            deck_complete: items.length === 0,
+          };
+        };
+        const [riaResult, investorResult] = await Promise.allSettled([
+          RiaService.searchRias({
+            query,
+            limit: 32,
+            verification_status: "active",
+          }),
+          investorLoader(),
+        ]);
         if (!cancelled) {
-          setInvestors(data);
-          setInvestorDeckMeta(null);
+          if (riaResult.status === "fulfilled") {
+            setRias(riaResult.value);
+          } else {
+            setRias([]);
+          }
+          if (investorResult.status === "fulfilled") {
+            setInvestors(investorResult.value.items);
+            setInvestorDeckMeta(investorResult.value);
+          } else {
+            setInvestors([]);
+            setInvestorDeckMeta(null);
+          }
+          const failures = [riaResult, investorResult].filter(
+            (result) => result.status === "rejected"
+          ) as PromiseRejectedResult[];
+          setIamUnavailable(failures.some((result) => isIAMSchemaNotReadyError(result.reason)));
         }
       } catch (error) {
         if (!cancelled) {
           setIamUnavailable(isIAMSchemaNotReadyError(error));
-          if (directoryKind === "rias") setRias([]);
-          else {
-            setInvestors([]);
-            setInvestorDeckMeta(null);
-          }
+          setRias([]);
+          setInvestors([]);
+          setInvestorDeckMeta(null);
         }
       } finally {
         if (!cancelled) {
@@ -558,7 +574,7 @@ export default function MarketplacePage() {
     return () => {
       cancelled = true;
     };
-  }, [deckRefreshNonce, directoryKind, query, user]);
+  }, [currentPersona, deckRefreshNonce, query, user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -629,8 +645,13 @@ export default function MarketplacePage() {
   }, [advisorConnections]);
 
   const investorMap = useMemo(() => {
-    return new Map(investors.map((item) => [marketplaceInvestorCardId(item), item]));
-  }, [investors]);
+    const contactInvestors = contactMatches
+      .filter((item) => item.kind === "investor")
+      .map((item) => item.profile as MarketplaceInvestor);
+    return new Map(
+      [...investors, ...contactInvestors].map((item) => [marketplaceInvestorCardId(item), item])
+    );
+  }, [contactMatches, investors]);
 
   const advisorCards = useMemo<DiscoveryCard[]>(() => {
     return rias.map((ria) => {
@@ -660,7 +681,7 @@ export default function MarketplacePage() {
         verificationStatus: ria.verification_status,
         profile: ria,
       };
-    }).filter((item) => item.canConnect);
+    });
   }, [advisorConnectionMap, currentPersona, rias]);
 
   const investorCards = useMemo<DiscoveryCard[]>(() => {
@@ -697,16 +718,25 @@ export default function MarketplacePage() {
     });
   }, [currentPersona, investors, relationshipMap]);
 
-  const activeCards = useMemo<DiscoveryCard[]>(() => {
+  const directoryCards = useMemo<DiscoveryCard[]>(() => {
     const base = directoryKind === "rias" ? advisorCards : investorCards;
     if (directoryKind === "rias") {
       return [...base, ...injectedTestCards];
     }
     return injectedKaiTestInvestor ? [injectedKaiTestInvestor, ...base] : base;
   }, [advisorCards, directoryKind, injectedKaiTestInvestor, injectedTestCards, investorCards]);
+  const searchCards = useMemo<DiscoveryCard[]>(() => {
+    return [
+      ...advisorCards,
+      ...injectedTestCards,
+      ...(injectedKaiTestInvestor ? [injectedKaiTestInvestor] : []),
+      ...investorCards,
+    ];
+  }, [advisorCards, injectedKaiTestInvestor, injectedTestCards, investorCards]);
+  const activeCards = view === "list" ? searchCards : directoryCards;
   const passedIds = directoryKind === "rias" ? passedRiaIds : passedInvestorIds;
   const shuffledSwipeCards = useMemo(() => {
-    const items = activeCards.filter((item) => !passedIds.includes(item.id));
+    const items = directoryCards.filter((item) => !passedIds.includes(item.id));
     const copy = [...items];
     for (let index = copy.length - 1; index > 0; index -= 1) {
       const swapIndex = Math.floor(Math.random() * (index + 1));
@@ -716,7 +746,7 @@ export default function MarketplacePage() {
       copy[swapIndex] = currentItem;
     }
     return copy;
-  }, [activeCards, passedIds]);
+  }, [directoryCards, passedIds]);
   const swipeCards = shuffledSwipeCards;
   const swipeCard = swipeCards[0] || null;
   const investorDeckComplete =
@@ -779,6 +809,45 @@ export default function MarketplacePage() {
   const swipeRotation = Math.max(-14, Math.min(14, dragOffset.x / 18));
   const swipeOpacity = Math.max(0.72, 1 - Math.abs(dragOffset.x) / 520);
   const connectionsRoute = buildMarketplaceConnectionsRoute({ tab: "active" });
+
+  const matchContacts = useCallback(async () => {
+    if (!user) {
+      toast.error("Sign in required", {
+        description: "Connect needs your signed-in account before matching contacts.",
+      });
+      return;
+    }
+    try {
+      setContactMatchLoading(true);
+      setContactMatchError(null);
+      const lookupResult = await buildMarketplaceContactLookups({ limit: 500 });
+      if (lookupResult.lookups.length === 0) {
+        setContactMatches([]);
+        setContactScanSummary("No phone numbers found in contacts.");
+        return;
+      }
+      const idToken = await user.getIdToken();
+      const matches = await RiaService.matchMarketplaceContacts(idToken, {
+        phone_lookups: lookupResult.lookups.map(({ hash, last4 }) => ({ hash, last4 })),
+        limit: 50,
+      });
+      setContactMatches(matches);
+      setContactScanSummary(
+        `${matches.length} match${matches.length === 1 ? "" : "es"} from ${lookupResult.totalContacts} contacts.`
+      );
+      if (matches.length === 0) {
+        toast.info("No Hushh contacts found", {
+          description: "Search is still available across public profiles.",
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not match contacts.";
+      setContactMatchError(message);
+      toast.error(message);
+    } finally {
+      setContactMatchLoading(false);
+    }
+  }, [user]);
 
   const openTestInvestorWorkspace = useCallback(
     (userId: string) => {
@@ -892,6 +961,18 @@ export default function MarketplacePage() {
     }
     setSelectedProfile(toSelectedProfile(card));
   }, [persistInvestorAction]);
+
+  const openContactMatch = useCallback((match: MarketplaceContactMatch) => {
+    if (match.kind === "ria") {
+      const profile = match.profile as MarketplaceRia;
+      if (profile.id) {
+        setSelectedProfile({ kind: "ria", id: profile.id });
+      }
+      return;
+    }
+    const profile = match.profile as MarketplaceInvestor;
+    setSelectedProfile({ kind: "investor", id: marketplaceInvestorCardId(profile) });
+  }, []);
 
   const performPrimaryCardAction = useCallback((card: DiscoveryCard) => {
     if (
@@ -1009,8 +1090,8 @@ export default function MarketplacePage() {
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow="Connect"
-          title={currentPersona === "ria" ? "Find investors" : "Find advisors"}
-          description="Public discovery first. Private access only after consent."
+          title="Search people"
+          description="Find investors, RIAs, and contacts already on Hushh."
           icon={Compass}
           accent="marketplace"
           actions={
@@ -1042,6 +1123,16 @@ export default function MarketplacePage() {
               >
                 <Search className="h-4 w-4" />
               </button>
+              <Button
+                variant="none"
+                effect="fade"
+                size="sm"
+                className="h-10 rounded-full bg-card px-3 shadow-[var(--app-card-shadow-standard)]"
+                onClick={() => void matchContacts()}
+                disabled={contactMatchLoading}
+              >
+                {contactMatchLoading ? "Matching..." : "Contacts"}
+              </Button>
               <button
                 type="button"
                 className="grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground shadow-[var(--app-card-shadow-standard)] transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95"
@@ -1089,9 +1180,68 @@ export default function MarketplacePage() {
                   className="min-h-11 rounded-2xl border-0 bg-card pl-10 text-sm shadow-[var(--app-card-shadow-standard)]"
                 />
               </div>
+              {contactScanSummary || contactMatchError ? (
+                <p
+                  className={cn(
+                    "mt-2 line-clamp-1 px-1 text-xs",
+                    contactMatchError ? "text-red-500" : "text-muted-foreground"
+                  )}
+                >
+                  {contactMatchError || contactScanSummary}
+                </p>
+              ) : null}
             </div>
           ) : null}
         </div>
+
+        {!iamUnavailable && contactMatches.length > 0 ? (
+          <RiaSurface className="space-y-3 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Contacts
+                </p>
+                <h3 className="mt-1 line-clamp-1 text-base font-semibold tracking-tight text-foreground">
+                  Already on Hushh
+                </h3>
+              </div>
+              <Button
+                variant="none"
+                effect="fade"
+                size="sm"
+                className="shrink-0"
+                onClick={() => setContactMatches([])}
+              >
+                Clear
+              </Button>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {contactMatches.map((match) => (
+                <button
+                  key={`${match.kind}-${match.user_id}`}
+                  type="button"
+                  className="flex min-w-0 items-center gap-3 rounded-2xl bg-background/60 p-3 text-left transition-colors hover:bg-background dark:bg-white/5"
+                  onClick={() => openContactMatch(match)}
+                >
+                  <ProfileAvatar
+                    kind={match.kind}
+                    label={match.display_name}
+                    className="h-11 w-11 rounded-2xl"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block line-clamp-1 text-sm font-semibold text-foreground">
+                      {match.display_name}
+                    </span>
+                    <span className="block line-clamp-1 text-xs text-muted-foreground">
+                      {match.kind === "ria" ? "RIA" : "Investor"}
+                      {match.phone_last4 ? ` · ${match.phone_last4}` : ""}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </RiaSurface>
+        ) : null}
 
       {iamUnavailable ? (
         <RiaSurface className="border-dashed border-amber-500/40 bg-amber-500/5 p-4">

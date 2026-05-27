@@ -24,6 +24,16 @@ class MarketplaceInvestorActionRequest(BaseModel):
     metadata: dict | None = None
 
 
+class MarketplaceContactLookup(BaseModel):
+    hash: str = Field(..., min_length=64, max_length=64, pattern=r"^[a-fA-F0-9]{64}$")
+    last4: str = Field(..., min_length=2, max_length=4, pattern=r"^\d{2,4}$")
+
+
+class MarketplaceContactMatchRequest(BaseModel):
+    phone_lookups: list[MarketplaceContactLookup] = Field(default_factory=list, max_length=1000)
+    limit: int = Field(default=50, ge=1, le=100)
+
+
 def _iam_schema_not_ready_response(message: str | None = None) -> JSONResponse:
     return JSONResponse(
         status_code=503,
@@ -139,6 +149,25 @@ async def record_marketplace_investor_action(
             target_user_id=payload.target_user_id,
             metadata=payload.metadata,
         )
+    except IAMSchemaNotReadyError as exc:
+        return _iam_schema_not_ready_response(str(exc))
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/contacts/match")
+async def match_marketplace_contacts(
+    payload: MarketplaceContactMatchRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    service = RIAIAMService()
+    try:
+        items = await service.match_marketplace_contacts(
+            firebase_uid,
+            phone_lookups=[item.dict() for item in payload.phone_lookups],
+            limit=payload.limit,
+        )
+        return {"items": items}
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
     except RIAIAMPolicyError as exc:
