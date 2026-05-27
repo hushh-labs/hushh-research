@@ -148,12 +148,16 @@ enum NativeUiTestRunnerScript {
     var current = normalizeRoute(routeId);
     for (var i = 0; i < allowedRouteIds.length; i += 1) {
       var allowed = allowedRouteIds[i];
+      var normalizedAllowed = normalizeRoute(allowed);
+      if (current === normalizedAllowed) return true;
       if (allowed.includes("[") && allowed.includes("]")) {
-        var prefix = allowed.split("[")[0];
-        if (current.startsWith(normalizeRoute(prefix))) return true;
+        var escaped = normalizedAllowed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        var pattern = new RegExp(
+          "^" + escaped.replace(/\\\[[^\\\]]+\\\]/g, "[^/]+") + "(?:$|[/?#])"
+        );
+        if (pattern.test(current)) return true;
         continue;
       }
-      if (current === normalizeRoute(allowed)) return true;
     }
     return false;
   }
