@@ -433,6 +433,7 @@ function classifyUrl(url) {
   if (value.includes("/api/kai/portfolio/import/run/") && value.includes("/stream")) {
     return "import_run_stream";
   }
+  if (value.includes("/api/kai/portfolio/import/stream")) return "import_stream";
   if (value.includes("/api/kai/portfolio/import")) return "legacy_import";
   if (value.includes("/api/pkm/store-domain/validate")) return "pkm_store_validate";
   if (value.includes("/api/pkm/store-domain")) return "pkm_store_domain";
@@ -558,13 +559,16 @@ async function runImportAndSave(page, network) {
   await navigateToKaiImport(page);
   await page.locator("input[type='file']").setInputFiles(importFilePath);
   const startResponse = page.waitForResponse(
-    (response) => classifyUrl(response.url()) === "import_run_start",
+    (response) => {
+      const kind = classifyUrl(response.url());
+      return kind === "import_run_start" || kind === "import_stream";
+    },
     { timeout: 60_000 }
   );
   await page.getByRole("button", { name: /^Continue$/i }).click();
   const start = await startResponse;
   if (!start.ok()) {
-    throw new Error(`Import run start failed with HTTP ${start.status()}`);
+    throw new Error(`Import stream start failed with HTTP ${start.status()}`);
   }
 
   const reviewButton = await waitForImportCompletion(page);
