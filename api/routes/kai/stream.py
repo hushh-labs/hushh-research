@@ -14,9 +14,9 @@ import os
 import re
 import time
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Annotated, Any, AsyncGenerator, Callable, Dict, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -49,6 +49,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Kai Streaming"])
 _TICKER_SYMBOL_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,5}$")
 _RUN_MANAGER = KaiAnalyzeRunManager()
+
+# ---------------------------------------------------------------------------
+# Input bounds (CWE-400 — Uncontrolled Resource Consumption)
+# Attach points:
+#   GET  /api/kai/analyze/stream
+#   GET  /api/kai/analyze/run/active
+#   GET  /api/kai/analyze/run/{run_id}/stream
+#   POST /api/kai/analyze/run/{run_id}/cancel
+# ---------------------------------------------------------------------------
+_USER_ID_MAX_LEN: int = 128
+_TICKER_RAW_MAX_LEN: int = 20  # regex further constrains to <=6 after normalization
+_RISK_PROFILE_MAX_LEN: int = 64
+_DEBATE_SESSION_ID_MAX_LEN: int = 256
+_RUN_ID_MAX_LEN: int = 128
+
+RunId = Annotated[str, Path(min_length=1, max_length=_RUN_ID_MAX_LEN)]
 
 
 def _normalize_ticker_or_422(raw_ticker: str) -> str:
@@ -134,6 +150,10 @@ _stream_ctx: contextvars.ContextVar[CanonicalSSEStream | None] = contextvars.Con
     "kai_stream_ctx",
     default=None,
 )
+_stream_activity_ctx: contextvars.ContextVar[Callable[[], None] | None] = contextvars.ContextVar(
+    "kai_stream_activity_ctx",
+    default=None,
+)
 
 
 def create_event(event_type: str, data: dict, *, terminal: bool = False) -> dict[str, str]:
@@ -142,7 +162,11 @@ def create_event(event_type: str, data: dict, *, terminal: bool = False) -> dict
     if ctx is None:
         ctx = CanonicalSSEStream("stock_analyze")
         _stream_ctx.set(ctx)
-    return ctx.event(event_type, data, terminal=terminal)
+    frame = ctx.event(event_type, data, terminal=terminal)
+    activity_callback = _stream_activity_ctx.get()
+    if activity_callback is not None:
+        activity_callback()
+    return frame
 
 
 def _safe_round(value: Any, fallback: int) -> int:
@@ -887,7 +911,7 @@ async def stream_agent_thinking(
     phase: str,
 ) -> AsyncGenerator[dict, None]:
     """
-    Stream Gemini 3 thinking tokens for an agent analysis.
+    Stream thinking tokens for an agent analysis.
     Yields agent_token events that the frontend can display in real-time.
     """
     logger.info(f"[Kai Stream] Starting stream_agent_thinking for {agent_name}")
@@ -1003,7 +1027,7 @@ async def analyze_stream_generator(
     stream_ctx = _stream_ctx.get()
     stream_id = stream_ctx.stream_id if stream_ctx is not None else None
     loop = asyncio.get_running_loop()
-    stream_started_at = loop.time()
+    last_activity_at = loop.time()
     llm_calls_count = 0
     provider_calls_count = 0
     retry_counts: dict[str, int] = {"fundamental": 0, "sentiment": 0, "valuation": 0}
@@ -1013,12 +1037,18 @@ async def analyze_stream_generator(
     eligibility_reason = "excluded_missing_equity_classification"
     eligibility_source = "request_symbol"
 
+    def mark_stream_activity() -> None:
+        nonlocal last_activity_at
+        last_activity_at = loop.time()
+
+    activity_token = _stream_activity_ctx.set(mark_stream_activity)
+
     def remaining_timeout() -> float:
-        elapsed = loop.time() - stream_started_at
-        remaining = STOCK_ANALYZE_TIMEOUT_SECONDS - elapsed
+        idle_seconds = loop.time() - last_activity_at
+        remaining = STOCK_ANALYZE_TIMEOUT_SECONDS - idle_seconds
         if remaining <= 0:
             raise asyncio.TimeoutError(
-                f"Analyze stream timed out after {STOCK_ANALYZE_TIMEOUT_SECONDS}s"
+                f"Analyze stream inactive for {STOCK_ANALYZE_TIMEOUT_SECONDS}s"
             )
         return remaining
 
@@ -2311,7 +2341,7 @@ async def analyze_stream_generator(
 
     except asyncio.TimeoutError:
         logger.warning(
-            "[Kai Stream] Hard timeout (%ss) reached for %s",
+            "[Kai Stream] Inactivity timeout (%ss) reached for %s",
             STOCK_ANALYZE_TIMEOUT_SECONDS,
             ticker,
         )
@@ -2319,7 +2349,9 @@ async def analyze_stream_generator(
             "error",
             {
                 "code": "ANALYZE_TIMEOUT",
-                "message": f"Analysis timed out after {STOCK_ANALYZE_TIMEOUT_SECONDS}s.",
+                "message": (
+                    f"Analysis stream paused without activity for {STOCK_ANALYZE_TIMEOUT_SECONDS}s."
+                ),
                 "ticker": ticker,
             },
             terminal=True,
@@ -2332,6 +2364,7 @@ async def analyze_stream_generator(
             terminal=True,
         )
     finally:
+        _stream_activity_ctx.reset(activity_token)
         _stream_ctx.reset(stream_token)
 
 
@@ -2412,9 +2445,9 @@ def _stream_factory(
 @router.get("/analyze/stream")
 async def analyze_stream(
     request: Request,
-    ticker: str,
-    user_id: str,
-    risk_profile: str = "balanced",
+    ticker: str = Query(min_length=1, max_length=_TICKER_RAW_MAX_LEN),
+    user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
+    risk_profile: str = Query(default="balanced", max_length=_RISK_PROFILE_MAX_LEN),
     authorization: Optional[str] = Header(None, description="Bearer VAULT_OWNER consent token"),
 ):
     """
@@ -2591,8 +2624,8 @@ async def analyze_run_start(
 
 @router.get("/analyze/run/active")
 async def analyze_run_active(
-    user_id: str,
-    debate_session_id: str,
+    user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
+    debate_session_id: str = Query(min_length=1, max_length=_DEBATE_SESSION_ID_MAX_LEN),
     authorization: Optional[str] = Header(None, description="Bearer VAULT_OWNER consent token"),
 ):
     """Get active run for a given user/session.
@@ -2607,8 +2640,8 @@ async def analyze_run_active(
 @router.get("/analyze/run/{run_id}/stream")
 async def analyze_run_stream(
     request: Request,
-    run_id: str,
-    user_id: str,
+    run_id: RunId,
+    user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
     cursor: Optional[int] = 0,
     authorization: Optional[str] = Header(None, description="Bearer VAULT_OWNER consent token"),
 ):
@@ -2648,8 +2681,8 @@ async def analyze_run_stream(
 
 @router.post("/analyze/run/{run_id}/cancel")
 async def analyze_run_cancel(
-    run_id: str,
-    user_id: str,
+    run_id: RunId,
+    user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
     authorization: Optional[str] = Header(None, description="Bearer VAULT_OWNER consent token"),
 ):
     """Cancel an active run."""

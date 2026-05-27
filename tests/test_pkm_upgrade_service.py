@@ -84,7 +84,9 @@ async def test_build_status_prefers_known_summary_versions_when_present():
         domain_summaries={
             "financial": {
                 "domain_contract_version": 2,
-                "readable_summary_version": 1,
+                "readable_summary_version": 2,
+                "pkm_contract_version": "4.1.0",
+                "readable_projection_version": "4.1.0",
             }
         }
     )
@@ -113,7 +115,9 @@ async def test_build_status_prefers_manifest_versions_over_stale_summary_version
         },
         manifest={
             "domain_contract_version": 2,
-            "readable_summary_version": 1,
+            "readable_summary_version": 2,
+            "pkm_contract_version": "4.1.0",
+            "readable_projection_version": "4.1.0",
             "upgraded_at": "2026-03-29T12:00:00Z",
         },
     )
@@ -133,6 +137,37 @@ async def test_build_status_prefers_manifest_versions_over_stale_summary_version
 
 
 @pytest.mark.asyncio
+async def test_build_status_reads_contract_versions_from_manifest_summary_projection():
+    service = PkmUpgradeService()
+    service._pkm_service = _FakePkmService(
+        domain_summaries={
+            "financial": {
+                "domain_contract_version": 2,
+                "readable_summary_version": 2,
+            }
+        },
+        manifest={
+            "domain_contract_version": 2,
+            "readable_summary_version": 2,
+            "summary_projection": {
+                "pkm_contract_version": "4.1.0",
+                "readable_projection_version": "4.1.0",
+            },
+        },
+    )
+
+    async def _no_runs(_user_id: str):
+        return None
+
+    service._get_latest_run = _no_runs  # type: ignore[method-assign]
+
+    status = await service.build_status("user_123")
+
+    assert status["upgrade_status"] == "current"
+    assert status["upgradable_domains"] == []
+
+
+@pytest.mark.asyncio
 async def test_start_or_resume_run_silently_reconciles_stale_top_level_index():
     last_manifest_upgrade = "2026-03-29T12:00:00Z"
     fake_pkm_service = _FakePkmService(
@@ -144,7 +179,9 @@ async def test_start_or_resume_run_silently_reconciles_stale_top_level_index():
         },
         manifest={
             "domain_contract_version": 2,
-            "readable_summary_version": 1,
+            "readable_summary_version": 2,
+            "pkm_contract_version": "4.1.0",
+            "readable_projection_version": "4.1.0",
             "upgraded_at": last_manifest_upgrade,
         },
         model_version=2,

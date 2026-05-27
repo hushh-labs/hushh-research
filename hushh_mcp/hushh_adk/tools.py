@@ -58,7 +58,7 @@ def hushh_tool(scope: str, name: Optional[str] = None):
             )
             if not valid:
                 error_msg = f"Consent Denied for '{tool_name}': {reason}"
-                logger.warning(f"{error_msg} (User: {ctx.user_id})")
+                logger.warning("%s (user=[redacted])", error_msg)
                 raise PermissionError(error_msg)
             if token_obj.user_id != ctx.user_id:
                 error_msg = "Identity Spoofing Detected: Token user does not match context user."
@@ -76,7 +76,7 @@ def hushh_tool(scope: str, name: Optional[str] = None):
             valid, reason, token_obj = validate_token(ctx.consent_token, expected_scope=expected)
             if not valid:
                 error_msg = f"Consent Denied for '{tool_name}': {reason}"
-                logger.warning(f"{error_msg} (User: {ctx.user_id})")
+                logger.warning("%s (user=[redacted])", error_msg)
                 raise PermissionError(error_msg)
             if token_obj.user_id != ctx.user_id:
                 error_msg = "Identity Spoofing Detected: Token user does not match context user."
@@ -94,11 +94,11 @@ def hushh_tool(scope: str, name: Optional[str] = None):
             async def async_wrapper(*args, **kwargs):
                 ctx = _validate_context()
                 await _validate_scope_async(ctx)
-                logger.info(f"Tool '{tool_name}' executing for {ctx.user_id} [Scope: {scope}]")
+                logger.info("Tool '%s' executing [Scope: %s]", tool_name, scope)
                 try:
                     return await func(*args, **kwargs)
                 except Exception as e:
-                    logger.error(f"Tool '{tool_name}' failed: {str(e)}")
+                    logger.error("Tool '%s' failed: %s", tool_name, str(e))
                     raise e
 
             async_wrapper._hushh_tool = True
@@ -113,11 +113,11 @@ def hushh_tool(scope: str, name: Optional[str] = None):
             def sync_wrapper(*args, **kwargs):
                 ctx = _validate_context()
                 _validate_scope_sync(ctx)
-                logger.info(f"Tool '{tool_name}' executing for {ctx.user_id} [Scope: {scope}]")
+                logger.info("Tool '%s' executing [Scope: %s]", tool_name, scope)
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
-                    logger.error(f"Tool '{tool_name}' failed: {str(e)}")
+                    logger.error("Tool '%s' failed: %s", tool_name, str(e))
                     raise e
 
             sync_wrapper._hushh_tool = True
