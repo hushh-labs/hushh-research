@@ -58,6 +58,7 @@ import {
 } from "@/lib/kai/kai-financial-resource";
 import { KaiMarketHomeResourceService } from "@/lib/kai/kai-market-home-resource";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
+import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
 import { ensureKaiVaultOwnerToken } from "@/lib/services/kai-token-guard";
 import {
   type KaiHomeInsightsV2,
@@ -1725,13 +1726,23 @@ function useKaiMarketHomeController() {
     payload,
     loading: !payload && baselineResource.loading,
     refreshing: baselineResource.refreshing || personalizedResource.refreshing,
-    error: payload
-      ? personalizedResource.error || baselineResource.error
-      : baselineResource.error || personalizedResource.error,
+    error: sanitizeMarketHomeError(
+      payload
+        ? personalizedResource.error || baselineResource.error
+        : baselineResource.error || personalizedResource.error
+    ),
     activePickSource,
     loadInsights,
     handlePickSourceChange,
   };
+}
+
+function sanitizeMarketHomeError(error: string | null): string | null {
+  if (!error) return null;
+  if (/\b404\b/.test(error) || /not ready yet/i.test(error)) {
+    return null;
+  }
+  return sanitizeErrorMessage(error).message;
 }
 
 export function KaiMarketPreviewView() {
