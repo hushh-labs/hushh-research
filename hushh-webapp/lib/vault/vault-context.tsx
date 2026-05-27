@@ -33,9 +33,14 @@ import { useAuth } from "@/lib/firebase/auth-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 import { ConsentExportRefreshOrchestrator } from "@/lib/services/consent-export-refresh-orchestrator";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { VaultService } from "@/lib/services/vault-service";
+import {
+  markSessionUnlocked,
+  resetSessionUnlocked,
+} from "@/lib/vault/vault-session-latch";
 
 // ============================================================================
 // Types
@@ -96,6 +101,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const lastUpgradeKickoffKeyRef = useRef<string | null>(null);
 
   const lockVault = useCallback(() => {
+    resetSessionUnlocked();
     console.log("🔒 Vault locked (key + token cleared from memory)");
     if (user?.uid && vaultOwnerToken) {
       void PkmUpgradeOrchestrator.pauseForLocalAuthResume({
@@ -152,6 +158,28 @@ export function VaultProvider({ children }: VaultProviderProps) {
     return () =>
       window.removeEventListener("vault-lock-requested", handleLockRequest);
   }, [lockVault]);
+
+  useEffect(() => {
+    const handleVaultRekeyed = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        userId?: string;
+        reason?: string;
+      }>;
+      if (customEvent.detail?.userId && customEvent.detail.userId !== user?.uid) {
+        return;
+      }
+      if (user?.uid) {
+        PersonalKnowledgeModelService.invalidateSessionStateAfterVaultRekey(user.uid);
+      }
+      console.log(
+        `[VaultProvider] Vault rekeyed; invalidating PKM session state: ${customEvent.detail?.reason ?? "vault_rekeyed"}`
+      );
+      lockVault();
+    };
+
+    window.addEventListener("vault-rekeyed", handleVaultRekeyed);
+    return () => window.removeEventListener("vault-rekeyed", handleVaultRekeyed);
+  }, [lockVault, user?.uid]);
 
   useEffect(() => {
     if (!user?.uid || !vaultKey || !vaultOwnerToken) {
@@ -286,6 +314,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
 
   const unlockVault = useCallback(
     (key: string, token: string, expiresAt: number) => {
+      markSessionUnlocked();
       console.log(
         "🔓 Vault unlocked (key + token in memory only - XSS protected)"
       );

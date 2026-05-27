@@ -27,4 +27,14 @@ describe("PhoneVerificationFlow phone input normalization", () => {
       localPhoneNumber: "6505550101",
     });
   });
+      it("preserves empty phone input normalization stability", () => {
+    expect(resolvePhoneInputChange("")).toEqual({
+      localPhoneNumber: "",
+    });
+
+    expect(derivePhoneFields("")).toEqual({
+      countryValue: "US",
+      localPhoneNumber: "",
+    });
+  });
 });

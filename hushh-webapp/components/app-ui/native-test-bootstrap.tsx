@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { AuthService } from "@/lib/services/auth-service";
@@ -49,37 +49,49 @@ export function NativeTestBootstrap() {
   const config = useNativeTestConfig();
   const { loading: authLoading, user, setNativeUser } = useAuth();
   const { isVaultUnlocked, unlockVault } = useVault();
+  const [authRetryTick, setAuthRetryTick] = useState(0);
   const authAttemptedRef = useRef(false);
+  const authAttemptedAtRef = useRef(0);
   const unlockedForUidRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!config.enabled || !config.autoReviewerLogin) {
-      return;
+      return undefined;
     }
 
     if (authLoading) {
       updateBootstrapStatus("waiting_auth", {
         userId: user?.uid ?? null,
       });
-      return;
+      return undefined;
     }
 
     if (user) {
       updateBootstrapStatus("authenticated", {
         userId: user.uid,
       });
-      return;
+      return undefined;
+    }
+
+    const now = Date.now();
+    const retryInMs = 5_000 - (now - authAttemptedAtRef.current);
+    if (authAttemptedRef.current && retryInMs > 0) {
+      const timer = window.setTimeout(() => {
+        setAuthRetryTick((value) => value + 1);
+      }, Math.max(250, retryInMs));
+      return () => window.clearTimeout(timer);
     }
 
     if (authAttemptedRef.current) {
-      return;
+      authAttemptedRef.current = false;
     }
 
-    if (Date.now() < nativeTestReviewerBootstrapCooldownUntil) {
-      return;
+    if (now < nativeTestReviewerBootstrapCooldownUntil) {
+      return undefined;
     }
 
     authAttemptedRef.current = true;
+    authAttemptedAtRef.current = now;
     updateBootstrapStatus("authenticating");
 
     nativeTestReviewerBootstrapInflight ??= (async () => {
@@ -131,8 +143,10 @@ export function NativeTestBootstrap() {
         nativeTestReviewerBootstrapInflight = null;
       }
     })();
+    return undefined;
   }, [
     authLoading,
+    authRetryTick,
     config.autoReviewerLogin,
     config.enabled,
     config.expectedUserId,
