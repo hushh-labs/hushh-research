@@ -12,6 +12,7 @@ path = [
   "scripts/**",
   "config/**",
   "deploy/**",
+  "apps/**",
   "packages/hushh-mcp/**",
   "consent-protocol/README.md",
   "consent-protocol/CONTRIBUTING.md",

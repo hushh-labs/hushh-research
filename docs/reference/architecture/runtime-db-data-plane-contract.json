@@ -4,6 +4,7 @@
   "allowed_data_classes": [
     "personal_encrypted",
     "personal_metadata",
+    "personal_projection",
     "workflow_state",
     "provider_cache",
     "audit_regulated",
@@ -13,6 +14,7 @@
     "pkm_events",
     "pkm_manifest_paths",
     "kai_gmail_sync_runs",
+    "agent_chat_messages",
     "kai_funding_webhook_events",
     "kai_funding_transfer_events",
     "kai_funding_trade_events",
@@ -91,6 +93,19 @@
       "expected_row_growth": "medium_per_user_domain"
     },
     {
+      "id": "agent_chat_encrypted_memory",
+      "owner": "backend-agents-operons",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "current",
+      "exact_tables": ["agent_chat_conversations", "agent_chat_messages"],
+      "primary_access_path": "Gemini-backed Agent text chat streaming, encrypted chat history restore, and LLM context assembly",
+      "retention_policy": "Retain while account exists or until the user deletes an Agent chat conversation.",
+      "deletion_behavior": "Delete selected conversation rows with cascading encrypted messages; delete all user rows on account deletion; do not persist transient tool debug events.",
+      "trust_boundary": "Message titles and content persist as AES-GCM ciphertext. Backend may decrypt only with vault service key for current Agent LLM context; frontend tool debug events remain live-only and are not stored.",
+      "plaintext_posture": "ciphertext_and_metadata",
+      "expected_row_growth": "high_per_user_chat"
+    },
+    {
       "id": "pkm_metadata_and_scope",
       "owner": "vault-pkm-governance",
       "data_class": "personal_metadata",
@@ -108,6 +123,19 @@
       "trust_boundary": "Queryable metadata and scope handles only; no raw decrypted PKM.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "high_metadata"
+    },
+    {
+      "id": "pkm_default_available_projection",
+      "owner": "vault-pkm-governance",
+      "data_class": "personal_projection",
+      "lifecycle_status": "current",
+      "exact_tables": ["pkm_default_available_projections"],
+      "primary_access_path": "vault-owner profile sharing controls publish safe projections; authenticated developer connectors read ready projections through the default-available export endpoint",
+      "retention_policy": "Retain while the user keeps the section available by default; revoke or replace on posture change, projection refresh, domain deletion, or account deletion.",
+      "deletion_behavior": "Soft revoke individual projections by setting revoked_at; hard-delete on account or domain deletion.",
+      "trust_boundary": "Consumer-visible safe projection payloads only. Never raw encrypted PKM, pkm.read, workflow artifacts, hashes, provenance as shareable data, or broad blobs.",
+      "plaintext_posture": "user_published_safe_projection",
+      "expected_row_growth": "low_per_user_section"
     },
     {
       "id": "pkm_upgrade_workflows",
@@ -167,15 +195,29 @@
       "glob_tables": [
         "ria_*",
         "advisor_investor_relationships",
+        "marketplace_investor_actions",
         "marketplace_public_profiles",
         "relationship_share_*"
       ],
-      "primary_access_path": "RIA profile, marketplace, client relationship, invite, and share-grant services",
-      "retention_policy": "Retain while relationship/profile exists; expire or disconnect relationship-scoped grants.",
-      "deletion_behavior": "Delete or disconnect user-scoped relationships on account/persona deletion.",
+      "primary_access_path": "RIA profile, marketplace deck actions, client relationship, invite, and share-grant services",
+      "retention_policy": "Retain while relationship/profile or deck lead exists; expire or disconnect relationship-scoped grants.",
+      "deletion_behavior": "Delete or disconnect user-scoped relationships and marketplace deck actions on account/persona deletion.",
       "trust_boundary": "Professional and relationship metadata only; no decrypted investor PKM without consent export.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_relationship"
+    },
+    {
+      "id": "public_investor_reference",
+      "owner": "backend-api-contracts",
+      "data_class": "reference",
+      "lifecycle_status": "current",
+      "exact_tables": ["investor_profiles", "marketplace_investor_replenisher_runs"],
+      "primary_access_path": "RIA marketplace qualified investor deck, public discovery cards, and official SEC filing evidence",
+      "retention_policy": "Refreshable public reference data; update from official public sources, preserve evidence URLs, and keep curation/admission fields plus replenisher run health auditable.",
+      "deletion_behavior": "Not user-delete scoped; remove or correct only when the public-source inventory is withdrawn or superseded.",
+      "trust_boundary": "Official/public investor reference records only; rows do not create signed-in marketplace users and are not connectable without opt-in.",
+      "plaintext_posture": "reference_metadata",
+      "expected_row_growth": "low_reference"
     },
     {
       "id": "kai_brokerage_provider_cache",
@@ -207,6 +249,48 @@
       "trust_boundary": "Encrypted OAuth tokens, receipt summaries, hashes, and preview artifacts; no raw mailbox memory.",
       "plaintext_posture": "provider_cache_metadata",
       "expected_row_growth": "high_provider_sync"
+    },
+    {
+      "id": "kai_live_location_sharing",
+      "owner": "backend-runtime-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "transitional",
+      "exact_tables": [
+        "kai_location_access_requests",
+        "kai_location_contacts",
+        "kai_location_events",
+        "kai_location_latest",
+        "kai_location_shares",
+        "kai_location_update_sessions"
+      ],
+      "primary_access_path": "KAI live location contacts, bounded share links, viewer access requests, scoped update sessions, latest-point polling, and redacted event audit services",
+      "retention_policy": "Retain active contacts and live share metadata while enabled; expire shares and update sessions within bounded windows, and compact redacted location events after operational review windows.",
+      "deletion_behavior": "Delete owner-scoped location rows on account deletion; revoke active shares and update sessions on explicit stop/revoke flows.",
+      "trust_boundary": "Vault-owner APIs require owner consent authority; public share links are bearer-token scoped, token hashes persist server-side, and event metadata must not persist raw coordinates.",
+      "plaintext_posture": "location_metadata_coordinates_and_token_hashes",
+      "expected_row_growth": "medium_per_user_share"
+    },
+    {
+      "id": "one_location_agent",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_location_access_requests",
+        "one_location_envelopes",
+        "one_location_events",
+        "one_location_public_invite_submissions",
+        "one_location_public_invites",
+        "one_location_recipient_keys",
+        "one_location_referrals",
+        "one_location_share_grants"
+      ],
+      "primary_access_path": "One Location Agent verified-recipient directory, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, referrals, revocation, expiry, and metadata-only audit",
+      "retention_policy": "Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",
+      "deletion_behavior": "Delete rows where the deleting account is owner, recipient, requester, referrer, referred user, or key owner; revoke active grants before deletion where possible.",
+      "trust_boundary": "Coordinates exist only on owner and recipient devices. Backend stores recipient public keys, grant metadata, ciphertext envelopes, public invite token hashes, request metadata, hashed public-intake throttling metadata, and audit metadata; it must not store latitude, longitude, addresses, map previews, movement trails, or raw public tokens. Public invite links can request access only and never reveal location, grants, ciphertext, or owner identity beyond a safe label.",
+      "plaintext_posture": "ciphertext_coordinates_and_metadata_only",
+      "expected_row_growth": "medium_per_user_share"
     },
     {
       "id": "market_reference_and_cache",

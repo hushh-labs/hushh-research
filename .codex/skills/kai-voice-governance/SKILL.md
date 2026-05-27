@@ -8,9 +8,8 @@ description: Use when changing Kai voice capability authoring, generated action 
 ## Purpose and Trigger
 
 - Primary scope: `kai-voice-governance`
-- Trigger on Kai voice capability authoring, generated gateway changes, typed-search and voice parity work, action workflow chaining, persona/workspace gating, or durable voice memory boundary changes.
-- Use this skill when the request is about how Kai recognizes, filters, executes, or explains actions across voice and search.
-- Avoid overlap with `frontend` for generic UI work, `backend-api-contracts` for route-only contract changes, and `vault-pkm-governance` for broad vault policy work that is not specific to Kai voice.
+- Trigger on Kai voice capability authoring, generated gateway changes, typed-search and voice parity, action workflow chaining, persona/workspace gating, or durable voice memory boundary changes.
+- Avoid overlap with `frontend`, `backend-api-contracts`, and `vault-pkm-governance`.
 
 ## Coverage and Ownership
 
@@ -41,19 +40,15 @@ Non-owned surfaces:
 
 ## Do Use
 
-1. Adding or changing local `.voice-action-contract.json` files.
-2. Changing the generated Kai action gateway or compatibility manifest.
-3. Mapping typed search, voice, and tappable UI actionables to the same `action_id`.
-4. Authoring or reviewing multi-step workflows that chain persona switches, route transitions, or tool calls.
-5. Tightening persona, vault, consent, onboarding, and workspace guard handling.
-6. Enforcing BYOK/ZK-safe durable voice memory behavior.
+1. Local `.voice-action-contract.json`, generated gateway, or manifest changes.
+2. Voice/search/UI action parity around stable `action_id`.
+3. Persona, workspace, vault, consent, onboarding, and durable voice memory gates.
 
 ## Do Not Use
 
-1. Generic frontend layout or shell work with no voice/search/actionability impact.
-2. Broad backend runtime work unrelated to Kai voice contracts.
-3. Generic docs cleanup without Kai voice ownership implications.
-4. Security intake where the primary question is IAM or consent policy rather than Kai voice behavior.
+1. Generic frontend layout or backend route work without voice/search/action impact.
+2. Generic docs cleanup without Kai voice ownership implications.
+3. Security intake where IAM or consent policy is primary.
 
 ## Read First
 
@@ -63,53 +58,23 @@ Non-owned surfaces:
 
 ## Workflow
 
-1. Treat local `.voice-action-contract.json` files as the authoring source of truth.
-2. Keep the generated gateway as the shared semantic authority and the manifest as a compatibility artifact.
-3. Do not add capabilities through runtime heuristics or ad hoc DOM discovery.
-4. Reuse one stable `action_id` across voice, search, UI actionables, analytics, and docs.
-5. Author multi-step workflows only when the UI can actually move through the same prerequisite chain.
-6. Require settlement between workflow steps; do not assume route push success equals completion.
-7. Treat persona and workspace as hard preconditions:
-   - ask before switching persona when the target workspace is earned
-   - block and guide when the capability is not unlocked
-8. Keep runtime surface metadata focused on current state, not capability existence.
-9. Keep short-term voice memory in-memory only.
-10. Keep durable voice memory vault-gated, client-side encrypted, and out of plaintext browser storage.
-11. Prefer non-blocking governance for missing contracts:
-   - missing contract means not discoverable
-   - surface the gap in review and docs
-12. Update docs and tests in the same change when capability semantics shift.
-13. During review, require:
-    - local contracts for new discoverable capabilities
-    - `speaker_persona` on every action with allowed values `one`, `kai`, `nav`, or `kyc`
-    - `delegate_agent_id` on actions executed by a specialist on behalf of One, with allowed values `one`, `kai`, `nav`, or `kyc`
-    - stable `control_ids` for mapped UI actionables
-    - shared `action_id` parity across search and voice
-    - `route.*` for ordinary navigation and `nav.*` only for Nav privacy/consent guardian actions
-    - central persona, vault, consent, and onboarding gating
-    - no durable-memory regression to plaintext or unlocked-free reads
-14. Speaker persona is prompt/copy ownership only:
-    - One owns route, shell, memory, generic, and handoff framing.
-    - Kai owns finance, analysis, portfolio, market, and RIA finance actions.
-    - Nav owns privacy, consent, vault, deletion, revocation, and scope-review actions.
-    - KYC owns explicit identity/KYC workflow status, missing-document review, approval-gated drafts, and structured PKM writeback.
-    It must never grant authority or bypass auth, vault, consent, persona, workspace, rollout, or kill-switch gates.
-15. Do not add legacy aliases for old navigation `nav.*` ids. Navigation namespace migrations are straight renames unless the user explicitly approves a compatibility program.
-16. Before recommending or merging any voice PR, prove how it fits the existing voice stack:
-    - frontend voice state and action execution route through `hushh-webapp/lib/voice`
-    - discoverable actions come from local `.voice-action-contract.json` files and generated gateway artifacts
-    - realtime voice, command/search, and fallback transcript paths share action IDs and settlement semantics
-    - browser SpeechRecognition, MCP tools, or other new input mechanisms are reviewed as fallback/adapters over the existing runtime, not as parallel primary voice systems
-17. Treat a new visible microphone, speech, dictation, transcript, or voice-like command input as a product-surface change, not just an implementation detail. If Kai realtime voice already covers the user job, block the PR unless the team explicitly approves a secondary accessibility/fallback affordance and the change shares the same vault gating, voice availability, route eligibility, and user-facing copy.
-18. If a PR adds voice-adjacent UI or backend tools without touching the generated gateway, manifest, shared dispatcher, or current voice tests, default to `patch_then_merge` or `block` until the integration boundary is explicit.
+1. Treat local voice action contracts as the authoring source of truth.
+2. Keep the generated gateway as semantic authority and the manifest as compatibility artifact.
+3. Reuse stable `action_id` values across voice, search, UI actionables, analytics, and docs.
+4. Do not add capabilities through runtime heuristics, ad hoc DOM discovery, or parallel voice systems.
+5. Author workflows only when the UI can move through the same prerequisite chain with settlement between steps.
+6. Treat persona, workspace, vault, consent, onboarding, rollout, and kill-switch gates as hard preconditions.
+7. Keep short-term memory in-memory only and durable memory vault-gated, client-side encrypted, and out of plaintext storage.
+8. Block new microphone, dictation, transcript, or voice-like inputs unless they are approved adapters over the existing gateway path.
+9. Use `voice-review-checklist.md` before recommending or merging voice-adjacent PRs.
 
 ## Handoff Rules
 
-1. Route generic UI structure questions to `frontend`.
-2. Route route/request/response contract work to `backend-api-contracts`.
-3. Route vault and encrypted-storage boundary work to `vault-pkm-governance`.
-4. Route generic documentation-home decisions to `docs-governance`.
-5. Route large verification-policy changes to `quality-contracts`.
+1. Generic UI structure routes to `frontend`.
+2. Route/request/response contracts route to `backend-api-contracts`.
+3. Vault and encrypted-storage boundaries route to `vault-pkm-governance`.
+4. Documentation-home decisions route to `docs-governance`.
+5. Verification-policy changes route to `quality-contracts`.
 
 ## Required Checks
 

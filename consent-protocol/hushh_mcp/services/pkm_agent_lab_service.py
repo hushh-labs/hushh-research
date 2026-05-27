@@ -86,10 +86,12 @@ _FINANCIAL_TOP_LEVEL_KEYS = {
 _FOOD_HINTS = {
     "food",
     "meal",
+    "meals",
     "restaurant",
     "eat",
     "breakfast",
     "lunch",
+    "lunches",
     "dinner",
     "cuisine",
     "recipe",
@@ -105,11 +107,16 @@ _TRAVEL_HINTS = {
     "travel",
     "trip",
     "flight",
+    "flights",
     "hotel",
     "vacation",
     "airport",
     "airline",
+    "arrival",
+    "arrivals",
+    "nonstop",
     "seat",
+    "seats",
 }
 _HEALTH_HINTS = {
     "allergic",
@@ -118,8 +125,11 @@ _HEALTH_HINTS = {
     "doctor",
     "medical",
     "sleep",
+    "energy",
     "workout",
     "fitness",
+    "swim",
+    "swimming",
     "run",
     "running",
 }
@@ -129,29 +139,85 @@ _SHOPPING_HINTS = {
     "wishlist",
     "shopping",
     "brand",
+    "product",
+    "products",
     "purchase",
+    "receipt",
+    "merchant",
+    "store",
+    "subscription",
+    "return",
+    "size",
+    "jacket",
+    "jackets",
+    "patagonia",
 }
 _RELATIONSHIP_HINTS = {
     "mom",
     "dad",
     "wife",
     "husband",
+    "spouse",
+    "fiance",
+    "fiancee",
     "partner",
     "friend",
     "family",
+    "sister",
+    "brother",
+    "emergency",
+    "contact",
     "relationship",
+}
+_PROFESSIONAL_HINTS = {
+    "async",
+    "written",
+    "meeting",
+    "meetings",
+    "project",
+    "professional",
+}
+_LOCATION_HINTS = {
+    "live",
+    "lives",
+    "living",
+    "home",
+    "based",
+    "base",
+    "city",
+    "neighborhood",
+    "nyc",
+    "seattle",
+    "sf",
+    "san",
+    "francisco",
 }
 _FINANCIAL_HINTS = {
     "stock",
+    "stocks",
     "portfolio",
     "investment",
+    "investing",
     "invest",
+    "budget",
+    "budgeting",
+    "spending",
     "broker",
     "plaid",
     "retirement",
     "401k",
     "ira",
     "dividend",
+    "fund",
+    "funds",
+    "growth",
+    "income",
+    "volatility",
+    "lower-volatility",
+    "index",
+    "loan",
+    "loans",
+    "save",
 }
 _FINANCIAL_CORE_HINTS = {
     "optimize",
@@ -173,8 +239,15 @@ _FINANCIAL_MEMORY_HINTS = {
     "comfortable",
     "risk_tolerance",
     "index_funds",
+    "index",
+    "funds",
+    "dividend",
     "dividend_paying",
     "automatic_monthly_investing",
+    "growth",
+    "income",
+    "volatility",
+    "investing",
 }
 _AMBIGUOUS_PREFIXES = {
     "i need something",
@@ -185,6 +258,101 @@ _AMBIGUOUS_PREFIXES = {
 }
 _GENERAL_DOMAIN_KEY = "general"
 _DEFAULT_CONFIRMATION_DOMAINS = ("professional", "travel", "shopping", "food")
+_STRUCTURAL_SCOPE_TOKENS = {
+    "entities",
+    "items",
+    "_items",
+    "summary",
+    "status",
+    "observations",
+    "created_at",
+    "updated_at",
+    "schema_version",
+    "provenance",
+    "artifact_id",
+    "hash",
+}
+_PKM_DATA_STRUCTURE_KERNEL_V2 = """You are a deterministic PKM data-structure agent.
+
+Your job is not to chat. Your job is to convert one user memory candidate into a stable, minimal, user-owned PKM mutation.
+
+Use only:
+- the user's exact message
+- current active domains
+- manifest/scope registry metadata
+- recent active entity summaries
+- the upstream intent/merge contract when provided
+
+Never invent domains, paths, values, entities, or history.
+Never create a "changes" branch for corrections.
+Never duplicate a fact when an active canonical entity can be extended or corrected.
+Never save reminders, one-off tasks, opaque strings, secrets, random ids, or operational requests.
+Never write developer metadata, parser metadata, hashes, provenance, workflow ids, or raw internal paths into user-facing memory.
+
+Choose exactly one mutation:
+- create_entity: new durable fact/preference with no stable active target
+- extend_entity: same meaning, extra useful detail, no contradiction
+- correct_entity: new statement supersedes old meaning
+- delete_entity: user asks to remove an active memory and a stable target exists
+- no_op: ephemeral, ambiguous, unsupported, unsafe, or no stable target
+
+Corrections are signaled by: actually, instead, changed my mind, no longer, works better now, now prefer, update that.
+Deletions are signaled by: forget, remove, delete, don't remember this anymore.
+Refinements are signaled by: also, still, usually, when possible, prefer, more often.
+
+Output JSON only. Follow the schema exactly. If unsure, choose confirm_first or no_op."""
+_INTERNAL_METADATA_SCOPE_TOKENS = {
+    "artifact",
+    "artifact_id",
+    "correlation",
+    "debug",
+    "deterministic_projection_hash",
+    "enrichment_hash",
+    "hash",
+    "idempotency",
+    "parser",
+    "provenance",
+    "raw",
+    "source_agent",
+    "source_kind",
+    "trace",
+    "workflow",
+    "workflow_id",
+}
+_DRIFT_FLAG_NAMES = (
+    "fallback_used",
+    "scope_defaulted",
+    "duplicate_candidate",
+    "correction_without_target",
+    "changes_branch_blocked",
+    "internal_metadata_blocked",
+)
+_MEMORY_SIMILARITY_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "by",
+    "for",
+    "from",
+    "i",
+    "in",
+    "is",
+    "it",
+    "me",
+    "my",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "when",
+    "with",
+}
 _ENTITY_STATUS_ACTIVE = "active"
 _ENTITY_STATUS_CORRECTED = "corrected"
 _ENTITY_STATUS_DELETED = "deleted"
@@ -457,6 +625,7 @@ class PKMAgentLabService:
         user_id: str,
         message: str,
         current_domains: list[str],
+        current_manifests: list[dict[str, Any]] | None,
         simulated_state: dict[str, Any] | None,
         model_override: str | None,
         strict_small_model: bool,
@@ -467,6 +636,7 @@ class PKMAgentLabService:
                 "user_id": user_id,
                 "message": message.strip(),
                 "current_domains": sorted(current_domains),
+                "current_manifests": current_manifests or [],
                 "simulated_state": simulated_state or {},
                 "model_override": model_override or "",
                 "strict_small_model": strict_small_model,
@@ -590,6 +760,8 @@ class PKMAgentLabService:
         message: str,
     ) -> list[dict[str, Any]]:
         fallback = cls._fallback_segmented_messages(message)
+        if len(fallback) == 1:
+            return fallback
         if not isinstance(raw, dict):
             return fallback
 
@@ -617,6 +789,8 @@ class PKMAgentLabService:
                     or "Segmented memory candidate.",
                 }
             )
+        if len(fallback) == 1 and len(sanitized) == 1:
+            return fallback
         return sanitized or fallback
 
     @classmethod
@@ -687,25 +861,105 @@ class PKMAgentLabService:
     @classmethod
     def _message_tokens(cls, message: str) -> set[str]:
         normalized = cls._safe_excerpt(message, limit=1200).lower()
-        return {token for token in cls._normalize_path(normalized).split(".") if token}
+        return {token for token in re.split(r"[._\-\s]+", cls._normalize_path(normalized)) if token}
 
     @classmethod
     def _is_finance_message(cls, message: str) -> bool:
         normalized_message = cls._safe_excerpt(message, limit=400).lower()
         tokens = cls._message_tokens(message)
-        return any(token in tokens or token in normalized_message for token in _FINANCIAL_HINTS)
+        return cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=tokens,
+            hints=_FINANCIAL_HINTS,
+        )
+
+    @classmethod
+    def _contains_any_hint(
+        cls,
+        *,
+        normalized_message: str,
+        message_words: set[str],
+        hints: set[str],
+    ) -> bool:
+        for hint in hints:
+            normalized_hint = cls._normalize_segment(hint)
+            if not normalized_hint:
+                continue
+            if normalized_hint in message_words:
+                return True
+            if normalized_hint.endswith("s") and normalized_hint[:-1] in message_words:
+                return True
+            if f"{normalized_hint}s" in message_words:
+                return True
+            if len(normalized_hint) >= 4 and re.search(
+                rf"\b{re.escape(normalized_hint)}s?\b",
+                normalized_message,
+            ):
+                return True
+        return False
 
     @classmethod
     def _is_correction_message(cls, message: str) -> bool:
         normalized = cls._safe_excerpt(message, limit=400).lower()
         return any(
-            phrase in normalized for phrase in ("actually", "not anymore", "changed my mind")
+            phrase in normalized
+            for phrase in (
+                "actually",
+                "instead",
+                "not anymore",
+                "no longer",
+                "changed my mind",
+                "change my mind",
+                "update my",
+                "update this",
+                "update that",
+                "better for me now",
+                "works better now",
+                "work better now",
+                "matters more",
+                "prefer growth over income now",
+            )
         )
 
     @classmethod
     def _is_deletion_message(cls, message: str) -> bool:
         normalized = cls._safe_excerpt(message, limit=400).lower()
-        return any(phrase in normalized for phrase in ("forget that", "delete", "remove that"))
+        return any(
+            phrase in normalized
+            for phrase in (
+                "forget that",
+                "forget my",
+                "forget the",
+                "forget old",
+                "delete",
+                "remove that",
+                "remove my",
+                "no longer want",
+                "kept around",
+                "from what kai remembers",
+                "do not remember",
+                "don't remember",
+            )
+        )
+
+    @classmethod
+    def _has_refinement_signal(cls, message: str) -> bool:
+        normalized = cls._safe_excerpt(message, limit=400).lower()
+        tokens = cls._message_tokens(message)
+        return any(
+            phrase in normalized
+            for phrase in (
+                "also",
+                "still",
+                "when possible",
+                "keep coming back",
+                "coming back",
+                "working toward",
+                "works best",
+                "work best",
+                "tied to",
+            )
+        ) or bool(tokens & {"still", "also"})
 
     @classmethod
     def _keyword_ranked_domains(
@@ -716,23 +970,56 @@ class PKMAgentLabService:
     ) -> list[str]:
         normalized_message = cls._safe_excerpt(message, limit=400).lower()
         tokens = cls._message_tokens(message)
+        message_words = tokens
         ranked: list[str] = []
-        if any(token in tokens or token in normalized_message for token in _FINANCIAL_HINTS):
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_FINANCIAL_HINTS,
+        ):
             ranked.append("financial")
-        if any(token in tokens or token in normalized_message for token in _FOOD_HINTS):
-            ranked.append("food")
-        if any(token in tokens or token in normalized_message for token in _TRAVEL_HINTS):
-            ranked.append("travel")
-        if any(token in tokens or token in normalized_message for token in _HEALTH_HINTS):
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_HEALTH_HINTS,
+        ):
             ranked.append("health")
-        if any(token in tokens or token in normalized_message for token in _SHOPPING_HINTS):
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_TRAVEL_HINTS,
+        ):
+            ranked.append("travel")
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_SHOPPING_HINTS,
+        ):
             ranked.append("shopping")
-        if any(token in tokens or token in normalized_message for token in _RELATIONSHIP_HINTS):
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_LOCATION_HINTS,
+        ):
+            ranked.append("location")
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_RELATIONSHIP_HINTS,
+        ):
             ranked.append("social")
-        for domain in current_domains:
-            normalized_domain = cls._normalize_segment(domain)
-            if normalized_domain and normalized_domain != _GENERAL_DOMAIN_KEY:
-                ranked.append(normalized_domain)
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_PROFESSIONAL_HINTS,
+        ):
+            ranked.append("professional")
+        if cls._contains_any_hint(
+            normalized_message=normalized_message,
+            message_words=message_words,
+            hints=_FOOD_HINTS,
+        ):
+            ranked.append("food")
         return cls._unique_list(ranked)
 
     @classmethod
@@ -744,6 +1031,10 @@ class PKMAgentLabService:
         current_domains: list[str],
     ) -> list[str]:
         ranked = cls._keyword_ranked_domains(message=message, current_domains=current_domains)
+        if intent_class in {"correction", "deletion"} and "financial" in ranked:
+            non_financial_ranked = [domain for domain in ranked if domain != "financial"]
+            if non_financial_ranked:
+                ranked = [*non_financial_ranked, "financial"]
         defaults = list(_INTENT_DOMAIN_DEFAULTS.get(intent_class, _DEFAULT_CONFIRMATION_DOMAINS))
         if cls._is_finance_message(message) and "financial" not in defaults:
             defaults.insert(0, "financial")
@@ -778,12 +1069,27 @@ class PKMAgentLabService:
         )
         display_name = str(raw.get("display_name") or defaults["display_name"]).strip()
         description = str(raw.get("description") or defaults["description"]).strip()
-        return {
+        normalized: dict[str, Any] = {
             "domain_key": domain_key,
             "display_name": display_name or defaults["display_name"],
             "description": description or defaults["description"],
             "recommended": bool(recommended),
         }
+        scope_paths = raw.get("scope_paths") or defaults.get("scope_paths")
+        if isinstance(scope_paths, list):
+            normalized["scope_paths"] = cls._unique_list(
+                [
+                    cls._normalize_path(str(path))
+                    for path in scope_paths
+                    if cls._normalize_path(str(path))
+                ]
+            )
+        scope_registry = raw.get("scope_registry") or defaults.get("scope_registry")
+        if isinstance(scope_registry, list):
+            normalized["scope_registry"] = [
+                deepcopy(entry) for entry in scope_registry if isinstance(entry, dict)
+            ]
+        return normalized
 
     @classmethod
     def _candidate_domain_choices(
@@ -857,6 +1163,22 @@ class PKMAgentLabService:
                         or f"Durable PKM memories for {self._titleize_path(domain_key).lower()}"
                     ).strip(),
                 }
+                scope_paths = entry.get("scope_paths")
+                if isinstance(scope_paths, list):
+                    registry_map[domain_key]["scope_paths"] = self._unique_list(
+                        [
+                            self._normalize_path(str(path))
+                            for path in scope_paths
+                            if self._normalize_path(str(path))
+                        ]
+                    )
+                scope_registry = entry.get("scope_registry")
+                if isinstance(scope_registry, list):
+                    registry_map[domain_key]["scope_registry"] = [
+                        deepcopy(candidate)
+                        for candidate in scope_registry
+                        if isinstance(candidate, dict)
+                    ]
         else:
             for entry in CANONICAL_DOMAIN_REGISTRY:
                 if entry.domain_key == _GENERAL_DOMAIN_KEY:
@@ -875,6 +1197,114 @@ class PKMAgentLabService:
                 }
         ordered_keys = self._unique_list(sorted(registry_map.keys()))
         return [registry_map[key] for key in ordered_keys if key in registry_map]
+
+    @classmethod
+    def _is_consumer_visible_scope_projection(cls, projection: Any) -> bool:
+        if not isinstance(projection, dict):
+            return True
+        if projection.get("internal_only") is True:
+            return False
+        if projection.get("consumer_visible") is False:
+            return False
+        storage_mode = cls._normalize_segment(str(projection.get("storage_mode") or ""))
+        if storage_mode in {"system", "internal", "runtime"}:
+            return False
+        return True
+
+    @classmethod
+    def _registry_override_from_manifests(
+        cls, current_manifests: list[dict[str, Any]] | None
+    ) -> list[dict[str, Any]]:
+        overrides: list[dict[str, Any]] = []
+        for manifest in current_manifests or []:
+            if not isinstance(manifest, dict):
+                continue
+            domain_key = cls._normalize_segment(str(manifest.get("domain") or ""))
+            if not domain_key or domain_key == _GENERAL_DOMAIN_KEY:
+                continue
+            scope_paths: list[str] = []
+            for path in manifest.get("top_level_scope_paths") or []:
+                normalized_path = cls._normalize_path(str(path))
+                if normalized_path:
+                    scope_paths.append(normalized_path)
+            visible_registry = []
+            for entry in manifest.get("scope_registry") or []:
+                if not isinstance(entry, dict):
+                    continue
+                projection = entry.get("summary_projection") or {}
+                if not cls._is_consumer_visible_scope_projection(projection):
+                    continue
+                top_level_path = cls._normalize_path(
+                    str(
+                        projection.get("top_level_scope_path")
+                        or entry.get("top_level_scope_path")
+                        or ""
+                    )
+                )
+                if top_level_path:
+                    scope_paths.append(top_level_path)
+                visible_registry.append(deepcopy(entry))
+            if not scope_paths and isinstance(manifest.get("paths"), list):
+                for path_entry in manifest.get("paths") or []:
+                    if not isinstance(path_entry, dict):
+                        continue
+                    if path_entry.get("exposure_eligibility") is False:
+                        continue
+                    json_path = cls._normalize_path(str(path_entry.get("json_path") or ""))
+                    if json_path:
+                        scope_paths.append(json_path.split(".", 1)[0])
+            overrides.append(
+                {
+                    "domain_key": domain_key,
+                    "display_name": cls._titleize_path(domain_key),
+                    "description": f"Existing PKM memories already grouped under {cls._titleize_path(domain_key).lower()}",
+                    "scope_paths": cls._unique_list(scope_paths),
+                    "scope_registry": visible_registry,
+                }
+            )
+        return overrides
+
+    @classmethod
+    def _merge_registry_overrides(
+        cls,
+        left: list[dict[str, Any]] | None,
+        right: list[dict[str, Any]] | None,
+    ) -> list[dict[str, Any]] | None:
+        if not left and not right:
+            return None
+        merged: dict[str, dict[str, Any]] = {}
+        for entry in [*(left or []), *(right or [])]:
+            if not isinstance(entry, dict):
+                continue
+            domain_key = cls._normalize_segment(str(entry.get("domain_key") or ""))
+            if not domain_key or domain_key == _GENERAL_DOMAIN_KEY:
+                continue
+            current = merged.setdefault(domain_key, {"domain_key": domain_key})
+            for key in ("display_name", "description"):
+                if entry.get(key):
+                    current[key] = entry[key]
+            current["scope_paths"] = cls._unique_list(
+                [
+                    *[
+                        cls._normalize_path(str(path))
+                        for path in current.get("scope_paths", [])
+                        if cls._normalize_path(str(path))
+                    ],
+                    *[
+                        cls._normalize_path(str(path))
+                        for path in entry.get("scope_paths", [])
+                        if cls._normalize_path(str(path))
+                    ],
+                ]
+            )
+            registry = current.setdefault("scope_registry", [])
+            if isinstance(registry, list) and isinstance(entry.get("scope_registry"), list):
+                registry.extend(
+                    deepcopy(candidate)
+                    for candidate in entry.get("scope_registry", [])
+                    if isinstance(candidate, dict)
+                )
+        return list(merged.values())
 
     async def _run_agent_contract(
         self,
@@ -1138,7 +1568,45 @@ class PKMAgentLabService:
                 "contract_version": 1,
             }
 
-        if any(token in tokens or token in normalized for token in _FINANCIAL_MEMORY_HINTS) or any(
+        if any(phrase in normalized for phrase in ("save for", "pay off", "student loan")):
+            return {
+                "routing_decision": "non_financial_or_ephemeral",
+                "confidence": 0.86,
+                "reason": "The message describes a durable personal goal; downstream PKM intent should choose the goal scope without treating it as a governed financial action.",
+                "source_agent": "financial_guard_agent",
+                "contract_version": 1,
+            }
+
+        if cls._is_correction_message(message) or cls._is_deletion_message(message):
+            ranked_domains = cls._keyword_ranked_domains(
+                message=message, current_domains=current_domains
+            )
+            non_financial_ranked = [
+                domain for domain in ranked_domains if domain and domain != "financial"
+            ]
+            if non_financial_ranked:
+                return {
+                    "routing_decision": "non_financial_or_ephemeral",
+                    "confidence": 0.88,
+                    "reason": "The message mutates a non-financial PKM memory; downstream PKM intent should preserve correction/delete semantics for the matching dynamic domain.",
+                    "source_agent": "financial_guard_agent",
+                    "contract_version": 1,
+                }
+            return {
+                "routing_decision": "sanctioned_financial_memory"
+                if "financial" in current_domains
+                else "non_financial_or_ephemeral",
+                "confidence": 0.86,
+                "reason": "The message mutates a durable financial memory; downstream PKM intent should preserve correction/delete semantics.",
+                "source_agent": "financial_guard_agent",
+                "contract_version": 1,
+            }
+
+        if cls._contains_any_hint(
+            normalized_message=normalized,
+            message_words=tokens,
+            hints=_FINANCIAL_MEMORY_HINTS,
+        ) or any(
             phrase in normalized
             for phrase in (
                 "remember that i prefer",
@@ -1157,7 +1625,11 @@ class PKMAgentLabService:
                 "contract_version": 1,
             }
 
-        if any(token in tokens or token in normalized for token in _FINANCIAL_CORE_HINTS) or (
+        if cls._contains_any_hint(
+            normalized_message=normalized,
+            message_words=tokens,
+            hints=_FINANCIAL_CORE_HINTS,
+        ) or (
             "portfolio" in tokens
             and any(
                 phrase in normalized
@@ -1207,6 +1679,19 @@ class PKMAgentLabService:
                 decision["contract_version"] = int(raw.get("contract_version") or 1)
             except Exception:
                 decision["contract_version"] = 1
+        fallback_confidence = cls._clamp_confidence(fallback.get("confidence"), default=0.0)
+        decision_confidence = cls._clamp_confidence(decision.get("confidence"), default=0.0)
+        raw_financial_core_override = (
+            decision.get("routing_decision") == "financial_core"
+            and decision_confidence >= fallback_confidence + 0.05
+        )
+        if fallback_confidence >= 0.84 and not raw_financial_core_override:
+            decision["routing_decision"] = fallback["routing_decision"]
+            decision["confidence"] = max(
+                decision_confidence,
+                fallback_confidence,
+            )
+            decision["reason"] = fallback.get("reason") or decision.get("reason") or ""
         if not decision.get("reason"):
             decision["reason"] = "Financial Guard Agent routed the message conservatively."
         return decision
@@ -1221,7 +1706,16 @@ class PKMAgentLabService:
         financial_guard: dict[str, Any],
     ) -> dict[str, Any]:
         routing_decision = str(financial_guard.get("routing_decision") or "").strip().lower()
-        mutation_intent = "extend" if "financial" in current_domains else "create"
+        has_refinement_signal = cls._has_refinement_signal(message)
+        if cls._is_deletion_message(message):
+            intent_class = "deletion"
+            mutation_intent = "delete"
+        elif cls._is_correction_message(message):
+            intent_class = "correction"
+            mutation_intent = "correct"
+        else:
+            intent_class = "financial_event"
+            mutation_intent = "extend" if has_refinement_signal else "create"
         requires_confirmation = False
         confirmation_reason = ""
         confidence = cls._clamp_confidence(financial_guard.get("confidence"), default=0.82)
@@ -1230,7 +1724,7 @@ class PKMAgentLabService:
             confirmation_reason = str(financial_guard.get("reason") or "").strip()
         return {
             "save_class": "durable",
-            "intent_class": "financial_event",
+            "intent_class": intent_class,
             "mutation_intent": mutation_intent,
             "requires_confirmation": requires_confirmation,
             "confirmation_reason": confirmation_reason,
@@ -1254,6 +1748,7 @@ class PKMAgentLabService:
     ) -> dict[str, Any]:
         normalized = cls._safe_excerpt(message, limit=800).lower()
         tokens = cls._message_tokens(message)
+        message_words = tokens
         ranked_domains = cls._keyword_ranked_domains(
             message=message, current_domains=current_domains
         )
@@ -1261,6 +1756,44 @@ class PKMAgentLabService:
             str(financial_guard.get("routing_decision") or "").strip().lower()
             if isinstance(financial_guard, dict)
             else ""
+        )
+        has_refinement_signal = cls._has_refinement_signal(message)
+        is_vague_capture = any(
+            phrase in normalized
+            for phrase in (
+                "not being specific enough",
+                "leaving it vague",
+                "cleaner way to describe",
+                "something about",
+            )
+        )
+        is_plan_or_goal = any(
+            phrase in normalized
+            for phrase in (
+                "a big goal",
+                "i am still working toward",
+                "i want my travel plans",
+                "i want my work week",
+                "my planning still",
+                "choices work best",
+                "support steady",
+                "i want to save",
+                "save for",
+                "pay off",
+                "student loan",
+                "student loans",
+            )
+        )
+        is_routine = any(
+            phrase in normalized
+            for phrase in (
+                "every morning",
+                "daily ",
+                "weekly ",
+                "weekends go better",
+                "calendar is not overloaded",
+                "shopping list is deliberate",
+            )
         )
 
         save_class = "durable"
@@ -1274,7 +1807,26 @@ class PKMAgentLabService:
             intent_class = "ambiguous"
             mutation_intent = "no_op"
             confidence = 0.98
-        elif normalized.startswith("remind me") or "todo" in tokens or "to_do" in tokens:
+        elif any(phrase in normalized for phrase in _AMBIGUOUS_PREFIXES) or is_vague_capture:
+            save_class = "ambiguous"
+            intent_class = "ambiguous"
+            mutation_intent = "no_op"
+            confidence = 0.52
+            confirmation_reason = "The message is too short or underspecified to safely choose one durable PKM domain."
+        elif (
+            normalized.startswith("remind me")
+            or normalized.startswith("please remind")
+            or normalized.startswith("please order")
+            or normalized.startswith("order ")
+            or "todo" in tokens
+            or "to_do" in tokens
+            or (
+                "reminders" in tokens
+                and "durable" in tokens
+                and "pkm" in tokens
+                and ("one" in tokens or "off" in tokens)
+            )
+        ):
             save_class = "ephemeral"
             intent_class = "task_or_reminder"
             mutation_intent = "no_op"
@@ -1282,7 +1834,7 @@ class PKMAgentLabService:
         elif finance_route == "sanctioned_financial_memory":
             save_class = "durable"
             intent_class = "financial_event"
-            mutation_intent = "extend" if "financial" in current_domains else "create"
+            mutation_intent = "extend" if has_refinement_signal else "create"
             confidence = max(
                 0.84,
                 cls._clamp_confidence(
@@ -1302,52 +1854,124 @@ class PKMAgentLabService:
             intent_class = "correction"
             mutation_intent = "correct"
             confidence = 0.88
-        elif any(
-            phrase in normalized for phrase in ("i like", "i love", "i prefer", "my favorite")
+        elif is_routine:
+            save_class = "durable"
+            intent_class = "routine"
+            mutation_intent = "extend" if has_refinement_signal else "create"
+            confidence = 0.8
+        elif is_plan_or_goal:
+            save_class = "durable"
+            intent_class = "plan_or_goal"
+            mutation_intent = "extend" if has_refinement_signal else "create"
+            confidence = 0.8
+        elif cls._contains_any_hint(
+            normalized_message=normalized,
+            message_words=message_words,
+            hints=_LOCATION_HINTS,
+        ):
+            save_class = "durable"
+            intent_class = "profile_fact"
+            mutation_intent = "extend" if has_refinement_signal else "create"
+            confidence = 0.78
+        elif (
+            any(
+                phrase in normalized
+                for phrase in (
+                    "i like",
+                    "i also like",
+                    "i love",
+                    "i prefer",
+                    "i still prefer",
+                    "my favorite",
+                )
+            )
+            or normalized.startswith("i want simple repeatable meals")
+            or ("prefer" in tokens and not normalized.startswith(("delete", "remove", "forget")))
+            or (
+                "like" in tokens
+                and bool(ranked_domains)
+                and not normalized.startswith(("delete", "remove", "forget", "remind me"))
+            )
         ):
             save_class = "durable"
             intent_class = "preference"
-            mutation_intent = "extend" if current_domains else "create"
+            mutation_intent = "extend" if has_refinement_signal else "create"
             confidence = 0.78
-        elif any(token in tokens or token in normalized for token in _HEALTH_HINTS):
+        elif cls._contains_any_hint(
+            normalized_message=normalized,
+            message_words=message_words,
+            hints=_FOOD_HINTS,
+        ):
+            save_class = "durable"
+            intent_class = "preference"
+            mutation_intent = "extend" if has_refinement_signal else "create"
+            confidence = 0.76
+        elif cls._contains_any_hint(
+            normalized_message=normalized,
+            message_words=message_words,
+            hints=_HEALTH_HINTS,
+        ):
             save_class = "durable"
             intent_class = "health"
-            mutation_intent = "extend" if "health" in current_domains else "create"
+            mutation_intent = "extend" if has_refinement_signal else "create"
             confidence = 0.8
-        elif any(token in tokens or token in normalized for token in _TRAVEL_HINTS):
+        elif cls._contains_any_hint(
+            normalized_message=normalized,
+            message_words=message_words,
+            hints=_TRAVEL_HINTS,
+        ):
             save_class = "durable"
-            intent_class = "travel"
-            mutation_intent = "extend" if "travel" in current_domains else "create"
+            intent_class = "preference"
+            mutation_intent = "extend" if has_refinement_signal else "create"
             confidence = 0.78
-        elif any(token in tokens or token in normalized for token in _SHOPPING_HINTS):
+        elif cls._contains_any_hint(
+            normalized_message=normalized,
+            message_words=message_words,
+            hints=_SHOPPING_HINTS,
+        ):
             save_class = "durable"
-            intent_class = "shopping_need"
-            mutation_intent = "extend" if "shopping" in current_domains else "create"
+            intent_class = (
+                "shopping_need"
+                if normalized.startswith("i need") or "usually buy" in normalized
+                else "preference"
+            )
+            mutation_intent = "extend" if has_refinement_signal else "create"
             confidence = 0.76
-        elif any(token in tokens or token in normalized for token in _RELATIONSHIP_HINTS):
+        elif cls._contains_any_hint(
+            normalized_message=normalized,
+            message_words=message_words,
+            hints=_RELATIONSHIP_HINTS,
+        ):
             save_class = "durable"
             intent_class = "relationship"
-            mutation_intent = "extend" if "social" in current_domains else "create"
+            mutation_intent = "extend" if has_refinement_signal else "create"
             confidence = 0.76
-        elif any(phrase in normalized for phrase in _AMBIGUOUS_PREFIXES) or len(tokens) <= 2:
+        elif cls._contains_any_hint(
+            normalized_message=normalized,
+            message_words=message_words,
+            hints=_PROFESSIONAL_HINTS,
+        ):
+            save_class = "durable"
+            intent_class = "preference" if "prefer" in tokens else "profile_fact"
+            mutation_intent = "extend" if has_refinement_signal else "create"
+            confidence = 0.76
+        elif len(tokens) <= 2:
             save_class = "ambiguous"
             intent_class = "ambiguous"
             mutation_intent = "no_op"
             confidence = 0.42
             confirmation_reason = "The message is too short or underspecified to safely choose one durable PKM domain."
-        elif any(
-            token in normalized for token in ("every ", "usually ", "each ", "daily ", "weekly ")
-        ):
+        elif any(token in normalized for token in ("daily ", "weekly ")):
             save_class = "durable"
             intent_class = "routine"
-            mutation_intent = "extend" if current_domains else "create"
+            mutation_intent = "extend" if has_refinement_signal else "create"
             confidence = 0.74
         elif any(
             token in normalized for token in ("goal", "plan", "want to", "planning", "this year")
         ):
             save_class = "durable"
             intent_class = "plan_or_goal"
-            mutation_intent = "create"
+            mutation_intent = "extend" if has_refinement_signal else "create"
             confidence = 0.73
 
         requires_confirmation = save_class == "ambiguous" or confidence < 0.64
@@ -1449,6 +2073,37 @@ class PKMAgentLabService:
             frame["mutation_intent"] = "no_op"
         if frame["save_class"] == "ephemeral":
             frame["mutation_intent"] = "no_op"
+        fallback_confidence = cls._clamp_confidence(fallback.get("confidence"), default=0.0)
+        if (
+            fallback_confidence >= 0.76
+            and fallback.get("save_class") in _SAVE_CLASSES
+            and not fallback.get("requires_confirmation")
+        ):
+            fallback_choices = fallback.get("candidate_domain_choices") or []
+            if fallback_choices:
+                frame["candidate_domain_choices"] = deepcopy(fallback_choices)
+            if fallback.get("save_class") in {"ephemeral", "ambiguous"} or fallback.get(
+                "intent_class"
+            ) in {
+                "preference",
+                "profile_fact",
+                "routine",
+                "plan_or_goal",
+                "relationship",
+                "health",
+                "financial_event",
+                "correction",
+                "deletion",
+                "task_or_reminder",
+            }:
+                frame["save_class"] = fallback["save_class"]
+                frame["intent_class"] = fallback["intent_class"]
+                frame["mutation_intent"] = fallback["mutation_intent"]
+                frame["requires_confirmation"] = False
+                frame["confirmation_reason"] = ""
+                frame["confidence"] = max(
+                    float(frame.get("confidence") or 0.0), fallback_confidence
+                )
         if cls._looks_opaque_or_nonsense(message):
             frame["save_class"] = "ephemeral"
             frame["intent_class"] = "ambiguous"
@@ -1456,9 +2111,98 @@ class PKMAgentLabService:
             frame["requires_confirmation"] = False
             frame["confirmation_reason"] = ""
             frame["confidence"] = max(0.98, float(frame.get("confidence") or 0.0))
+        elif fallback.get("save_class") == "ambiguous":
+            frame["save_class"] = "ambiguous"
+            frame["intent_class"] = "ambiguous"
+            frame["mutation_intent"] = "no_op"
+            frame["requires_confirmation"] = True
+            frame["confirmation_reason"] = fallback.get("confirmation_reason") or (
+                "The message is too short or underspecified to safely choose one durable PKM domain."
+            )
+            frame["confidence"] = max(
+                float(frame.get("confidence") or 0.0),
+                float(fallback.get("confidence") or 0.0),
+            )
+        elif fallback.get("save_class") == "ephemeral":
+            frame["save_class"] = "ephemeral"
+            frame["intent_class"] = fallback.get("intent_class") or frame["intent_class"]
+            frame["mutation_intent"] = "no_op"
+            frame["requires_confirmation"] = False
+            frame["confirmation_reason"] = ""
+            frame["confidence"] = max(
+                float(frame.get("confidence") or 0.0),
+                float(fallback.get("confidence") or 0.0),
+            )
+        elif (
+            fallback.get("save_class") == "durable"
+            and fallback.get("mutation_intent") in {"correct", "delete"}
+            and frame.get("mutation_intent") != fallback.get("mutation_intent")
+        ):
+            frame["save_class"] = "durable"
+            frame["intent_class"] = fallback["intent_class"]
+            frame["mutation_intent"] = fallback["mutation_intent"]
+            frame["requires_confirmation"] = False
+            frame["confirmation_reason"] = ""
+            frame["confidence"] = max(
+                float(frame.get("confidence") or 0.0),
+                float(fallback.get("confidence") or 0.0),
+            )
+            frame["candidate_domain_choices"] = deepcopy(
+                fallback.get("candidate_domain_choices") or []
+            )
+        elif (
+            fallback.get("save_class") == "durable"
+            and fallback.get("mutation_intent") == "extend"
+            and frame.get("mutation_intent") in {"create", "no_op"}
+            and not frame.get("requires_confirmation")
+        ):
+            frame["save_class"] = "durable"
+            frame["intent_class"] = fallback.get("intent_class") or frame["intent_class"]
+            frame["mutation_intent"] = "extend"
+            frame["candidate_domain_choices"] = deepcopy(
+                fallback.get("candidate_domain_choices")
+                or frame.get("candidate_domain_choices")
+                or []
+            )
+            frame["confidence"] = max(
+                float(frame.get("confidence") or 0.0),
+                float(fallback.get("confidence") or 0.0),
+            )
+        elif (
+            fallback.get("save_class") == "durable"
+            and not fallback.get("requires_confirmation")
+            and cls._clamp_confidence(fallback.get("confidence"), default=0.0) >= 0.73
+            and (
+                frame.get("intent_class") != fallback.get("intent_class")
+                or frame.get("mutation_intent") != fallback.get("mutation_intent")
+            )
+        ):
+            frame["save_class"] = "durable"
+            frame["intent_class"] = fallback.get("intent_class") or frame["intent_class"]
+            frame["mutation_intent"] = fallback.get("mutation_intent") or frame["mutation_intent"]
+            frame["requires_confirmation"] = False
+            frame["confirmation_reason"] = ""
+            frame["candidate_domain_choices"] = deepcopy(
+                fallback.get("candidate_domain_choices")
+                or frame.get("candidate_domain_choices")
+                or []
+            )
+            frame["confidence"] = max(
+                float(frame.get("confidence") or 0.0),
+                float(fallback.get("confidence") or 0.0),
+            )
         if (
             frame["intent_class"] in {"correction", "deletion", "financial_event"}
             and frame["confidence"] >= 0.8
+        ):
+            frame["requires_confirmation"] = False
+            frame["confirmation_reason"] = ""
+        if (
+            fallback.get("save_class") == "durable"
+            and not fallback.get("requires_confirmation")
+            and frame.get("save_class") == "durable"
+            and frame.get("requires_confirmation")
+            and cls._clamp_confidence(fallback.get("confidence"), default=0.0) >= 0.7
         ):
             frame["requires_confirmation"] = False
             frame["confirmation_reason"] = ""
@@ -1520,6 +2264,11 @@ class PKMAgentLabService:
         if intent == "relationship":
             return "relationships"
         if intent == "health":
+            if any(
+                token in normalized
+                for token in ("swim", "run", "walk", "stretch", "workout", "exercise", "fitness")
+            ):
+                return "activities"
             if any(token in normalized for token in ("allerg", "intoler", "constraint", "avoid")):
                 return "dietary_constraints"
             return "records"
@@ -1530,13 +2279,242 @@ class PKMAgentLabService:
         if intent == "financial_event":
             return "events"
         if intent in {"correction", "deletion"}:
-            return "changes"
+            if domain == "location" and any(
+                token in normalized
+                for token in ("based", "base", "live", "lives", "living", "home", "city")
+            ):
+                return "profile"
+            return cls._root_scope_for_intent("preference", domain, message=message)
         return "notes"
 
     @classmethod
+    def _scope_paths_for_domain(
+        cls,
+        *,
+        registry_choices: list[dict[str, Any]],
+        domain: str,
+    ) -> list[str]:
+        normalized_domain = cls._normalize_segment(domain)
+        paths: list[str] = []
+        for entry in registry_choices:
+            if not isinstance(entry, dict):
+                continue
+            if cls._normalize_segment(str(entry.get("domain_key") or "")) != normalized_domain:
+                continue
+            for path in entry.get("scope_paths") or []:
+                normalized_path = cls._normalize_path(str(path))
+                if normalized_path:
+                    paths.append(normalized_path)
+            for registry_entry in entry.get("scope_registry") or []:
+                if not isinstance(registry_entry, dict):
+                    continue
+                projection = registry_entry.get("summary_projection") or {}
+                if not cls._is_consumer_visible_scope_projection(projection):
+                    continue
+                normalized_path = cls._normalize_path(
+                    str(
+                        projection.get("top_level_scope_path")
+                        or registry_entry.get("top_level_scope_path")
+                        or ""
+                    )
+                )
+                if normalized_path:
+                    paths.append(normalized_path)
+        return cls._unique_list(paths)
+
+    @classmethod
+    def _scope_tokens(cls, path: str) -> set[str]:
+        tokens: set[str] = set()
+        for part in re.split(r"[._\-\s]+", cls._normalize_path(path)):
+            if not part or part in _STRUCTURAL_SCOPE_TOKENS:
+                continue
+            tokens.add(part)
+            if part.endswith("s") and len(part) > 3:
+                tokens.add(part[:-1])
+        return tokens
+
+    @classmethod
+    def _kernel_prompt(cls, role: str) -> str:
+        return f"{_PKM_DATA_STRUCTURE_KERNEL_V2}\n\nAgent role: {role}\n"
+
+    @classmethod
+    def _contains_changes_branch(cls, value: Any) -> bool:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if cls._normalize_segment(str(key)) == "changes":
+                    return True
+                if cls._contains_changes_branch(child):
+                    return True
+        elif isinstance(value, list):
+            return any(cls._contains_changes_branch(item) for item in value)
+        return False
+
+    @classmethod
+    def _strip_internal_metadata(cls, value: Any) -> tuple[Any, bool]:
+        if isinstance(value, dict):
+            stripped: dict[str, Any] = {}
+            removed = False
+            for key, child in value.items():
+                normalized_key = cls._normalize_segment(str(key))
+                key_tokens = {token for token in re.split(r"[._\-\s]+", normalized_key) if token}
+                if normalized_key in _INTERNAL_METADATA_SCOPE_TOKENS or (
+                    key_tokens & _INTERNAL_METADATA_SCOPE_TOKENS
+                ):
+                    removed = True
+                    continue
+                stripped_child, child_removed = cls._strip_internal_metadata(child)
+                stripped[key] = stripped_child
+                removed = removed or child_removed
+            return stripped, removed
+        if isinstance(value, list):
+            next_items = []
+            removed = False
+            for item in value:
+                stripped_item, item_removed = cls._strip_internal_metadata(item)
+                next_items.append(stripped_item)
+                removed = removed or item_removed
+            return next_items, removed
+        return value, False
+
+    @classmethod
+    def _drift_flags_from_preview(
+        cls,
+        *,
+        validation_hints: list[str],
+        fallback_used: bool,
+        intent_used_fallback: bool = False,
+        merge_used_fallback: bool = False,
+        structure_used_fallback: bool = False,
+    ) -> dict[str, bool]:
+        hints = {cls._normalize_segment(str(hint)) for hint in validation_hints if hint}
+        return {
+            "fallback_used": bool(
+                fallback_used
+                or intent_used_fallback
+                or merge_used_fallback
+                or structure_used_fallback
+            ),
+            "scope_defaulted": bool(
+                hints
+                & {
+                    "dynamic_scope_metadata_no_specific_match",
+                    "primary_path_defaulted_to_root_scope",
+                    "primary_path_missing",
+                    "unresolved_domain_choice",
+                }
+            ),
+            "duplicate_candidate": "possible_duplicate_memory" in hints,
+            "correction_without_target": bool(
+                hints
+                & {
+                    "correction_without_prior_target_treated_as_update",
+                    "mutation_target_missing",
+                }
+            ),
+            "changes_branch_blocked": bool(
+                hints
+                & {
+                    "changes_branch_blocked",
+                    "crud_payload_aligned_to_merge_target",
+                }
+            ),
+            "internal_metadata_blocked": "internal_metadata_blocked" in hints,
+        }
+
+    @classmethod
+    def _preferred_scope_from_metadata(
+        cls,
+        *,
+        intent_class: str,
+        target_domain: str,
+        message: str,
+        fallback_scope: str,
+        registry_choices: list[dict[str, Any]],
+    ) -> tuple[str, str | None]:
+        fallback = cls._normalize_path(fallback_scope) or "notes"
+        available_paths = cls._scope_paths_for_domain(
+            registry_choices=registry_choices,
+            domain=target_domain,
+        )
+        if not available_paths:
+            return fallback, None
+        if fallback in available_paths and fallback not in {
+            "preferences",
+            "notes",
+            "records",
+            "shopping",
+        }:
+            return fallback, None
+
+        message_tokens = cls._message_tokens(message)
+        intent = cls._normalize_segment(intent_class)
+        best_path = ""
+        best_score = 0.0
+        for path in available_paths:
+            path_tokens = cls._scope_tokens(path)
+            if not path_tokens:
+                continue
+            overlap = len(message_tokens & path_tokens)
+            score = float(overlap * 3)
+            if intent in {"preference", "correction", "deletion"} and (
+                "preference" in path_tokens or "preferences" in path_tokens
+            ):
+                score += 1.5
+            if intent == "profile_fact" and {"profile", "identity", "location"} & path_tokens:
+                score += 1.0
+            if (
+                intent == "routine"
+                and {"routine", "routines", "activity", "activities"} & path_tokens
+            ):
+                score += 1.0
+            if intent == "plan_or_goal" and {"goal", "goals", "plan", "plans"} & path_tokens:
+                score += 1.0
+            if intent == "shopping_need":
+                if {"product", "products", "preference", "preferences"} & path_tokens:
+                    score += 1.5
+                if ({"receipt", "receipts", "merchant"} & path_tokens) and (
+                    {"receipt", "receipts", "merchant", "purchase", "purchases"} & message_tokens
+                ):
+                    score += 1.0
+            if score > best_score:
+                best_score = score
+                best_path = path
+
+        if best_path and best_score >= 1.0:
+            return best_path, "dynamic_scope_metadata_selected"
+        return fallback, "dynamic_scope_metadata_no_specific_match"
+
+    @classmethod
+    def _retarget_payload_root_scope(
+        cls,
+        payload: dict[str, Any],
+        *,
+        from_scope: str,
+        to_scope: str,
+    ) -> dict[str, Any]:
+        source_scope = cls._normalize_path(from_scope)
+        target_scope = cls._normalize_path(to_scope)
+        if not source_scope or not target_scope or source_scope == target_scope:
+            return payload
+        if source_scope not in payload or target_scope in payload:
+            return payload
+        next_payload = deepcopy(payload)
+        next_payload[target_scope] = next_payload.pop(source_scope)
+        return next_payload
+
+    @classmethod
+    def _entity_scope_from_path(cls, path: str) -> str:
+        normalized = cls._normalize_path(path)
+        parts = [part for part in normalized.split(".") if part]
+        if "entities" not in parts:
+            return ""
+        entity_index = parts.index("entities")
+        return ".".join(parts[:entity_index])
+
+    @classmethod
     def _memory_similarity_score(cls, left: str, right: str) -> float:
-        left_tokens = cls._message_tokens(left)
-        right_tokens = cls._message_tokens(right)
+        left_tokens = cls._message_tokens(left) - _MEMORY_SIMILARITY_STOPWORDS
+        right_tokens = cls._message_tokens(right) - _MEMORY_SIMILARITY_STOPWORDS
         if not left_tokens or not right_tokens:
             return 0.0
         intersection = len(left_tokens & right_tokens)
@@ -1596,6 +2574,16 @@ class PKMAgentLabService:
             if memory_domain != recommended_domain:
                 continue
             score = cls._memory_similarity_score(message, str(memory.get("message") or ""))
+            memory_scope = cls._normalize_path(str(memory.get("entity_scope") or ""))
+            if mutation_intent in {"correct", "delete"} and memory_scope == "changes":
+                continue
+            if mutation_intent in {"correct", "delete"} and memory_scope:
+                if memory_scope == root_scope:
+                    score += 0.75
+                elif memory_scope.startswith(f"{root_scope}.") or root_scope.startswith(
+                    f"{memory_scope}."
+                ):
+                    score += 0.4
             if score > best_score:
                 best_score = score
                 best_match = memory
@@ -1625,9 +2613,21 @@ class PKMAgentLabService:
             match_reason = "The message deletes an existing active memory in the same domain."
             confidence = max(confidence, best_score)
         elif (
+            mutation_intent == "create"
+            and best_match is not None
+            and target_entity_scope == root_scope
+            and best_score >= 0.12
+        ):
+            merge_mode = "extend_entity"
+            match_reason = (
+                "The message maps to an existing canonical memory, so it should refine "
+                "that entity instead of creating a duplicate."
+            )
+            confidence = max(confidence, best_score)
+        elif (
             mutation_intent in {"extend", "update"}
             and best_match is not None
-            and best_score >= 0.18
+            and (best_score >= 0.18 or (best_score > 0 and target_entity_scope == root_scope))
         ):
             merge_mode = "extend_entity"
             match_reason = "The message appears to refine an existing memory instead of creating a new concept."
@@ -1690,7 +2690,41 @@ class PKMAgentLabService:
         if cls._looks_opaque_or_nonsense(decision.get("match_reason") or ""):
             decision["match_reason"] = fallback["match_reason"]
 
-        if cls._normalize_segment(str(intent_frame.get("mutation_intent") or "")) == "no_op":
+        mutation_intent = cls._normalize_segment(str(intent_frame.get("mutation_intent") or ""))
+        if mutation_intent in {"correct", "delete"} and fallback.get("merge_mode") == "no_op":
+            decision["merge_mode"] = "no_op"
+            decision["target_entity_id"] = ""
+            decision["target_entity_path"] = ""
+            decision["match_reason"] = fallback.get("match_reason") or (
+                "No stable prior target was available for this mutation."
+            )
+        elif (
+            mutation_intent in {"correct", "delete"}
+            and fallback.get("merge_mode") in {"correct_entity", "delete_entity"}
+            and decision.get("merge_mode") == "no_op"
+        ):
+            decision = deepcopy(fallback)
+
+        if decision["merge_mode"] in {"correct_entity", "delete_entity"}:
+            decision_scope = cls._entity_scope_from_path(
+                str(decision.get("target_entity_path") or "")
+            )
+            fallback_scope = cls._entity_scope_from_path(
+                str(fallback.get("target_entity_path") or "")
+            )
+            if not decision_scope or decision_scope == "changes":
+                decision["target_entity_id"] = fallback.get("target_entity_id") or ""
+                decision["target_entity_path"] = fallback.get("target_entity_path") or ""
+                decision_scope = fallback_scope
+            if decision_scope == "changes":
+                decision["merge_mode"] = "no_op"
+                decision["target_entity_id"] = ""
+                decision["target_entity_path"] = ""
+                decision["match_reason"] = (
+                    "No stable canonical entity target was available for this mutation."
+                )
+
+        if mutation_intent == "no_op":
             decision["merge_mode"] = "no_op"
             decision["target_entity_id"] = ""
             decision["target_entity_path"] = ""
@@ -1748,6 +2782,12 @@ class PKMAgentLabService:
             target_domain,
             message=message,
         )
+        merge_mode = cls._normalize_segment(str(merge_decision.get("merge_mode") or ""))
+        target_scope = cls._entity_scope_from_path(
+            str(merge_decision.get("target_entity_path") or "")
+        )
+        if merge_mode in {"correct_entity", "delete_entity"} and target_scope:
+            root_scope = target_scope
         entity = cls._build_entity_record(
             message=message,
             intent_frame=intent_frame,
@@ -2043,6 +3083,7 @@ class PKMAgentLabService:
             or cls._normalize_segment(str(merge_decision.get("target_domain") or ""))
             or fallback_target_domain
         )
+        validation_hints: list[str] = []
         candidate_payload = cls._sanitize_candidate_payload(
             raw_structure.get("candidate_payload"),
             message=message,
@@ -2050,8 +3091,26 @@ class PKMAgentLabService:
             merge_decision=merge_decision,
             target_domain=suggested_target_domain,
         )
+        raw_payload_has_changes = cls._contains_changes_branch(
+            raw_structure.get("candidate_payload")
+        )
+        merge_mode = cls._normalize_segment(str(merge_decision.get("merge_mode") or ""))
+        target_scope = cls._entity_scope_from_path(
+            str(merge_decision.get("target_entity_path") or "")
+        )
+        if merge_mode in {"correct_entity", "delete_entity"} and target_scope != "changes":
+            aligned_payload = cls._fallback_payload_from_intent(
+                message=message,
+                intent_frame=intent_frame,
+                merge_decision=merge_decision,
+                target_domain=suggested_target_domain,
+            )
+            if candidate_payload != aligned_payload:
+                validation_hints.append("crud_payload_aligned_to_merge_target")
+            candidate_payload = aligned_payload
+            if raw_payload_has_changes:
+                validation_hints.append("changes_branch_blocked")
 
-        validation_hints: list[str] = []
         if not isinstance(raw_structure, dict):
             validation_hints.append("missing_structure_output")
 
@@ -2069,6 +3128,29 @@ class PKMAgentLabService:
             or recommended_domain
             or _DEFAULT_CONFIRMATION_DOMAINS[0]
         )
+        keyword_ranked_domains = cls._keyword_ranked_domains(
+            message=message,
+            current_domains=current_domains,
+        )
+        target_supported = target_domain in registry_keys or target_domain in current_domains
+        recommended_supported = (
+            recommended_domain in registry_keys or recommended_domain in current_domains
+        )
+        if (
+            recommended_domain
+            and recommended_supported
+            and target_domain != recommended_domain
+            and (
+                not target_supported
+                or target_domain in {"personal", _GENERAL_DOMAIN_KEY}
+                or (
+                    recommended_domain in keyword_ranked_domains
+                    and target_domain not in keyword_ranked_domains
+                )
+            )
+        ):
+            validation_hints.append("target_domain_aligned_to_intent")
+            target_domain = recommended_domain
 
         if target_domain == _GENERAL_DOMAIN_KEY:
             validation_hints.append("unresolved_domain_choice")
@@ -2113,13 +3195,52 @@ class PKMAgentLabService:
                 target_domain=target_domain,
             )
 
-        if intent_frame.get("intent_class") != "financial_event" and target_domain == "financial":
+        if (
+            intent_frame.get("intent_class") not in {"financial_event", "plan_or_goal"}
+            and target_domain == "financial"
+        ):
             validation_hints.append("financial_domain_requires_confirmation")
             target_domain = (
                 recommended_domain
                 if recommended_domain != "financial"
                 else _DEFAULT_CONFIRMATION_DOMAINS[0]
             )
+
+        if merge_mode not in {"correct_entity", "delete_entity"}:
+            current_root_scope = next(
+                (
+                    cls._normalize_path(str(key))
+                    for key in candidate_payload.keys()
+                    if cls._normalize_path(str(key))
+                ),
+                cls._root_scope_for_intent(
+                    str(intent_frame.get("intent_class") or "note"),
+                    target_domain,
+                    message=message,
+                ),
+            )
+            preferred_scope, scope_hint = cls._preferred_scope_from_metadata(
+                intent_class=str(intent_frame.get("intent_class") or "note"),
+                target_domain=target_domain,
+                message=message,
+                fallback_scope=current_root_scope,
+                registry_choices=registry_choices,
+            )
+            if scope_hint:
+                validation_hints.append(scope_hint)
+            if (
+                preferred_scope != current_root_scope
+                and scope_hint == "dynamic_scope_metadata_selected"
+            ):
+                candidate_payload = cls._retarget_payload_root_scope(
+                    candidate_payload,
+                    from_scope=current_root_scope,
+                    to_scope=preferred_scope,
+                )
+
+        candidate_payload, metadata_removed = cls._strip_internal_metadata(candidate_payload)
+        if metadata_removed:
+            validation_hints.append("internal_metadata_blocked")
 
         if cls._detect_duplicate_memory(
             message=message,
@@ -2148,11 +3269,10 @@ class PKMAgentLabService:
         except Exception:
             decision["contract_version"] = 1
 
-        requested_scope = str(
-            raw_structure.get("target_entity_scope")
-            or merge_decision.get("target_entity_path")
-            or ""
-        ).strip()
+        raw_requested_scope = str(raw_structure.get("target_entity_scope") or "").strip()
+        requested_scope = raw_requested_scope
+        if target_scope:
+            requested_scope = target_scope
         target_entity_scope = cls._manifest_target_entity_scope(
             requested_scope=requested_scope,
             manifest_paths=decision["json_paths"],
@@ -2189,6 +3309,12 @@ class PKMAgentLabService:
         ):
             write_mode = "confirm_first"
 
+        if (
+            "dynamic_scope_metadata_no_specific_match" in validation_hints
+            and write_mode == "can_save"
+        ):
+            write_mode = "confirm_first"
+
         mutation_intent = str(intent_frame.get("mutation_intent") or "create")
         if (
             mutation_intent in {"update", "correct", "delete"}
@@ -2202,6 +3328,13 @@ class PKMAgentLabService:
 
         if merge_decision.get("merge_mode") == "no_op":
             write_mode = "do_not_save"
+        elif (
+            mutation_intent in {"correct", "delete"}
+            and merge_decision.get("merge_mode") in {"correct_entity", "delete_entity"}
+            and write_mode == "do_not_save"
+        ):
+            write_mode = "can_save"
+            validation_hints.append("crud_write_mode_recovered_from_model_no_op")
 
         if "possible_duplicate_memory" in validation_hints and write_mode == "can_save":
             write_mode = "confirm_first"
@@ -2232,8 +3365,8 @@ class PKMAgentLabService:
             write_mode == "can_save"
             and primary_json_path is not None
             and primary_json_path in decision["top_level_scope_paths"]
-            and requested_scope
-            and cls._normalize_path(requested_scope) != primary_json_path
+            and (raw_requested_scope or requested_scope)
+            and cls._normalize_path(raw_requested_scope or requested_scope) != primary_json_path
         ):
             validation_hints.append("primary_path_defaulted_to_root_scope")
         validation_hints = cls._unique_list(validation_hints)
@@ -2332,7 +3465,11 @@ class PKMAgentLabService:
                     else "confidential",
                     "scope_kind": "subtree",
                     "exposure_enabled": True,
-                    "summary_projection": {"top_level_scope_path": scope_path},
+                    "summary_projection": {
+                        "top_level_scope_path": scope_path,
+                        "consumer_visible": True,
+                        "internal_only": False,
+                    },
                 }
             )
         for entry in scope_registry:
@@ -2484,11 +3621,21 @@ class PKMAgentLabService:
             (card for card in preview_cards if card.get("write_mode") != "do_not_save"),
             preview_cards[0] if preview_cards else None,
         )
+        drift_flag_counts = {
+            flag: sum(
+                1
+                for card in preview_cards
+                if isinstance(card.get("drift_flags"), dict)
+                and bool((card.get("drift_flags") or {}).get(flag))
+            )
+            for flag in _DRIFT_FLAG_NAMES
+        }
         return {
             "card_count": len(preview_cards),
             "can_save_count": can_save,
             "confirm_first_count": confirm_first,
             "do_not_save_count": do_not_save,
+            "drift_flag_counts": drift_flag_counts,
             "split_recommended": split_recommended,
             "total_segments_detected": total_segments_detected,
             "primary_target_domain": primary_card.get("target_domain") if primary_card else None,
@@ -2584,6 +3731,16 @@ class PKMAgentLabService:
             ),
             "candidate_segment_ids": manifest_segment_ids,
             "validation_hints": deepcopy(preview.get("validation_hints") or []),
+            "drift_flags": deepcopy(
+                preview.get("drift_flags")
+                or cls._drift_flags_from_preview(
+                    validation_hints=list(preview.get("validation_hints") or []),
+                    fallback_used=bool(preview.get("used_fallback")),
+                    intent_used_fallback=bool(preview.get("intent_used_fallback")),
+                    merge_used_fallback=bool(preview.get("merge_used_fallback")),
+                    structure_used_fallback=bool(preview.get("structure_used_fallback")),
+                )
+            ),
             "intent_frame": deepcopy(intent_frame),
             "merge_decision": deepcopy(merge_decision),
             "candidate_payload": deepcopy(candidate_payload),
@@ -2612,6 +3769,7 @@ class PKMAgentLabService:
             state_summary = self._compact_state_summary(simulated_state)
             registry_payload = self._compact_registry_choices(registry_choices)
             return (
+                f"{self._kernel_prompt('Memory Intent Agent')}"
                 "You are the Memory Intent Agent for Hushh Kai.\n"  # nosec B608 - prompt template, not SQL.
                 "Return JSON only with save_class, intent_class, mutation_intent, requires_confirmation, confirmation_reason, candidate_domain_choices, confidence, source_agent, contract_version.\n"
                 "Allowed save_class: durable, ephemeral, ambiguous.\n"
@@ -2649,6 +3807,7 @@ class PKMAgentLabService:
                 '{"message":"4d2fa9aa67f03c119ed8b8d38b9a7e0a","save_class":"ephemeral","intent_class":"ambiguous","mutation_intent":"no_op","requires_confirmation":false,"candidate_domain_choices":[{"domain_key":"professional","recommended":true}]}'
             )
         return (
+            f"{self._kernel_prompt('Memory Intent Agent')}"
             f"{self.memory_intent_manifest.system_instruction}\n\n"
             "Return JSON only.\n"
             f"Financial Guard decision: {json.dumps(financial_guard)}\n"
@@ -2695,6 +3854,7 @@ class PKMAgentLabService:
         )
         if strict_small_model:
             return (
+                f"{self._kernel_prompt('Memory Merge Agent')}"
                 f"{header}"
                 f"Intent frame: {json.dumps(intent_frame)}\n"
                 f"Current domains: {json.dumps(current_domains)}\n"
@@ -2704,7 +3864,7 @@ class PKMAgentLabService:
                 "- create_entity = a new durable concept.\n"
                 "- extend_entity = same durable concept, more detail.\n"
                 "- correct_entity = old meaning is superseded by the new statement.\n"
-                "- delete_entity = an existing memory should be tombstoned.\n"
+                "- delete_entity = an existing active memory should be removed from shareable PKM data.\n"
                 "- no_op = not durable, too vague, or no stable target exists.\n"
                 "- Never use general.\n"
                 'Examples: {"message":"I still prefer aisle seats.","merge_mode":"extend_entity","target_domain":"travel"} '
@@ -2713,6 +3873,7 @@ class PKMAgentLabService:
                 '{"message":"7b9a662f0c63a4d8f65f5b9d4cb4e2aa","merge_mode":"no_op","target_domain":"professional"}'
             )
         return (
+            f"{self._kernel_prompt('Memory Merge Agent')}"
             f"{self.memory_merge_manifest.system_instruction}\n\n"
             "Return JSON only.\n"
             f"Intent frame: {json.dumps(intent_frame)}\n"
@@ -2747,6 +3908,7 @@ class PKMAgentLabService:
             state_summary = self._compact_state_summary(simulated_state)
             compact_registry_choices = self._compact_registry_choices(registry_choices)
             return (
+                f"{self._kernel_prompt('PKM Structure Agent')}"
                 "You are the PKM Structure Agent for Hushh Kai.\n"
                 "Return JSON only with candidate_payload, structure_decision, write_mode, primary_json_path, target_entity_scope, validation_hints.\n"
                 "Allowed actions: match_existing_domain, create_domain, extend_domain.\n"
@@ -2762,6 +3924,8 @@ class PKMAgentLabService:
                 "- candidate_payload must align with target_domain and intent_frame.\n"
                 "- Keep payload shallow, durable, and entity-based when possible.\n"
                 "- Use merge_decision.target_domain unless there is a clear validation error.\n"
+                "- For correct_entity/delete_entity, candidate_payload must use merge_decision.target_entity_path and must not create a changes subtree.\n"
+                "- For delete_entity, do not create replacement plaintext; target the existing entity id only.\n"
                 "- primary_json_path may be a top-level root path when broad structure is enough.\n"
                 "- Use a deeper nested path only when the subtree is clearly stable.\n"
                 "- If requires_confirmation is true, return write_mode=confirm_first and primary_json_path=null or empty.\n"
@@ -2777,6 +3941,7 @@ class PKMAgentLabService:
             "- Reuse one of the candidate_domain_choices unless a clearly better broad domain is obvious.\n"
         )
         return (
+            f"{self._kernel_prompt('PKM Structure Agent')}"
             f"{self.structure_manifest.system_instruction}\n\n"
             "Return JSON only.\n"
             f"Financial Guard decision: {json.dumps(financial_guard)}\n"
@@ -2792,6 +3957,8 @@ class PKMAgentLabService:
             "- Use stable snake_case keys.\n"
             "- Prefer entity maps with stable ids over anonymous append-only statements.\n"
             "- Use merge_decision.target_domain unless validation requires a different broad domain.\n"
+            "- For correct_entity/delete_entity, candidate_payload must align to merge_decision.target_entity_path and must not create a changes subtree.\n"
+            "- For delete_entity, target the existing entity id; do not create replacement plaintext or a new deleted memory.\n"
             "- For reminders or ephemeral requests, use write_mode=do_not_save.\n"
             "- If intent_frame.requires_confirmation is true, return write_mode=confirm_first.\n"
             "- primary_json_path must identify the main path inside the domain payload. Use a top-level path when a broad root-domain write is enough; use a deeper nested path only when the subtree is clearly stable.\n"
@@ -2830,6 +3997,7 @@ class PKMAgentLabService:
         user_id: str,
         message: str,
         current_domains: list[str] | None = None,
+        current_manifests: list[dict[str, Any]] | None = None,
         simulated_state: dict[str, Any] | None = None,
         model_override: str | None = None,
         strict_small_model: bool = False,
@@ -2839,9 +4007,14 @@ class PKMAgentLabService:
         normalized_domains = [
             self._normalize_segment(domain) for domain in (current_domains or []) if domain
         ]
+        manifest_overrides = self._registry_override_from_manifests(current_manifests)
+        effective_registry_override = self._merge_registry_overrides(
+            domain_registry_override,
+            manifest_overrides,
+        )
         registry_choices = await self._load_domain_registry_choices(
             current_domains=normalized_domains,
-            override=domain_registry_override,
+            override=effective_registry_override,
         )
         financial_guard_fallback = self._fallback_financial_guard_decision(
             message=message,
@@ -2961,6 +4134,13 @@ class PKMAgentLabService:
                 intent_frame=intent_frame,
                 current_domains=normalized_domains,
             )
+            merge_mode = str(merge_decision.get("merge_mode") or "")
+            if merge_mode == "extend_entity":
+                intent_frame["mutation_intent"] = "extend"
+            elif merge_mode == "correct_entity":
+                intent_frame["mutation_intent"] = "correct"
+            elif merge_mode == "delete_entity":
+                intent_frame["mutation_intent"] = "delete"
 
             fallback_target_domain = self._first_recommended_domain(
                 intent_frame, fallback=_DEFAULT_CONFIRMATION_DOMAINS[0]
@@ -3017,17 +4197,29 @@ class PKMAgentLabService:
             errors.append("memory_merge_agent_fallback")
         if structure_used_fallback:
             errors.append("pkm_structure_agent_fallback")
+        used_fallback = (
+            financial_guard_used_fallback
+            or intent_used_fallback
+            or merge_used_fallback
+            or structure_used_fallback
+        )
+        drift_flags = self._drift_flags_from_preview(
+            validation_hints=normalized_preview["validation_hints"],
+            fallback_used=used_fallback,
+            intent_used_fallback=intent_used_fallback,
+            merge_used_fallback=merge_used_fallback,
+            structure_used_fallback=structure_used_fallback,
+        )
 
         return {
             "agent_id": agent_manifest.id,
             "agent_name": agent_manifest.name,
             "model": model_override or agent_manifest.model or GEMINI_MODEL,
-            "used_fallback": financial_guard_used_fallback
-            or intent_used_fallback
-            or merge_used_fallback
-            or structure_used_fallback,
+            "used_fallback": used_fallback,
             "intent_used_fallback": intent_used_fallback,
+            "merge_used_fallback": merge_used_fallback,
             "structure_used_fallback": structure_used_fallback,
+            "drift_flags": drift_flags,
             "error": "; ".join(errors) or None,
             "routing_decision": financial_guard["routing_decision"],
             "intent_frame": intent_frame,
@@ -3047,6 +4239,7 @@ class PKMAgentLabService:
         user_id: str,
         message: str,
         current_domains: list[str] | None = None,
+        current_manifests: list[dict[str, Any]] | None = None,
         simulated_state: dict[str, Any] | None = None,
         model_override: str | None = None,
         strict_small_model: bool = False,
@@ -3060,6 +4253,7 @@ class PKMAgentLabService:
             user_id=user_id,
             message=message,
             current_domains=normalized_domains,
+            current_manifests=current_manifests,
             simulated_state=simulated_state,
             model_override=model_override,
             strict_small_model=strict_small_model,
@@ -3116,6 +4310,7 @@ class PKMAgentLabService:
                     user_id=user_id,
                     message=source_text,
                     current_domains=normalized_domains,
+                    current_manifests=current_manifests,
                     simulated_state=simulated_state,
                     model_override=model_override,
                     strict_small_model=strict_small_model,
@@ -3214,7 +4409,15 @@ class PKMAgentLabService:
                     or GEMINI_MODEL,
                     "used_fallback": True,
                     "intent_used_fallback": False,
+                    "merge_used_fallback": False,
                     "structure_used_fallback": False,
+                    "drift_flags": self._drift_flags_from_preview(
+                        validation_hints=[
+                            "preview_generation_failed",
+                            *(["split_recommended"] if split_recommended else []),
+                        ],
+                        fallback_used=True,
+                    ),
                     "error": "; ".join(
                         self._unique_list(errors or ["memory_segmentation_no_output"])
                     ),
@@ -3255,6 +4458,13 @@ class PKMAgentLabService:
                 "performance": performance,
                 "context_plan": context_plan,
             }
+            response_payload["drift_flags"] = self._drift_flags_from_preview(
+                validation_hints=response_payload["validation_hints"],
+                fallback_used=bool(response_payload.get("used_fallback")),
+                intent_used_fallback=bool(response_payload.get("intent_used_fallback")),
+                merge_used_fallback=bool(response_payload.get("merge_used_fallback")),
+                structure_used_fallback=bool(response_payload.get("structure_used_fallback")),
+            )
             self._set_cached_structure_preview(preview_cache_key, response_payload)
             return response_payload
 

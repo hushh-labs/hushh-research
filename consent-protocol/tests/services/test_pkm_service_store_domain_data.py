@@ -667,6 +667,9 @@ async def test_get_domain_manifest_normalizes_duplicate_scope_registry_rows(monk
             "sensitivity_tier": "confidential",
             "scope_kind": "subtree",
             "exposure_enabled": True,
+            "visibility_posture": "consent_required",
+            "default_projection_ready": False,
+            "default_projection_updated_at": None,
             "summary_projection": {
                 "top_level_scope_path": "advisor_package",
                 "storage_mode": "manifest",
@@ -683,7 +686,10 @@ async def test_get_domain_manifest_normalizes_duplicate_scope_registry_rows(monk
             "segment_ids": ["root"],
             "sensitivity_tier": "confidential",
             "scope_kind": "subtree",
-            "exposure_enabled": True,
+            "exposure_enabled": False,
+            "visibility_posture": "private",
+            "default_projection_ready": False,
+            "default_projection_updated_at": None,
             "summary_projection": {
                 "top_level_scope_path": "updated_at",
                 "storage_mode": "manifest",
