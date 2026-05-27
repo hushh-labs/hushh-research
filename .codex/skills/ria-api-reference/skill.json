@@ -1,0 +1,62 @@
+{
+  "id": "ria-api-reference",
+  "role": "spoke",
+  "owner_family": "backend",
+  "primary_scope": "ria-api-reference",
+  "description": "Use when working on hussh Research RIA, CRD scraping, or financial verification API integration so Codex reads the canonical RIA Intelligence API docs before changing routes, proxies, tests, or docs.",
+  "owned_paths": [
+    "docs/reference/architecture/crd-scraping-api.md",
+    "consent-protocol/api/routes/crd_scraper.py",
+    "consent-protocol/hushh_mcp/services/crd_scrape_proxy_service.py",
+    "consent-protocol/tests/test_crd_scraper_routes.py"
+  ],
+  "non_owned_paths": [
+    "backend",
+    "backend-api-contracts",
+    "docs-governance"
+  ],
+  "task_types": [
+    "ria-api-reference"
+  ],
+  "required_reads": [
+    "/Users/ankitkumarsingh/LocalProjects/hushh-ria-intelligence-api/docs/README.md",
+    "/Users/ankitkumarsingh/LocalProjects/hushh-ria-intelligence-api/docs/ENDPOINTS.md",
+    "/Users/ankitkumarsingh/LocalProjects/hushh-ria-intelligence-api/docs/CRD_SCRAPING_API.md",
+    "/Users/ankitkumarsingh/LocalProjects/hushh-ria-intelligence-api/docs/FINANCIAL_VERIFICATION_API.md",
+    "/Users/ankitkumarsingh/LocalProjects/hushh-ria-intelligence-api/docs/FINANCIAL_VERIFICATION_DEPLOYMENT_PROOF.md",
+    "docs/reference/architecture/crd-scraping-api.md",
+    "docs/reference/architecture/api-contracts.md"
+  ],
+  "required_commands": [
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+    "cd consent-protocol && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest --noconftest tests/test_crd_scraper_routes.py -q"
+  ],
+  "verification_bundles": [
+    {
+      "id": "ria-api-reference",
+      "commands": [
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py",
+        "cd consent-protocol && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest --noconftest tests/test_crd_scraper_routes.py -q"
+      ],
+      "tests": [
+        "cd consent-protocol && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest --noconftest tests/test_crd_scraper_routes.py -q"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "backend",
+    "backend-api-contracts",
+    "docs-governance"
+  ],
+  "adjacent_skills": [
+    "backend",
+    "backend-api-contracts",
+    "docs-governance"
+  ],
+  "risk_tags": [
+    "ria-api-contract-drift",
+    "provider-doc-drift",
+    "facade-payload-drift",
+    "regulatory-source-boundary"
+  ]
+}

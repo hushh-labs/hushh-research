@@ -64,7 +64,11 @@ describe("/api/kai/[...path] proxy", () => {
 
     const formData = new FormData();
     formData.set("user_id", "user_123");
-    formData.set("file", new Blob(["symbol,qty\nAAPL,1\n"], { type: "text/csv" }), "statement.csv");
+    formData.set(
+      "file",
+      new Blob(["symbol,qty\nAAPL,1\n"], { type: "text/csv" }),
+      "statement.csv"
+    );
 
     const req = createRequest("http://localhost:3000/api/kai/portfolio/import", {
       method: "POST",
@@ -91,6 +95,56 @@ describe("/api/kai/[...path] proxy", () => {
     expect(options?.body).toBeInstanceOf(FormData);
   });
 
+  it("forwards import statement stream multipart requests without losing SSE headers", async () => {
+    const streamBody = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("event: stage\\ndata: {}\\n\\n"));
+        controller.close();
+      },
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(streamBody, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      })
+    );
+
+    const formData = new FormData();
+    formData.set("user_id", "user_123");
+    formData.set(
+      "file",
+      new Blob(["symbol,qty\nAAPL,1\n"], { type: "text/csv" }),
+      "statement.csv"
+    );
+
+    const req = createRequest("http://localhost:3000/api/kai/portfolio/import/stream", {
+      method: "POST",
+      headers: {
+        Accept: "text/event-stream",
+        Authorization: "Bearer vault_owner_token",
+        "Content-Type": "multipart/form-data; boundary=testboundary",
+      },
+      body: "--testboundary--",
+    });
+    vi.spyOn(req, "formData").mockResolvedValue(formData);
+
+    const res = await kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["portfolio", "import", "stream"] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("text/event-stream");
+
+    const [url, options] = fetchSpy.mock.calls[0] ?? [];
+    expect(url).toBe("http://backend.test/api/kai/portfolio/import/stream");
+
+    const headers = options?.headers as Headers;
+    expect(headers.get("Authorization")).toBe("Bearer vault_owner_token");
+    expect(headers.get("Accept")).toBe("text/event-stream");
+    expect(headers.get("Content-Type")).toBeNull();
+    expect(options?.body).toBeInstanceOf(FormData);
+  });
+
   it("passes through SSE stream headers and forwards Authorization on stream path", async () => {
     const streamBody = new ReadableStream({
       start(controller) {
@@ -102,7 +156,11 @@ describe("/api/kai/[...path] proxy", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(streamBody, {
         status: 200,
-        headers: { "Content-Type": "text/event-stream" },
+        headers: {
+          "Content-Type": "text/event-stream",
+          "X-Agent-Conversation-Id": "conversation-1",
+          "X-Agent-Model": "gemini-2.5-pro",
+        },
       })
     );
 
@@ -122,6 +180,8 @@ describe("/api/kai/[...path] proxy", () => {
     expect(res.headers.get("Content-Type")).toBe("text/event-stream");
     expect(res.headers.get("Cache-Control")).toBe("no-cache");
     expect(res.headers.get("Connection")).toBe("keep-alive");
+    expect(res.headers.get("X-Agent-Conversation-Id")).toBe("conversation-1");
+    expect(res.headers.get("X-Agent-Model")).toBe("gemini-2.5-pro");
 
     const [url, options] = fetchSpy.mock.calls[0] ?? [];
     expect(url).toBe("http://backend.test/api/kai/analyze/stream?ticker=AAPL&user_id=user_123");
