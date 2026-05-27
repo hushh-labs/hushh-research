@@ -44,6 +44,10 @@
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Kai uses the microphone only when you start a voice command.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>One uses foreground location only when you choose to share an encrypted live-location update.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Kai uses contacts only when you choose to find people already on Hushh.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
