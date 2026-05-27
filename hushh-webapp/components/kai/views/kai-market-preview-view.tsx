@@ -101,7 +101,7 @@ function useRetainedSurfaceSelection<T>(selection: T | null, delayMs = 180): T |
   return retained;
 }
 
-function toSymbolsKey(symbols: string[]): string {
+export function toSymbolsKey(symbols: string[]): string {
   if (!Array.isArray(symbols) || symbols.length === 0) return "default";
   return [...symbols].sort((a, b) => a.localeCompare(b)).join("-");
 }
