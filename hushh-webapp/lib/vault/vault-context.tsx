@@ -37,6 +37,10 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { VaultService } from "@/lib/services/vault-service";
+import {
+  markSessionUnlocked,
+  resetSessionUnlocked,
+} from "@/lib/vault/vault-session-latch";
 
 // ============================================================================
 // Types
@@ -97,6 +101,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const lastUpgradeKickoffKeyRef = useRef<string | null>(null);
 
   const lockVault = useCallback(() => {
+    resetSessionUnlocked();
     console.log("🔒 Vault locked (key + token cleared from memory)");
     if (user?.uid && vaultOwnerToken) {
       void PkmUpgradeOrchestrator.pauseForLocalAuthResume({
@@ -309,6 +314,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
 
   const unlockVault = useCallback(
     (key: string, token: string, expiresAt: number) => {
+      markSessionUnlocked();
       console.log(
         "🔓 Vault unlocked (key + token in memory only - XSS protected)"
       );
