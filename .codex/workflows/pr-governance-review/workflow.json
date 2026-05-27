@@ -23,12 +23,16 @@
     "docs/reference/architecture/api-contracts.md",
     ".codex/skills/pr-governance-review/references/review-axes.md",
     ".codex/skills/pr-governance-review/references/runtime-schematics-contract.md",
+    ".codex/skills/pr-governance-review/references/operator-batch-output-contract.md",
+    ".codex/skills/pr-governance-review/references/comment-and-report-contract.md",
+    ".codex/skills/pr-governance-review/references/pr-train-review-sop.md",
     ".codex/skills/repo-operations/SKILL.md"
   ],
   "required_commands": [
     "python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt \"<user request>\" --paths \"<changed paths>\" --text",
     "python3 .codex/skills/pr-governance-review/scripts/build_runtime_schematics.py --text",
     "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --pr <number> --text",
+    "python3 .codex/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --selection-order oldest --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md",
     "./bin/hushh codex audit --text"
   ],
   "verification_bundle": {
@@ -56,10 +60,13 @@
     "delegation router decision and any read-only evidence lanes spawned",
     "current-head SHA review summary",
     "repo-derived runtime schematics provenance",
+    "async train graph with queue cohorts, collision groups, patch trains, and decision waves for multi-PR work",
+    "subagent taskforce evidence map and five-worker refill pool for async train sessions",
     "blocker-first findings list",
     "stale-vs-current CI interpretation",
     "merge lane recommendation",
     "explicit action flow mode",
+    "lane-to-comment-map decision for every GitHub write",
     "natural technical GitHub review note",
     "updated working report after PR state changes"
   ],
@@ -100,6 +107,44 @@
       "deploy",
       "secrets"
     ],
+    "writer_lane_exception": {
+      "scope": "pr-governance-review",
+      "executor": "workflow-local-pr-train-worker",
+      "allowed_actions": [
+        "edit_standardized_maintainer_comment",
+        "post_standardized_maintainer_comment",
+        "request_changes",
+        "close_superseded_pr",
+        "acknowledge_harvest",
+        "enqueue_exact_head_queue_candidate"
+      ],
+      "required_gates": [
+        "operator_approved_train_set",
+        "exact_head_sha",
+        "green_ci_status_gate",
+        "clean_mergeability",
+        "no_hard_collision_edge",
+        "comment_and_report_contract"
+      ],
+      "forbidden_actions": [
+        "branch_switching",
+        "commits",
+        "pushes",
+        "code_patches",
+        "secrets",
+        "deploys",
+        "direct_merge_to_main",
+        "product_policy_changes",
+        "unsafe_contributor_head_merge"
+      ],
+      "drift_returns_to_parent": [
+        "head_sha_changed",
+        "ci_state_lost",
+        "new_conflict",
+        "failing_check",
+        "lost_canonical_attach_point"
+      ]
+    },
     "lanes": {
       "analytics/observability": {
         "agent": "analytics_observability_architect",
@@ -155,6 +200,9 @@
     "merging a directionally good but currently unsafe contributor head instead of using the patch-then-merge lane",
     "treating approve-only as implicit merge authority",
     "using rigid template comments when a concise technical note would be clearer",
-    "leaving the PR governance live report stale after merge, close, or supersede"
+    "leaving the PR governance live report stale after merge, close, or supersede",
+    "running backlog-scale PR trains without router-selected read-only evidence lanes",
+    "planning executable trains around PRs with failing, missing, stale, or auxiliary-failing checks",
+    "treating independent PR trains as sequential just because they are in the same review session"
   ]
 }

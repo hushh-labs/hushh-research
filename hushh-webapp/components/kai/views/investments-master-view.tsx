@@ -56,6 +56,7 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { useVault } from "@/lib/vault/vault-context";
 import { Button } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
 
 interface InvestmentsMasterViewProps {
   userId: string;
@@ -506,7 +507,7 @@ export function InvestmentsMasterView({
           returnPath: ROUTES.KAI_INVESTMENTS,
           startedAt: new Date().toISOString(),
         });
-        window.location.assign(connect.authorization_url);
+        openExternalUrl(connect.authorization_url);
       } catch (oauthError) {
         toast.error("Could not start Alpaca login.", {
           description:

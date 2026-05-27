@@ -7,7 +7,7 @@ GET /api/tickers/search?q=...&limit=10
 import logging
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
@@ -29,7 +29,10 @@ class SyncHoldingsRequest(BaseModel):
 
 
 @router.get("/search", response_model=List[dict])
-async def search_tickers(q: str = Query(..., min_length=1), limit: int = Query(10, ge=1, le=100)):
+async def search_tickers(
+    q: str = Query(..., min_length=1, max_length=100),
+    limit: int = Query(10, ge=1, le=100),
+):
     """Search for tickers by symbol prefix or company name."""
     try:
         # Serve from memory when available.
@@ -40,9 +43,9 @@ async def search_tickers(q: str = Query(..., min_length=1), limit: int = Query(1
         service = TickerDBService()
         results = await service.search_tickers(q, limit=limit)
         return results
-    except Exception as e:
-        logger.error(f"Error searching tickers: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.error("ticker.search.error", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/all", response_model=List[dict])
@@ -54,9 +57,9 @@ async def all_tickers(refresh: bool = Query(False)):
             ticker_cache.load_from_db()
 
         return ticker_cache.all()
-    except Exception as e:
-        logger.error(f"Error returning all tickers: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.error("ticker.all.error", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/cache-status")
@@ -71,8 +74,8 @@ async def ticker_cache_status():
 
 @router.post("/sync-holdings/{user_id}", response_model=dict)
 async def sync_tickers_from_holdings(
-    user_id: str,
     request: SyncHoldingsRequest,
+    user_id: str = Path(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -92,6 +95,6 @@ async def sync_tickers_from_holdings(
             refresh_cache=request.refresh_cache,
         )
         return {"success": True, **result}
-    except Exception as e:
-        logger.error("Error syncing tickers from holdings for %s: %s", user_id, e)
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.error("ticker.sync_holdings.error user_id=%s", user_id, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")

@@ -726,9 +726,15 @@ function setupNativeListeners(): void {
             typeof data.type === "string" &&
             data.type === "kai_analysis_complete"
           ) {
-            assignWindowLocation(ROUTES.KAI_DASHBOARD);
+            requestInternalAppNavigation({
+              href: ROUTES.KAI_DASHBOARD,
+              scroll: false,
+            });
           } else {
-            assignWindowLocation(ROUTES.HOME);
+            requestInternalAppNavigation({
+              href: ROUTES.HOME,
+              scroll: false,
+            });
           }
         }
       );

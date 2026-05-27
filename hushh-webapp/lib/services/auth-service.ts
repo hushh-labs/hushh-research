@@ -12,13 +12,17 @@
  */
 
 import { Capacitor } from "@capacitor/core";
+import { getApps, initializeApp } from "firebase/app";
 import {
   type ApplicationVerifier,
   type ConfirmationResult,
   GoogleAuthProvider,
+  getAuth,
+  inMemoryPersistence,
   OAuthProvider,
   PhoneAuthProvider,
   linkWithCredential,
+  setPersistence,
   signInWithCredential,
   signInWithCustomToken as firebaseSignInWithCustomToken,
   signInWithPopup,
@@ -27,7 +31,7 @@ import {
   User,
   onAuthStateChanged,
 } from "firebase/auth";
-import { auth } from "@/lib/firebase/config";
+import { app, auth } from "@/lib/firebase/config";
 import { FirebaseAuthentication, ProviderId } from "@capacitor-firebase/authentication";
 import { HushhAuth, type AuthUser } from "@/lib/capacitor";
 import { toast } from "sonner";
@@ -46,6 +50,10 @@ export interface PhoneVerificationStartResult {
 }
 
 type PhoneVerificationIntent = "link" | "replace";
+const PHONE_CLAIM_APP_NAME = "hushh-phone-claim";
+const LOCAL_DEV_PHONE_VERIFICATION_ID_PREFIX = "local-dev-phone:";
+const LOCAL_DEV_PHONE_VERIFICATION_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+const UAT_PHONE_TEST_VERIFICATION_ID_PREFIX = "uat-test-phone:";
 
 /**
  * Platform-aware authentication service
@@ -67,6 +75,110 @@ export class AuthService {
 
   private static async pause(ms: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private static getLocalDevPhoneTestConfig():
+    | { phoneNumber: string; verificationCode: string }
+    | null {
+    if (
+      process.env.NEXT_PUBLIC_APP_ENV !== "development" ||
+      process.env.NEXT_PUBLIC_FIREBASE_PHONE_AUTH_DISABLE_APP_VERIFICATION !== "true"
+    ) {
+      return null;
+    }
+
+    const phoneNumber = String(
+      process.env.NEXT_PUBLIC_FIREBASE_PHONE_AUTH_LOCAL_TEST_PHONE || ""
+    ).trim();
+    const verificationCode = String(
+      process.env.NEXT_PUBLIC_FIREBASE_PHONE_AUTH_LOCAL_TEST_CODE || ""
+    ).trim();
+
+    if (!phoneNumber || !verificationCode) {
+      return null;
+    }
+
+    return { phoneNumber, verificationCode };
+  }
+
+  private static isLocalDevPhoneHost(): boolean {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    return LOCAL_DEV_PHONE_VERIFICATION_HOSTS.has(window.location.hostname.toLowerCase());
+  }
+
+  static shouldUseLocalDevPhoneVerification(phoneNumber: string): boolean {
+    const config = this.getLocalDevPhoneTestConfig();
+    return (
+      Boolean(config) &&
+      this.isLocalDevPhoneHost() &&
+      String(phoneNumber ?? "").trim() === config?.phoneNumber
+    );
+  }
+
+  static isLocalDevPhoneVerificationId(verificationId?: string | null): boolean {
+    return String(verificationId ?? "").startsWith(LOCAL_DEV_PHONE_VERIFICATION_ID_PREFIX);
+  }
+
+  static isUatPhoneTestVerificationId(verificationId?: string | null): boolean {
+    return String(verificationId ?? "").startsWith(UAT_PHONE_TEST_VERIFICATION_ID_PREFIX);
+  }
+
+  private static createLocalDevPhoneVerificationId(phoneNumber: string): string {
+    return `${LOCAL_DEV_PHONE_VERIFICATION_ID_PREFIX}${encodeURIComponent(phoneNumber)}`;
+  }
+
+  private static getPhoneNumberFromLocalDevVerificationId(
+    verificationId: string
+  ): string | null {
+    if (!this.isLocalDevPhoneVerificationId(verificationId)) {
+      return null;
+    }
+
+    try {
+      return decodeURIComponent(
+        verificationId.slice(LOCAL_DEV_PHONE_VERIFICATION_ID_PREFIX.length)
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  static async confirmLocalDevPhoneVerification(params: {
+    verificationCode: string;
+    verificationId?: string | null;
+  }): Promise<User> {
+    const verificationId = String(params.verificationId ?? "").trim();
+    const verificationCode = String(params.verificationCode ?? "").trim();
+    const phoneNumber = this.getPhoneNumberFromLocalDevVerificationId(verificationId);
+    const config = this.getLocalDevPhoneTestConfig();
+
+    if (
+      !config ||
+      !phoneNumber ||
+      phoneNumber !== config.phoneNumber ||
+      !this.isLocalDevPhoneHost()
+    ) {
+      throw this.createPhoneVerificationError(
+        "local-phone-test-disabled",
+        "Local phone verification is not enabled for this phone number."
+      );
+    }
+
+    if (verificationCode !== config.verificationCode) {
+      throw this.createPhoneVerificationError(
+        "invalid-verification-code",
+        "Invalid local test verification code."
+      );
+    }
+
+    if (!auth.currentUser) {
+      throw new Error("You must be signed in before linking a phone number.");
+    }
+
+    return auth.currentUser;
   }
 
   private static decodeJwtPayload(token: string): Record<string, unknown> | null {
@@ -793,6 +905,17 @@ export class AuthService {
       );
     }
 
+    if (this.shouldUseLocalDevPhoneVerification(normalizedPhoneNumber)) {
+      this.debugLog("[AuthService] Using local dev phone verification", {
+        intent,
+        host: typeof window === "undefined" ? "server" : window.location.host,
+      });
+      return {
+        autoVerified: false,
+        verificationId: this.createLocalDevPhoneVerificationId(normalizedPhoneNumber),
+      };
+    }
+
     try {
       this.debugLog("[AuthService] Starting phone verification", {
         intent,
@@ -825,6 +948,47 @@ export class AuthService {
     verificationId?: string | null;
   }): Promise<User> {
     return this.confirmPhoneVerification("link", params);
+  }
+
+  static async getPhoneClaimIdToken(params: {
+    verificationCode: string;
+    verificationId?: string | null;
+  }): Promise<string> {
+    const verificationCode = String(params.verificationCode ?? "").trim();
+    if (!verificationCode) {
+      throw new Error("Verification code is required.");
+    }
+
+    if (Capacitor.isNativePlatform()) {
+      throw new Error("Phone claim token minting is only supported on web.");
+    }
+
+    const verificationId = String(params.verificationId ?? "").trim();
+    if (!verificationId) {
+      throw new Error("Verification ID is required.");
+    }
+
+    const credential = PhoneAuthProvider.credential(verificationId, verificationCode);
+    const secondaryApp =
+      getApps().find((firebaseApp) => firebaseApp.name === PHONE_CLAIM_APP_NAME) ||
+      initializeApp(app.options, PHONE_CLAIM_APP_NAME);
+    const phoneClaimAuth = getAuth(secondaryApp);
+
+    await setPersistence(phoneClaimAuth, inMemoryPersistence);
+
+    let claimToken = "";
+    try {
+      const result = await signInWithCredential(phoneClaimAuth, credential);
+      claimToken = await result.user.getIdToken(true);
+    } finally {
+      await firebaseSignOut(phoneClaimAuth).catch(() => undefined);
+    }
+
+    if (!claimToken) {
+      throw new Error("Phone verification completed but no claim token was returned.");
+    }
+
+    return claimToken;
   }
 
   static async confirmPhoneReplacementVerification(params: {
@@ -985,11 +1149,14 @@ export class AuthService {
     if (code === "invalid-app-credential" || code === "captcha-check-failed") {
       const hostname = typeof window === "undefined" ? "" : window.location.hostname;
       const host = typeof window === "undefined" ? "" : window.location.host;
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+      const origin =
+        typeof window === "undefined"
+          ? process.env.NEXT_PUBLIC_APP_URL || ""
+          : window.location.origin;
       return this.createPhoneVerificationError(
         code,
         host
-          ? `Firebase could not verify phone auth from ${host}. Open ${appUrl} and check that ${hostname} is in Firebase Authentication authorized domains.`
+          ? `Firebase could not verify phone auth from ${host}. Check Firebase Authentication authorized domains, reCAPTCHA settings, and API key restrictions for ${origin || hostname}.`
           : "Firebase could not verify this app for phone auth. Check Firebase Authentication authorized domains and reCAPTCHA configuration."
       );
     }

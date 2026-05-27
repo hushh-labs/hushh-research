@@ -105,6 +105,18 @@ function detectHostedToLocalMismatch(apiBase: string): string | null {
   return `Hosted WebView origin (${nativeServerOrigin}) cannot use local backend (${apiBase}). Set NEXT_PUBLIC_BACKEND_URL to hosted backend before native build.`;
 }
 
+function updateNativePortfolioImportDebug(
+  updates: Record<string, string | number | null | undefined>
+): void {
+  if (typeof window === "undefined") return;
+  const bridge = window.__HUSHH_NATIVE_TEST__;
+  if (!bridge?.enabled) return;
+  for (const [key, value] of Object.entries(updates)) {
+    (bridge as unknown as Record<string, string | number | undefined>)[key] =
+      value === null || value === undefined ? "" : value;
+  }
+}
+
 // API Base URL configuration
 const getApiBaseUrl = (): string => {
   if (Capacitor.isNativePlatform()) {
@@ -206,6 +218,19 @@ function toStatusBucketFromStatus(
   if (status >= 400 && status < 500) return "4xx_unexpected";
   if (status >= 500) return "5xx";
   return "network_error";
+}
+
+export class MarketInsightsEmptyError extends Error {
+  readonly status = 404;
+
+  constructor() {
+    super("Market insights are not ready yet.");
+    this.name = "MarketInsightsEmptyError";
+  }
+}
+
+export function isMarketInsightsEmptyError(error: unknown): error is MarketInsightsEmptyError {
+  return error instanceof MarketInsightsEmptyError;
 }
 
 async function classifyVaultOwnerAuthFailure(
@@ -961,6 +986,34 @@ export interface KaiDashboardProfilePicksResponse {
   context?: Record<string, unknown>;
 }
 
+export interface AccountIdentity {
+  user_id?: string;
+  display_name?: string | null;
+  email?: string | null;
+  phone_number?: string | null;
+  photo_url?: string | null;
+  email_verified?: boolean;
+  phone_verified?: boolean;
+  source?: string | null;
+  last_synced_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface AccountPhoneClaimResponse {
+  success: boolean;
+  user_id: string;
+  identity: AccountIdentity | null;
+  phone_verified: boolean;
+}
+
+export interface AccountPhoneTestStartResponse {
+  success: boolean;
+  eligible: boolean;
+  verification_id?: string;
+  reason?: string;
+}
+
 /**
  * API Service for platform-aware API calls
  */
@@ -1364,6 +1417,135 @@ export class ApiService {
         Authorization: `Bearer ${firebaseIdToken}`,
       },
     });
+  }
+
+  static async claimAccountPhone(
+    phoneIdToken: string,
+    idToken?: string
+  ): Promise<AccountPhoneClaimResponse> {
+    const normalizedPhoneIdToken = String(phoneIdToken || "").trim();
+    if (!normalizedPhoneIdToken) {
+      throw new Error("Missing phone verification token");
+    }
+
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      throw new Error("Missing Firebase ID token");
+    }
+
+    const response = await apiFetch("/api/account/phone/claim", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firebaseIdToken}`,
+      },
+      body: JSON.stringify({
+        phone_id_token: normalizedPhoneIdToken,
+      }),
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      const detail = payload.detail;
+      const message =
+        typeof detail === "object" &&
+        detail !== null &&
+        typeof (detail as Record<string, unknown>).message === "string"
+          ? String((detail as Record<string, unknown>).message)
+          : typeof detail === "string"
+            ? detail
+            : typeof payload.error === "string"
+              ? payload.error
+              : `Phone claim failed with HTTP ${response.status}`;
+      throw new Error(message);
+    }
+
+    return payload as unknown as AccountPhoneClaimResponse;
+  }
+
+  static async startUatPhoneTestVerification(
+    phoneNumber: string,
+    idToken?: string
+  ): Promise<AccountPhoneTestStartResponse> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      return {
+        success: false,
+        eligible: false,
+        reason: "missing_firebase_id_token",
+      };
+    }
+
+    const response = await apiFetch("/api/account/phone/uat-test/start", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firebaseIdToken}`,
+      },
+      body: JSON.stringify({
+        phone_number: phoneNumber,
+      }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+
+    if (!response.ok) {
+      return {
+        success: false,
+        eligible: false,
+        reason:
+          typeof payload.error === "string"
+            ? payload.error
+            : `uat_phone_test_start_${response.status}`,
+      };
+    }
+
+    return {
+      success: payload.success === true,
+      eligible: payload.eligible === true,
+      verification_id:
+        typeof payload.verification_id === "string" ? payload.verification_id : undefined,
+      reason: typeof payload.reason === "string" ? payload.reason : undefined,
+    };
+  }
+
+  static async confirmUatPhoneTestVerification(
+    phoneNumber: string,
+    verificationCode: string,
+    verificationId: string,
+    idToken?: string
+  ): Promise<AccountPhoneClaimResponse> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      throw new Error("Missing Firebase ID token");
+    }
+
+    const response = await apiFetch("/api/account/phone/uat-test/confirm", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${firebaseIdToken}`,
+      },
+      body: JSON.stringify({
+        phone_number: phoneNumber,
+        verification_code: verificationCode,
+        verification_id: verificationId,
+      }),
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      const detail = payload.detail;
+      const message =
+        typeof detail === "object" &&
+        detail !== null &&
+        typeof (detail as Record<string, unknown>).message === "string"
+          ? String((detail as Record<string, unknown>).message)
+          : typeof detail === "string"
+            ? detail
+            : typeof payload.error === "string"
+              ? payload.error
+              : `UAT phone test verification failed with HTTP ${response.status}`;
+      throw new Error(message);
+    }
+
+    return payload as unknown as AccountPhoneClaimResponse;
   }
 
   /**
@@ -2171,9 +2353,9 @@ export class ApiService {
     userId: string;
     scopes?: string[];
   }): Promise<Response> {
-    // Updated to use dynamic attr.* scopes instead of legacy vault.read.*/vault.write.*
+    // Uses dynamic attr.* scopes instead of legacy vault wildcard scopes.
     const scopes = data.scopes || [
-      "attr.financial.risk_profile",  // Replaces vault.read.risk_profile
+      "attr.financial.risk_profile",
       "agent.kai.analyze",
     ];
 
@@ -2319,6 +2501,105 @@ export class ApiService {
   }
 
   /**
+   * Stream a broad Agent text chat response.
+   *
+   * This is intentionally separate from Kai finance chat and the OpenAI realtime
+   * voice session. The backend uses Gemini and stores encrypted Agent history.
+   */
+  static async streamAgentChat(data: {
+    userId: string;
+    message: string;
+    conversationId?: string;
+    vaultOwnerToken: string;
+    pkmContext?: string;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return ApiService.apiFetchStream("/api/kai/agent/chat/stream", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: data.userId,
+        message: data.message,
+        conversation_id: data.conversationId,
+        pkm_context: data.pkmContext,
+      }),
+      signal: data.signal,
+    });
+  }
+
+  static async listAgentChatConversations(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    limit?: number;
+  }): Promise<Response> {
+    const query = new URLSearchParams();
+    if (data.limit) query.set("limit", String(data.limit));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return apiFetch(
+      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.userId)}${suffix}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+      }
+    );
+  }
+
+  static async getAgentChatHistory(data: {
+    conversationId: string;
+    vaultOwnerToken: string;
+    limit?: number;
+  }): Promise<Response> {
+    const query = new URLSearchParams();
+    if (data.limit) query.set("limit", String(data.limit));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return apiFetch(
+      `/api/kai/agent/chat/history/${encodeURIComponent(data.conversationId)}${suffix}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+      }
+    );
+  }
+
+  static async renameAgentChatConversation(data: {
+    conversationId: string;
+    title: string;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    return apiFetch(
+      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.conversationId)}`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+        body: JSON.stringify({ title: data.title }),
+      }
+    );
+  }
+
+  static async deleteAgentChatConversation(data: {
+    conversationId: string;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    return apiFetch(
+      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.conversationId)}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+      }
+    );
+  }
+
+  /**
    * Import portfolio from brokerage statement
    *
    * Accepts CSV or PDF files and returns portfolio analysis with losers.
@@ -2414,6 +2695,15 @@ export class ApiService {
                     fail(new Error("Native SSE event mismatch"));
                     return;
                   }
+                  const nativeBridge =
+                    typeof window !== "undefined" ? window.__HUSHH_NATIVE_TEST__ : undefined;
+                  if (nativeBridge?.enabled) {
+                    nativeBridge.portfolioStreamEventCount =
+                      (nativeBridge.portfolioStreamEventCount || 0) + 1;
+                    nativeBridge.portfolioStreamLastEvent = envelope.event;
+                    nativeBridge.portfolioStreamLastSeq = String(envelope.seq);
+                    nativeBridge.portfolioStreamLastError = "";
+                  }
 
                   controller.enqueue(
                     encoder.encode(
@@ -2436,11 +2726,23 @@ export class ApiService {
               });
 
               if (!sawTerminalEvent) {
-                fail(new Error("Native import stream ended without terminal event"));
+                const error = new Error("Native import stream ended without terminal event");
+                const nativeBridge =
+                  typeof window !== "undefined" ? window.__HUSHH_NATIVE_TEST__ : undefined;
+                if (nativeBridge?.enabled) {
+                  nativeBridge.portfolioStreamLastError = error.message;
+                }
+                fail(error);
                 return;
               }
               close();
             } catch (error) {
+              const nativeBridge =
+                typeof window !== "undefined" ? window.__HUSHH_NATIVE_TEST__ : undefined;
+              if (nativeBridge?.enabled) {
+                nativeBridge.portfolioStreamLastError =
+                  error instanceof Error ? error.message : String(error);
+              }
               fail(error);
             } finally {
               params.signal?.removeEventListener("abort", handleAbort);
@@ -2471,18 +2773,61 @@ export class ApiService {
     vaultOwnerToken: string;
     signal?: AbortSignal;
   }): Promise<Response> {
-    const response = await apiFetch("/api/kai/portfolio/import/run/start", {
-      method: "POST",
-      body: params.formData,
-      headers: {
-        Authorization: `Bearer ${params.vaultOwnerToken}`,
-      },
-      signal: params.signal,
+    updateNativePortfolioImportDebug({
+      portfolioImportStartState: "requesting",
+      portfolioImportStartStatus: "",
+      portfolioImportStartRunId: "",
+      portfolioImportStartError: "",
+      portfolioStreamState: "",
+      portfolioStreamRunId: "",
+      portfolioStreamEventCount: 0,
+      portfolioStreamLastEvent: "",
+      portfolioStreamLastSeq: "",
+      portfolioStreamLastError: "",
     });
-    trackEvent("import_upload_started", {
-      result: toResultFromStatus(response.status),
-    });
-    return response;
+    try {
+      const response = await apiFetch("/api/kai/portfolio/import/run/start", {
+        method: "POST",
+        body: params.formData,
+        headers: {
+          Authorization: `Bearer ${params.vaultOwnerToken}`,
+        },
+        signal: params.signal,
+      });
+      updateNativePortfolioImportDebug({
+        portfolioImportStartState: response.ok ? "ok" : "http_error",
+        portfolioImportStartStatus: String(response.status),
+      });
+      void response
+        .clone()
+        .json()
+        .then((payload: unknown) => {
+          const runId =
+            payload &&
+            typeof payload === "object" &&
+            typeof (payload as Record<string, unknown>).run_id === "string"
+              ? ((payload as Record<string, unknown>).run_id as string)
+              : "";
+          updateNativePortfolioImportDebug({
+            portfolioImportStartRunId: runId,
+          });
+        })
+        .catch(() => {
+          updateNativePortfolioImportDebug({
+            portfolioImportStartRunId: "",
+          });
+        });
+      trackEvent("import_upload_started", {
+        result: toResultFromStatus(response.status),
+      });
+      return response;
+    } catch (error) {
+      updateNativePortfolioImportDebug({
+        portfolioImportStartState: "error",
+        portfolioImportStartError: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
 
   static async getActivePortfolioImportRun(params: {
@@ -2505,10 +2850,22 @@ export class ApiService {
     cursor?: number;
     signal?: AbortSignal;
   }): Promise<Response> {
+    updateNativePortfolioImportDebug({
+      portfolioStreamState: "requested",
+      portfolioStreamRunId: params.runId,
+      portfolioStreamEventCount: 0,
+      portfolioStreamLastEvent: "",
+      portfolioStreamLastSeq: "",
+      portfolioStreamLastError: "",
+    });
     if (Capacitor.isNativePlatform()) {
       try {
         const vaultOwnerToken = params.vaultOwnerToken;
         if (!vaultOwnerToken) {
+          updateNativePortfolioImportDebug({
+            portfolioStreamState: "missing_token",
+            portfolioStreamLastError: "Vault must be unlocked",
+          });
           return new Response(
             JSON.stringify({ error: "Vault must be unlocked" }),
             { status: 401 }
@@ -2543,11 +2900,18 @@ export class ApiService {
               );
             };
             const handleAbort = () => {
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "aborted",
+                portfolioStreamLastError: "Aborted",
+              });
               fail(new DOMException("Aborted", "AbortError"));
             };
 
             try {
               params.signal?.addEventListener("abort", handleAbort, { once: true });
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "attaching_listener",
+              });
               listener = await Kai.addListener(
                 PORTFOLIO_STREAM_EVENT,
                 (event: Record<string, unknown>) => {
@@ -2565,6 +2929,16 @@ export class ApiService {
                     fail(new Error("Native SSE event mismatch"));
                     return;
                   }
+                  updateNativePortfolioImportDebug({
+                    portfolioStreamState: "event_received",
+                    portfolioStreamEventCount:
+                      ((typeof window !== "undefined" &&
+                        window.__HUSHH_NATIVE_TEST__?.portfolioStreamEventCount) ||
+                        0) + 1,
+                    portfolioStreamLastEvent: envelope.event,
+                    portfolioStreamLastSeq: String(envelope.seq),
+                    portfolioStreamLastError: "",
+                  });
 
                   controller.enqueue(
                     encoder.encode(
@@ -2574,23 +2948,47 @@ export class ApiService {
 
                   if (envelope.terminal) {
                     sawTerminalEvent = true;
+                    updateNativePortfolioImportDebug({
+                      portfolioStreamState: "terminal_seen",
+                    });
                   }
                 }
               );
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "listener_attached",
+              });
 
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "plugin_invoking",
+              });
               await Kai.streamPortfolioImportRun({
                 runId: params.runId,
                 userId: params.userId,
                 cursor: Math.max(0, params.cursor ?? 0),
                 vaultOwnerToken,
               });
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "plugin_returned",
+              });
 
               if (!sawTerminalEvent) {
-                fail(new Error("Native import stream ended without terminal event"));
+                const error = new Error("Native import stream ended without terminal event");
+                updateNativePortfolioImportDebug({
+                  portfolioStreamState: "missing_terminal",
+                  portfolioStreamLastError: error.message,
+                });
+                fail(error);
                 return;
               }
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "closed",
+              });
               close();
             } catch (error) {
+              updateNativePortfolioImportDebug({
+                portfolioStreamState: "error",
+                portfolioStreamLastError: error instanceof Error ? error.message : String(error),
+              });
               fail(error);
             } finally {
               params.signal?.removeEventListener("abort", handleAbort);
@@ -2604,6 +3002,10 @@ export class ApiService {
         });
       } catch (error) {
         console.error("[ApiService] Native streamPortfolioImportRun error:", error);
+        updateNativePortfolioImportDebug({
+          portfolioStreamState: "response_error",
+          portfolioStreamLastError: (error as Error).message,
+        });
         return new Response(JSON.stringify({ error: (error as Error).message }), {
           status: 500,
         });
@@ -2796,6 +3198,9 @@ export class ApiService {
       duration_ms_bucket: toDurationBucket(durationMs),
     });
     if (!response.ok) {
+      if (response.status === 404) {
+        throw new MarketInsightsEmptyError();
+      }
       throw new Error(`Failed to load baseline market insights: ${response.status}`);
     }
     return (await response.json()) as KaiHomeInsightsV2;
@@ -2840,6 +3245,9 @@ export class ApiService {
       duration_ms_bucket: toDurationBucket(durationMs),
     });
     if (!response.ok) {
+      if (response.status === 404) {
+        throw new MarketInsightsEmptyError();
+      }
       throw new Error(`Failed to load market insights: ${response.status}`);
     }
     return (await response.json()) as KaiHomeInsightsV2;

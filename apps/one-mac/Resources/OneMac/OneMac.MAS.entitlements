@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 Hushh
+SPDX-License-Identifier: Apache-2.0
+
+Mac App Store entitlements (v2 distribution).
+App Sandbox is ON. Drops AppleEvents, MailKit private SPI, and
+SMAppService LaunchAgent. The MAS variant relies on a daemon-in-app
+process via XPC (no LaunchAgent), and the v1 connector set is reduced
+to Files + Calendar + Reminders only. Documented in
+apps/one-mac/docs/distribution.md.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- Loopback MCP server still allowed under sandbox. -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+
+    <!-- User-selected only. No broad disk. -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    <key>com.apple.security.files.bookmarks.app-scope</key>
+    <true/>
+
+    <!-- Sandbox-compatible personal information. -->
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
+</dict>
+</plist>

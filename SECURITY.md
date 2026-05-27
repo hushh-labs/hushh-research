@@ -11,7 +11,7 @@ We release patches for security vulnerabilities in the following versions:
 
 ## Reporting a Vulnerability
 
-The Hushh team takes security seriously. We appreciate your efforts to
+The Hussh team takes security seriously. We appreciate your efforts to
 responsibly disclose your findings and will make every effort to acknowledge
 your contributions.
 
@@ -60,7 +60,7 @@ Please include as much of the following information as possible:
 
 ## Security Best Practices for Contributors
 
-When contributing to Hushh, please follow these security guidelines:
+When contributing to Hussh, please follow these security guidelines:
 
 ### BYOK (Bring Your Own Key) Compliance
 
@@ -147,4 +147,4 @@ For security-related questions that are not vulnerability reports:
 - Email: eng@hush1one.com
 - Discord: #security channel (for general discussions only)
 
-Thank you for helping keep Hushh and our users safe!
+Thank you for helping keep Hussh and our users safe!
