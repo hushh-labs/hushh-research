@@ -29,6 +29,7 @@ import {
   DebateRunManagerService,
   type DebateRunTask,
 } from "@/lib/services/debate-run-manager";
+import { showDebateAlreadyRunningToast } from "@/lib/kai/debate-run-notifications";
 import {
   fetchLatestMarketSnapshot,
   getLatestMarketSnapshotFromCache,
@@ -1426,7 +1427,8 @@ export function DebateStreamView({
           });
           resolvedTask = ensureResult.task;
           if (ensureResult.kind === "blocked") {
-            toast.error("A debate is already running in this session.", {
+            showDebateAlreadyRunningToast(toast, {
+              level: "error",
               description: "Opening the active run.",
               action: {
                 label: "Open active",

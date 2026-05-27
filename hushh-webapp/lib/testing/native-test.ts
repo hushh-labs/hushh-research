@@ -22,9 +22,25 @@ declare global {
       };
       triggerReviewerLogin?: (() => void) | null;
       triggerVaultUnlock?: (() => void) | null;
+      switchPersona?: ((target: "investor" | "ria") => Promise<unknown>) | null;
+      navigateToRoute?: ((route: string) => void) | null;
       bootstrapState?: string;
       bootstrapUserId?: string;
       bootstrapError?: string;
+      activePersona?: string;
+      primaryNavPersona?: string;
+      personaSwitchStatus?: string;
+      personaSwitchError?: string;
+      portfolioImportStartState?: string;
+      portfolioImportStartStatus?: string;
+      portfolioImportStartRunId?: string;
+      portfolioImportStartError?: string;
+      portfolioStreamState?: string;
+      portfolioStreamRunId?: string;
+      portfolioStreamEventCount?: number;
+      portfolioStreamLastEvent?: string;
+      portfolioStreamLastSeq?: string;
+      portfolioStreamLastError?: string;
     };
   }
 }
@@ -45,6 +61,68 @@ function sanitizeConfiguredValue(value: string | null | undefined) {
   if (/replace_with_/i.test(trimmed)) return null;
   if (/your_[a-z0-9_]+_here/i.test(trimmed)) return null;
   return trimmed;
+}
+
+function readNativeTestBridgeEnabled(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  // Require the injected bridge from -UITestMode launch args.
+  // Do not treat DOM dataset hints alone as a test session.
+  return window.__HUSHH_NATIVE_TEST__?.enabled === true;
+}
+
+export function getNativeUiTestVaultPassphrase(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  if (window.__HUSHH_NATIVE_TEST__?.enabled !== true) {
+    return null;
+  }
+  const value = String(window.__HUSHH_NATIVE_TEST__?.vaultPassphrase || "").trim();
+  return value || null;
+}
+
+/** Skip auto passkey/biometric prompts during native UITest or Playwright runs. */
+export function shouldSkipGeneratedVaultUnlockForAutomation(
+  config: NativeTestConfig = getNativeTestConfig()
+): boolean {
+  if (typeof navigator !== "undefined" && navigator.webdriver) {
+    return true;
+  }
+  return isNativeUiTestSession(config) && Boolean(getNativeUiTestVaultPassphrase());
+}
+
+/**
+ * True only during explicit native UI automation (XCUITest / Espresso launch args).
+ * Normal production users never hit this path.
+ */
+export function isNativeUiTestSession(
+  config: NativeTestConfig = getNativeTestConfig()
+): boolean {
+  return readNativeTestBridgeEnabled() && config.enabled;
+}
+
+/**
+ * Prefer passphrase unlock over biometric/passkey only in automation contexts.
+ * Never changes unlock behavior for real users in production or UAT manual use.
+ */
+export function preferPassphraseUnlockForAutomation(
+  config: NativeTestConfig = getNativeTestConfig()
+): boolean {
+  return shouldSkipGeneratedVaultUnlockForAutomation(config);
+}
+
+/** Native UITest bootstrap owns auth + vault unlock; hide biometric dialog while it runs. */
+export function isNativeTestVaultBootstrapManaged(
+  config: NativeTestConfig = getNativeTestConfig()
+): boolean {
+  return (
+    isNativeUiTestSession(config) &&
+    config.autoReviewerLogin &&
+    Boolean(config.expectedUserId) &&
+    Boolean(config.vaultPassphrase)
+  );
 }
 
 export function getNativeTestConfig(): NativeTestConfig {
