@@ -34,12 +34,19 @@ class AgentOutputConfig(BaseModel):
     type: str
 
 
+class AgentModelConfig(BaseModel):
+    provider: str = "gemini"
+    name: str = GEMINI_MODEL
+    mode: str = "byok"
+    credential_ref: str = "pkm:runtime_secrets.llm.gemini_api_key"
+
+
 class AgentManifest(BaseModel):
     id: str
     name: str
     version: str = "1.0.0"
     description: str
-    model: str = GEMINI_MODEL  # Standardized default model
+    model: AgentModelConfig | str = Field(default_factory=AgentModelConfig)
     system_instruction: str
 
     required_scopes: List[str] = Field(default_factory=list)
@@ -50,6 +57,11 @@ class AgentManifest(BaseModel):
     # Metadata for UI/Behavior
     ui_type: Optional[str] = "chat"  # chat, form, dashboard
     icon: Optional[str] = None
+
+    def model_config_for_runtime(self) -> AgentModelConfig:
+        if isinstance(self.model, str):
+            return AgentModelConfig(name=self.model)
+        return self.model
 
 
 class ManifestLoader:

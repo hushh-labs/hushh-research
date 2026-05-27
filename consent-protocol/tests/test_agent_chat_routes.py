@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -8,6 +10,7 @@ from hushh_mcp.services.agent_chat_service import (
     AgentChatActionPlan,
     AgentChatConversation,
     AgentChatMessage,
+    AgentRuntimeProviderError,
     PreparedAgentChatTurn,
 )
 
@@ -16,6 +19,7 @@ class _FakeAgentChatService:
     def __init__(self):
         self.saved_messages: list[dict] = []
         self.next_action_plan: AgentChatActionPlan | None = None
+        self.plan_error: Exception | None = None
         self.stream_action_plans: list[AgentChatActionPlan | None] = []
         self.stream_tokens = ["Hello", " from Gemini"]
         self.stream_error: Exception | None = None
@@ -67,16 +71,32 @@ class _FakeAgentChatService:
             model="gemini-2.5-pro",
         )
 
+    async def create_agent_runtime_client(
+        self,
+        runtime_credential: str | None,
+        runtime_credential_mode: str | None,
+    ):
+        assert runtime_credential in {None, "USER_GEMINI_KEY"}
+        assert runtime_credential_mode in {None, "byok", "hushh_managed_vertex"}
+        return object(), SimpleNamespace(model=SimpleNamespace(model="gemini-2.5-pro"))
+
+    async def create_byok_client(self, runtime_credential: str | None):
+        return await self.create_agent_runtime_client(runtime_credential, "byok")
+
     async def stream_response(
         self,
         *,
         user_message: str,
         history: list[AgentChatMessage],
+        runtime_client,
+        runtime_model: str,
         action_plan: AgentChatActionPlan | None = None,
         pkm_context: str | None = None,
     ):
         assert user_message == "Hello Agent"
         assert history == []
+        assert runtime_client is not None
+        assert runtime_model == "gemini-2.5-pro"
         assert pkm_context in {None, "Saved domains: Financial"}
         self.stream_action_plans.append(action_plan)
         if self.stream_error is not None:
@@ -89,11 +109,17 @@ class _FakeAgentChatService:
         *,
         user_message: str,
         history: list[AgentChatMessage],
+        runtime_client,
+        runtime_model: str,
         pkm_context: str | None = None,
     ):
         assert user_message == "Hello Agent"
         assert history == []
+        assert runtime_client is not None
+        assert runtime_model == "gemini-2.5-pro"
         assert pkm_context in {None, "Saved domains: Financial"}
+        if self.plan_error is not None:
+            raise self.plan_error
         return self.next_action_plan
 
     def plan_action(self, message: str):
@@ -279,6 +305,74 @@ def test_agent_chat_stream_saves_error_message_when_stream_fails_before_tokens(m
             "status": "error",
             "model": "gemini-2.5-pro",
             "error_code": "AGENT_CHAT_STREAM_FAILED",
+        }
+    ]
+
+
+def test_agent_chat_stream_returns_clean_provider_prepare_error(monkeypatch):
+    service = _FakeAgentChatService()
+    service.plan_error = AgentRuntimeProviderError(
+        error_code="AGENT_RUNTIME_API_KEY_INVALID",
+        message="Kai could not use your Gemini key. Please update the Gemini API key saved in Personal Data.",
+        detail={
+            "error_type": "ClientError",
+            "status_code": 400,
+            "likely_issue": "invalid_or_unauthorized_api_key",
+        },
+    )
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+    client = _client(service)
+
+    response = client.post(
+        "/agent/chat/stream",
+        json={"user_id": "user-1", "message": "Hello Agent"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "code": "AGENT_RUNTIME_API_KEY_INVALID",
+        "message": "Kai could not use your Gemini key. Please update the Gemini API key saved in Personal Data.",
+        "detail": {
+            "error_type": "ClientError",
+            "status_code": 400,
+            "likely_issue": "invalid_or_unauthorized_api_key",
+        },
+    }
+    assert service.saved_messages == []
+
+
+def test_agent_chat_stream_yields_clean_provider_stream_error(monkeypatch):
+    service = _FakeAgentChatService()
+    service.stream_error = AgentRuntimeProviderError(
+        error_code="AGENT_RUNTIME_API_KEY_INVALID",
+        message="Kai could not use your Gemini key. Please update the Gemini API key saved in Personal Data.",
+        detail={
+            "error_type": "ClientError",
+            "status_code": 400,
+            "likely_issue": "invalid_or_unauthorized_api_key",
+        },
+    )
+    monkeypatch.setattr(agent_chat, "get_agent_chat_service", lambda: service)
+    client = _client(service)
+
+    response = client.post(
+        "/agent/chat/stream",
+        json={"user_id": "user-1", "message": "Hello Agent"},
+    )
+
+    assert response.status_code == 200
+    assert "event: error" in response.text
+    assert '"code": "AGENT_RUNTIME_API_KEY_INVALID"' in response.text
+    assert "Please update the Gemini API key saved in Personal Data." in response.text
+    assert service.saved_messages == [
+        {
+            "conversation_id": "conversation-1",
+            "user_id": "user-1",
+            "role": "assistant",
+            "content": "Kai could not use your Gemini key. Please update the Gemini API key saved in Personal Data.",
+            "status": "error",
+            "model": "gemini-2.5-pro",
+            "error_code": "AGENT_RUNTIME_API_KEY_INVALID",
         }
     ]
 

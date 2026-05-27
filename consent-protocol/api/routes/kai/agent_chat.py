@@ -16,9 +16,11 @@ from hushh_mcp.services.agent_chat_service import (
     AgentChatActionPlan,
     AgentChatConversation,
     AgentChatMessage,
+    AgentRuntimeProviderError,
     PreparedAgentChatTurn,
     get_agent_chat_service,
 )
+from hussh_sdk import RuntimeCredentialMissingError
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +32,8 @@ class AgentChatStreamRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=8000)
     conversation_id: Optional[str] = None
     pkm_context: Optional[str] = Field(default=None, max_length=20000)
+    runtime_credential: Optional[str] = Field(default=None, exclude=True)
+    runtime_credential_mode: Optional[str] = None
 
 
 class AgentChatRenameRequest(BaseModel):
@@ -154,11 +158,37 @@ async def stream_agent_chat(
             message=body.message,
             conversation_id=body.conversation_id,
         )
+        runtime_client, runtime = await service.create_agent_runtime_client(
+            body.runtime_credential,
+            body.runtime_credential_mode,
+        )
         action_plan: AgentChatActionPlan | None = await service.plan_action_with_gemini(
             user_message=body.message,
             history=turn.history,
+            runtime_client=runtime_client,
+            runtime_model=runtime.model.model,
             pkm_context=body.pkm_context,
         )
+    except RuntimeCredentialMissingError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+    except AgentRuntimeProviderError as error:
+        logger.warning(
+            "agent_chat.runtime_provider_prepare_failed user_id=%s error_code=%s detail=%s",
+            body.user_id,
+            error.error_code,
+            error.detail,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": error.error_code,
+                "message": error.message,
+                "detail": error.detail,
+            },
+        ) from error
     except Exception as error:
         logger.exception("agent_chat.prepare_failed user_id=%s: %s", body.user_id, error)
         raise HTTPException(status_code=500, detail="Agent chat could not be started") from error
@@ -237,6 +267,8 @@ async def stream_agent_chat(
             async for token in service.stream_response(
                 user_message=body.message,
                 history=turn.history,
+                runtime_client=runtime_client,
+                runtime_model=runtime.model.model,
                 action_plan=action_plan,
                 pkm_context=body.pkm_context,
             ):
@@ -281,6 +313,32 @@ async def stream_agent_chat(
                     status_value="interrupted",
                 )
             raise
+        except AgentRuntimeProviderError as error:
+            logger.warning(
+                "agent_chat.runtime_provider_stream_failed user_id=%s error_code=%s detail=%s",
+                body.user_id,
+                error.error_code,
+                error.detail,
+            )
+            if not saved:
+                await _save_assistant_message(
+                    service=service,
+                    turn=turn,
+                    user_id=body.user_id,
+                    text=error.message,
+                    status_value="error",
+                    error_code=error.error_code,
+                )
+                saved = True
+            yield _event(
+                "error",
+                {
+                    "code": error.error_code,
+                    "message": error.message,
+                    "detail": error.detail,
+                    "conversation_id": turn.conversation_id,
+                },
+            )
         except Exception as error:
             logger.exception("agent_chat.stream_failed user_id=%s: %s", body.user_id, error)
             if not saved:

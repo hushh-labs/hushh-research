@@ -8,21 +8,33 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any, AsyncGenerator, Literal
 from uuid import uuid4
 
+import yaml
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
 from db.db_client import get_db
+from hushh_mcp.hushh_adk.manifest import AgentModelConfig, ManifestLoader
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.types import EncryptedPayload
 from hushh_mcp.vault.encrypt import decrypt_data, encrypt_data
+from hussh_sdk import (
+    ModelConfig,
+    PKMCredentialResolver,
+    prepare_runtime_credentials,
+    runtime_config,
+)
 
 logger = logging.getLogger(__name__)
 
-AGENT_CHAT_MODEL_ENV = "AGENT_GEMINI_MODEL"
-DEFAULT_AGENT_CHAT_MODEL = "gemini-2.5-pro"
+DEFAULT_AGENT_CHAT_MODEL = "gemini-2.5-flash"
+AGENT_RUNTIME_CREDENTIAL_REF = "pkm:runtime_secrets.llm.gemini_api_key"
+KAI_AGENT_MANIFEST_PATH = Path(__file__).resolve().parents[1] / "agents" / "kai" / "agent.yaml"
+AgentRuntimeCredentialMode = Literal["byok", "hushh_managed_vertex"]
 AGENT_SYSTEM_PROMPT = """You are Agent, the Kai-focused financial assistant inside Hussh.
 
 Current capability boundary:
@@ -65,6 +77,323 @@ _APP_SURFACE_ACTIONS: dict[str, tuple[str, str]] = {
 MessageRole = Literal["user", "assistant", "system", "tool"]
 MessageStatus = Literal["complete", "interrupted", "error"]
 AgentActionExecution = Literal["frontend", "blocked"]
+
+
+class RuntimeSecretSession:
+    def __init__(self, credential_ref: str, secret: str | None):
+        self.credential_ref = credential_ref
+        self.secret = secret
+
+    async def read_secret(self, credential_ref: str) -> str | None:
+        if credential_ref != self.credential_ref:
+            return None
+        return self.secret
+
+
+@dataclass
+class AgentRuntimeProviderError(Exception):
+    error_code: str
+    message: str
+    detail: dict[str, Any]
+
+    def __str__(self) -> str:
+        return self.message
+
+
+@dataclass(frozen=True)
+class KaiAgentCredentialPolicy:
+    default: AgentRuntimeCredentialMode
+    allowed: tuple[AgentRuntimeCredentialMode, ...]
+
+
+@dataclass(frozen=True)
+class KaiAgentRuntimeManifest:
+    model: AgentModelConfig
+    credential_policy: KaiAgentCredentialPolicy
+
+
+def _parse_credential_mode(raw_value: Any) -> AgentRuntimeCredentialMode | None:
+    value = str(raw_value or "").strip()
+    if value in {"byok", "hushh_managed_vertex"}:
+        return value
+    return None
+
+
+def _load_kai_agent_manifest() -> tuple[dict[str, Any], Any]:
+    if not KAI_AGENT_MANIFEST_PATH.exists():
+        raise FileNotFoundError(f"Kai agent manifest not found: {KAI_AGENT_MANIFEST_PATH}")
+
+    with KAI_AGENT_MANIFEST_PATH.open("r") as manifest_file:
+        raw_manifest = yaml.safe_load(manifest_file) or {}
+
+    if not isinstance(raw_manifest, dict):
+        raise ValueError("Kai agent manifest must be a YAML object")
+
+    manifest = ManifestLoader.load(str(KAI_AGENT_MANIFEST_PATH))
+    return raw_manifest, manifest
+
+
+def _credential_policy_from_manifest(raw_manifest: dict[str, Any]) -> KaiAgentCredentialPolicy:
+    raw_policy = raw_manifest.get("credential_policy")
+    if not isinstance(raw_policy, dict):
+        raise ValueError("Kai agent manifest must define credential_policy as an object")
+
+    default = _parse_credential_mode(raw_policy.get("default"))
+    if default is None:
+        raise ValueError("Kai agent manifest credential_policy.default is invalid")
+
+    raw_allowed = raw_policy.get("allowed")
+    if not isinstance(raw_allowed, list):
+        raise ValueError("Kai agent manifest credential_policy.allowed must be a list")
+
+    allowed = tuple(
+        mode for mode in (_parse_credential_mode(item) for item in raw_allowed) if mode is not None
+    )
+    if not allowed:
+        raise ValueError("Kai agent manifest credential_policy.allowed must include a valid mode")
+    if default not in allowed:
+        raise ValueError("Kai agent manifest credential_policy.default must be in allowed")
+
+    return KaiAgentCredentialPolicy(default=default, allowed=allowed)
+
+
+def load_kai_agent_model_config() -> AgentModelConfig:
+    return load_kai_agent_runtime_manifest().model
+
+
+def load_kai_agent_runtime_manifest() -> KaiAgentRuntimeManifest:
+    raw_manifest, manifest = _load_kai_agent_manifest()
+
+    raw_model = raw_manifest.get("model")
+    if not isinstance(raw_model, dict):
+        raise ValueError("Kai agent manifest must define model as an object")
+
+    required_fields = ("provider", "name", "mode", "credential_ref")
+    missing_fields = [
+        field for field in required_fields if not str(raw_model.get(field) or "").strip()
+    ]
+    if missing_fields:
+        raise ValueError(
+            f"Kai agent manifest model is missing required field(s): {', '.join(missing_fields)}"
+        )
+
+    model = manifest.model_config_for_runtime()
+    model_config = AgentModelConfig(
+        provider=model.provider.strip(),
+        name=model.name.strip(),
+        mode=model.mode.strip(),
+        credential_ref=model.credential_ref.strip(),
+    )
+    return KaiAgentRuntimeManifest(
+        model=model_config,
+        credential_policy=_credential_policy_from_manifest(raw_manifest),
+    )
+
+
+def agent_runtime_config(
+    model_config: AgentModelConfig,
+    *,
+    credential_mode: AgentRuntimeCredentialMode | None = None,
+):
+    return runtime_config(
+        "google_adk",
+        model=ModelConfig(
+            provider=model_config.provider,
+            model=model_config.name,
+            mode=credential_mode or model_config.mode,
+            credential_ref=model_config.credential_ref,
+        ),
+    )
+
+
+def create_runtime_client(runtime_provider: str, user_key: str):
+    provider = runtime_provider.strip().lower()
+    key = user_key.strip()
+
+    if not key:
+        raise ValueError("User BYOK runtime key is required")
+
+    if provider == "gemini":
+        return genai.Client(vertexai=False, api_key=key)
+
+    raise ValueError(f"Unsupported runtime provider: {provider}")
+
+
+def _resolve_managed_google_api_key() -> str:
+    key = get_core_security_settings().google_api_key or (os.getenv("GOOGLE_API_KEY") or "").strip()
+    if not key:
+        raise ValueError("Hushh managed Gemini API key is not configured")
+    return key
+
+
+def create_managed_runtime_client(runtime_provider: str):
+    provider = runtime_provider.strip().lower()
+
+    if provider == "gemini":
+        return genai.Client(api_key=_resolve_managed_google_api_key())
+
+    raise ValueError(f"Unsupported managed runtime provider: {provider}")
+
+
+def _google_error_payload(error: genai_errors.APIError) -> dict[str, Any]:
+    details = getattr(error, "details", None)
+    if isinstance(details, dict):
+        payload = details.get("error")
+        if isinstance(payload, dict):
+            return payload
+        return details
+    return {}
+
+
+def _google_error_info(payload: dict[str, Any]) -> dict[str, Any]:
+    details = payload.get("details")
+    if not isinstance(details, list):
+        return {}
+    for item in details:
+        if not isinstance(item, dict):
+            continue
+        if item.get("@type") == "type.googleapis.com/google.rpc.ErrorInfo":
+            return item
+    return {}
+
+
+def _classify_gemini_error(
+    *,
+    status_code: int | None,
+    status: str | None,
+    message: str,
+    reason: str | None,
+    service: str | None,
+) -> tuple[str, str]:
+    normalized = " ".join([status or "", reason or "", service or "", message]).lower()
+
+    if service == "aiplatform.googleapis.com" or "api keys are not supported" in normalized:
+        return (
+            "wrong_google_api_surface",
+            "BYOK Gemini API keys must use Gemini Developer API mode, not Vertex AI.",
+        )
+    if reason in {"API_KEY_INVALID", "CREDENTIALS_MISSING"} or "api key not valid" in normalized:
+        return (
+            "invalid_or_unauthorized_api_key",
+            "Check the Gemini API key saved in encrypted PKM.",
+        )
+    if status_code in {401, 403}:
+        return (
+            "provider_auth_rejected",
+            "Check key validity and API access for the selected Gemini model.",
+        )
+    if status_code == 429 or status == "RESOURCE_EXHAUSTED" or "quota" in normalized:
+        return (
+            "quota_or_rate_limit",
+            "Check Gemini API quota, billing, and rate limits for this key.",
+        )
+    if "model" in normalized and (
+        "not found" in normalized
+        or "not supported" in normalized
+        or "not available" in normalized
+        or "permission" in normalized
+    ):
+        return (
+            "model_unavailable_or_not_allowed",
+            "Check the configured Gemini model name and key access.",
+        )
+    if status_code == 400 or status == "INVALID_ARGUMENT":
+        return (
+            "invalid_request_or_model_config",
+            "Check the model name, API mode, and request config accepted by Gemini.",
+        )
+    return ("provider_error", "Inspect provider status and retry with a known-good key/model pair.")
+
+
+def _runtime_provider_error_code(likely_issue: str) -> str:
+    if likely_issue == "invalid_or_unauthorized_api_key":
+        return "AGENT_RUNTIME_API_KEY_INVALID"
+    if likely_issue == "wrong_google_api_surface":
+        return "AGENT_RUNTIME_GOOGLE_API_SURFACE_INVALID"
+    if likely_issue == "model_unavailable_or_not_allowed":
+        return "AGENT_RUNTIME_MODEL_UNAVAILABLE"
+    if likely_issue == "quota_or_rate_limit":
+        return "AGENT_RUNTIME_QUOTA_OR_RATE_LIMIT"
+    if likely_issue == "invalid_request_or_model_config":
+        return "AGENT_RUNTIME_MODEL_CONFIG_INVALID"
+    return "AGENT_RUNTIME_PROVIDER_ERROR"
+
+
+def _runtime_provider_user_message(likely_issue: str) -> str:
+    if likely_issue == "invalid_or_unauthorized_api_key":
+        return "Kai could not use your Gemini key. Please update the Gemini API key saved in Personal Data."
+    if likely_issue == "wrong_google_api_surface":
+        return "Kai's Gemini BYOK client is configured for the wrong Google API surface."
+    if likely_issue == "model_unavailable_or_not_allowed":
+        return "Kai could not use the configured Gemini model with this key."
+    if likely_issue == "quota_or_rate_limit":
+        return "Gemini rejected the request because this key hit a quota or rate limit."
+    if likely_issue == "invalid_request_or_model_config":
+        return "Gemini rejected Kai's model configuration for this request."
+    return "Kai could not complete the Gemini request."
+
+
+def _safe_gemini_error_detail(error: Exception) -> dict[str, Any]:
+    detail: dict[str, Any] = {
+        "error_type": error.__class__.__name__,
+    }
+    if isinstance(error, genai_errors.APIError):
+        payload = _google_error_payload(error)
+        error_info = _google_error_info(payload)
+        metadata = (
+            error_info.get("metadata") if isinstance(error_info.get("metadata"), dict) else {}
+        )
+        message = str(getattr(error, "message", "") or payload.get("message") or "")
+        reason = error_info.get("reason") if isinstance(error_info.get("reason"), str) else None
+        service = metadata.get("service") if isinstance(metadata.get("service"), str) else None
+        method = metadata.get("method") if isinstance(metadata.get("method"), str) else None
+        likely_issue, operator_hint = _classify_gemini_error(
+            status_code=error.code,
+            status=error.status,
+            message=message,
+            reason=reason,
+            service=service,
+        )
+        detail["status_code"] = error.code
+        detail["status"] = error.status
+        detail["likely_issue"] = likely_issue
+        detail["operator_hint"] = operator_hint
+        if reason:
+            detail["provider_reason"] = reason
+        if service:
+            detail["provider_service"] = service
+        if method:
+            detail["provider_method"] = method
+    return detail
+
+
+def _runtime_provider_error_from_gemini(error: genai_errors.APIError) -> AgentRuntimeProviderError:
+    detail = _safe_gemini_error_detail(error)
+    likely_issue = str(detail.get("likely_issue") or "provider_error")
+    return AgentRuntimeProviderError(
+        error_code=_runtime_provider_error_code(likely_issue),
+        message=_runtime_provider_user_message(likely_issue),
+        detail=detail,
+    )
+
+
+def _log_runtime_provider_error(
+    *,
+    phase: str,
+    runtime_provider: str,
+    runtime_model: str,
+    credential_ref: str,
+    error: Exception,
+) -> None:
+    logger.warning(
+        "agent_chat_runtime_provider_error phase=%s provider=%s model=%s credential_ref=%s detail=%s",
+        phase,
+        runtime_provider,
+        runtime_model,
+        credential_ref,
+        _safe_gemini_error_detail(error),
+    )
+
 
 _STOCK_ALIAS_TO_TICKER = {
     "alphabet": "GOOGL",
@@ -404,13 +733,13 @@ class AgentChatService:
         self,
         *,
         db: Any | None = None,
-        model: str | None = None,
         vault_key_hex: str | None = None,
     ):
         self._db = db
-        self._client = None
         self._settings = None
-        self.model = (model or os.getenv(AGENT_CHAT_MODEL_ENV) or DEFAULT_AGENT_CHAT_MODEL).strip()
+        self._runtime_manifest = load_kai_agent_runtime_manifest()
+        self._model_config = self._runtime_manifest.model
+        self.model = self._runtime_manifest.model.name
         self._vault_key_hex = vault_key_hex
 
     @property
@@ -429,14 +758,84 @@ class AgentChatService:
             self._db = get_db()
         return self._db
 
-    @property
-    def client(self):
-        if self._client is None:
-            api_key = self.settings.google_api_key or os.getenv("GOOGLE_API_KEY", "").strip()
-            if not api_key:
-                raise RuntimeError("Gemini API key is not configured")
-            self._client = genai.Client(api_key=api_key)
-        return self._client
+    def _resolve_credential_mode(
+        self,
+        runtime_credential_mode: str | None,
+    ) -> AgentRuntimeCredentialMode:
+        mode = _parse_credential_mode(runtime_credential_mode)
+        if mode is None:
+            mode = self._runtime_manifest.credential_policy.default
+        if mode not in self._runtime_manifest.credential_policy.allowed:
+            raise ValueError(f"Kai credential mode is not allowed by manifest: {mode}")
+        return mode
+
+    async def create_agent_runtime_client(
+        self,
+        runtime_credential: str | None,
+        runtime_credential_mode: str | None,
+    ):
+        credential_mode = self._resolve_credential_mode(runtime_credential_mode)
+        runtime = agent_runtime_config(self._model_config, credential_mode=credential_mode)
+        if credential_mode == "hushh_managed_vertex":
+            logger.info(
+                "agent_chat_runtime_evidence=%s",
+                {
+                    "framework": "google_adk",
+                    "deployment_target": "personal_sandbox",
+                    "model": {
+                        "mode": "hushh_managed_vertex",
+                        "provider": runtime.model.provider,
+                        "model": runtime.model.model,
+                        "credential_ref": "[HUSHH_MANAGED]",
+                        "resolution_source": "hushh_managed_vertex",
+                    },
+                },
+            )
+            try:
+                client = create_managed_runtime_client(runtime.model.provider)
+            except Exception as error:
+                detail = {
+                    "error_type": error.__class__.__name__,
+                    "likely_issue": "managed_vertex_unavailable",
+                    "operator_hint": "Check Hushh managed Vertex project, location, and ADC configuration.",
+                }
+                logger.warning(
+                    "agent_chat_runtime_provider_error phase=client_init provider=%s model=%s credential_ref=%s detail=%s",
+                    runtime.model.provider,
+                    runtime.model.model,
+                    "[HUSHH_MANAGED]",
+                    detail,
+                )
+                raise AgentRuntimeProviderError(
+                    error_code="AGENT_RUNTIME_MANAGED_VERTEX_UNAVAILABLE",
+                    message="Kai could not use Hushh managed Gemini right now.",
+                    detail=detail,
+                ) from error
+            return (
+                client,
+                runtime,
+            )
+
+        bundle = await prepare_runtime_credentials(
+            runtime,
+            resolver=PKMCredentialResolver(
+                RuntimeSecretSession(
+                    credential_ref=runtime.model.credential_ref,
+                    secret=runtime_credential,
+                )
+            ),
+        )
+        logger.info("agent_chat_runtime_evidence=%s", bundle.evidence)
+        return (
+            create_runtime_client(
+                runtime_provider=runtime.model.provider,
+                user_key=bundle.credential.secret,
+            ),
+            runtime,
+        )
+
+    async def create_byok_client(self, runtime_credential: str | None):
+        return await self.create_agent_runtime_client(runtime_credential, "byok")
 
     async def _execute_raw(self, sql: str, params: dict[str, Any] | None = None):
         return await asyncio.to_thread(self.db.execute_raw, sql, params or {})
@@ -748,6 +1147,8 @@ class AgentChatService:
         *,
         user_message: str,
         history: list[AgentChatMessage],
+        runtime_client: Any,
+        runtime_model: str,
         action_plan: AgentChatActionPlan | None = None,
         pkm_context: str | None = None,
     ) -> AsyncGenerator[str, None]:
@@ -762,21 +1163,35 @@ class AgentChatService:
             temperature=0.7,
             max_output_tokens=4096,
         )
-        stream = await self.client.aio.models.generate_content_stream(
-            model=self.model,
-            contents=contents,
-            config=config,
-        )
-        async for chunk in stream:
-            text = self._chunk_text(chunk)
-            if text:
-                yield text
+        try:
+            stream = await runtime_client.aio.models.generate_content_stream(
+                model=runtime_model,
+                contents=contents,
+                config=config,
+            )
+            async for chunk in stream:
+                text = self._chunk_text(chunk)
+                if text:
+                    yield text
+        except Exception as error:
+            _log_runtime_provider_error(
+                phase="stream",
+                runtime_provider="gemini",
+                runtime_model=runtime_model,
+                credential_ref=AGENT_RUNTIME_CREDENTIAL_REF,
+                error=error,
+            )
+            if isinstance(error, genai_errors.APIError):
+                raise _runtime_provider_error_from_gemini(error) from error
+            raise
 
     async def plan_action_with_gemini(
         self,
         *,
         user_message: str,
         history: list[AgentChatMessage],
+        runtime_client: Any,
+        runtime_model: str,
         pkm_context: str | None = None,
     ) -> AgentChatActionPlan | None:
         deterministic_block = self._plan_blocked_action(user_message)
@@ -784,8 +1199,8 @@ class AgentChatService:
             return deterministic_block
 
         try:
-            response = await self.client.aio.models.generate_content(
-                model=self.model,
+            response = await runtime_client.aio.models.generate_content(
+                model=runtime_model,
                 contents=self._build_action_planning_contents(
                     user_message=user_message,
                     history=history,
@@ -808,7 +1223,16 @@ class AgentChatService:
                 action_plan = self._action_plan_from_function_call(function_call)
                 if action_plan is not None:
                     return action_plan
-        except Exception:
+        except Exception as error:
+            _log_runtime_provider_error(
+                phase="planner",
+                runtime_provider="gemini",
+                runtime_model=runtime_model,
+                credential_ref=AGENT_RUNTIME_CREDENTIAL_REF,
+                error=error,
+            )
+            if isinstance(error, genai_errors.APIError):
+                raise _runtime_provider_error_from_gemini(error) from error
             logger.exception("agent_chat.function_planning_failed")
 
         return self.plan_action(user_message)
