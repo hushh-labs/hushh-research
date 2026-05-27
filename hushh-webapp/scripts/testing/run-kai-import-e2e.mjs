@@ -357,7 +357,48 @@ async function clickBottomNav(page, label) {
     return;
   }
 
-  throw new Error(`Cannot find bottom navigation item "${label}" at ${page.url()}`);
+  const link = await firstVisible(
+    page.getByRole("link", { name: new RegExp(`^${label}$`, "i") })
+  );
+  if (await link.isVisible().catch(() => false)) {
+    await link.click();
+    return;
+  }
+
+  const radio = page.getByRole("radio", { name: new RegExp(`^${label}$`, "i") }).first();
+  if (await radio.isVisible().catch(() => false)) {
+    await radio.evaluate((node) => {
+      if (node instanceof HTMLElement) node.click();
+    });
+    return;
+  }
+
+  const tab = page.getByRole("tab", { name: new RegExp(`^${label}$`, "i") }).first();
+  if (await tab.isVisible().catch(() => false)) {
+    await tab.evaluate((node) => {
+      if (node instanceof HTMLElement) node.click();
+    });
+    return;
+  }
+
+  const text = page.getByText(new RegExp(`^${label}$`, "i")).first();
+  if (await text.waitFor({ state: "visible", timeout: 2500 }).then(() => true).catch(() => false)) {
+    await text.click({ force: true });
+    return;
+  }
+
+  const visibleTourIds = await page
+    .locator("[data-tour-id]")
+    .evaluateAll((nodes) =>
+      nodes
+        .filter((node) => node instanceof HTMLElement && node.offsetParent !== null)
+        .map((node) => node.getAttribute("data-tour-id"))
+        .filter(Boolean)
+    )
+    .catch(() => []);
+  throw new Error(
+    `Cannot find bottom navigation item "${label}" at ${page.url()}. Visible tour ids: ${visibleTourIds.join(", ")}`
+  );
 }
 
 async function ensureInvestorPersona(page) {
