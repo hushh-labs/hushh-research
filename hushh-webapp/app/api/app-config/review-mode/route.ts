@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
 
-const REQUEST_TIMEOUT_MS = 8000;
+const REQUEST_TIMEOUT_MS = 30000;
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
 
 export async function GET(_request: NextRequest) {

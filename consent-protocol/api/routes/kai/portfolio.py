@@ -3175,6 +3175,13 @@ def _portfolio_import_stream_factory(
     )
 
 
+class _AlwaysConnectedImportStreamRequest:
+    """Disconnect shim for initial upload streams proxied through Next.js."""
+
+    async def is_disconnected(self) -> bool:
+        return False
+
+
 @router.post("/portfolio/import/run/start")
 async def start_portfolio_import_run(
     file: UploadFile,
@@ -3353,6 +3360,6 @@ async def import_portfolio_stream(
         _IMPORT_RUN_MANAGER.stream_run_events(
             run=run,
             start_cursor=0,
-            request=request,
+            request=_AlwaysConnectedImportStreamRequest(),
         )
     )
