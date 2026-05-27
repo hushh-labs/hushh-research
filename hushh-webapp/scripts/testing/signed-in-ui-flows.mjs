@@ -125,8 +125,8 @@ export const UI_FLOWS = [
     steps: [
       { type: "click_bottom_nav", label: "Profile" },
       { type: "wait_beacon", routeIds: ["/profile"] },
-      { type: "click_button", name: "access & sharing" },
-      { type: "click_button", name: "consent center" },
+      { type: "click_button", name: "^access & sharing", regex: true },
+      { type: "click_button", name: "^consent center", regex: true },
       { type: "wait_beacon", routeIds: ["/consents"] },
     ],
   },
