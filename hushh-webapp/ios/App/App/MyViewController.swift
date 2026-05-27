@@ -112,6 +112,13 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
                 forMainFrameOnly: true
             )
         )
+        controller.addUserScript(
+            WKUserScript(
+                source: NativeUiTestRunnerScript.source,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
 
         let statusLabel = NativeTestStatusLabel(frame: .zero)
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -180,6 +187,25 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         let testEnabled = (payload["testEnabled"] as? Bool ?? false) ? "1" : "0"
         let autoReviewerLogin = (payload["autoReviewerLogin"] as? Bool ?? false) ? "1" : "0"
         let bridgeBeaconPresent = (payload["bridgeBeaconPresent"] as? Bool ?? false) ? "1" : "0"
+        let nativeUiRunnerPresent = (payload["nativeUiRunnerPresent"] as? Bool ?? false) ? "1" : "0"
+        let runUiFlows = (payload["runUiFlows"] as? Bool ?? false) ? "1" : "0"
+        let uiFlowsStarted = (payload["uiFlowsStarted"] as? Bool ?? false) ? "1" : "0"
+        let uiFlowsFailed = (payload["uiFlowsFailed"] as? Bool ?? false) ? "1" : "0"
+        let uiFlowBootstrapActive = (payload["uiFlowBootstrapActive"] as? Bool ?? false) ? "1" : "0"
+        let activePersona = (payload["activePersona"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let primaryNavPersona = (payload["primaryNavPersona"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let personaSwitchStatus = (payload["personaSwitchStatus"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let personaSwitchError = (payload["personaSwitchError"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let portfolioImportStartState = (payload["portfolioImportStartState"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let portfolioImportStartStatus = (payload["portfolioImportStartStatus"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let portfolioImportStartRunId = (payload["portfolioImportStartRunId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let portfolioImportStartError = (payload["portfolioImportStartError"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let portfolioStreamState = (payload["portfolioStreamState"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let portfolioStreamRunId = (payload["portfolioStreamRunId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let portfolioStreamEventCount = (payload["portfolioStreamEventCount"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let portfolioStreamLastEvent = (payload["portfolioStreamLastEvent"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let portfolioStreamLastSeq = (payload["portfolioStreamLastSeq"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let portfolioStreamLastError = (payload["portfolioStreamLastError"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let triggerReviewerLoginPresent = (payload["triggerReviewerLoginPresent"] as? Bool ?? false) ? "1" : "0"
         let domTestEnabled = (payload["domTestEnabled"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let domAutoReviewerLogin = (payload["domAutoReviewerLogin"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -190,12 +216,19 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         let jsError = (payload["jsError"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let jsRejection = (payload["jsRejection"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let bodySnippet = (payload["bodySnippet"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let visible404 = payload["visible404"] as? Bool ?? false
+        let uiFlowsComplete = (payload["uiFlowsComplete"] as? Bool ?? false) ? "1" : "0"
+        let uiFlowsOk = (payload["uiFlowsOk"] as? Bool ?? false) ? "1" : "0"
+        let uiFlowCurrent = (payload["uiFlowCurrent"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let uiFlowStepIndex = (payload["uiFlowStepIndex"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let uiFlowStepType = (payload["uiFlowStepType"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let uiFlowError = (payload["uiFlowError"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let routeReady = expectedRoute.isEmpty ? true : normalizeRoute(route) == normalizeRoute(expectedRoute)
         let documentReady = readyState == "interactive" || readyState == "complete"
         let markerFound = payload["markerFound"] as? Bool ?? false
         let ready = routeReady && documentReady && markerFound
 
-        let status = "route=\(route);ready=\(ready ? "1" : "0");marker=\(marker);auth=\(authState);data=\(dataState);doc=\(readyState);found=\(markerFound ? "1" : "0");routeok=\(routeReady ? "1" : "0");test=\(testEnabled);auto=\(autoReviewerLogin);bridge=\(bridgeBeaconPresent);trigger=\(triggerReviewerLoginPresent);domtest=\(domTestEnabled);domauto=\(domAutoReviewerLogin);reviewer=\(reviewerButtonFound);bootstrap=\(bootstrapState);bootstrap_uid=\(bootstrapUserId);bootstrap_error=\(bootstrapError);jserr=\(jsError);jsrej=\(jsRejection);body=\(bodySnippet);error=\(errorCode)"
+        let status = "route=\(route);ready=\(ready ? "1" : "0");marker=\(marker);auth=\(authState);data=\(dataState);doc=\(readyState);found=\(markerFound ? "1" : "0");routeok=\(routeReady ? "1" : "0");test=\(testEnabled);auto=\(autoReviewerLogin);bridge=\(bridgeBeaconPresent);uirunner=\(nativeUiRunnerPresent);runui=\(runUiFlows);uistarted=\(uiFlowsStarted);uifailed=\(uiFlowsFailed);uiboot=\(uiFlowBootstrapActive);persona=\(activePersona);primary_persona=\(primaryNavPersona);persona_switch=\(personaSwitchStatus);persona_error=\(personaSwitchError);portfolio_start_state=\(portfolioImportStartState);portfolio_start_status=\(portfolioImportStartStatus);portfolio_start_run=\(portfolioImportStartRunId);portfolio_start_error=\(portfolioImportStartError);portfolio_stream_state=\(portfolioStreamState);portfolio_stream_run=\(portfolioStreamRunId);portfolio_events=\(portfolioStreamEventCount);portfolio_last_event=\(portfolioStreamLastEvent);portfolio_last_seq=\(portfolioStreamLastSeq);portfolio_stream_error=\(portfolioStreamLastError);trigger=\(triggerReviewerLoginPresent);domtest=\(domTestEnabled);domauto=\(domAutoReviewerLogin);reviewer=\(reviewerButtonFound);bootstrap=\(bootstrapState);bootstrap_uid=\(bootstrapUserId);bootstrap_error=\(bootstrapError);jserr=\(jsError);jsrej=\(jsRejection);body=\(bodySnippet);visible404=\(visible404 ? "1" : "0");ui_complete=\(uiFlowsComplete);ui_ok=\(uiFlowsOk);ui_flow=\(uiFlowCurrent);ui_step=\(uiFlowStepIndex);ui_step_type=\(uiFlowStepType);ui_error=\(uiFlowError);error=\(errorCode)"
         nativeTestStatusLabel?.update(status: status)
         NativeTestStatusStore.write(status)
     }
@@ -211,6 +244,13 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             )
             NativeTestStatusStore.write("route=invalid;ready=0;marker=;auth=pending;data=error;error=invalid_payload")
             return
+        }
+
+        if let uiFlowReport = payload["uiFlowReport"] {
+            if let data = try? JSONSerialization.data(withJSONObject: uiFlowReport, options: [.prettyPrinted]),
+               let json = String(data: data, encoding: .utf8) {
+                NativeTestStatusStore.writeUiReport(json)
+            }
         }
 
         updateNativeTestStatus(from: payload)

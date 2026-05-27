@@ -306,15 +306,26 @@ class MainActivity : BridgeActivity() {
                         } catch (_) {}
                       }, 400);
                     }
-                    if (bridge.vaultPassphrase && !bridge.expectedUserId && !bridge._vaultTimer) {
+                    if (bridge.vaultPassphrase && !bridge._vaultTimer) {
                       bridge._vaultTimer = window.setInterval(function() {
                         try {
                           if (typeof bridge.triggerVaultUnlock === "function") {
                             bridge.triggerVaultUnlock();
                             return;
                           }
+                          var buttons = Array.prototype.slice.call(document.querySelectorAll("button"));
                           var passphraseInput = document.querySelector("#unlock-passphrase");
                           if (!passphraseInput) {
+                            var fallbackButton = document.querySelector('[data-testid="vault-use-passphrase-instead"]');
+                            if (!fallbackButton) {
+                              fallbackButton = buttons.find(function(button) {
+                                var text = (button.textContent || "").trim().toLowerCase();
+                                return text === "use passphrase instead";
+                              });
+                            }
+                            if (fallbackButton && !fallbackButton.disabled) {
+                              fallbackButton.click();
+                            }
                             return;
                           }
                           var prototype = window.HTMLInputElement && window.HTMLInputElement.prototype;
@@ -326,7 +337,6 @@ class MainActivity : BridgeActivity() {
                           }
                           passphraseInput.dispatchEvent(new Event("input", { bubbles: true }));
                           passphraseInput.dispatchEvent(new Event("change", { bubbles: true }));
-                          var buttons = Array.prototype.slice.call(document.querySelectorAll("button"));
                           var unlockButton = buttons.find(function(button) {
                             var text = (button.textContent || "").trim().toLowerCase();
                             return text === "unlock with passphrase";
