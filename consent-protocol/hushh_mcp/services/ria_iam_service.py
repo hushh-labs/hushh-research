@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import hashlib
 import io
 import json
 import logging
@@ -8454,6 +8455,137 @@ class RIAIAMService:
         )
         items.extend(self._marketplace_public_sec_investor_row(row) for row in public_rows)
         return items
+
+    @staticmethod
+    def _normalize_contact_phone_for_hash(value: Any) -> str | None:
+        raw = str(value or "").strip()
+        digits = re.sub(r"\D", "", raw)
+        if not digits:
+            return None
+        if raw.startswith("+"):
+            return f"+{digits}"
+        if len(digits) == 10:
+            return f"+1{digits}"
+        return f"+{digits}"
+
+    async def match_marketplace_contacts(
+        self,
+        user_id: str,
+        *,
+        phone_lookups: list[dict[str, Any]],
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        normalized_lookups: dict[str, set[str]] = {}
+        for item in phone_lookups:
+            digest = str(item.get("hash") or "").strip().lower()
+            last4 = re.sub(r"\D", "", str(item.get("last4") or ""))[-4:]
+            if len(digest) != 64 or not last4:
+                continue
+            normalized_lookups.setdefault(last4, set()).add(digest)
+        if not normalized_lookups:
+            return []
+
+        limit_safe = max(1, min(limit, 100))
+        last4_values = sorted(normalized_lookups.keys())
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            rows = await conn.fetch(
+                """
+                SELECT
+                  aic.user_id,
+                  aic.phone_number,
+                  COALESCE(NULLIF(aic.display_name, ''), mp.display_name) AS identity_display_name,
+                  mp.profile_type,
+                  mp.display_name,
+                  mp.headline,
+                  mp.location_hint,
+                  mp.strategy_summary,
+                  rp.id AS ria_id,
+                  rp.verification_status,
+                  COALESCE(ap.investor_marketplace_opt_in, FALSE) AS investor_marketplace_opt_in
+                FROM actor_identity_cache aic
+                JOIN marketplace_public_profiles mp
+                  ON mp.user_id = aic.user_id
+                  AND mp.is_discoverable = TRUE
+                LEFT JOIN actor_profiles ap
+                  ON ap.user_id = aic.user_id
+                LEFT JOIN ria_profiles rp
+                  ON rp.user_id = aic.user_id
+                WHERE
+                  aic.user_id <> $1
+                  AND aic.phone_verified = TRUE
+                  AND aic.phone_number IS NOT NULL
+                  AND RIGHT(regexp_replace(aic.phone_number, '[^0-9]', '', 'g'), 4) = ANY($2::text[])
+                  AND (
+                    (
+                      mp.profile_type = 'ria'
+                      AND rp.verification_status IN ('active', 'verified', 'finra_verified')
+                    )
+                    OR (
+                      mp.profile_type = 'investor'
+                      AND COALESCE(ap.investor_marketplace_opt_in, FALSE) = TRUE
+                    )
+                  )
+                ORDER BY mp.display_name ASC
+                LIMIT $3::integer
+                """,
+                user_id,
+                last4_values,
+                max(limit_safe * 8, limit_safe),
+            )
+            matches: list[dict[str, Any]] = []
+            seen_users: set[str] = set()
+            for row in rows:
+                normalized_phone = self._normalize_contact_phone_for_hash(row["phone_number"])
+                if not normalized_phone:
+                    continue
+                last4 = re.sub(r"\D", "", normalized_phone)[-4:]
+                digest = hashlib.sha256(normalized_phone.encode("utf-8")).hexdigest()
+                if digest not in normalized_lookups.get(last4, set()):
+                    continue
+
+                target_user_id = str(row["user_id"])
+                if target_user_id in seen_users:
+                    continue
+                seen_users.add(target_user_id)
+                kind = str(row["profile_type"] or "").strip().lower()
+                profile = {
+                    "id": str(row["ria_id"])
+                    if kind == "ria" and row["ria_id"]
+                    else f"hushh_user:{target_user_id}",
+                    "user_id": target_user_id,
+                    "display_name": row["display_name"],
+                    "headline": row["headline"],
+                    "location_hint": row["location_hint"],
+                    "strategy_summary": row["strategy_summary"],
+                }
+                if kind == "ria":
+                    profile["verification_status"] = row["verification_status"]
+                else:
+                    profile["source_type"] = "hushh_user"
+                    profile["connectable"] = True
+
+                matches.append(
+                    {
+                        "user_id": target_user_id,
+                        "kind": "ria" if kind == "ria" else "investor",
+                        "display_name": row["display_name"] or row["identity_display_name"],
+                        "headline": row["headline"],
+                        "phone_last4": last4,
+                        "profile": profile,
+                    }
+                )
+                if len(matches) >= limit_safe:
+                    break
+            return matches
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
 
     async def record_marketplace_investor_action(
         self,

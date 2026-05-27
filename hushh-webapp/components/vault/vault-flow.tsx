@@ -140,6 +140,17 @@ export function VaultFlow({
       : vaultMode === "generated_default_native_biometric"
         ? "Device security"
         : "Secure unlock";
+  const compactGeneratedUnlockLabel = "Passkey";
+  const hasGeneratedUnlockAlternative = Boolean(availableGeneratedMethod);
+  const showVaultKeyAlternative =
+    hasActiveGeneratedWrapper && !unlockWithPassphraseFallback;
+  const showPasskeyAlternative =
+    !hasActiveGeneratedWrapper &&
+    hasGeneratedUnlockAlternative &&
+    !unlockWithPassphraseFallback;
+  const showRecoveryAlternative = true;
+  const showUnlockOtherMethods =
+    showVaultKeyAlternative || showPasskeyAlternative || showRecoveryAlternative;
 
   const finalizeUnlock = useCallback(async (decryptedKey: string): Promise<boolean> => {
     try {
@@ -756,70 +767,70 @@ export function VaultFlow({
 
           {/* Unlock Passphrase */}
           {step === "unlock" && (
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               <div className="text-center">
                 <Icon
                   icon={isGeneratedVaultMode ? Fingerprint : Lock}
-                  size={32}
-                  className="mx-auto mb-3 text-primary"
+                  size={24}
+                  className="mx-auto mb-2 text-primary"
                 />
-                <h3 className="text-lg font-semibold sm:text-xl">Unlock Your Vault</h3>
-                <p className="mt-1.5 text-sm text-muted-foreground sm:text-base">
+                <h3 className="text-base font-semibold sm:text-lg">Unlock Your Vault</h3>
+                <p className="mt-1 line-clamp-1 text-xs text-muted-foreground sm:text-sm">
                   {isGeneratedVaultMode
                     ? "Confirm with your device to open Vault"
                     : "Enter your passphrase to open Vault"}
                 </p>
                 {unlockHint ? (
-                  <p className="mt-1.5 text-xs font-medium text-amber-500">
+                  <p className="mt-1 text-xs font-medium text-amber-500">
                     {unlockHint}
                   </p>
                 ) : null}
               </div>
               {shouldShowPassphraseUnlock && (
-                <div className="space-y-2">
-                  <Label htmlFor="unlock-passphrase" className="text-sm sm:text-base">Passphrase</Label>
+                <div className="space-y-1.5">
+                  <Label htmlFor="unlock-passphrase" className="text-xs font-medium sm:text-sm">
+                    Vault Key
+                  </Label>
                   <Input
                     id="unlock-passphrase"
                     type="password"
-                    placeholder="Enter your passphrase"
+                    placeholder="Enter vault key"
                     value={passphrase}
                     onChange={(e) => setPassphrase(e.target.value)}
                     onKeyDown={(e) =>
                       e.key === "Enter" && handleUnlockPassphrase()
                     }
                     autoFocus
-                    className="h-11 px-3 text-base sm:h-12 sm:px-4 sm:text-lg"
+                    className="h-10 px-3 text-base sm:h-11"
                   />
                 </div>
               )}
-              <div className="flex flex-col gap-3 pt-2">
+              <div className="flex flex-col gap-2 pt-1">
                 {shouldShowPassphraseUnlock && (
                   <Button
                     variant="gradient"
                     effect="glass"
                     size="default"
                     fullWidth
-                    className="h-11 text-sm sm:h-12 sm:text-base"
+                    className="h-10 text-sm font-semibold sm:h-11"
                     onClick={() => void handleUnlockPassphrase()}
                     disabled={isUnlocking || !passphrase}
                   >
                     {isUnlocking ? (
                       <>
-                        <Icon icon={Loader2} size="md" className="mr-2 animate-spin" /> Unlocking Vault...
+                        <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" /> Unlocking...
                       </>
-                    ) : unlockWithPassphraseFallback ? (
-                      "Unlock with passphrase"
                     ) : (
-                      "Unlock with passphrase"
+                      "Unlock"
                     )}
                   </Button>
                 )}
 
                 {hasActiveGeneratedWrapper && !unlockWithPassphraseFallback && (
-                  <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                  <div className="flex min-h-10 items-center justify-center rounded-xl border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground sm:text-sm">
                     {isUnlocking ? (
                       <span className="inline-flex items-center">
-                        <Icon icon={Loader2} size="md" className="mr-2 animate-spin" />
+                        <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" />
                         Prompting {generatedUnlockLabel.toLowerCase()}...
                       </span>
                     ) : (
@@ -834,99 +845,91 @@ export function VaultFlow({
                     effect="fade"
                     size="default"
                     fullWidth
-                    className="h-11 text-sm sm:h-12 sm:text-base"
+                    className="h-10 text-sm sm:h-11"
                     onClick={() => void handleUnlockGeneratedDefault()}
                     disabled={isUnlocking}
                   >
-                    Try {generatedUnlockLabel.toLowerCase()} again
+                    Try again
                   </Button>
                 )}
-                {hasActiveGeneratedWrapper && !unlockWithPassphraseFallback && (
-                  <Button
-                    variant="none"
-                    effect="fade"
-                    size="default"
-                    fullWidth
-                    className="h-11 text-sm sm:h-12 sm:text-base"
-                    data-testid="vault-use-passphrase-instead"
-                    onClick={() => {
-                      setError(null);
-                      setUnlockWithPassphraseFallback(true);
-                    }}
-                    disabled={isUnlocking}
-                  >
-                    Use passphrase instead
-                  </Button>
-                )}
-                {hasActiveGeneratedWrapper && unlockWithPassphraseFallback && (
-                  <Button
-                    variant="none"
-                    effect="fade"
-                    size="default"
-                    fullWidth
-                    className="h-11 text-sm sm:h-12 sm:text-base"
-                    onClick={() => {
-                      setError(null);
-                      setPassphrase("");
-                      setUnlockWithPassphraseFallback(false);
-                    }}
-                    disabled={isUnlocking}
-                  >
-                    Use {generatedUnlockLabel.toLowerCase()}
-                  </Button>
-                )}
-                {!hasActiveGeneratedWrapper &&
-                  availableGeneratedMethod &&
-                  !unlockWithPassphraseFallback && (
-                    <Button
-                      variant="none"
-                      effect="fade"
-                      size="default"
-                      fullWidth
-                      className="h-11 text-sm sm:h-12 sm:text-base"
-                      onClick={() => {
-                        setError(null);
-                        setVaultMode(availableGeneratedMethod);
-                      }}
-                      disabled={isUnlocking}
-                    >
-                      Use{" "}
-                      {availableGeneratedMethod === "generated_default_web_prf" ||
-                      availableGeneratedMethod === "generated_default_native_passkey_prf"
-                        ? "passkey"
-                        : "device security"}
-                    </Button>
-                  )}
-                <Button
-                  variant="none"
-                  effect="glass"
-                  size="default"
-                  fullWidth
-                  className="h-11 text-sm sm:h-12 sm:text-base"
-                  onClick={() => {
-                    setError(null);
-                    setStep("recovery");
-                  }}
-                  disabled={isUnlocking}
-                >
-                  Use Recovery Key
-                </Button>
+
+                {showUnlockOtherMethods ? (
+                  <div className="space-y-1.5 pt-1">
+                    <p className="text-xs font-medium text-muted-foreground">Other methods</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {showVaultKeyAlternative ? (
+                        <Button
+                          variant="none"
+                          effect="fade"
+                          size="default"
+                          fullWidth
+                          className="h-10 px-2 text-xs sm:h-11 sm:text-sm"
+                          data-testid="vault-use-passphrase-instead"
+                          onClick={() => {
+                            setError(null);
+                            setUnlockWithPassphraseFallback(true);
+                          }}
+                          disabled={isUnlocking}
+                        >
+                          Vault Key
+                        </Button>
+                      ) : null}
+                      {(hasActiveGeneratedWrapper && unlockWithPassphraseFallback) ||
+                      showPasskeyAlternative ? (
+                        <Button
+                          variant="none"
+                          effect="fade"
+                          size="default"
+                          fullWidth
+                          className="h-10 px-2 text-xs sm:h-11 sm:text-sm"
+                          onClick={() => {
+                            setError(null);
+                            setPassphrase("");
+                            setUnlockWithPassphraseFallback(false);
+                            if (!hasActiveGeneratedWrapper && availableGeneratedMethod) {
+                              setVaultMode(availableGeneratedMethod);
+                            }
+                          }}
+                          disabled={isUnlocking}
+                        >
+                          {compactGeneratedUnlockLabel}
+                        </Button>
+                      ) : null}
+                      {showRecoveryAlternative ? (
+                        <Button
+                          variant="none"
+                          effect="glass"
+                          size="default"
+                          fullWidth
+                          className="h-10 px-2 text-xs sm:h-11 sm:text-sm"
+                          onClick={() => {
+                            setError(null);
+                            setStep("recovery");
+                          }}
+                          disabled={isUnlocking}
+                        >
+                          Recovery Key
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
           )}
 
           {/* Recovery Key Input */}
           {step === "recovery" && !recoveryKey && (
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               <div className="text-center">
-                <Icon icon={Key} size={36} className="mx-auto mb-3 text-primary" />
-                <h3 className="text-lg font-semibold sm:text-xl">Enter Recovery Key</h3>
-                <p className="mt-1.5 text-sm text-muted-foreground sm:text-base">
+                <Icon icon={Key} size={24} className="mx-auto mb-2 text-primary" />
+                <h3 className="text-base font-semibold sm:text-lg">Enter Recovery Key</h3>
+                <p className="mt-1 line-clamp-1 text-xs text-muted-foreground sm:text-sm">
                   Enter your recovery key to open Vault
                 </p>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="recovery-key" className="text-sm sm:text-base">Recovery Key</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="recovery-key" className="text-xs font-medium sm:text-sm">Recovery Key</Label>
                 <Input
                   id="recovery-key"
                   placeholder="HRK-XXXX-XXXX-XXXX-XXXX"
@@ -934,41 +937,66 @@ export function VaultFlow({
                   onChange={(e) =>
                     setRecoveryKeyInput(e.target.value.toUpperCase())
                   }
-                  className="h-11 px-3 font-mono text-base sm:h-12 sm:px-4 sm:text-lg"
+                  className="h-10 px-3 font-mono text-base sm:h-11"
                 />
               </div>
-              <div className="flex flex-col gap-3 pt-2">
+              <div className="flex flex-col gap-2 pt-2">
                 <Button
                   variant="gradient"
                   effect="glass"
                   size="default"
                   fullWidth
-                  className="h-11 text-sm font-semibold sm:h-12 sm:text-base"
+                  className="h-10 text-sm font-semibold sm:h-11"
                   onClick={handleRecoveryKeySubmit}
                   disabled={isUnlocking || !recoveryKeyInput}
                 >
                   {isUnlocking ? (
                     <>
-                      <Icon icon={Loader2} size="md" className="mr-2 animate-spin" /> Unlocking Vault...
+                      <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" /> Unlocking...
                     </>
                   ) : (
                     "Unlock"
                   )}
                 </Button>
-                <Button
-                  variant="none"
-                  effect="glass"
-                  size="default"
-                  fullWidth
-                  className="h-11 text-sm sm:h-12 sm:text-base"
-                  onClick={() => {
-                    setError(null);
-                    setStep("unlock");
-                  }}
-                  disabled={isUnlocking}
-                >
-                  {hasActiveGeneratedWrapper ? generatedUnlockLabel : "Use Passphrase"}
-                </Button>
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-muted-foreground">Other methods</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant="none"
+                      effect="glass"
+                      size="default"
+                      fullWidth
+                      className="h-10 px-2 text-xs sm:h-11 sm:text-sm"
+                      onClick={() => {
+                        setError(null);
+                        setUnlockWithPassphraseFallback(true);
+                        setStep("unlock");
+                      }}
+                      disabled={isUnlocking}
+                    >
+                      Vault Key
+                    </Button>
+                    {availableGeneratedMethod ? (
+                      <Button
+                        variant="none"
+                        effect="glass"
+                        size="default"
+                        fullWidth
+                        className="h-10 px-2 text-xs sm:h-11 sm:text-sm"
+                        onClick={() => {
+                          setError(null);
+                          setPassphrase("");
+                          setVaultMode(availableGeneratedMethod);
+                          setUnlockWithPassphraseFallback(false);
+                          setStep("unlock");
+                        }}
+                        disabled={isUnlocking}
+                      >
+                        {compactGeneratedUnlockLabel}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             </div>
           )}

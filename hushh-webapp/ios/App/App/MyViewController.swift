@@ -56,8 +56,9 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         bridge?.registerPluginInstance(HushhAccountPlugin())
         bridge?.registerPluginInstance(HushhNotificationsPlugin())
         bridge?.registerPluginInstance(HushhLocationPlugin())
+        bridge?.registerPluginInstance(HushhContactsPlugin())
         
-        print("✅ [MyViewController] All 11 plugins registered successfully:")
+        print("✅ [MyViewController] All 12 plugins registered successfully:")
         print("   - HushhAuth (Google Sign-In)")
         print("   - HushhVault (Encryption + Cloud DB)")
         print("   - HushhConsent (Token Management)")
@@ -69,6 +70,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         print("   - HushhAccount (Account Management)")
         print("   - HushhNotifications (Push Token Registration)")
         print("   - HushhLocation (Foreground Location)")
+        print("   - HushhContacts (Contact Matching)")
         
         // Verify plugins are actually accessible by the bridge
         verifyPluginRegistration()
@@ -89,7 +91,8 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             "PersonalKnowledgeModel",
             "HushhAccount",
             "HushhNotifications",
-            "HushhLocation"
+            "HushhLocation",
+            "HushhContacts"
         ]
         
         for name in pluginNames {

@@ -25,6 +25,7 @@
 		71A2B3C49D8E7F6012345678 /* NativeUiTestRunnerScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A2B3C49D8E7F6012345679 /* NativeUiTestRunnerScript.swift */; };
 		84C1C4976C8A006BA2171BFF /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D70EFDA31DB35F5785665EA6 /* Foundation.framework */; };
 		A11C0A710000000000000062 /* HushhLocationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A710000000000000061 /* HushhLocationPlugin.swift */; };
+		A11C0A720000000000000062 /* HushhContactsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A720000000000000061 /* HushhContactsPlugin.swift */; };
 		A1B2C3D42F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D52F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift */; };
 		A2774DC0614D2A490F85042E /* HushhConsentPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D0CE383269D3D6B23A9A02 /* HushhConsentPlugin.swift */; };
 		B54CF1772B3BDD70BFEC7B19 /* AppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 423141872FACCBA5C6BB6BE5 /* AppUITests.swift */; };
@@ -80,6 +81,7 @@
 		99D0CE383269D3D6B23A9A02 /* HushhConsentPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhConsentPlugin.swift; path = Plugins/HushhConsentPlugin.swift; sourceTree = "<group>"; };
 		9ECA7AA8B6B21BD4F7D2F44F /* HushhKeystorePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhKeystorePlugin.swift; path = Plugins/HushhKeystorePlugin.swift; sourceTree = "<group>"; };
 		A11C0A710000000000000061 /* HushhLocationPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhLocationPlugin.swift; path = Plugins/HushhLocationPlugin.swift; sourceTree = "<group>"; };
+		A11C0A720000000000000061 /* HushhContactsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhContactsPlugin.swift; path = Plugins/HushhContactsPlugin.swift; sourceTree = "<group>"; };
 		A1B2C3D52F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PersonalKnowledgeModelPlugin.swift; path = Plugins/PersonalKnowledgeModelPlugin.swift; sourceTree = "<group>"; };
 		A280438C2F21B1FC005B42F3 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		D1F9F90F2F0E966A009FC3FB /* KaiPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = KaiPlugin.swift; path = Plugins/KaiPlugin.swift; sourceTree = "<group>"; };
@@ -204,6 +206,7 @@
 				FACADE000000000000000001 /* HushhAccountPlugin.swift */,
 				FACADE000000000000000004 /* HushhNotificationsPlugin.swift */,
 				A11C0A710000000000000061 /* HushhLocationPlugin.swift */,
+				A11C0A720000000000000061 /* HushhContactsPlugin.swift */,
 			);
 			name = Plugins;
 			sourceTree = "<group>";
@@ -380,6 +383,7 @@
 				FACADE000000000000000002 /* HushhAccountPlugin.swift in Sources */,
 				FACADE000000000000000003 /* HushhNotificationsPlugin.swift in Sources */,
 				A11C0A710000000000000062 /* HushhLocationPlugin.swift in Sources */,
+				A11C0A720000000000000062 /* HushhContactsPlugin.swift in Sources */,
 				6146083798073DA5027983D9 /* NativeTestSupport.swift in Sources */,
 				71A2B3C49D8E7F6012345678 /* NativeUiTestRunnerScript.swift in Sources */,
 			);
