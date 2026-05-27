@@ -48,6 +48,12 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import {
+  KAI_GEMINI_RUNTIME_CREDENTIAL_REF,
+  KAI_RUNTIME_CREDENTIAL_MODE_REF,
+  PersonalKnowledgeModelService,
+  type KaiRuntimeCredentialMode,
+} from "@/lib/services/personal-knowledge-model-service";
+import {
   AgentRealtimeClient,
   type AgentRealtimeVoiceState,
 } from "@/lib/services/agent-realtime-client";
@@ -118,6 +124,8 @@ const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   totalAttributes: 0,
   updatedAt: null,
 };
+const AGENT_GEMINI_CREDENTIAL_REF = KAI_GEMINI_RUNTIME_CREDENTIAL_REF;
+const AGENT_CREDENTIAL_MODE_REF = KAI_RUNTIME_CREDENTIAL_MODE_REF;
 const AGENT_STREAM_RENDER_FRAME_MS = 32;
 
 const EXPLICIT_PKM_SAVE_PATTERN =
@@ -1544,6 +1552,8 @@ export function AgentChatWorkspace({
 
     try {
       let agentPkmContext = EMPTY_PKM_CONTEXT;
+      let runtimeCredential: string | null = null;
+      let runtimeCredentialMode: KaiRuntimeCredentialMode = "byok";
       try {
         agentPkmContext = await loadAgentPkmContext({
           userId,
@@ -1572,12 +1582,52 @@ export function AgentChatWorkspace({
         });
       }
 
+      if (!vaultKey) {
+        throw new Error("Vault must be unlocked to load Agent model access settings.");
+      }
+      try {
+        const storedCredentialMode = await PersonalKnowledgeModelService.loadRuntimeSecret({
+          userId,
+          vaultKey,
+          vaultOwnerToken: token,
+          credentialRef: AGENT_CREDENTIAL_MODE_REF,
+        });
+        runtimeCredentialMode =
+          storedCredentialMode === "hushh_managed_vertex"
+            ? "hushh_managed_vertex"
+            : "byok";
+        if (runtimeCredentialMode === "byok") {
+          runtimeCredential = await PersonalKnowledgeModelService.loadRuntimeSecret({
+            userId,
+            vaultKey,
+            vaultOwnerToken: token,
+            credentialRef: AGENT_GEMINI_CREDENTIAL_REF,
+          });
+        }
+        appendDebugEvent(debugTurnId, "runtime_secret_loaded", {
+          credential_ref: AGENT_GEMINI_CREDENTIAL_REF,
+          credential_mode: runtimeCredentialMode,
+          resolved: Boolean(runtimeCredential),
+        });
+      } catch (error) {
+        appendDebugEvent(debugTurnId, "runtime_secret_load_failed", {
+          credential_ref: AGENT_GEMINI_CREDENTIAL_REF,
+          message:
+            error instanceof Error && error.message
+              ? error.message
+              : "Failed to load Agent BYOK runtime key.",
+        });
+        throw error;
+      }
+
       await streamAgentChat({
         userId,
         message: text,
         conversationId,
         vaultOwnerToken: token,
         pkmContext: agentPkmContext.text || undefined,
+        runtimeCredential,
+        runtimeCredentialMode,
         signal: streamAbortController.signal,
         handlers: {
           onStart: ({ conversationId: nextConversationId }) => {

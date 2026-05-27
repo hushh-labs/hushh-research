@@ -87,6 +87,8 @@ describe("agent chat client", () => {
       conversationId: undefined,
       vaultOwnerToken: "vault-token",
       pkmContext: undefined,
+      runtimeCredential: undefined,
+      runtimeCredentialMode: undefined,
       signal: undefined,
     });
   });
@@ -138,6 +140,34 @@ describe("agent chat client", () => {
         vaultOwnerToken: "vault-token",
       })
     ).rejects.toThrow("Vault locked");
+  });
+
+  it("reads nested backend error detail messages", async () => {
+    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail: {
+            code: "AGENT_RUNTIME_API_KEY_INVALID",
+            message:
+              "Kai could not use your Gemini key. Please update the Gemini API key saved in Personal Data.",
+          },
+        }),
+        {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+
+    await expect(
+      streamAgentChat({
+        userId: "user-1",
+        message: "Hello",
+        vaultOwnerToken: "vault-token",
+      })
+    ).rejects.toThrow(
+      "Kai could not use your Gemini key. Please update the Gemini API key saved in Personal Data."
+    );
   });
 
   it("throws streamed backend error events after notifying the handler", async () => {

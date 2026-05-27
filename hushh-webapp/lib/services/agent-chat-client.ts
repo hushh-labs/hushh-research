@@ -80,7 +80,12 @@ function normalizeToolEvent(payload: Record<string, unknown>): AgentChatToolEven
 async function readError(response: Response): Promise<string> {
   const payload = (await response.json().catch(() => null)) as unknown;
   const record = asRecord(payload);
-  const detail = record ? readString(record, "detail") || readString(record, "message") : "";
+  const detailRecord = record ? asRecord(record.detail) : null;
+  const detail = record
+    ? readString(detailRecord || {}, "message") ||
+      readString(record, "detail") ||
+      readString(record, "message")
+    : "";
   return detail || `Agent chat request failed (${response.status})`;
 }
 
@@ -90,6 +95,8 @@ export async function streamAgentChat(input: {
   conversationId?: string | null;
   vaultOwnerToken: string;
   pkmContext?: string;
+  runtimeCredential?: string | null;
+  runtimeCredentialMode?: string | null;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
 }): Promise<{ conversationId: string | null; model: string | null; text: string }> {
@@ -99,6 +106,8 @@ export async function streamAgentChat(input: {
     conversationId: input.conversationId || undefined,
     vaultOwnerToken: input.vaultOwnerToken,
     pkmContext: input.pkmContext,
+    runtimeCredential: input.runtimeCredential,
+    runtimeCredentialMode: input.runtimeCredentialMode,
     signal: input.signal,
   });
 
