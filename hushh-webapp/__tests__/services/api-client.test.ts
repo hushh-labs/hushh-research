@@ -51,4 +51,20 @@ describe("apiJson", () => {
       message: "Request failed: 500",
     });
   });
+      it("preserves string detail message propagation for ApiError", async () => {
+    mockApiFetch.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          detail: "Temporary public API outage",
+        },
+        503
+      )
+    );
+
+    await expect(apiJson("/api/public/status")).rejects.toMatchObject({
+      name: "ApiError",
+      status: 503,
+      message: "Temporary public API outage",
+    } satisfies Partial<ApiError>);
+  });
 });
