@@ -26,13 +26,14 @@
     "release-readiness",
     "mobile-parity-check",
     "docs-sync",
-    "github-contribution-governance"
+    "github-contribution-governance",
+    "uat-scoped-deploy"
   ],
   "required_reads": [
     "docs/reference/operations/README.md",
     "docs/reference/operations/ci.md",
     "docs/reference/operations/branch-governance.md",
-    "docs/reference/operations/cli.md",
+    ".codex/skills/repo-operations/references/branch-runtime-ops.md",
     ".codex/skills/repo-operations/references/agent-trigger-policy.md"
   ],
   "required_commands": [
@@ -72,6 +73,7 @@
     "oss-license-governance",
     "contributor-onboarding",
     "subtree-upstream-governance",
+    "uat-scoped-deploy",
     "backend",
     "security-audit"
   ],
@@ -83,7 +85,8 @@
     "analytics-observability-governance",
     "oss-license-governance",
     "contributor-onboarding",
-    "subtree-upstream-governance"
+    "subtree-upstream-governance",
+    "uat-scoped-deploy"
   ],
   "risk_tags": [
     "ci-drift",

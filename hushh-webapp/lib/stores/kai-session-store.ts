@@ -19,6 +19,7 @@ interface AnalysisParams {
   ticker: string;
   userId: string;
   riskProfile: string;
+  launchConfirmed?: boolean;
   userContext?: Record<string, unknown>;
   portfolioSource?: PortfolioSource;
   portfolioContext?: Record<string, unknown> | null;

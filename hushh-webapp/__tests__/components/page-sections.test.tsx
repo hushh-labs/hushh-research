@@ -26,8 +26,8 @@ describe("PageHeader", () => {
     expect(leading?.className).toContain("self-stretch");
     expect(row?.className).toContain("flex-col");
     expect(row?.className).toContain("sm:flex-row");
-    expect(description?.className).toContain("line-clamp-2");
-    expect(description?.className).toContain("sm:line-clamp-none");
+    expect(description?.className).toContain("line-clamp-1");
+    expect(description?.className).not.toContain("sm:line-clamp-none");
     expect(actions?.className).toContain("sm:shrink-0");
     expect(screen.getByRole("button", { name: "Upload" })).toBeTruthy();
   });
@@ -55,9 +55,22 @@ describe("SectionHeader", () => {
     expect(leading?.className).toContain("self-stretch");
     expect(row?.className).toContain("flex-col");
     expect(row?.className).toContain("sm:flex-row");
-    expect(description?.className).toContain("line-clamp-2");
-    expect(description?.className).toContain("sm:line-clamp-none");
+    expect(description?.className).toContain("line-clamp-1");
+    expect(description?.className).not.toContain("sm:line-clamp-none");
     expect(actions?.className).toContain("sm:justify-end");
     expect(screen.getByRole("button", { name: "Template" })).toBeTruthy();
+  });
+    it("preserves section action rendering when actions are provided", () => {
+    render(
+      <SectionHeader
+        title="Advisor tools"
+        description="Workspace actions"
+        actions={<button type="button">Create</button>}
+        icon={FileSpreadsheet}
+      />
+    );
+
+    expect(screen.getByText("Advisor tools")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
   });
 });
