@@ -223,6 +223,7 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
                 {slides.map((slide, idx) => (
                   <CarouselItem
                     key={idx}
+                    aria-current={idx === selectedIndex ? "step" : undefined}
                     className="basis-full pl-0 flex items-center justify-center"
                   >
                     <div className="flex w-full min-h-[clamp(24rem,50vh,31rem)] items-center justify-center px-4 sm:px-6 md:px-8 py-3">
