@@ -338,20 +338,24 @@ final class AppUITests: XCTestCase {
     @discardableResult
     private func attemptVaultPassphraseUnlock(app: XCUIApplication) -> Bool {
         let passphrase = reviewerVaultPassphrase()
+        let vaultKeyField = app.secureTextFields["Enter vault key"]
         let passphraseField = app.secureTextFields["Enter your passphrase"]
         let hasPassphraseField =
-            passphraseField.waitForExistence(timeout: 0.25)
+            vaultKeyField.waitForExistence(timeout: 0.25)
+            || passphraseField.waitForExistence(timeout: 0.25)
             || app.secureTextFields.count > 0
         guard hasPassphraseField else {
             return false
         }
 
-        let usePassphraseInstead = app.buttons["Use passphrase instead"]
-        if usePassphraseInstead.waitForExistence(timeout: 0.25), usePassphraseInstead.isHittable {
-            usePassphraseInstead.tap()
+        for methodButton in [app.buttons["Vault Key"], app.buttons["Use passphrase instead"]] {
+            if methodButton.waitForExistence(timeout: 0.25), methodButton.isHittable {
+                methodButton.tap()
+                break
+            }
         }
 
-        let unlockButton = app.buttons["Unlock with passphrase"]
+        let unlockButtons = [app.buttons["Unlock"], app.buttons["Unlock with passphrase"]]
         let fieldQueries: [XCUIElementQuery] = [
             app.secureTextFields,
             app.textFields,
@@ -370,14 +374,19 @@ final class AppUITests: XCTestCase {
                 let identifier = field.identifier.lowercased()
                 let looksLikePassphrase =
                     label.contains("passphrase") ||
+                    label.contains("vault key") ||
                     placeholder.contains("passphrase") ||
+                    placeholder.contains("vault key") ||
+                    identifier.contains("vault-key") ||
                     identifier.contains("unlock-passphrase")
                 guard looksLikePassphrase || count == 1 else { continue }
                 field.tap()
                 field.typeText(passphrase)
-                if unlockButton.waitForExistence(timeout: 2), unlockButton.isHittable {
-                    unlockButton.tap()
-                    return true
+                for unlockButton in unlockButtons {
+                    if unlockButton.waitForExistence(timeout: 2), unlockButton.isHittable {
+                        unlockButton.tap()
+                        return true
+                    }
                 }
             }
         }
