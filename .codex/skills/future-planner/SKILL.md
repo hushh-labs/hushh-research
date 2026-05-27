@@ -54,16 +54,19 @@ Non-owned surfaces:
 
 1. Ground the idea in current repo reality before planning future behavior.
 2. Classify the request explicitly as `vision`, `future roadmap`, or `execution`.
-3. Assess edge cases before writing:
+3. For material Hussh product direction, founder language, One/Kai/Nav ontology, PCHP/BYOA/on-device posture, PKM/World Model authority, or roadmap positioning, run the Founder Wiki North-Star Probe from `.codex/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md`.
+4. Treat the founder wiki as north-star and future-state evidence, not proof that a runtime feature exists today. Record repo/wiki disagreement as `current_state_vs_north_star_drift`.
+5. Keep private wiki evidence local-only unless the user explicitly asks for an internal private artifact.
+6. Assess edge cases before writing:
    - trust and authority boundaries
    - BYOK and zero-knowledge compatibility
    - PKM vs runtime-memory separation
    - A2A or delegated-execution implications
    - connector permissions and on-demand consent
    - user-facing trust-state clarity
-4. Record what already exists, what is missing, what needs new primitives, and what should stay out of scope.
-5. Place the output in `docs/future/` unless the work is already approved for execution or belongs in `docs/vision/`.
-6. Add explicit status and promotion criteria to every future-state concept doc.
+7. Record what already exists, what is missing, what needs new primitives, and what should stay out of scope.
+7. Place the output in `docs/future/` unless the work is already approved for execution or belongs in `docs/vision/`.
+8. Add explicit status and promotion criteria to every future-state concept doc.
 
 ## Handoff Rules
 
