@@ -17,6 +17,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { Capacitor } from "@capacitor/core";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { useCache } from "@/lib/cache/cache-context";
@@ -1897,6 +1898,21 @@ export function KaiFlow({
         formData.append("user_id", userId);
 
         const runImportRequest = async (importToken: string): Promise<Response> => {
+          // Fresh web uploads must keep start + stream on one backend request.
+          // UAT Cloud Run can route `/run/start` and `/run/{id}/stream` to different
+          // instances, while the portfolio import run manager is still in-memory.
+          // The direct stream endpoint starts the run and streams from the same instance.
+          if (!Capacitor.isNativePlatform()) {
+            activeImportRunIdRef.current = null;
+            activeImportCursorRef.current = 0;
+            persistBackgroundSnapshot("running");
+            return ApiService.importPortfolioStream({
+              formData,
+              vaultOwnerToken: importToken,
+              signal: abortControllerRef.current?.signal,
+            });
+          }
+
           const startResponse = await ApiService.startPortfolioImportRun({
             formData,
             vaultOwnerToken: importToken,
