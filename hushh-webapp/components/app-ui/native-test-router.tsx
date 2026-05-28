@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { getNativeTestConfig } from "@/lib/testing/native-test";
@@ -66,6 +66,17 @@ function canRecoverToExpectedRoute() {
 export function NativeTestRouter() {
   const router = useRouter();
   const pathname = usePathname();
+  const [pendingNativeRoute, setPendingNativeRoute] = useState<{
+    route: string;
+    requestedAt: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!pendingNativeRoute?.route) {
+      return;
+    }
+    router.replace(pendingNativeRoute.route, { scroll: false });
+  }, [pendingNativeRoute, router]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -74,7 +85,7 @@ export function NativeTestRouter() {
 
     const bridge = window.__HUSHH_NATIVE_TEST__;
     const navigateToRoute = (route: string) => {
-      router.replace(route, { scroll: false });
+      setPendingNativeRoute({ route, requestedAt: Date.now() });
     };
     if (bridge?.enabled) {
       bridge.navigateToRoute = navigateToRoute;

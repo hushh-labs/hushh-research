@@ -31,7 +31,7 @@ const gtmContainerId = resolveGtmContainerId();
 const analyticsMeasurementId = resolveAnalyticsMeasurementId();
 
 export const metadata: Metadata = {
-  title: "One: Your Personal Agent",
+  title: "One | Your Personal Agent",
   description:
     "Personal AI agents with consent at the core. Your data, your control.",
   keywords: ["AI agents", "personal AI", "One", "consent-first", "privacy"],
@@ -47,7 +47,7 @@ export const metadata: Metadata = {
   },
   manifest: "/manifest.webmanifest",
   openGraph: {
-    title: "One: Your Personal Agent",
+    title: "One | Your Personal Agent",
     description: "Personal AI agents with consent at the core.",
     type: "website",
   },
