@@ -1005,6 +1005,7 @@ export interface AccountPhoneClaimResponse {
   user_id: string;
   identity: AccountIdentity | null;
   phone_verified: boolean;
+  phone_session_cleanup?: string;
 }
 
 export interface AccountPhoneTestStartResponse {

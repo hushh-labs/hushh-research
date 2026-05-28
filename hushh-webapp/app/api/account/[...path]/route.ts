@@ -42,7 +42,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     if (authHeader) headers.set("Authorization", authHeader);
 
     let body: BodyInit | undefined;
-    if (request.method !== "GET" && request.method !== "DELETE") {
+    if (request.method !== "GET" && request.method !== "HEAD") {
       headers.set("Content-Type", contentType || "application/json");
       body = await request.text();
     }
