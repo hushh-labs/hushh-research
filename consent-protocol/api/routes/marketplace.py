@@ -2,21 +2,24 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from hushh_mcp.services.ria_iam_service import IAMSchemaNotReadyError, RIAIAMService
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/marketplace", tags=["Marketplace"])
 
 
-def _iam_schema_not_ready_response(message: str | None = None) -> JSONResponse:
+def _iam_schema_not_ready_response() -> JSONResponse:
     return JSONResponse(
         status_code=503,
         content={
-            "error": message or "IAM schema is not ready",
+            "error": "IAM service is temporarily unavailable.",
             "code": "IAM_SCHEMA_NOT_READY",
-            "hint": "Run `python db/migrate.py --iam` and `python db/verify/verify_iam_schema.py`.",
         },
     )
 
@@ -38,7 +41,8 @@ async def list_marketplace_rias(
         )
         return {"items": items}
     except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
+        logger.warning("marketplace.list_rias: IAM schema not ready", exc_info=True)
+        return _iam_schema_not_ready_response()
 
 
 @router.get("/investors")
@@ -51,7 +55,8 @@ async def list_marketplace_investors(
         items = await service.search_marketplace_investors(query=query, limit=limit)
         return {"items": items}
     except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
+        logger.warning("marketplace.list_investors: IAM schema not ready", exc_info=True)
+        return _iam_schema_not_ready_response()
 
 
 @router.get("/ria/{ria_id}")
@@ -63,4 +68,5 @@ async def get_marketplace_ria(ria_id: str):
             raise HTTPException(status_code=404, detail="RIA profile not found")
         return profile
     except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
+        logger.warning("marketplace.get_ria: IAM schema not ready", exc_info=True)
+        return _iam_schema_not_ready_response()
