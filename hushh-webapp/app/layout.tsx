@@ -79,13 +79,17 @@ export default function RootLayout({
           href="https://fonts.gstatic.com"
           crossOrigin="anonymous"
         />
-        <style>{`
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
           html.dark body,
           html.dark .morphy-app-bg {
             background-color: rgb(28 28 30) !important;
             background-image: none !important;
           }
-        `}</style>
+        `,
+          }}
+        />
         {analyticsMeasurementId ? (
           <>
             <Script

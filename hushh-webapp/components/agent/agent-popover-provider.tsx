@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -12,6 +13,7 @@ import {
 } from "react";
 import { usePathname } from "next/navigation";
 import { Bot } from "lucide-react";
+import gsap from "gsap";
 
 import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
 import { Button } from "@/components/ui/button";
@@ -126,6 +128,58 @@ function AgentPopoverSurface() {
   const isCollapsing = motionState === "closing";
   const surfaceVisible = expanded || motionState !== "idle";
 
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLElement>(null);
+
+  useLayoutEffect(() => {
+    if (!popoverRef.current) return;
+
+    const popover = popoverRef.current;
+
+    if (motionState === "idle") {
+      if (expanded) {
+        gsap.set(popover, { clearProps: "transform,opacity" });
+      }
+      return;
+    }
+
+    if (motionState === "opening") {
+      gsap.fromTo(
+        popover,
+        {
+          y: 40,
+          scale: 0.8,
+          opacity: 0,
+          transformOrigin: "bottom right",
+        },
+        {
+          y: 0,
+          scale: 1,
+          opacity: 1,
+          duration: 0.36,
+          ease: "back.out(0.8)",
+        }
+      );
+    } else if (motionState === "closing") {
+      gsap.fromTo(
+        popover,
+        {
+          y: 0,
+          scale: 1,
+          opacity: 1,
+          transformOrigin: "bottom right",
+        },
+        {
+          y: 40,
+          scale: 0.8,
+          opacity: 0,
+          duration: 0.36,
+          ease: "power3.inOut",
+        }
+      );
+    }
+  }, [motionState, expanded]);
+
   const handleNavigationActionComplete = useCallback(() => {
     window.setTimeout(() => {
       minimizeAgent();
@@ -147,13 +201,23 @@ function AgentPopoverSurface() {
           aria-hidden={!expanded}
         >
           <section
+            ref={popoverRef}
             className={cn(
-              "pointer-events-auto fixed bottom-[calc(max(var(--app-safe-area-bottom-effective),0.5rem)+0.5rem)] left-2 right-2 top-[calc(max(var(--app-safe-area-top-effective),0.5rem)+0.5rem)] flex min-h-0 origin-bottom-right flex-col overflow-hidden rounded-lg border border-border/70 bg-background/95 shadow-2xl backdrop-blur-xl transition-[border-radius,filter,opacity,transform] duration-[360ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform motion-reduce:transform-none motion-reduce:transition-none sm:left-4 sm:right-4 lg:left-auto lg:right-4 lg:w-[min(72rem,calc(100vw-2rem))]",
-              expanded
-                ? "translate-x-0 translate-y-0 scale-100 opacity-100 blur-0"
-                : "pointer-events-none translate-x-3 translate-y-[calc(100%-5.75rem)] scale-[0.2] opacity-0 blur-sm",
+              "pointer-events-auto fixed left-2 right-2 top-[calc(max(var(--app-safe-area-top-effective),0.5rem)+0.5rem)] flex min-h-0 flex-col overflow-hidden rounded-lg border border-border/70 bg-background/95 shadow-2xl backdrop-blur-xl transition-[border-radius,filter] duration-[360ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform motion-reduce:transition-none sm:left-4 sm:right-4 lg:left-auto lg:right-4 lg:w-[min(72rem,calc(100vw-2rem))]",
+              !expanded && motionState === "idle" ? "pointer-events-none opacity-0" : "opacity-100 blur-0",
               isCollapsing && "rounded-2xl ring-1 ring-primary/25"
             )}
+            style={{
+              bottom:
+                "calc(var(--app-bottom-fixed-ui, 76px) + max(var(--app-safe-area-bottom-effective), 1rem) + 1rem)",
+              ...(motionState === "opening" && !expanded
+                ? {
+                    transform: "translateY(40px) scale(0.8)",
+                    opacity: 0,
+                    transformOrigin: "bottom right",
+                  }
+                : {}),
+            }}
             role="dialog"
             aria-label="Agent"
             aria-modal={false}
@@ -176,6 +240,7 @@ function AgentPopoverSurface() {
 
       {!useRiaActionBarTrigger ? (
         <Button
+          ref={triggerRef}
           type="button"
           variant="secondary"
           className={cn(
