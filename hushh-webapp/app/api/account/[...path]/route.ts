@@ -43,8 +43,11 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
 
     let body: BodyInit | undefined;
     if (request.method !== "GET" && request.method !== "HEAD") {
-      headers.set("Content-Type", contentType || "application/json");
-      body = await request.text();
+      const requestBody = await request.text();
+      if (requestBody.length > 0) {
+        headers.set("Content-Type", contentType || "application/json");
+        body = requestBody;
+      }
     }
 
     const response = await fetch(url, {
