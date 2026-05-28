@@ -173,9 +173,8 @@ describe("OneLocationAgentPage", () => {
       screen.queryByRole("heading", { name: "Proximity alerts" }),
     ).toBeNull();
     expect(screen.queryByText("Advisor meetup")).toBeNull();
-    expect(
-      screen.queryAllByText("Trusted B - ******8012").length,
-    ).toBeGreaterThan(0);
+    expect(screen.queryAllByText("Trusted B").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/8012/)).toBeNull();
     expect(screen.getByText("Share Encrypted Update")).toBeTruthy();
     expect(mockRegisterKey).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",

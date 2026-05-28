@@ -126,48 +126,33 @@ function expiresLabel(grant: OneLocationGrant): string {
   return `Expires ${formatDateTime(grant.expiresAt)}`;
 }
 
+function safePersonLabel(value?: string | null, fallback = "KAI member"): string {
+  return String(value || "").trim() || fallback;
+}
+
 function recipientLabel(recipient: OneLocationRecipient): string {
-  return [recipient.displayName, recipient.maskedPhone]
-    .filter(Boolean)
-    .join(" - ");
+  return safePersonLabel(recipient.displayName);
 }
 
 function grantCounterpartyLabel(grant: OneLocationGrant): string {
-  return (
-    [grant.recipientDisplayName, grant.recipientMaskedPhone]
-      .filter(Boolean)
-      .join(" - ") || grant.recipientUserId
-  );
+  return safePersonLabel(grant.recipientDisplayName);
 }
 
 function receivedGrantOwnerLabel(grant: OneLocationGrant): string {
-  return (
-    [grant.ownerDisplayName, grant.ownerMaskedPhone]
-      .filter(Boolean)
-      .join(" - ") ||
-    [grant.recipientDisplayName, grant.recipientMaskedPhone]
-      .filter(Boolean)
-      .join(" - ") ||
-    grant.ownerUserId
+  return safePersonLabel(
+    grant.ownerDisplayName || grant.recipientDisplayName,
+    "A trusted person",
   );
 }
 
 function requestLabel(request: OneLocationAccessRequest): string {
-  return (
-    [request.requesterDisplayName, request.requesterMaskedPhone]
-      .filter(Boolean)
-      .join(" - ") || request.requesterUserId
-  );
+  return safePersonLabel(request.requesterDisplayName, "Someone from KAI");
 }
 
 function publicSubmissionLabel(
   submission: OneLocationPublicInviteSubmission,
 ): string {
-  return (
-    [submission.visitorDisplayName, submission.visitorMaskedPhone]
-      .filter(Boolean)
-      .join(" - ") || "Public request"
-  );
+  return safePersonLabel(submission.visitorDisplayName, "Public request");
 }
 
 function publicInviteUrlLabel(value: string): string {
@@ -291,12 +276,7 @@ function sectionLabel(title: string, count?: number) {
 }
 
 function displayNameFromRecipient(recipient: OneLocationRecipient): string {
-  return (
-    recipient.displayName ||
-    recipient.maskedPhone ||
-    recipient.userId ||
-    "Trusted contact"
-  );
+  return recipientLabel(recipient);
 }
 
 function initialsForLabel(label: string): string {
