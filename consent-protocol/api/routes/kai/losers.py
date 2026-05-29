@@ -353,6 +353,14 @@ def _build_deterministic_optimization_fallback(
     }
 
 
+def _opaque_optimize_stream_error_payload() -> dict[str, Any]:
+    """Client-safe terminal error for unexpected optimize stream failures."""
+    return {
+        "code": "OPTIMIZE_STREAM_FAILED",
+        "message": "Portfolio optimization is temporarily unavailable. Please try again.",
+    }
+
+
 @router.post("/portfolio/analyze-losers", response_model=AnalyzeLosersResponse)
 async def analyze_portfolio_losers(
     request: AnalyzeLosersRequest,
@@ -1120,11 +1128,11 @@ async def analyze_portfolio_losers_stream(
                 {"code": "OPTIMIZE_HTTP_ERROR", **detail},
                 terminal=True,
             )
-        except Exception as e:
-            logger.error(f"Streaming losers analysis failed: {e}")
+        except Exception:
+            logger.exception("Streaming losers analysis failed")
             yield stream.event(
                 "error",
-                {"code": "OPTIMIZE_STREAM_FAILED", "message": str(e)},
+                _opaque_optimize_stream_error_payload(),
                 terminal=True,
             )
 
