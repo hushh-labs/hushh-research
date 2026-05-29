@@ -286,7 +286,7 @@ class RefreshExportFailureRequest(BaseModel):
 
 @router.get("/pending")
 async def get_pending_consents(
-    userId: str,
+    userId: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -321,7 +321,7 @@ async def get_pending_consents(
 
 @router.get("/pending/lookup")
 async def lookup_pending_consents(
-    userId: str,
+    userId: str = Query(..., max_length=128),
     request_id: list[str] | None = Query(default=None),
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -855,8 +855,8 @@ async def approve_consent(
 
 @router.post("/pending/deny")
 async def deny_consent(
-    userId: str,
     requestId: str,
+    userId: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -1401,7 +1401,7 @@ async def get_consent_export_data(
 
 @router.get("/export-refresh/jobs")
 async def list_export_refresh_jobs(
-    userId: str,
+    userId: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data["user_id"] != userId:
