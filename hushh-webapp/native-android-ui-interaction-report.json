@@ -1,0 +1,503 @@
+{
+  "generated_at": "2026-05-28T08:40:07.817Z",
+  "device": "emulator-5554",
+  "flow_count": 13,
+  "passed_flows": 13,
+  "failed_flows": 0,
+  "ok": true,
+  "flows": [
+    "shell-investor-kai-analysis",
+    "shell-investor-kai-portfolio",
+    "shell-investor-kai-import",
+    "shell-ria-home",
+    "shell-ria-clients",
+    "shell-ria-picks",
+    "shell-marketplace",
+    "shell-profile",
+    "shell-consents",
+    "ria-picks-source-category-tabs",
+    "ria-workspace-account-detail",
+    "ria-workspace-access-panel",
+    "marketplace-workspace-card"
+  ],
+  "report": {
+    "ok": true,
+    "startedAt": "2026-05-28T08:38:53.270Z",
+    "flows": [
+      {
+        "id": "shell-investor-kai-analysis",
+        "route": "/kai/analysis",
+        "description": "Investor shell: Market -> Analysis",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 4,
+            "type": "assert_visible_testid",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "shell-investor-kai-portfolio",
+        "route": "/kai/portfolio",
+        "description": "Investor shell: Portfolio tab",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "shell-investor-kai-import",
+        "route": "/kai/import",
+        "description": "Investor shell: Portfolio -> import CTA",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "click_button",
+            "ok": true
+          },
+          {
+            "step": 4,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "shell-ria-home",
+        "route": "/ria",
+        "description": "RIA shell: Home tab",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "shell-ria-clients",
+        "route": "/ria/clients",
+        "description": "RIA shell: Clients tab",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "shell-ria-picks",
+        "route": "/ria/picks",
+        "description": "RIA shell: Picks tab",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "assert_visible_testid",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "shell-marketplace",
+        "route": "/marketplace",
+        "description": "RIA shell: Connect / marketplace",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "shell-profile",
+        "route": "/profile",
+        "description": "Profile tab from shell",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "assert_visible_testid",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "shell-consents",
+        "route": "/consents",
+        "description": "Profile -> Access & sharing -> Consent center",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "click_button",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "click_button",
+            "ok": true
+          },
+          {
+            "step": 4,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "ria-picks-source-category-tabs",
+        "route": "/ria/picks",
+        "description": "RIA picks source + category segmented controls",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "click_button",
+            "ok": true
+          },
+          {
+            "step": 4,
+            "type": "assert_url_includes",
+            "ok": true
+          },
+          {
+            "step": 5,
+            "type": "click_button",
+            "ok": true
+          },
+          {
+            "step": 6,
+            "type": "assert_url_includes",
+            "ok": true
+          },
+          {
+            "step": 7,
+            "type": "click_button",
+            "ok": true
+          },
+          {
+            "step": 8,
+            "type": "assert_url_includes",
+            "ok": true
+          },
+          {
+            "step": 9,
+            "type": "click_button",
+            "ok": true
+          },
+          {
+            "step": 10,
+            "type": "assert_url_includes",
+            "ok": true
+          },
+          {
+            "step": 11,
+            "type": "click_button",
+            "ok": true
+          },
+          {
+            "step": 12,
+            "type": "assert_url_includes",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "ria-workspace-account-detail",
+        "route": "/ria/clients/[userId]/accounts/[accountId]",
+        "description": "RIA workspace -> taxable brokerage account",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "open_ria_workspace",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "wait_button",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "click_button",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "wait_beacon",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "ria-workspace-access-panel",
+        "route": "/ria/clients/[userId]",
+        "description": "RIA workspace sharing/access panel",
+        "ok": true,
+        "optional": false,
+        "results": [
+          {
+            "step": 0,
+            "type": "open_ria_workspace",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_button",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "assert_visible_testid",
+            "ok": true
+          }
+        ],
+        "failedStep": null
+      },
+      {
+        "id": "marketplace-workspace-card",
+        "route": "/marketplace",
+        "description": "Marketplace open workspace card when present",
+        "ok": true,
+        "optional": true,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "click_bottom_nav",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "click_button",
+            "ok": true,
+            "skipped": true,
+            "reason": "step timeout (click_button) visible=Home|Clients|Picks|Connect|Profile|Connections|Contacts|View profile"
+          }
+        ],
+        "failedStep": null
+      }
+    ],
+    "completedAt": "2026-05-28T08:40:05.073Z"
+  },
+  "error": null,
+  "last_status": {
+    "route": "/marketplace/",
+    "ready": "1",
+    "marker": "",
+    "auth": "authenticated",
+    "data": "loaded",
+    "doc": "complete",
+    "found": "1",
+    "routeok": "1",
+    "test": "1",
+    "auto": "1",
+    "bridge": "1",
+    "uirunner": "1",
+    "runui": "1",
+    "uistarted": "1",
+    "uifailed": "0",
+    "uiboot": "0",
+    "persona": "ria",
+    "primary_persona": "ria",
+    "persona_switch": "ok:ria",
+    "persona_error": "",
+    "portfolio_start_state": "",
+    "portfolio_start_status": "",
+    "portfolio_start_run": "",
+    "portfolio_start_error": "",
+    "portfolio_stream_state": "",
+    "portfolio_stream_run": "",
+    "portfolio_events": "0",
+    "portfolio_last_event": "",
+    "portfolio_last_seq": "",
+    "portfolio_stream_error": "",
+    "trigger": "1",
+    "domtest": "true",
+    "domauto": "true",
+    "reviewer": "0",
+    "bootstrap": "vault_unlocked",
+    "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+    "bootstrap_error": "",
+    "jserr": "Uncaught Error: Minified React error #418, visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.",
+    "jsrej": "",
+    "body": "Home Clients Picks Connect Profile  CONNECT  Search people Find investors, RIAs, and contacts already on Hushh. Connections Contacts D dasd VERIFIED  Registered",
+    "visible404": "0",
+    "ui_complete": "1",
+    "ui_ok": "1",
+    "ui_flow": "marketplace-workspace-card",
+    "ui_step": "3",
+    "ui_step_type": "click_button",
+    "ui_error": "",
+    "error": ""
+  }
+}

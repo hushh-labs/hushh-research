@@ -1,16 +1,8 @@
-<svg
-  xmlns="http://www.w3.org/2000/svg"
-  viewBox="0 0 512 512"
-  role="img"
-  aria-label="Quiet emoji"
->
-  <text
-    x="50%"
-    y="50%"
-    dominant-baseline="middle"
-    text-anchor="middle"
-    font-size="420"
-  >
-    🤫
-  </text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" role="img" aria-label="hussh">
+  <title>hussh</title>
+  <rect width="800" height="800" fill="#1d1d1f"/>
+  <text x="400" y="455" text-anchor="middle"
+        font-family="SF Pro Display, SF Pro, Helvetica Neue, Inter, system-ui, sans-serif"
+        font-weight="700" font-size="165" letter-spacing="-5.6"
+        fill="#FFFFFF">hussh</text>
 </svg>
