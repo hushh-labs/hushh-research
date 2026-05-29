@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth
+from api.routes._schema_not_ready import iam_schema_not_ready_response
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
     RIAIAMPolicyError,
@@ -34,17 +34,6 @@ class MarketplaceContactMatchRequest(BaseModel):
     limit: int = Field(default=50, ge=1, le=100)
 
 
-def _iam_schema_not_ready_response(message: str | None = None) -> JSONResponse:
-    return JSONResponse(
-        status_code=503,
-        content={
-            "error": message or "IAM schema is not ready",
-            "code": "IAM_SCHEMA_NOT_READY",
-            "hint": "Run `python db/migrate.py --iam` and `python db/verify/verify_iam_schema.py`.",
-        },
-    )
-
-
 @router.get("/rias")
 async def list_marketplace_rias(
     query: str | None = Query(default=None, max_length=200),
@@ -61,8 +50,8 @@ async def list_marketplace_rias(
             verification_status=verification_status,
         )
         return {"items": items}
-    except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
+    except IAMSchemaNotReadyError:
+        return iam_schema_not_ready_response()
 
 
 @router.get("/investors")
@@ -83,8 +72,8 @@ async def list_marketplace_investors(
             location=location,
         )
         return {"items": items}
-    except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
+    except IAMSchemaNotReadyError:
+        return iam_schema_not_ready_response()
 
 
 @router.get("/investors/deck")
@@ -106,8 +95,8 @@ async def list_marketplace_investor_deck(
             deck=deck,
             location=location,
         )
-    except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
+    except IAMSchemaNotReadyError:
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -128,8 +117,8 @@ async def list_marketplace_investor_actions(
             limit=limit,
         )
         return {"items": items}
-    except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
+    except IAMSchemaNotReadyError:
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -149,8 +138,8 @@ async def record_marketplace_investor_action(
             target_user_id=payload.target_user_id,
             metadata=payload.metadata,
         )
-    except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
+    except IAMSchemaNotReadyError:
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -168,8 +157,8 @@ async def match_marketplace_contacts(
             limit=payload.limit,
         )
         return {"items": items}
-    except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
+    except IAMSchemaNotReadyError:
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -182,5 +171,5 @@ async def get_marketplace_ria(ria_id: str):
         if profile is None:
             raise HTTPException(status_code=404, detail="RIA profile not found")
         return profile
-    except IAMSchemaNotReadyError as exc:
-        return _iam_schema_not_ready_response(str(exc))
+    except IAMSchemaNotReadyError:
+        return iam_schema_not_ready_response()

@@ -418,7 +418,10 @@ def test_ria_name_verification_route_maps_stage1_lookup(monkeypatch):
 def test_marketplace_schema_not_ready_returns_503(monkeypatch):
     async def _mock_search(self, **kwargs):  # noqa: ANN003
         _ = kwargs
-        raise IAMSchemaNotReadyError("IAM schema is not ready")
+        raise IAMSchemaNotReadyError(
+            "IAM schema is not ready. Run `python db/migrate.py --iam` and "
+            "`python db/verify/verify_iam_schema.py`."
+        )
 
     monkeypatch.setattr(RIAIAMService, "search_marketplace_rias", _mock_search)
 
@@ -427,7 +430,14 @@ def test_marketplace_schema_not_ready_returns_503(monkeypatch):
 
     assert response.status_code == 503
     payload = response.json()
-    assert payload["code"] == "IAM_SCHEMA_NOT_READY"
+    assert payload == {
+        "error": "RIA verification service is temporarily unavailable",
+        "code": "IAM_SCHEMA_NOT_READY",
+    }
+    assert "hint" not in payload
+    assert "db/migrate.py" not in response.text
+    assert "verify_iam_schema.py" not in response.text
+    assert "--iam" not in response.text
 
 
 def test_ria_picks_returns_only_active_package(monkeypatch):
