@@ -14,6 +14,7 @@ import { usePathname } from "next/navigation";
 import { Bot } from "lucide-react";
 
 import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
+import { AgentVoiceFloatingIndicator } from "@/components/agent/agent-voice-floating-indicator";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { ROUTES, isRiaActionBarRoute } from "@/lib/navigation/routes";
@@ -132,8 +133,12 @@ function AgentPopoverSurface() {
     }, 120);
   }, [minimizeAgent]);
 
-  if (!canShowAgent) {
+  if (!isAuthenticated) {
     return null;
+  }
+
+  if (!canShowAgent) {
+    return <AgentVoiceFloatingIndicator onClick={openAgent} />;
   }
 
   return (
@@ -197,6 +202,8 @@ function AgentPopoverSurface() {
           <span className="hidden text-sm font-medium sm:inline">Agent</span>
         </Button>
       ) : null}
+
+      <AgentVoiceFloatingIndicator onClick={openAgent} />
     </>
   );
 }
