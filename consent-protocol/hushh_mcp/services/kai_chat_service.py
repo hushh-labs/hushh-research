@@ -758,10 +758,16 @@ class KaiChatService:
         user_id: str,
         conversation_id: Optional[str],
     ) -> Conversation:
-        """Get existing conversation or create a new one."""
+        """Get existing conversation or create a new one.
+
+        The caller-supplied conversation_id is verified against the requesting
+        user_id before use. An ID that belongs to a different user is silently
+        ignored and a new conversation is created, so that neither the existence
+        of the ID nor its ownership is revealed to the caller.
+        """
         if conversation_id:
             conversation = await self.chat_db.get_conversation(conversation_id)
-            if conversation:
+            if conversation and conversation.user_id == user_id:
                 return conversation
 
         # Create new conversation
