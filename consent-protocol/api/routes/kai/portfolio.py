@@ -26,7 +26,17 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Path, Query, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 

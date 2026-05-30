@@ -5,13 +5,13 @@ CWE-400 bounds tests for kai/portfolio.py route parameters.
 Verifies that oversized path, query, and form params are rejected with 422
 before any business logic is reached.
 """
+
 import pytest
-from unittest.mock import AsyncMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.routes.kai import portfolio as portfolio_mod
 from api import middleware as api_middleware
+from api.routes.kai import portfolio as portfolio_mod
 
 
 def _stub_auth():
