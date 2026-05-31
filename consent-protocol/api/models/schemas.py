@@ -1,4 +1,7 @@
-# api/models/schemas.py
+from datetime import datetime          # ← ADD THIS
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field  # ← ADD Field
 """
 Pydantic models for FastAPI request/response validation.
 
@@ -129,3 +132,30 @@ class HistoryRequest(BaseModel):
     userId: str
     page: int = 1
     limit: int = 20
+
+class ReasoningStep(BaseModel):
+    agent_id: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    intent: str
+    thought: str
+    action_taken: Optional[str] = None
+    observation: Optional[str] = None
+    confidence_score: float
+
+class ReasoningStep(BaseModel):
+    agent_id: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    intent: str
+    thought: str
+    action_taken: Optional[str] = None
+    observation: Optional[str] = None
+    confidence_score: float
+
+class ReasoningStep(BaseModel):        # ← KEEP ONLY ONE definition
+    agent_id: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    intent: str
+    thought: str
+    action_taken: Optional[str] = None
+    observation: Optional[str] = None
+    confidence_score: float
