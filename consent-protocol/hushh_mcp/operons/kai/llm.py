@@ -808,10 +808,10 @@ async def stream_gemini_response(
     This is more reliable than async iteration which may not yield correctly.
     """
     if not _require_gemini_ready():
-        logger.error("[Gemini Streaming] No client configured!")
+        logger.error("[Gemini Streaming] No client configured: %s", _gemini_unavailable_reason)
         yield {
             "type": "error",
-            "message": _gemini_unavailable_reason or "Gemini client not configured",
+            "message": "The analysis service is temporarily unavailable.",
         }
         return
 
@@ -898,7 +898,7 @@ async def stream_gemini_response(
                                     "token_source": "response",
                                 }
                     except Exception as e:
-                        logger.warning(f"[Gemini Streaming] Skipped chunk for {agent_name}: {e}")
+                        logger.warning("[Gemini Streaming] Skipped chunk for %s: %s", agent_name, e)
                         continue
 
             yield {
@@ -906,7 +906,7 @@ async def stream_gemini_response(
                 "text": full_text,
                 "agent": agent_name,
             }
-            logger.info(f"[Gemini Streaming] Complete for {agent_name}, {token_count} tokens")
+            logger.info("[Gemini Streaming] Complete for %s, %s tokens", agent_name, token_count)
             return
         except Exception as e:
             retryable = _is_retryable_stream_error(e)
@@ -923,10 +923,10 @@ async def stream_gemini_response(
                 await asyncio.sleep(delay_seconds)
                 continue
 
-            logger.error(f"[Gemini Streaming] Error for {agent_name}: {e}", exc_info=True)
+            logger.error("[Gemini Streaming] Error for %s: %s", agent_name, e, exc_info=True)
             yield {
                 "type": "error",
-                "message": str(e),
+                "message": "Streaming analysis encountered an internal error.",
                 "agent": agent_name,
             }
             return
@@ -949,14 +949,16 @@ async def analyze_fundamental_streaming(
     valid, reason, token = validate_token(consent_token, ConsentScope("agent.kai.analyze"))
 
     if not valid:
-        yield {"type": "error", "message": f"Permission denied: {reason}"}
+        logger.warning("[Fundamental Streaming] Consent validation failed for %s: %s", ticker, reason)
+        yield {"type": "error", "message": "Consent token is invalid or insufficient for this operation."}
         return
 
     if not _require_gemini_ready():
-        yield {"type": "error", "message": _gemini_unavailable_reason or "Gemini unavailable"}
+        logger.warning("[Fundamental Streaming] Gemini not ready for %s", ticker)
+        yield {"type": "error", "message": "The analysis service is temporarily unavailable."}
         return
 
-    logger.info(f"[Fundamental Streaming] Starting for {ticker}")
+    logger.info("[Fundamental Streaming] Starting for %s", ticker)
 
     # Build context (same as non-streaming version)
     latest_10k = sec_data.get("latest_10k", {})

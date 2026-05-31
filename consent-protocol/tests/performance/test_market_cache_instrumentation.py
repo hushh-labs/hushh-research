@@ -12,7 +12,6 @@ import pytest
 
 from hushh_mcp.services.market_insights_cache import MarketInsightsCache
 
-
 LOGGER_NAME = "hushh_mcp.services.market_insights_cache"
 
 
