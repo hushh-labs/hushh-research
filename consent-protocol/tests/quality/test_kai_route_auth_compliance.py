@@ -56,6 +56,31 @@ KAI_AUTH_EXPECTATIONS = [
         "require_vault_owner_token",
     ),
     (
+        "api/routes/kai/agent_chat.py",
+        '@router.post("/agent/chat/stream"',
+        "require_vault_owner_token",
+    ),
+    (
+        "api/routes/kai/agent_chat.py",
+        '@router.get("/agent/chat/conversations/{user_id}"',
+        "require_vault_owner_token",
+    ),
+    (
+        "api/routes/kai/agent_chat.py",
+        '@router.get("/agent/chat/history/{conversation_id}"',
+        "require_vault_owner_token",
+    ),
+    (
+        "api/routes/kai/agent_voice.py",
+        '@router.post("/agent/voice/stt"',
+        "require_vault_owner_token",
+    ),
+    (
+        "api/routes/kai/agent_voice.py",
+        '@router.post("/agent/voice/tts"',
+        "require_vault_owner_token",
+    ),
+    (
         "api/routes/kai/gmail.py",
         '@router.get("/gmail/receipts/{user_id}")',
         "require_vault_owner_token",

@@ -192,6 +192,10 @@ export const Navbar = () => {
     ? "profile"
     : normalizedPathname === ROUTES.ONE_KYC
     ? "profile"
+    : normalizedPathname.startsWith(ROUTES.AGENT)
+    ? activePersona === "ria"
+      ? activeRiaRouteTabFromPath(normalizedPathname)
+      : activeKaiRouteTabFromPath(normalizedPathname)
     : activePersona === "ria"
     ? activeRiaRouteTabFromPath(normalizedPathname)
     : activeKaiRouteTabFromPath(normalizedPathname);

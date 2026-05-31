@@ -20,6 +20,61 @@ const AVAILABLE_SERVICES: { label: string; icon: LucideIcon }[] = [
 
 const FEE_OPTIONS = ["Fee-only", "AUM %", "Flat", "Hourly"];
 
+function GroupShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="overflow-hidden rounded-[24px] border border-border/60 bg-card/80 shadow-[0_12px_34px_rgba(15,23,42,0.06)] backdrop-blur dark:bg-card/55 dark:shadow-none">
+      {children}
+    </div>
+  );
+}
+
+function Divider() {
+  return <div className="ml-4 h-px bg-border/50 sm:ml-5" />;
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+      {children}
+    </p>
+  );
+}
+
+function TextRow({
+  label,
+  value,
+  onChange,
+  placeholder,
+  inputMode,
+  prefix,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  inputMode?: "numeric" | "text";
+  prefix?: string;
+}) {
+  return (
+    <label className="flex min-h-[54px] items-center gap-4 px-4 py-2 sm:px-5">
+      <span className="shrink-0 text-[15px] text-muted-foreground">{label}</span>
+      <span className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1">
+        {prefix ? (
+          <span className="text-[15px] text-muted-foreground">{prefix}</span>
+        ) : null}
+        <input
+          type="text"
+          inputMode={inputMode}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          className="min-w-0 flex-1 bg-transparent text-right text-[15px] text-foreground outline-none placeholder:text-muted-foreground/55"
+        />
+      </span>
+    </label>
+  );
+}
+
 export function OnboardingStepServices({
   servicesOffered,
   feeStructure,
@@ -55,12 +110,7 @@ export function OnboardingStepServices({
   onFullStreetAddressChange: (value: string) => void;
   onPinZipChange: (value: string) => void;
 }) {
-  const mapAddress = [
-    fullStreetAddress,
-    areaLocality,
-    city,
-    pinZip,
-  ]
+  const mapAddress = [fullStreetAddress, areaLocality, city, pinZip]
     .map((part) => part.trim())
     .filter(Boolean)
     .join(", ");
@@ -70,48 +120,49 @@ export function OnboardingStepServices({
 
   function toggleService(label: string) {
     if (servicesOffered.includes(label)) {
-      onServicesChange(servicesOffered.filter((s) => s !== label));
-    } else {
-      onServicesChange([...servicesOffered, label]);
+      onServicesChange(servicesOffered.filter((service) => service !== label));
+      return;
     }
+    onServicesChange([...servicesOffered, label]);
   }
 
   function toggleFee(fee: string) {
     if (feeStructure.includes(fee)) {
-      onFeeStructureChange(feeStructure.filter((f) => f !== fee));
-    } else {
-      onFeeStructureChange([...feeStructure, fee]);
+      onFeeStructureChange(feeStructure.filter((item) => item !== fee));
+      return;
     }
+    onFeeStructureChange([...feeStructure, fee]);
   }
 
   return (
     <div className="space-y-6">
       <div className="space-y-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-          Services
-        </p>
-        <div className="grid grid-cols-2 gap-3">
+        <SectionLabel>Services</SectionLabel>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {AVAILABLE_SERVICES.map(({ label, icon: Icon }) => {
             const selected = servicesOffered.includes(label);
             return (
               <button
                 key={label}
                 type="button"
+                aria-pressed={selected}
                 onClick={() => toggleService(label)}
                 className={cn(
-                  "rounded-[20px] border p-4 text-center cursor-pointer transition-colors",
+                  "flex min-h-[82px] items-center gap-3 rounded-[22px] border px-4 py-3 text-left transition-colors",
                   selected
-                    ? "border-[#0071E3] bg-[#0071E3]/5"
-                    : "border-border/70 bg-background/75 hover:bg-muted/20"
+                    ? "border-primary/55 bg-primary/10 text-primary"
+                    : "border-border/60 bg-card/80 text-foreground hover:bg-muted/45 dark:bg-card/55"
                 )}
               >
-                <Icon
+                <span
                   className={cn(
-                    "mx-auto mb-2 h-5 w-5",
-                    selected ? "text-[#0071E3]" : "text-muted-foreground"
+                    "flex h-10 w-10 shrink-0 items-center justify-center rounded-[13px]",
+                    selected ? "bg-primary/15" : "bg-muted/55 text-muted-foreground"
                   )}
-                />
-                <span className="text-sm font-medium text-foreground">
+                >
+                  <Icon className="h-5 w-5" />
+                </span>
+                <span className="min-w-0 text-[15px] font-semibold leading-5">
                   {label}
                 </span>
               </button>
@@ -121,9 +172,7 @@ export function OnboardingStepServices({
       </div>
 
       <div className="space-y-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-          Fee Structure
-        </p>
+        <SectionLabel>Fee Structure</SectionLabel>
         <div className="flex flex-wrap gap-2">
           {FEE_OPTIONS.map((fee) => {
             const selected = feeStructure.includes(fee);
@@ -131,12 +180,13 @@ export function OnboardingStepServices({
               <button
                 key={fee}
                 type="button"
+                aria-pressed={selected}
                 onClick={() => toggleFee(fee)}
                 className={cn(
-                  "rounded-full border px-4 py-2 text-sm cursor-pointer transition-colors",
+                  "rounded-full border px-4 py-2 text-[15px] font-medium transition-colors",
                   selected
-                    ? "bg-[#0071E3] text-white border-[#0071E3]"
-                    : "border-border/70 text-foreground hover:bg-muted/20"
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border/60 bg-card/70 text-foreground hover:bg-muted/45 dark:bg-card/45"
                 )}
               >
                 {fee}
@@ -146,106 +196,69 @@ export function OnboardingStepServices({
         </div>
       </div>
 
-      <div className="space-y-1.5">
-        <label className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-          Min. Engagement
-        </label>
-        <div className="relative">
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-            $
-          </span>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={minEngagementAmount}
-            onChange={(e) => onMinEngagementChange(e.target.value)}
-            placeholder="250,000"
-            className="w-full rounded-[22px] border border-border/70 bg-background/75 py-2.5 pl-8 pr-4 text-sm text-foreground outline-none focus:border-[#0071E3] focus:ring-1 focus:ring-[#0071E3]/30 transition-colors"
-          />
-        </div>
-      </div>
+      <GroupShell>
+        <TextRow
+          label="Min. Engagement"
+          value={minEngagementAmount}
+          onChange={onMinEngagementChange}
+          placeholder="250,000"
+          inputMode="numeric"
+          prefix="$"
+        />
+      </GroupShell>
 
-      <div className="space-y-2">
-        <label className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-          Short Bio
-        </label>
+      <div className="space-y-3">
+        <SectionLabel>Short Bio</SectionLabel>
         <textarea
           rows={4}
           value={bio}
-          onChange={(e) => onBioChange(e.target.value)}
+          onChange={(event) => onBioChange(event.target.value)}
           placeholder="Briefly describe your approach..."
-          className="w-full rounded-[22px] border border-border/70 bg-background/75 px-4 py-3 text-sm text-foreground outline-none resize-none focus:border-[#0071E3] focus:ring-1 focus:ring-[#0071E3]/30 transition-colors"
+          className="w-full resize-none rounded-[24px] border border-border/60 bg-card/80 px-4 py-3 text-[15px] leading-6 text-foreground shadow-[0_12px_34px_rgba(15,23,42,0.06)] outline-none transition-colors placeholder:text-muted-foreground/55 focus:border-primary/70 dark:bg-card/55 dark:shadow-none"
         />
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[#0071E3]/30 text-[#0071E3] text-sm px-3 py-1.5 cursor-pointer hover:bg-[#0071E3]/5 transition-colors"
+          className="inline-flex min-h-9 items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3.5 text-sm font-medium text-primary transition-colors hover:bg-primary/15"
         >
           <Sparkles className="h-3.5 w-3.5" />
-          Ask Kai to generate a bio based on your self...
+          Ask Kai to draft a bio
         </button>
       </div>
 
-      <div className="space-y-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-          Business Location
-        </p>
-
-        <div className="space-y-1.5">
-          <label className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-            Full Street Address
-          </label>
-          <input
-            type="text"
+      <div className="space-y-3">
+        <SectionLabel>Business Location</SectionLabel>
+        <GroupShell>
+          <TextRow
+            label="Street"
             value={fullStreetAddress}
-            onChange={(e) => onFullStreetAddressChange(e.target.value)}
+            onChange={onFullStreetAddressChange}
             placeholder="Building, floor, street"
-            className="h-11 w-full rounded-[22px] border border-border/70 bg-background/75 px-4 text-sm text-foreground outline-none focus:border-[#0071E3] focus:ring-1 focus:ring-[#0071E3]/30 transition-colors"
           />
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-              Area / Locality
-            </label>
-            <input
-              type="text"
-              value={areaLocality}
-              onChange={(e) => onAreaLocalityChange(e.target.value)}
-              placeholder="Downtown, Mission District"
-              className="h-11 w-full rounded-[22px] border border-border/70 bg-background/75 px-4 text-sm text-foreground outline-none focus:border-[#0071E3] focus:ring-1 focus:ring-[#0071E3]/30 transition-colors"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-              Business Location
-            </label>
-            <input
-              type="text"
-              value={city}
-              onChange={(e) => onCityChange(e.target.value)}
-              placeholder="City"
-              className="h-11 w-full rounded-[22px] border border-border/70 bg-background/75 px-4 text-sm text-foreground outline-none focus:border-[#0071E3] focus:ring-1 focus:ring-[#0071E3]/30 transition-colors"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <label className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-            Pin / ZIP
-          </label>
-          <input
-            type="text"
-            inputMode="numeric"
+          <Divider />
+          <TextRow
+            label="Area"
+            value={areaLocality}
+            onChange={onAreaLocalityChange}
+            placeholder="Area or state"
+          />
+          <Divider />
+          <TextRow
+            label="City"
+            value={city}
+            onChange={onCityChange}
+            placeholder="City"
+          />
+          <Divider />
+          <TextRow
+            label="Pin / ZIP"
             value={pinZip}
-            onChange={(e) => onPinZipChange(e.target.value)}
-            placeholder="30144"
-            className="h-11 w-full rounded-[22px] border border-border/70 bg-background/75 px-4 text-sm text-foreground outline-none focus:border-[#0071E3] focus:ring-1 focus:ring-[#0071E3]/30 transition-colors"
+            onChange={onPinZipChange}
+            placeholder="PIN / ZIP"
+            inputMode="numeric"
           />
-        </div>
+        </GroupShell>
 
-        <div className="relative h-44 overflow-hidden rounded-[22px] border border-border/70 bg-muted/30">
+        <div className="relative h-44 overflow-hidden rounded-[24px] border border-border/60 bg-card/70 dark:bg-card/45">
           {mapPreviewSrc ? (
             <iframe
               title="Business location map preview"
@@ -255,7 +268,7 @@ export function OnboardingStepServices({
               className="h-full w-full border-0"
             />
           ) : (
-            <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+            <div className="flex h-full items-center justify-center gap-2 text-[15px] text-muted-foreground">
               <MapPin className="h-4 w-4" />
               <span>Map preview</span>
             </div>

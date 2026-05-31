@@ -315,7 +315,30 @@ export function DataTable<TData, TValue>({
                       header.column.getCanSort() ? "cursor-pointer select-none" : ""
                     )}
                     onClick={header.column.getToggleSortingHandler()}
-                  >
+                    tabIndex={header.column.getCanSort() ? 0 : undefined}
+                    role={header.column.getCanSort() ? "button" : undefined}
+                    aria-sort={
+                      header.column.getCanSort()
+                        ? header.column.getIsSorted() === "asc"
+                          ? "ascending"
+                          : header.column.getIsSorted() === "desc"
+                            ? "descending"
+                            : "none"
+                        : undefined
+                    }
+                    onKeyDown={(e) => {
+                      if (
+                        header.column.getCanSort() &&
+                        (e.key === "Enter" || e.key === " ")
+                      ) {
+                        e.preventDefault();
+
+                        header.column.toggleSorting(
+                          header.column.getIsSorted() === "asc"
+                        );
+                      }
+                    }}
+                    >
                     {header.isPlaceholder
                       ? null
                       : flexRender(
@@ -413,11 +436,15 @@ export function DataTable<TData, TValue>({
             </div>
 
             <Pagination className="justify-end">
-              <PaginationContent data-no-route-swipe>
+              <PaginationContent
+                data-no-route-swipe
+                className="flex-wrap gap-y-1"
+              >
                 <PaginationItem>
                   <PaginationPrevious
                     href="#"
                     aria-disabled={!table.getCanPreviousPage()}
+                    tabIndex={!table.getCanPreviousPage() ? -1 : undefined}
                     className={cn(
                       !table.getCanPreviousPage() && "pointer-events-none opacity-50"
                     )}
@@ -431,11 +458,19 @@ export function DataTable<TData, TValue>({
                 </PaginationItem>
                 {paginationItems.map((item, index) =>
                   item === "ellipsis" ? (
-                    <PaginationItem key={`ellipsis-${index}`}>
+                    <PaginationItem
+                      key={`ellipsis-${index}`}
+                      className="hidden sm:flex"
+                    >
                       <PaginationEllipsis />
                     </PaginationItem>
                   ) : (
-                    <PaginationItem key={item}>
+                    <PaginationItem
+                      key={item}
+                      className={
+                        item === currentPage ? undefined : "hidden sm:flex"
+                      }
+                    >
                       <PaginationLink
                         href="#"
                         isActive={item === currentPage}
@@ -453,6 +488,7 @@ export function DataTable<TData, TValue>({
                   <PaginationNext
                     href="#"
                     aria-disabled={!table.getCanNextPage()}
+                    tabIndex={!table.getCanNextPage() ? -1 : undefined}
                     className={cn(!table.getCanNextPage() && "pointer-events-none opacity-50")}
                     onClick={(event) => {
                       event.preventDefault();

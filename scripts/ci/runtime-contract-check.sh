@@ -4,6 +4,7 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 backend_helper="$REPO_ROOT/hushh-webapp/app/api/_utils/backend.ts"
+backend_cloudbuild="$REPO_ROOT/deploy/backend.cloudbuild.yaml"
 frontend_cloudbuild="$REPO_ROOT/deploy/frontend.cloudbuild.yaml"
 ria_proxy_route="$REPO_ROOT/hushh-webapp/app/api/ria/[...path]/route.ts"
 
@@ -60,6 +61,51 @@ fi
 
 if [ "$((frontend_timeout_seconds * 1000))" -le "$onboarding_proxy_timeout_ms" ]; then
   echo "❌ frontend Cloud Run timeout must be greater than the RIA onboarding proxy timeout."
+  exit 1
+fi
+
+if ! grep -q 'RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS=${_RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS}' "$backend_cloudbuild"; then
+  echo "❌ backend Cloud Run deploy must inject RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS."
+  exit 1
+fi
+
+crd_scraper_timeout_seconds="$(
+  grep -E '^[[:space:]]*_RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS:' "$backend_cloudbuild" |
+    head -n 1 |
+    sed -E 's/.*"([0-9]+)".*/\1/'
+)"
+if ! [[ "$crd_scraper_timeout_seconds" =~ ^[0-9]+$ ]]; then
+  echo "❌ RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS substitution must be a whole number of seconds."
+  exit 1
+fi
+
+if [ "$crd_scraper_timeout_seconds" -lt 60 ]; then
+  echo "❌ RIA Intelligence provider client timeout must be at least 60s."
+  exit 1
+fi
+
+if ! grep -q 'RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS=${_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS}' "$backend_cloudbuild"; then
+  echo "❌ backend Cloud Run deploy must inject RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS."
+  exit 1
+fi
+
+provider_timeout_seconds="$(
+  grep -E '^[[:space:]]*_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS:' "$backend_cloudbuild" |
+    head -n 1 |
+    sed -E 's/.*"([0-9]+)".*/\1/'
+)"
+if ! [[ "$provider_timeout_seconds" =~ ^[0-9]+$ ]]; then
+  echo "❌ RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS substitution must be a whole number of seconds."
+  exit 1
+fi
+
+if [ "$provider_timeout_seconds" -lt "$crd_scraper_timeout_seconds" ]; then
+  echo "❌ RIA onboarding provider timeout must be >= the provider client timeout."
+  exit 1
+fi
+
+if [ "$((provider_timeout_seconds * 1000))" -ge "$onboarding_proxy_timeout_ms" ]; then
+  echo "❌ RIA onboarding provider timeout must stay below the frontend proxy timeout."
   exit 1
 fi
 

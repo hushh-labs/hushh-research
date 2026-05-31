@@ -19,13 +19,24 @@ import io
 import json
 import logging
 import math
+import os
 import re
 import time
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -43,7 +54,9 @@ from api.routes.kai.import_run_manager import (
 from hushh_mcp.constants import (
     KAI_LLM_TEMPERATURE,
     KAI_LLM_THINKING_ENABLED,
+    KAI_PORTFOLIO_IMPORT_ENABLE_THINKING,
     KAI_PORTFOLIO_IMPORT_MAX_OUTPUT_TOKENS,
+    KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL,
     KAI_PORTFOLIO_IMPORT_THINKING_LEVEL,
 )
 from hushh_mcp.kai_import import (
@@ -110,6 +123,17 @@ _HOLDING_KEY_HINTS = frozenset(
         "security_type",
     }
 )
+
+
+def _resolve_portfolio_import_model() -> str:
+    """Resolve operator override while keeping the documented Flash default."""
+    for key in ("KAI_PORTFOLIO_IMPORT_MODEL", "KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL"):
+        candidate = os.getenv(key, "").strip()
+        if candidate:
+            return candidate
+    return KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL
+
+
 _POSITIONS_PAGE_KEYWORDS = (
     "holdings",
     "positions",
@@ -2036,7 +2060,7 @@ def _build_pick_rationale(*, tier: str, sector: str, dominant_sector: Optional[s
 @router.post("/portfolio/import", response_model=PortfolioImportResponse)
 async def import_portfolio(
     file: UploadFile,
-    user_id: str = Form(..., description="User's ID"),
+    user_id: str = Form(..., max_length=128, description="User's ID"),
     token_data: dict = Depends(require_vault_owner_token),
 ) -> PortfolioImportResponse:
     """
@@ -2134,7 +2158,7 @@ async def import_portfolio(
 
 @router.get("/portfolio/summary/{user_id}", response_model=PortfolioSummaryResponse)
 async def get_portfolio_summary(
-    user_id: str,
+    user_id: str = Path(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ) -> PortfolioSummaryResponse:
     """
@@ -2189,9 +2213,10 @@ async def get_portfolio_summary(
 
 @router.get("/dashboard/profile-picks/{user_id}", response_model=DashboardProfilePicksResponse)
 async def get_dashboard_profile_picks(
-    user_id: str,
+    user_id: str = Path(..., max_length=128),
     symbols: Optional[str] = Query(
         default=None,
+        max_length=2048,
         description="Optional comma-separated ticker symbols from current holdings context.",
     ),
     limit: int = Query(default=4, ge=1, le=_MAX_PROFILE_PICKS),
@@ -2635,13 +2660,8 @@ async def _portfolio_import_stream_generator(
     from google.genai import types
     from google.genai.types import HttpOptions
 
-    from hushh_mcp.constants import (
-        KAI_PORTFOLIO_IMPORT_ENABLE_THINKING,
-        KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL,
-    )
-
     thinking_enabled = KAI_PORTFOLIO_IMPORT_ENABLE_THINKING and KAI_LLM_THINKING_ENABLED
-    extraction_model = KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL
+    extraction_model = _resolve_portfolio_import_model()
 
     try:
         async with asyncio.timeout(hard_timeout_seconds):
@@ -2753,7 +2773,7 @@ async def _portfolio_import_stream_generator(
             )
             parse_diagnostics["pass_token_counts"]["extract_full"] = {
                 "chunks": extract_full_result.get("chunk_count", 0),
-                "thoughts": 0,
+                "thoughts": extract_full_result.get("thought_count", 0),
             }
             parse_diagnostics["pass_content_sources"]["extract_full"] = extract_full_result.get(
                 "source"
@@ -2949,7 +2969,7 @@ async def _portfolio_import_stream_generator(
             parse_diagnostics["combined_stream"] = {
                 "response_chars": len(str(extract_full_result.get("text") or "")),
                 "chunk_count": int(extract_full_result.get("chunk_count") or 0),
-                "thought_count": 0,
+                "thought_count": int(extract_full_result.get("thought_count") or 0),
             }
 
             quality_report = build_holdings_quality_report_v2(
@@ -3118,7 +3138,7 @@ async def _portfolio_import_stream_generator(
                     "success": True,
                     "parse_fallback": parse_fallback_used,
                     "quality_gate": quality_gate,
-                    "thought_count": 0,
+                    "thought_count": int(extract_full_result.get("thought_count") or 0),
                     "holdings_raw_count": raw_count,
                     "holdings_validated_count": len(validated_holdings),
                     "holdings_aggregated_count": len(holdings),
@@ -3166,10 +3186,17 @@ def _portfolio_import_stream_factory(
     )
 
 
+class _AlwaysConnectedImportStreamRequest:
+    """Disconnect shim for initial upload streams proxied through Next.js."""
+
+    async def is_disconnected(self) -> bool:
+        return False
+
+
 @router.post("/portfolio/import/run/start")
 async def start_portfolio_import_run(
     file: UploadFile,
-    user_id: str = Form(..., description="User's ID"),
+    user_id: str = Form(..., max_length=128, description="User's ID"),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data["user_id"] != user_id:
@@ -3217,7 +3244,7 @@ async def start_portfolio_import_run(
 
 @router.get("/portfolio/import/run/active")
 async def get_active_portfolio_import_run(
-    user_id: str,
+    user_id: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data["user_id"] != user_id:
@@ -3231,8 +3258,8 @@ async def get_active_portfolio_import_run(
 @router.get("/portfolio/import/run/{run_id}/stream")
 async def stream_portfolio_import_run(
     request: Request,
-    run_id: str,
-    user_id: str,
+    run_id: str = Path(..., max_length=128),
+    user_id: str = Query(..., max_length=128),
     cursor: Optional[int] = 0,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -3275,8 +3302,8 @@ async def stream_portfolio_import_run(
 
 @router.post("/portfolio/import/run/{run_id}/cancel")
 async def cancel_portfolio_import_run(
-    run_id: str,
-    user_id: str,
+    run_id: str = Path(..., max_length=128),
+    user_id: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data["user_id"] != user_id:
@@ -3300,7 +3327,7 @@ async def cancel_portfolio_import_run(
 async def import_portfolio_stream(
     request: Request,
     file: UploadFile,
-    user_id: str = Form(..., description="User's ID"),
+    user_id: str = Form(..., max_length=128, description="User's ID"),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """Backward-compatible import stream endpoint.
@@ -3344,6 +3371,6 @@ async def import_portfolio_stream(
         _IMPORT_RUN_MANAGER.stream_run_events(
             run=run,
             start_cursor=0,
-            request=request,
+            request=_AlwaysConnectedImportStreamRequest(),
         )
     )

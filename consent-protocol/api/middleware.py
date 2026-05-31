@@ -7,7 +7,7 @@ Provides reusable dependency functions for route protection:
 """
 
 import logging
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from fastapi import BackgroundTasks, Header, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
@@ -33,7 +33,7 @@ def _auth_error(detail: str) -> HTTPException:
 
 
 def _extract_token(
-    value: Optional[str],
+    value: Optional[str] | Any,
     *,
     allow_raw: bool = False,
     missing_detail: str = "Missing Authorization header",
@@ -42,7 +42,7 @@ def _extract_token(
     Centralized token extraction. Forces strict 'Bearer ' compliance by default,
     but allows raw JWTs for custom headers when explicitly requested.
     """
-    if not value or not value.strip():
+    if not isinstance(value, str) or not value.strip():
         raise _auth_error(missing_detail)
 
     stripped = value.strip()
@@ -59,7 +59,14 @@ def _extract_token(
 
 
 def _token_data_dict(token: str, token_obj) -> dict:
-    scope_value = token_obj.scope_str if token_obj.scope_str else token_obj.scope.value
+    raw_scope = getattr(token_obj, "scope", "")
+    scope_value = (
+        token_obj.scope_str
+        if getattr(token_obj, "scope_str", None)
+        else raw_scope.value
+        if hasattr(raw_scope, "value")
+        else str(raw_scope)
+    )
     return {
         "user_id": token_obj.user_id,
         "agent_id": token_obj.agent_id,
@@ -197,7 +204,9 @@ async def require_vault_owner_token(
         HTTPException 401 if token is missing or invalid
         HTTPException 403 if token scope is insufficient
     """
-    header_value = hushh_consent if hushh_consent is not None else authorization
+    header_value = (
+        hushh_consent if isinstance(hushh_consent, str) and hushh_consent.strip() else authorization
+    )
 
     # Explicitly allow raw tokens here to support the custom X-Hushh-Consent header
     token = _extract_token(

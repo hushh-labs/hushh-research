@@ -53,12 +53,79 @@ export interface MarketplaceRia {
 }
 
 export interface MarketplaceInvestor {
-  user_id: string;
+  id?: string | null;
+  source_type?: "hushh_user" | "public_sec" | string | null;
+  user_id?: string | null;
+  public_profile_id?: string | number | null;
   display_name: string;
   headline?: string | null;
   location_hint?: string | null;
   strategy_summary?: string | null;
+  connectable?: boolean | null;
+  admission_status?: string | null;
+  curation_tier?: string | null;
+  quality_score?: number | null;
+  curation_reason?: string | null;
+  actions?: string[];
+  evidence?: {
+    source_type?: string | null;
+    confidence?: string | null;
+    sources?: string[];
+    source_urls?: string[];
+    forms?: Array<{ form?: string | null; last_filed_at?: string | null }>;
+    cik?: string | null;
+    investor_type?: string | null;
+    is_insider?: boolean | null;
+    insider_company_ticker?: string | null;
+    business_address?: Record<string, unknown>;
+    updated_at?: string | null;
+    metadata?: Record<string, unknown>;
+  } | null;
   is_test_profile?: boolean;
+}
+
+export type MarketplaceInvestorActionName =
+  | "view_more"
+  | "pass"
+  | "shortlist"
+  | "connect_request";
+
+export type MarketplaceInvestorActionStatus =
+  | "viewed"
+  | "passed"
+  | "shortlisted"
+  | "connect_requested";
+
+export interface MarketplaceInvestorActionRecord {
+  id: string;
+  actor_user_id: string;
+  ria_profile_id?: string | null;
+  source_type?: "hushh_user" | "public_sec" | string | null;
+  target_key?: string | null;
+  target_user_id?: string | null;
+  public_profile_id?: string | null;
+  action?: MarketplaceInvestorActionName | string | null;
+  status?: MarketplaceInvestorActionStatus | string | null;
+  profile?: MarketplaceInvestor | Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface MarketplaceInvestorDeckResponse {
+  items: MarketplaceInvestor[];
+  remaining_count: number;
+  handled_count: number;
+  deck_complete: boolean;
+}
+
+export interface MarketplaceContactMatch {
+  user_id: string;
+  kind: "ria" | "investor";
+  display_name: string;
+  headline?: string | null;
+  phone_last4?: string | null;
+  profile: MarketplaceRia | MarketplaceInvestor;
 }
 
 export interface RiaOnboardingStatus {
@@ -79,6 +146,22 @@ export interface RiaOnboardingStatus {
   legal_name?: string | null;
   finra_crd?: string | null;
   sec_iard?: string | null;
+  license_number?: string | null;
+  regulator?: string | null;
+  regulator_status?: string | null;
+  license_expiry_date?: string | null;
+  certifications?: string[];
+  onboarding_type?: string | null;
+  services_offered?: string[];
+  fee_structure?: string[];
+  min_engagement_amount?: number | null;
+  min_engagement_currency?: string | null;
+  business_city?: string | null;
+  business_area?: string | null;
+  business_address?: string | null;
+  business_pin_zip?: string | null;
+  business_latitude?: number | null;
+  business_longitude?: number | null;
   latest_verification_event?: {
     outcome: string;
     checked_at: string;
@@ -121,6 +204,11 @@ export interface RiaLicenseVerificationResult {
   certifications?: string[];
   city?: string | null;
   pin_zip?: string | null;
+  state?: string | null;
+  area_locality?: string | null;
+  full_street_address?: string | null;
+  business_address?: string | null;
+  official_location?: Record<string, unknown> | null;
   crd_number?: string | null;
   sec_number?: string | null;
   employment_history?: Array<Record<string, unknown>>;
@@ -134,6 +222,20 @@ export interface RiaLicenseVerificationResult {
   services_offered?: string[];
   fee_structure?: string[];
   min_engagement_amount?: number | string | null;
+  cache_hit?: boolean;
+  cache_ttl_seconds?: number;
+  cached_at?: string | null;
+  cache_expires_at?: string | null;
+}
+
+export interface RiaLicenseProfileRefreshResult {
+  updated: boolean;
+  status: "found" | "not_found" | "pending" | "error" | string;
+  message?: string | null;
+  ria_profile_id?: string | null;
+  applied_fields?: string[];
+  profile?: Partial<RiaOnboardingStatus> | null;
+  verification?: RiaLicenseVerificationResult | Record<string, unknown> | null;
 }
 
 export interface CrdScrapeJobResult {
@@ -1122,12 +1224,18 @@ export class RiaService {
   static async searchInvestors(params: {
     query?: string;
     limit?: number;
+    persona?: string;
+    deck?: string;
+    location?: string;
   }): Promise<MarketplaceInvestor[]> {
     const cache = CacheService.getInstance();
     const query = new URLSearchParams();
     if (params.query) query.set("query", params.query);
     if (typeof params.limit === "number")
       query.set("limit", String(params.limit));
+    if (params.persona) query.set("persona", params.persona);
+    if (params.deck) query.set("deck", params.deck);
+    if (params.location) query.set("location", params.location);
     const queryKey = query.toString() || "all";
     const cached = cache.get<MarketplaceInvestor[]>(
       CACHE_KEYS.MARKETPLACE_INVESTORS_SEARCH(queryKey),
@@ -1149,6 +1257,94 @@ export class RiaService {
       CACHE_TTL.MEDIUM,
     );
     return payload.items;
+  }
+
+  static async searchInvestorDeck(
+    idToken: string,
+    params: {
+      query?: string;
+      limit?: number;
+      persona?: string;
+      deck?: string;
+      location?: string;
+    },
+  ): Promise<MarketplaceInvestorDeckResponse> {
+    const query = new URLSearchParams();
+    if (params.query) query.set("query", params.query);
+    if (typeof params.limit === "number") {
+      query.set("limit", String(params.limit));
+    }
+    if (params.persona) query.set("persona", params.persona);
+    if (params.deck) query.set("deck", params.deck);
+    if (params.location) query.set("location", params.location);
+    const response = await authFetch(
+      `/api/marketplace/investors/deck?${query.toString()}`,
+      {
+        method: "GET",
+        idToken,
+      },
+    );
+    return toJsonOrThrow<MarketplaceInvestorDeckResponse>(response);
+  }
+
+  static async listInvestorActions(
+    idToken: string,
+    params: {
+      status?: MarketplaceInvestorActionStatus | string;
+      action?: MarketplaceInvestorActionName | string;
+      limit?: number;
+    } = {},
+  ): Promise<MarketplaceInvestorActionRecord[]> {
+    const query = new URLSearchParams();
+    if (params.status) query.set("status", params.status);
+    if (params.action) query.set("action", params.action);
+    if (typeof params.limit === "number")
+      query.set("limit", String(params.limit));
+    const response = await authFetch(
+      `/api/marketplace/investors/actions${query.toString() ? `?${query.toString()}` : ""}`,
+      {
+        method: "GET",
+        idToken,
+      },
+    );
+    const payload = await toJsonOrThrow<{
+      items: MarketplaceInvestorActionRecord[];
+    }>(response);
+    return payload.items;
+  }
+
+  static async recordInvestorAction(
+    idToken: string,
+    payload: {
+      action: MarketplaceInvestorActionName;
+      source_type?: "hushh_user" | "public_sec" | string | null;
+      public_profile_id?: string | number | null;
+      target_user_id?: string | null;
+      metadata?: Record<string, unknown>;
+    },
+  ): Promise<MarketplaceInvestorActionRecord> {
+    const response = await authFetch("/api/marketplace/investors/actions", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    return toJsonOrThrow<MarketplaceInvestorActionRecord>(response);
+  }
+
+  static async matchMarketplaceContacts(
+    idToken: string,
+    payload: {
+      phone_lookups: Array<{ hash: string; last4: string }>;
+      limit?: number;
+    },
+  ): Promise<MarketplaceContactMatch[]> {
+    const response = await authFetch("/api/marketplace/contacts/match", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    const parsed = await toJsonOrThrow<{ items: MarketplaceContactMatch[] }>(response);
+    return parsed.items || [];
   }
 
   static async getRiaPublicProfile(riaId: string): Promise<MarketplaceRia> {
@@ -1239,7 +1435,11 @@ export class RiaService {
 
   static async verifyOnboardingLicense(
     idToken: string,
-    payload: { license_number: string; regulator?: string },
+    payload: {
+      license_number: string;
+      regulator?: string;
+      force_live_verification?: boolean;
+    },
     options?: { signal?: AbortSignal },
   ): Promise<RiaLicenseVerificationResult> {
     const response = await authFetch("/api/ria/onboarding/verify-license", {
@@ -1249,6 +1449,24 @@ export class RiaService {
       signal: options?.signal,
     });
     return toJsonOrThrow<RiaLicenseVerificationResult>(response);
+  }
+
+  static async refreshLicenseProfile(
+    idToken: string,
+    payload: {
+      license_number: string;
+      regulator?: string;
+      force_live_verification?: boolean;
+    },
+    options?: { signal?: AbortSignal },
+  ): Promise<RiaLicenseProfileRefreshResult> {
+    const response = await authFetch("/api/ria/profile/refresh-license", {
+      method: "POST",
+      idToken,
+      body: payload,
+      signal: options?.signal,
+    });
+    return toJsonOrThrow<RiaLicenseProfileRefreshResult>(response);
   }
 
   static async getCrdScrapeJobStatus(
@@ -1919,9 +2137,7 @@ export class RiaService {
     return toJsonOrThrow(response);
   }
 
-  static async getRenaissanceAvoid(
-    idToken: string,
-  ): Promise<{
+  static async getRenaissanceAvoid(idToken: string): Promise<{
     items: Array<{
       ticker: string;
       company_name?: string;
@@ -1937,9 +2153,7 @@ export class RiaService {
     return toJsonOrThrow(response);
   }
 
-  static async getRenaissanceScreening(
-    idToken: string,
-  ): Promise<{
+  static async getRenaissanceScreening(idToken: string): Promise<{
     items: Array<{
       section: string;
       rule_index: number;
