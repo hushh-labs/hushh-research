@@ -51,4 +51,23 @@ describe("apiJson", () => {
       message: "Request failed: 500",
     });
   });
+    it("preserves fallback status message when detail has no safe message", async () => {
+    mockApiFetch.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          detail: {
+            traceback: "Internal database stack trace",
+            user_id: "usr_secret_123",
+          },
+        },
+        500
+      )
+    );
+
+    await expect(apiJson("/api/one/kyc/workflows")).rejects.toMatchObject({
+      name: "ApiError",
+      status: 500,
+      message: "Request failed: 500",
+    } satisfies Partial<ApiError>);
+  });
 });
