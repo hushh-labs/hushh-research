@@ -250,6 +250,10 @@ def validate_token(
         if not hmac.compare_digest(signature, expected_sig):
             return False, "Invalid signature", None
 
+        # Check expiry BEFORE scope so that an expired token with the wrong
+        # scope returns "Token expired" rather than "Scope mismatch".
+        # Returning scope information for an expired token leaks which scopes
+        # the token held to a caller who should only learn it is expired.
         if int(time.time() * 1000) >= int(expires_at_str):
             return False, "Token expired", None
 
@@ -295,7 +299,7 @@ def validate_token(
     except (ValueError, UnicodeDecodeError, binascii.Error) as e:
         return False, f"Malformed token: {str(e)}", None
     except Exception as e:
-        logger.error(f"Unexpected error during token validation: {e}", exc_info=True)
+        logger.error("Unexpected error during token validation: %s", e, exc_info=True)
         raise
 
 
