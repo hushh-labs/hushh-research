@@ -10,7 +10,7 @@ import logging
 import os
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
 from hushh_mcp.services.agent_voice_service import get_agent_voice_service
@@ -30,9 +30,9 @@ class AgentVoiceTranscriptionResponse(BaseModel):
 
 
 class AgentVoiceTTSRequest(BaseModel):
-    user_id: str
-    text: str
-    voice: str | None = None
+    user_id: str = Field(..., max_length=128)
+    text: str = Field(..., min_length=1, max_length=4096)
+    voice: str | None = Field(default=None, max_length=64)
 
 
 def _assert_user(token_data: dict, user_id: str) -> None:
@@ -59,7 +59,7 @@ def _ensure_agent_gemini_voice_enabled() -> None:
 
 @router.post("/agent/voice/stt", response_model=AgentVoiceTranscriptionResponse)
 async def transcribe_agent_voice(
-    user_id: str = Form(...),
+    user_id: str = Form(..., max_length=128),
     audio: UploadFile = File(...),
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -86,9 +86,10 @@ async def transcribe_agent_voice(
             mime_type=mime_type,
         )
     except RuntimeError as error:
+        logger.warning("agent_voice.stt_unavailable user_id=%s: %s", user_id, error)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(error),
+            detail="Agent voice transcription is temporarily unavailable.",
         ) from error
     except Exception as error:
         logger.exception("agent_voice.stt_failed user_id=%s: %s", user_id, error)
@@ -125,14 +126,16 @@ async def synthesize_agent_voice(
             voice=body.voice,
         )
     except ValueError as error:
+        logger.warning("agent_voice.tts_invalid user_id=%s: %s", body.user_id, error)
         raise HTTPException(
             status_code=422,
-            detail=str(error),
+            detail="Agent voice TTS input is invalid.",
         ) from error
     except RuntimeError as error:
+        logger.warning("agent_voice.tts_unavailable user_id=%s: %s", body.user_id, error)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(error),
+            detail="Agent voice TTS is temporarily unavailable.",
         ) from error
     except Exception as error:
         logger.exception("agent_voice.tts_failed user_id=%s: %s", body.user_id, error)
