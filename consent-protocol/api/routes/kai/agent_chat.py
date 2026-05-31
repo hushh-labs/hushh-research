@@ -26,9 +26,9 @@ router = APIRouter(tags=["Agent Chat"])
 
 
 class AgentChatStreamRequest(BaseModel):
-    user_id: str = Field(..., min_length=1)
+    user_id: str = Field(..., min_length=1, max_length=128)
     message: str = Field(..., min_length=1, max_length=8000)
-    conversation_id: Optional[str] = None
+    conversation_id: Optional[str] = Field(default=None, max_length=128)
     pkm_context: Optional[str] = Field(default=None, max_length=20000)
 
 
