@@ -411,7 +411,10 @@ class ConsentApprovalPayload(BaseModel):
     Integrated by Abdul Gaffar — canonical field-level validation logic.
     """
 
-    model_config = ConfigDict(extra="allow")
+    # Reject unknown fields with HTTP 422 rather than silently storing them.
+    # extra="allow" let callers inject arbitrary keys into __pydantic_extra__,
+    # which propagated to downstream DB writes and log entries (CWE-915 / DoS).
+    model_config = ConfigDict(extra="forbid")
 
     version: int = Field(default=1, ge=1, le=2)
 
@@ -436,6 +439,7 @@ class ConsentApprovalPayload(BaseModel):
     wrappedKeyIv: str | None = Field(default=None, max_length=512)
     wrappedKeyTag: str | None = Field(default=None, max_length=512)
     senderPublicKey: str | None = Field(default=None, max_length=4096)
+    connectorPublicKey: str | None = Field(default=None, max_length=8192)
     wrappingAlg: str | None = Field(default=None, max_length=64)
     connectorKeyId: str | None = Field(default=None, max_length=256)
     durationHours: int | None = Field(default=None, ge=1, le=8760)
