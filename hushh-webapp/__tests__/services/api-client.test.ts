@@ -30,7 +30,8 @@ describe("apiJson", () => {
         {
           detail: {
             code: "ONE_EMAIL_KYC_TEMPORARILY_UNAVAILABLE",
-            message: "One email KYC is temporarily unavailable. Please try again in a moment.",
+            message:
+              "One email KYC is temporarily unavailable. Please try again in a moment.",
           },
         },
         503
@@ -40,15 +41,29 @@ describe("apiJson", () => {
     await expect(apiJson("/api/one/kyc/workflows")).rejects.toMatchObject({
       name: "ApiError",
       status: 503,
-      message: "One email KYC is temporarily unavailable. Please try again in a moment.",
+      message:
+        "One email KYC is temporarily unavailable. Please try again in a moment.",
     } satisfies Partial<ApiError>);
   });
 
   it("falls back to the status code when the error payload has no readable message", async () => {
-    mockApiFetch.mockResolvedValueOnce(jsonResponse({ detail: { retryable: true } }, 500));
+    mockApiFetch.mockResolvedValueOnce(
+      jsonResponse({ detail: { retryable: true } }, 500)
+    );
 
     await expect(apiJson("/api/one/kyc/workflows")).rejects.toMatchObject({
       message: "Request failed: 500",
+    });
+  });
+
+  it("preserves null detail payload fallback messaging", async () => {
+    mockApiFetch.mockResolvedValueOnce(
+      jsonResponse({ detail: null }, 502)
+    );
+
+    await expect(apiJson("/api/one/kyc/workflows")).rejects.toMatchObject({
+      message: "Request failed: 502",
+      status: 502,
     });
   });
 });
