@@ -35,6 +35,8 @@ import {
 import {
   getOrCreateRequestId,
   REQUEST_ID_HEADER,
+  getOrCreateRequestTimestampMs,
+  REQUEST_TIMESTAMP_HEADER,
 } from "@/lib/observability/request-id";
 import { resolveRouteId } from "@/lib/observability/route-map";
 import {
@@ -288,6 +290,7 @@ async function apiFetch(
   const routeId =
     typeof window !== "undefined" ? resolveRouteId(window.location.pathname) : undefined;
   const requestId = getOrCreateRequestId(options.headers);
+  const requestTimestampMs = getOrCreateRequestTimestampMs(options.headers);
 
   const mergedHeaders: Record<string, string> = {};
   if (!(options.body instanceof FormData)) {
@@ -311,6 +314,7 @@ async function apiFetch(
     }
   }
   mergedHeaders[REQUEST_ID_HEADER] = requestId;
+  mergedHeaders[REQUEST_TIMESTAMP_HEADER] = String(requestTimestampMs);
 
   const getAuthorizationBearer = () => {
     const authorization =
@@ -638,6 +642,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
   const backend = transport.backendUrl || getEnvBackendUrl();
   const url = `${backend}${path}`;
   const requestId = getOrCreateRequestId(options.headers);
+  const requestTimestampMs = getOrCreateRequestTimestampMs(options.headers);
   const mergedHeaders: Record<string, string> = {};
   if (!(options.body instanceof FormData)) {
     mergedHeaders["Content-Type"] = "application/json";
@@ -660,6 +665,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
     }
   }
   mergedHeaders[REQUEST_ID_HEADER] = requestId;
+  mergedHeaders[REQUEST_TIMESTAMP_HEADER] = String(requestTimestampMs);
 
   const recordVoiceRequestMetric = (statusCode: number | null) => {
     trackApiRequestCompleted({
