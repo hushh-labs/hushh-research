@@ -9,6 +9,7 @@ or the IAM/PKM surface that consumes this data.
 from __future__ import annotations
 
 import re
+from dataclasses import FrozenInstanceError
 
 import pytest
 
@@ -143,6 +144,11 @@ class TestSubintentRegistryStructure:
         for entry in FINANCIAL_SUBINTENT_REGISTRY:
             assert entry.status
 
+    def test_subintent_entry_is_frozen(self) -> None:
+        entry = FINANCIAL_SUBINTENT_REGISTRY[0]
+        with pytest.raises(FrozenInstanceError):
+            entry.domain_key = "hacked"  # type: ignore[misc]
+
 
 # ---------------------------------------------------------------------------
 # LEGACY_DOMAIN_ALIASES and RETIRED_DOMAIN_REGISTRY_KEYS
@@ -166,6 +172,21 @@ class TestLegacyAliases:
         # Every retired key should have an alias entry so callers migrate transparently
         missing = set(RETIRED_DOMAIN_REGISTRY_KEYS) - set(LEGACY_DOMAIN_ALIASES)
         assert not missing, f"retired keys missing aliases: {missing}"
+
+    def test_financial_documents_alias_resolves_correctly(self) -> None:
+        top, sub = resolve_domain_alias("financial_documents")
+        assert top == "financial"
+        assert sub == "documents"
+
+    def test_kai_preferences_resolves_same_canonical_target_as_kai_profile(self) -> None:
+        top_pref, sub_pref = resolve_domain_alias("kai_preferences")
+        top_prof, sub_prof = resolve_domain_alias("kai_profile")
+        assert top_pref == top_prof == "financial"
+        assert sub_pref == sub_prof == "profile"
+
+    def test_all_alias_targets_are_dotted_canonical_paths(self) -> None:
+        for legacy, target in LEGACY_DOMAIN_ALIASES.items():
+            assert "." in target, f"alias {legacy!r} → {target!r} is not a dotted path"
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +263,19 @@ class TestResolvers:
     def test_is_allowed_top_level_domain_rejects_unknown(self) -> None:
         assert not is_allowed_top_level_domain("nonexistent_domain")
 
+    def test_normalize_domain_key_preserves_internal_whitespace(self) -> None:
+        # strip() removes only leading/trailing; internal spacing is kept as-is
+        assert normalize_domain_key("  a b  ") == "a b"
+
+    def test_is_allowed_top_level_domain_accepts_uppercase_canonical_key(self) -> None:
+        assert is_allowed_top_level_domain("FINANCIAL") is True
+
+    def test_is_allowed_top_level_domain_accepts_whitespace_padded_key(self) -> None:
+        assert is_allowed_top_level_domain("  travel  ") is True
+
+    def test_canonical_top_level_domain_strips_padded_input(self) -> None:
+        assert canonical_top_level_domain("  health  ") == "health"
+
 
 # ---------------------------------------------------------------------------
 # Version helpers
@@ -264,6 +298,10 @@ class TestVersionHelpers:
 
     def test_current_domain_contract_version_unknown_dynamic_domain(self) -> None:
         assert current_domain_contract_version("custom_music") == FINANCIAL_DOMAIN_CONTRACT_VERSION
+
+    def test_current_domain_contract_version_for_kai_decisions_via_alias(self) -> None:
+        # kai_decisions → financial (via alias) → FINANCIAL_DOMAIN_CONTRACT_VERSION
+        assert current_domain_contract_version("kai_decisions") == FINANCIAL_DOMAIN_CONTRACT_VERSION
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +332,12 @@ class TestMetadataAccessors:
         for field in ("display_name", "icon_name", "color_hex", "description"):
             assert field in entry_meta
             assert entry_meta[field]
+
+    def test_get_canonical_domain_metadata_empty_string_returns_none(self) -> None:
+        assert get_canonical_domain_metadata("") is None
+
+    def test_canonical_domain_metadata_map_returns_dict(self) -> None:
+        assert isinstance(canonical_domain_metadata_map(), dict)
 
 
 class TestDomainRegistryPayload:
@@ -378,3 +422,63 @@ class TestBuildDomainIntent:
     def test_build_normalizes_primary(self) -> None:
         intent = build_domain_intent(primary="Financial", source="user", updated_at="2026-04-21")
         assert intent["primary"] == "financial"
+
+
+class TestRetiredDomainIsolation:
+    def test_retired_keys_absent_from_canonical_domain_keys(self) -> None:
+        for retired in RETIRED_DOMAIN_REGISTRY_KEYS:
+            assert retired not in CANONICAL_DOMAIN_KEYS, (
+                f"retired key {retired!r} leaked into CANONICAL_DOMAIN_KEYS"
+            )
+
+    def test_retired_keys_absent_from_canonical_subintent_keys(self) -> None:
+        for retired in RETIRED_DOMAIN_REGISTRY_KEYS:
+            assert retired not in CANONICAL_SUBINTENT_KEYS, (
+                f"retired key {retired!r} leaked into CANONICAL_SUBINTENT_KEYS"
+            )
+
+    def test_retired_domain_registry_keys_is_tuple(self) -> None:
+        assert isinstance(RETIRED_DOMAIN_REGISTRY_KEYS, tuple)
+
+    def test_retired_registry_keys_are_defined(self) -> None:
+        assert len(RETIRED_DOMAIN_REGISTRY_KEYS) > 0
+
+
+class TestPayloadStructuralConsistency:
+    _REQUIRED_FIELDS: frozenset[str] = frozenset(
+        {
+            "domain_key",
+            "display_name",
+            "icon_name",
+            "color_hex",
+            "description",
+            "status",
+            "is_legacy_alias",
+        }
+    )
+
+    def test_payload_total_count_matches_sum_of_all_registries(self) -> None:
+        payload = domain_registry_payload()
+        expected = (
+            len(CANONICAL_DOMAIN_REGISTRY)
+            + len(FINANCIAL_SUBINTENT_REGISTRY)
+            + len(LEGACY_DOMAIN_ALIASES)
+        )
+        assert len(payload) == expected
+
+    def test_payload_every_row_has_required_fields(self) -> None:
+        for row in domain_registry_payload():
+            missing = self._REQUIRED_FIELDS - set(row.keys())
+            assert not missing, f"row {row.get('domain_key')!r} is missing fields: {missing}"
+
+    def test_payload_domain_keys_are_all_strings(self) -> None:
+        for row in domain_registry_payload():
+            assert isinstance(row["domain_key"], str), (
+                f"domain_key is not a string: {row['domain_key']!r}"
+            )
+
+    def test_payload_is_legacy_alias_is_always_bool(self) -> None:
+        for row in domain_registry_payload():
+            assert isinstance(row["is_legacy_alias"], bool), (
+                f"is_legacy_alias is not bool for row {row.get('domain_key')!r}"
+            )
