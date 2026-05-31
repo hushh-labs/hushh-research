@@ -2064,7 +2064,7 @@ def _build_pick_rationale(*, tier: str, sector: str, dominant_sector: Optional[s
 @router.post("/portfolio/import", response_model=PortfolioImportResponse)
 async def import_portfolio(
     file: UploadFile,
-    user_id: str = Form(..., max_length=128, description="User's ID"),
+    user_id: str = Form(..., min_length=1, max_length=128, description="User's ID"),
     token_data: dict = Depends(require_vault_owner_token),
 ) -> PortfolioImportResponse:
     """
@@ -3204,7 +3204,7 @@ class _AlwaysConnectedImportStreamRequest:
 @router.post("/portfolio/import/run/start")
 async def start_portfolio_import_run(
     file: UploadFile,
-    user_id: str = Form(..., max_length=128, description="User's ID"),
+    user_id: str = Form(..., min_length=1, max_length=128, description="User's ID"),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data["user_id"] != user_id:
@@ -3335,7 +3335,7 @@ async def cancel_portfolio_import_run(
 async def import_portfolio_stream(
     request: Request,
     file: UploadFile,
-    user_id: str = Form(..., max_length=128, description="User's ID"),
+    user_id: str = Form(..., min_length=1, max_length=128, description="User's ID"),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """Backward-compatible import stream endpoint.
