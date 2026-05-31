@@ -191,7 +191,7 @@ async def observability_middleware(request: Request, call_next):
             "env": _environment(),
             "stream": False,
         }
-        logger.exception(json.dumps(payload, separators=(",", ":")))
+        logger.error(json.dumps(payload, separators=(",", ":")))
         error_response = JSONResponse(
             status_code=500,
             content={"detail": "Internal server error"},
