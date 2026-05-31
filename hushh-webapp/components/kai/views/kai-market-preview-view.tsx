@@ -114,6 +114,10 @@ const MARKET_SIGNAL_CARD_CLASSNAME = cn(
 
 const MARKET_SIGNAL_INSET_CLASSNAME = marketInsetClassName;
 
+function normalizeMarketSymbol(value: unknown): string {
+  return String(value || "").trim().toUpperCase();
+}
+
 function normalizeTrackedSymbols(symbols: string[] | null | undefined): string[] {
   if (!Array.isArray(symbols)) return [];
   return symbols
@@ -129,6 +133,33 @@ function normalizeAllSymbols(symbols: string[] | null | undefined): string[] {
     .map((symbol) => String(symbol || "").trim().toUpperCase())
     .filter(Boolean)
     .filter((symbol, index, arr) => arr.indexOf(symbol) === index);
+}
+function deriveMarketBreadthSymbols(
+  pickRows: Array<KaiHomeWatchlistItem | KaiHomeRenaissanceItem>,
+): {
+  higherToday: string[];
+  lowerToday: string[];
+} {
+  const changedRows = pickRows
+    .filter((row) => typeof row.change_pct === "number")
+    .sort(
+      (left, right) =>
+        Math.abs(Number(right.change_pct || 0)) -
+        Math.abs(Number(left.change_pct || 0)),
+    );
+
+  return {
+    higherToday: normalizeAllSymbols(
+      changedRows
+        .filter((row) => Number(row.change_pct) > 0)
+        .map((row) => normalizeMarketSymbol(row.symbol)),
+    ),
+    lowerToday: normalizeAllSymbols(
+      changedRows
+        .filter((row) => Number(row.change_pct) < 0)
+        .map((row) => normalizeMarketSymbol(row.symbol)),
+    ),
+  };
 }
 
 const THEME_ICON_MAP: Array<{ test: RegExp; icon: LucideIcon }> = [
@@ -1087,18 +1118,8 @@ function toBreadthMetric(
   if (spread <= -4) value = "Narrow leadership";
   if (degraded && trackedCount === 0) value = "Updating";
 
-  const higherToday = normalizeAllSymbols(
-    pickRows
-      .filter((row) => typeof row.change_pct === "number" && row.change_pct > 0)
-      .sort((left, right) => Math.abs(Number(right.change_pct || 0)) - Math.abs(Number(left.change_pct || 0)))
-      .map((row) => String(row.symbol || "").trim().toUpperCase())
-  );
-  const lowerToday = normalizeAllSymbols(
-    pickRows
-      .filter((row) => typeof row.change_pct === "number" && row.change_pct < 0)
-      .sort((left, right) => Math.abs(Number(right.change_pct || 0)) - Math.abs(Number(left.change_pct || 0)))
-      .map((row) => String(row.symbol || "").trim().toUpperCase())
-  );
+  const { higherToday, lowerToday } =
+  deriveMarketBreadthSymbols(pickRows);
   const _topHigher = Array.isArray(movers?.gainers)
     ? movers.gainers
         .map((row) => String(row?.symbol || "").trim().toUpperCase())
