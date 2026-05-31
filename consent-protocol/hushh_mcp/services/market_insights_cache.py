@@ -177,7 +177,7 @@ class MarketInsightsCache:
         existing = self._get_entry(key)
         if existing and (now - existing.fetched_at) <= fresh_ttl_seconds:
             age = max(0, int(now - existing.fetched_at))
-            logger.debug("cache_resource_resolved resource_class=market_data cache_tier=memory freshness=fresh key=%s age_seconds=%d", key, age)
+            logger.debug("cache_resource_resolved resource_class=market_data cache_tier=memory freshness=fresh age_seconds=%d", age)
             return CacheResult(value=existing.value, stale=False, age_seconds=age)
 
         if (
@@ -186,11 +186,11 @@ class MarketInsightsCache:
             and (now - existing.fetched_at) <= stale_ttl_seconds
         ):
             age = max(0, int(now - existing.fetched_at))
-            logger.debug("cache_resource_resolved resource_class=market_data cache_tier=memory freshness=stale key=%s age_seconds=%d reason=revalidate", key, age)
+            logger.debug("cache_resource_resolved resource_class=market_data cache_tier=memory freshness=stale age_seconds=%d reason=revalidate", age)
             self._start_background_refresh(key, fetcher=fetcher)
             return CacheResult(value=existing.value, stale=True, age_seconds=age, stale_reason="revalidate")
 
-        logger.debug("cache_resource_resolved resource_class=market_data cache_tier=memory freshness=missing key=%s", key)
+        logger.debug("cache_resource_resolved resource_class=market_data cache_tier=memory freshness=missing")
         lock = self._get_lock(key)
         async with lock:
             now = time.time()
@@ -208,7 +208,7 @@ class MarketInsightsCache:
                 fetched_at = time.time()
                 duration_ms = int((fetched_at - fetch_start) * 1000)
                 self._set_entry(key, value, fetched_at)
-                logger.debug("cache_resource_resolved resource_class=market_data cache_tier=network freshness=fresh key=%s duration_ms=%d", key, duration_ms)
+                logger.debug("cache_resource_resolved resource_class=market_data cache_tier=network freshness=fresh duration_ms=%d", duration_ms)
                 return CacheResult(value=value, stale=False, age_seconds=0)
             except Exception:
                 duration_ms = int((time.time() - fetch_start) * 1000)
@@ -216,9 +216,9 @@ class MarketInsightsCache:
                 fallback = self._get_entry(key)
                 if fallback and (now - fallback.fetched_at) <= stale_ttl_seconds:
                     age = max(0, int(now - fallback.fetched_at))
-                    logger.warning("cache_resource_resolved resource_class=market_data cache_tier=network freshness=stale key=%s duration_ms=%d fallback=true age_seconds=%d", key, duration_ms, age)
+                    logger.warning("cache_resource_resolved resource_class=market_data cache_tier=network freshness=stale duration_ms=%d fallback=true age_seconds=%d", duration_ms, age)
                     return CacheResult(value=fallback.value, stale=True, age_seconds=age, stale_reason="refresh_failure")
-                logger.warning("cache_resource_resolved resource_class=market_data cache_tier=network freshness=missing key=%s duration_ms=%d fallback=false", key, duration_ms)
+                logger.warning("cache_resource_resolved resource_class=market_data cache_tier=network freshness=missing duration_ms=%d fallback=false", duration_ms)
                 raise
 
 
