@@ -51,4 +51,25 @@ describe("apiJson", () => {
       message: "Request failed: 500",
     });
   });
+         it("preserves structured error status and message on ApiError instances", async () => {
+    mockApiFetch.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          detail: {
+            code: "ONE_EMAIL_KYC_TEMPORARILY_UNAVAILABLE",
+            message:
+              "One email KYC is temporarily unavailable. Please try again in a moment.",
+          },
+        },
+        503
+      )
+    );
+
+    await expect(apiJson("/api/one/kyc/workflows")).rejects.toMatchObject({
+      name: "ApiError",
+      status: 503,
+      message:
+        "One email KYC is temporarily unavailable. Please try again in a moment.",
+    } satisfies Partial<ApiError>);
+  });
 });

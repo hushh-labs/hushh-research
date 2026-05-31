@@ -138,6 +138,18 @@ describe("VaultMethodService.changePassphrase", () => {
       }),
     ).rejects.toThrow(/older domain/i);
   });
+  it("preserves passphrase primary selection result shape", async () => {
+    const result = await VaultMethodService.changePassphrase({
+      userId: "uid-1",
+      currentVaultKey:
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      newPassphrase: "new-passphrase-123",
+      keepPrimaryMethod: false,
+    });
+
+    expect(result.primaryMethod).toBe("passphrase");
+    expect(result.passphraseUpdated).toBe(true);
+  });
 
   describe("removeMethod", () => {
     it("removes a passkey wrapper and falls back to passphrase when primary", async () => {
