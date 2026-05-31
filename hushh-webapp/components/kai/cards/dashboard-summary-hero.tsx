@@ -1,10 +1,27 @@
 "use client";
 
-import { ArrowUpRight, ArrowDownRight } from "lucide-react";
-
+import { ArrowUpRight, ArrowDownRight, Info } from "lucide-react";
+import { cn } from "@/lib/utils"; // Ensure this import path matches your project structure
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+
+// =============================================================================
+// TYPES & HELPERS
+// =============================================================================
+
+interface DashboardSummaryHeroProps {
+  totalValue: number;
+  netChange: number;
+  changePct: number;
+  holdingsCount: number;
+  riskLabel?: string;
+  brokerageName?: string;
+  periodLabel?: string;
+  periodRange?: string;
+  beginningBalance?: number;
+}
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -24,22 +41,13 @@ function normalizeRiskLabel(value?: string): string {
   if (!value) return "Moderate";
   const normalized = value.trim().toLowerCase();
   if (normalized === "conservative") return "Conservative";
-  if (normalized === "moderate") return "Moderate";
   if (normalized === "aggressive") return "Aggressive";
   return "Moderate";
 }
 
-interface DashboardSummaryHeroProps {
-  totalValue: number;
-  netChange: number;
-  changePct: number;
-  holdingsCount: number;
-  riskLabel?: string;
-  brokerageName?: string;
-  periodLabel?: string;
-  periodRange?: string;
-  beginningBalance?: number;
-}
+// =============================================================================
+// MAIN COMPONENT
+// =============================================================================
 
 export function DashboardSummaryHero({
   totalValue,
@@ -55,45 +63,50 @@ export function DashboardSummaryHero({
   const positive = netChange >= 0;
 
   return (
-    <Card variant="none" effect="glass" preset="hero" glassAccent="soft">
-      <CardContent className="space-y-4 p-5 sm:p-6">
-        <div className="space-y-2 text-center">
-          <p className="text-sm font-medium text-muted-foreground">Total portfolio value</p>
-          <div className="flex items-center justify-center gap-2">
-            <Badge className="rounded-full bg-muted px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-              Risk: {normalizeRiskLabel(riskLabel)}
+    <Card variant="none" effect="glass" preset="hero" glassAccent="soft" className="w-full overflow-hidden">
+      <CardContent className="space-y-6 p-6">
+        
+        {/* Header/Stats Badges */}
+        <div className="flex flex-wrap justify-center gap-2">
+          {[
+            { label: `Risk: ${normalizeRiskLabel(riskLabel)}` },
+            { label: `${holdingsCount} Holdings` },
+            ...(brokerageName ? [{ label: brokerageName }] : [])
+          ].map((b, i) => (
+            <Badge key={i} variant="secondary" className="rounded-full px-3 py-1 text-[10px] uppercase tracking-wider font-bold opacity-80">
+              {b.label}
             </Badge>
-            <Badge className="rounded-full bg-muted px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-              Holdings: {holdingsCount}
-            </Badge>
-            {brokerageName && (
-              <Badge className="rounded-full bg-muted px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                {brokerageName}
-              </Badge>
-            )}
-          </div>
-          <h2 className="text-[34px] font-black leading-tight tracking-tight">{formatCurrency(totalValue)}</h2>
-          <div className="flex items-center justify-center gap-2 text-sm">
-            <span className={positive ? "text-emerald-600" : "text-red-500"}>
-              <span className="inline-flex items-center font-semibold">
-                <Icon icon={positive ? ArrowUpRight : ArrowDownRight} size="sm" className="mr-1" />
-                {formatChange(netChange)} ({changePct >= 0 ? "+" : ""}
-                {changePct.toFixed(2)}%)
-              </span>
-            </span>
-            <span className="text-muted-foreground">•</span>
-            <span className="font-medium text-muted-foreground">{periodLabel}</span>
-          </div>
+          ))}
         </div>
 
-        <div className="rounded-xl border border-border/60 bg-muted/40 p-3 text-center">
-          <div className="space-y-1">
-            <p className="text-sm font-semibold">{periodRange ?? "Current Statement Period"}</p>
-            {typeof beginningBalance === "number" && (
-              <p className="text-xs text-muted-foreground">
-                Beginning Balance: <span className="font-semibold text-foreground">{formatCurrency(beginningBalance)}</span>
-              </p>
-            )}
+        {/* Main Value */}
+        <div className="text-center space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Total Value</p>
+          <h2 className="text-5xl font-black tracking-tighter">{formatCurrency(totalValue)}</h2>
+          
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className={cn("inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold cursor-help", 
+                    positive ? "bg-emerald-500/10 text-emerald-600" : "bg-red-500/10 text-red-500")}>
+                  <Icon icon={positive ? ArrowUpRight : ArrowDownRight} size="sm" />
+                  {formatChange(netChange)} ({changePct.toFixed(2)}%)
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>Performance relative to beginning balance</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+
+        {/* Info Grid */}
+        <div className="grid grid-cols-2 gap-4 rounded-xl border border-border/40 bg-muted/20 p-4">
+          <div className="text-center">
+            <p className="text-[10px] uppercase font-bold text-muted-foreground">Period</p>
+            <p className="text-sm font-semibold">{periodLabel}</p>
+          </div>
+          <div className="text-center border-l border-border/40">
+            <p className="text-[10px] uppercase font-bold text-muted-foreground">Opening</p>
+            <p className="text-sm font-semibold">{beginningBalance ? formatCurrency(beginningBalance) : "N/A"}</p>
           </div>
         </div>
       </CardContent>
