@@ -101,6 +101,8 @@ class _BoundedRevocationCache:
 # In-memory cache for fast revocation checks (immediate effect).
 # Also persisted to DB for cross-instance consistency.
 _revoked_tokens: _BoundedRevocationCache = _BoundedRevocationCache()
+_verifier_prewarm_lock = threading.Lock()
+_verifier_prewarmed = False
 
 # ========== Token Generator ==========
 
@@ -295,6 +297,37 @@ def validate_token(
     except Exception as e:
         logger.error(f"Unexpected error during token validation: {e}", exc_info=True)
         raise
+
+
+def prewarm_consent_token_verifier() -> None:
+    """Exercise the hot consent-token verification path during process startup.
+
+    validate_token() intentionally imports scope matching lazily so most token
+    checks avoid loading scope helpers until they need scope enforcement.  That
+    lazy import shows up on the first real scoped consent request after a backend
+    restart.  This synthetic, in-memory round trip moves that import and the HMAC
+    verifier setup into startup without requiring a database connection.
+    """
+    global _verifier_prewarmed
+
+    if _verifier_prewarmed:
+        return
+
+    with _verifier_prewarm_lock:
+        if _verifier_prewarmed:
+            return
+
+        token = issue_token(
+            UserID("__startup_prewarm_user__"),
+            AgentID("__startup_prewarm_agent__"),
+            "attr.startup.*",
+            expires_in_ms=60_000,
+        )
+        valid, reason, parsed = validate_token(token.token, expected_scope="attr.startup.health")
+        if not valid or parsed is None:
+            raise RuntimeError(f"Consent-token verifier prewarm failed: {reason}")
+
+        _verifier_prewarmed = True
 
 
 async def validate_token_with_db(
