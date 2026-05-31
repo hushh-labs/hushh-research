@@ -32,6 +32,7 @@ import {
   ShieldCheck,
   Trash2,
   User,
+  Volume2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -89,6 +90,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { useAuth } from "@/hooks/use-auth";
@@ -177,6 +185,13 @@ import {
 import { useVault } from "@/lib/vault/vault-context";
 import { resolveVaultAvailabilityState } from "@/lib/vault/vault-access-policy";
 import { useConsentActions } from "@/lib/consent";
+import {
+  AGENT_GEMINI_TTS_VOICES,
+  DEFAULT_AGENT_GEMINI_TTS_VOICE,
+  readAgentVoiceSettings,
+  writeAgentVoiceSettings,
+  type AgentGeminiTtsVoice,
+} from "@/lib/agent/agent-voice-settings";
 
 type ProfilePanel =
   | "account"
@@ -610,6 +625,9 @@ function ProfilePageContent() {
   const { registerSteps, completeStep, reset } = useStepProgress();
 
   const [showVaultUnlock, setShowVaultUnlock] = useState(false);
+  const [agentTtsVoice, setAgentTtsVoice] = useState<AgentGeminiTtsVoice>(() =>
+    readAgentVoiceSettings().ttsVoice
+  );
   const [vaultUnlockReason, setVaultUnlockReason] = useState<
     "profile_data" | "delete_account"
   >("profile_data");
@@ -2987,6 +3005,38 @@ function ProfilePageContent() {
           title="Appearance"
           description="Light, dark, or system."
           trailing={<ThemeToggle className="w-full min-w-0 sm:w-[228px]" />}
+          stackTrailingOnMobile
+        />
+        <SettingsRow
+          icon={Volume2}
+          title="Agent voice"
+          description="Choose the Gemini TTS voice Agent uses for spoken replies on this device."
+          trailing={
+            <Select
+              value={agentTtsVoice}
+              onValueChange={(value) => {
+                const next = writeAgentVoiceSettings({
+                  ttsVoice: value as AgentGeminiTtsVoice,
+                }).ttsVoice;
+                setAgentTtsVoice(next);
+                toast.success(`Agent voice set to ${next}.`);
+              }}
+            >
+              <SelectTrigger
+                className="w-full min-w-[11rem] sm:w-[228px]"
+                aria-label="Agent TTS voice"
+              >
+                <SelectValue placeholder={DEFAULT_AGENT_GEMINI_TTS_VOICE} />
+              </SelectTrigger>
+              <SelectContent>
+                {AGENT_GEMINI_TTS_VOICES.map((voice) => (
+                  <SelectItem key={voice} value={voice}>
+                    {voice}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          }
           stackTrailingOnMobile
         />
         <SettingsRow
