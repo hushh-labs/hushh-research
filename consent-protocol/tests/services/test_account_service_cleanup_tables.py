@@ -82,6 +82,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM consent_export_refresh_jobs",
         "DELETE FROM consent_exports",
         "DELETE FROM pkm_upgrade_runs",
+        "DELETE FROM world_model_index_v2",
+        "DELETE FROM pkm_migration_state",
         "DELETE FROM kai_receipt_memory_artifacts",
         "DELETE FROM kai_portfolio_source_preferences",
         "DELETE FROM relationship_share_events",
@@ -104,12 +106,16 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM actor_identity_cache",
         "DELETE FROM runtime_persona_state",
         "DELETE FROM actor_profiles",
+        "DELETE FROM vault_key_wrappers",
         "DELETE FROM vault_keys",
     ]
     for fragment in expected_fragments:
         assert fragment in executed_sql
 
     assert executed_sql.index("DELETE FROM actor_profiles") < executed_sql.index(
+        "DELETE FROM vault_key_wrappers"
+    )
+    assert executed_sql.index("DELETE FROM vault_key_wrappers") < executed_sql.index(
         "DELETE FROM vault_keys"
     )
     assert executed_sql.index("DELETE FROM consent_export_refresh_jobs") < executed_sql.index(

@@ -159,6 +159,71 @@ function routeCacheKeys(route) {
   return [];
 }
 
+function resourceClassesFor(route, screenClass) {
+  if (screenClass === "public/static") return ["public_static"];
+  if (screenClass === "auth/pre-vault") return ["auth_state"];
+  if (route === "/consents") return ["consent_list"];
+  if (route === "/one/kyc") return ["pkm_projection", "consent_list"];
+  if (route === "/profile") return ["vault_metadata", "pkm_metadata"];
+  if (route.startsWith("/profile/pkm") || route === "/profile/receipts") {
+    return ["pkm_metadata", "pkm_projection"];
+  }
+  if (route === "/kai/portfolio" || route === "/kai/analysis") {
+    return ["financial_resource", "pkm_metadata"];
+  }
+  if (route.startsWith("/kai")) return ["market_data", "financial_resource"];
+  if (route.startsWith("/ria")) return ["ria_workspace", "consent_list"];
+  if (route.startsWith("/marketplace")) return ["ria_workspace"];
+  if (screenClass === "realtime/SSE") return ["realtime_stream"];
+  return ["unknown"];
+}
+
+function sensitivityClassFor(screenClass, resourceClasses) {
+  if (resourceClasses.includes("pkm_projection") || resourceClasses.includes("financial_resource")) {
+    return "encrypted-user-data";
+  }
+  if (resourceClasses.includes("vault_metadata") || resourceClasses.includes("pkm_metadata")) {
+    return "user-metadata";
+  }
+  if (screenClass === "auth/pre-vault") return "auth-state";
+  if (screenClass === "public/static") return "public";
+  return "app-metadata";
+}
+
+function bestAvailableUxPathFor(cachePolicy, sensitivityClass) {
+  if (cachePolicy === "none") return ["static render"];
+  if (cachePolicy === "memory-only") return ["fresh memory", "cold loader"];
+  if (cachePolicy.startsWith("secure-resource") || sensitivityClass === "encrypted-user-data") {
+    return ["fresh memory", "secure device stale render", "background refresh", "cold loader when locked or missing"];
+  }
+  if (cachePolicy.startsWith("device-resource")) {
+    return ["fresh memory", "plain device stale render", "background refresh", "cold loader when missing"];
+  }
+  return ["fresh memory", "background refresh", "cold loader when missing"];
+}
+
+function readinessKpisFor(route, screenClass, cachePolicy) {
+  if (screenClass === "public/static" || screenClass === "redirect/alias") {
+    return ["route_readiness_completed"];
+  }
+
+  const kpis = [
+    "route_readiness_completed",
+    "cache_resource_resolved",
+    "route_refresh_completed",
+  ];
+
+  if (route.startsWith("/kai") || route === "/profile" || route === "/one/kyc") {
+    kpis.push("warmup_completed");
+  }
+
+  if (cachePolicy.includes("sse-background")) {
+    kpis.push("stream patch latency through route_refresh_completed");
+  }
+
+  return kpis;
+}
+
 function ttlClassFor(route, screenClass) {
   if (screenClass === "redirect/alias" || screenClass === "public/static") return "none";
   if (route.includes("/oauth/return") || route === "/logout") return "single-use";
@@ -254,6 +319,9 @@ function buildManifest() {
     const flags = flagsForSource(source);
     const mode = contractEntry?.mode || "unclassified";
     const screenClass = screenClassForRoute(route, mode, flags);
+    const cachePolicy = cachePolicyFor(route, screenClass, flags);
+    const resourceClasses = resourceClassesFor(route, screenClass);
+    const sensitivityClass = sensitivityClassFor(screenClass, resourceClasses);
     const surfaceEntry = surfaceByRoute.get(route) || null;
     const nativeRow = nativeByRoute.get(route) || null;
     return {
@@ -261,12 +329,16 @@ function buildManifest() {
       page_file: pageFileForRoute(route),
       route_contract_mode: mode,
       screen_class: screenClass,
-      cache_policy: cachePolicyFor(route, screenClass, flags),
+      cache_policy: cachePolicy,
       cache_keys: routeCacheKeys(route),
+      resource_classes: resourceClasses,
+      sensitivity_class: sensitivityClass,
       ttl_class: ttlClassFor(route, screenClass),
       warm_source: warmSourceFor(route, screenClass),
       refresh_trigger: refreshTriggerFor(screenClass),
       mutation_invalidator: invalidatorFor(route, screenClass),
+      best_available_ux_path: bestAvailableUxPathFor(cachePolicy, sensitivityClass),
+      readiness_kpis: readinessKpisFor(route, screenClass, cachePolicy),
       realtime_policy: realtimePolicyFor(screenClass),
       reviewer_fixture: reviewerFixtureFor(route, nativeRow),
       surface_map_present: Boolean(surfaceEntry),
@@ -307,6 +379,8 @@ function buildManifest() {
       "fresh cache renders immediately without a full-page loader",
       "stale cache remains visible while background refresh runs",
       "cold cache may show a loader or skeleton",
+      "route readiness and cache performance emit bounded metadata-only observability events",
+      "cache performance events use route/resource classes and duration buckets, never raw cache keys or user payloads",
       "mutations route through CacheSyncService or a domain service that delegates to it",
       "realtime streams patch active state without blocking warm initial render",
       "decrypted PKM, vault keys, and consent secrets stay memory-only",

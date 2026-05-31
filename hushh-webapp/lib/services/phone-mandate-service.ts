@@ -21,6 +21,27 @@ export function shouldBypassPhoneMandateForLocalhost(hostname?: string | null): 
   );
 }
 
+function shouldBypassPhoneMandateForNativeRouteAudit(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const bridge = (
+    window as Window & {
+      __HUSHH_NATIVE_TEST__?: {
+        enabled?: boolean;
+        expectedUserId?: string;
+      };
+    }
+  ).__HUSHH_NATIVE_TEST__;
+
+  return (
+    bridge?.enabled === true &&
+    typeof bridge.expectedUserId === "string" &&
+    bridge.expectedUserId.trim().length > 0
+  );
+}
+
 export function shouldBypassPhoneMandateForRoute(pathname?: string | null): boolean {
   return String(pathname ?? "").trim() === ROUTES.RIA_ONBOARDING;
 }
@@ -42,6 +63,10 @@ export function shouldRequirePhoneMandate(params: {
   }
 
   if (shouldBypassPhoneMandateForLocalhost(params.hostname)) {
+    return false;
+  }
+
+  if (shouldBypassPhoneMandateForNativeRouteAudit()) {
     return false;
   }
 

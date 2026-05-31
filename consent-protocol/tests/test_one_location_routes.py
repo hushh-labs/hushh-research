@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -196,3 +198,249 @@ def test_public_location_invite_route_creates_request_without_returning_location
     assert "map" not in serialized
     assert "address" not in serialized
     assert "reverse_geocode" not in serialized
+
+
+def test_one_location_retention_purge_requires_dedicated_token_by_default(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_TOKEN", raising=False)
+    monkeypatch.setenv("ONE_EMAIL_WATCH_RENEW_TOKEN", "shared-one-email-token")
+    service = FourUserMemoryService()
+    client = _client(service, {"user_id": "user_a"}, monkeypatch)
+
+    response = client.post(
+        "/api/one/location/retention/purge?older_than_hours=12",
+        headers={"X-Hushh-Maintenance-Token": "shared-one-email-token"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "ONE_LOCATION_RETENTION_TOKEN_MISSING"
+
+
+def test_one_location_retention_purge_rejects_missing_maintenance_token(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
+    monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
+    service = FourUserMemoryService()
+    client = _client(service, {"user_id": "user_a"}, monkeypatch)
+
+    response = client.post("/api/one/location/retention/purge?older_than_hours=12")
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "ONE_LOCATION_RETENTION_UNAUTHORIZED"
+
+
+def test_one_location_retention_purge_rejects_wrong_maintenance_token(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
+    monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
+    service = FourUserMemoryService()
+    client = _client(service, {"user_id": "user_a"}, monkeypatch)
+
+    response = client.post(
+        "/api/one/location/retention/purge?older_than_hours=12",
+        headers={"X-Hushh-Maintenance-Token": "wrong-token"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "ONE_LOCATION_RETENTION_UNAUTHORIZED"
+
+
+def test_one_location_retention_purge_accepts_valid_dedicated_token(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
+    monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
+    service = FourUserMemoryService()
+    client = _client(service, {"user_id": "user_a"}, monkeypatch)
+
+    response = client.post(
+        "/api/one/location/retention/purge?older_than_hours=12",
+        headers={"X-Hushh-Maintenance-Token": "expected-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["retention_hours"] == 12
+
+
+def test_one_location_retention_route_purges_terminal_state_and_preserves_active_envelope(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
+    monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
+    service = FourUserMemoryService()
+    client = _client(service, {"user_id": "user_a"}, monkeypatch)
+    now = datetime.now(timezone.utc)
+    old_grant_id = str(uuid.uuid4())
+    active_grant_id = str(uuid.uuid4())
+    old_request_id = str(uuid.uuid4())
+    old_referral_id = str(uuid.uuid4())
+    old_envelope_id = str(uuid.uuid4())
+    active_envelope_id = str(uuid.uuid4())
+    old_invite_id = str(uuid.uuid4())
+    old_submission_id = str(uuid.uuid4())
+    active_event_id = str(uuid.uuid4())
+    old_event_id = str(uuid.uuid4())
+
+    service.grants[old_grant_id] = {
+        "id": old_grant_id,
+        "owner_user_id": "user_a",
+        "recipient_user_id": "user_b",
+        "recipient_key_id": "key-user_b",
+        "status": "expired",
+        "consent_scope": "cap.location.live.view",
+        "capability_scopes": json.dumps(["cap.location.live.view"]),
+        "duration_hours": 1,
+        "expires_at": now - timedelta(hours=13),
+        "created_at": now - timedelta(hours=14),
+        "updated_at": now - timedelta(hours=13),
+        "revoked_at": None,
+        "latest_envelope_id": old_envelope_id,
+    }
+    service.grants[active_grant_id] = {
+        **service.grants[old_grant_id],
+        "id": active_grant_id,
+        "status": "active",
+        "expires_at": now + timedelta(hours=1),
+        "latest_envelope_id": active_envelope_id,
+    }
+    service.envelopes[old_envelope_id] = {
+        "id": old_envelope_id,
+        "grant_id": old_grant_id,
+        "owner_user_id": "user_a",
+        "recipient_user_id": "user_b",
+        "recipient_key_id": "key-user_b",
+        "ciphertext": "expired-ciphertext",
+    }
+    service.envelopes[active_envelope_id] = {
+        "id": active_envelope_id,
+        "grant_id": active_grant_id,
+        "owner_user_id": "user_a",
+        "recipient_user_id": "user_b",
+        "recipient_key_id": "key-user_b",
+        "ciphertext": "current-ciphertext",
+    }
+    service.requests[old_request_id] = {
+        "id": old_request_id,
+        "owner_user_id": "user_a",
+        "requester_user_id": "user_b",
+        "referred_by_user_id": None,
+        "status": "approved",
+        "requested_at": now - timedelta(hours=14),
+        "resolved_at": now - timedelta(hours=13),
+        "approved_grant_id": old_grant_id,
+    }
+    service.referrals[old_referral_id] = {
+        "id": old_referral_id,
+        "grant_id": old_grant_id,
+        "owner_user_id": "user_a",
+        "referring_user_id": "user_b",
+        "referred_user_id": "user_c",
+        "request_id": old_request_id,
+        "status": "denied",
+        "created_at": now - timedelta(hours=14),
+        "resolved_at": now - timedelta(hours=13),
+    }
+    service.public_invites[old_invite_id] = {
+        "id": old_invite_id,
+        "owner_user_id": "user_a",
+        "public_code_hash": "old-hash",
+        "status": "expired",
+        "duration_hours": 1,
+        "expires_at": now - timedelta(hours=13),
+        "created_at": now - timedelta(hours=14),
+        "updated_at": now - timedelta(hours=13),
+        "revoked_at": None,
+    }
+    service.public_submissions[old_submission_id] = {
+        "id": old_submission_id,
+        "invite_id": old_invite_id,
+        "owner_user_id": "user_a",
+        "visitor_display_name": "Old Visitor",
+        "visitor_phone_hash": "old-phone-hash",
+        "visitor_phone_last4": "0002",
+        "matched_user_id": "user_b",
+        "request_id": old_request_id,
+        "status": "denied",
+        "message": "old request",
+        "submitted_at": now - timedelta(hours=14),
+        "resolved_at": now - timedelta(hours=13),
+        "metadata": {},
+    }
+    service.events[old_event_id] = {
+        "id": old_event_id,
+        "grant_id": old_grant_id,
+        "request_id": old_request_id,
+        "referral_id": old_referral_id,
+        "event_type": "location_public_invite_submitted",
+        "metadata": {"invite_id": old_invite_id, "submission_id": old_submission_id},
+    }
+    service.events[active_event_id] = {
+        "id": active_event_id,
+        "grant_id": active_grant_id,
+        "request_id": None,
+        "referral_id": None,
+        "event_type": "location_envelope_updated",
+        "metadata": {},
+    }
+
+    response = client.post(
+        "/api/one/location/retention/purge?older_than_hours=12",
+        headers={"X-Hushh-Maintenance-Token": "expected-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "deleted_grants": 1,
+        "deleted_envelopes": 1,
+        "deleted_requests": 1,
+        "deleted_referrals": 1,
+        "deleted_public_invites": 1,
+        "deleted_public_submissions": 1,
+        "deleted_events": 1,
+        "retention_hours": 12.0,
+    }
+    assert old_grant_id not in service.grants
+    assert old_envelope_id not in service.envelopes
+    assert old_request_id not in service.requests
+    assert old_referral_id not in service.referrals
+    assert old_invite_id not in service.public_invites
+    assert old_submission_id not in service.public_submissions
+    assert old_event_id not in service.events
+    assert active_grant_id in service.grants
+    assert active_envelope_id in service.envelopes
+    assert service.envelopes[active_envelope_id]["ciphertext"] == "current-ciphertext"
+    assert active_event_id in service.events
+
+
+def test_one_location_retention_auth_cannot_be_disabled_in_hosted_mode(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", "false")
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_TOKEN", raising=False)
+    service = FourUserMemoryService()
+    client = _client(service, {"user_id": "user_a"}, monkeypatch)
+
+    response = client.post("/api/one/location/retention/purge?older_than_hours=12")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "ONE_LOCATION_RETENTION_TOKEN_MISSING"
+
+
+def test_one_location_retention_auth_can_be_disabled_in_local_test_mode(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", "false")
+    monkeypatch.delenv("ONE_LOCATION_RETENTION_TOKEN", raising=False)
+    service = FourUserMemoryService()
+    client = _client(service, {"user_id": "user_a"}, monkeypatch)
+
+    response = client.post("/api/one/location/retention/purge?older_than_hours=12")
+
+    assert response.status_code == 200
+    assert response.json()["retention_hours"] == 12

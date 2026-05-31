@@ -80,6 +80,21 @@ function initializeFirebaseAdmin() {
 // Get or initialize the app
 const app = initializeFirebaseAdmin();
 const auth = admin.auth(app);
+const FIREBASE_ADMIN_VERIFY_TIMEOUT_MS = 8_000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs);
+    }),
+  ]).finally(() => {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  });
+}
 
 export { admin, auth };
 
@@ -88,11 +103,26 @@ export { admin, auth };
  */
 export async function verifyIdToken(idToken: string) {
   try {
-    const decodedToken = await auth.verifyIdToken(idToken);
+    const decodedToken = await withTimeout(
+      auth.verifyIdToken(idToken),
+      FIREBASE_ADMIN_VERIFY_TIMEOUT_MS,
+      "Firebase ID token verification"
+    );
     return { valid: true, uid: decodedToken.uid, decodedToken };
   } catch (error) {
     console.error("Token verification failed:", error);
-    return { valid: false, uid: null, decodedToken: null };
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      valid: false,
+      uid: null,
+      decodedToken: null,
+      error: message,
+      unavailable:
+        message.toLowerCase().includes("timed out") ||
+        message.toLowerCase().includes("network") ||
+        message.toLowerCase().includes("enotfound") ||
+        message.toLowerCase().includes("fetch failed"),
+    };
   }
 }
 

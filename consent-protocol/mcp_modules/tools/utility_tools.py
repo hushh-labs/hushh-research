@@ -41,13 +41,12 @@ async def handle_validate_token(args: dict) -> list[TextContent]:
     token_str = args.get("token")
     expected_scope_str = args.get("expected_scope")
 
-    # Determine expected scope if provided using centralized resolver
-    expected_scope = None
-    if expected_scope_str:
-        expected_scope = resolve_scope_to_enum(expected_scope_str)
-
     # Use DB-backed validation logic for cross-instance revocation consistency
-    valid, reason, token_obj = await validate_token_with_db(token_str, expected_scope)
+    #
+    # Dynamic attr.* scopes must stay as raw strings here. Resolving
+    # attr.social.relationships.* to the PKM_READ enum before validation changes
+    # the requested scope to pkm.read and makes narrow dynamic tokens look wrong.
+    valid, reason, token_obj = await validate_token_with_db(token_str, expected_scope_str)
 
     if not valid:
         logger.warning(f"❌ Token INVALID: {reason}")
@@ -65,6 +64,7 @@ async def handle_validate_token(args: dict) -> list[TextContent]:
         ]
 
     logger.info("✅ Token VALID (user=[redacted])")
+    granted_scope = token_obj.scope_str or getattr(token_obj.scope, "value", str(token_obj.scope))
 
     return [
         TextContent(
@@ -74,7 +74,8 @@ async def handle_validate_token(args: dict) -> list[TextContent]:
                     "valid": True,
                     "user_id": token_obj.user_id,
                     "agent_id": token_obj.agent_id,
-                    "scope": str(token_obj.scope),
+                    "scope": granted_scope,
+                    "scope_enum": getattr(token_obj.scope, "value", str(token_obj.scope)),
                     "issued_at": token_obj.issued_at,
                     "expires_at": token_obj.expires_at,
                     "signature_verified": True,
@@ -82,7 +83,7 @@ async def handle_validate_token(args: dict) -> list[TextContent]:
                         "✅ Signature valid (HMAC-SHA256)",
                         "✅ Not expired",
                         "✅ Not revoked (DB-backed cross-instance check)",
-                        "✅ Scope matches" if expected_scope else "ℹ️ Scope not checked",
+                        "✅ Scope matches" if expected_scope_str else "ℹ️ Scope not checked",
                     ],
                 }
             ),

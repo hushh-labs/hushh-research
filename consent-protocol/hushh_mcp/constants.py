@@ -278,7 +278,7 @@ GEMINI_MODEL_VERTEX = "gemini-3.1-pro-preview"
 # ==================== Kai Portfolio Import Defaults ====================
 
 # Portfolio import extraction is prompt-first and optimized for lower latency.
-KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3-flash-preview"
+KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3.5-flash"
 KAI_PORTFOLIO_IMPORT_ENABLE_THINKING = True
 KAI_PORTFOLIO_IMPORT_THINKING_LEVEL = "LOW"
 KAI_PORTFOLIO_IMPORT_MAX_OUTPUT_TOKENS = 32768

@@ -96,6 +96,7 @@ export const PluginNames = {
   SYNC: "HushhSync",
   SETTINGS: "HushhSettings",
   KEYCHAIN: "HushhKeychain", // Note: iOS uses HushhKeystorePlugin class but jsName is HushhKeychain
+  CONTACTS: "HushhContacts",
 } as const;
 
 /**
