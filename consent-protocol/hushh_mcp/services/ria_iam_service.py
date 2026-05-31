@@ -3592,76 +3592,14 @@ class RIAIAMService:
             json.dumps(metadata),
         )
 
-        relationship = await conn.fetchrow(
-            """
-            SELECT id
-            FROM advisor_investor_relationships
-            WHERE investor_user_id = $1
-              AND ria_profile_id = $2
-              AND (
-                (firm_id IS NULL AND $3::uuid IS NULL)
-                OR firm_id = $3::uuid
-              )
-            LIMIT 1
-            """,
-            subject_user_id,
-            ria["id"],
-            firm_id,
+        relationship_id = await self._upsert_advisor_investor_relationship(
+            conn,
+            investor_user_id=subject_user_id,
+            ria_profile_id=str(ria["id"]),
+            firm_id=firm_id,
+            request_id=request_id,
+            scope=chosen_scope,
         )
-
-        relationship_id: str | None = None
-        if relationship is None:
-            relationship_row = await conn.fetchrow(
-                """
-                INSERT INTO advisor_investor_relationships (
-                  investor_user_id,
-                  ria_profile_id,
-                  firm_id,
-                  status,
-                  last_request_id,
-                  granted_scope,
-                  created_at,
-                  updated_at
-                )
-                VALUES (
-                  $1,
-                  $2,
-                  $3::uuid,
-                  'request_pending',
-                  $4,
-                  $5,
-                  NOW(),
-                  NOW()
-                )
-                RETURNING id
-                """,
-                subject_user_id,
-                ria["id"],
-                firm_id,
-                request_id,
-                chosen_scope,
-            )
-            relationship_id = (
-                str(relationship_row["id"])
-                if relationship_row and relationship_row["id"] is not None
-                else None
-            )
-        else:
-            await conn.execute(
-                """
-                UPDATE advisor_investor_relationships
-                SET
-                  status = 'request_pending',
-                  last_request_id = $2,
-                  granted_scope = COALESCE(granted_scope, $3),
-                  updated_at = NOW()
-                WHERE id = $1
-                """,
-                relationship["id"],
-                request_id,
-                chosen_scope,
-            )
-            relationship_id = str(relationship["id"])
 
         return {
             "request_id": request_id,
@@ -3676,6 +3614,99 @@ class RIAIAMService:
             "status": "REQUESTED",
             "metadata": metadata,
         }
+
+    async def _upsert_advisor_investor_relationship(
+        self,
+        conn,
+        *,
+        investor_user_id: str,
+        ria_profile_id: str,
+        firm_id: str | None,
+        request_id: str,
+        scope: str,
+    ) -> str | None:
+        if firm_id:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO advisor_investor_relationships (
+                  investor_user_id,
+                  ria_profile_id,
+                  firm_id,
+                  status,
+                  last_request_id,
+                  granted_scope,
+                  created_at,
+                  updated_at
+                )
+                VALUES (
+                  $1,
+                  $2::uuid,
+                  $3::uuid,
+                  'request_pending',
+                  $4,
+                  $5,
+                  NOW(),
+                  NOW()
+                )
+                ON CONFLICT (investor_user_id, ria_profile_id, firm_id)
+                  WHERE firm_id IS NOT NULL
+                DO UPDATE SET
+                  status = 'request_pending',
+                  last_request_id = EXCLUDED.last_request_id,
+                  granted_scope = COALESCE(
+                    advisor_investor_relationships.granted_scope,
+                    EXCLUDED.granted_scope
+                  ),
+                  updated_at = NOW()
+                RETURNING id
+                """,
+                investor_user_id,
+                ria_profile_id,
+                firm_id,
+                request_id,
+                scope,
+            )
+        else:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO advisor_investor_relationships (
+                  investor_user_id,
+                  ria_profile_id,
+                  firm_id,
+                  status,
+                  last_request_id,
+                  granted_scope,
+                  created_at,
+                  updated_at
+                )
+                VALUES (
+                  $1,
+                  $2::uuid,
+                  NULL,
+                  'request_pending',
+                  $3,
+                  $4,
+                  NOW(),
+                  NOW()
+                )
+                ON CONFLICT (investor_user_id, ria_profile_id)
+                  WHERE firm_id IS NULL
+                DO UPDATE SET
+                  status = 'request_pending',
+                  last_request_id = EXCLUDED.last_request_id,
+                  granted_scope = COALESCE(
+                    advisor_investor_relationships.granted_scope,
+                    EXCLUDED.granted_scope
+                  ),
+                  updated_at = NOW()
+                RETURNING id
+                """,
+                investor_user_id,
+                ria_profile_id,
+                request_id,
+                scope,
+            )
+        return str(row["id"]) if row and row["id"] is not None else None
 
     async def create_ria_consent_bundle(
         self,
@@ -7579,75 +7610,14 @@ class RIAIAMService:
                     json.dumps(metadata),
                 )
 
-                relationship = await conn.fetchrow(
-                    """
-                    SELECT id
-                    FROM advisor_investor_relationships
-                    WHERE investor_user_id = $1
-                      AND ria_profile_id = $2
-                      AND (
-                        (firm_id IS NULL AND $3::uuid IS NULL)
-                        OR firm_id = $3::uuid
-                      )
-                    LIMIT 1
-                    """,
-                    investor_user_id,
-                    ria["id"],
-                    firm_id,
+                relationship_id = await self._upsert_advisor_investor_relationship(
+                    conn,
+                    investor_user_id=investor_user_id,
+                    ria_profile_id=str(ria["id"]),
+                    firm_id=firm_id,
+                    request_id=request_id,
+                    scope=chosen_scope,
                 )
-                relationship_id: str | None = None
-                if relationship is None:
-                    relationship_row = await conn.fetchrow(
-                        """
-                        INSERT INTO advisor_investor_relationships (
-                          investor_user_id,
-                          ria_profile_id,
-                          firm_id,
-                          status,
-                          last_request_id,
-                          granted_scope,
-                          created_at,
-                          updated_at
-                        )
-                        VALUES (
-                          $1,
-                          $2,
-                          $3::uuid,
-                          'request_pending',
-                          $4,
-                          $5,
-                          NOW(),
-                          NOW()
-                        )
-                        RETURNING id
-                        """,
-                        investor_user_id,
-                        ria["id"],
-                        firm_id,
-                        request_id,
-                        chosen_scope,
-                    )
-                    relationship_id = (
-                        str(relationship_row["id"])
-                        if relationship_row and relationship_row["id"] is not None
-                        else None
-                    )
-                else:
-                    await conn.execute(
-                        """
-                        UPDATE advisor_investor_relationships
-                        SET
-                          status = 'request_pending',
-                          last_request_id = $2,
-                          granted_scope = COALESCE(granted_scope, $3),
-                          updated_at = NOW()
-                        WHERE id = $1
-                        """,
-                        relationship["id"],
-                        request_id,
-                        chosen_scope,
-                    )
-                    relationship_id = str(relationship["id"])
 
                 created = {
                     "request_id": request_id,
