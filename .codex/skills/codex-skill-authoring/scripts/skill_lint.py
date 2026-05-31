@@ -64,6 +64,7 @@ EXPECTED_WORKFLOW_IDS = [
     "repo-orientation",
     "new-feature-tri-flow",
     "frontend-native-surface-map",
+    "frontend-cache-coherence",
     "api-contract-change",
     "pr-governance-review",
     "analytics-observability-review",
@@ -1068,7 +1069,7 @@ def validate_truth_first_contract(errors: list[str]) -> None:
             errors.append(f"{FOUNDER_WIKI_AUDIT_SCRIPT}: missing product canon page `{phrase}`")
 
     required_founder_wiki_audit_phrases = [
-        "HUSSH_FOUNDER_WIKI_MCP_TOKEN",
+        "HUSHH_FOUNDER_WIKI_MCP_TOKEN",
         "tools/list",
         "resources/list",
         "wiki_list",

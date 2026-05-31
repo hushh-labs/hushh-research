@@ -3,6 +3,12 @@ title = "hushh-research gitleaks config"
 [extend]
 useDefault = true
 
+[[rules]]
+    id = "hushh-developer-secret"
+    description = "Detected a possible Hushh Developer Secret or API Token prefix"
+    regex = '''(?i)(hushh_secret_|hushh_token_|pkm_key_)[a-z0-9\-_\.=]{16,64}'''
+    tags = ["key", "api", "hushh", "secret"]
+
 [allowlist]
 description = "Documented backend env placeholders + test fixtures"
 paths = [

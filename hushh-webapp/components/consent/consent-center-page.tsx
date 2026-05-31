@@ -47,6 +47,11 @@ import {
   resolveConsentRequesterLabel,
   resolveConsentSupportingCopy,
 } from "@/lib/consent/consent-display";
+import {
+  emailHelperConsentSummary,
+  emailHelperWorkflowHref,
+  isEmailHelperConsent,
+} from "@/lib/consent/email-helper-consent";
 import { normalizeInternalAppHref } from "@/lib/consent/consent-sheet-route";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import {
@@ -162,6 +167,9 @@ function badgeClassName(status?: string | null) {
 }
 
 function entrySummary(entry: ConsentCenterEntry) {
+  if (isEmailHelperConsent(entry.metadata)) {
+    return emailHelperConsentSummary(entry.metadata);
+  }
   return resolveConsentSupportingCopy({
     scope: entry.scope,
     scopeDescription: entry.scope_description,
@@ -444,6 +452,9 @@ function ConsentEntryDetail({
     actor === "ria" && entry.counterpart_id
       ? buildRiaClientWorkspaceRoute(entry.counterpart_id, { tab: "access" })
       : null;
+  const emailHelperHref = isEmailHelperConsent(entry.metadata)
+    ? normalizeInternalAppHref(emailHelperWorkflowHref(entry.metadata))
+    : null;
 
   return (
     <div className="space-y-4">
@@ -481,6 +492,17 @@ function ConsentEntryDetail({
         />
         {entry.reason ? (
           <SettingsRow title="Reason" description={entry.reason} />
+        ) : null}
+        {emailHelperHref ? (
+          <SettingsRow
+            title="Email reply"
+            description="Review the email request, access approval, and draft in one place."
+            trailing={
+              <Button asChild variant="none" effect="fade" size="sm">
+                <Link href={emailHelperHref}>Open Email</Link>
+              </Button>
+            }
+          />
         ) : null}
       </SettingsGroup>
 
@@ -1269,7 +1291,11 @@ export function ConsentCenterPage() {
         open={Boolean(selectedId)}
         onOpenChange={(open) => {
           if (!open) {
-            setParam({ requestId: null });
+            setParam({
+              requestId: null,
+              selected: null,
+              notificationAction: null,
+            });
           }
         }}
         title={

@@ -532,7 +532,7 @@ export function AuthStep({
         }
       >
         <header className="flex-none text-center">
-          <BrandMark size={compact ? "sm" : "md"} className="mx-auto" />
+          <BrandMark size={compact ? "sm" : "md"} unframed className="mx-auto" />
           {compact ? (
             <>
               <h1 className="mt-6 text-[clamp(1.75rem,5.8vw,2.35rem)] font-black tracking-tight leading-[1.12]">

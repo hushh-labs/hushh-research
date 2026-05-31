@@ -500,7 +500,7 @@
         "analysis",
         "stock"
       ],
-      "meaning": "Creates fresh analysis intent and opens the debate workspace.",
+      "meaning": "Opens the stock comparison preview so the user can confirm context before the debate starts.",
       "speaker_persona": "kai",
       "delegate_agent_id": null,
       "reachability": {
@@ -2223,9 +2223,13 @@
       "risk_level": "medium",
       "execution_policy": "allow_direct",
       "execution_target": {
-        "status": "unwired",
-        "reason": "Generate preview is currently handled only by local PKM Agent Lab state.",
-        "intended_handler": "dispatchVoiceToolCall"
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "capture_pkm_memory",
+        "params": {
+          "mode": "preview",
+          "direct_save": false
+        }
       },
       "control_ids": [
         "generate_pkm_preview"
@@ -2291,9 +2295,13 @@
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "execution_target": {
-        "status": "unwired",
-        "reason": "Save encrypted capture is currently handled only inside PKM Agent Lab.",
-        "intended_handler": "dispatchVoiceToolCall"
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "capture_pkm_memory",
+        "params": {
+          "mode": "direct_save",
+          "direct_save": true
+        }
       },
       "control_ids": [
         "save_pkm_capture"

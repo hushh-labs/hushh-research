@@ -169,6 +169,64 @@ describe("ApiService voice planning contract", () => {
     expect(ttsHeaders["X-Voice-Turn-Id"]).toBe("vturn_tts_1");
   });
 
+  it("uploads Agent voice audio through the STT route with vault auth", async () => {
+    const { ApiService } = await import("@/lib/services/api-service");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          transcript: "start Nvidia analysis",
+          uncertain: false,
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+
+    await ApiService.transcribeAgentVoice({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      audio: new Blob(["fake-audio"], { type: "audio/webm" }),
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, request] = fetchSpy.mock.calls[0] ?? [];
+    expect(url).toBe("/api/kai/agent/voice/stt");
+    const headers = request?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer vault_token");
+    expect(request?.body).toBeInstanceOf(FormData);
+  });
+
+  it("requests Agent voice TTS through the Gemini-backed route", async () => {
+    const { ApiService } = await import("@/lib/services/api-service");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(new Blob(["fake-audio"], { type: "audio/wav" }), {
+        status: 200,
+        headers: { "Content-Type": "audio/wav" },
+      })
+    );
+
+    await ApiService.synthesizeAgentVoice({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      text: "Starting Nvidia analysis.",
+      voice: "Kore",
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, request] = fetchSpy.mock.calls[0] ?? [];
+    expect(url).toBe("/api/kai/agent/voice/tts");
+    const headers = request?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer vault_token");
+    const body = JSON.parse(String(request?.body || "{}")) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      user_id: "user_1",
+      text: "Starting Nvidia analysis.",
+      voice: "Kore",
+    });
+  });
+
   it("calls voice capability route with auth and turn id", async () => {
     const { ApiService } = await import("@/lib/services/api-service");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(

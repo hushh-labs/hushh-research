@@ -5,7 +5,6 @@ import binascii
 import hashlib
 import hmac
 import logging
-import os
 import threading
 import time
 from typing import Optional, Tuple, Union
@@ -335,13 +334,9 @@ async def validate_token_with_db(
                 str(token_obj.agent_id),
             )
             if not is_active:
-                if str(os.getenv("TESTING", "")).strip().lower() == "true":
-                    logger.info("TESTING mode: skipping DB inactive check for token validation")
-                    return valid, reason, token_obj
-
                 # Add to in-memory set for future fast checks
                 _revoked_tokens.add(token_str)
-                logger.warning(f"Token revoked in DB but not in memory: {token_str[:30]}...")
+                logger.warning("Token revoked in DB but not in memory (fingerprint=%s)", _token_fingerprint(token_str))
                 return False, "Token has been revoked (DB check)", None
     except Exception as e:
         # DB is unreachable — apply fail-closed policy based on token scope.
@@ -382,6 +377,11 @@ def is_token_revoked(token_str: str) -> bool:
 
 
 # ========== Internal Signer ==========
+
+
+def _token_fingerprint(token_str: str) -> str:
+    """Return a short SHA-256 fingerprint of a token for safe log messages."""
+    return hashlib.sha256(token_str.encode()).hexdigest()[:12]
 
 
 def _sign(input_string: str) -> str:

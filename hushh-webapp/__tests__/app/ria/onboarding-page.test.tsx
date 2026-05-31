@@ -309,6 +309,10 @@ describe("RiaOnboardingPage", () => {
       expect(screen.getByTestId("step-welcome")).toBeTruthy();
     });
     expect(screen.getByTestId("shell-eyebrow").textContent).toBe("Welcome");
+    expect(screen.getByTestId("welcome-type").textContent).toBe("individual");
+    expect((screen.getByTestId("continue-btn") as HTMLButtonElement).disabled).toBe(
+      false
+    );
   });
 
   it("advances to license step after clicking Continue from welcome", async () => {
@@ -316,10 +320,6 @@ describe("RiaOnboardingPage", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("step-welcome")).toBeTruthy();
-    });
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("select-individual"));
     });
 
     await act(async () => {
@@ -440,9 +440,7 @@ describe("RiaOnboardingPage", () => {
       firm_name: "Eissman Wealth Management",
       regulator: "SEC",
       regulator_status: "Active (Investment Adviser Representative)",
-      certifications: [
-        "Series 66 - Uniform Combined State Law Examination",
-      ],
+      certifications: ["Series 66 - Uniform Combined State Law Examination"],
       crd_number: "7413463",
       city: "Kennesaw",
       state: "GA",
@@ -496,6 +494,143 @@ describe("RiaOnboardingPage", () => {
       "114 Townpark Drive, Ste. 175",
     );
     expect(screen.getByTestId("services-pin-zip").textContent).toBe("30144");
+  });
+
+  it("repairs stale verified draft location from the license API on load", async () => {
+    mocks.draftService.load.mockResolvedValue({
+      currentStepId: "license_details",
+      onboardingType: "individual",
+      licenseNumber: "7265726",
+      regulator: "SEC",
+      licenseVerificationStatus: "found",
+      advisorName: "Ria A. Sen",
+      firmName: "Not Currently Registered",
+      regulatorStatus: "Not Currently Registered",
+      certifications: ["SIE", "Series 79TO"],
+      crdNumber: "7265726",
+      city: "",
+      areaLocality: "",
+      pinZip: "",
+      fullStreetAddress: "",
+      servicesOffered: ["Portfolio Management"],
+      feeStructure: ["Fee-only"],
+    });
+    mocks.riaService.verifyOnboardingLicense.mockResolvedValue({
+      status: "found",
+      advisor_name: "Ria Ashley Sen",
+      firm_name: "Not Currently Registered",
+      regulator: "SEC",
+      regulator_status: "Not Currently Registered",
+      certifications: ["SIE", "Series 79TO"],
+      crd_number: "7265726",
+      city: "New York",
+      state: "NY",
+      area_locality: "NY",
+      pin_zip: "10020-5900",
+      full_street_address: "30 ROCKEFELLER PLAZA",
+      official_location: {
+        city: "New York",
+        state: "NY",
+        pin_zip: "10020-5900",
+        address: "30 ROCKEFELLER PLAZA",
+      },
+      scrape_job_id: null,
+    });
+
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-license-details")).toBeTruthy();
+    });
+
+    await waitFor(() => {
+      expect(mocks.riaService.verifyOnboardingLicense).toHaveBeenCalledWith(
+        "token-ria-1",
+        expect.objectContaining({
+          license_number: "7265726",
+          regulator: "SEC",
+        }),
+        expect.any(Object),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("advisor-name").textContent).toBe(
+        "Ria Ashley Sen",
+      );
+      expect(screen.getByTestId("city").textContent).toBe("New York");
+      expect(screen.getByTestId("pin-zip").textContent).toBe("10020-5900");
+    });
+  });
+
+  it("repairs conflicting verified draft location from the license API on load", async () => {
+    mocks.draftService.load.mockResolvedValue({
+      currentStepId: "services",
+      onboardingType: "individual",
+      licenseNumber: "7265726",
+      regulator: "SEC",
+      licenseVerificationStatus: "found",
+      advisorName: "Ria A. Sen",
+      firmName: "Not Currently Registered",
+      regulatorStatus: "Not Currently Registered",
+      certifications: ["SIE", "Series 79TO"],
+      crdNumber: "7265726",
+      city: "Pune",
+      areaLocality: "Downtown, Mission District",
+      pinZip: "30144",
+      fullStreetAddress: "Army Institute of Technology, Pune",
+      servicesOffered: ["Portfolio Management"],
+      feeStructure: ["Fee-only"],
+    });
+    mocks.riaService.verifyOnboardingLicense.mockResolvedValue({
+      status: "found",
+      advisor_name: "Ria Ashley Sen",
+      firm_name: "Not Currently Registered",
+      regulator: "SEC",
+      regulator_status: "Not Currently Registered",
+      certifications: ["SIE", "Series 79TO"],
+      crd_number: "7265726",
+      city: "New York",
+      state: "NY",
+      area_locality: "NY",
+      pin_zip: "10020-5900",
+      full_street_address: "30 ROCKEFELLER PLAZA",
+      official_location: {
+        city: "New York",
+        state: "NY",
+        pin_zip: "10020-5900",
+        address: "30 ROCKEFELLER PLAZA",
+      },
+      scrape_job_id: null,
+    });
+
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-services")).toBeTruthy();
+    });
+
+    await waitFor(() => {
+      expect(mocks.riaService.verifyOnboardingLicense).toHaveBeenCalledWith(
+        "token-ria-1",
+        expect.objectContaining({
+          license_number: "7265726",
+          regulator: "SEC",
+        }),
+        expect.any(Object),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("services-city").textContent).toBe("New York");
+      expect(screen.getByTestId("services-area").textContent).toBe("NY");
+      expect(screen.getByTestId("services-address").textContent).toBe(
+        "30 ROCKEFELLER PLAZA",
+      );
+      expect(screen.getByTestId("services-pin-zip").textContent).toBe(
+        "10020-5900",
+      );
+    });
   });
 
   it("handles not_found and stays on license step", async () => {
@@ -618,6 +753,7 @@ describe("RiaOnboardingPage", () => {
       licenseNumber: "111222",
       licenseVerificationStatus: "found",
       advisorName: "Saved Advisor",
+      verifiedLicensePrefillKey: "auto:111222",
       servicesOffered: [],
       feeStructure: [],
     });
@@ -641,6 +777,7 @@ describe("RiaOnboardingPage", () => {
       regulatorStatus: "ACTIVE",
       crdNumber: "7265726",
       individualCrd: "7265726",
+      verifiedLicensePrefillKey: "sec:7265726",
       servicesOffered: ["Portfolio Management"],
       feeStructure: ["Fee-only"],
       contactEmail: "ria-e2e@example.invalid",

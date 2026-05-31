@@ -87,9 +87,11 @@ continue-dev-tools-usage.md
 temp/
 tmp/
 .playwright-artifacts/
+.playwright-mcp/
 /test-results/
 hushh-webapp/test-results/
 hushh-webapp/npm-audit-report.json
+hushh-webapp/native-ios-screenshots/
 **/build.log
 
 # Local debug/runtime artifacts

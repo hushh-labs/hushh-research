@@ -57,6 +57,7 @@ class DeveloperScopeCatalogResponse(BaseModel):
     scopes: list[DeveloperScopeDescriptor]
     discovery_endpoint: str = "/api/v1/user-scopes/{user_id}"
     request_endpoint: str = "/api/v1/request-consent"
+    default_available_export_endpoint: str = "/api/v1/default-available-export"
     tool_catalog_endpoint: str = "/api/v1/tool-catalog"
     mcp_tools: list[str] = Field(default_factory=list)
     mcp_resources: list[str] = Field(
@@ -68,6 +69,7 @@ class DeveloperScopeCatalogResponse(BaseModel):
     recommended_flow: list[str] = Field(
         default_factory=lambda: [
             "discover_user_domains",
+            "read_default_available_projection_when_ready",
             "request_consent",
             "check_consent_status",
             "get_encrypted_scoped_export",
@@ -77,6 +79,7 @@ class DeveloperScopeCatalogResponse(BaseModel):
         default_factory=lambda: [
             "Do not hardcode domain keys. Discover available scopes per user at runtime.",
             "Dynamic attr scopes are derived from PKM discovery metadata and the scope registry.",
+            "Scopes marked default_available are safe projections published by the user; read them through /api/v1/default-available-export instead of creating a consent request.",
             "Use get_encrypted_scoped_export for all consented reads; Hussh does not return plaintext user data to developer callers.",
         ]
     )
@@ -170,6 +173,13 @@ class DeveloperScopedExportRequest(BaseModel):
     expected_scope: str | None = None
 
 
+class DeveloperDefaultAvailableExportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str
+    scope: str
+
+
 class DeveloperScopedExportResponse(BaseModel):
     status: str
     user_id: str
@@ -185,6 +195,21 @@ class DeveloperScopedExportResponse(BaseModel):
     iv: str | None = None
     tag: str | None = None
     wrapped_key_bundle: dict | None = None
+    message: str
+
+
+class DeveloperDefaultAvailableExportResponse(BaseModel):
+    status: str
+    user_id: str
+    scope: str
+    domain: str | None = None
+    top_level_scope_path: str | None = None
+    projection_payload: dict = Field(default_factory=dict)
+    projection_hash: str | None = None
+    projection_version: int | None = None
+    projection_updated_at: str | None = None
+    app_id: str | None = None
+    app_display_name: str | None = None
     message: str
 
 
@@ -505,6 +530,8 @@ def _compact_scope_entries(
             continue
         if entry.get("consumer_visible") is False or entry.get("internal_only") is True:
             continue
+        if str(entry.get("visibility_posture") or "consent_required").strip().lower() == "private":
+            continue
 
         compact_entries.append(entry)
         seen_scopes.add(scope)
@@ -524,6 +551,23 @@ def _compact_scope_entries(
     )
     compact_domains = sorted(discovered_domains)
     return compact_domains, compact_scopes, compact_entries
+
+
+def _scope_entry_for_scope(scope_entries: list[dict], scope: str) -> dict[str, Any] | None:
+    normalized_scope = str(scope or "").strip()
+    for entry in scope_entries:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("scope") or "").strip() == normalized_scope:
+            return entry
+    return None
+
+
+def _is_default_available_scope_entry(entry: dict[str, Any] | None) -> bool:
+    if not entry:
+        return False
+    posture = str(entry.get("visibility_posture") or "consent_required").strip().lower()
+    return posture == "default_available" and entry.get("default_projection_ready") is True
 
 
 async def _get_user_scope_snapshot(
@@ -583,6 +627,7 @@ def _developer_root_payload() -> dict[str, object]:
             "tool_catalog": "/api/v1/tool-catalog",
             "user_scopes": "/api/v1/user-scopes/{user_id}",
             "request_consent": "/api/v1/request-consent",
+            "default_available_export": "/api/v1/default-available-export",
             "consent_status": "/api/v1/consent-status",
             "scoped_export": "/api/v1/scoped-export",
         },
@@ -592,6 +637,7 @@ def _developer_root_payload() -> dict[str, object]:
         ],
         "recommended_mcp_flow": [
             "discover_user_domains",
+            "read_default_available_projection_when_ready",
             "request_consent",
             "check_consent_status",
             "get_encrypted_scoped_export",
@@ -941,7 +987,7 @@ async def request_consent(
     # Keep default developer discovery compact, but validate requestable scopes
     # against the full resolver output so explicitly requested leaf paths found via
     # verbose/debug discovery remain valid.
-    available_domains, discovered_scopes, _scope_entries = await _get_user_scope_snapshot(
+    available_domains, discovered_scopes, scope_entries = await _get_user_scope_snapshot(
         payload.user_id,
         detail="verbose",
     )
@@ -955,6 +1001,28 @@ async def request_consent(
                 "available_domains": available_domains,
             },
         )
+
+    discovered_entry = _scope_entry_for_scope(scope_entries, normalized_scope)
+    if normalized_scope.startswith("attr.") and _is_default_available_scope_entry(discovered_entry):
+        return {
+            "status": "already_available",
+            "message": (
+                "This scope is available by default as a safe user-published projection. "
+                "Read it through /api/v1/default-available-export; no consent request was created."
+            ),
+            "scope": normalized_scope,
+            "requested_scope": normalized_scope,
+            "granted_scope": None,
+            "coverage_kind": "default_available_projection",
+            "covered_by_existing_grant": False,
+            "default_projection_ready": True,
+            "default_projection_updated_at": discovered_entry.get("default_projection_updated_at")
+            if discovered_entry
+            else None,
+            "agent_id": principal.agent_id,
+            "app_id": principal.app_id,
+            "app_display_name": principal.display_name,
+        }
 
     service = ConsentDBService()
     active, export_metadata, _invalidated_legacy = await _resolve_strict_covering_active_token(
@@ -1131,6 +1199,122 @@ async def request_consent(
         "existing_granted_scopes": scope_upgrade_fields["existing_granted_scopes"],
         "additional_access_summary": scope_upgrade_fields["additional_access_summary"],
     }
+
+
+@developer_api_router.post(
+    "/default-available-export",
+    response_model=DeveloperDefaultAvailableExportResponse,
+)
+async def get_default_available_export(
+    payload: DeveloperDefaultAvailableExportRequest,
+    request: Request,
+    token: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
+):
+    principal = _resolve_principal(
+        request=request,
+        token=token,
+        authorization=authorization,
+    )
+    normalized_scope = normalize_scope(payload.scope)
+    if not normalized_scope.startswith("attr."):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error_code": "INVALID_DEFAULT_AVAILABLE_SCOPE",
+                "message": "Default-available exports are only available for discovered attr scopes.",
+            },
+        )
+
+    available_domains, discovered_scopes, scope_entries = await _get_user_scope_snapshot(
+        payload.user_id,
+        detail="verbose",
+    )
+    if normalized_scope not in set(discovered_scopes):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error_code": "SCOPE_NOT_DISCOVERED_FOR_USER",
+                "message": "Requested scope is not available for this user.",
+                "available_domains": available_domains,
+            },
+        )
+
+    discovered_entry = _scope_entry_for_scope(scope_entries, normalized_scope)
+    if not _is_default_available_scope_entry(discovered_entry):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error_code": "DEFAULT_AVAILABLE_PROJECTION_NOT_READY",
+                "message": "This scope is not currently available by default.",
+                "visibility_posture": (
+                    str(discovered_entry.get("visibility_posture") or "consent_required")
+                    if discovered_entry
+                    else "unknown"
+                ),
+                "default_projection_ready": bool(
+                    discovered_entry and discovered_entry.get("default_projection_ready") is True
+                ),
+            },
+        )
+    if discovered_entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error_code": "SCOPE_NOT_DISCOVERED_FOR_USER",
+                "message": "Requested scope is not available for this user.",
+            },
+        )
+
+    projection = await get_pkm_service().get_default_available_projection(
+        user_id=payload.user_id,
+        scope=normalized_scope,
+    )
+    if not projection or not projection.get("projection_payload"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error_code": "DEFAULT_AVAILABLE_PROJECTION_NOT_FOUND",
+                "message": "The projection metadata is ready, but no active projection payload was found.",
+            },
+        )
+
+    await ConsentDBService().insert_internal_event(
+        user_id=payload.user_id,
+        agent_id=principal.agent_id,
+        scope=normalized_scope,
+        action="DEFAULT_AVAILABLE_READ",
+        token_id=f"default_available_{uuid.uuid4().hex[:24]}",
+        scope_description=get_scope_description(normalized_scope),
+        metadata={
+            "app_id": principal.app_id,
+            "app_display_name": principal.display_name,
+            "projection_hash": projection.get("projection_hash"),
+            "projection_version": projection.get("projection_version"),
+            "top_level_scope_path": projection.get("top_level_scope_path"),
+            "visibility_posture": "default_available",
+        },
+    )
+
+    return DeveloperDefaultAvailableExportResponse(
+        status="success",
+        user_id=payload.user_id,
+        scope=normalized_scope,
+        domain=str(projection.get("domain") or discovered_entry.get("domain") or "") or None,
+        top_level_scope_path=str(
+            projection.get("top_level_scope_path")
+            or discovered_entry.get("top_level_scope_path")
+            or ""
+        )
+        or None,
+        projection_payload=dict(projection.get("projection_payload") or {}),
+        projection_hash=str(projection.get("projection_hash") or "") or None,
+        projection_version=_optional_int(projection.get("projection_version")),
+        projection_updated_at=_optional_str(projection.get("updated_at")),
+        app_id=principal.app_id,
+        app_display_name=principal.display_name,
+        message="Default-available projection ready.",
+    )
 
 
 @developer_api_router.post("/scoped-export", response_model=DeveloperScopedExportResponse)

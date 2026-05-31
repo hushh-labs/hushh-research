@@ -68,6 +68,47 @@ class VaultKeysService:
     def _invalidate_vault_state_cache(self, user_id: str) -> None:
         self._vault_state_cache.pop(user_id, None)
 
+    def ensure_actor_profile(self, user_id: str) -> bool:
+        """Ensure vault-backed users are present in the actor profile spine."""
+        user_id_clean = (user_id or "").strip()
+        if not user_id_clean:
+            return False
+
+        supabase = self._get_supabase()
+        with supabase.engine.begin() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    INSERT INTO actor_profiles (
+                        user_id,
+                        personas,
+                        last_active_persona,
+                        investor_marketplace_opt_in
+                    )
+                    SELECT
+                        :user_id,
+                        ARRAY['investor'],
+                        'investor',
+                        FALSE
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM vault_keys
+                        WHERE user_id = :user_id
+                    )
+                    ON CONFLICT (user_id) DO NOTHING
+                    RETURNING user_id
+                    """
+                ),
+                {"user_id": user_id_clean},
+            )
+            inserted = result.fetchone() is not None
+
+        if inserted:
+            logger.info(
+                "actor profile created for vault user %s", self._mask_user_id(user_id_clean)
+            )
+        return True
+
     @staticmethod
     def _mask_user_id(user_id: str) -> str:
         if not user_id:
@@ -775,6 +816,27 @@ class VaultKeysService:
                 raise RuntimeError("Failed to upsert vault_keys row.")
 
             conn.execute(
+                text(
+                    """
+                    INSERT INTO actor_profiles (
+                        user_id,
+                        personas,
+                        last_active_persona,
+                        investor_marketplace_opt_in
+                    )
+                    VALUES (
+                        :user_id,
+                        ARRAY['investor'],
+                        'investor',
+                        FALSE
+                    )
+                    ON CONFLICT (user_id) DO NOTHING
+                    """
+                ),
+                {"user_id": user_id_clean},
+            )
+
+            conn.execute(
                 text("DELETE FROM vault_key_wrappers WHERE user_id = :user_id"),
                 {"user_id": user_id_clean},
             )
@@ -1185,7 +1247,7 @@ class VaultKeysService:
                     prefs_summary.get("field_count", 0) if isinstance(prefs_summary, dict) else 0
                 )
         except Exception as e:  # pragma: no cover
-            logger.warning(f"Failed to check pkm_index for vault status: {e}")
+            logger.warning("vault_keys.get_vault_status.pkm_index_check_failed: %s", e)
 
         domains = {
             "kai": {
@@ -1198,6 +1260,6 @@ class VaultKeysService:
         total_active = 1 if kai_has_data else 0
         total = 1
 
-        logger.info(f"✅ Vault status for {user_id}: {total_active}/{total} domains active")
+        logger.info("vault_keys.vault_status user_id=%s active=%d/%d", user_id, total_active, total)
 
         return {"domains": domains, "totalActive": total_active, "total": total}

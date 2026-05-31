@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  hasApprovedKycWorkflowAccess,
   isKycClientDraftReady,
+  needsKycWorkflowAccessApproval,
   removeKycWorkflowLocalState,
   retainReadyKycWorkflowLocalState,
   selectedScopesForWorkflow,
@@ -83,5 +85,78 @@ describe("one KYC workflow state helpers", () => {
     expect(removeKycWorkflowLocalState({ wf_1: "draft", wf_2: "draft" }, "wf_1")).toEqual({
       wf_2: "draft",
     });
+  });
+
+  it("does not ask for access approval once linked access is already granted", () => {
+    const granted = workflow({
+      status: "needs_scope",
+      draft_status: "not_ready",
+      consent_requests: [
+        {
+          request_id: "okyc_1",
+          scope: "attr.financial.portfolio.*",
+          status: "granted",
+        },
+      ],
+    });
+    const pending = workflow({
+      status: "needs_scope",
+      draft_status: "not_ready",
+      consent_requests: [
+        {
+          request_id: "okyc_2",
+          scope: "attr.financial.portfolio.*",
+          status: "requested",
+        },
+      ],
+    });
+
+    expect(hasApprovedKycWorkflowAccess(granted)).toBe(true);
+    expect(needsKycWorkflowAccessApproval(granted)).toBe(false);
+    expect(hasApprovedKycWorkflowAccess(pending)).toBe(false);
+    expect(needsKycWorkflowAccessApproval(pending)).toBe(true);
+  });
+
+  it("recognizes approved access from consent status metadata", () => {
+    const granted = workflow({
+      status: "needs_scope",
+      draft_status: "not_ready",
+      metadata: {
+        consent_statuses: [
+          {
+            request_id: "okyc_1",
+            scope: "attr.travel.seat_preferences.*",
+            action: "CONSENT_GRANTED",
+          },
+        ],
+      },
+    });
+
+    expect(hasApprovedKycWorkflowAccess(granted)).toBe(true);
+    expect(needsKycWorkflowAccessApproval(granted)).toBe(false);
+  });
+
+  it("treats selected default-available projections as access-ready", () => {
+    const ready = workflow({
+      status: "needs_scope",
+      draft_status: "not_ready",
+      requested_scope: "attr.financial.portfolio.*",
+      requested_scopes: ["attr.financial.portfolio.*"],
+      metadata: {
+        selected_scopes: ["attr.financial.portfolio.*"],
+        candidate_scopes: [
+          {
+            scope: "attr.financial.portfolio.*",
+            domain: "financial",
+            label: "Portfolio",
+            visibility_posture: "default_available",
+            default_projection_ready: true,
+          },
+        ],
+      },
+    });
+
+    expect(hasApprovedKycWorkflowAccess(ready)).toBe(true);
+    expect(needsKycWorkflowAccessApproval(ready)).toBe(false);
   });
 });
