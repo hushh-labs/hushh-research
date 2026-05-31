@@ -537,6 +537,47 @@ export class VoiceTurnOrchestrator {
 
       if (!this.isTokenActive(token)) return null;
 
+      // -----------------------------------------------------------------------
+      // Parallel ack-speak: for long-running intents (start_background_and_ack)
+      // the planner returns an ack_text (e.g. "Starting analysis for AAPL.").
+      // Begin TTS on that text NOW, concurrently with dispatch + compose, so the
+      // user hears immediate audio instead of ~500 ms of silence.
+      // -----------------------------------------------------------------------
+      let ackSpeakPromise: Promise<void> | null = null;
+      // Tracks the text that was actually handed to speak(); used for spokenText
+      // in the return value so it reflects what was played, not just composed.
+      let lastSpokenText: string | null = null;
+      // is_long_running lives on the raw planner envelope (PlannerV2Response),
+      // not on the normalised VoicePlanPayload — read it from plannerEnvelope.
+      const isLongRunning = plannerEnvelope.is_long_running === true || ackText !== null;
+      if (ackText && isLongRunning) {
+        this.config.onStageChange?.("speaking_ack");
+        this.config.onAssistantText?.({
+          text: ackText,
+          kind: "ack",
+          turnId,
+          responseId,
+          segmentType: "ack",
+        });
+        this.config.onDebug?.("parallel_ack_speak_started", {
+          turn_id: turnId,
+          ack_text_chars: ackText.length,
+        });
+        // Capture the ack text in lastSpokenText only if speak resolves; a
+        // failed TTS leaves lastSpokenText null so spokenText is accurate.
+        const capturedAckText = ackText;
+        ackSpeakPromise = this.config
+          .speak({ text: ackText, turnId, responseId, segmentType: "ack" })
+          .then(() => {
+            lastSpokenText = capturedAckText;
+          })
+          .catch((error) => {
+            this.config.onDebug?.("parallel_ack_speak_failed", {
+              error: error instanceof Error ? error.message : "unknown_error",
+            });
+          });
+      }
+
       this.config.onStageChange?.("dispatch");
       const dispatchOutcome = await Promise.resolve(
         this.config.onVoiceResponse({
@@ -626,11 +667,27 @@ export class VoiceTurnOrchestrator {
           plan: normalizedPlan,
           actionResult,
           plannerFinalText: plannerSafeText(plannerEnvelope.final_text),
-          plannerAckText: ackText,
+          // Suppress ackText from the template composer when we already spoke it
+          // in parallel above to avoid repeating the same phrase.
+          plannerAckText: ackSpeakPromise ? null : ackText,
         });
       }
 
-      if (composedSpeech && composedSpeech.text.trim()) {
+      // Wait for the parallel ack to finish before playing the final segment
+      // so the two audio streams don't overlap.
+      if (ackSpeakPromise) {
+        await ackSpeakPromise;
+        if (!this.isTokenActive(token)) return null;
+      }
+
+      // Only speak the final segment if it's meaningfully different from the ack
+      // that was already played in parallel (avoid repeating an ack-only segment).
+      const shouldSpeakFinal =
+        composedSpeech &&
+        composedSpeech.text.trim() &&
+        !(ackSpeakPromise && composedSpeech.segmentType === "ack");
+
+      if (shouldSpeakFinal && composedSpeech) {
         const segmentType = composedSpeech.segmentType;
         this.config.onStageChange?.(segmentType === "ack" ? "speaking_ack" : "speaking_final");
         this.config.onAssistantText?.({
@@ -647,6 +704,7 @@ export class VoiceTurnOrchestrator {
             responseId,
             segmentType,
           });
+          lastSpokenText = composedSpeech.text;
         } catch (error) {
           this.config.onDebug?.("post_dispatch_tts_failed_turn_continues", {
             error: error instanceof Error ? error.message : "unknown_error",
@@ -687,7 +745,7 @@ export class VoiceTurnOrchestrator {
         plan: normalizedPlan,
         groundedPlan,
         actionResult,
-        spokenText: composedSpeech?.text || null,
+        spokenText: lastSpokenText,
         source: input.source,
       };
     } finally {

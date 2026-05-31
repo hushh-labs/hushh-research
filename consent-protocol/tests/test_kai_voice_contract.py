@@ -1895,3 +1895,82 @@ async def test_plan_voice_response_blank_transcript_sets_clarification_contract(
         "reason": "stt_unusable",
         "question": _UNCLEAR_STT_MESSAGE,
     }
+
+
+@pytest.mark.anyio
+async def test_plan_voice_response_llm_result_served_from_intent_cache_on_repeat(
+    voice_service: VoiceIntentService,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    Canonical caller proof: POST /voice/plan → plan_voice_response
+      → _plan_intent_with_llm_v1 → _intent_cache.
+
+    "show me my account area" passes all deterministic fast-paths and reaches
+    _plan_intent_with_llm_v1. The second identical call must not invoke
+    _post_with_model_fallback (_SHARED_HTTP_CLIENT) — it is served from cache.
+    """
+    import hushh_mcp.services.voice_intent_service as voice_module
+
+    # Isolate: clear module-level cache so prior test runs don't interfere.
+    voice_module._intent_cache.clear()
+
+    http_call_count = 0
+
+    class _FakeResponse:
+        status_code = 200
+
+    async def _fake_post_with_model_fallback(**kwargs):
+        nonlocal http_call_count
+        http_call_count += 1
+        return (
+            _FakeResponse(),
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": "execute_kai_command",
+                                        "arguments": json.dumps(
+                                            {"command": "profile", "params": {}}
+                                        ),
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            12,
+            "gpt-4.1-nano",
+        )
+
+    monkeypatch.setattr(voice_module, "_post_with_model_fallback", _fake_post_with_model_fallback)
+
+    app_state = _app_state()
+    transcript = "show me my account area"
+
+    r1, ms1, model1 = await voice_service.plan_voice_response(
+        transcript=transcript,
+        user_id="user_a",
+        app_state=app_state,
+        context={},
+    )
+    r2, ms2, model2 = await voice_service.plan_voice_response(
+        transcript=transcript,
+        user_id="user_a",
+        app_state=app_state,
+        context={},
+    )
+
+    # HTTP must be called exactly once; second call is a cache hit.
+    assert http_call_count == 1, (
+        f"_post_with_model_fallback called {http_call_count} times; "
+        "expected 1 — second call should be served from _intent_cache"
+    )
+    assert r1["kind"] == r2["kind"]
+    assert r1.get("action_id") == r2.get("action_id")
+    assert ms1 == ms2
+    assert model1 == model2

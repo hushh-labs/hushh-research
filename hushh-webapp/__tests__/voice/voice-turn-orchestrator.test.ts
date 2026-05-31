@@ -99,7 +99,7 @@ describe("VoiceTurnOrchestrator", () => {
     });
   });
 
-  it("speaks a confirmed background ack only after dispatch and tolerates TTS failure", async () => {
+  it("speaks a confirmed background ack immediately (parallel) and tolerates TTS failure", async () => {
     mockPlanningResponse(
       makePlannerEnvelope({
         mode: "start_background_and_ack",
@@ -121,6 +121,8 @@ describe("VoiceTurnOrchestrator", () => {
         settled_by: "background_start",
       },
     });
+    // Parallel-ack fires immediately after /voice/plan with plannerEnvelope.ack_text
+    // ("Working on it."). The speak mock throws on the first (ack) call.
     const speak = vi.fn().mockImplementationOnce(async () => {
       throw new Error("ACK_TTS_FAILED");
     });
@@ -145,26 +147,32 @@ describe("VoiceTurnOrchestrator", () => {
 
     expect(onVoiceResponse).toHaveBeenCalledTimes(1);
     expect(composeKaiVoiceReplyMock).toHaveBeenCalledTimes(1);
+    // speak is called once: the parallel ack for plannerEnvelope.ack_text.
+    // The LLM compose returns an "ack" segment which is suppressed as a duplicate.
     expect(speak).toHaveBeenCalledTimes(1);
     expect(speak).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: "I've started analyzing NVDA. I'll keep it running in the background.",
+        text: "Working on it.",
         segmentType: "ack",
       })
     );
+    // The ack TTS threw → parallel_ack_speak_failed fires (not post_dispatch).
     expect(onDebug).toHaveBeenCalledWith(
-      "post_dispatch_tts_failed_turn_continues",
+      "parallel_ack_speak_failed",
       expect.objectContaining({
         error: "ACK_TTS_FAILED",
-        response_kind: "execute",
-        segment_type: "ack",
       })
     );
     expect(result?.response.kind).toBe("execute");
-    expect(result?.spokenText).toBe("I've started analyzing NVDA. I'll keep it running in the background.");
+    // Compose returned a duplicate ack segment that was suppressed; spokenText is null.
+    expect(result?.spokenText).toBeNull();
   });
 
   it("does not fail the turn when post-dispatch final TTS fails", async () => {
+    // This fixture has ack_text + is_long_running: true (from makePlannerEnvelope
+    // defaults), so the parallel-ack fires first and speak is called with
+    // "Working on it." (succeeds). The compose returns a "final" segment;
+    // that second speak call throws FINAL_TTS_FAILED.
     mockPlanningResponse(
       makePlannerEnvelope({
         mode: "execute_and_wait",
@@ -189,9 +197,14 @@ describe("VoiceTurnOrchestrator", () => {
         settled_by: "screen",
       },
     });
-    const speak = vi.fn().mockImplementationOnce(async () => {
-      throw new Error("FINAL_TTS_FAILED");
-    });
+    // 1st call: parallel ack ("Working on it.") — succeeds.
+    // 2nd call: final segment from compose — throws.
+    const speak = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(async () => {
+        throw new Error("FINAL_TTS_FAILED");
+      });
     const onDebug = vi.fn();
 
     const orchestrator = new VoiceTurnOrchestrator({
@@ -214,9 +227,9 @@ describe("VoiceTurnOrchestrator", () => {
     expect(onVoiceResponse).toHaveBeenCalledTimes(1);
     expect(composeKaiVoiceReplyMock).toHaveBeenCalledTimes(1);
     expect(result?.response.kind).toBe("execute");
-    expect(result?.spokenText).toBe(
-      "You're on Profile now. Manage your investor identity and connected data here."
-    );
+    // The parallel ack ("Working on it.") succeeded; the final TTS threw.
+    // spokenText reflects the last *successfully* spoken text.
+    expect(result?.spokenText).toBe("Working on it.");
     expect(onDebug).toHaveBeenCalledWith(
       "post_dispatch_tts_failed_turn_continues",
       expect.objectContaining({
