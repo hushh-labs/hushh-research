@@ -318,11 +318,13 @@ export function DataTable<TData, TValue>({
                     tabIndex={header.column.getCanSort() ? 0 : undefined}
                     role={header.column.getCanSort() ? "button" : undefined}
                     aria-sort={
-                      header.column.getIsSorted() === "asc"
-                        ? "ascending"
-                        : header.column.getIsSorted() === "desc"
-                          ? "descending"
-                          : undefined
+                      header.column.getCanSort()
+                        ? header.column.getIsSorted() === "asc"
+                          ? "ascending"
+                          : header.column.getIsSorted() === "desc"
+                            ? "descending"
+                            : "none"
+                        : undefined
                     }
                     onKeyDown={(e) => {
                       if (
