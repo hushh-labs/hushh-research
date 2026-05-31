@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from copy import deepcopy
 from pathlib import Path
@@ -369,7 +370,64 @@ _PREVIEW_TOTAL_BUDGET_SECONDS = max(
     4.0,
     float(os.getenv("PKM_AGENT_LAB_PREVIEW_BUDGET_SECONDS", "12") or "12"),
 )
-_PREVIEW_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_PREVIEW_CACHE_MAX: int = max(
+    1,
+    int(os.getenv("PKM_AGENT_LAB_PREVIEW_CACHE_MAX", "2000") or "2000"),
+)
+
+
+class _PreviewCache:
+    """Thread-safe, size-bounded TTL cache for structure-preview payloads.
+
+    Eviction strategy (triggered only when the cache is full and a *new* key
+    arrives):
+    1. Remove all entries whose TTL has already expired.
+    2. If still at capacity, evict the oldest-inserted entry (FIFO).
+    """
+
+    def __init__(self, max_entries: int = _PREVIEW_CACHE_MAX) -> None:
+        self._max = max_entries
+        self._store: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: str, now: float | None = None) -> dict[str, Any] | None:
+        t = now if now is not None else time.time()
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            expires_at, payload = entry
+            if expires_at <= t:
+                del self._store[key]
+                return None
+            return deepcopy(payload)
+
+    def set(self, key: str, payload: dict[str, Any], ttl_seconds: int) -> None:
+        with self._lock:
+            if key not in self._store and len(self._store) >= self._max:
+                now = time.time()
+                stale = [k for k, (exp, _) in self._store.items() if exp <= now]
+                for k in stale:
+                    del self._store[k]
+                while len(self._store) >= self._max:
+                    oldest = next(iter(self._store))
+                    del self._store[oldest]
+            self._store[key] = (time.time() + ttl_seconds, deepcopy(payload))
+
+    def pop(self, key: str) -> None:
+        with self._lock:
+            self._store.pop(key, None)
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._store)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._store.clear()
+
+
+_PREVIEW_CACHE = _PreviewCache()
 _PREVIEW_INFLIGHT: dict[str, asyncio.Task[dict[str, Any]]] = {}
 _SOFT_ONTOLOGY_KEYS = tuple(
     entry.domain_key
@@ -650,21 +708,11 @@ class PKMAgentLabService:
 
     @classmethod
     def _get_cached_structure_preview(cls, cache_key: str) -> dict[str, Any] | None:
-        cached = _PREVIEW_CACHE.get(cache_key)
-        if not cached:
-            return None
-        expires_at, payload = cached
-        if expires_at <= time.time():
-            _PREVIEW_CACHE.pop(cache_key, None)
-            return None
-        return deepcopy(payload)
+        return _PREVIEW_CACHE.get(cache_key)
 
     @classmethod
     def _set_cached_structure_preview(cls, cache_key: str, payload: dict[str, Any]) -> None:
-        _PREVIEW_CACHE[cache_key] = (
-            time.time() + _PREVIEW_CACHE_TTL_SECONDS,
-            deepcopy(payload),
-        )
+        _PREVIEW_CACHE.set(cache_key, payload, _PREVIEW_CACHE_TTL_SECONDS)
 
     @staticmethod
     def _normalize_segment(value: str) -> str:
