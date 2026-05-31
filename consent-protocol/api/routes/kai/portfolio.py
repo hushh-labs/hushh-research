@@ -26,7 +26,17 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -2050,7 +2060,7 @@ def _build_pick_rationale(*, tier: str, sector: str, dominant_sector: Optional[s
 @router.post("/portfolio/import", response_model=PortfolioImportResponse)
 async def import_portfolio(
     file: UploadFile,
-    user_id: str = Form(..., description="User's ID"),
+    user_id: str = Form(..., max_length=128, description="User's ID"),
     token_data: dict = Depends(require_vault_owner_token),
 ) -> PortfolioImportResponse:
     """
@@ -2148,7 +2158,7 @@ async def import_portfolio(
 
 @router.get("/portfolio/summary/{user_id}", response_model=PortfolioSummaryResponse)
 async def get_portfolio_summary(
-    user_id: str,
+    user_id: str = Path(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ) -> PortfolioSummaryResponse:
     """
@@ -2203,9 +2213,10 @@ async def get_portfolio_summary(
 
 @router.get("/dashboard/profile-picks/{user_id}", response_model=DashboardProfilePicksResponse)
 async def get_dashboard_profile_picks(
-    user_id: str,
+    user_id: str = Path(..., max_length=128),
     symbols: Optional[str] = Query(
         default=None,
+        max_length=2048,
         description="Optional comma-separated ticker symbols from current holdings context.",
     ),
     limit: int = Query(default=4, ge=1, le=_MAX_PROFILE_PICKS),
@@ -3185,7 +3196,7 @@ class _AlwaysConnectedImportStreamRequest:
 @router.post("/portfolio/import/run/start")
 async def start_portfolio_import_run(
     file: UploadFile,
-    user_id: str = Form(..., description="User's ID"),
+    user_id: str = Form(..., max_length=128, description="User's ID"),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data["user_id"] != user_id:
@@ -3233,7 +3244,7 @@ async def start_portfolio_import_run(
 
 @router.get("/portfolio/import/run/active")
 async def get_active_portfolio_import_run(
-    user_id: str,
+    user_id: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data["user_id"] != user_id:
@@ -3247,8 +3258,8 @@ async def get_active_portfolio_import_run(
 @router.get("/portfolio/import/run/{run_id}/stream")
 async def stream_portfolio_import_run(
     request: Request,
-    run_id: str,
-    user_id: str,
+    run_id: str = Path(..., max_length=128),
+    user_id: str = Query(..., max_length=128),
     cursor: Optional[int] = 0,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -3291,8 +3302,8 @@ async def stream_portfolio_import_run(
 
 @router.post("/portfolio/import/run/{run_id}/cancel")
 async def cancel_portfolio_import_run(
-    run_id: str,
-    user_id: str,
+    run_id: str = Path(..., max_length=128),
+    user_id: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data["user_id"] != user_id:
@@ -3316,7 +3327,7 @@ async def cancel_portfolio_import_run(
 async def import_portfolio_stream(
     request: Request,
     file: UploadFile,
-    user_id: str = Form(..., description="User's ID"),
+    user_id: str = Form(..., max_length=128, description="User's ID"),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """Backward-compatible import stream endpoint.
