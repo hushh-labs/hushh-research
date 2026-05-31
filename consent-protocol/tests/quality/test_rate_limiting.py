@@ -178,6 +178,79 @@ class TestRateLimitKeyTrustBoundary:
         assert key != "user:user_ok"
         assert "198.51.100.3" in key
 
+    def test_lowercase_bearer_prefix_is_not_accepted(self):
+        """Lowercase bearer scheme falls back to IP bucket resolution."""
+        token = _issue_vault_owner_token("user_lower")
+        request = MockRequest(
+            headers={"Authorization": f"bearer {token}"},
+            ip="203.0.113.20",
+        )
+
+        key = get_rate_limit_key(request)
+
+        assert key != "user:user_lower"
+        assert "203.0.113.20" in key
+
+    def test_whitespace_only_bearer_token_falls_back_to_ip(self):
+        """Whitespace-only bearer token falls back to IP bucket resolution."""
+        request = MockRequest(
+            headers={"Authorization": "Bearer   "},
+            ip="203.0.113.21",
+        )
+
+        key = get_rate_limit_key(request)
+
+        assert "203.0.113.21" in key
+
+    def test_authorization_without_bearer_scheme_falls_back_to_ip(self):
+        """Authorization headers without Bearer scheme fall back to IP buckets."""
+        token = _issue_vault_owner_token("user_noscheme")
+        request = MockRequest(
+            headers={"Authorization": token},
+            ip="203.0.113.22",
+        )
+
+        key = get_rate_limit_key(request)
+
+        assert key != "user:user_noscheme"
+        assert "203.0.113.22" in key
+
+    def test_valid_token_with_none_payload_falls_back_to_ip(self, monkeypatch):
+        """Missing validated payload falls back to IP bucket resolution."""
+
+        def _none_payload(*_args, **_kwargs):
+            return True, None, None
+
+        monkeypatch.setattr(rate_limit, "validate_token", _none_payload)
+        request = MockRequest(
+            headers={"Authorization": "Bearer some-token"},
+            ip="203.0.113.23",
+        )
+
+        key = get_rate_limit_key(request)
+
+        assert "203.0.113.23" in key
+        assert not key.startswith("user:")
+
+    def test_valid_token_with_falsy_user_id_falls_back_to_ip(self, monkeypatch):
+        """Falsy validated user identifiers fall back to IP bucket resolution."""
+        mock_payload = MagicMock()
+        mock_payload.user_id = ""
+
+        def _empty_user_id(*_args, **_kwargs):
+            return True, None, mock_payload
+
+        monkeypatch.setattr(rate_limit, "validate_token", _empty_user_id)
+        request = MockRequest(
+            headers={"Authorization": "Bearer some-token"},
+            ip="203.0.113.24",
+        )
+
+        key = get_rate_limit_key(request)
+
+        assert "203.0.113.24" in key
+        assert not key.startswith("user:")
+
 
 class TestRateLimitConstants:
     def test_consent_request_limit(self):
