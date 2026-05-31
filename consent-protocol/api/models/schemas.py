@@ -8,6 +8,7 @@ All request and response schemas are centralized here for:
 - Easy documentation generation
 """
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -129,3 +130,18 @@ class HistoryRequest(BaseModel):
     userId: str
     page: int = 1
     limit: int = 20
+
+
+# ============================================================================
+# AI OBSERVABILITY MODELS
+# ============================================================================
+
+
+class ReasoningStep(BaseModel):
+    agent_id: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    intent: str
+    thought: str
+    action_taken: Optional[str] = None
+    observation: Optional[str] = None
+    confidence_score: float
