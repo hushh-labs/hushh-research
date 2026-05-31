@@ -293,3 +293,87 @@ class TestRateLimitEnforcement:
         )
 
         assert max_flows_per_minute >= 10, "Should allow at least 10 flows/minute"
+
+
+class TestRateLimitKeyProxyFallback:
+
+    def test_explicit_none_rate_limit_user_id_on_state_falls_through_to_bearer(self):
+        """state.rate_limit_user_id = None must fall through to bearer decode, not IP."""
+        token = _issue_vault_owner_token("state_none_user")
+        state = MagicMock()
+        state.rate_limit_user_id = None
+
+        key = get_rate_limit_key(
+            MockRequest(
+                headers={"Authorization": f"Bearer {token}"},
+                state=state,
+            )
+        )
+
+        assert key == "user:state_none_user"
+
+    def test_lowercase_authorization_header_key_accepted_for_bearer_fallback(self):
+        """Lowercase authorization headers are accepted for bearer fallback."""
+        token = _issue_vault_owner_token("user_lowercase_header")
+        request = MockRequest(headers={"authorization": f"Bearer {token}"})
+
+        key = get_rate_limit_key(request)
+
+        assert key == "user:user_lowercase_header"
+
+    def test_two_unauthenticated_ips_produce_different_rate_limit_keys(self):
+        """Two distinct unauthenticated IPs must never share a bucket."""
+        key_a = get_rate_limit_key(MockRequest(ip="203.0.113.50"))
+        key_b = get_rate_limit_key(MockRequest(ip="203.0.113.51"))
+
+        assert key_a != key_b
+        assert "203.0.113.50" in key_a
+        assert "203.0.113.51" in key_b
+        assert not key_a.startswith("user:")
+        assert not key_b.startswith("user:")
+
+    def test_authenticated_and_unauthenticated_request_never_share_bucket(self):
+        """An authenticated user bucket must never collide with an IP bucket."""
+        token = _issue_vault_owner_token("bucket_isolation_user")
+        authed_key = get_rate_limit_key(
+            MockRequest(headers={"Authorization": f"Bearer {token}"})
+        )
+        anon_key = get_rate_limit_key(MockRequest(ip="203.0.113.52"))
+
+        assert authed_key != anon_key
+        assert authed_key.startswith("user:")
+        assert not anon_key.startswith("user:")
+
+    def test_missing_state_attribute_falls_through_to_bearer(self):
+        """A request with no state attribute at all must still decode a valid bearer token."""
+        token = _issue_vault_owner_token("no_state_user")
+
+        key = get_rate_limit_key(MockRequest(headers={"Authorization": f"Bearer {token}"}))
+
+        assert key == "user:no_state_user"
+
+    def test_state_empty_string_user_id_falls_through_to_bearer(self):
+        """Falsy cached user identifiers fall through to bearer decoding."""
+        token = _issue_vault_owner_token("empty_string_state_user")
+        state = MagicMock()
+        state.rate_limit_user_id = ""
+
+        key = get_rate_limit_key(
+            MockRequest(
+                headers={"Authorization": f"Bearer {token}"},
+                state=state,
+            )
+        )
+
+        assert key == "user:empty_string_state_user"
+
+    def test_same_user_always_produces_same_key(self):
+        """Valid tokens resolve to stable deterministic bucket keys."""
+        token = _issue_vault_owner_token("deterministic_user")
+        keys = {
+            get_rate_limit_key(MockRequest(headers={"Authorization": f"Bearer {token}"}))
+            for _ in range(10)
+        }
+
+        assert len(keys) == 1
+        assert keys.pop() == "user:deterministic_user"
