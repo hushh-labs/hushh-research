@@ -268,17 +268,12 @@ function Dots(props: {
   onDotClick: (index: number) => void;
 }) {
   return (
-    <div
-      className="flex items-center justify-center gap-2"
-      role="tablist"
-      aria-label="Carousel slides"
-    >
+    <div className="flex items-center justify-center gap-2" aria-label="Carousel slides">
       {Array.from({ length: props.count }).map((_, i) => (
         <button
           key={i}
           type="button"
-          role="tab"
-          aria-selected={i === props.activeIndex}
+          aria-current={i === props.activeIndex ? "step" : undefined}
           aria-label={`Go to slide ${i + 1}`}
           onClick={() => props.onDotClick(i)}
           className={cn(
