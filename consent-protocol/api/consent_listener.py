@@ -37,8 +37,17 @@ FINAL_REMINDER_LEAD_MS = 30 * 60 * 1000
 MIN_FINAL_REMINDER_WINDOW_MS = 2 * 60 * 60 * 1000
 
 # Per-user queues for SSE generators (no polling). Key = user_id.
+# Each queue is bounded so a stalled or slow SSE consumer cannot accumulate an
+# unbounded backlog of notifications and exhaust memory. When a queue is full,
+# the oldest pending event is dropped to make room for the newest.
+_CONSENT_NOTIFY_QUEUE_MAXSIZE = 100
 _consent_notify_queues: Dict[str, asyncio.Queue] = {}
 _consent_notify_queues_lock = asyncio.Lock()
+# Reference count: number of active SSE connections holding a queue reference.
+# The queue is only removed from _consent_notify_queues when the count
+# drops to zero, so a single disconnect does not evict a queue that another
+# concurrent same-user connection is still reading from.
+_consent_queue_refcount: Dict[str, int] = {}
 
 # Diagnostic: set when listener is running and when NOTIFY is received
 _listener_active = False
@@ -117,14 +126,50 @@ async def _push_to_consent_queue(user_id: str, data: Dict[str, Any]) -> None:
         try:
             q.put_nowait(data)
         except asyncio.QueueFull:
-            pass
+            # Queue is full because the SSE consumer is not draining fast
+            # enough. Drop the oldest pending event and enqueue the newest so
+            # the consumer always receives the most recent consent state.
+            try:
+                q.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+            try:
+                q.put_nowait(data)
+            except asyncio.QueueFull:
+                pass
+            logger.warning(
+                "consent notify queue full; dropped oldest event to bound memory"
+            )
 
 
 def get_consent_queue(user_id: str) -> asyncio.Queue:
-    """Get or create the asyncio queue for this user (used by SSE generator)."""
+    """Get or create the asyncio queue for this user and increment the ref count.
+
+    Each SSE connection that calls this must later call release_consent_queue
+    in its finally block so the queue is removed only when the last connection
+    for that user disconnects.
+    """
     if user_id not in _consent_notify_queues:
-        _consent_notify_queues[user_id] = asyncio.Queue()
+        _consent_notify_queues[user_id] = asyncio.Queue(
+            maxsize=_CONSENT_NOTIFY_QUEUE_MAXSIZE
+        )
+    _consent_queue_refcount[user_id] = _consent_queue_refcount.get(user_id, 0) + 1
     return _consent_notify_queues[user_id]
+
+
+def release_consent_queue(user_id: str) -> None:
+    """Decrement the ref count for this user and remove the queue when it reaches zero.
+
+    Called from the finally block of consent_event_generator on disconnect.
+    If another SSE connection for the same user_id is still active, the ref
+    count stays above zero and the queue is preserved for that connection.
+    """
+    count = _consent_queue_refcount.get(user_id, 0) - 1
+    if count <= 0:
+        _consent_queue_refcount.pop(user_id, None)
+        _consent_notify_queues.pop(user_id, None)
+    else:
+        _consent_queue_refcount[user_id] = count
 
 
 def get_consent_listener_status() -> dict:
