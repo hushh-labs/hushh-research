@@ -402,7 +402,11 @@ export function DataTable<TData, TValue>({
 
       {hasMultiplePages && (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-xs text-muted-foreground sm:text-sm">
+          <div
+            aria-live="polite"
+            aria-atomic="true"
+            className="text-xs text-muted-foreground sm:text-sm"
+          >
             Showing {rangeStart}-{rangeEnd} of {filteredCount}
           </div>
 
