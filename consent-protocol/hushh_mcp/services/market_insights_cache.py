@@ -20,6 +20,45 @@ from typing import Any, Awaitable, Callable
 logger = logging.getLogger(__name__)
 
 
+def _duration_ms_bucket(duration_ms: int) -> str:
+    if duration_ms < 10:
+        return "lt_10ms"
+    if duration_ms < 50:
+        return "10_49ms"
+    if duration_ms < 100:
+        return "50_99ms"
+    if duration_ms < 250:
+        return "100_249ms"
+    if duration_ms < 1_000:
+        return "250_999ms"
+    return "gte_1000ms"
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return max(0, int((time.perf_counter() - started_at) * 1000))
+
+
+def _log_cache_resource_resolved(
+    *,
+    cache_tier: str,
+    freshness: str,
+    result: str,
+    started_at: float,
+) -> None:
+    logger.debug(
+        "cache_resource_resolved "
+        "resource_class=market_data "
+        "cache_tier=%s "
+        "freshness=%s "
+        "result=%s "
+        "duration_ms_bucket=%s",
+        cache_tier,
+        freshness,
+        result,
+        _duration_ms_bucket(_elapsed_ms(started_at)),
+    )
+
+
 @dataclass
 class CacheEntry:
     value: Any
@@ -173,11 +212,17 @@ class MarketInsightsCache:
         fetcher: Callable[[], Awaitable[Any]],
         serve_stale_while_revalidate: bool = False,
     ) -> CacheResult:
+        started_at = time.perf_counter()
         now = time.time()
         existing = self._get_entry(key)
         if existing and (now - existing.fetched_at) <= fresh_ttl_seconds:
             age = max(0, int(now - existing.fetched_at))
-            logger.debug("cache_resource_resolved resource_class=market_data cache_tier=memory freshness=fresh age_seconds=%d", age)
+            _log_cache_resource_resolved(
+                cache_tier="memory",
+                freshness="fresh",
+                result="hit",
+                started_at=started_at,
+            )
             return CacheResult(value=existing.value, stale=False, age_seconds=age)
 
         if (
@@ -186,39 +231,74 @@ class MarketInsightsCache:
             and (now - existing.fetched_at) <= stale_ttl_seconds
         ):
             age = max(0, int(now - existing.fetched_at))
-            logger.debug("cache_resource_resolved resource_class=market_data cache_tier=memory freshness=stale age_seconds=%d reason=revalidate", age)
+            _log_cache_resource_resolved(
+                cache_tier="memory",
+                freshness="stale",
+                result="stale_hit",
+                started_at=started_at,
+            )
             self._start_background_refresh(key, fetcher=fetcher)
-            return CacheResult(value=existing.value, stale=True, age_seconds=age, stale_reason="revalidate")
+            return CacheResult(
+                value=existing.value, stale=True, age_seconds=age, stale_reason="revalidate"
+            )
 
-        logger.debug("cache_resource_resolved resource_class=market_data cache_tier=memory freshness=missing")
+        _log_cache_resource_resolved(
+            cache_tier="memory",
+            freshness="missing",
+            result="miss",
+            started_at=started_at,
+        )
         lock = self._get_lock(key)
         async with lock:
             now = time.time()
             existing = self._get_entry(key)
             if existing and (now - existing.fetched_at) <= fresh_ttl_seconds:
+                _log_cache_resource_resolved(
+                    cache_tier="memory",
+                    freshness="fresh",
+                    result="locked_hit",
+                    started_at=started_at,
+                )
                 return CacheResult(
                     value=existing.value,
                     stale=False,
                     age_seconds=max(0, int(now - existing.fetched_at)),
                 )
 
-            fetch_start = time.time()
             try:
                 value = await fetcher()
                 fetched_at = time.time()
-                duration_ms = int((fetched_at - fetch_start) * 1000)
                 self._set_entry(key, value, fetched_at)
-                logger.debug("cache_resource_resolved resource_class=market_data cache_tier=network freshness=fresh duration_ms=%d", duration_ms)
+                _log_cache_resource_resolved(
+                    cache_tier="network",
+                    freshness="fresh",
+                    result="success",
+                    started_at=started_at,
+                )
                 return CacheResult(value=value, stale=False, age_seconds=0)
             except Exception:
-                duration_ms = int((time.time() - fetch_start) * 1000)
                 now = time.time()
                 fallback = self._get_entry(key)
                 if fallback and (now - fallback.fetched_at) <= stale_ttl_seconds:
                     age = max(0, int(now - fallback.fetched_at))
-                    logger.warning("cache_resource_resolved resource_class=market_data cache_tier=network freshness=stale duration_ms=%d fallback=true age_seconds=%d", duration_ms, age)
-                    return CacheResult(value=fallback.value, stale=True, age_seconds=age, stale_reason="refresh_failure")
-                logger.warning("cache_resource_resolved resource_class=market_data cache_tier=network freshness=missing duration_ms=%d fallback=false", duration_ms)
+                    _log_cache_resource_resolved(
+                        cache_tier="network",
+                        freshness="stale",
+                        result="fallback",
+                        started_at=started_at,
+                    )
+                    return CacheResult(
+                        value=fallback.value,
+                        stale=True,
+                        age_seconds=age,
+                        stale_reason="refresh_failure",
+                    )
+                _log_cache_resource_resolved(
+                    cache_tier="network",
+                    freshness="missing",
+                    result="error",
+                    started_at=started_at,
+                )
                 raise
 
 

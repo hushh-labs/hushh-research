@@ -14,3 +14,4 @@ tests/test_ria_iam_service_architecture.py
 tests/test_kai_optimize_realtime_contract.py
 tests/test_portfolio_stream_quality_rules.py
 tests/test_stream_path_query_bounds_cwe400.py
+tests/performance/test_market_cache_instrumentation.py
