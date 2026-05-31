@@ -53,6 +53,21 @@ function readCachedPersona(userId: string) {
   };
 }
 
+function buildFallbackPersonaState(userId: string): PersonaState {
+  return {
+    user_id: userId,
+    personas: ["investor"],
+    last_active_persona: "investor",
+    active_persona: "investor",
+    primary_nav_persona: "investor",
+    ria_setup_available: false,
+    ria_switch_available: false,
+    investor_marketplace_opt_in: false,
+    iam_schema_ready: false,
+    mode: "compat_investor",
+  };
+}
+
 function shouldLoadRiaOnboardingStatus(
   pathname: string,
   personaState: PersonaState | null
@@ -142,6 +157,11 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
         } else {
           cache.invalidate(CACHE_KEYS.RIA_ONBOARDING_STATUS(userId));
         }
+      } catch (error) {
+        console.warn("[PersonaProvider] Persona refresh unavailable; using cached/fallback state.", error);
+        const fallback = cached.personaState || buildFallbackPersonaState(userId);
+        setPersonaState(fallback);
+        setRiaOnboardingStatus(cached.riaOnboardingStatus ?? null);
       } finally {
         setLoading(false);
         setRefreshing(false);

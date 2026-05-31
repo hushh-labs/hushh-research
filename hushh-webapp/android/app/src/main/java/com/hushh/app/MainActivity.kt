@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import com.getcapacitor.BridgeActivity
 import com.getcapacitor.WebViewListener
@@ -71,6 +72,10 @@ class MainActivity : BridgeActivity() {
             return
         }
 
+        webView.addJavascriptInterface(
+            NativeTestJavaScriptBridge(filesDir, config),
+            "HushhNativeTest"
+        )
         writeNativeTestStatus(config.initialStatus)
         activeBridge.addWebViewListener(object : WebViewListener() {
             override fun onPageCommitVisible(view: WebView, url: String) {
@@ -152,7 +157,8 @@ class MainActivity : BridgeActivity() {
         val autoReviewerLogin: Boolean,
         val vaultPassphrase: String,
         val expectedUserId: String,
-        val resetAppState: Boolean
+        val resetAppState: Boolean,
+        val runUiFlows: Boolean
     ) {
         val initialStatus: String
             get() = "route=booting;ready=0;marker=${sanitizeStatusValue(expectedMarker)};auth=pending;data=booting;error="
@@ -167,6 +173,7 @@ class MainActivity : BridgeActivity() {
                     put("autoReviewerLogin", autoReviewerLogin)
                     put("vaultPassphrase", vaultPassphrase)
                     put("expectedUserId", expectedUserId)
+                    put("runUiFlows", runUiFlows)
                 }.toString()
 
                 return """
@@ -181,8 +188,22 @@ class MainActivity : BridgeActivity() {
                   bridge.autoReviewerLogin = config.autoReviewerLogin === true;
                   bridge.vaultPassphrase = config.vaultPassphrase || "";
                   bridge.expectedUserId = config.expectedUserId || "";
+                  bridge.runUiFlows = config.runUiFlows === true;
                   bridge.lastJsError = bridge.lastJsError || "";
                   bridge.lastUnhandledRejection = bridge.lastUnhandledRejection || "";
+                  try {
+                    if (!window.webkit) window.webkit = {};
+                    if (!window.webkit.messageHandlers) window.webkit.messageHandlers = {};
+                    window.webkit.messageHandlers.hushhNativeTest = {
+                      postMessage: function(payload) {
+                        try {
+                          if (window.HushhNativeTest && typeof window.HushhNativeTest.postMessage === "function") {
+                            window.HushhNativeTest.postMessage(JSON.stringify(payload || {}));
+                          }
+                        } catch (_) {}
+                      }
+                    };
+                  } catch (_) {}
                   try {
                     var root = document.documentElement;
                     if (root) {
@@ -191,6 +212,7 @@ class MainActivity : BridgeActivity() {
                       root.setAttribute("data-hushh-native-test-expected-marker", bridge.expectedMarker || "");
                       root.setAttribute("data-hushh-native-test-initial-route", bridge.initialRoute || "");
                       root.setAttribute("data-hushh-native-test-expected-route", bridge.expectedRoute || "");
+                      root.setAttribute("data-hushh-native-test-run-ui-flows", bridge.runUiFlows ? "true" : "false");
                     }
                   } catch (_) {}
                   try {
@@ -262,6 +284,26 @@ class MainActivity : BridgeActivity() {
                       testEnabled: bridge.enabled === true,
                       autoReviewerLogin: bridge.autoReviewerLogin === true,
                       bridgeBeaconPresent: !!bridge.beacon,
+                      nativeUiRunnerPresent: !!window.__HUSHH_NATIVE_UI_TEST__,
+                      runUiFlows: bridge.runUiFlows === true,
+                      uiFlowsStarted: bridge._uiFlowsStarted === true,
+                      uiFlowsFailed: bridge.uiFlowsFailed === true,
+                      uiFlowsOk: bridge.uiFlowsOk === true,
+                      uiFlowBootstrapActive: !!bridge._uiFlowBootstrapTimer,
+                      activePersona: bridge.activePersona || "",
+                      primaryNavPersona: bridge.primaryNavPersona || "",
+                      personaSwitchStatus: bridge.personaSwitchStatus || "",
+                      personaSwitchError: bridge.personaSwitchError || "",
+                      portfolioImportStartState: bridge.portfolioImportStartState || "",
+                      portfolioImportStartStatus: bridge.portfolioImportStartStatus || "",
+                      portfolioImportStartRunId: bridge.portfolioImportStartRunId || "",
+                      portfolioImportStartError: bridge.portfolioImportStartError || "",
+                      portfolioStreamState: bridge.portfolioStreamState || "",
+                      portfolioStreamRunId: bridge.portfolioStreamRunId || "",
+                      portfolioStreamEventCount: String(bridge.portfolioStreamEventCount || 0),
+                      portfolioStreamLastEvent: bridge.portfolioStreamLastEvent || "",
+                      portfolioStreamLastSeq: bridge.portfolioStreamLastSeq || "",
+                      portfolioStreamLastError: bridge.portfolioStreamLastError || "",
                       triggerReviewerLoginPresent: typeof bridge.triggerReviewerLogin === "function",
                       domTestEnabled: (document.documentElement && document.documentElement.getAttribute("data-hushh-native-test-enabled")) || "",
                       domAutoReviewerLogin: (document.documentElement && document.documentElement.getAttribute("data-hushh-native-test-auto-reviewer-login")) || "",
@@ -278,7 +320,14 @@ class MainActivity : BridgeActivity() {
                       authState: beacon ? (beacon.authState || "") : "",
                       dataState: beacon ? (beacon.dataState || "") : "",
                       errorCode: beacon ? (beacon.errorCode || "") : "",
-                      errorMessage: beacon ? (beacon.errorMessage || "") : ""
+                      errorMessage: beacon ? (beacon.errorMessage || "") : "",
+                      uiFlowCurrent: bridge.uiFlowCurrent || "",
+                      uiFlowStepIndex: String(bridge.uiFlowStepIndex ?? ""),
+                      uiFlowStepType: bridge.uiFlowStepType || "",
+                      uiFlowStepStartedAt: bridge.uiFlowStepStartedAt || "",
+                      uiFlowError: bridge.uiFlowError || "",
+                      uiFlowsComplete: bridge.uiFlowsComplete === true,
+                      uiFlowsOk: bridge.uiFlowsOk === true
                     };
                   };
                   bridge.start = function() {
@@ -351,6 +400,43 @@ class MainActivity : BridgeActivity() {
                     }
                   };
                   window.__HUSHH_NATIVE_TEST__ = bridge;
+                  try {
+                    if (bridge.runUiFlows === true && !window.__HUSHH_NATIVE_UI_TEST__ && !bridge._androidUiRunnerLoading) {
+                      bridge._androidUiRunnerLoading = true;
+                      fetch("/native-ui-test-runner.js", { cache: "no-store" })
+                        .then(function(response) {
+                          if (!response.ok) {
+                            throw new Error("failed to load native-ui-test-runner.js: " + response.status);
+                          }
+                          return response.text();
+                        })
+                        .then(function(source) {
+                          (0, eval)(source);
+                          bridge._androidUiRunnerLoaded = true;
+                          if (window.__HUSHH_NATIVE_UI_TEST__ && typeof window.__HUSHH_NATIVE_UI_TEST__.startUiFlowBootstrap === "function") {
+                            window.__HUSHH_NATIVE_UI_TEST__.startUiFlowBootstrap();
+                          }
+                        })
+                        .catch(function(error) {
+                          bridge.uiFlowError = error instanceof Error ? error.message : String(error);
+                          bridge.uiFlowReport = { ok: false, error: bridge.uiFlowError, flows: [] };
+                          bridge.uiFlowsComplete = true;
+                          bridge.uiFlowsOk = false;
+                          bridge.uiFlowsFailed = true;
+                          try {
+                            window.webkit.messageHandlers.hushhNativeTest.postMessage({
+                              uiFlowReport: bridge.uiFlowReport,
+                              uiFlowError: bridge.uiFlowError,
+                              uiFlowsComplete: true,
+                              uiFlowsOk: false
+                            });
+                          } catch (_) {}
+                        });
+                    }
+                    if (window.__HUSHH_NATIVE_UI_TEST__ && typeof window.__HUSHH_NATIVE_UI_TEST__.startUiFlowBootstrap === "function") {
+                      window.__HUSHH_NATIVE_UI_TEST__.startUiFlowBootstrap();
+                    }
+                  } catch (_) {}
                   setTimeout(function() { bridge.start(); }, 0);
                 })();
                 """.trimIndent()
@@ -362,25 +448,42 @@ class MainActivity : BridgeActivity() {
                 val route = JSONObject.quote(expectedRoute)
                 val initial = JSONObject.quote(initialRoute)
                 val autoLogin = if (autoReviewerLogin) "true" else "false"
+                val runFlows = if (runUiFlows) "true" else "false"
                 return """
                 (function() {
                   var marker = $marker;
                   var expectedRoute = $route;
                   var initialRoute = $initial;
                   var autoReviewerLogin = $autoLogin;
+                  var runUiFlows = $runFlows;
                   var bridge = window.__HUSHH_NATIVE_TEST__ || {};
                   var previousInitialRoute = bridge.initialRoute || "";
-                  bridge.expectedMarker = marker;
-                  bridge.expectedRoute = expectedRoute;
-                  bridge.initialRoute = initialRoute || null;
-                  bridge.autoReviewerLogin = autoReviewerLogin === true;
+                  var uiFlowsOwnRouting = bridge.runUiFlows === true && bridge._uiFlowsStarted === true;
+                  if (!uiFlowsOwnRouting) {
+                    bridge.expectedMarker = marker;
+                    bridge.expectedRoute = expectedRoute;
+                    bridge.initialRoute = initialRoute || null;
+                    bridge.autoReviewerLogin = autoReviewerLogin === true;
+                    bridge.runUiFlows = runUiFlows === true;
+                  } else {
+                    marker = bridge.expectedMarker || "";
+                    expectedRoute = bridge.expectedRoute || "";
+                    initialRoute = bridge.initialRoute || "";
+                  }
                   try {
                     var root = document.documentElement;
                     if (root) {
-                      root.setAttribute("data-hushh-native-test-auto-reviewer-login", bridge.autoReviewerLogin ? "true" : "false");
-                      root.setAttribute("data-hushh-native-test-initial-route", bridge.initialRoute || "");
-                      root.setAttribute("data-hushh-native-test-expected-marker", bridge.expectedMarker || "");
-                      root.setAttribute("data-hushh-native-test-expected-route", bridge.expectedRoute || "");
+                      if (!uiFlowsOwnRouting) {
+                        root.setAttribute("data-hushh-native-test-auto-reviewer-login", bridge.autoReviewerLogin ? "true" : "false");
+                        root.setAttribute("data-hushh-native-test-initial-route", bridge.initialRoute || "");
+                        root.setAttribute("data-hushh-native-test-expected-marker", bridge.expectedMarker || "");
+                        root.setAttribute("data-hushh-native-test-expected-route", bridge.expectedRoute || "");
+                      } else {
+                        root.setAttribute("data-hushh-native-test-initial-route", "");
+                        root.setAttribute("data-hushh-native-test-expected-marker", "");
+                        root.setAttribute("data-hushh-native-test-expected-route", "");
+                      }
+                      root.setAttribute("data-hushh-native-test-run-ui-flows", bridge.runUiFlows ? "true" : "false");
                     }
                     if (previousInitialRoute !== (bridge.initialRoute || "")) {
                       window.dispatchEvent(new CustomEvent("hushh:native-test-config-updated"));
@@ -397,6 +500,26 @@ class MainActivity : BridgeActivity() {
                     testEnabled: bridge.enabled === true,
                     autoReviewerLogin: bridge.autoReviewerLogin === true,
                     bridgeBeaconPresent: !!bridge.beacon,
+                    nativeUiRunnerPresent: !!window.__HUSHH_NATIVE_UI_TEST__,
+                    runUiFlows: bridge.runUiFlows === true,
+                    uiFlowsStarted: bridge._uiFlowsStarted === true,
+                    uiFlowsFailed: bridge.uiFlowsFailed === true,
+                    uiFlowsOk: bridge.uiFlowsOk === true,
+                    uiFlowBootstrapActive: !!bridge._uiFlowBootstrapTimer,
+                    activePersona: bridge.activePersona || "",
+                    primaryNavPersona: bridge.primaryNavPersona || "",
+                    personaSwitchStatus: bridge.personaSwitchStatus || "",
+                    personaSwitchError: bridge.personaSwitchError || "",
+                    portfolioImportStartState: bridge.portfolioImportStartState || "",
+                    portfolioImportStartStatus: bridge.portfolioImportStartStatus || "",
+                    portfolioImportStartRunId: bridge.portfolioImportStartRunId || "",
+                    portfolioImportStartError: bridge.portfolioImportStartError || "",
+                    portfolioStreamState: bridge.portfolioStreamState || "",
+                    portfolioStreamRunId: bridge.portfolioStreamRunId || "",
+                    portfolioStreamEventCount: String(bridge.portfolioStreamEventCount || 0),
+                    portfolioStreamLastEvent: bridge.portfolioStreamLastEvent || "",
+                    portfolioStreamLastSeq: bridge.portfolioStreamLastSeq || "",
+                    portfolioStreamLastError: bridge.portfolioStreamLastError || "",
                     triggerReviewerLoginPresent: typeof bridge.triggerReviewerLogin === "function",
                     domTestEnabled: (document.documentElement && document.documentElement.getAttribute("data-hushh-native-test-enabled")) || "",
                     domAutoReviewerLogin: (document.documentElement && document.documentElement.getAttribute("data-hushh-native-test-auto-reviewer-login")) || "",
@@ -413,7 +536,14 @@ class MainActivity : BridgeActivity() {
                     authState: "",
                     dataState: "",
                     errorCode: "",
-                    errorMessage: ""
+                    errorMessage: "",
+                    uiFlowCurrent: bridge.uiFlowCurrent || "",
+                    uiFlowStepIndex: String(bridge.uiFlowStepIndex ?? ""),
+                    uiFlowStepType: bridge.uiFlowStepType || "",
+                    uiFlowStepStartedAt: bridge.uiFlowStepStartedAt || "",
+                    uiFlowError: bridge.uiFlowError || "",
+                    uiFlowsComplete: bridge.uiFlowsComplete === true,
+                    uiFlowsOk: bridge.uiFlowsOk === true
                   });
                 })();
                 """.trimIndent()
@@ -427,6 +557,14 @@ class MainActivity : BridgeActivity() {
             val authState = payload.optString("authState", "pending").trim()
             val dataState = payload.optString("dataState", "booting").trim()
             val errorCode = payload.optString("errorCode", "").trim()
+            val nativeUiRunnerPresent = payload.optBoolean("nativeUiRunnerPresent", false)
+            val runUiFlows = payload.optBoolean("runUiFlows", false)
+            val uiFlowsStarted = payload.optBoolean("uiFlowsStarted", false)
+            val uiFlowsFailed = payload.optBoolean("uiFlowsFailed", false)
+            val uiFlowBootstrapActive = payload.optBoolean("uiFlowBootstrapActive", false)
+            val visible404 = payload.optBoolean("visible404", false)
+            val uiFlowsComplete = payload.optBoolean("uiFlowsComplete", false)
+            val uiFlowsOk = payload.optBoolean("uiFlowsOk", false)
             val routeReady = expected.isBlank() || normalizeRoute(route) == normalizeRoute(expected)
             val documentReady = readyState == "interactive" || readyState == "complete"
             val markerFound = payload.optBoolean("markerFound", false)
@@ -444,6 +582,25 @@ class MainActivity : BridgeActivity() {
                 "test=${if (payload.optBoolean("testEnabled", false)) "1" else "0"}",
                 "auto=${if (payload.optBoolean("autoReviewerLogin", false)) "1" else "0"}",
                 "bridge=${if (payload.optBoolean("bridgeBeaconPresent", false)) "1" else "0"}",
+                "uirunner=${if (nativeUiRunnerPresent) "1" else "0"}",
+                "runui=${if (runUiFlows) "1" else "0"}",
+                "uistarted=${if (uiFlowsStarted) "1" else "0"}",
+                "uifailed=${if (uiFlowsFailed) "1" else "0"}",
+                "uiboot=${if (uiFlowBootstrapActive) "1" else "0"}",
+                "persona=${sanitizeStatusValue(payload.optString("activePersona", ""))}",
+                "primary_persona=${sanitizeStatusValue(payload.optString("primaryNavPersona", ""))}",
+                "persona_switch=${sanitizeStatusValue(payload.optString("personaSwitchStatus", ""))}",
+                "persona_error=${sanitizeStatusValue(payload.optString("personaSwitchError", ""))}",
+                "portfolio_start_state=${sanitizeStatusValue(payload.optString("portfolioImportStartState", ""))}",
+                "portfolio_start_status=${sanitizeStatusValue(payload.optString("portfolioImportStartStatus", ""))}",
+                "portfolio_start_run=${sanitizeStatusValue(payload.optString("portfolioImportStartRunId", ""))}",
+                "portfolio_start_error=${sanitizeStatusValue(payload.optString("portfolioImportStartError", ""))}",
+                "portfolio_stream_state=${sanitizeStatusValue(payload.optString("portfolioStreamState", ""))}",
+                "portfolio_stream_run=${sanitizeStatusValue(payload.optString("portfolioStreamRunId", ""))}",
+                "portfolio_events=${sanitizeStatusValue(payload.optString("portfolioStreamEventCount", ""))}",
+                "portfolio_last_event=${sanitizeStatusValue(payload.optString("portfolioStreamLastEvent", ""))}",
+                "portfolio_last_seq=${sanitizeStatusValue(payload.optString("portfolioStreamLastSeq", ""))}",
+                "portfolio_stream_error=${sanitizeStatusValue(payload.optString("portfolioStreamLastError", ""))}",
                 "trigger=${if (payload.optBoolean("triggerReviewerLoginPresent", false)) "1" else "0"}",
                 "domtest=${sanitizeStatusValue(payload.optString("domTestEnabled", ""))}",
                 "domauto=${sanitizeStatusValue(payload.optString("domAutoReviewerLogin", ""))}",
@@ -454,6 +611,13 @@ class MainActivity : BridgeActivity() {
                 "jserr=${sanitizeStatusValue(payload.optString("jsError", ""))}",
                 "jsrej=${sanitizeStatusValue(payload.optString("jsRejection", ""))}",
                 "body=${sanitizeStatusValue(payload.optString("bodySnippet", ""))}",
+                "visible404=${if (visible404) "1" else "0"}",
+                "ui_complete=${if (uiFlowsComplete) "1" else "0"}",
+                "ui_ok=${if (uiFlowsOk) "1" else "0"}",
+                "ui_flow=${sanitizeStatusValue(payload.optString("uiFlowCurrent", ""))}",
+                "ui_step=${sanitizeStatusValue(payload.optString("uiFlowStepIndex", ""))}",
+                "ui_step_type=${sanitizeStatusValue(payload.optString("uiFlowStepType", ""))}",
+                "ui_error=${sanitizeStatusValue(payload.optString("uiFlowError", ""))}",
                 "error=${sanitizeStatusValue(errorCode)}"
             ).joinToString(";")
         }
@@ -471,7 +635,8 @@ class MainActivity : BridgeActivity() {
                     autoReviewerLogin = bundle?.getBoolean("HUSHH_NATIVE_TEST_AUTO_REVIEWER_LOGIN", false) ?: false,
                     vaultPassphrase = bundle?.getString("HUSHH_NATIVE_TEST_VAULT_PASSPHRASE").orEmpty(),
                     expectedUserId = bundle?.getString("HUSHH_NATIVE_TEST_EXPECTED_USER_ID").orEmpty(),
-                    resetAppState = bundle?.getBoolean("HUSHH_NATIVE_TEST_RESET_APP_STATE", true) ?: true
+                    resetAppState = bundle?.getBoolean("HUSHH_NATIVE_TEST_RESET_APP_STATE", true) ?: true,
+                    runUiFlows = bundle?.getBoolean("HUSHH_NATIVE_TEST_RUN_UI_FLOWS", false) ?: false
                 )
             }
 
@@ -483,6 +648,45 @@ class MainActivity : BridgeActivity() {
                     }
                 }
                 return initialRoute
+            }
+        }
+    }
+
+    private class NativeTestJavaScriptBridge(
+        private val filesDir: File,
+        private val config: NativeTestConfiguration
+    ) {
+        @JavascriptInterface
+        fun postMessage(rawPayload: String?) {
+            if (rawPayload.isNullOrBlank()) {
+                return
+            }
+
+            val payload = try {
+                val decoded = JSONTokener(rawPayload).nextValue()
+                decoded as? JSONObject ?: JSONObject(rawPayload)
+            } catch (_: Exception) {
+                return
+            }
+
+            try {
+                val report = payload.opt("uiFlowReport")
+                if (report != null && report != JSONObject.NULL) {
+                    File(filesDir, "native-ui-interaction-report.json").writeText(
+                        when (report) {
+                            is JSONObject -> report.toString(2)
+                            else -> JSONObject.wrap(report)?.toString().orEmpty()
+                        }
+                    )
+                }
+            } catch (error: Exception) {
+                Log.w("MainActivity", "Failed to write native UI report: ${error.message}")
+            }
+
+            try {
+                File(filesDir, "native-test-status.txt").writeText(config.statusFromPayload(payload))
+            } catch (error: Exception) {
+                Log.w("MainActivity", "Failed to write native test bridge status: ${error.message}")
             }
         }
     }
