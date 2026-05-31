@@ -1578,7 +1578,7 @@ export function OneLocationAgentPageContent() {
                               )}
                             </Button>
                             <Button
-                              aria-label="Revoke share"
+                              aria-label={`Revoke access for ${grantCounterpartyLabel(grant)}`}
                               variant="outline"
                               size="icon"
                               onClick={() => void handleRevoke(grant.id)}

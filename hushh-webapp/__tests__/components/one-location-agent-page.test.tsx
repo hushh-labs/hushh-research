@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,8 +6,14 @@ const {
   mockUseRequireAuth,
   mockUseVault,
   mockEnsureKey,
+  mockEncryptLocationForRecipient,
   mockRegisterKey,
   mockGetPermissionState,
+  mockCaptureCurrentPosition,
+  mockCreateGrant,
+  mockStoreEnvelope,
+  mockRevokeGrant,
+  mockRequestAccess,
   mockGetState,
   mockSyncCurrentUser,
   mockRouterPush,
@@ -16,8 +22,14 @@ const {
   mockUseRequireAuth: vi.fn(),
   mockUseVault: vi.fn(),
   mockEnsureKey: vi.fn(),
+  mockEncryptLocationForRecipient: vi.fn(),
   mockRegisterKey: vi.fn(),
   mockGetPermissionState: vi.fn(),
+  mockCaptureCurrentPosition: vi.fn(),
+  mockCreateGrant: vi.fn(),
+  mockStoreEnvelope: vi.fn(),
+  mockRevokeGrant: vi.fn(),
+  mockRequestAccess: vi.fn(),
   mockGetState: vi.fn(),
   mockSyncCurrentUser: vi.fn(),
   mockRouterPush: vi.fn(),
@@ -48,7 +60,7 @@ vi.mock("@/components/vault/vault-lock-guard", () => ({
 
 vi.mock("@/lib/one-location/encryption", () => ({
   ensureLocationRecipientKey: mockEnsureKey,
-  encryptLocationForRecipient: vi.fn(),
+  encryptLocationForRecipient: mockEncryptLocationForRecipient,
   decryptLocationEnvelope: vi.fn(),
 }));
 
@@ -57,12 +69,12 @@ vi.mock("@/lib/one-location/service", () => ({
     registerRecipientKey: mockRegisterKey,
     getPermissionState: mockGetPermissionState,
     getState: mockGetState,
-    createGrant: vi.fn(),
-    storeEnvelope: vi.fn(),
-    captureCurrentPosition: vi.fn(),
+    createGrant: mockCreateGrant,
+    storeEnvelope: mockStoreEnvelope,
+    captureCurrentPosition: mockCaptureCurrentPosition,
     viewEnvelope: vi.fn(),
-    revokeGrant: vi.fn(),
-    requestAccess: vi.fn(),
+    revokeGrant: mockRevokeGrant,
+    requestAccess: mockRequestAccess,
     approveRequest: vi.fn(),
     denyRequest: vi.fn(),
     referRecipient: vi.fn(),
@@ -155,6 +167,37 @@ describe("OneLocationAgentPage", () => {
       precise: true,
       background: "foreground-only",
     });
+    mockCaptureCurrentPosition.mockResolvedValue({
+      latitude: 28.6139,
+      longitude: 77.209,
+      accuracyM: 18,
+      capturedAt: "2026-05-20T07:30:00.000Z",
+      sourcePlatform: "web",
+    });
+    mockCreateGrant.mockResolvedValue({
+      id: "grant_new",
+      ownerUserId: "user_a",
+      recipientUserId: "user_b",
+      recipientDisplayName: "Trusted B",
+      recipientKeyId: "key_b",
+      status: "active",
+      consentScope: "cap.location.live.view",
+      capabilityScopes: ["cap.location.live.view"],
+      durationHours: 1,
+      expiresAt: "2026-05-20T08:30:00.000Z",
+    });
+    mockEncryptLocationForRecipient.mockResolvedValue({
+      recipientKeyId: "key_b",
+      algorithm: "ECDH-P256-AES256-GCM",
+      ciphertext: "ciphertext",
+      iv: "iv",
+      senderEphemeralPublicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+      capturedAt: "2026-05-20T07:30:00.000Z",
+      sourcePlatform: "web",
+    });
+    mockStoreEnvelope.mockResolvedValue({});
+    mockRevokeGrant.mockResolvedValue({});
+    mockRequestAccess.mockResolvedValue({});
     mockGetState.mockResolvedValue(locationState());
     mockSyncCurrentUser.mockResolvedValue({ user_id: "user_a" });
   });
@@ -216,6 +259,99 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByText("Public link responses")).toBeTruthy();
     expect(screen.queryByText(/public live-location link/i)).toBeNull();
     expect(screen.queryByText(/whatsapp/i)).toBeNull();
+  });
+
+  it("creates one encrypted share without exposing phone-derived labels", async () => {
+    mockGetState.mockResolvedValueOnce({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
+    render(<OneLocationAgentPageContent />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(
+      screen.getByRole("button", { name: /Start Sharing Location/i }),
+    );
+
+    await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
+    expect(mockCaptureCurrentPosition).toHaveBeenCalled();
+    expect(mockEncryptLocationForRecipient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        point: expect.objectContaining({
+          latitude: 28.6139,
+          longitude: 77.209,
+        }),
+        recipientKeyId: "key_b",
+      }),
+    );
+    expect(mockStoreEnvelope).toHaveBeenCalledWith({
+      vaultOwnerToken: "vault-token",
+      grantId: "grant_new",
+      envelope: expect.objectContaining({
+        ciphertext: "ciphertext",
+        recipientKeyId: "key_b",
+      }),
+    });
+    expect(screen.queryByText(/8012/)).toBeNull();
+  });
+
+  it("sends an approval-first location request without sharing coordinates", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
+    render(<OneLocationAgentPageContent />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "request" }));
+    fireEvent.click(screen.getByRole("button", { name: /Send Request/i }));
+
+    await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
+    expect(mockRequestAccess).toHaveBeenCalledWith({
+      vaultOwnerToken: "vault-token",
+      ownerUserId: "user_b",
+      message: undefined,
+    });
+    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+    expect(mockStoreEnvelope).not.toHaveBeenCalled();
+  });
+
+  it("revokes an active grant from the visible owner list", async () => {
+    render(<OneLocationAgentPageContent />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(
+      screen.getByRole("button", { name: /Revoke access for Trusted B/i }),
+    );
+
+    await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalledTimes(1));
+    expect(mockRevokeGrant).toHaveBeenCalledWith({
+      vaultOwnerToken: "vault-token",
+      grantId: "grant_1",
+    });
+  });
+
+  it("blocks share actions when browser location permission is denied", async () => {
+    mockGetPermissionState.mockResolvedValueOnce({
+      state: "denied",
+      precise: false,
+      background: "unavailable",
+    });
+    mockGetState.mockResolvedValueOnce({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
+    render(<OneLocationAgentPageContent />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    const shareButton = screen.getByRole("button", {
+      name: /Start Sharing Location/i,
+    }) as HTMLButtonElement;
+    expect(shareButton.disabled).toBe(true);
+    expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 
   it("does not leave refresh spinning when the vault owner token is unavailable", async () => {

@@ -1,9 +1,37 @@
 import { expect, test } from "@playwright/test";
 
+test.setTimeout(60_000);
+
+test("protected One Location route does not leak location or phone identity before auth", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/one/location", { waitUntil: "domcontentloaded" });
+
+  await expect
+    .poll(
+      async () => {
+        const bodyText = await page.locator("body").innerText();
+        return page.url().includes("/login") ||
+          /Sign in to One|Redirecting to login|Checking session|Loading/i.test(
+            bodyText,
+          );
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+
+  const body = await page.evaluate(() => document.body?.innerText ?? "");
+  expect(body).not.toMatch(/8012|latitude|longitude|28\.6139|77\.209/u);
+  expect(body).not.toMatch(
+    /KAI Circle|People who can see me|Your circle, safely connected|Trusted B|Advisor C|Setup D/u,
+  );
+});
+
 test("One Location Agent A/B/C/D flow keeps backend state ciphertext-only in browser crypto", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/", { waitUntil: "domcontentloaded" });
 
   const result = await page.evaluate(async () => {
     const algorithm = "ECDH-P256-AES256-GCM";
