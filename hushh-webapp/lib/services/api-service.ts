@@ -35,6 +35,8 @@ import {
 import {
   getOrCreateRequestId,
   REQUEST_ID_HEADER,
+  getOrCreateRequestTimestampMs,
+  REQUEST_TIMESTAMP_HEADER,
 } from "@/lib/observability/request-id";
 import { resolveRouteId } from "@/lib/observability/route-map";
 import {
@@ -288,6 +290,7 @@ async function apiFetch(
   const routeId =
     typeof window !== "undefined" ? resolveRouteId(window.location.pathname) : undefined;
   const requestId = getOrCreateRequestId(options.headers);
+  const requestTimestampMs = getOrCreateRequestTimestampMs(options.headers);
 
   const mergedHeaders: Record<string, string> = {};
   if (!(options.body instanceof FormData)) {
@@ -311,6 +314,7 @@ async function apiFetch(
     }
   }
   mergedHeaders[REQUEST_ID_HEADER] = requestId;
+  mergedHeaders[REQUEST_TIMESTAMP_HEADER] = String(requestTimestampMs);
 
   const getAuthorizationBearer = () => {
     const authorization =
@@ -374,6 +378,18 @@ async function apiFetch(
       dispatchAuthSessionInvalidated("Firebase session refresh failed");
       return null;
     }
+  };
+
+  const responseLooksLikeAuthServiceUnavailable = async (response: Response) => {
+    if (response.status !== 401 && response.status !== 503) return false;
+    const text = await response.clone().text().catch(() => "");
+    const normalized = text.toLowerCase();
+    return (
+      normalized.includes("firebase validation unavailable") ||
+      normalized.includes("firebase id token verification timed out") ||
+      normalized.includes("auth/network-request-failed") ||
+      normalized.includes("network-request-failed")
+    );
   };
 
   const recordApiRequestMetric = (statusCode: number | null) => {
@@ -496,7 +512,7 @@ async function apiFetch(
         );
       }
     }
-    if (response.status === 401) {
+    if (response.status === 401 && !(await responseLooksLikeAuthServiceUnavailable(response))) {
       const retryResponse = await retryWithFreshFirebaseToken();
       if (retryResponse) {
         return retryResponse;
@@ -626,6 +642,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
   const backend = transport.backendUrl || getEnvBackendUrl();
   const url = `${backend}${path}`;
   const requestId = getOrCreateRequestId(options.headers);
+  const requestTimestampMs = getOrCreateRequestTimestampMs(options.headers);
   const mergedHeaders: Record<string, string> = {};
   if (!(options.body instanceof FormData)) {
     mergedHeaders["Content-Type"] = "application/json";
@@ -648,6 +665,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
     }
   }
   mergedHeaders[REQUEST_ID_HEADER] = requestId;
+  mergedHeaders[REQUEST_TIMESTAMP_HEADER] = String(requestTimestampMs);
 
   const recordVoiceRequestMetric = (statusCode: number | null) => {
     trackApiRequestCompleted({
@@ -1005,6 +1023,7 @@ export interface AccountPhoneClaimResponse {
   user_id: string;
   identity: AccountIdentity | null;
   phone_verified: boolean;
+  phone_session_cleanup?: string;
 }
 
 export interface AccountPhoneTestStartResponse {
@@ -2524,6 +2543,52 @@ export class ApiService {
         message: data.message,
         conversation_id: data.conversationId,
         pkm_context: data.pkmContext,
+      }),
+      signal: data.signal,
+    });
+  }
+
+  static async transcribeAgentVoice(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    audio: Blob;
+    filename?: string;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    const formData = new FormData();
+    formData.set("user_id", data.userId);
+    formData.set(
+      "audio",
+      data.audio,
+      data.filename || "agent-voice-utterance.webm"
+    );
+
+    return apiFetch("/api/kai/agent/voice/stt", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+      },
+      body: formData,
+      signal: data.signal,
+    });
+  }
+
+  static async synthesizeAgentVoice(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    text: string;
+    voice?: string;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return apiFetch("/api/kai/agent/voice/tts", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({
+        user_id: data.userId,
+        text: data.text,
+        voice: data.voice,
       }),
       signal: data.signal,
     });
