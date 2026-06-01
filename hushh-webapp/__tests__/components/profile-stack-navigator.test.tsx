@@ -36,4 +36,15 @@ describe("ProfileStackNavigator", () => {
     expect(screen.queryByText("Checking your saved domains")).toBeNull();
     expect(screen.getByText("Financial domain ready")).toBeTruthy();
   });
+    it("preserves root rendering stability with empty stack entries", () => {
+    render(
+      <ProfileStackNavigator
+        rootContent={<div>Root workspace</div>}
+        entries={[]}
+      />
+    );
+
+    expect(screen.getByText("Root workspace")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /back/i })).toBeNull();
+  });
 });

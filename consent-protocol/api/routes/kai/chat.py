@@ -17,7 +17,7 @@ Authentication:
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
@@ -28,12 +28,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _redact_uid(uid: str | None) -> str:
+    if not uid:
+        return "<missing>"
+    if len(uid) <= 8:
+        return "<redacted>"
+    return f"{uid[:4]}...{uid[-4:]}"
+
+
 class KaiChatRequest(BaseModel):
     """Request body for Kai chat endpoint."""
 
-    user_id: str = Field(..., description="User's Firebase UID")
+    user_id: str = Field(..., description="User's Firebase UID", min_length=1, max_length=128)
     message: str = Field(..., description="User's message to Kai", min_length=1, max_length=4000)
-    conversation_id: Optional[str] = Field(None, description="Existing conversation ID to continue")
+    conversation_id: Optional[str] = Field(None, description="Existing conversation ID to continue", max_length=128)
 
 
 class KaiChatResponseModel(BaseModel):
@@ -98,7 +106,9 @@ async def kai_chat(
     # Verify user_id matches token (consent-first: token contains user_id)
     if token_data["user_id"] != request.user_id:
         logger.warning(
-            f"User ID mismatch: token={token_data['user_id']}, request={request.user_id}"
+            "User ID mismatch: token=%s, request=%s",
+            _redact_uid(token_data.get("user_id")),
+            _redact_uid(request.user_id),
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="User ID does not match token"
@@ -124,9 +134,9 @@ async def kai_chat(
 
 @router.get("/chat/history/{conversation_id}", response_model=ConversationHistoryResponse)
 async def get_conversation_history(
-    conversation_id: str,
+    conversation_id: str = Path(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=500),
 ) -> ConversationHistoryResponse:
     """
     Get conversation history for a specific conversation.
@@ -157,8 +167,8 @@ async def get_conversation_history(
 async def list_user_conversations(
     user_id: str,
     token_data: dict = Depends(require_vault_owner_token),
-    limit: int = 20,
-    offset: int = 0,
+    limit: int = Query(default=20, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> dict:
     """
     List all conversations for a user.
@@ -327,7 +337,9 @@ async def analyze_portfolio_loser(
     # Verify user_id matches token (consent-first: token contains user_id)
     if token_data["user_id"] != request.user_id:
         logger.warning(
-            f"User ID mismatch: token={token_data['user_id']}, request={request.user_id}"
+            "User ID mismatch: token=%s, request=%s",
+            _redact_uid(token_data.get("user_id")),
+            _redact_uid(request.user_id),
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="User ID does not match token"
@@ -364,6 +376,6 @@ async def analyze_portfolio_loser(
             saved_to_pkm=result.get("saved_to_pkm", False),
         )
 
-    except Exception as e:
-        logger.error(f"Error analyzing loser {ticker}: {e}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+    except Exception:
+        logger.error("kai.chat.analyze_loser.error ticker=%s", ticker, exc_info=True)
+        raise HTTPException(status_code=500, detail="Analysis failed")

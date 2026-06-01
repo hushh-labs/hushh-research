@@ -114,6 +114,29 @@ def test_canonical_stream_serializes_decimal_payload_values():
     assert envelope["payload"]["raw_card"]["conviction"] == 0.82
 
 
+def test_portfolio_import_thinking_event_is_optional_telemetry():
+    stream = CanonicalSSEStream("portfolio_import")
+    thinking = _parse_frame_data(
+        stream.event(
+            "thinking",
+            {
+                "phase": "extract_full",
+                "message": "Gemini is reasoning through statement structure...",
+                "thought": "I found a holdings table with quantity and value columns.",
+                "count": 1,
+                "token_source": "thought",
+            },
+        )
+    )
+    complete = _parse_frame_data(stream.event("complete", {"message": "done"}, terminal=True))
+
+    assert thinking["event"] == "thinking"
+    assert thinking["terminal"] is False
+    assert thinking["payload"]["token_source"] == "thought"  # noqa: S105
+    assert thinking["payload"]["progress_pct"] == 0.0
+    assert complete["payload"]["progress_pct"] == 100.0
+
+
 def test_stream_routes_use_canonical_stream_builder():
     portfolio_source = (_ROOT / "api/routes/kai/portfolio.py").read_text(encoding="utf-8")
     losers_source = (_ROOT / "api/routes/kai/losers.py").read_text(encoding="utf-8")
@@ -122,6 +145,31 @@ def test_stream_routes_use_canonical_stream_builder():
     assert 'CanonicalSSEStream("portfolio_import")' in portfolio_source
     assert 'CanonicalSSEStream("portfolio_optimize")' in losers_source
     assert 'CanonicalSSEStream("stock_analyze")' in analyze_source
+
+
+def test_portfolio_statement_import_stream_route_stays_available():
+    portfolio_source = (_ROOT / "api/routes/kai/portfolio.py").read_text(encoding="utf-8")
+
+    assert '@router.post("/portfolio/import/stream")' in portfolio_source
+    assert "start_or_get_active(" in portfolio_source
+    assert "_IMPORT_RUN_MANAGER.stream_run_events(" in portfolio_source
+
+
+def test_portfolio_statement_import_compat_stream_does_not_use_multipart_request_disconnect():
+    portfolio_source = (_ROOT / "api/routes/kai/portfolio.py").read_text(encoding="utf-8")
+
+    assert "class _AlwaysConnectedImportStreamRequest" in portfolio_source
+    assert "request=_AlwaysConnectedImportStreamRequest()" in portfolio_source
+
+
+def test_portfolio_import_defaults_to_gemini_35_flash_with_env_override():
+    constants_source = (_ROOT / "hushh_mcp/constants.py").read_text(encoding="utf-8")
+    portfolio_source = (_ROOT / "api/routes/kai/portfolio.py").read_text(encoding="utf-8")
+
+    assert 'KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3.5-flash"' in constants_source
+    assert '"KAI_PORTFOLIO_IMPORT_MODEL"' in portfolio_source
+    assert '"KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL"' in portfolio_source
+    assert "extraction_model = _resolve_portfolio_import_model()" in portfolio_source
 
 
 def test_stream_routes_emit_terminal_events():
@@ -150,6 +198,17 @@ def test_analyze_stream_handles_round_start_and_starts_round_one():
 
     assert '{"debate_round", "round_start"}' in analyze_source
     assert "current_round = 1" in analyze_source
+
+
+def test_analyze_timeout_is_based_on_stream_inactivity_not_wall_clock():
+    analyze_source = (_ROOT / "api/routes/kai/stream.py").read_text(encoding="utf-8")
+
+    assert "_stream_activity_ctx" in analyze_source
+    assert "last_activity_at = loop.time()" in analyze_source
+    assert "activity_callback()" in analyze_source
+    assert "stream_started_at" not in analyze_source
+    assert "Analyze stream inactive for" in analyze_source
+    assert "Inactivity timeout" in analyze_source
 
 
 def test_analyze_stream_emits_agent_start_before_parallel_analysis_calls():

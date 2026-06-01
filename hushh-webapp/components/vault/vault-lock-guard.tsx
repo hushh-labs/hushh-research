@@ -21,12 +21,22 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { VaultService } from "@/lib/services/vault-service";
 import { VaultUnlockDialog } from "./vault-unlock-dialog";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
+import {
+  isSessionUnlockedOnce,
+  markSessionUnlocked,
+} from "@/lib/vault/vault-session-latch";
+import {
+  isNativeTestVaultBootstrapManaged,
+  preferPassphraseUnlockForAutomation,
+  useNativeTestConfig,
+} from "@/lib/testing/native-test";
 
 // ============================================================================
 // Types
@@ -38,26 +48,21 @@ interface VaultLockGuardProps {
 
 const vaultPresenceCache = new Map<string, boolean>();
 
-/**
- * Module-level flag: once the vault has been unlocked in this JS session,
- * never show the unlock dialog again — even if React state briefly flickers
- * during route transitions or layout re-mounts.
- */
-let sessionUnlockedOnce = false;
-
 // ============================================================================
 // Component
 // ============================================================================
 
-function markSessionUnlocked() {
-  sessionUnlockedOnce = true;
-}
-
 export function VaultLockGuard({ children }: VaultLockGuardProps) {
   const { isVaultUnlocked } = useVault();
+  const router = useRouter();
+  const nativeTestConfig = useNativeTestConfig();
+  const nativeTestBootstrapManaged =
+    isNativeTestVaultBootstrapManaged(nativeTestConfig);
+  const skipGeneratedDefaultUnlock =
+    preferPassphraseUnlockForAutomation(nativeTestConfig);
 
   // Latch: once unlocked, remember for the rest of this JS session
-  if (isVaultUnlocked && !sessionUnlockedOnce) {
+  if (isVaultUnlocked && !isSessionUnlockedOnce()) {
     markSessionUnlocked();
   }
   const { user, loading: authLoading } = useAuth();
@@ -91,9 +96,9 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
     if (typeof window !== "undefined") {
       const currentPath = window.location.pathname;
-      window.location.assign(`/login?redirect=${encodeURIComponent(currentPath)}`);
+      router.replace(`/login?redirect=${encodeURIComponent(currentPath)}`);
     }
-  }, [authLoading, userId]);
+  }, [authLoading, router, userId]);
 
   useEffect(() => {
     if (isVaultUnlocked) {
@@ -165,7 +170,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   // session, render children immediately. The latch prevents the dialog from
   // flashing during route transitions where React state briefly resets.
   // ============================================================================
-  if (isVaultUnlocked || sessionUnlockedOnce) {
+  if (isVaultUnlocked || isSessionUnlockedOnce()) {
     return <>{children}</>;
   }
 
@@ -191,16 +196,31 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     return <>{children}</>;
   }
 
+  if (nativeTestBootstrapManaged) {
+    // UITest-only: NativeTestBootstrap unlocks via passphrase while we show a loader.
+    const bootstrapState =
+      typeof window !== "undefined"
+        ? window.__HUSHH_NATIVE_TEST__?.bootstrapState ?? ""
+        : "";
+    if (bootstrapState === "vault_error" || bootstrapState === "auth_error") {
+      // Fall through to passphrase-only unlock dialog below.
+    } else {
+      return <HushhLoader label="Unlocking vault..." />;
+    }
+  }
+
   // User exists but vault is locked - show unlock dialog
   return (
     <VaultUnlockDialog
       user={user}
       open
       dismissible={false}
-      enableGeneratedDefault
+      enableGeneratedDefault={!skipGeneratedDefaultUnlock}
       title="Unlock Vault"
       description="Unlock your Vault to continue."
-      onSuccess={() => undefined}
+      onSuccess={() => {
+        markSessionUnlocked();
+      }}
     />
   );
 }

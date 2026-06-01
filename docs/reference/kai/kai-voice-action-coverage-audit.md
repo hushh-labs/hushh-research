@@ -93,7 +93,7 @@ The frontend dispatcher supports the backend tools above plus `switch_persona`.
 
 | Command | Effective behavior |
 | --- | --- |
-| `analyze` | Requires `symbol`; sets analysis params and routes to `/kai/analysis?focus=active&ticker=...`. Blocks if another analysis is active. |
+| `analyze` | Requires `symbol`; clears any stale live intent and routes to `/kai/analysis?ticker=...` so the comparison preview is confirmed before a debate starts. Blocks if another analysis is active. |
 | `optimize` | Routes to `/kai/optimize`; if no portfolio exists, routes to `/kai/import` and blocks execution. |
 | `import` | Routes to `/kai/import`. |
 | `history` | Routes to `/kai/analysis` with history/tab params. |
