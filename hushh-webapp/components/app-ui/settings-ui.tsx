@@ -103,6 +103,8 @@ export function SettingsGroup({
   className?: string;
   testId?: string;
 }) {
+  const HeadingTag: "h2" | "h3" = embedded ? "h3" : "h2";
+
   const shell = (
     <div
       className={cn(
@@ -120,9 +122,7 @@ export function SettingsGroup({
       {eyebrow || title || description ? (
         <div className="space-y-[var(--settings-heading-stack-gap)] px-0.5 sm:px-1">
           {eyebrow || title ? (
-            <div
-              role="heading"
-              aria-level={embedded ? 3 : 2}
+            <HeadingTag
               className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty text-[15px] font-semibold leading-tight tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[16px]"
             >
               {eyebrow ? (
@@ -130,8 +130,9 @@ export function SettingsGroup({
                   {eyebrow}
                 </span>
               ) : null}
+
               {title ? <span>{title}</span> : null}
-            </div>
+            </HeadingTag>
           ) : null}
           {description ? (
             <p className="max-w-2xl text-[11px] leading-[1.45] text-muted-foreground [overflow-wrap:anywhere] sm:text-[12px]">
