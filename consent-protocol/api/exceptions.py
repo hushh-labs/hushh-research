@@ -95,7 +95,7 @@ class VaultKeyNotFoundError(VaultError):
     error_code = "VAULT_KEY_NOT_FOUND"
 
     def __init__(self, user_id: str):
-        super().__init__(message="Vault key not found for user", details={"user_id": user_id})
+        super().__init__(message="Vault key not found for user")
 
 
 class AgentError(HushhBaseException):
