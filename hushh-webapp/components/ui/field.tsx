@@ -86,6 +86,7 @@ function Field({
   return (
     <div
       role="group"
+      aria-live="polite"
       data-slot="field"
       data-orientation={orientation}
       className={cn(fieldVariants({ orientation }), className)}
