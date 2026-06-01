@@ -15,6 +15,7 @@ const {
   mockRevokeGrant,
   mockRequestAccess,
   mockCreatePublicInvite,
+  mockGetActivity,
   mockGetState,
   mockSyncCurrentUser,
   mockSyncOneLocationContactSignals,
@@ -34,6 +35,7 @@ const {
   mockRevokeGrant: vi.fn(),
   mockRequestAccess: vi.fn(),
   mockCreatePublicInvite: vi.fn(),
+  mockGetActivity: vi.fn(),
   mockGetState: vi.fn(),
   mockSyncCurrentUser: vi.fn(),
   mockSyncOneLocationContactSignals: vi.fn(),
@@ -78,6 +80,7 @@ vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
     registerRecipientKey: mockRegisterKey,
     getPermissionState: mockGetPermissionState,
+    getActivity: mockGetActivity,
     getState: mockGetState,
     createGrant: mockCreateGrant,
     storeEnvelope: mockStoreEnvelope,
@@ -218,6 +221,67 @@ function locationState() {
   };
 }
 
+function locationActivity() {
+  return {
+    range: "30d",
+    summary: {
+      sharedWithCount: 1,
+      activeShareCount: 1,
+      requestsReceivedCount: 1,
+      requestsSentCount: 1,
+      viewsCount: 1,
+      publicLinkCount: 1,
+      publicResponseCount: 1,
+      totalEvents: 5,
+    },
+    buckets: [
+      {
+        key: "2026-05-20",
+        label: "May 20",
+        shares: 2,
+        requests: 2,
+        views: 1,
+        publicActivity: 1,
+        total: 5,
+      },
+    ],
+    events: [
+      {
+        id: "event_viewed",
+        kind: "share",
+        eventType: "location_share_viewed",
+        occurredAt: "2026-05-20T07:45:00.000Z",
+        title: "Viewed by Trusted B",
+        detail: "Private sharing - May 20, 07:45 UTC",
+      },
+      {
+        id: "event_shared",
+        kind: "share",
+        eventType: "location_share_created",
+        occurredAt: "2026-05-20T07:30:00.000Z",
+        title: "Shared with Trusted B",
+        detail: "Private sharing - May 20, 07:30 UTC",
+      },
+      {
+        id: "event_request",
+        kind: "request",
+        eventType: "location_access_request",
+        occurredAt: "2026-05-20T07:25:00.000Z",
+        title: "Request from Advisor C",
+        detail: "Approval workflow - May 20, 07:25 UTC",
+      },
+      {
+        id: "event_public",
+        kind: "public",
+        eventType: "location_public_invite_submitted",
+        occurredAt: "2026-05-20T07:20:00.000Z",
+        title: "Response from Visitor Alpha",
+        detail: "Request link - May 20, 07:20 UTC",
+      },
+    ],
+  };
+}
+
 describe("OneLocationAgentPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -278,6 +342,7 @@ describe("OneLocationAgentPage", () => {
       publicUrl: "/one/location/request/invite_1",
     });
     mockGetState.mockResolvedValue(locationState());
+    mockGetActivity.mockResolvedValue(locationActivity());
     mockSyncCurrentUser.mockResolvedValue({ user_id: "user_a" });
     mockSyncOneLocationContactSignals.mockResolvedValue({
       matches: [],
@@ -370,6 +435,26 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByText("Public link responses")).toBeTruthy();
     expect(screen.queryByText(/public live-location link/i)).toBeNull();
     expect(screen.queryByText(/whatsapp/i)).toBeNull();
+  });
+
+  it("renders activity history from the One Location activity API without phone-derived labels", async () => {
+    render(<OneLocationAgentPageContent />);
+
+    await waitFor(() =>
+      expect(mockGetActivity).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        range: "30d",
+      }),
+    );
+
+    expect(screen.getByRole("heading", { name: "Location activity" })).toBeTruthy();
+    expect(screen.getByText("Activity history")).toBeTruthy();
+    expect(await screen.findByText("Viewed by Trusted B")).toBeTruthy();
+    expect(screen.getByText("Shared with Trusted B")).toBeTruthy();
+    expect(screen.getByText("Request from Advisor C")).toBeTruthy();
+    expect(screen.getByText("Response from Visitor Alpha")).toBeTruthy();
+    expect(screen.getByLabelText(/One Location activity chart/i)).toBeTruthy();
+    expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
   });
 
   it("tracks public request-link creation without location or identity payloads", async () => {

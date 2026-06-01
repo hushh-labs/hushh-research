@@ -75,8 +75,12 @@ import {
   syncOneLocationContactSignals,
   type OneLocationContactSignalResult,
 } from "@/lib/one-location/contact-signals";
+import { OneLocationActivityDashboard } from "@/components/one-location/activity-dashboard";
+import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
 import type {
   OneLocationAccessRequest,
+  OneLocationActivityRange,
+  OneLocationActivityResponse,
   OneLocationGrant,
   OneLocationPublicInvite,
   OneLocationPublicInviteSubmission,
@@ -927,6 +931,12 @@ export function OneLocationAgentPageContent() {
   >([]);
   const [contactSignal, setContactSignal] =
     useState<OneLocationContactSignalState>(INITIAL_CONTACT_SIGNAL_STATE);
+  const [activityRange, setActivityRange] =
+    useState<OneLocationActivityRange>("30d");
+  const [activitySnapshot, setActivitySnapshot] =
+    useState<OneLocationActivityResponse | null>(null);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState<string | null>(null);
   const [durationHours, setDurationHours] = useState("1");
   const [requestMessage, setRequestMessage] = useState("");
   const [referralTargets, setReferralTargets] = useState<
@@ -1040,6 +1050,41 @@ export function OneLocationAgentPageContent() {
     () => state?.publicInviteSubmissions ?? [],
     [state?.publicInviteSubmissions],
   );
+  const fallbackActivity = useMemo(
+    () => buildOneLocationActivityFallback(state, auth.userId, activityRange),
+    [activityRange, auth.userId, state],
+  );
+  const locationActivity = activitySnapshot ?? fallbackActivity;
+
+  useEffect(() => {
+    if (!auth.userId || !vaultOwnerToken || !state) {
+      setActivitySnapshot(null);
+      setActivityLoading(false);
+      return;
+    }
+    let active = true;
+    setActivityLoading(true);
+    setActivityError(null);
+    OneLocationService.getActivity({
+      vaultOwnerToken,
+      range: activityRange,
+    })
+      .then((activity) => {
+        if (!active) return;
+        setActivitySnapshot(activity);
+      })
+      .catch(() => {
+        if (!active) return;
+        setActivitySnapshot(null);
+        setActivityError("Showing current page activity while history sync catches up.");
+      })
+      .finally(() => {
+        if (active) setActivityLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [activityRange, auth.userId, state, vaultOwnerToken]);
 
   const openLocationShareFromNotification = useCallback(
     (grantId: string) => {
@@ -2685,6 +2730,17 @@ export function OneLocationAgentPageContent() {
             </div>
 
             <div className="space-y-6">
+              <OneLocationActivityDashboard
+                activity={locationActivity}
+                range={activityRange}
+                loading={activityLoading}
+                error={activityError}
+                onRangeChange={(value) => {
+                  setActivityRange(value);
+                  setActivitySnapshot(null);
+                }}
+              />
+
               <section className="space-y-2 px-1">
                 {sectionLabel("People who can see me")}
                 <div className={onePanelClassName}>

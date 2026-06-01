@@ -70,6 +70,41 @@ PUBLIC_INVITE_FINGERPRINT_THROTTLE_MINUTES = _bounded_int_env(
 PUBLIC_INVITE_MAX_SUBMISSIONS_PER_FINGERPRINT_WINDOW = _bounded_int_env(
     "ONE_LOCATION_PUBLIC_INVITE_MAX_SUBMISSIONS_PER_FINGERPRINT_WINDOW", 3, 1, 20
 )
+ONE_LOCATION_ACTIVITY_RANGES = {
+    "7d": 7,
+    "30d": 30,
+    "90d": 90,
+}
+ONE_LOCATION_ACTIVITY_EVENT_TYPES = {
+    "location_share_created",
+    "location_share_viewed",
+    "location_share_revoked",
+    "location_share_expired",
+    "location_access_request",
+    "location_access_approved",
+    "location_access_denied",
+    "location_referral_invite",
+    "location_public_invite_created",
+    "location_public_invite_revoked",
+    "location_public_invite_submitted",
+}
+ONE_LOCATION_SHARE_ACTIVITY_TYPES = {
+    "location_share_created",
+    "location_share_viewed",
+    "location_share_revoked",
+    "location_share_expired",
+}
+ONE_LOCATION_REQUEST_ACTIVITY_TYPES = {
+    "location_access_request",
+    "location_access_approved",
+    "location_access_denied",
+    "location_referral_invite",
+}
+ONE_LOCATION_PUBLIC_ACTIVITY_TYPES = {
+    "location_public_invite_created",
+    "location_public_invite_revoked",
+    "location_public_invite_submitted",
+}
 
 
 class OneLocationAgentError(RuntimeError):
@@ -266,6 +301,44 @@ def _one_location_url(**query: str | None) -> str:
     suffix = f"?{'&'.join(params)}" if params else ""
     path = f"/one/location{suffix}"
     return f"{base}{path}" if base else path
+
+
+def _activity_since(range_key: str) -> datetime | None:
+    days = ONE_LOCATION_ACTIVITY_RANGES.get(range_key)
+    if not days:
+        return None
+    start = _utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    return start - timedelta(days=days - 1)
+
+
+def _activity_kind(event_type: str) -> str:
+    if event_type in ONE_LOCATION_SHARE_ACTIVITY_TYPES:
+        return "share"
+    if event_type in ONE_LOCATION_REQUEST_ACTIVITY_TYPES:
+        return "request"
+    return "public"
+
+
+def _activity_bucket_key(value: datetime, range_key: str) -> str:
+    if range_key in {"90d", "all"}:
+        return value.strftime("%Y-%m")
+    return value.strftime("%Y-%m-%d")
+
+
+def _activity_bucket_label(value: datetime, range_key: str) -> str:
+    if range_key in {"90d", "all"}:
+        return value.strftime("%b %Y")
+    try:
+        return value.strftime("%b %-d")
+    except ValueError:
+        return value.strftime("%b %#d")
+
+
+def format_activity_time(value: datetime) -> str:
+    try:
+        return value.strftime("%b %-d, %H:%M UTC")
+    except ValueError:
+        return value.strftime("%b %#d, %H:%M UTC")
 
 
 class OneLocationAgentService:
@@ -596,6 +669,263 @@ class OneLocationAgentService:
             "message": str(row.get("message") or "") or None,
             "submittedAt": _iso(row.get("submitted_at")),
             "resolvedAt": _iso(row.get("resolved_at")),
+        }
+
+    @staticmethod
+    def _activity_display_label(
+        value: Any,
+        *,
+        fallback: str = "KAI member",
+    ) -> str:
+        label = str(value or "").strip()
+        return label or fallback
+
+    @classmethod
+    def _activity_event_payload(
+        cls,
+        row: dict[str, Any],
+        *,
+        user_id: str,
+        range_key: str,
+    ) -> dict[str, Any] | None:
+        event_type = str(row.get("event_type") or "")
+        if event_type not in ONE_LOCATION_ACTIVITY_EVENT_TYPES:
+            return None
+        occurred_at = _parse_datetime(row.get("created_at"), field_name="created_at")
+        owner_user_id = str(row.get("owner_user_id") or "")
+        owner_label = cls._activity_display_label(
+            row.get("owner_display_name"),
+            fallback="A trusted person",
+        )
+        actor_label = cls._activity_display_label(
+            row.get("actor_display_name"),
+            fallback="KAI member",
+        )
+        recipient_label = cls._activity_display_label(
+            row.get("recipient_display_name"),
+            fallback="KAI member",
+        )
+        visitor_label = cls._activity_display_label(
+            row.get("visitor_display_name"),
+            fallback="Public request",
+        )
+        event_id = str(row.get("id") or f"{event_type}:{_iso(occurred_at)}")
+        kind = _activity_kind(event_type)
+        detail = {
+            "share": "Private sharing",
+            "request": "Approval workflow",
+            "public": "Request link",
+        }[kind]
+
+        title = "One Location activity"
+        if event_type == "location_share_created":
+            title = (
+                f"Shared with {recipient_label}"
+                if owner_user_id == user_id
+                else f"{owner_label} shared with you"
+            )
+        elif event_type == "location_share_viewed":
+            title = (
+                f"Viewed by {actor_label}"
+                if owner_user_id == user_id
+                else f"You viewed {owner_label}'s update"
+            )
+        elif event_type == "location_share_revoked":
+            title = (
+                f"Sharing stopped with {recipient_label}"
+                if owner_user_id == user_id
+                else f"{owner_label} stopped sharing"
+            )
+        elif event_type == "location_share_expired":
+            title = (
+                f"Share expired for {recipient_label}"
+                if owner_user_id == user_id
+                else f"{owner_label}'s share expired"
+            )
+        elif event_type == "location_access_request":
+            title = (
+                f"Request from {actor_label}"
+                if owner_user_id == user_id
+                else f"Request sent to {owner_label}"
+            )
+        elif event_type == "location_access_approved":
+            title = (
+                f"Approved request for {recipient_label}"
+                if owner_user_id == user_id
+                else f"{owner_label} approved your request"
+            )
+        elif event_type == "location_access_denied":
+            title = (
+                f"Denied request from {recipient_label or actor_label}"
+                if owner_user_id == user_id
+                else f"{owner_label} denied your request"
+            )
+        elif event_type == "location_referral_invite":
+            title = f"Referral added for {recipient_label}"
+        elif event_type == "location_public_invite_created":
+            title = "Request link created"
+        elif event_type == "location_public_invite_revoked":
+            title = "Request link closed"
+        elif event_type == "location_public_invite_submitted":
+            title = f"Response from {visitor_label}"
+
+        return {
+            "id": event_id,
+            "kind": kind,
+            "eventType": event_type,
+            "occurredAt": _iso(occurred_at),
+            "bucketKey": _activity_bucket_key(occurred_at, range_key),
+            "bucketLabel": _activity_bucket_label(occurred_at, range_key),
+            "title": title,
+            "detail": f"{detail} - {format_activity_time(occurred_at)}",
+        }
+
+    def list_activity(
+        self,
+        *,
+        user_id: str,
+        range_key: str = "30d",
+        limit: int = 40,
+    ) -> dict[str, Any]:
+        if not user_id:
+            raise OneLocationAgentError(
+                "LOCATION_AUTH_REQUIRED", "A user is required.", status_code=401
+            )
+        normalized_range = range_key if range_key in {"7d", "30d", "90d", "all"} else "30d"
+        since_at = _activity_since(normalized_range)
+        bounded_limit = max(1, min(int(limit or 40), 100))
+        rows = self._execute_many(
+            """
+            SELECT
+              e.id,
+              e.owner_user_id,
+              e.actor_user_id,
+              e.recipient_user_id,
+              e.event_type,
+              e.metadata,
+              e.created_at,
+              owner.display_name AS owner_display_name,
+              actor.display_name AS actor_display_name,
+              recipient.display_name AS recipient_display_name,
+              submission.visitor_display_name AS visitor_display_name
+            FROM one_location_events e
+            LEFT JOIN actor_identity_cache owner ON owner.user_id = e.owner_user_id
+            LEFT JOIN actor_identity_cache actor ON actor.user_id = e.actor_user_id
+            LEFT JOIN actor_identity_cache recipient ON recipient.user_id = e.recipient_user_id
+            LEFT JOIN one_location_public_invite_submissions submission
+              ON submission.id::text = e.metadata->>'submission_id'
+            WHERE e.event_type = ANY(:event_types)
+              AND (:since_at IS NULL OR e.created_at >= :since_at)
+              AND (
+                e.owner_user_id = :user_id
+                OR e.actor_user_id = :user_id
+                OR e.recipient_user_id = :user_id
+              )
+            ORDER BY e.created_at DESC
+            LIMIT :limit
+            """,
+            {
+                "user_id": user_id,
+                "since_at": since_at,
+                "limit": bounded_limit,
+                "event_types": sorted(ONE_LOCATION_ACTIVITY_EVENT_TYPES),
+            },
+        )
+        active_row = self._execute_one(
+            """
+            SELECT COUNT(*)::int AS active_share_count
+            FROM one_location_share_grants
+            WHERE owner_user_id = :user_id
+              AND status = 'active'
+            """,
+            {"user_id": user_id},
+        ) or {}
+
+        events = [
+            payload
+            for row in rows
+            if (
+                payload := self._activity_event_payload(
+                    row,
+                    user_id=user_id,
+                    range_key=normalized_range,
+                )
+            )
+        ]
+        bucket_map: dict[str, dict[str, Any]] = {}
+        for event in events:
+            key = str(event["bucketKey"])
+            bucket = bucket_map.setdefault(
+                key,
+                {
+                    "key": key,
+                    "label": event["bucketLabel"],
+                    "shares": 0,
+                    "requests": 0,
+                    "views": 0,
+                    "publicActivity": 0,
+                    "total": 0,
+                },
+            )
+            event_type = str(event.get("eventType") or "")
+            if event["kind"] == "share":
+                bucket["shares"] += 1
+            if event["kind"] == "request":
+                bucket["requests"] += 1
+            if event_type == "location_share_viewed":
+                bucket["views"] += 1
+            if event["kind"] == "public":
+                bucket["publicActivity"] += 1
+            bucket["total"] += 1
+
+        shared_with = {
+            str(row.get("recipient_user_id") or "")
+            for row in rows
+            if str(row.get("event_type") or "") == "location_share_created"
+            and str(row.get("owner_user_id") or "") == user_id
+            and str(row.get("recipient_user_id") or "")
+        }
+        summary = {
+            "sharedWithCount": len(shared_with),
+            "activeShareCount": int(active_row.get("active_share_count") or 0),
+            "requestsReceivedCount": sum(
+                1
+                for row in rows
+                if str(row.get("event_type") or "") == "location_access_request"
+                and str(row.get("owner_user_id") or "") == user_id
+            ),
+            "requestsSentCount": sum(
+                1
+                for row in rows
+                if str(row.get("event_type") or "") == "location_access_request"
+                and str(row.get("actor_user_id") or "") == user_id
+                and str(row.get("owner_user_id") or "") != user_id
+            ),
+            "viewsCount": sum(
+                1
+                for row in rows
+                if str(row.get("event_type") or "") == "location_share_viewed"
+            ),
+            "publicLinkCount": sum(
+                1
+                for row in rows
+                if str(row.get("event_type") or "") == "location_public_invite_created"
+                and str(row.get("owner_user_id") or "") == user_id
+            ),
+            "publicResponseCount": sum(
+                1
+                for row in rows
+                if str(row.get("event_type") or "") == "location_public_invite_submitted"
+                and str(row.get("owner_user_id") or "") == user_id
+            ),
+            "totalEvents": len(events),
+        }
+
+        return {
+            "range": normalized_range,
+            "summary": summary,
+            "buckets": [bucket_map[key] for key in sorted(bucket_map.keys())][-8:],
+            "events": events[:bounded_limit],
         }
 
     def _expire_stale_grants(self, user_id: str) -> None:

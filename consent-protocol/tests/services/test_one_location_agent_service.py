@@ -278,6 +278,41 @@ class FourUserMemoryService(OneLocationAgentService):
                         {**submission, "request_status": request.get("status") if request else None}
                     )
             return rows[:50]
+        if "FROM one_location_events e" in sql:
+            user_id = params["user_id"]
+            since_at = params.get("since_at")
+            event_types = set(params.get("event_types") or [])
+            rows = []
+            for event in sorted(
+                self.events.values(),
+                key=lambda item: item["created_at"],
+                reverse=True,
+            ):
+                if event_types and event.get("event_type") not in event_types:
+                    continue
+                if since_at and event.get("created_at") and event["created_at"] < since_at:
+                    continue
+                if user_id not in {
+                    event.get("owner_user_id"),
+                    event.get("actor_user_id"),
+                    event.get("recipient_user_id"),
+                }:
+                    continue
+                owner = self.identities.get(event.get("owner_user_id") or "", {})
+                actor = self.identities.get(event.get("actor_user_id") or "", {})
+                recipient = self.identities.get(event.get("recipient_user_id") or "", {})
+                metadata = event.get("metadata") or {}
+                submission = self.public_submissions.get(metadata.get("submission_id") or "")
+                rows.append(
+                    {
+                        **event,
+                        "owner_display_name": owner.get("display_name"),
+                        "actor_display_name": actor.get("display_name"),
+                        "recipient_display_name": recipient.get("display_name"),
+                        "visitor_display_name": (submission or {}).get("visitor_display_name"),
+                    }
+                )
+            return rows[: params.get("limit", 40)]
         if "UPDATE one_location_share_grants" in sql and "status = 'revoked'" in sql:
             revoked = []
             for grant in self.grants.values():
@@ -460,6 +495,15 @@ class FourUserMemoryService(OneLocationAgentService):
                 "created_at": datetime.now(timezone.utc),
             }
             return None
+        if "COUNT(*)::int AS active_share_count" in sql:
+            return {
+                "active_share_count": sum(
+                    1
+                    for grant in self.grants.values()
+                    if grant["owner_user_id"] == params["user_id"]
+                    and grant["status"] == "active"
+                )
+            }
         if "UPDATE one_location_recipient_keys" in sql:
             return None
         if "FROM actor_identity_cache" in sql and "regexp_replace" in sql:
@@ -1003,6 +1047,63 @@ def test_four_user_location_workflow_contract() -> None:
     )
     assert "latitude" not in serialized_state
     assert "longitude" not in serialized_state
+
+
+def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
+    service = FourUserMemoryService()
+
+    for user_id in ("user_a", "user_b", "user_c"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+    )
+    service.store_encrypted_envelope(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        envelope=encrypted_envelope("key-user_b", "ciphertext-for-b"),
+    )
+    service.view_latest_envelope(recipient_user_id="user_b", grant_id=grant["id"])
+    service.request_access(
+        requester_user_id="user_c",
+        owner_user_id="user_a",
+        message="Can you share?",
+    )
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    service.submit_public_invite_request(
+        public_token=created["publicToken"],
+        visitor_display_name="User B",
+        phone_number="+1 555 010 0002",
+    )
+
+    activity = service.list_activity(user_id="user_a", range_key="30d")
+
+    assert activity["range"] == "30d"
+    assert activity["summary"]["sharedWithCount"] == 1
+    assert activity["summary"]["activeShareCount"] == 1
+    assert activity["summary"]["requestsReceivedCount"] >= 1
+    assert activity["summary"]["viewsCount"] == 1
+    assert activity["summary"]["publicLinkCount"] == 1
+    assert activity["summary"]["publicResponseCount"] == 1
+    titles = {event["title"] for event in activity["events"]}
+    assert "Shared with User B" in titles
+    assert "Viewed by User B" in titles
+    assert "Request from User C" in titles
+    assert "Request link created" in titles
+    assert "Response from User B" in titles
+    serialized = json.dumps(activity, default=str)
+    assert "ciphertext" not in serialized
+    assert "latitude" not in serialized
+    assert "longitude" not in serialized
+    assert "0100002" not in serialized
+    assert "0002" not in serialized
 
 
 def test_public_invite_is_request_only_and_token_hash_only() -> None:

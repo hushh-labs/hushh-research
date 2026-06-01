@@ -145,6 +145,49 @@ export type OneLocationState = {
   capabilityScopes: string[];
 };
 
+export type OneLocationActivityRange = "7d" | "30d" | "90d" | "all";
+
+export type OneLocationActivityKind = "share" | "request" | "public";
+
+export type OneLocationActivityEvent = {
+  id: string;
+  kind: OneLocationActivityKind;
+  eventType?: string;
+  occurredAt: string;
+  bucketKey?: string;
+  bucketLabel?: string;
+  title: string;
+  detail: string;
+};
+
+export type OneLocationActivityBucket = {
+  key: string;
+  label: string;
+  shares: number;
+  requests: number;
+  views: number;
+  publicActivity: number;
+  total: number;
+};
+
+type OneLocationActivitySummary = {
+  sharedWithCount: number;
+  activeShareCount: number;
+  requestsReceivedCount: number;
+  requestsSentCount: number;
+  viewsCount: number;
+  publicLinkCount: number;
+  publicResponseCount: number;
+  totalEvents: number;
+};
+
+export type OneLocationActivityResponse = {
+  range: OneLocationActivityRange;
+  summary: OneLocationActivitySummary;
+  buckets: OneLocationActivityBucket[];
+  events: OneLocationActivityEvent[];
+};
+
 export type PlainLocationPoint = {
   latitude: number;
   longitude: number;
