@@ -319,6 +319,7 @@ CREATE INDEX IF NOT EXISTS idx_kai_gmail_receipts_user_checksum
 CREATE TABLE IF NOT EXISTS kai_receipt_memory_artifacts (
     artifact_id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES vault_keys(user_id) ON DELETE CASCADE,
+    memory_domain TEXT NOT NULL DEFAULT 'shopping',
     source_kind TEXT NOT NULL DEFAULT 'gmail_receipts',
     artifact_version INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'ready',
@@ -348,6 +349,7 @@ CREATE INDEX IF NOT EXISTS idx_kai_receipt_memory_artifacts_user_created
 CREATE INDEX IF NOT EXISTS idx_kai_receipt_memory_artifacts_cache_lookup
     ON kai_receipt_memory_artifacts(
         user_id,
+        memory_domain,
         source_watermark_hash,
         deterministic_schema_version,
         enrichment_cache_key,

@@ -197,6 +197,72 @@ async def test_preview_service_reuses_cached_artifact_when_watermark_unchanged()
     assert result is cached
 
 
+def test_artifact_cache_key_is_scoped_by_memory_domain():
+    created_at = datetime.now(UTC)
+
+    def _row(memory_domain: str, artifact_id: str):
+        return {
+            "artifact_id": artifact_id,
+            "user_id": "user-123",
+            "memory_domain": memory_domain,
+            "source_kind": "gmail_receipts",
+            "artifact_version": 1,
+            "status": "ready",
+            "inference_window_days": 365,
+            "highlights_window_days": 90,
+            "source_watermark_hash": "same-watermark",
+            "source_watermark_json": {},
+            "deterministic_schema_version": 1,
+            "enrichment_schema_version": None,
+            "enrichment_cache_key": "deterministic-only",
+            "deterministic_projection_hash": "projection-hash",
+            "enrichment_hash": None,
+            "candidate_pkm_payload_hash": "payload-hash",
+            "deterministic_projection_json": {},
+            "enrichment_json": None,
+            "candidate_pkm_payload_json": {},
+            "debug_stats_json": {},
+            "created_at": created_at,
+            "updated_at": created_at,
+        }
+
+    class _ArtifactDb:
+        rows = {
+            "shopping": _row("shopping", "artifact-shopping"),
+            "health": _row("health", "artifact-health"),
+        }
+
+        def execute_raw(self, _sql, params=None):
+            return SimpleNamespace(data=[self.rows[params["memory_domain"]]])
+
+    service = ReceiptMemoryArtifactService()
+    service._db = _ArtifactDb()
+
+    shopping = service.get_cached_artifact(
+        user_id="user-123",
+        source_watermark_hash="same-watermark",
+        inference_window_days=365,
+        highlights_window_days=90,
+        deterministic_schema_version=1,
+        enrichment_cache_key="deterministic-only",
+        memory_domain="shopping",
+    )
+    health = service.get_cached_artifact(
+        user_id="user-123",
+        source_watermark_hash="same-watermark",
+        inference_window_days=365,
+        highlights_window_days=90,
+        deterministic_schema_version=1,
+        enrichment_cache_key="deterministic-only",
+        memory_domain="health",
+    )
+
+    assert shopping["artifact_id"] == "artifact-shopping"
+    assert shopping["memory_domain"] == "shopping"
+    assert health["artifact_id"] == "artifact-health"
+    assert health["memory_domain"] == "health"
+
+
 @pytest.mark.asyncio
 async def test_preview_service_uses_deterministic_fallback_when_enrichment_fails():
     projection = {
