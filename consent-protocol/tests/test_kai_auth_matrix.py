@@ -435,6 +435,24 @@ class TestKaiChatKeyEndpoints:
         )
         assert response.status_code not in {401, 403}
 
+    def test_chat_user_id_is_bounded(self, client, vault_owner_token_for_user):
+        token = vault_owner_token_for_user("user_a")
+        response = client.post(
+            "/api/kai/chat",
+            json={"user_id": "u" * 129, "message": "hello"},
+            headers=_auth(token),
+        )
+        assert response.status_code == 422
+
+    def test_chat_conversation_id_is_bounded(self, client, vault_owner_token_for_user):
+        token = vault_owner_token_for_user("user_a")
+        response = client.post(
+            "/api/kai/chat",
+            json={"user_id": "user_a", "message": "hello", "conversation_id": "c" * 129},
+            headers=_auth(token),
+        )
+        assert response.status_code == 422
+
     def test_chat_history_missing_token_returns_401(self, client):
         response = client.get("/api/kai/chat/history/conv_123")
         assert response.status_code == 401
@@ -457,6 +475,16 @@ class TestKaiChatKeyEndpoints:
         response = client.get(
             "/api/kai/chat/history/conv_123",
             params={"limit": 501},
+            headers=_auth(token),
+        )
+        assert response.status_code == 422
+
+    def test_chat_history_conversation_id_is_bounded(
+        self, client, vault_owner_token_for_user, stub_kai_chat_service
+    ):
+        token = vault_owner_token_for_user("user_a")
+        response = client.get(
+            f"/api/kai/chat/history/{'c' * 129}",
             headers=_auth(token),
         )
         assert response.status_code == 422

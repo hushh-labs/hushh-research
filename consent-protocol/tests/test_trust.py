@@ -37,7 +37,7 @@ def test_expired_trust_link():
 def test_signature_tampering():
     link = create_trust_link(DELEGATOR, DELEGATEE, SCOPE_VALID, USER_ID)
 
-    tampered = link.copy(update={"signature": "bad_signature_here"})
+    tampered = link.model_copy(update={"signature": "bad_signature_here"})
 
     assert verify_trust_link(tampered) is False
     assert is_trusted_for_scope(tampered, SCOPE_VALID) is False

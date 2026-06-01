@@ -169,6 +169,11 @@ export async function validateFirebaseToken(
         userId: result.uid,
         email: result.decodedToken?.email,
       };
+    } else if (result.unavailable) {
+      logSecurityEvent("FIREBASE_VALIDATION_ERROR", {
+        error: result.error || "Firebase validation unavailable",
+      });
+      return { valid: false, error: "Firebase validation unavailable" };
     } else {
       logSecurityEvent("FIREBASE_TOKEN_INVALID", {});
       return { valid: false, error: "Invalid Firebase ID token" };
