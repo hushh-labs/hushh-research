@@ -1,14 +1,34 @@
 "use strict";
 
 /**
- * The three consent layers this evaluator recognises and emits.
- * Any key outside this set is silently dropped from the output.
+ * Canonical set of consent-flag keys written to the vault under the
+ * "cookie_flags" preference field via:
+ *
+ *   hushh-webapp/lib/services/api-service.ts → storePreferences()
+ *   hushh-webapp/app/api/vault/store-preferences/route.ts
+ *
+ * Values resolved by evaluateCookieFlags() are encrypted by the caller
+ * and stored as  { ciphertext, iv, tag }  in the user's private vault.
+ * Frozen to prevent runtime mutation of the canonical field list.
  */
-const KNOWN_FLAGS = ["functional", "analytics", "marketing"];
+const KNOWN_FLAGS = Object.freeze(["functional", "analytics", "marketing"]);
 
 /**
- * Returns true only for plain (non-null, non-array) objects.
+ * Privacy-by-default safe values for every known flag.
+ * These defaults are applied by resolveConsentFlags() when the user has
+ * not made an explicit boolean choice for a given category.
+ *
+ * Frozen and exported so callers can inspect the canonical defaults
+ * without re-deriving them.
  */
+const COOKIE_CONSENT_DEFAULTS = Object.freeze({
+  functional: false,
+  analytics:  false,
+  marketing:  false,
+});
+
+// ── Internal helpers ───────────────────────────────────────────────────────────
+
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -16,64 +36,49 @@ function isPlainObject(value) {
 /**
  * Resolves a single consent flag to an explicit boolean using a two-layer
  * priority chain:
- *
- *   1. userValue   — if it is a boolean, use it directly
- *                  — if it is "true" / "false" (case-insensitive), coerce it
- *                  — any other string / non-boolean type → treated as absent
+ *   1. userValue   — boolean, or "true"/"false" string (case-insensitive, trimmed)
  *   2. defaultValue — same coercion rules applied to the fallback layer
- *   3. false        — the hard-coded safe fallback when both layers are absent
- *                     or unresolvable (privacy-by-default: restrict everything)
+ *   3. false        — hard-coded privacy-by-default safe fallback
  */
 function resolveFlag(userValue, defaultValue) {
-  // ── Layer 1: user value ────────────────────────────────────────────────────
-  if (typeof userValue === "boolean") {
-    return userValue;
-  }
+  if (typeof userValue === "boolean") return userValue;
   if (typeof userValue === "string") {
     const norm = userValue.trim().toLowerCase();
-    if (norm === "true") return true;
+    if (norm === "true")  return true;
     if (norm === "false") return false;
-    // Unrecognised string (e.g. "maybe", "yes") → fall through to default
   }
 
-  // ── Layer 2: global default ────────────────────────────────────────────────
-  if (typeof defaultValue === "boolean") {
-    return defaultValue;
-  }
+  if (typeof defaultValue === "boolean") return defaultValue;
   if (typeof defaultValue === "string") {
     const norm = defaultValue.trim().toLowerCase();
-    if (norm === "true") return true;
+    if (norm === "true")  return true;
     if (norm === "false") return false;
   }
 
-  // ── Layer 3: hard safe fallback ────────────────────────────────────────────
   return false;
 }
+
+// ── Pure utility ───────────────────────────────────────────────────────────────
 
 /**
  * evaluateCookieFlags(userFlags, globalDefaults)
  *
- * Evaluates multi-layer privacy permission settings and returns a clean, flat
- * object containing explicit booleans for the three consent layers.
+ * Evaluates multi-layer consent-flag settings and returns a clean flat
+ * object with explicit booleans for the three known consent layers only.
+ * Unknown keys from either input are silently discarded.
  *
- * Merge priority (highest → lowest):
- *   userFlags  →  globalDefaults  →  false  (privacy-by-default)
+ * Merge priority:  userFlags → globalDefaults → false (privacy-by-default)
  *
- * Rules:
- *   - Only `functional`, `analytics`, and `marketing` are emitted; unknown
- *     keys from either input are silently discarded.
- *   - String values "true" / "false" (case-insensitive) are safely coerced.
- *   - Any other non-boolean type (number, object, unrecognised string) is
- *     treated as absent and the next layer is consulted.
- *   - null, undefined, or non-object inputs for either parameter are treated
- *     as empty objects; the function never throws.
+ * Accepts boolean or "true"/"false" string values in either layer.
+ * null / undefined / non-plain-object inputs are normalised to {}.
+ * Never throws.
  *
- * @param  {object|*} userFlags      — per-user consent preference object
- * @param  {object|*} globalDefaults — site-wide fallback consent configuration
+ * @param  {object|*} userFlags      — per-user preference object
+ * @param  {object|*} globalDefaults — site-wide fallback configuration
  * @returns {{ functional: boolean, analytics: boolean, marketing: boolean }}
  */
 function evaluateCookieFlags(userFlags, globalDefaults) {
-  const safeUser = isPlainObject(userFlags) ? userFlags : {};
+  const safeUser     = isPlainObject(userFlags)     ? userFlags     : {};
   const safeDefaults = isPlainObject(globalDefaults) ? globalDefaults : {};
 
   const result = {};
@@ -83,4 +88,38 @@ function evaluateCookieFlags(userFlags, globalDefaults) {
   return result;
 }
 
-module.exports = { evaluateCookieFlags };
+// ── Wired vault-storage boundary ──────────────────────────────────────────────
+
+/**
+ * resolveConsentFlags(userFlags)
+ *
+ * Wired variant — resolves partial or malformed user consent-flag input
+ * against the canonical COOKIE_CONSENT_DEFAULTS (all false, privacy-by-default)
+ * to produce the complete boolean record that is then encrypted and persisted
+ * to the user's private vault:
+ *
+ *   resolveConsentFlags(userInput)
+ *     → { functional: boolean, analytics: boolean, marketing: boolean }
+ *     → encrypt(result)
+ *     → storePreferences({
+ *         userId,
+ *         preferences: { cookie_flags: { ciphertext, iv, tag } },
+ *         consentToken,
+ *       })
+ *
+ * This function MUST be called before encrypting and forwarding consent
+ * flags to  POST /api/vault/store-preferences  (store-preferences/route.ts).
+ *
+ * @param  {object|*} userFlags — raw consent flag input from the UI layer
+ * @returns {{ functional: boolean, analytics: boolean, marketing: boolean }}
+ */
+function resolveConsentFlags(userFlags) {
+  return evaluateCookieFlags(userFlags, COOKIE_CONSENT_DEFAULTS);
+}
+
+module.exports = {
+  resolveConsentFlags,      // wired public API — use before vault storage
+  evaluateCookieFlags,      // pure utility — use with a caller-supplied fallback
+  COOKIE_CONSENT_DEFAULTS,  // exported for inspection and test assertions
+  KNOWN_FLAGS,              // exported for field enumeration
+};

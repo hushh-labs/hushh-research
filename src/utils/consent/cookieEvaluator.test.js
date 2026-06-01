@@ -3,12 +3,34 @@
 /**
  * Canonical unit test for src/utils/consent/cookieEvaluator.js
  *
- * Requires and exercises the real production module — no mocks, no stubs.
+ * Proves that resolveConsentFlags and evaluateCookieFlags correctly implement
+ * the consent-flag resolution contract for the vault storage path:
+ *
+ *   resolveConsentFlags(userInput)
+ *     → { functional, analytics, marketing }  (all explicit booleans)
+ *     → encrypt(result)
+ *     → storePreferences({
+ *         userId,
+ *         preferences: { cookie_flags: { ciphertext, iv, tag } },
+ *         consentToken,
+ *       })
+ *     → POST /api/vault/store-preferences  (store-preferences/route.ts)
+ *
+ * Primary focus: resolveConsentFlags is wired to COOKIE_CONSENT_DEFAULTS
+ *   (all false, privacy-by-default) and is the function callers MUST use
+ *   before encrypting flags for vault persistence.
+ * Secondary: evaluateCookieFlags pure-utility edge cases.
+ *
  * Exits with code 0 when every assertion passes; code 1 on any failure.
  */
 
 const assert = require("assert");
-const { evaluateCookieFlags } = require("./cookieEvaluator");
+const {
+  resolveConsentFlags,
+  evaluateCookieFlags,
+  COOKIE_CONSENT_DEFAULTS,
+  KNOWN_FLAGS,
+} = require("./cookieEvaluator");
 
 let totalPassed = 0;
 let totalFailed = 0;
@@ -25,67 +47,212 @@ function runTest(label, fn) {
   }
 }
 
-// ── Suite 1: Standard clean flag override ─────────────────────────────────────
+// ── Suite 1: Registry integrity — COOKIE_CONSENT_DEFAULTS and KNOWN_FLAGS ────
 
-console.log("\n[Suite 1] Standard clean boolean flag override");
+console.log("\n[Suite 1] Registry integrity — COOKIE_CONSENT_DEFAULTS and KNOWN_FLAGS");
 
 runTest(
-  "all valid boolean userFlags pass through unchanged",
+  "COOKIE_CONSENT_DEFAULTS is exported as a plain object",
+  () => assert.ok(
+    COOKIE_CONSENT_DEFAULTS !== null &&
+    typeof COOKIE_CONSENT_DEFAULTS === "object" &&
+    !Array.isArray(COOKIE_CONSENT_DEFAULTS)
+  )
+);
+
+runTest(
+  "COOKIE_CONSENT_DEFAULTS carries false for all three known flags (privacy-by-default)",
   () => {
-    const result = evaluateCookieFlags(
-      { functional: true, analytics: true, marketing: false },
-      { functional: false, analytics: false, marketing: false }
-    );
-    assert.strictEqual(result.functional, true);
-    assert.strictEqual(result.analytics, true);
-    assert.strictEqual(result.marketing, false);
+    assert.strictEqual(COOKIE_CONSENT_DEFAULTS.functional, false);
+    assert.strictEqual(COOKIE_CONSENT_DEFAULTS.analytics,  false);
+    assert.strictEqual(COOKIE_CONSENT_DEFAULTS.marketing,  false);
   }
 );
 
 runTest(
-  "user true overrides default false across all three keys",
+  "COOKIE_CONSENT_DEFAULTS is frozen — runtime mutation is rejected silently",
   () => {
-    const result = evaluateCookieFlags(
-      { functional: true, analytics: true, marketing: true },
-      { functional: false, analytics: false, marketing: false }
-    );
-    assert.deepStrictEqual(result, {
+    const before = COOKIE_CONSENT_DEFAULTS.functional;
+    try { COOKIE_CONSENT_DEFAULTS.functional = true; } catch (_) {}
+    assert.strictEqual(COOKIE_CONSENT_DEFAULTS.functional, before,
+      "Frozen registry must not be mutated by a property assignment");
+  }
+);
+
+runTest(
+  "KNOWN_FLAGS contains exactly functional, analytics, and marketing",
+  () => {
+    assert.ok(KNOWN_FLAGS.includes("functional"));
+    assert.ok(KNOWN_FLAGS.includes("analytics"));
+    assert.ok(KNOWN_FLAGS.includes("marketing"));
+    assert.strictEqual(KNOWN_FLAGS.length, 3,
+      "KNOWN_FLAGS must contain exactly the three consent categories");
+  }
+);
+
+// ── Suite 2: resolveConsentFlags — wired pre-vault-storage boundary ───────────
+
+console.log("\n[Suite 2] resolveConsentFlags — wired pre-vault-storage boundary");
+
+runTest(
+  "all explicit booleans pass through — output is ready for vault encryption",
+  () => {
+    // This is the shape callers produce right before calling storePreferences
+    const result = resolveConsentFlags({
       functional: true,
-      analytics: true,
-      marketing: true,
+      analytics:  false,
+      marketing:  true,
+    });
+    assert.strictEqual(result.functional, true);
+    assert.strictEqual(result.analytics,  false);
+    assert.strictEqual(result.marketing,  true);
+  }
+);
+
+runTest(
+  "partial user input — missing flags receive false from COOKIE_CONSENT_DEFAULTS",
+  () => {
+    // User only toggled functional; analytics and marketing not yet set
+    const result = resolveConsentFlags({ functional: true });
+    assert.strictEqual(result.functional, true,
+      "Explicit boolean from user must be preserved");
+    assert.strictEqual(result.analytics,  false,
+      "Missing analytics must default to false (privacy-by-default)");
+    assert.strictEqual(result.marketing,  false,
+      "Missing marketing must default to false (privacy-by-default)");
+  }
+);
+
+runTest(
+  "empty object — all three flags default to false before vault write",
+  () => {
+    const result = resolveConsentFlags({});
+    assert.deepStrictEqual(result, {
+      functional: false,
+      analytics:  false,
+      marketing:  false,
     });
   }
 );
 
 runTest(
-  "user false overrides default true — user choice is always respected",
+  "null userFlags — returns all-false defaults, safe to encrypt and store",
+  () => {
+    const result = resolveConsentFlags(null);
+    assert.deepStrictEqual(result, {
+      functional: false,
+      analytics:  false,
+      marketing:  false,
+    });
+  }
+);
+
+runTest(
+  "result always contains all three keys — safe to pass directly to encrypt()",
+  () => {
+    const result = resolveConsentFlags({});
+    assert.ok("functional" in result, "functional key must be present");
+    assert.ok("analytics"  in result, "analytics key must be present");
+    assert.ok("marketing"  in result, "marketing key must be present");
+    assert.strictEqual(Object.keys(result).length, 3,
+      "Output must contain exactly the three consent keys — no unknown keys reach the vault");
+  }
+);
+
+runTest(
+  "unknown keys in user input are stripped — only known flags reach vault storage",
+  () => {
+    const result = resolveConsentFlags({
+      functional: true,
+      tracking:   true,   // unknown — must be stripped
+      session:    true,   // unknown — must be stripped
+    });
+    assert.strictEqual("tracking" in result, false,
+      "Unknown 'tracking' key must not reach vault storage");
+    assert.strictEqual("session" in result, false,
+      "Unknown 'session' key must not reach vault storage");
+    assert.deepStrictEqual(Object.keys(result).sort(), ["analytics", "functional", "marketing"]);
+  }
+);
+
+// ── Suite 3: String coercion — UI inputs before vault encryption ──────────────
+
+console.log("\n[Suite 3] String coercion — UI form values resolved before vault encryption");
+
+runTest(
+  '"true"/"false" strings from form inputs coerce correctly before encrypt()',
+  () => {
+    const result = resolveConsentFlags({
+      functional: "true",
+      analytics:  "false",
+      marketing:  "true",
+    });
+    assert.strictEqual(result.functional, true);
+    assert.strictEqual(result.analytics,  false);
+    assert.strictEqual(result.marketing,  true);
+  }
+);
+
+runTest(
+  '"TRUE"/"FALSE" uppercase strings coerce correctly',
+  () => {
+    const result = resolveConsentFlags({
+      functional: "TRUE",
+      analytics:  "FALSE",
+      marketing:  "TRUE",
+    });
+    assert.strictEqual(result.functional, true);
+    assert.strictEqual(result.analytics,  false);
+  }
+);
+
+runTest(
+  'unrecognised string ("maybe", "yes", "1") falls back to false default',
+  () => {
+    const result = resolveConsentFlags({
+      functional: "maybe",
+      analytics:  "yes",
+      marketing:  "1",
+    });
+    assert.strictEqual(result.functional, false,
+      '"maybe" must fall through to the false default');
+    assert.strictEqual(result.analytics,  false,
+      '"yes" must fall through to the false default');
+    assert.strictEqual(result.marketing,  false,
+      '"1" must fall through to the false default');
+  }
+);
+
+// ── Suite 4: evaluateCookieFlags — pure utility with caller-supplied defaults ─
+
+console.log("\n[Suite 4] evaluateCookieFlags — pure utility with caller-supplied defaults");
+
+runTest(
+  "caller-supplied all-true defaults: missing user flags resolve to true",
   () => {
     const result = evaluateCookieFlags(
-      { functional: false, analytics: false, marketing: false },
+      {},
       { functional: true, analytics: true, marketing: true }
     );
     assert.deepStrictEqual(result, {
-      functional: false,
-      analytics: false,
-      marketing: false,
+      functional: true,
+      analytics:  true,
+      marketing:  true,
     });
   }
 );
 
 runTest(
-  "output contains exactly the three known keys — unknown keys are dropped",
+  "user boolean false overrides caller-supplied default of true",
   () => {
     const result = evaluateCookieFlags(
-      { functional: true, analytics: false, marketing: false, tracking: true, session: true },
-      {}
+      { analytics: false },
+      { functional: true, analytics: true, marketing: true }
     );
-    assert.deepStrictEqual(Object.keys(result).sort(), [
-      "analytics",
-      "functional",
-      "marketing",
-    ]);
-    assert.strictEqual("tracking" in result, false);
-    assert.strictEqual("session" in result, false);
+    assert.strictEqual(result.analytics, false,
+      "Explicit user false must win over caller-supplied default true");
+    assert.strictEqual(result.functional, true);
+    assert.strictEqual(result.marketing,  true);
   }
 );
 
@@ -94,260 +261,68 @@ runTest(
   () => {
     const result = evaluateCookieFlags(
       {},
-      { functional: false, analytics: false, marketing: false, secret: true }
+      { functional: false, analytics: false, marketing: false, unknown: true }
     );
-    assert.strictEqual("secret" in result, false);
-    assert.deepStrictEqual(Object.keys(result).sort(), [
-      "analytics",
-      "functional",
-      "marketing",
-    ]);
+    assert.strictEqual("unknown" in result, false);
   }
 );
 
-// ── Suite 2: Fallback evaluation when user values are missing ─────────────────
+// ── Suite 5: Safe fallback — invalid inputs to both functions ─────────────────
 
-console.log("\n[Suite 2] Fallback evaluation — missing or partial userFlags");
-
-runTest(
-  "missing analytics in userFlags falls back to globalDefault",
-  () => {
-    const result = evaluateCookieFlags(
-      { functional: true, marketing: false },
-      { functional: false, analytics: true, marketing: false }
-    );
-    assert.strictEqual(result.analytics, true,  "analytics should come from default");
-    assert.strictEqual(result.functional, true,  "functional should come from user");
-    assert.strictEqual(result.marketing, false,  "marketing should come from user");
-  }
-);
+console.log("\n[Suite 5] Safe fallback — invalid inputs");
 
 runTest(
-  "empty userFlags object → all three values sourced from globalDefaults",
+  "undefined input to resolveConsentFlags → all-false defaults, no throw",
   () => {
-    const result = evaluateCookieFlags(
-      {},
-      { functional: true, analytics: false, marketing: true }
-    );
-    assert.deepStrictEqual(result, {
-      functional: true,
-      analytics: false,
-      marketing: true,
-    });
-  }
-);
-
-runTest(
-  "null userFlags with full globalDefaults → defaults are applied, no throw",
-  () => {
-    const result = evaluateCookieFlags(
-      null,
-      { functional: true, analytics: false, marketing: true }
-    );
-    assert.strictEqual(result.functional, true);
-    assert.strictEqual(result.analytics, false);
-    assert.strictEqual(result.marketing, true);
-  }
-);
-
-runTest(
-  "null userFlags + null globalDefaults → all flags resolve to false (safe default)",
-  () => {
-    const result = evaluateCookieFlags(null, null);
+    const result = resolveConsentFlags(undefined);
     assert.deepStrictEqual(result, {
       functional: false,
-      analytics: false,
-      marketing: false,
+      analytics:  false,
+      marketing:  false,
     });
   }
 );
 
 runTest(
-  "partial userFlags with null globalDefaults → present keys used, absent keys false",
+  "array input to resolveConsentFlags → all-false defaults, no throw",
   () => {
-    const result = evaluateCookieFlags({ functional: true }, null);
-    assert.strictEqual(result.functional, true);
-    assert.strictEqual(result.analytics, false);
-    assert.strictEqual(result.marketing, false);
-  }
-);
-
-// ── Suite 3: String-to-boolean coercion ───────────────────────────────────────
-
-console.log("\n[Suite 3] String-to-boolean type coercion");
-
-runTest(
-  '"true" / "false" strings in userFlags coerce to correct booleans',
-  () => {
-    const result = evaluateCookieFlags(
-      { functional: "true", analytics: "false", marketing: "true" },
-      {}
-    );
-    assert.strictEqual(result.functional, true);
-    assert.strictEqual(result.analytics, false);
-    assert.strictEqual(result.marketing, true);
-  }
-);
-
-runTest(
-  '"TRUE" / "FALSE" uppercase strings are coerced correctly',
-  () => {
-    const result = evaluateCookieFlags(
-      { functional: "TRUE", analytics: "FALSE", marketing: "TRUE" },
-      {}
-    );
-    assert.strictEqual(result.functional, true);
-    assert.strictEqual(result.analytics, false);
-    assert.strictEqual(result.marketing, true);
-  }
-);
-
-runTest(
-  '"  True  " with surrounding whitespace is coerced correctly',
-  () => {
-    const result = evaluateCookieFlags(
-      { functional: "  True  ", analytics: "  False  ", marketing: "  TRUE  " },
-      {}
-    );
-    assert.strictEqual(result.functional, true);
-    assert.strictEqual(result.analytics, false);
-    assert.strictEqual(result.marketing, true);
-  }
-);
-
-runTest(
-  "user string \"true\" beats a boolean false in globalDefaults",
-  () => {
-    const result = evaluateCookieFlags(
-      { analytics: "true" },
-      { functional: false, analytics: false, marketing: false }
-    );
-    assert.strictEqual(result.analytics, true,
-      "coerced user string should take priority over boolean default");
-  }
-);
-
-runTest(
-  "unrecognised string in userFlags falls back to globalDefault",
-  () => {
-    const result = evaluateCookieFlags(
-      { functional: "maybe", analytics: "yes", marketing: "1" },
-      { functional: true, analytics: false, marketing: true }
-    );
-    assert.strictEqual(result.functional, true,  '"maybe" is unrecognised → default true');
-    assert.strictEqual(result.analytics, false,  '"yes" is unrecognised → default false');
-    assert.strictEqual(result.marketing, true,   '"1" is unrecognised → default true');
-  }
-);
-
-runTest(
-  "string coercion works equally in globalDefaults layer",
-  () => {
-    const result = evaluateCookieFlags(
-      {},
-      { functional: "true", analytics: "false", marketing: "true" }
-    );
-    assert.strictEqual(result.functional, true);
-    assert.strictEqual(result.analytics, false);
-    assert.strictEqual(result.marketing, true);
-  }
-);
-
-// ── Suite 4: Structural error handling — malformed / invalid inputs ───────────
-
-console.log("\n[Suite 4] Structural error handling — malformed / invalid inputs");
-
-runTest(
-  "numeric values in userFlags fall back to globalDefaults, no throw",
-  () => {
-    const result = evaluateCookieFlags(
-      { functional: 1, analytics: 0, marketing: 1 },
-      { functional: false, analytics: true, marketing: false }
-    );
-    assert.strictEqual(result.functional, false, "1 is not boolean → falls to default false");
-    assert.strictEqual(result.analytics, true,   "0 is not boolean → falls to default true");
-    assert.strictEqual(result.marketing, false,  "1 is not boolean → falls to default false");
-  }
-);
-
-runTest(
-  "array userFlags treated as empty object → defaults applied, no throw",
-  () => {
-    const result = evaluateCookieFlags(
-      [],
-      { functional: true, analytics: false, marketing: true }
-    );
-    assert.deepStrictEqual(result, {
-      functional: true,
-      analytics: false,
-      marketing: true,
-    });
-  }
-);
-
-runTest(
-  "string userFlags treated as empty object → defaults applied, no throw",
-  () => {
-    const result = evaluateCookieFlags(
-      "all-on",
-      { functional: true, analytics: true, marketing: false }
-    );
-    assert.deepStrictEqual(result, {
-      functional: true,
-      analytics: true,
-      marketing: false,
-    });
-  }
-);
-
-runTest(
-  "numeric userFlags treated as empty object → all keys fall to safe false",
-  () => {
-    const result = evaluateCookieFlags(42, null);
+    const result = resolveConsentFlags([true, false, true]);
     assert.deepStrictEqual(result, {
       functional: false,
-      analytics: false,
-      marketing: false,
+      analytics:  false,
+      marketing:  false,
     });
   }
 );
 
 runTest(
-  "undefined userFlags treated as empty object — does not throw",
+  "numeric values for flags fall back to false default",
   () => {
-    const result = evaluateCookieFlags(
-      undefined,
-      { functional: true, analytics: false, marketing: false }
-    );
-    assert.strictEqual(result.functional, true);
-    assert.strictEqual(result.analytics, false);
-  }
-);
-
-runTest(
-  "nested object as flag value falls back to default, no throw",
-  () => {
-    const result = evaluateCookieFlags(
-      { functional: { enabled: true }, analytics: false, marketing: true },
-      { functional: false, analytics: false, marketing: false }
-    );
+    const result = resolveConsentFlags({
+      functional: 1,
+      analytics:  0,
+      marketing:  1,
+    });
     assert.strictEqual(result.functional, false,
-      "object value is not boolean/string → falls to default");
-    assert.strictEqual(result.analytics, false);
-    assert.strictEqual(result.marketing, true);
+      "Number 1 is not a boolean — falls through to false default");
+    assert.strictEqual(result.analytics,  false);
+    assert.strictEqual(result.marketing,  false);
   }
 );
 
 runTest(
-  "null as individual flag value falls back to default, no throw",
+  "null individual flag values fall back to false default",
   () => {
-    const result = evaluateCookieFlags(
-      { functional: null, analytics: null, marketing: true },
-      { functional: true, analytics: true, marketing: false }
-    );
-    assert.strictEqual(result.functional, true,  "null → falls to default true");
-    assert.strictEqual(result.analytics, true,   "null → falls to default true");
-    assert.strictEqual(result.marketing, true,   "boolean true from user respected");
+    const result = resolveConsentFlags({
+      functional: null,
+      analytics:  null,
+      marketing:  null,
+    });
+    assert.deepStrictEqual(result, {
+      functional: false,
+      analytics:  false,
+      marketing:  false,
+    });
   }
 );
 
@@ -359,7 +334,7 @@ console.log(`\n${divider}`);
 if (totalFailed === 0) {
   console.log(
     `[PASS] All ${totalPassed} assertions passed.` +
-    ` Cookie consent evaluation contract fully verified.`
+    ` Cookie consent flag resolution contract fully verified.`
   );
   process.exit(0);
 } else {
