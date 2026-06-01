@@ -1,91 +1,97 @@
 "use strict";
 
-const MS_PER_DAY = 86_400_000; // 24 * 60 * 60 * 1_000
-
 /**
- * Threshold that separates millisecond timestamps from second timestamps.
+ * Threshold to distinguish millisecond timestamps from second timestamps.
  *
- * Current Unix time in seconds ≈ 1.75 × 10⁹  (<  1 × 10¹⁰)  → seconds
- * Current Unix time in ms      ≈ 1.75 × 10¹²  (>= 1 × 10¹⁰)  → milliseconds
+ * consent-protocol/hushh_mcp/consent/token.py issues tokens with:
+ *   issued_at  = int(time.time() * 1000)       ← milliseconds
+ *   expires_at = issued_at + expires_in_ms      ← milliseconds
  *
- * Values below 1e10 span seconds-timestamps up to the year 2286.
- * Values at or above 1e10 cover ms-timestamps from April 23 1970 onward —
- * all realistic consent records fall clearly on one side of this line.
+ * The JS session-token and vault-owner-token routes receive this as
+ * data.expiresAt (ms).  Values >= 1e10 are already in ms; smaller values
+ * are treated as seconds and multiplied by 1 000.
  */
 const MS_THRESHOLD = 1e10;
 
 /**
- * Normalises a raw timestamp value to a milliseconds integer.
- *
- * Accepts a positive finite number (ms or seconds) or a numeric string.
- * Returns NaN for anything unresolvable — null, undefined, boolean,
- * object, empty / non-numeric string, NaN, Infinity, or negative values.
- *
- * @param  {*} raw
- * @returns {number}  milliseconds integer, or NaN on failure
+ * Normalises a raw expiresAt value to a milliseconds integer.
+ * Returns NaN for any input that cannot be resolved to a finite positive number.
  */
-function toMilliseconds(raw) {
-  let n;
-
-  if (typeof raw === "number") {
-    n = raw;
-  } else if (typeof raw === "string" && raw.trim() !== "") {
-    n = Number(raw);
-  } else {
+function normaliseExpiresAt(raw) {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
     return NaN;
   }
-
-  if (!Number.isFinite(n) || n < 0) {
-    return NaN;
-  }
-
-  // Values below the threshold are seconds → convert to ms
-  return n >= MS_THRESHOLD ? n : n * 1000;
+  return raw >= MS_THRESHOLD ? raw : raw * 1000;
 }
 
 /**
- * isConsentExpired(timestamp, ttlInDays = 365)
+ * isConsentTokenExpired(expiresAt)
  *
- * Evaluates whether a user's privacy preference signature has passed its
- * Time-To-Live (TTL) window.
+ * Determines whether a Hushh consent token has expired by comparing its
+ * expiresAt timestamp against the current wall-clock time.
  *
- * Security posture — maximum-security fallback:
- *   Any ambiguous, malformed, or unresolvable input returns `true` (expired)
- *   so that corrupted consent records can never silently grant permissions.
+ * Mirrors the expiry gate inside
+ * consent-protocol/hushh_mcp/consent/token.py → validate_token():
  *
- * Expiry rule:
- *   currentTime − consentTime > ttlInDays  →  true  (expired)
- *   currentTime − consentTime ≤ ttlInDays  →  false (still valid)
- *   consentTime in the future               →  false (clock-drift tolerance)
+ *   if int(time.time() * 1000) >= int(expires_at_str):
+ *       return False, "Token expired", None
  *
- * @param  {number|string} timestamp  — Unix timestamp in ms or seconds
- * @param  {number}        ttlInDays  — consent lifetime in days (default 365)
+ * The JS equivalent is:  Date.now() >= expiresAt
+ *
+ * Accepts ms or seconds timestamps (auto-detected via 1e10 threshold).
+ * Invalid / malformed inputs return true (expired) — max-security posture.
+ *
+ * @param  {number} expiresAt — Unix timestamp of the token's expiry (ms or s)
  * @returns {boolean}  true = expired or invalid, false = still valid
  */
-function isConsentExpired(timestamp, ttlInDays = 365) {
-  // ── Validate TTL ──────────────────────────────────────────────────────────
-  if (
-    typeof ttlInDays !== "number" ||
-    !Number.isFinite(ttlInDays)   ||
-    ttlInDays <= 0
-  ) {
-    return true; // invalid TTL → max-security: treat consent as expired
-  }
-
-  // ── Normalise timestamp → milliseconds ────────────────────────────────────
-  const tsMs = toMilliseconds(timestamp);
-  if (isNaN(tsMs)) {
-    return true; // unresolvable timestamp → max-security fallback
-  }
-
-  // ── Compute age and compare against TTL ───────────────────────────────────
-  const diffMs = Date.now() - tsMs;
-
-  if (diffMs < 0) {
-    return false; // future timestamp — not expired (clock-drift tolerance)
-  }
-
-  return diffMs > ttlInDays * MS_PER_DAY;
+function isConsentTokenExpired(expiresAt) {
+  const expiresAtMs = normaliseExpiresAt(expiresAt);
+  if (isNaN(expiresAtMs)) return true;
+  return Date.now() >= expiresAtMs;
 }
 
-module.exports = { isConsentExpired };
+/**
+ * parseTokenExpiry(tokenResponse)
+ *
+ * Extracts and evaluates the expiry field from a consent token API response,
+ * covering both shapes produced by the Hushh consent-token endpoints:
+ *
+ *   camelCase  { expiresAt: number }   — JS routes:
+ *                /api/consent/session-token  (session-token/route.ts)
+ *                /api/consent/vault-owner-token  (vault-owner-token/route.ts)
+ *   snake_case { expires_at: number }  — Python backend direct response
+ *                hushh_mcp/consent/token.py → HushhConsentToken.expires_at
+ *
+ * camelCase takes precedence when both keys are present.
+ *
+ * Returns { expiresAt: number|null, isExpired: boolean }.
+ * Malformed, null, or non-object inputs return
+ * { expiresAt: null, isExpired: true } — max-security fallback, never throws.
+ *
+ * @param  {object|*} tokenResponse — response from a token-issuance endpoint
+ * @returns {{ expiresAt: number|null, isExpired: boolean }}
+ */
+function parseTokenExpiry(tokenResponse) {
+  if (
+    tokenResponse === null ||
+    typeof tokenResponse !== "object" ||
+    Array.isArray(tokenResponse)
+  ) {
+    return { expiresAt: null, isExpired: true };
+  }
+
+  // Prefer camelCase (JS routes); fall back to snake_case (Python direct)
+  const raw =
+    tokenResponse.expiresAt !== undefined
+      ? tokenResponse.expiresAt
+      : tokenResponse.expires_at;
+
+  const expiresAtMs = normaliseExpiresAt(raw);
+  if (isNaN(expiresAtMs)) {
+    return { expiresAt: null, isExpired: true };
+  }
+
+  return { expiresAt: expiresAtMs, isExpired: Date.now() >= expiresAtMs };
+}
+
+module.exports = { isConsentTokenExpired, parseTokenExpiry };

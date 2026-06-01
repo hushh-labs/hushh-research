@@ -3,17 +3,21 @@
 /**
  * Canonical unit test for src/utils/consent/expirationGate.js
  *
- * Requires and exercises the real production module — no mocks, no stubs.
- * All time offsets are computed from Date.now() at runtime so the suite
- * remains deterministically correct regardless of when it is executed.
+ * Proves that isConsentTokenExpired and parseTokenExpiry correctly implement
+ * the same expiry contract as consent-protocol/hushh_mcp/consent/token.py
+ * → validate_token():  int(time.time() * 1000) >= int(expires_at_str)
+ *
+ * All timestamps are derived from Date.now() at runtime — no hard-coded
+ * values that can become stale.
  *
  * Exits with code 0 when every assertion passes; code 1 on any failure.
  */
 
 const assert = require("assert");
-const { isConsentExpired } = require("./expirationGate");
+const { isConsentTokenExpired, parseTokenExpiry } = require("./expirationGate");
 
-const MS_PER_DAY = 86_400_000;
+const ONE_HOUR_MS  = 60 * 60 * 1000;
+const ONE_DAY_MS   = 24 * ONE_HOUR_MS;
 
 let totalPassed = 0;
 let totalFailed = 0;
@@ -30,222 +34,252 @@ function runTest(label, fn) {
   }
 }
 
-// ── Suite 1: Fresh / valid consent timestamps (should return false) ───────────
+// ── Suite 1: isConsentTokenExpired — mirrors Python validate_token() contract ─
 
-console.log("\n[Suite 1] Fresh consent timestamps — should return false (not expired)");
+console.log("\n[Suite 1] isConsentTokenExpired — Python validate_token() contract");
 
 runTest(
-  "fresh ms timestamp (Date.now()) is not expired under default TTL",
+  "token expiring 1 hour from now is NOT expired (Date.now() < expiresAt)",
   () => {
-    assert.strictEqual(isConsentExpired(Date.now(), 365), false);
+    const expiresAt = Date.now() + ONE_HOUR_MS;
+    assert.strictEqual(isConsentTokenExpired(expiresAt), false,
+      "A future expiresAt must return false — mirrors Python: time.time()*1000 < expires_at");
   }
 );
 
 runTest(
-  "fresh seconds timestamp (Math.floor(Date.now()/1000)) is not expired",
+  "token that expired 1 hour ago IS expired (Date.now() >= expiresAt)",
   () => {
-    const secondsNow = Math.floor(Date.now() / 1000);
-    assert.strictEqual(isConsentExpired(secondsNow, 365), false);
+    const expiresAt = Date.now() - ONE_HOUR_MS;
+    assert.strictEqual(isConsentTokenExpired(expiresAt), true,
+      "A past expiresAt must return true — mirrors Python: time.time()*1000 >= expires_at");
   }
 );
 
 runTest(
-  "timestamp 1 day ago is not expired under default 365-day TTL",
+  "token expiring 24 hours from now is NOT expired",
   () => {
-    const oneDayAgo = Date.now() - 1 * MS_PER_DAY;
-    assert.strictEqual(isConsentExpired(oneDayAgo, 365), false);
+    assert.strictEqual(isConsentTokenExpired(Date.now() + ONE_DAY_MS), false);
   }
 );
 
 runTest(
-  "timestamp 364 days ago is still within the 365-day TTL boundary",
+  "token that expired 24 hours ago IS expired",
   () => {
-    const nearBoundary = Date.now() - 364 * MS_PER_DAY;
-    assert.strictEqual(isConsentExpired(nearBoundary, 365), false,
-      "364 days < 365-day TTL — consent must remain valid");
+    assert.strictEqual(isConsentTokenExpired(Date.now() - ONE_DAY_MS), true);
   }
 );
 
 runTest(
-  "future timestamp (1 hour ahead) is not expired — clock-drift tolerance",
+  "token expiring 1 ms from now is NOT expired",
   () => {
-    const oneHourAhead = Date.now() + 3_600_000;
-    assert.strictEqual(isConsentExpired(oneHourAhead, 365), false,
-      "A future timestamp must never be treated as expired");
-  }
-);
-
-// ── Suite 2: Expired consent timestamps (should return true) ─────────────────
-
-console.log("\n[Suite 2] Expired consent timestamps — should return true");
-
-runTest(
-  "timestamp 400 days ago is expired under default 365-day TTL",
-  () => {
-    const expired = Date.now() - 400 * MS_PER_DAY;
-    assert.strictEqual(isConsentExpired(expired, 365), true,
-      "400 days > 365-day TTL — consent must be expired");
+    assert.strictEqual(isConsentTokenExpired(Date.now() + 1), false);
   }
 );
 
 runTest(
-  "timestamp 366 days ago is just over the 365-day TTL boundary",
+  "token that expired 1 ms ago IS expired — boundary is strict >=",
   () => {
-    const justOver = Date.now() - 366 * MS_PER_DAY;
-    assert.strictEqual(isConsentExpired(justOver, 365), true);
+    assert.strictEqual(isConsentTokenExpired(Date.now() - 1), true);
+  }
+);
+
+// ── Suite 2: Seconds-format expiresAt (Python may return seconds on some paths)
+
+console.log("\n[Suite 2] isConsentTokenExpired — seconds timestamp auto-detection");
+
+runTest(
+  "future expiresAt supplied in seconds is correctly detected as not expired",
+  () => {
+    const secondsTs = Math.floor((Date.now() + ONE_HOUR_MS) / 1000);
+    assert.strictEqual(isConsentTokenExpired(secondsTs), false,
+      "Seconds-format future timestamp must be auto-converted to ms before comparison");
   }
 );
 
 runTest(
-  "ancient timestamp (Jan 1 2000 in ms) is expired under any reasonable TTL",
+  "past expiresAt supplied in seconds is correctly detected as expired",
   () => {
-    const year2000 = new Date("2000-01-01T00:00:00.000Z").getTime();
-    assert.strictEqual(isConsentExpired(year2000, 365), true);
+    const secondsTs = Math.floor((Date.now() - ONE_HOUR_MS) / 1000);
+    assert.strictEqual(isConsentTokenExpired(secondsTs), true);
+  }
+);
+
+// ── Suite 3: parseTokenExpiry — real token response shapes from JS routes ──────
+
+console.log("\n[Suite 3] parseTokenExpiry — real token response shapes");
+
+runTest(
+  "camelCase { expiresAt } shape (session-token/route.ts) — valid future token",
+  () => {
+    const expiresAt = Date.now() + ONE_HOUR_MS;
+    const result = parseTokenExpiry({ expiresAt });
+    assert.strictEqual(result.isExpired, false);
+    assert.strictEqual(result.expiresAt, expiresAt,
+      "Parsed expiresAt must equal the input millisecond value");
   }
 );
 
 runTest(
-  "400-day-old consent provided as a seconds-based Unix timestamp is expired",
+  "camelCase { expiresAt } shape — expired token",
   () => {
-    const secondsTs = Math.floor((Date.now() - 400 * MS_PER_DAY) / 1000);
-    assert.strictEqual(isConsentExpired(secondsTs, 365), true,
-      "Seconds-based expired timestamp must be detected correctly after ms conversion");
+    const expiresAt = Date.now() - ONE_HOUR_MS;
+    const result = parseTokenExpiry({ expiresAt });
+    assert.strictEqual(result.isExpired, true);
+    assert.strictEqual(result.expiresAt, expiresAt);
   }
 );
 
 runTest(
-  "timestamp = 0 (Unix epoch, Jan 1 1970) is expired under any positive TTL",
+  "snake_case { expires_at } shape (Python backend direct) — valid future token",
   () => {
-    assert.strictEqual(isConsentExpired(0, 365), true,
-      "A zero timestamp represents the epoch — always expired");
-  }
-);
-
-// ── Suite 3: Custom TTL boundary thresholds ───────────────────────────────────
-
-console.log("\n[Suite 3] Custom TTL boundary thresholds");
-
-runTest(
-  "31-day-old timestamp is expired under a 30-day TTL",
-  () => {
-    const thirtyOneDaysAgo = Date.now() - 31 * MS_PER_DAY;
-    assert.strictEqual(isConsentExpired(thirtyOneDaysAgo, 30), true);
+    const expires_at = Date.now() + ONE_HOUR_MS;
+    const result = parseTokenExpiry({ expires_at });
+    assert.strictEqual(result.isExpired, false);
+    assert.strictEqual(result.expiresAt, expires_at,
+      "snake_case expires_at must be accepted as a fallback field name");
   }
 );
 
 runTest(
-  "29-day-old timestamp is valid under a 30-day TTL",
+  "snake_case { expires_at } shape — expired token",
   () => {
-    const twentyNineDaysAgo = Date.now() - 29 * MS_PER_DAY;
-    assert.strictEqual(isConsentExpired(twentyNineDaysAgo, 30), false);
+    const expires_at = Date.now() - ONE_HOUR_MS;
+    const result = parseTokenExpiry({ expires_at });
+    assert.strictEqual(result.isExpired, true);
   }
 );
 
 runTest(
-  "8-day-old timestamp is expired under a 7-day TTL",
+  "camelCase takes precedence when both expiresAt and expires_at are present",
   () => {
-    const eightDaysAgo = Date.now() - 8 * MS_PER_DAY;
-    assert.strictEqual(isConsentExpired(eightDaysAgo, 7), true);
+    const camel = Date.now() + ONE_HOUR_MS;   // future  → not expired
+    const snake = Date.now() - ONE_HOUR_MS;   // past    → expired
+    const result = parseTokenExpiry({ expiresAt: camel, expires_at: snake });
+    assert.strictEqual(result.isExpired, false,
+      "camelCase expiresAt must win over snake_case expires_at");
+    assert.strictEqual(result.expiresAt, camel);
   }
 );
 
 runTest(
-  "6-day-old timestamp is valid under a 7-day TTL",
+  "full session-token route response shape is correctly parsed",
   () => {
-    const sixDaysAgo = Date.now() - 6 * MS_PER_DAY;
-    assert.strictEqual(isConsentExpired(sixDaysAgo, 7), false);
+    // Shape returned by /api/consent/session-token after Python issues the token
+    const mockSessionTokenResponse = {
+      token:      "hushh_consent:abc123.sig456",
+      userId:     "usr_hushh_2026",
+      agentId:    "agent_kai",
+      scope:      "session",
+      issuedAt:   Date.now() - 60_000,          // issued 60 s ago
+      expiresAt:  Date.now() + (8 * ONE_HOUR_MS), // expires in 8 hours
+    };
+    const result = parseTokenExpiry(mockSessionTokenResponse);
+    assert.strictEqual(result.isExpired, false,
+      "A freshly issued session token must not be expired");
+    assert.ok(typeof result.expiresAt === "number" && result.expiresAt > Date.now(),
+      "Parsed expiresAt must be a number greater than Date.now()");
   }
 );
 
 runTest(
-  "2-day-old timestamp is expired under a 1-day TTL",
+  "full vault-owner-token route response shape is correctly parsed",
   () => {
-    const twoDaysAgo = Date.now() - 2 * MS_PER_DAY;
-    assert.strictEqual(isConsentExpired(twoDaysAgo, 1), true);
+    const mockVaultOwnerTokenResponse = {
+      token:      "hushh_consent:xyz789.sigabc",
+      userId:     "usr_abdulgaffar",
+      agentId:    "agent_vault",
+      scope:      "vault.owner",
+      expiresAt:  Date.now() + (24 * ONE_HOUR_MS),
+    };
+    const result = parseTokenExpiry(mockVaultOwnerTokenResponse);
+    assert.strictEqual(result.isExpired, false);
   }
 );
 
 runTest(
-  "TTL=730 days (2 years): 400-day-old timestamp is still valid",
+  "response with missing expiresAt field → { expiresAt: null, isExpired: true }",
   () => {
-    const fourHundredDaysAgo = Date.now() - 400 * MS_PER_DAY;
-    assert.strictEqual(isConsentExpired(fourHundredDaysAgo, 730), false,
-      "400 days < 730-day TTL — consent must remain valid");
+    const result = parseTokenExpiry({ token: "hushh_consent:abc.sig", scope: "session" });
+    assert.strictEqual(result.expiresAt, null);
+    assert.strictEqual(result.isExpired, true,
+      "Missing expiresAt must default to expired — max-security fallback");
   }
 );
 
-// ── Suite 4: Fallback for empty / broken / invalid inputs (all → true) ────────
+runTest(
+  "response with string expiresAt → { expiresAt: null, isExpired: true }",
+  () => {
+    const result = parseTokenExpiry({ expiresAt: "2026-06-01T00:00:00Z" });
+    assert.strictEqual(result.expiresAt, null);
+    assert.strictEqual(result.isExpired, true);
+  }
+);
 
-console.log("\n[Suite 4] Malformed inputs — all must return true (max-security fallback)");
+// ── Suite 4: Safe fallback — null / invalid expiresAt and bad response shapes ─
+
+console.log("\n[Suite 4] Safe fallback — null / invalid inputs and malformed responses");
 
 runTest(
-  "null timestamp → true (safe fallback)",
-  () => assert.strictEqual(isConsentExpired(null, 365), true)
+  "null expiresAt → true (max-security fallback)",
+  () => assert.strictEqual(isConsentTokenExpired(null), true)
 );
 
 runTest(
-  "undefined timestamp → true (safe fallback)",
-  () => assert.strictEqual(isConsentExpired(undefined, 365), true)
+  "undefined expiresAt → true",
+  () => assert.strictEqual(isConsentTokenExpired(undefined), true)
 );
 
 runTest(
-  "empty string timestamp → true (safe fallback)",
-  () => assert.strictEqual(isConsentExpired("", 365), true)
+  "NaN expiresAt → true",
+  () => assert.strictEqual(isConsentTokenExpired(NaN), true)
 );
 
 runTest(
-  "non-numeric string timestamp → true (safe fallback)",
-  () => assert.strictEqual(isConsentExpired("not-a-date", 365), true)
+  "Infinity expiresAt → true (non-finite boundary rejected)",
+  () => assert.strictEqual(isConsentTokenExpired(Infinity), true)
 );
 
 runTest(
-  "NaN timestamp → true (safe fallback)",
-  () => assert.strictEqual(isConsentExpired(NaN, 365), true)
+  "negative expiresAt → true (pre-epoch timestamp rejected)",
+  () => assert.strictEqual(isConsentTokenExpired(-1), true)
 );
 
 runTest(
-  "Infinity timestamp → true (non-finite, safe fallback)",
-  () => assert.strictEqual(isConsentExpired(Infinity, 365), true)
+  "zero expiresAt → true (epoch is always expired)",
+  () => assert.strictEqual(isConsentTokenExpired(0), true)
 );
 
 runTest(
-  "negative timestamp → true (pre-epoch, safe fallback)",
-  () => assert.strictEqual(isConsentExpired(-1, 365), true)
+  "string expiresAt → true",
+  () => assert.strictEqual(isConsentTokenExpired("2026-06-01"), true)
 );
 
 runTest(
-  "boolean timestamp → true (safe fallback)",
-  () => assert.strictEqual(isConsentExpired(true, 365), true)
+  "null tokenResponse to parseTokenExpiry → { expiresAt: null, isExpired: true }",
+  () => {
+    const result = parseTokenExpiry(null);
+    assert.strictEqual(result.expiresAt, null);
+    assert.strictEqual(result.isExpired, true);
+  }
 );
 
 runTest(
-  "object timestamp → true (safe fallback)",
-  () => assert.strictEqual(isConsentExpired({ ts: Date.now() }, 365), true)
+  "array tokenResponse to parseTokenExpiry → { expiresAt: null, isExpired: true }",
+  () => {
+    const result = parseTokenExpiry([Date.now() + ONE_HOUR_MS]);
+    assert.strictEqual(result.expiresAt, null);
+    assert.strictEqual(result.isExpired, true);
+  }
 );
 
 runTest(
-  "TTL = 0 → true (zero TTL is invalid — safe fallback)",
-  () => assert.strictEqual(isConsentExpired(Date.now(), 0), true)
-);
-
-runTest(
-  "TTL = -1 (negative) → true (invalid boundary — safe fallback)",
-  () => assert.strictEqual(isConsentExpired(Date.now(), -1), true)
-);
-
-runTest(
-  "TTL = NaN → true (invalid TTL — safe fallback)",
-  () => assert.strictEqual(isConsentExpired(Date.now(), NaN), true)
-);
-
-runTest(
-  "TTL = Infinity → true (non-finite TTL — safe fallback)",
-  () => assert.strictEqual(isConsentExpired(Date.now(), Infinity), true)
-);
-
-runTest(
-  'TTL = "365" (string) → true (wrong type — safe fallback)',
-  () => assert.strictEqual(isConsentExpired(Date.now(), "365"), true)
+  "string tokenResponse to parseTokenExpiry → { expiresAt: null, isExpired: true }",
+  () => {
+    const result = parseTokenExpiry("hushh_consent:abc.sig");
+    assert.strictEqual(result.expiresAt, null);
+    assert.strictEqual(result.isExpired, true);
+  }
 );
 
 // ── Final result ──────────────────────────────────────────────────────────────
@@ -256,7 +290,7 @@ console.log(`\n${divider}`);
 if (totalFailed === 0) {
   console.log(
     `[PASS] All ${totalPassed} assertions passed.` +
-    ` Consent expiration gate contract fully verified.`
+    ` Consent token expiration gate contract fully verified.`
   );
   process.exit(0);
 } else {
