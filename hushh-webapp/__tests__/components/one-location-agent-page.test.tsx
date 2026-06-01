@@ -14,8 +14,10 @@ const {
   mockStoreEnvelope,
   mockRevokeGrant,
   mockRequestAccess,
+  mockCreatePublicInvite,
   mockGetState,
   mockSyncCurrentUser,
+  mockTrackEvent,
   mockRouterPush,
   mockSearchParamsGet,
 } = vi.hoisted(() => ({
@@ -30,8 +32,10 @@ const {
   mockStoreEnvelope: vi.fn(),
   mockRevokeGrant: vi.fn(),
   mockRequestAccess: vi.fn(),
+  mockCreatePublicInvite: vi.fn(),
   mockGetState: vi.fn(),
   mockSyncCurrentUser: vi.fn(),
+  mockTrackEvent: vi.fn(),
   mockRouterPush: vi.fn(),
   mockSearchParamsGet: vi.fn(),
 }));
@@ -52,6 +56,10 @@ vi.mock("@/hooks/use-auth", () => ({
 
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: mockUseVault,
+}));
+
+vi.mock("@/lib/observability/client", () => ({
+  trackEvent: mockTrackEvent,
 }));
 
 vi.mock("@/components/vault/vault-lock-guard", () => ({
@@ -78,7 +86,7 @@ vi.mock("@/lib/one-location/service", () => ({
     approveRequest: vi.fn(),
     denyRequest: vi.fn(),
     referRecipient: vi.fn(),
-    createPublicInvite: vi.fn(),
+    createPublicInvite: mockCreatePublicInvite,
     revokePublicInvite: vi.fn(),
   },
 }));
@@ -259,6 +267,9 @@ describe("OneLocationAgentPage", () => {
     mockStoreEnvelope.mockResolvedValue({});
     mockRevokeGrant.mockResolvedValue({});
     mockRequestAccess.mockResolvedValue({});
+    mockCreatePublicInvite.mockResolvedValue({
+      publicUrl: "/one/location/request/invite_1",
+    });
     mockGetState.mockResolvedValue(locationState());
     mockSyncCurrentUser.mockResolvedValue({ user_id: "user_a" });
   });
@@ -278,6 +289,9 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
     expect(screen.queryByText("Advisor meetup")).toBeNull();
     expect(screen.queryAllByText("Trusted B").length).toBeGreaterThan(0);
+    expect(screen.getByText("Professional Network")).toBeTruthy();
+    expect(screen.getByText("No approvals waiting. New location requests and pending decisions will appear here.")).toBeTruthy();
+    expect(screen.getByText("No ready KAI members yet. Verified KAI members with location keys will appear here.")).toBeTruthy();
     expect(screen.queryByText(/8012|9911/)).toBeNull();
     expect(screen.getByText("Share Encrypted Update")).toBeTruthy();
     expect(mockRegisterKey).toHaveBeenCalledWith({
@@ -344,6 +358,30 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText(/whatsapp/i)).toBeNull();
   });
 
+  it("tracks public request-link creation without location or identity payloads", async () => {
+    render(<OneLocationAgentPageContent />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(
+      screen.getByRole("button", { name: /Create request link/i }),
+    );
+
+    await waitFor(() => expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1));
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      "one_location_public_link_created",
+      expect.objectContaining({
+        route_id: "one_location",
+        result: "success",
+        duration_bucket: "1h",
+        copied_to_clipboard: false,
+        active_invite_count: 1,
+      }),
+    );
+    expect(JSON.stringify(mockTrackEvent.mock.calls)).not.toMatch(
+      /8012|9911|latitude|longitude|28\.6139|77\.209/u,
+    );
+  });
+
   it("creates one encrypted share without exposing phone-derived labels", async () => {
     mockGetState.mockResolvedValueOnce({
       ...locationState(),
@@ -354,7 +392,13 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(
-      screen.getByRole("button", { name: /Start Sharing Location/i }),
+      screen.getByRole("button", { name: /Review Share/i }),
+    );
+    expect(
+      screen.getByRole("region", { name: "Share safety review" }),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Share Location/i }),
     );
 
     await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
@@ -377,6 +421,26 @@ describe("OneLocationAgentPage", () => {
       }),
     });
     expect(screen.queryByText(/8012|9911/)).toBeNull();
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      "one_location_share_review_opened",
+      expect.objectContaining({
+        route_id: "one_location",
+        result: "success",
+        selected_count: 1,
+        duration_bucket: "1h",
+      }),
+      expect.any(Object),
+    );
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      "one_location_share_confirmed",
+      expect.objectContaining({
+        route_id: "one_location",
+        result: "success",
+        selected_count: 1,
+        success_count: 1,
+        failure_count: 0,
+      }),
+    );
   });
 
   it("shares one GPS capture through separate encrypted grants for multiple selected recipients", async () => {
@@ -435,7 +499,10 @@ describe("OneLocationAgentPage", () => {
     expect(await screen.findByText(/2 people selected/i)).toBeTruthy();
 
     fireEvent.click(
-      screen.getByRole("button", { name: /Start Sharing Location/i }),
+      screen.getByRole("button", { name: /Review Share/i }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Share Location/i }),
     );
 
     await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(2));
@@ -452,6 +519,26 @@ describe("OneLocationAgentPage", () => {
       mockEncryptLocationForRecipient.mock.calls[1][0].point,
     );
     expect(mockStoreEnvelope).toHaveBeenCalledTimes(2);
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      "one_location_recommendation_selected",
+      expect.objectContaining({
+        route_id: "one_location",
+        action: "share",
+        selection_surface: "quick_circle",
+        selected_count: 2,
+      }),
+      expect.any(Object),
+    );
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      "one_location_share_confirmed",
+      expect.objectContaining({
+        route_id: "one_location",
+        result: "success",
+        selected_count: 2,
+        success_count: 2,
+        failure_count: 0,
+      }),
+    );
   });
 
   it("stops private sharing when a selected recipient still needs setup", async () => {
@@ -473,7 +560,7 @@ describe("OneLocationAgentPage", () => {
       await screen.findByText(/need One Location setup before private sharing/i),
     ).toBeTruthy();
     const shareButton = screen.getByRole("button", {
-      name: /Start Sharing Location/i,
+      name: /Review Share/i,
     }) as HTMLButtonElement;
     expect(shareButton.disabled).toBe(true);
     expect(mockCreateGrant).not.toHaveBeenCalled();
@@ -499,6 +586,17 @@ describe("OneLocationAgentPage", () => {
     });
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     expect(mockStoreEnvelope).not.toHaveBeenCalled();
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      "one_location_request_sent",
+      expect.objectContaining({
+        route_id: "one_location",
+        result: "success",
+        selected_count: 1,
+        success_count: 1,
+        failure_count: 0,
+        has_note: false,
+      }),
+    );
   });
 
   it("fans out approval-first requests to multiple selected owners without coordinates", async () => {
@@ -525,6 +623,16 @@ describe("OneLocationAgentPage", () => {
     ).toEqual(["user_b", "user_d"]);
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     expect(mockStoreEnvelope).not.toHaveBeenCalled();
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      "one_location_request_sent",
+      expect.objectContaining({
+        route_id: "one_location",
+        result: "success",
+        selected_count: 2,
+        success_count: 2,
+        failure_count: 0,
+      }),
+    );
   });
 
   it("revokes an active grant from the visible owner list", async () => {
@@ -557,10 +665,31 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     const shareButton = screen.getByRole("button", {
-      name: /Start Sharing Location/i,
+      name: /Review Share/i,
     }) as HTMLButtonElement;
     expect(shareButton.disabled).toBe(true);
     expect(mockCreateGrant).not.toHaveBeenCalled();
+  });
+
+  it("keeps KAI Circle section empty states visible when no candidates exist", async () => {
+    mockGetState.mockResolvedValueOnce({
+      ...locationState(),
+      recipients: [],
+      ownerGrants: [],
+    });
+
+    render(<OneLocationAgentPageContent />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    expect(screen.getByText("KAI Circle is empty")).toBeTruthy();
+    expect(screen.getByText(/No approvals waiting/)).toBeTruthy();
+    expect(screen.getByText(/No trusted matches yet/)).toBeTruthy();
+    expect(screen.getByText(/No professional signals yet/)).toBeTruthy();
+    expect(screen.getByText(/No ready KAI members yet/)).toBeTruthy();
+    expect(screen.getByText(/No setup blockers/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Create request link/i }),
+    ).toBeTruthy();
   });
 
   it("does not leave refresh spinning when the vault owner token is unavailable", async () => {

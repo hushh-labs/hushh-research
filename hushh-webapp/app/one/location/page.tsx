@@ -82,6 +82,7 @@ import type {
 } from "@/lib/one-location/types";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import { trackEvent } from "@/lib/observability/client";
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
 
@@ -108,6 +109,27 @@ type BusyState =
   | "publicInvite"
   | "publicRevoke"
   | null;
+
+type KaiCircleSectionKey =
+  | "needs_action"
+  | "trusted_circle"
+  | "professional_network"
+  | "location_ready"
+  | "needs_setup";
+
+type KaiCircleSection = {
+  key: KaiCircleSectionKey;
+  title: string;
+  description: string;
+  recipients: OneLocationRecipient[];
+};
+
+type OneLocationSelectionSurface =
+  | "quick_circle"
+  | "section_list"
+  | "select_menu";
+
+type OneLocationDurationBucket = "15m" | "30m" | "1h" | "4h" | "24h" | "custom";
 
 function formatDateTime(value?: string | null): string {
   if (!value) return "Not set";
@@ -269,6 +291,144 @@ function isShareReadyRecipient(
 
 function peopleCountLabel(count: number): string {
   return count === 1 ? "1 person" : `${count} people`;
+}
+
+const KAI_CIRCLE_SECTION_META: Record<
+  KaiCircleSectionKey,
+  Pick<KaiCircleSection, "title" | "description">
+> = {
+  needs_action: {
+    title: "Needs your approval",
+    description: "Requests and people waiting on a decision.",
+  },
+  trusted_circle: {
+    title: "Trusted Circle",
+    description: "People with active sharing, history, or referrals.",
+  },
+  professional_network: {
+    title: "Professional Network",
+    description: "RIA, investor, advisor, and marketplace signals.",
+  },
+  location_ready: {
+    title: "Location-ready KAI members",
+    description: "Verified KAI members ready for encrypted sharing.",
+  },
+  needs_setup: {
+    title: "Needs setup",
+    description: "People who need to open One Location once.",
+  },
+};
+
+const KAI_CIRCLE_SECTION_EMPTY_COPY: Record<
+  KaiCircleSectionKey,
+  { title: string; description: string }
+> = {
+  needs_action: {
+    title: "No approvals waiting",
+    description: "New location requests and pending decisions will appear here.",
+  },
+  trusted_circle: {
+    title: "No trusted matches yet",
+    description:
+      "Active shares, repeat approvals, and referrals will lift people here.",
+  },
+  professional_network: {
+    title: "No professional signals yet",
+    description: "RIA, investor, advisor, and marketplace matches will appear here.",
+  },
+  location_ready: {
+    title: "No ready KAI members yet",
+    description: "Verified KAI members with location keys will appear here.",
+  },
+  needs_setup: {
+    title: "No setup blockers",
+    description: "Everyone in this section is ready enough for the current flow.",
+  },
+};
+
+const KAI_CIRCLE_SECTION_ORDER: KaiCircleSectionKey[] = [
+  "needs_action",
+  "trusted_circle",
+  "professional_network",
+  "location_ready",
+  "needs_setup",
+];
+
+function kaiCircleSectionKey(
+  recipient: OneLocationRecipient,
+): KaiCircleSectionKey {
+  switch (recipient.recommendationCategory) {
+    case "needs_action":
+    case "trusted_circle":
+    case "professional_network":
+    case "location_ready":
+    case "needs_setup":
+      return recipient.recommendationCategory;
+  }
+
+  if (!recipient.canReceiveLocation) return "needs_setup";
+  switch (recipient.recommendationTier) {
+    case "needs_action":
+      return "needs_action";
+    case "trusted_circle":
+      return "trusted_circle";
+    case "kai_network":
+      return "professional_network";
+    default:
+      if (
+        recipient.relationshipType ||
+        recipient.profileHeadline ||
+        recipient.verificationBadge
+      ) {
+        return "professional_network";
+      }
+      return "location_ready";
+  }
+}
+
+function buildKaiCircleSections(
+  recipients: OneLocationRecipient[],
+): KaiCircleSection[] {
+  const grouped = new Map<KaiCircleSectionKey, OneLocationRecipient[]>();
+  KAI_CIRCLE_SECTION_ORDER.forEach((key) => grouped.set(key, []));
+
+  recipients.forEach((recipient) => {
+    grouped.get(kaiCircleSectionKey(recipient))?.push(recipient);
+  });
+
+  return KAI_CIRCLE_SECTION_ORDER.map((key) => {
+    const meta = KAI_CIRCLE_SECTION_META[key];
+    return {
+      key,
+      title: meta.title,
+      description: meta.description,
+      recipients: grouped.get(key) ?? [],
+    };
+  });
+}
+
+function oneLocationDurationBucket(value: string): OneLocationDurationBucket {
+  switch (value) {
+    case "0.25":
+      return "15m";
+    case "0.5":
+      return "30m";
+    case "1":
+      return "1h";
+    case "4":
+      return "4h";
+    case "24":
+      return "24h";
+    default:
+      return "custom";
+  }
+}
+
+function oneLocationEventResult(
+  successCount: number,
+  failureCount: number,
+): "success" | "error" {
+  return successCount > 0 && failureCount === 0 ? "success" : "error";
 }
 
 function grantCounterpartyLabel(grant: OneLocationGrant): string {
@@ -618,6 +778,7 @@ export function OneLocationAgentPageContent() {
   const [busy, setBusy] = useState<BusyState>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<ShareMode>("share");
+  const [shareReviewOpen, setShareReviewOpen] = useState(false);
   const [recipientSearch, setRecipientSearch] = useState("");
   const [selectedRecipientId, setSelectedRecipientId] = useState("");
   const [selectedRequestOwnerId, setSelectedRequestOwnerId] = useState("");
@@ -656,6 +817,10 @@ export function OneLocationAgentPageContent() {
       recommendationSearchText(recipient).includes(query),
     );
   }, [rankedRecipients, recipientSearch]);
+  const kaiCircleSections = useMemo(
+    () => buildKaiCircleSections(visibleRecipients),
+    [visibleRecipients],
+  );
   const selectedShareRecipients = useMemo(
     () => recipientSelectionFromIds(recipients, selectedRecipientIds),
     [recipients, selectedRecipientIds],
@@ -1009,6 +1174,7 @@ export function OneLocationAgentPageContent() {
     )
       return;
     setBusy("share");
+    let successCount = 0;
     try {
       const point = await OneLocationService.captureCurrentPosition();
       for (const recipient of shareReadySelectedRecipients) {
@@ -1019,14 +1185,36 @@ export function OneLocationAgentPageContent() {
           durationHours: Number(durationHours),
         });
         await publishEnvelope(grant, recipient, point);
+        successCount += 1;
       }
+      trackEvent("one_location_share_confirmed", {
+        route_id: "one_location",
+        result: oneLocationEventResult(successCount, 0),
+        selected_count: shareReadySelectedRecipients.length,
+        success_count: successCount,
+        failure_count: 0,
+        duration_bucket: oneLocationDurationBucket(durationHours),
+        review_required: shareReviewOpen,
+      });
       toast.success(
         `Location shared with ${peopleCountLabel(
           shareReadySelectedRecipients.length,
         )}.`,
       );
+      setShareReviewOpen(false);
       await refresh();
     } catch (error) {
+      const failureCount =
+        shareReadySelectedRecipients.length - successCount || 1;
+      trackEvent("one_location_share_confirmed", {
+        route_id: "one_location",
+        result: oneLocationEventResult(successCount, failureCount),
+        selected_count: shareReadySelectedRecipients.length,
+        success_count: successCount,
+        failure_count: failureCount,
+        duration_bucket: oneLocationDurationBucket(durationHours),
+        review_required: shareReviewOpen,
+      });
       toast.error(
         error instanceof Error ? error.message : "Could not share location.",
       );
@@ -1039,6 +1227,7 @@ export function OneLocationAgentPageContent() {
     publishEnvelope,
     refresh,
     setupNeededSelectedRecipients.length,
+    shareReviewOpen,
     shareReadySelectedRecipients,
     vaultOwnerToken,
   ]);
@@ -1212,6 +1401,7 @@ export function OneLocationAgentPageContent() {
   const handleRequestAccess = useCallback(async () => {
     if (!vaultOwnerToken || !selectedRequestOwners.length) return;
     setBusy("request");
+    let successCount = 0;
     try {
       for (const owner of selectedRequestOwners) {
         await OneLocationService.requestAccess({
@@ -1219,7 +1409,16 @@ export function OneLocationAgentPageContent() {
           ownerUserId: owner.userId,
           message: requestMessage.trim() || undefined,
         });
+        successCount += 1;
       }
+      trackEvent("one_location_request_sent", {
+        route_id: "one_location",
+        result: oneLocationEventResult(successCount, 0),
+        selected_count: selectedRequestOwners.length,
+        success_count: successCount,
+        failure_count: 0,
+        has_note: Boolean(requestMessage.trim()),
+      });
       setRequestMessage("");
       playOneLocationNotificationSound();
       toast.success(
@@ -1231,6 +1430,15 @@ export function OneLocationAgentPageContent() {
       );
       await refresh();
     } catch (error) {
+      const failureCount = selectedRequestOwners.length - successCount || 1;
+      trackEvent("one_location_request_sent", {
+        route_id: "one_location",
+        result: oneLocationEventResult(successCount, failureCount),
+        selected_count: selectedRequestOwners.length,
+        success_count: successCount,
+        failure_count: failureCount,
+        has_note: Boolean(requestMessage.trim()),
+      });
       toast.error(oneLocationErrorMessage(error, "Could not send request."));
       if (isTransientOneApiError(error)) {
         await refresh().catch(() => null);
@@ -1253,18 +1461,32 @@ export function OneLocationAgentPageContent() {
       if (navigator.clipboard && url) {
         await navigator.clipboard.writeText(url).catch(() => undefined);
       }
+      trackEvent("one_location_public_link_created", {
+        route_id: "one_location",
+        result: "success",
+        duration_bucket: oneLocationDurationBucket(durationHours),
+        copied_to_clipboard: Boolean(navigator.clipboard && url),
+        active_invite_count: activePublicInvites.length + 1,
+      });
       toast.success(
         "Public request link created. You still approve before sharing.",
       );
       await refresh();
     } catch (error) {
+      trackEvent("one_location_public_link_created", {
+        route_id: "one_location",
+        result: "error",
+        duration_bucket: oneLocationDurationBucket(durationHours),
+        copied_to_clipboard: false,
+        active_invite_count: activePublicInvites.length,
+      });
       toast.error(
         oneLocationErrorMessage(error, "Could not create public request link."),
       );
     } finally {
       setBusy(null);
     }
-  }, [durationHours, refresh, vaultOwnerToken]);
+  }, [activePublicInvites.length, durationHours, refresh, vaultOwnerToken]);
 
   const handleCopyPublicInvite = useCallback(async () => {
     if (!publicInviteUrl) return;
@@ -1398,36 +1620,146 @@ export function OneLocationAgentPageContent() {
     [referralTargets, refresh, vaultOwnerToken],
   );
 
-  const addShareRecipient = useCallback((recipientId: string) => {
-    setSelectedRecipientId(recipientId);
-    setSelectedRecipientIds((current) => addSelectedId(current, recipientId));
-  }, []);
-  const toggleShareRecipient = useCallback((recipientId: string) => {
-    setSelectedRecipientId(recipientId);
-    setSelectedRecipientIds((current) => toggleSelectedId(current, recipientId));
-  }, []);
-  const removeShareRecipient = useCallback((recipientId: string) => {
-    setSelectedRecipientIds((current) =>
-      current.filter((selectedId) => selectedId !== recipientId),
-    );
-  }, []);
-  const addRequestOwner = useCallback((recipientId: string) => {
-    setSelectedRequestOwnerId(recipientId);
-    setSelectedRequestOwnerIds((current) =>
-      addSelectedId(current, recipientId),
-    );
-  }, []);
-  const toggleRequestOwner = useCallback((recipientId: string) => {
-    setSelectedRequestOwnerId(recipientId);
-    setSelectedRequestOwnerIds((current) =>
-      toggleSelectedId(current, recipientId),
-    );
-  }, []);
-  const removeRequestOwner = useCallback((recipientId: string) => {
-    setSelectedRequestOwnerIds((current) =>
-      current.filter((selectedId) => selectedId !== recipientId),
-    );
-  }, []);
+  const trackRecommendationSelection = useCallback(
+    (
+      recipient: OneLocationRecipient,
+      action: ShareMode,
+      selectionSurface: OneLocationSelectionSurface,
+      selectedCount: number,
+    ) => {
+      trackEvent(
+        "one_location_recommendation_selected",
+        {
+          route_id: "one_location",
+          action,
+          result: "success",
+          selection_surface: selectionSurface,
+          recommendation_category: recipient.recommendationCategory ?? "unknown",
+          recommendation_tier: recipient.recommendationTier ?? "unknown",
+          selected_count: selectedCount,
+          can_receive_location: recipient.canReceiveLocation,
+        },
+        {
+          dedupeKey: `one_location_recommendation_selected:${action}:${selectionSurface}:${recipient.recommendationRank ?? "rankless"}:${selectedCount}`,
+        },
+      );
+    },
+    [],
+  );
+
+  const addShareRecipient = useCallback(
+    (
+      recipientId: string,
+      selectionSurface: OneLocationSelectionSurface = "select_menu",
+    ) => {
+      const recipient = recipients.find((item) => item.userId === recipientId);
+      const nextSelectedIds = addSelectedId(selectedRecipientIds, recipientId);
+      setSelectedRecipientId(recipientId);
+      setSelectedRecipientIds(nextSelectedIds);
+      setShareReviewOpen(false);
+      if (recipient) {
+        trackRecommendationSelection(
+          recipient,
+          "share",
+          selectionSurface,
+          nextSelectedIds.length,
+        );
+      }
+    },
+    [recipients, selectedRecipientIds, trackRecommendationSelection],
+  );
+  const toggleShareRecipient = useCallback(
+    (
+      recipientId: string,
+      selectionSurface: OneLocationSelectionSurface = "quick_circle",
+    ) => {
+      const recipient = recipients.find((item) => item.userId === recipientId);
+      const nextSelectedIds = toggleSelectedId(selectedRecipientIds, recipientId);
+      setSelectedRecipientId(recipientId);
+      setSelectedRecipientIds(nextSelectedIds);
+      setShareReviewOpen(false);
+      if (recipient) {
+        trackRecommendationSelection(
+          recipient,
+          "share",
+          selectionSurface,
+          nextSelectedIds.length,
+        );
+      }
+    },
+    [recipients, selectedRecipientIds, trackRecommendationSelection],
+  );
+  const removeShareRecipient = useCallback(
+    (recipientId: string) => {
+      const nextSelectedIds = selectedRecipientIds.filter(
+        (selectedId) => selectedId !== recipientId,
+      );
+      setSelectedRecipientIds(nextSelectedIds);
+      setSelectedRecipientId((current) =>
+        current === recipientId ? nextSelectedIds[0] || "" : current,
+      );
+      setShareReviewOpen(false);
+    },
+    [selectedRecipientIds],
+  );
+  const addRequestOwner = useCallback(
+    (
+      recipientId: string,
+      selectionSurface: OneLocationSelectionSurface = "select_menu",
+    ) => {
+      const recipient = recipients.find((item) => item.userId === recipientId);
+      const nextSelectedIds = addSelectedId(
+        selectedRequestOwnerIds,
+        recipientId,
+      );
+      setSelectedRequestOwnerId(recipientId);
+      setSelectedRequestOwnerIds(nextSelectedIds);
+      if (recipient) {
+        trackRecommendationSelection(
+          recipient,
+          "request",
+          selectionSurface,
+          nextSelectedIds.length,
+        );
+      }
+    },
+    [recipients, selectedRequestOwnerIds, trackRecommendationSelection],
+  );
+  const toggleRequestOwner = useCallback(
+    (
+      recipientId: string,
+      selectionSurface: OneLocationSelectionSurface = "quick_circle",
+    ) => {
+      const recipient = recipients.find((item) => item.userId === recipientId);
+      const nextSelectedIds = toggleSelectedId(
+        selectedRequestOwnerIds,
+        recipientId,
+      );
+      setSelectedRequestOwnerId(recipientId);
+      setSelectedRequestOwnerIds(nextSelectedIds);
+      if (recipient) {
+        trackRecommendationSelection(
+          recipient,
+          "request",
+          selectionSurface,
+          nextSelectedIds.length,
+        );
+      }
+    },
+    [recipients, selectedRequestOwnerIds, trackRecommendationSelection],
+  );
+  const removeRequestOwner = useCallback(
+    (recipientId: string) => {
+      const nextSelectedIds = selectedRequestOwnerIds.filter(
+        (selectedId) => selectedId !== recipientId,
+      );
+      setSelectedRequestOwnerIds(nextSelectedIds);
+      setSelectedRequestOwnerId((current) =>
+        current === recipientId ? nextSelectedIds[0] || "" : current,
+      );
+    },
+    [selectedRequestOwnerIds],
+  );
 
   const canShare = Boolean(
     vaultOwnerToken &&
@@ -1438,6 +1770,34 @@ export function OneLocationAgentPageContent() {
     permission?.state !== "restricted" &&
     permission?.state !== "unavailable",
   );
+  const handleOpenShareReview = useCallback(() => {
+    if (!canShare) return;
+    setShareReviewOpen(true);
+    trackEvent(
+      "one_location_share_review_opened",
+      {
+        route_id: "one_location",
+        result: "success",
+        selected_count: shareReadySelectedRecipients.length,
+        duration_bucket: oneLocationDurationBucket(durationHours),
+        has_permission_warning: permission?.state !== "granted",
+        has_professional_signal: shareReadySelectedRecipients.some(
+          (recipient) =>
+            kaiCircleSectionKey(recipient) === "professional_network",
+        ),
+        has_setup_warning: Boolean(setupNeededSelectedRecipients.length),
+      },
+      {
+        dedupeKey: `one_location_share_review_opened:${shareReadySelectedRecipients.length}:${durationHours}`,
+      },
+    );
+  }, [
+    canShare,
+    durationHours,
+    permission?.state,
+    setupNeededSelectedRecipients.length,
+    shareReadySelectedRecipients,
+  ]);
   const dataState: "loading" | "loaded" | "unavailable-valid" = loadError
     ? "unavailable-valid"
     : state
@@ -1622,6 +1982,29 @@ export function OneLocationAgentPageContent() {
                     />
                   </div>
 
+                  <div
+                    aria-label="KAI Circle section states"
+                    className="grid gap-2 sm:grid-cols-2"
+                  >
+                    {kaiCircleSections.map((section) => {
+                      const emptyCopy =
+                        KAI_CIRCLE_SECTION_EMPTY_COPY[section.key];
+                      return (
+                        <div
+                          key={section.key}
+                          className="rounded-[14px] border border-black/[0.04] bg-white/70 p-3 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.06]"
+                        >
+                          {sectionLabel(section.title, section.recipients.length)}
+                          <p className="mt-1 text-[12px] leading-5 text-[#8e8e93] dark:text-white/55">
+                            {section.recipients.length
+                              ? section.description
+                              : `${emptyCopy.title}. ${emptyCopy.description}`}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+
                   <div className={onePanelClassName}>
                     {visibleRecipients.length ? (
                       visibleRecipients.map((recipient, index) => {
@@ -1689,9 +2072,15 @@ export function OneLocationAgentPageContent() {
                                   type="button"
                                   onClick={() => {
                                     if (activeMode === "share") {
-                                      toggleShareRecipient(recipient.userId);
+                                      toggleShareRecipient(
+                                        recipient.userId,
+                                        "section_list",
+                                      );
                                     } else {
-                                      toggleRequestOwner(recipient.userId);
+                                      toggleRequestOwner(
+                                        recipient.userId,
+                                        "section_list",
+                                      );
                                     }
                                   }}
                                   className="inline-flex h-8 items-center gap-1 rounded-full bg-[#f2f2f7] px-3 text-[12px] font-semibold text-[#007aff] transition-colors hover:bg-[#e5e5ea] dark:bg-white/10 dark:text-[#76b7ff] dark:hover:bg-white/15"
@@ -1710,12 +2099,12 @@ export function OneLocationAgentPageContent() {
                         title={
                           recipients.length
                             ? "No KAI Circle matches"
-                            : "No verified contacts"
+                            : "KAI Circle is empty"
                         }
                         description={
                           recipients.length
                             ? "Try another name, role, or recommendation signal."
-                            : "Sync a trusted person before starting a share or request."
+                            : "Approval, professional, ready, and setup signals will appear as your KAI network grows."
                         }
                       />
                     )}
@@ -1800,15 +2189,54 @@ export function OneLocationAgentPageContent() {
                             )} selected for private encrypted sharing.`
                           : "Select one or more KAI users for private sharing."}
                       </p>
+                      {shareReviewOpen ? (
+                        <div
+                          role="region"
+                          aria-label="Share safety review"
+                          className="space-y-3 rounded-[14px] border border-[#007aff]/20 bg-[#eef5ff] p-3 text-[13px] leading-5 text-[#17446f] dark:border-[#0a84ff]/30 dark:bg-[#0a84ff]/15 dark:text-[#cfe7ff]"
+                        >
+                          <div>
+                            <p className="font-semibold text-[#0b3d70] dark:text-[#e6f2ff]">
+                              Confirm private KAI-to-KAI sharing
+                            </p>
+                            <p className="mt-1">
+                              {peopleCountLabel(
+                                shareReadySelectedRecipients.length,
+                              )}{" "}
+                              will receive separate encrypted location access
+                              for{" "}
+                              {
+                                DURATION_OPTIONS.find(
+                                  (option) => option.value === durationHours,
+                                )?.label
+                              }
+                              .
+                            </p>
+                          </div>
+                          <ActionButton
+                            busy={busy}
+                            busyKey="share"
+                            onClick={() => void handleShare()}
+                            disabled={!canShare}
+                            className="h-10 rounded-full bg-[#007aff] px-4 text-[13px] font-semibold text-white hover:bg-[#006fe6]"
+                          >
+                            <Send
+                              className="mr-2 h-4 w-4"
+                              aria-hidden="true"
+                            />
+                            Confirm & Share Location
+                          </ActionButton>
+                        </div>
+                      ) : null}
                       <ActionButton
                         busy={busy}
                         busyKey="share"
-                        onClick={() => void handleShare()}
+                        onClick={handleOpenShareReview}
                         disabled={!canShare}
                         className="h-12 w-full rounded-[16px] bg-gradient-to-b from-[#1a85ff] to-[#0066ff] text-[16px] font-semibold text-white shadow-[0_4px_14px_rgba(0,122,255,0.35)] hover:opacity-95"
                       >
                         <Send className="mr-2 h-4 w-4" aria-hidden="true" />
-                        Start Sharing Location
+                        Review Share
                         <span className="sr-only">Share Encrypted Update</span>
                       </ActionButton>
                     </div>

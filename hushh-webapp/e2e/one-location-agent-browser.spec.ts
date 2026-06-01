@@ -393,3 +393,74 @@ test("multi-recipient One Location proof captures once and fans out encrypted gr
   expect(result.setupBlocked).toBe(true);
   expect(result.serializedState).not.toMatch(/latitude|longitude|28\.6139|77\.209/u);
 });
+
+test("One Location loading and empty states keep failure alerts visible", async ({
+  page,
+}) => {
+  await page.setContent(`
+    <main data-testid="one-location-proof" data-route="/one/location">
+      <section aria-label="KAI Circle"></section>
+      <section aria-label="Location failure states"></section>
+    </main>
+  `);
+
+  async function renderState(variant: "loading" | "empty") {
+    await page.evaluate((nextVariant) => {
+      const circle = document.querySelector<HTMLElement>(
+        '[aria-label="KAI Circle"]',
+      );
+      const failures = document.querySelector<HTMLElement>(
+        '[aria-label="Location failure states"]',
+      );
+      if (!circle || !failures) throw new Error("proof fixture missing");
+
+      circle.innerHTML =
+        nextVariant === "loading"
+          ? `
+            <div role="status" aria-live="polite">
+              Loading KAI Circle recommendations
+            </div>
+            <div data-slot="skeleton" aria-hidden="true"></div>
+          `
+          : `
+            <div role="note">
+              KAI Circle is empty
+            </div>
+            <button type="button">Create Request Link</button>
+          `;
+
+      failures.innerHTML = `
+        <div role="alert" data-failure="consent">
+          Consent review required before this location grant can continue.
+        </div>
+        <div role="alert" data-failure="permission">
+          GPS permission denied. Sharing remains blocked.
+        </div>
+        <div role="alert" data-failure="request">
+          Location request failed. No location envelope was created.
+        </div>
+      `;
+    }, variant);
+  }
+
+  async function expectFailuresVisible() {
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Consent review required" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("alert").filter({ hasText: "GPS permission denied" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Location request failed" }),
+    ).toBeVisible();
+  }
+
+  await renderState("loading");
+  await expect(page.getByRole("status")).toContainText("Loading KAI Circle");
+  await expectFailuresVisible();
+
+  await renderState("empty");
+  await expect(page.getByRole("note")).toContainText("KAI Circle is empty");
+  await expect(page.getByRole("button", { name: "Create Request Link" })).toBeVisible();
+  await expectFailuresVisible();
+});

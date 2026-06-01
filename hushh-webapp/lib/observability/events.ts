@@ -75,6 +75,11 @@ export type ObservabilityEventName =
   | "gmail_sync_requested"
   | "gmail_sync_result"
   | "gmail_receipts_loaded"
+  | "one_location_recommendation_selected"
+  | "one_location_share_review_opened"
+  | "one_location_share_confirmed"
+  | "one_location_request_sent"
+  | "one_location_public_link_created"
   | "growth_funnel_step_completed"
   | "investor_activation_completed"
   | "ria_activation_completed"
@@ -201,6 +206,11 @@ const EVENT_CATEGORY_BY_NAME: Record<
   gmail_sync_requested: "system",
   gmail_sync_result: "system",
   gmail_receipts_loaded: "system",
+  one_location_recommendation_selected: "feature",
+  one_location_share_review_opened: "feature",
+  one_location_share_confirmed: "feature",
+  one_location_request_sent: "feature",
+  one_location_public_link_created: "feature",
   growth_funnel_step_completed: "funnel",
   investor_activation_completed: "funnel",
   ria_activation_completed: "funnel",
@@ -375,6 +385,49 @@ export interface EventPayloadMap {
   };
   gmail_receipts_loaded: {
     result: EventResult;
+  };
+  one_location_recommendation_selected: {
+    route_id: RouteId;
+    action: "share" | "request";
+    result: "success";
+    selection_surface: "quick_circle" | "section_list" | "select_menu";
+    recommendation_category?: string;
+    recommendation_tier?: string;
+    selected_count: number;
+    can_receive_location: boolean;
+  };
+  one_location_share_review_opened: {
+    route_id: RouteId;
+    result: "success";
+    selected_count: number;
+    duration_bucket: "15m" | "30m" | "1h" | "4h" | "24h" | "custom";
+    has_permission_warning: boolean;
+    has_professional_signal: boolean;
+    has_setup_warning: boolean;
+  };
+  one_location_share_confirmed: {
+    route_id: RouteId;
+    result: EventResult;
+    selected_count: number;
+    success_count: number;
+    failure_count: number;
+    duration_bucket: "15m" | "30m" | "1h" | "4h" | "24h" | "custom";
+    review_required: boolean;
+  };
+  one_location_request_sent: {
+    route_id: RouteId;
+    result: EventResult;
+    selected_count: number;
+    success_count: number;
+    failure_count: number;
+    has_note: boolean;
+  };
+  one_location_public_link_created: {
+    route_id: RouteId;
+    result: EventResult;
+    duration_bucket: "15m" | "30m" | "1h" | "4h" | "24h" | "custom";
+    copied_to_clipboard: boolean;
+    active_invite_count: number;
   };
   growth_funnel_step_completed: {
     journey: GrowthJourney;

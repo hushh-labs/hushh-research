@@ -84,6 +84,36 @@ describe("observability schema", () => {
     expect(result.sanitized.portfolio_source).toBe("statement");
   });
 
+  it("accepts One Location product analytics without identity payloads", () => {
+    const result = validateAndSanitizeEvent(
+      "one_location_share_confirmed",
+      {
+        env: "uat",
+        platform: "web",
+        event_category: "feature",
+        app_version: "2.1.0",
+        route_id: "one_location",
+        result: "success",
+        selected_count: 2,
+        success_count: 2,
+        failure_count: 0,
+        duration_bucket: "1h",
+        review_required: true,
+        recipient_user_id: "user_123",
+        location_latitude: "28.6139",
+        phone_number: "+16505550101",
+      } as any,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.droppedKeys).toContain("recipient_user_id");
+    expect(result.droppedKeys).toContain("phone_number");
+    expect(result.sanitized.event_category).toBe("feature");
+    expect(result.sanitized.route_id).toBe("one_location");
+    expect(result.sanitized.selected_count).toBe(2);
+    expect(result.sanitized.success_count).toBe(2);
+  });
+
   it("accepts phone verification lifecycle metadata without phone values", () => {
     const result = validateAndSanitizeEvent("phone_verification_started", {
       env: "uat",
