@@ -361,7 +361,7 @@ async def handle_get_financial(args: dict) -> list[TextContent]:
 
     # PRODUCTION: No fallback to demo data - fail if real data not found
     if financial_data is None:
-        logger.warning(f"❌ No vault export data found for user={user_id}")
+        logger.warning("❌ No vault export data found (financial)")
         return [
             TextContent(
                 type="text",
@@ -379,7 +379,7 @@ async def handle_get_financial(args: dict) -> list[TextContent]:
             )
         ]
 
-    logger.info(f"✅ Financial data ACCESSED for user={user_id} (consent verified)")
+    logger.info("✅ Financial data ACCESSED (consent verified)")
 
     return [
         TextContent(
@@ -509,7 +509,7 @@ async def handle_get_food(args: dict) -> list[TextContent]:
 
     # PRODUCTION: No fallback to demo data - fail if real data not found
     if food_data is None:
-        logger.warning(f"❌ No vault export data found for user={user_id}")
+        logger.warning("❌ No vault export data found (food)")
         return [
             TextContent(
                 type="text",
@@ -528,7 +528,7 @@ async def handle_get_food(args: dict) -> list[TextContent]:
             )
         ]
 
-    logger.info(f"✅ Food data ACCESSED for user={user_id} (consent verified)")
+    logger.info("✅ Food data ACCESSED (consent verified)")
 
     return [
         TextContent(
@@ -648,7 +648,7 @@ async def handle_get_professional(args: dict) -> list[TextContent]:
 
     # PRODUCTION: No fallback to demo data - fail if real data not found
     if professional_data is None:
-        logger.warning(f"❌ No vault export data found for user={user_id}")
+        logger.warning("❌ No vault export data found (professional)")
         return [
             TextContent(
                 type="text",
@@ -667,7 +667,7 @@ async def handle_get_professional(args: dict) -> list[TextContent]:
             )
         ]
 
-    logger.info(f"✅ Professional data ACCESSED for user={user_id} (consent verified)")
+    logger.info("✅ Professional data ACCESSED (consent verified)")
 
     return [
         TextContent(

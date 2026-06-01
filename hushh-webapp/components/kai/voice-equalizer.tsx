@@ -55,7 +55,7 @@ export function VoiceEqualizer({ state, level, bars = 14 }: VoiceEqualizerProps)
     <div className="flex h-full w-full items-center justify-center gap-1.5 px-4">
       {heights.map((height, index) => (
         <span
-          key={`${index}-${height}`}
+          key={index}
           className={cn(
             "w-1 rounded-full bg-foreground/85 transition-[height,opacity] duration-100",
             state === "processing" ? "opacity-70" : "opacity-90"
