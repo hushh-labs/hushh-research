@@ -1247,7 +1247,7 @@ class VaultKeysService:
                     prefs_summary.get("field_count", 0) if isinstance(prefs_summary, dict) else 0
                 )
         except Exception as e:  # pragma: no cover
-            logger.warning(f"Failed to check pkm_index for vault status: {e}")
+            logger.warning("vault_keys.get_vault_status.pkm_index_check_failed: %s", e)
 
         domains = {
             "kai": {
@@ -1260,6 +1260,6 @@ class VaultKeysService:
         total_active = 1 if kai_has_data else 0
         total = 1
 
-        logger.info(f"✅ Vault status for {user_id}: {total_active}/{total} domains active")
+        logger.info("vault_keys.vault_status user_id=%s active=%d/%d", user_id, total_active, total)
 
         return {"domains": domains, "totalActive": total_active, "total": total}
