@@ -1,12 +1,26 @@
 "use strict";
 
 /**
- * Builds a normalised lookup Set from a whitelist array.
- * Non-string entries and blank strings are silently skipped.
- * Every retained entry is lower-cased and whitespace-trimmed.
+ * Canonical outbound domain registry — the single source of truth for
+ * destinations that are authorised to receive exported consent data or
+ * outbound log payloads under the Hushh data-consent protocol.
  *
- * @param  {Array} whitelist
- * @returns {Set<string>}
+ * Every domain that crosses the consent export boundary must appear here.
+ * Frozen at module load time to prevent accidental runtime mutation.
+ */
+const ALLOWED_OUTBOUND_DOMAINS = Object.freeze([
+  "hushh.ai",
+  "api.hushh.ai",
+  "consent.hushh.ai",
+  "vault.hushh.ai",
+]);
+
+// ── Internal helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Builds a normalised O(1)-lookup Set from a whitelist array.
+ * Non-string entries and blank strings are silently skipped.
+ * Every retained entry is trimmed and lower-cased.
  */
 function buildWhitelistSet(whitelist) {
   const set = new Set();
@@ -18,53 +32,64 @@ function buildWhitelistSet(whitelist) {
   return set;
 }
 
+// ── Pure utility ───────────────────────────────────────────────────────────────
+
 /**
  * filterWhitelistedDomains(domainArray, allowedWhitelist)
  *
- * Scrubs an array of outbound logging destination domains against an
- * authorised whitelist to enforce strict user-data privacy consent
- * boundaries.  Only domains that appear in the whitelist are retained.
- *
- * Matching rules:
- *   - Comparison is case-insensitive ("HUSHH.AI" matches "hushh.ai")
- *   - Leading/trailing whitespace is trimmed before comparison and from
- *     the returned values ("  hushh.ai  " → stored as "hushh.ai")
- *   - Non-string elements in either array are silently ignored
- *   - Blank strings (whitespace-only) are never matched or returned
- *
- * Safe-fallback rules (returns [] without throwing):
- *   - Either argument is null, undefined, or not an array
- *   - Either or both arrays are empty
+ * Scrubs an array of destination domains against a caller-supplied whitelist.
+ * Matching is case-insensitive and whitespace-trimmed on both sides.
+ * Non-string elements in either array are silently skipped.
+ * Returns [] (never throws) for null / non-array / empty inputs.
  *
  * @param  {Array}    domainArray      — domains to evaluate
  * @param  {Array}    allowedWhitelist — authorised domain entries
- * @returns {string[]}                 — filtered, trimmed, whitelist-approved domains
+ * @returns {string[]}                 — trimmed, whitelist-approved domains
  */
 function filterWhitelistedDomains(domainArray, allowedWhitelist) {
-  // ── Input validation ───────────────────────────────────────────────────────
   if (!Array.isArray(domainArray) || !Array.isArray(allowedWhitelist)) {
     return [];
   }
-
-  // ── Fast exit for empty inputs ─────────────────────────────────────────────
   if (domainArray.length === 0 || allowedWhitelist.length === 0) {
     return [];
   }
 
-  // ── Build O(1)-lookup Set from the whitelist ───────────────────────────────
   const whitelistSet = buildWhitelistSet(allowedWhitelist);
-
-  // ── Filter domain array against the whitelist ──────────────────────────────
   const result = [];
+
   for (const domain of domainArray) {
     if (typeof domain !== "string") continue;
     const trimmed    = domain.trim();
     const normalised = trimmed.toLowerCase();
     if (normalised.length > 0 && whitelistSet.has(normalised)) {
-      result.push(trimmed); // return trimmed but original-case form
+      result.push(trimmed);
     }
   }
   return result;
 }
 
-module.exports = { filterWhitelistedDomains };
+// ── Wired outbound consent boundary ───────────────────────────────────────────
+
+/**
+ * filterOutboundDomains(domainArray)
+ *
+ * Wired variant of filterWhitelistedDomains that enforces the canonical
+ * ALLOWED_OUTBOUND_DOMAINS registry at the consent export / outbound
+ * routing boundary.
+ *
+ * This is the function that MUST be called at every outbound routing
+ * decision point — not filterWhitelistedDomains directly — so that the
+ * allowed-domain source of truth is always the registry above.
+ *
+ * @param  {Array}    domainArray — candidate destination domains
+ * @returns {string[]}            — registry-approved destinations only
+ */
+function filterOutboundDomains(domainArray) {
+  return filterWhitelistedDomains(domainArray, ALLOWED_OUTBOUND_DOMAINS);
+}
+
+module.exports = {
+  filterOutboundDomains,      // wired public API — use at routing boundary
+  filterWhitelistedDomains,   // pure utility — use when supplying a custom whitelist
+  ALLOWED_OUTBOUND_DOMAINS,   // exported for inspection and test assertions
+};
