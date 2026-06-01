@@ -30,6 +30,7 @@ function normalizeInternalHref(
 }
 
 function profilePanelLabel(panel: string | null): string | null {
+  if (panel === "account") return "Account";
   if (panel === "my-data") return "My Data";
   if (panel === "access") return "Access & sharing";
   if (panel === "preferences") return "Preferences";
@@ -206,7 +207,19 @@ export function resolveTopShellBreadcrumb(
       align: "center",
       items: [
         { label: "Profile", href: ROUTES.PROFILE },
-        { label: "KYC agent" },
+        { label: "Email" },
+      ],
+    };
+  }
+
+  if (pathname === ROUTES.ONE_LOCATION) {
+    return {
+      backHref: ROUTES.PROFILE,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: ROUTES.PROFILE },
+        { label: "Location" },
       ],
     };
   }
@@ -269,6 +282,20 @@ export function resolveTopShellBreadcrumb(
         { label: "Profile", href: privacyHref },
         { label: "Privacy", href: privacyHref },
         { label: "PKM Agent" },
+      ],
+    };
+  }
+
+  if (pathname === ROUTES.PROFILE_RECEIPTS) {
+    const gmailHref = profilePanelHref("gmail");
+    return {
+      backHref: gmailHref,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: gmailHref },
+        { label: "Gmail receipts", href: gmailHref },
+        { label: "Receipts" },
       ],
     };
   }

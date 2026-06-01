@@ -18,6 +18,7 @@ import { executeVoiceResponse } from "@/lib/voice/voice-response-executor";
 import { resolveGroundedVoicePlan } from "@/lib/voice/voice-grounding";
 import { useVoiceSession } from "@/lib/voice/voice-session-store";
 import type { GroundedVoicePlan } from "@/lib/voice/voice-grounding";
+import { isRiaActionBarRoute } from "@/lib/navigation/routes";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { isVoiceEligibleRouteScreen } from "@/lib/voice/voice-route-eligibility";
 import { waitForVoiceActionSettlement } from "@/lib/voice/voice-action-settlement";
@@ -127,6 +128,7 @@ function computeAnalyzeEligibilityFromHolding(holding: Record<string, unknown>):
 }
 
 export function KaiCommandBarGlobal() {
+  const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -167,6 +169,10 @@ export function KaiCommandBarGlobal() {
     enabled: false,
     reason: null,
   });
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = AppBackgroundTaskService.subscribe((state) => {
@@ -298,6 +304,10 @@ export function KaiCommandBarGlobal() {
   const routeInfo = useMemo(
     () => deriveVoiceRouteScreen(pathname || "", routeQuery),
     [pathname, routeQuery]
+  );
+  const useRiaActionBar = useMemo(
+    () => isRiaActionBarRoute(pathname),
+    [pathname]
   );
   const voiceEligibleRoute = isVoiceEligibleRouteScreen(routeInfo.screen, chromeState.hideCommandBar);
 
@@ -713,7 +723,7 @@ export function KaiCommandBarGlobal() {
     ]
   );
 
-  if (loading || !user || reviewScreenActive) {
+  if (!mounted || loading || !user || reviewScreenActive) {
     return null;
   }
 
@@ -791,6 +801,7 @@ export function KaiCommandBarGlobal() {
       onTtsPlayingChange={setTtsPlaying}
       appRuntimeState={appRuntimeState}
       voiceContext={voiceContext}
+      surfaceVariant={useRiaActionBar ? "ria" : "kai"}
       portfolioTickers={portfolioTickers}
     />
   );
