@@ -108,6 +108,14 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "copied_to_clipboard",
     "active_invite_count",
   ],
+  one_location_contact_signal_synced: [
+    ...BASE_ALLOWED_KEYS,
+    "result",
+    "source_platform",
+    "contact_count_bucket",
+    "matched_count",
+    "invite_candidate_count",
+  ],
   growth_funnel_step_completed: [
     ...BASE_ALLOWED_KEYS,
     "journey",

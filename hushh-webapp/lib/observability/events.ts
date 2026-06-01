@@ -80,6 +80,7 @@ export type ObservabilityEventName =
   | "one_location_share_confirmed"
   | "one_location_request_sent"
   | "one_location_public_link_created"
+  | "one_location_contact_signal_synced"
   | "growth_funnel_step_completed"
   | "investor_activation_completed"
   | "ria_activation_completed"
@@ -211,6 +212,7 @@ const EVENT_CATEGORY_BY_NAME: Record<
   one_location_share_confirmed: "feature",
   one_location_request_sent: "feature",
   one_location_public_link_created: "feature",
+  one_location_contact_signal_synced: "feature",
   growth_funnel_step_completed: "funnel",
   investor_activation_completed: "funnel",
   ria_activation_completed: "funnel",
@@ -428,6 +430,14 @@ export interface EventPayloadMap {
     duration_bucket: "15m" | "30m" | "1h" | "4h" | "24h" | "custom";
     copied_to_clipboard: boolean;
     active_invite_count: number;
+  };
+  one_location_contact_signal_synced: {
+    route_id: RouteId;
+    result: EventResult | "expected_error";
+    source_platform: "web" | "ios" | "android" | "native" | "unknown";
+    contact_count_bucket: "0" | "1_10" | "11_50" | "51_250" | "251_plus";
+    matched_count: number;
+    invite_candidate_count: number;
   };
   growth_funnel_step_completed: {
     journey: GrowthJourney;

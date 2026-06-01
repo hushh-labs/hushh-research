@@ -17,6 +17,7 @@ const {
   mockCreatePublicInvite,
   mockGetState,
   mockSyncCurrentUser,
+  mockSyncOneLocationContactSignals,
   mockTrackEvent,
   mockRouterPush,
   mockSearchParamsGet,
@@ -35,6 +36,7 @@ const {
   mockCreatePublicInvite: vi.fn(),
   mockGetState: vi.fn(),
   mockSyncCurrentUser: vi.fn(),
+  mockSyncOneLocationContactSignals: vi.fn(),
   mockTrackEvent: vi.fn(),
   mockRouterPush: vi.fn(),
   mockSearchParamsGet: vi.fn(),
@@ -91,6 +93,10 @@ vi.mock("@/lib/one-location/service", () => ({
   },
 }));
 
+vi.mock("@/lib/one-location/contact-signals", () => ({
+  syncOneLocationContactSignals: mockSyncOneLocationContactSignals,
+}));
+
 vi.mock("@/lib/services/account-identity-service", () => ({
   AccountIdentityService: {
     syncCurrentUser: mockSyncCurrentUser,
@@ -101,6 +107,7 @@ vi.mock("sonner", () => ({
   toast: {
     success: vi.fn(),
     error: vi.fn(),
+    info: vi.fn(),
   },
 }));
 
@@ -272,6 +279,13 @@ describe("OneLocationAgentPage", () => {
     });
     mockGetState.mockResolvedValue(locationState());
     mockSyncCurrentUser.mockResolvedValue({ user_id: "user_a" });
+    mockSyncOneLocationContactSignals.mockResolvedValue({
+      matches: [],
+      matchedUserIds: [],
+      totalContacts: 0,
+      inviteCandidateCount: 0,
+      sourcePlatform: "ios",
+    });
   });
 
   it("renders the One-owned encrypted location control surface", async () => {
@@ -632,6 +646,71 @@ describe("OneLocationAgentPage", () => {
         success_count: 2,
         failure_count: 0,
       }),
+    );
+  });
+
+  it("adds mobile contact matches as a ranking reason without showing phone digits", async () => {
+    mockUseRequireAuth.mockReturnValue({
+      loading: false,
+      isAuthenticated: true,
+      userId: "user_a",
+      user: { uid: "user_a", getIdToken: vi.fn().mockResolvedValue("id-token") },
+    });
+    mockSyncOneLocationContactSignals.mockResolvedValueOnce({
+      matches: [
+        {
+          user_id: "user_d",
+          kind: "investor",
+          display_name: "Investor D",
+          phone_last4: "9911",
+          profile: {},
+        },
+      ],
+      matchedUserIds: ["user_d"],
+      totalContacts: 8,
+      inviteCandidateCount: 7,
+      sourcePlatform: "ios",
+    });
+
+    render(<OneLocationAgentPageContent />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: /Sync Contacts/i }));
+
+    await waitFor(() =>
+      expect(mockSyncOneLocationContactSignals).toHaveBeenCalledWith({
+        idToken: "id-token",
+      }),
+    );
+    expect(await screen.findByText("In your contacts")).toBeTruthy();
+    expect(screen.getByText(/1 matched \/ 7 invite-ready/i)).toBeTruthy();
+    expect(screen.queryByText(/9911|8012|4455/)).toBeNull();
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      "one_location_contact_signal_synced",
+      expect.objectContaining({
+        route_id: "one_location",
+        result: "success",
+        source_platform: "ios",
+        contact_count_bucket: "1_10",
+        matched_count: 1,
+        invite_candidate_count: 7,
+      }),
+    );
+  });
+
+  it("creates an approval-first invite path for contacts who are not KAI users", async () => {
+    render(<OneLocationAgentPageContent />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: /Invite Contacts/i }));
+
+    await waitFor(() => expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1));
+    expect(mockCreatePublicInvite).toHaveBeenCalledWith({
+      vaultOwnerToken: "vault-token",
+      durationHours: 1,
+    });
+    expect(JSON.stringify(mockTrackEvent.mock.calls)).not.toMatch(
+      /8012|9911|latitude|longitude|28\.6139|77\.209/u,
     );
   });
 

@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock3,
+  ContactRound,
   Copy,
   ExternalLink,
   KeyRound,
@@ -70,6 +71,10 @@ import {
   recordOneLocationShareNotification,
 } from "@/lib/one-location/notifications";
 import { OneLocationService } from "@/lib/one-location/service";
+import {
+  syncOneLocationContactSignals,
+  type OneLocationContactSignalResult,
+} from "@/lib/one-location/contact-signals";
 import type {
   OneLocationAccessRequest,
   OneLocationGrant,
@@ -106,6 +111,8 @@ type BusyState =
   | "deny"
   | "refer"
   | "revoke"
+  | "contactSync"
+  | "contactInvite"
   | "publicInvite"
   | "publicRevoke"
   | null;
@@ -130,6 +137,36 @@ type OneLocationSelectionSurface =
   | "select_menu";
 
 type OneLocationDurationBucket = "15m" | "30m" | "1h" | "4h" | "24h" | "custom";
+
+type OneLocationContactSignalStatus =
+  | "idle"
+  | "scanning"
+  | "matched"
+  | "empty"
+  | "unavailable"
+  | "denied"
+  | "error";
+
+type OneLocationContactSignalState = {
+  status: OneLocationContactSignalStatus;
+  matchedUserIds: string[];
+  matchedCount: number;
+  totalContacts: number;
+  inviteCandidateCount: number;
+  sourcePlatform?: OneLocationContactSignalResult["sourcePlatform"];
+  error?: string | null;
+  syncedAt?: string | null;
+};
+
+const INITIAL_CONTACT_SIGNAL_STATE: OneLocationContactSignalState = {
+  status: "idle",
+  matchedUserIds: [],
+  matchedCount: 0,
+  totalContacts: 0,
+  inviteCandidateCount: 0,
+  error: null,
+  syncedAt: null,
+};
 
 function formatDateTime(value?: string | null): string {
   if (!value) return "Not set";
@@ -232,7 +269,27 @@ function recommendationSearchText(recipient: OneLocationRecipient): string {
 
 function rankRecipientsForRecommendation(
   recipients: OneLocationRecipient[],
+  contactMatchedUserIds: Set<string> = new Set(),
 ): OneLocationRecipient[] {
+  if (contactMatchedUserIds.size > 0) {
+    return [...recipients].sort((a, b) => {
+      const aScore =
+        (a.recommendationScore ?? 0) +
+        (contactMatchedUserIds.has(a.userId) ? 8 : 0);
+      const bScore =
+        (b.recommendationScore ?? 0) +
+        (contactMatchedUserIds.has(b.userId) ? 8 : 0);
+      if (aScore !== bScore) return bScore - aScore;
+      const aRank = a.recommendationRank ?? Number.MAX_SAFE_INTEGER;
+      const bRank = b.recommendationRank ?? Number.MAX_SAFE_INTEGER;
+      if (aRank !== bRank) return aRank - bRank;
+      if (a.canReceiveLocation !== b.canReceiveLocation) {
+        return a.canReceiveLocation ? -1 : 1;
+      }
+      return recipientLabel(a).localeCompare(recipientLabel(b));
+    });
+  }
+
   return [...recipients].sort((a, b) => {
     const aRank = a.recommendationRank ?? Number.MAX_SAFE_INTEGER;
     const bRank = b.recommendationRank ?? Number.MAX_SAFE_INTEGER;
@@ -244,6 +301,34 @@ function rankRecipientsForRecommendation(
       return a.canReceiveLocation ? -1 : 1;
     }
     return recipientLabel(a).localeCompare(recipientLabel(b));
+  });
+}
+
+function enrichRecipientsWithContactSignal(
+  recipients: OneLocationRecipient[],
+  contactMatchedUserIds: Set<string>,
+): OneLocationRecipient[] {
+  if (contactMatchedUserIds.size === 0) return recipients;
+
+  return recipients.map((recipient) => {
+    if (!contactMatchedUserIds.has(recipient.userId)) return recipient;
+    const reasons = recipient.recommendationReasons ?? [];
+    const hasContactReason = reasons.some(
+      (reason) => reason.code === "mobile_contact_signal",
+    );
+    return {
+      ...recipient,
+      recommendationTier: recipient.recommendationTier || "contacts",
+      recommendationReasons: hasContactReason
+        ? reasons
+        : [
+            { code: "mobile_contact_signal", label: "In your contacts" },
+            ...reasons,
+          ],
+      recommendationSummary:
+        recipient.recommendationSummary ||
+        "Matched from your private mobile contact scan",
+    };
   });
 }
 
@@ -429,6 +514,58 @@ function oneLocationEventResult(
   failureCount: number,
 ): "success" | "error" {
   return successCount > 0 && failureCount === 0 ? "success" : "error";
+}
+
+function contactCountBucket(
+  count: number,
+): "0" | "1_10" | "11_50" | "51_250" | "251_plus" {
+  if (count <= 0) return "0";
+  if (count <= 10) return "1_10";
+  if (count <= 50) return "11_50";
+  if (count <= 250) return "51_250";
+  return "251_plus";
+}
+
+function contactSignalStatusLabel(status: OneLocationContactSignalStatus): string {
+  switch (status) {
+    case "scanning":
+      return "Scanning";
+    case "matched":
+      return "Signal active";
+    case "empty":
+      return "No matches yet";
+    case "unavailable":
+      return "Mobile only";
+    case "denied":
+      return "Permission needed";
+    case "error":
+      return "Needs retry";
+    default:
+      return "Optional signal";
+  }
+}
+
+function contactSignalSummary(state: OneLocationContactSignalState): string {
+  switch (state.status) {
+    case "matched":
+      return `${state.matchedCount} KAI match${
+        state.matchedCount === 1 ? "" : "es"
+      } added as a ranking signal.`;
+    case "empty":
+      return state.totalContacts > 0
+        ? "No KAI users matched from this scan."
+        : "No contact numbers were available to match.";
+    case "unavailable":
+      return "Open One on iOS or Android to scan contacts.";
+    case "denied":
+      return "Allow contacts to use this optional ranking signal.";
+    case "error":
+      return state.error || "Contact signal could not be refreshed.";
+    case "scanning":
+      return "Checking contacts privately on this device.";
+    default:
+      return "Contacts stay on-device; only hashed lookups are used for matching.";
+  }
 }
 
 function grantCounterpartyLabel(grant: OneLocationGrant): string {
@@ -788,6 +925,8 @@ export function OneLocationAgentPageContent() {
   const [selectedRequestOwnerIds, setSelectedRequestOwnerIds] = useState<
     string[]
   >([]);
+  const [contactSignal, setContactSignal] =
+    useState<OneLocationContactSignalState>(INITIAL_CONTACT_SIGNAL_STATE);
   const [durationHours, setDurationHours] = useState("1");
   const [requestMessage, setRequestMessage] = useState("");
   const [referralTargets, setReferralTargets] = useState<
@@ -806,9 +945,21 @@ export function OneLocationAgentPageContent() {
     () => state?.recipients ?? [],
     [state?.recipients],
   );
+  const contactMatchedUserIds = useMemo(
+    () => new Set(contactSignal.matchedUserIds),
+    [contactSignal.matchedUserIds],
+  );
+  const contactSignalRecipients = useMemo(
+    () => enrichRecipientsWithContactSignal(recipients, contactMatchedUserIds),
+    [contactMatchedUserIds, recipients],
+  );
   const rankedRecipients = useMemo(
-    () => rankRecipientsForRecommendation(recipients),
-    [recipients],
+    () =>
+      rankRecipientsForRecommendation(
+        contactSignalRecipients,
+        contactMatchedUserIds,
+      ),
+    [contactMatchedUserIds, contactSignalRecipients],
   );
   const visibleRecipients = useMemo(() => {
     const query = recipientSearch.trim().toLowerCase();
@@ -822,8 +973,8 @@ export function OneLocationAgentPageContent() {
     [visibleRecipients],
   );
   const selectedShareRecipients = useMemo(
-    () => recipientSelectionFromIds(recipients, selectedRecipientIds),
-    [recipients, selectedRecipientIds],
+    () => recipientSelectionFromIds(contactSignalRecipients, selectedRecipientIds),
+    [contactSignalRecipients, selectedRecipientIds],
   );
   const shareReadySelectedRecipients = useMemo(
     () => selectedShareRecipients.filter(isShareReadyRecipient),
@@ -837,8 +988,9 @@ export function OneLocationAgentPageContent() {
     [selectedShareRecipients],
   );
   const selectedRequestOwners = useMemo(
-    () => recipientSelectionFromIds(recipients, selectedRequestOwnerIds),
-    [recipients, selectedRequestOwnerIds],
+    () =>
+      recipientSelectionFromIds(contactSignalRecipients, selectedRequestOwnerIds),
+    [contactSignalRecipients, selectedRequestOwnerIds],
   );
   const pendingOwnerRequests = useMemo(
     () =>
@@ -990,7 +1142,11 @@ export function OneLocationAgentPageContent() {
         setPermission(nextPermission);
         setState(nextState);
         const rankedNextRecipients = rankRecipientsForRecommendation(
-          nextState.recipients,
+          enrichRecipientsWithContactSignal(
+            nextState.recipients,
+            contactMatchedUserIds,
+          ),
+          contactMatchedUserIds,
         );
         const firstRecommendedRecipient = rankedNextRecipients[0];
         const nextRecipientIds = new Set(
@@ -1037,7 +1193,13 @@ export function OneLocationAgentPageContent() {
     })();
     refreshInFlightRef.current = task;
     return task;
-  }, [auth.user, auth.userId, isVaultUnlocked, vaultOwnerToken]);
+  }, [
+    auth.user,
+    auth.userId,
+    contactMatchedUserIds,
+    isVaultUnlocked,
+    vaultOwnerToken,
+  ]);
 
   useEffect(() => {
     if (!auth.loading) {
@@ -1398,6 +1560,96 @@ export function OneLocationAgentPageContent() {
     [refresh, vaultOwnerToken],
   );
 
+  const handleSyncContactSignal = useCallback(async () => {
+    if (!auth.user?.getIdToken) {
+      const message = "Sign in before syncing contacts.";
+      setContactSignal((current) => ({
+        ...current,
+        status: "error",
+        error: message,
+      }));
+      toast.error(message);
+      return;
+    }
+
+    setBusy("contactSync");
+    setContactSignal((current) => ({
+      ...current,
+      status: "scanning",
+      error: null,
+    }));
+
+    try {
+      const idToken = await auth.user.getIdToken();
+      const result = await syncOneLocationContactSignals({ idToken });
+      const nextStatus: OneLocationContactSignalStatus =
+        result.matchedUserIds.length > 0 ? "matched" : "empty";
+      setContactSignal({
+        status: nextStatus,
+        matchedUserIds: result.matchedUserIds,
+        matchedCount: result.matchedUserIds.length,
+        totalContacts: result.totalContacts,
+        inviteCandidateCount: result.inviteCandidateCount,
+        sourcePlatform: result.sourcePlatform,
+        error: null,
+        syncedAt: new Date().toISOString(),
+      });
+      trackEvent("one_location_contact_signal_synced", {
+        route_id: "one_location",
+        result: "success",
+        source_platform: result.sourcePlatform,
+        contact_count_bucket: contactCountBucket(result.totalContacts),
+        matched_count: result.matchedUserIds.length,
+        invite_candidate_count: result.inviteCandidateCount,
+      });
+      if (result.matchedUserIds.length > 0) {
+        toast.success(
+          `${peopleCountLabel(
+            result.matchedUserIds.length,
+          )} added as a contact signal.`,
+        );
+      } else {
+        toast.info("No KAI users matched from this contact scan.");
+      }
+    } catch (error) {
+      const message = oneLocationErrorMessage(
+        error,
+        "Could not sync contacts.",
+      );
+      const normalized = message.toLowerCase();
+      const status: OneLocationContactSignalStatus =
+        normalized.includes("denied") || normalized.includes("permission")
+          ? "denied"
+          : normalized.includes("native") ||
+              normalized.includes("mobile") ||
+              normalized.includes("unavailable") ||
+              normalized.includes("web view")
+            ? "unavailable"
+            : "error";
+      setContactSignal((current) => ({
+        ...current,
+        status,
+        error: message,
+        syncedAt: new Date().toISOString(),
+      }));
+      trackEvent("one_location_contact_signal_synced", {
+        route_id: "one_location",
+        result: status === "denied" || status === "unavailable" ? "expected_error" : "error",
+        source_platform: contactSignal.sourcePlatform ?? "unknown",
+        contact_count_bucket: contactCountBucket(contactSignal.totalContacts),
+        matched_count: contactSignal.matchedCount,
+        invite_candidate_count: contactSignal.inviteCandidateCount,
+      });
+      if (status === "unavailable") {
+        toast.info("Contact sync is available in the iOS and Android app.");
+      } else {
+        toast.error(message);
+      }
+    } finally {
+      setBusy(null);
+    }
+  }, [auth.user, contactSignal]);
+
   const handleRequestAccess = useCallback(async () => {
     if (!vaultOwnerToken || !selectedRequestOwners.length) return;
     setBusy("request");
@@ -1518,6 +1770,65 @@ export function OneLocationAgentPageContent() {
       toast.error("Could not open the share sheet.");
     }
   }, [publicInviteUrl]);
+
+  const handleShareContactInvite = useCallback(async () => {
+    if (!vaultOwnerToken) return;
+    setBusy("contactInvite");
+    try {
+      let url = publicInviteUrl;
+      if (!url) {
+        const response = await OneLocationService.createPublicInvite({
+          vaultOwnerToken,
+          durationHours: Number(durationHours),
+        });
+        url = publicInviteUrlLabel(response.publicUrl);
+        setPublicInviteUrl(url);
+        trackEvent("one_location_public_link_created", {
+          route_id: "one_location",
+          result: "success",
+          duration_bucket: oneLocationDurationBucket(durationHours),
+          copied_to_clipboard: false,
+          active_invite_count: activePublicInvites.length + 1,
+        });
+        await refresh();
+      }
+
+      const text =
+        "Join my KAI Circle on One Location. Send me a request here; I approve before anything is shared.";
+      if (navigator.share && url) {
+        await navigator.share({
+          title: "Join my KAI Circle",
+          text,
+          url,
+        });
+        return;
+      }
+      if (navigator.clipboard && url) {
+        await navigator.clipboard.writeText(`${text} ${url}`);
+        toast.success("Invite link copied.");
+        return;
+      }
+      toast.info("Create a request link, then share it with your contacts.");
+    } catch (error) {
+      if ((error as Error)?.name === "AbortError") return;
+      trackEvent("one_location_public_link_created", {
+        route_id: "one_location",
+        result: "error",
+        duration_bucket: oneLocationDurationBucket(durationHours),
+        copied_to_clipboard: false,
+        active_invite_count: activePublicInvites.length,
+      });
+      toast.error(oneLocationErrorMessage(error, "Could not prepare invite."));
+    } finally {
+      setBusy(null);
+    }
+  }, [
+    activePublicInvites.length,
+    durationHours,
+    publicInviteUrl,
+    refresh,
+    vaultOwnerToken,
+  ]);
 
   const handleRevokePublicInvite = useCallback(
     async (invite: OneLocationPublicInvite) => {
@@ -2003,6 +2314,62 @@ export function OneLocationAgentPageContent() {
                         </div>
                       );
                     })}
+                  </div>
+
+                  <div className="rounded-[14px] border border-black/[0.04] bg-white/70 p-3 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.06]">
+                    <div className="flex items-start gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#eaf9ef] text-[#2dbd5a] dark:bg-emerald-400/15 dark:text-emerald-200">
+                        <ContactRound className="h-4 w-4" aria-hidden="true" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-[14px] font-bold tracking-tight text-[#1c1c1e] dark:text-white">
+                            Mobile contact signal
+                          </h3>
+                          <span className="rounded-full bg-[#f2f2f7] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#636366] dark:bg-white/10 dark:text-white/65">
+                            {contactSignalStatusLabel(contactSignal.status)}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[12px] leading-5 text-[#8e8e93] dark:text-white/55">
+                          {contactSignalSummary(contactSignal)}
+                        </p>
+                        {contactSignal.status === "matched" ||
+                        contactSignal.status === "empty" ? (
+                          <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8e8e93] dark:text-white/45">
+                            {contactSignal.matchedCount} matched /{" "}
+                            {contactSignal.inviteCandidateCount} invite-ready
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <ActionButton
+                        busy={busy}
+                        busyKey="contactSync"
+                        onClick={() => void handleSyncContactSignal()}
+                        disabled={!auth.user || busy === "contactInvite"}
+                        variant="outline"
+                        className="h-10 rounded-[12px] border-black/[0.06] bg-white text-[13px] font-semibold text-[#1c1c1e] shadow-sm hover:bg-[#f2f2f7] dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15"
+                      >
+                        {busy !== "contactSync" ? (
+                          <ContactRound className="mr-2 h-4 w-4" aria-hidden="true" />
+                        ) : null}
+                        Sync Contacts
+                      </ActionButton>
+                      <ActionButton
+                        busy={busy}
+                        busyKey="contactInvite"
+                        onClick={() => void handleShareContactInvite()}
+                        disabled={!vaultOwnerToken || busy === "contactSync"}
+                        variant="outline"
+                        className="h-10 rounded-[12px] border-black/[0.06] bg-white text-[13px] font-semibold text-[#007aff] shadow-sm hover:bg-[#f2f2f7] dark:border-white/[0.08] dark:bg-white/10 dark:text-[#76b7ff] dark:hover:bg-white/15"
+                      >
+                        {busy !== "contactInvite" ? (
+                          <Send className="mr-2 h-4 w-4" aria-hidden="true" />
+                        ) : null}
+                        Invite Contacts
+                      </ActionButton>
+                    </div>
                   </div>
 
                   <div className={onePanelClassName}>
