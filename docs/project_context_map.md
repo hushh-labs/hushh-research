@@ -42,7 +42,7 @@ flowchart TB
 
 This repo is the platform.
 
-Kai is the primary user-facing intelligence surface, but the architecture also includes the trust plane, the data plane, the developer lane, the agent plane, the mobile lane, and the operational governance surface that keep the platform coherent at scale.
+The current checked-in user-facing intelligence runtime is Kai-first, while the product direction is One as the personal agent with Kai as its finance specialist. The architecture also includes the trust plane, the data plane, the developer lane, the agent plane, the mobile lane, and the operational governance surface that keep the platform coherent at scale.
 
 Start with:
 

@@ -58,6 +58,7 @@ import {
 } from "@/lib/kai/kai-financial-resource";
 import { KaiMarketHomeResourceService } from "@/lib/kai/kai-market-home-resource";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
+import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
 import { ensureKaiVaultOwnerToken } from "@/lib/services/kai-token-guard";
 import {
   type KaiHomeInsightsV2,
@@ -71,7 +72,10 @@ import {
   getKaiActivePickSource,
   setKaiActivePickSource,
 } from "@/lib/kai/pick-source-selection";
-import { assignWindowLocation, openExternalUrl } from "@/lib/utils/browser-navigation";
+import {
+  openExternalUrl,
+  requestInternalAppNavigation,
+} from "@/lib/utils/browser-navigation";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import {
@@ -110,10 +114,14 @@ const MARKET_SIGNAL_CARD_CLASSNAME = cn(
 
 const MARKET_SIGNAL_INSET_CLASSNAME = marketInsetClassName;
 
+function normalizeMarketSymbol(value: unknown): string {
+  return String(value || "").trim().toUpperCase();
+}
+
 function normalizeTrackedSymbols(symbols: string[] | null | undefined): string[] {
   if (!Array.isArray(symbols)) return [];
   return symbols
-    .map((symbol) => String(symbol || "").trim().toUpperCase())
+    .map((symbol) => normalizeMarketSymbol(symbol))
     .filter(Boolean)
     .filter((symbol, index, arr) => arr.indexOf(symbol) === index)
     .slice(0, 8);
@@ -122,7 +130,7 @@ function normalizeTrackedSymbols(symbols: string[] | null | undefined): string[]
 function normalizeAllSymbols(symbols: string[] | null | undefined): string[] {
   if (!Array.isArray(symbols)) return [];
   return symbols
-    .map((symbol) => String(symbol || "").trim().toUpperCase())
+    .map((symbol) => normalizeMarketSymbol(symbol))
     .filter(Boolean)
     .filter((symbol, index, arr) => arr.indexOf(symbol) === index);
 }
@@ -230,12 +238,147 @@ function signalConfidenceTone(signal: {
   return "bg-[var(--app-card-surface-compact)] text-muted-foreground";
 }
 
-function visibleSignalSourceTags(signal: KaiHomeSignal | undefined): string[] {
-  if (!Array.isArray(signal?.source_tags)) return [];
-  return signal.source_tags
+type MarketEvidenceItem = {
+  label: string;
+  value: string;
+  tone?: "neutral" | "warning";
+};
+
+function uniqueMarketEvidenceItems(items: Array<MarketEvidenceItem | null | undefined>): MarketEvidenceItem[] {
+  const seen = new Set<string>();
+  return items.filter((item): item is MarketEvidenceItem => {
+    if (!item) return false;
+    const value = item.value.trim();
+    if (!value || isUnavailableText(value)) return false;
+    const key = `${item.label}:${value}`.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function visibleMarketSourceTags(tags: string[] | null | undefined): string[] {
+  if (!Array.isArray(tags)) return [];
+  return tags
     .map((tag) => String(tag || "").trim())
     .filter(Boolean)
-    .filter((tag) => !/fallback|unavailable|cache|derived/i.test(tag));
+    .filter((tag) => !/fallback|unavailable|cache|derived/i.test(tag))
+    .filter((tag, index, arr) => arr.findIndex((candidate) => candidate.toLowerCase() === tag.toLowerCase()) === index);
+}
+
+function formatEvidenceTimestamp(value: string | null | undefined): string | null {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function confidenceEvidenceItem(value: number | null | undefined): MarketEvidenceItem | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const pct = Math.max(0, Math.min(100, Math.round(value * 100)));
+  return {
+    label: "Confidence",
+    value: `${pct}%`,
+  };
+}
+
+function signalEvidenceItems(signal: KaiHomeSignal | undefined): MarketEvidenceItem[] {
+  if (!signal) return [];
+  return uniqueMarketEvidenceItems([
+    confidenceEvidenceItem(signal.confidence),
+    ...visibleMarketSourceTags(signal.source_tags)
+      .slice(0, 2)
+      .map((tag) => ({
+        label: "Source",
+        value: tag,
+      })),
+    signal.degraded
+      ? {
+          label: "State",
+          value: "Degraded feed",
+          tone: "warning",
+        }
+      : null,
+  ]);
+}
+
+function spotlightEvidenceItems(
+  row: NonNullable<KaiHomeInsightsV2["spotlights"]>[number]
+): MarketEvidenceItem[] {
+  const asOf = formatEvidenceTimestamp(row.as_of);
+  return uniqueMarketEvidenceItems([
+    confidenceEvidenceItem(row.confidence),
+    row.recommendation_source
+      ? {
+          label: "Recommendation",
+          value: row.recommendation_source,
+        }
+      : null,
+    row.headline_source
+      ? {
+          label: "Coverage",
+          value: row.headline_source,
+        }
+      : null,
+    ...visibleMarketSourceTags(row.source_tags)
+      .slice(0, 2)
+      .map((tag) => ({
+        label: "Source",
+        value: tag,
+      })),
+    asOf
+      ? {
+          label: "Quote as of",
+          value: asOf,
+        }
+      : null,
+    row.degraded
+      ? {
+          label: "State",
+          value: "Degraded feed",
+          tone: "warning",
+        }
+      : null,
+  ]);
+}
+
+function MarketEvidenceStrip({
+  items,
+  compact = false,
+}: {
+  items: MarketEvidenceItem[];
+  compact?: boolean;
+}) {
+  if (!items.length) return null;
+
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap gap-2 rounded-[calc(var(--app-card-radius-compact)-4px)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)]",
+        compact ? "px-2.5 py-2" : "px-3 py-2.5"
+      )}
+      aria-label="Evidence used for this market read"
+    >
+      {items.slice(0, compact ? 3 : 4).map((item) => (
+        <span
+          key={`${item.label}:${item.value}`}
+          className={cn(
+            "inline-flex min-w-0 items-center gap-1 text-[11px] leading-4 text-muted-foreground",
+            item.tone === "warning" && "text-amber-700 dark:text-amber-300"
+          )}
+        >
+          <span className="shrink-0 font-semibold text-foreground/72">{item.label}</span>
+          <span className="truncate">{item.value}</span>
+        </span>
+      ))}
+    </div>
+  );
 }
 
 function deriveSignalSupportingItems(
@@ -249,7 +392,7 @@ function deriveSignalSupportingItems(
   const directItems = Array.isArray(signal?.supporting_items)
     ? signal.supporting_items
         .map((item) => ({
-          symbol: String(item?.symbol || "").trim().toUpperCase(),
+          symbol: normalizeMarketSymbol(item?.symbol),
           company_name: String(item?.company_name || "").trim() || undefined,
         }))
         .filter((item) => item.symbol)
@@ -324,7 +467,7 @@ function signalDetailGroups(
   const pickRowMap = new Map(
     pickRows
       .map((row) => {
-        const symbol = String(row.symbol || "").trim().toUpperCase();
+        const symbol = normalizeMarketSymbol(row.symbol);
         if (!symbol) return null;
         return [
           symbol,
@@ -343,12 +486,12 @@ function signalDetailGroups(
     const higher = pickRows
       .filter((row) => typeof row.change_pct === "number" && row.change_pct > 0)
       .sort((left, right) => Math.abs(Number(right.change_pct || 0)) - Math.abs(Number(left.change_pct || 0)))
-      .map((row) => String(row.symbol || "").trim().toUpperCase())
+      .map((row) => normalizeMarketSymbol(row.symbol))
       .filter(Boolean);
     const lower = pickRows
       .filter((row) => typeof row.change_pct === "number" && row.change_pct < 0)
       .sort((left, right) => Math.abs(Number(right.change_pct || 0)) - Math.abs(Number(left.change_pct || 0)))
-      .map((row) => String(row.symbol || "").trim().toUpperCase())
+      .map((row) => normalizeMarketSymbol(row.symbol))
       .filter(Boolean);
     return [
       higher.length ? { label: "Higher today", items: toItems(higher) } : null,
@@ -392,7 +535,7 @@ function signalDetailGroups(
         return normalized === dominantRecommendation;
       })
       .sort((left, right) => Math.abs(Number(right.change_pct || 0)) - Math.abs(Number(left.change_pct || 0)))
-      .map((row) => String(row.symbol || "").trim().toUpperCase())
+      .map((row) => normalizeMarketSymbol(row.symbol))
       .filter(Boolean);
     return supporting.length ? [{ label: "Buy leaders", items: toItems(supporting) }] : [];
   }
@@ -620,6 +763,7 @@ function SpotlightFeatureTile({
   const _confidenceLabel = spotlightConfidenceLabel(row);
   const summary = summarizeSpotlight(row);
   const context = spotlightContextLabel(row);
+  const evidenceItems = spotlightEvidenceItems(row);
   const companyName = String(row.company_name || row.symbol || "Unknown").trim();
   const price = formatSpotlightPrice(row.price);
   const decisionTone =
@@ -637,7 +781,7 @@ function SpotlightFeatureTile({
           openExternalUrl(primaryHref);
           return;
         }
-        assignWindowLocation(primaryHref);
+        requestInternalAppNavigation({ href: primaryHref, scroll: false });
       }}
       className={cn(
         surfaceInteractiveShellClassName,
@@ -667,6 +811,7 @@ function SpotlightFeatureTile({
 
         <p className="text-2xl font-semibold tracking-tight text-foreground">{price}</p>
         <p className="line-clamp-2 text-sm leading-6 text-muted-foreground">{summary}</p>
+        <MarketEvidenceStrip items={evidenceItems} compact />
       </div>
 
       <div className="mt-4 flex items-center justify-between gap-3 border-t border-[color:var(--app-card-border-standard)] pt-3">
@@ -950,23 +1095,23 @@ function toBreadthMetric(
     pickRows
       .filter((row) => typeof row.change_pct === "number" && row.change_pct > 0)
       .sort((left, right) => Math.abs(Number(right.change_pct || 0)) - Math.abs(Number(left.change_pct || 0)))
-      .map((row) => String(row.symbol || "").trim().toUpperCase())
+      .map((row) => normalizeMarketSymbol(row.symbol))
   );
   const lowerToday = normalizeAllSymbols(
     pickRows
       .filter((row) => typeof row.change_pct === "number" && row.change_pct < 0)
       .sort((left, right) => Math.abs(Number(right.change_pct || 0)) - Math.abs(Number(left.change_pct || 0)))
-      .map((row) => String(row.symbol || "").trim().toUpperCase())
+      .map((row) => normalizeMarketSymbol(row.symbol))
   );
   const _topHigher = Array.isArray(movers?.gainers)
     ? movers.gainers
-        .map((row) => String(row?.symbol || "").trim().toUpperCase())
+        .map((row) => normalizeMarketSymbol(row?.symbol))
         .filter(Boolean)
         .slice(0, 3)
     : [];
   const _topLower = Array.isArray(movers?.losers)
     ? movers.losers
-        .map((row) => String(row?.symbol || "").trim().toUpperCase())
+        .map((row) => normalizeMarketSymbol(row?.symbol))
         .filter(Boolean)
         .slice(0, 3)
     : [];
@@ -1585,13 +1730,23 @@ function useKaiMarketHomeController() {
     payload,
     loading: !payload && baselineResource.loading,
     refreshing: baselineResource.refreshing || personalizedResource.refreshing,
-    error: payload
-      ? personalizedResource.error || baselineResource.error
-      : baselineResource.error || personalizedResource.error,
+    error: sanitizeMarketHomeError(
+      payload
+        ? personalizedResource.error || baselineResource.error
+        : baselineResource.error || personalizedResource.error
+    ),
     activePickSource,
     loadInsights,
     handlePickSourceChange,
   };
+}
+
+function sanitizeMarketHomeError(error: string | null): string | null {
+  if (!error) return null;
+  if (/\b404\b/.test(error) || /not ready yet/i.test(error)) {
+    return null;
+  }
+  return sanitizeErrorMessage(error).message;
 }
 
 export function KaiMarketPreviewView() {
@@ -2040,19 +2195,8 @@ export function KaiMarketPreviewView() {
                     </div>
                   ) : null}
 
-                  {visibleSignalSourceTags(scenarioSignal).length ? (
-                    <div className="flex flex-wrap gap-2">
-                      {visibleSignalSourceTags(scenarioSignal).slice(0, 3).map((tag) => (
-                        <Badge
-                          key={tag}
-                          variant="outline"
-                          className="border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-[10px] font-medium text-foreground/72"
-                        >
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : null}
+                  <MarketEvidenceStrip items={signalEvidenceItems(scenarioSignal)} />
+
                 </div>
 
                 {primarySignalGroups.length ? (
@@ -2116,6 +2260,7 @@ export function KaiMarketPreviewView() {
                               {signal.summary ? (
                                 <p className="text-xs leading-5 text-muted-foreground">{signal.summary}</p>
                               ) : null}
+                              <MarketEvidenceStrip items={signalEvidenceItems(signal)} compact />
                               {evidence.length ? (
                                 <div className="grid gap-2">
                                   {evidence.slice(0, 1).map((line) => (
