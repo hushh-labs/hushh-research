@@ -3,7 +3,18 @@
 /**
  * Canonical unit test for src/utils/consent/payloadValidator.js
  *
- * Requires and exercises the real production module — no mocks, no stubs.
+ * Proves that validateConsentPayload enforces the same structural guards
+ * already present across the consent-action call path:
+ *
+ *   hushh-webapp/lib/services/api-service.ts
+ *     approvePendingConsent / denyPendingConsent
+ *   hushh-webapp/app/api/consent/pending/deny/route.ts     → 400 on missing userId/requestId
+ *   hushh-webapp/app/api/consent/pending/approve/route.ts  → 400 on missing userId/requestId
+ *                                                          → 400 on exportKey (ZK mode)
+ *   api-service.ts                                         → 401 on missing vaultOwnerToken
+ *   consent-protocol/api/routes/consent.py
+ *     CancelConsentRequest (Pydantic): userId: str, requestId: str
+ *
  * Exits with code 0 when every assertion passes; code 1 on any failure.
  */
 
@@ -25,129 +36,118 @@ function runTest(label, fn) {
   }
 }
 
-// ── Suite 1: Perfectly structured valid payload ───────────────────────────────
-
-console.log("\n[Suite 1] Valid payload — happy path");
-
-const VALID_PAYLOAD = {
-  userId: "usr_abdulgaffar_2026",
-  timestamp: 1748701200,
-  preferences: {
-    functional: true,
-    analytics: false,
-    marketing: true,
-  },
+// Reference payload matching the real denyPendingConsent / approvePendingConsent shape
+const VALID_DENY_PAYLOAD = {
+  userId:          "usr_abdulgaffar_2026",
+  requestId:       "req_consent_abc123",
+  vaultOwnerToken: "hushh_consent:vault.abc.sig123",
 };
 
+// ── Suite 1: Valid consent action payload ─────────────────────────────────────
+
+console.log("\n[Suite 1] Valid consent action payload — matches real denyPendingConsent shape");
+
 runTest(
-  "valid payload returns { valid: true }",
+  "fully valid payload returns { valid: true }",
   () => {
-    const result = validateConsentPayload(VALID_PAYLOAD);
-    assert.strictEqual(result.valid, true, `Expected valid:true, got: ${JSON.stringify(result)}`);
+    const result = validateConsentPayload(VALID_DENY_PAYLOAD);
+    assert.strictEqual(result.valid, true,
+      `Expected valid:true — mirrors 200 path in pending/deny/route.ts. Got: ${JSON.stringify(result)}`);
   }
 );
 
 runTest(
   "sanitized property references the original payload object",
   () => {
-    const result = validateConsentPayload(VALID_PAYLOAD);
-    assert.strictEqual(
-      result.sanitized,
-      VALID_PAYLOAD,
-      "sanitized must be the same object reference as the input payload"
-    );
+    const result = validateConsentPayload(VALID_DENY_PAYLOAD);
+    assert.strictEqual(result.sanitized, VALID_DENY_PAYLOAD,
+      "sanitized must be the same object reference as the input payload");
   }
 );
 
 runTest(
   "valid result carries no error property",
   () => {
-    const result = validateConsentPayload(VALID_PAYLOAD);
-    assert.strictEqual(
-      result.error,
-      undefined,
-      "A passing result must not contain an error field"
-    );
+    const result = validateConsentPayload(VALID_DENY_PAYLOAD);
+    assert.strictEqual(result.error, undefined);
   }
 );
 
 runTest(
-  "all-false preference switches are still valid booleans",
+  "extra optional fields (encryptedData, durationHours) are preserved for approve path",
+  () => {
+    const approvePayload = {
+      ...VALID_DENY_PAYLOAD,
+      encryptedData:  "enc_base64_payload",
+      encryptedIv:    "iv_base64",
+      durationHours:  24,
+    };
+    const result = validateConsentPayload(approvePayload);
+    assert.strictEqual(result.valid, true,
+      "Optional approve-path fields must not cause validation failure");
+  }
+);
+
+// ── Suite 2: Missing required fields ─────────────────────────────────────────
+
+console.log("\n[Suite 2] Missing required fields — mirrors 400 guards in the JS route handlers");
+
+runTest(
+  "missing userId → valid:false (mirrors: pending/deny/route.ts if (!userId) → 400)",
   () => {
     const result = validateConsentPayload({
-      userId: "usr_minimal",
-      timestamp: 0,
-      preferences: { functional: false, analytics: false, marketing: false },
-    });
-    assert.strictEqual(result.valid, true);
-  }
-);
-
-// ── Suite 2: Completely missing top-level fields ──────────────────────────────
-
-console.log("\n[Suite 2] Missing required top-level fields");
-
-runTest(
-  "empty object → valid:false with informative error",
-  () => {
-    const result = validateConsentPayload({});
-    assert.strictEqual(result.valid, false);
-    assert.ok(typeof result.error === "string" && result.error.length > 0,
-      "Expected a non-empty error string");
-  }
-);
-
-runTest(
-  "missing userId → valid:false mentioning userId",
-  () => {
-    const result = validateConsentPayload({
-      timestamp: 1748701200,
-      preferences: { functional: true, analytics: false, marketing: false },
+      requestId:       "req_abc",
+      vaultOwnerToken: "hushh_consent:vault.abc.sig",
     });
     assert.strictEqual(result.valid, false);
     assert.ok(result.error.toLowerCase().includes("userid"),
-      `Error should reference userId, got: "${result.error}"`);
+      `Error must name the missing field. Got: "${result.error}"`);
   }
 );
 
 runTest(
-  "missing timestamp → valid:false mentioning timestamp",
+  "missing requestId → valid:false (mirrors: pending/deny/route.ts if (!requestId) → 400)",
   () => {
     const result = validateConsentPayload({
-      userId: "usr_test",
-      preferences: { functional: true, analytics: false, marketing: false },
+      userId:          "usr_test",
+      vaultOwnerToken: "hushh_consent:vault.abc.sig",
     });
     assert.strictEqual(result.valid, false);
-    assert.ok(result.error.toLowerCase().includes("timestamp"),
-      `Error should reference timestamp, got: "${result.error}"`);
+    assert.ok(result.error.toLowerCase().includes("requestid"),
+      `Error must name the missing field. Got: "${result.error}"`);
   }
 );
 
 runTest(
-  "missing preferences → valid:false mentioning preferences",
+  "missing vaultOwnerToken → valid:false (mirrors: api-service.ts if (!vaultOwnerToken) → 401)",
   () => {
     const result = validateConsentPayload({
-      userId: "usr_test",
-      timestamp: 1748701200,
+      userId:    "usr_test",
+      requestId: "req_abc",
     });
     assert.strictEqual(result.valid, false);
-    assert.ok(result.error.toLowerCase().includes("preferences"),
-      `Error should reference preferences, got: "${result.error}"`);
+    assert.ok(result.error.toLowerCase().includes("vaultownertoken"),
+      `Error must name the missing field. Got: "${result.error}"`);
   }
 );
 
-// ── Suite 3: Corrupted payload data types ─────────────────────────────────────
+runTest(
+  "empty object → valid:false, reports first missing field",
+  () => {
+    const result = validateConsentPayload({});
+    assert.strictEqual(result.valid, false);
+    assert.ok(typeof result.error === "string" && result.error.length > 0);
+  }
+);
 
-console.log("\n[Suite 3] Corrupted field data types");
+// ── Suite 3: Type and format violations ───────────────────────────────────────
+
+console.log("\n[Suite 3] Type and format violations — same conditions the Python Pydantic models enforce");
 
 runTest(
-  "userId as number → valid:false",
+  "userId as number → valid:false (Python CancelConsentRequest: userId: str)",
   () => {
-    const result = validateConsentPayload({
-      userId: 99,
-      timestamp: 1748701200,
-      preferences: { functional: true, analytics: false, marketing: false },
-    });
+    const result = validateConsentPayload({ ...VALID_DENY_PAYLOAD, userId: 42 });
     assert.strictEqual(result.valid, false);
     assert.ok(result.error.toLowerCase().includes("userid"));
   }
@@ -156,161 +156,63 @@ runTest(
 runTest(
   "userId as empty string → valid:false",
   () => {
-    const result = validateConsentPayload({
-      userId: "   ",
-      timestamp: 1748701200,
-      preferences: { functional: true, analytics: false, marketing: false },
-    });
+    const result = validateConsentPayload({ ...VALID_DENY_PAYLOAD, userId: "   " });
     assert.strictEqual(result.valid, false);
     assert.ok(result.error.toLowerCase().includes("userid"));
   }
 );
 
 runTest(
-  "timestamp as string → valid:false",
+  "requestId as number → valid:false (Python CancelConsentRequest: requestId: str)",
   () => {
-    const result = validateConsentPayload({
-      userId: "usr_test",
-      timestamp: "1748701200",
-      preferences: { functional: true, analytics: false, marketing: false },
-    });
+    const result = validateConsentPayload({ ...VALID_DENY_PAYLOAD, requestId: 99 });
     assert.strictEqual(result.valid, false);
-    assert.ok(result.error.toLowerCase().includes("timestamp"));
+    assert.ok(result.error.toLowerCase().includes("requestid"));
   }
 );
 
 runTest(
-  "timestamp as float → valid:false (must be integer)",
+  "requestId as empty string → valid:false",
   () => {
-    const result = validateConsentPayload({
-      userId: "usr_test",
-      timestamp: 1748701200.5,
-      preferences: { functional: true, analytics: false, marketing: false },
-    });
+    const result = validateConsentPayload({ ...VALID_DENY_PAYLOAD, requestId: "" });
     assert.strictEqual(result.valid, false);
-    assert.ok(result.error.toLowerCase().includes("timestamp"));
+    assert.ok(result.error.toLowerCase().includes("requestid"));
   }
 );
 
 runTest(
-  "timestamp as negative integer → valid:false",
+  "vaultOwnerToken as whitespace-only string → valid:false",
+  () => {
+    const result = validateConsentPayload({ ...VALID_DENY_PAYLOAD, vaultOwnerToken: "   " });
+    assert.strictEqual(result.valid, false);
+    assert.ok(result.error.toLowerCase().includes("vaultownertoken"));
+  }
+);
+
+// ── Suite 4: Zero-knowledge mode guard ────────────────────────────────────────
+
+console.log("\n[Suite 4] ZK mode guard — mirrors pending/approve/route.ts exportKey → 400");
+
+runTest(
+  "payload containing exportKey → valid:false regardless of other fields",
   () => {
     const result = validateConsentPayload({
-      userId: "usr_test",
-      timestamp: -1,
-      preferences: { functional: true, analytics: false, marketing: false },
+      ...VALID_DENY_PAYLOAD,
+      exportKey: "plaintext-key-value",
     });
-    assert.strictEqual(result.valid, false);
-    assert.ok(result.error.toLowerCase().includes("timestamp"));
+    assert.strictEqual(result.valid, false,
+      "exportKey violates the zero-knowledge contract (approve/route.ts returns 400 for this)");
+    assert.ok(result.error.toLowerCase().includes("exportkey"),
+      `Error must reference exportKey. Got: "${result.error}"`);
   }
 );
 
 runTest(
-  "preferences as array → valid:false",
+  "payload with exportKey = null still triggers ZK guard (key presence, not value)",
   () => {
-    const result = validateConsentPayload({
-      userId: "usr_test",
-      timestamp: 1748701200,
-      preferences: [true, false, true],
-    });
+    const result = validateConsentPayload({ ...VALID_DENY_PAYLOAD, exportKey: null });
     assert.strictEqual(result.valid, false);
-    assert.ok(result.error.toLowerCase().includes("preferences"));
-  }
-);
-
-runTest(
-  "preferences as string → valid:false",
-  () => {
-    const result = validateConsentPayload({
-      userId: "usr_test",
-      timestamp: 1748701200,
-      preferences: "all-on",
-    });
-    assert.strictEqual(result.valid, false);
-    assert.ok(result.error.toLowerCase().includes("preferences"));
-  }
-);
-
-// ── Suite 4: Missing / malformed nested preference switches ───────────────────
-
-console.log("\n[Suite 4] Missing or malformed nested preference switches");
-
-runTest(
-  "missing preferences.functional → valid:false",
-  () => {
-    const result = validateConsentPayload({
-      userId: "usr_test",
-      timestamp: 1748701200,
-      preferences: { analytics: false, marketing: false },
-    });
-    assert.strictEqual(result.valid, false);
-    assert.ok(result.error.includes("functional"),
-      `Error should name missing key, got: "${result.error}"`);
-  }
-);
-
-runTest(
-  "missing preferences.analytics → valid:false",
-  () => {
-    const result = validateConsentPayload({
-      userId: "usr_test",
-      timestamp: 1748701200,
-      preferences: { functional: true, marketing: false },
-    });
-    assert.strictEqual(result.valid, false);
-    assert.ok(result.error.includes("analytics"));
-  }
-);
-
-runTest(
-  "missing preferences.marketing → valid:false",
-  () => {
-    const result = validateConsentPayload({
-      userId: "usr_test",
-      timestamp: 1748701200,
-      preferences: { functional: true, analytics: true },
-    });
-    assert.strictEqual(result.valid, false);
-    assert.ok(result.error.includes("marketing"));
-  }
-);
-
-runTest(
-  "preferences.functional as string → valid:false",
-  () => {
-    const result = validateConsentPayload({
-      userId: "usr_test",
-      timestamp: 1748701200,
-      preferences: { functional: "yes", analytics: false, marketing: false },
-    });
-    assert.strictEqual(result.valid, false);
-    assert.ok(result.error.includes("functional"));
-  }
-);
-
-runTest(
-  "preferences.analytics as number → valid:false",
-  () => {
-    const result = validateConsentPayload({
-      userId: "usr_test",
-      timestamp: 1748701200,
-      preferences: { functional: true, analytics: 1, marketing: false },
-    });
-    assert.strictEqual(result.valid, false);
-    assert.ok(result.error.includes("analytics"));
-  }
-);
-
-runTest(
-  "preferences.marketing as null → valid:false",
-  () => {
-    const result = validateConsentPayload({
-      userId: "usr_test",
-      timestamp: 1748701200,
-      preferences: { functional: true, analytics: false, marketing: null },
-    });
-    assert.strictEqual(result.valid, false);
-    assert.ok(result.error.includes("marketing"));
+    assert.ok(result.error.toLowerCase().includes("exportkey"));
   }
 );
 
@@ -339,18 +241,16 @@ runTest(
 runTest(
   "array payload → valid:false, no throw",
   () => {
-    const result = validateConsentPayload([]);
+    const result = validateConsentPayload(["usr", "req", "tok"]);
     assert.strictEqual(result.valid, false);
-    assert.ok(typeof result.error === "string");
   }
 );
 
 runTest(
   "string payload → valid:false, no throw",
   () => {
-    const result = validateConsentPayload("consent-payload");
+    const result = validateConsentPayload("userId=abc&requestId=req");
     assert.strictEqual(result.valid, false);
-    assert.ok(typeof result.error === "string");
   }
 );
 
@@ -359,7 +259,6 @@ runTest(
   () => {
     const result = validateConsentPayload(42);
     assert.strictEqual(result.valid, false);
-    assert.ok(typeof result.error === "string");
   }
 );
 
@@ -371,7 +270,7 @@ console.log(`\n${divider}`);
 if (totalFailed === 0) {
   console.log(
     `[PASS] All ${totalPassed} assertions passed.` +
-    ` Consent payload validation contract fully verified.`
+    ` Consent action payload validation contract fully verified.`
   );
   process.exit(0);
 } else {

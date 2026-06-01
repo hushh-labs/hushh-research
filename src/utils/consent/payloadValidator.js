@@ -2,7 +2,6 @@
 
 /**
  * Returns true only for plain (non-null, non-array) objects.
- * Arrays, null, and primitives all return false.
  */
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -11,30 +10,46 @@ function isPlainObject(value) {
 /**
  * validateConsentPayload(payload)
  *
- * Enforces immutable structural constraints on incoming user privacy-preference
- * objects in support of the Hushh data-consent protocol.
+ * Validates a consent action payload at the JS API boundary — BEFORE
+ * it is forwarded to the Python consent-protocol backend.
  *
- * Expected shape:
+ * Wired to the real consent-action call path:
+ *
+ *   hushh-webapp/lib/services/api-service.ts
+ *     approvePendingConsent()  → POST /api/consent/pending/approve
+ *     denyPendingConsent()     → POST /api/consent/pending/deny
+ *
+ * Mirrors the field-level guards already in the JS route handlers and
+ * the Python Pydantic models they forward to:
+ *
+ *   pending/deny/route.ts:
+ *     if (!userId || !requestId) → 400
+ *   pending/approve/route.ts:
+ *     if (!userId || !requestId) → 400
+ *     if ("exportKey" in body)   → 400 (ZK mode — no plaintext keys)
+ *   api-service.ts:
+ *     if (!vaultOwnerToken)      → 401
+ *   Python consent.py CancelConsentRequest (Pydantic):
+ *     userId: str, requestId: str
+ *
+ * Required payload shape:
  *   {
- *     userId      : string  (non-empty)
- *     timestamp   : number  (non-negative integer — unix epoch seconds)
- *     preferences : {
- *       functional : boolean
- *       analytics  : boolean
- *       marketing  : boolean
- *     }
+ *     userId:          string (non-empty)
+ *     requestId:       string (non-empty)
+ *     vaultOwnerToken: string (non-empty)
  *   }
  *
  * Returns:
- *   { valid: true,  sanitized: payload }          — on a fully conformant payload
- *   { valid: false, error: "<reason>" }           — on any structural violation
+ *   { valid: true,  sanitized: payload }     — fully conformant payload
+ *   { valid: false, error: "<reason>" }      — any structural violation
  *
- * Never throws.  All error paths return a result object so callers need no
- * try/catch and the application cannot crash from a malformed inbound payload.
+ * Never throws — all error paths return a result object.
+ *
+ * @param  {object|*} payload
+ * @returns {{ valid: boolean, sanitized?: object, error?: string }}
  */
 function validateConsentPayload(payload) {
-  // ── Top-level shape ────────────────────────────────────────────────────────
-
+  // ── Top-level structure ────────────────────────────────────────────────────
   if (!isPlainObject(payload)) {
     return {
       valid: false,
@@ -43,57 +58,54 @@ function validateConsentPayload(payload) {
   }
 
   // ── userId ─────────────────────────────────────────────────────────────────
-
+  // mirrors: pending/deny/route.ts  if (!userId) → 400
+  //          Python CancelConsentRequest: userId: str
   if (!("userId" in payload)) {
     return { valid: false, error: "Missing required field: userId" };
   }
   if (typeof payload.userId !== "string") {
     return { valid: false, error: "userId must be a string" };
   }
-  if (payload.userId.trim() === "") {
+  if (!payload.userId.trim()) {
     return { valid: false, error: "userId must be a non-empty string" };
   }
 
-  // ── timestamp ──────────────────────────────────────────────────────────────
+  // ── requestId ──────────────────────────────────────────────────────────────
+  // mirrors: pending/deny/route.ts  if (!requestId) → 400
+  //          pending/approve/route.ts  if (!requestId) → 400
+  //          Python CancelConsentRequest: requestId: str
+  if (!("requestId" in payload)) {
+    return { valid: false, error: "Missing required field: requestId" };
+  }
+  if (typeof payload.requestId !== "string") {
+    return { valid: false, error: "requestId must be a string" };
+  }
+  if (!payload.requestId.trim()) {
+    return { valid: false, error: "requestId must be a non-empty string" };
+  }
 
-  if (!("timestamp" in payload)) {
-    return { valid: false, error: "Missing required field: timestamp" };
+  // ── vaultOwnerToken ────────────────────────────────────────────────────────
+  // mirrors: api-service.ts  if (!vaultOwnerToken) → 401
+  if (!("vaultOwnerToken" in payload)) {
+    return { valid: false, error: "Missing required field: vaultOwnerToken" };
   }
-  if (typeof payload.timestamp !== "number") {
-    return { valid: false, error: "timestamp must be a number" };
+  if (typeof payload.vaultOwnerToken !== "string") {
+    return { valid: false, error: "vaultOwnerToken must be a string" };
   }
-  if (!Number.isInteger(payload.timestamp) || payload.timestamp < 0) {
+  if (!payload.vaultOwnerToken.trim()) {
+    return { valid: false, error: "vaultOwnerToken must be a non-empty string" };
+  }
+
+  // ── ZK mode guard ──────────────────────────────────────────────────────────
+  // mirrors: pending/approve/route.ts
+  //   if ("exportKey" in body) → 400 "Plaintext exportKey is not accepted in
+  //                                    strict zero-knowledge mode"
+  if ("exportKey" in payload) {
     return {
       valid: false,
-      error: "timestamp must be a non-negative integer unix timestamp",
+      error: "exportKey is not accepted — plaintext keys violate the zero-knowledge consent contract",
     };
   }
-
-  // ── preferences ────────────────────────────────────────────────────────────
-
-  if (!("preferences" in payload)) {
-    return { valid: false, error: "Missing required field: preferences" };
-  }
-  if (!isPlainObject(payload.preferences)) {
-    return { valid: false, error: "preferences must be a plain object" };
-  }
-
-  for (const key of ["functional", "analytics", "marketing"]) {
-    if (!(key in payload.preferences)) {
-      return {
-        valid: false,
-        error: `Missing required preference switch: preferences.${key}`,
-      };
-    }
-    if (typeof payload.preferences[key] !== "boolean") {
-      return {
-        valid: false,
-        error: `preferences.${key} must be a boolean`,
-      };
-    }
-  }
-
-  // ── All constraints satisfied ──────────────────────────────────────────────
 
   return { valid: true, sanitized: payload };
 }
