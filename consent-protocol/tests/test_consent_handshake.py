@@ -227,6 +227,35 @@ class _NoOpRIAIAMService:
 # ============================================================================
 
 
+def test_vault_userid_query_params_reject_oversized_values_before_service(monkeypatch):
+    """Vault-gated userId query params are bounded before service dispatch."""
+
+    class _UnexpectedConsentDBService:
+        def __init__(self):
+            raise AssertionError("userId validation should run before service dispatch")
+
+    monkeypatch.setattr(consent, "ConsentDBService", _UnexpectedConsentDBService)
+
+    app = _build_app()
+    client = TestClient(app)
+    long_user_id = "u" * 129
+
+    responses = [
+        client.get("/api/consent/pending", params={"userId": long_user_id}),
+        client.get(
+            "/api/consent/pending/lookup",
+            params={"userId": long_user_id, "request_id": "req_123"},
+        ),
+        client.post(
+            "/api/consent/pending/deny",
+            params={"userId": long_user_id, "requestId": "req_123"},
+        ),
+        client.get("/api/consent/export-refresh/jobs", params={"userId": long_user_id}),
+    ]
+
+    assert [response.status_code for response in responses] == [422, 422, 422, 422]
+
+
 def test_full_handshake_lifecycle(monkeypatch):
     """
     Simulate the canonical handshake: request -> approve -> revoke.

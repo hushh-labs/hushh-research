@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -9,6 +10,13 @@ from fastapi.testclient import TestClient
 
 from api.routes.one import location as one_location
 from tests.services.test_one_location_agent_service import FourUserMemoryService, encrypted_envelope
+
+
+class DatabaseExecutionError(Exception):
+    code = "DATABASE_UNAVAILABLE"
+    details = "Database temporarily unavailable."
+    hint = "Retry later."
+    status_code = 503
 
 
 def _client(
@@ -444,3 +452,16 @@ def test_one_location_retention_auth_can_be_disabled_in_local_test_mode(
 
     assert response.status_code == 200
     assert response.json()["retention_hours"] == 12
+
+def test_one_location_route_preserves_db_error_mapping_without_db_client_import() -> None:
+    source = inspect.getsource(one_location)
+    assert "from db.db_client import" not in source
+
+    response = one_location._handle_error(DatabaseExecutionError())
+
+    assert response.status_code == 503
+    assert response.detail == {
+        "code": "DATABASE_UNAVAILABLE",
+        "message": "Database temporarily unavailable.",
+        "hint": "Retry later.",
+    }

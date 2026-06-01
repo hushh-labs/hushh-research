@@ -189,6 +189,41 @@ describe("/api/kai/[...path] proxy", () => {
     expect(headers.get("Authorization")).toBe("Bearer vault_owner_token");
   });
 
+  it("keeps SSE upstream failures opaque to clients", async () => {
+    const upstreamError = new Error(
+      "connect ECONNREFUSED backend.test token=vault_owner_token user_id=user_123"
+    );
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(upstreamError);
+
+    const req = createRequest(
+      "http://localhost:3000/api/kai/analyze/stream?ticker=AAPL&user_id=user_123",
+      {
+        method: "GET",
+        headers: {
+          Accept: "text/event-stream",
+          Authorization: "Bearer vault_owner_token",
+        },
+      }
+    );
+
+    const res = await kaiRoute.GET(req, {
+      params: Promise.resolve({ path: ["analyze", "stream"] }),
+    });
+
+    expect(res.status).toBe(502);
+    expect(res.headers.get("Content-Type")).toContain("application/json");
+    expect(res.headers.get("Content-Type")).not.toContain("text/event-stream");
+
+    const payload = await res.json();
+    expect(payload).toEqual({
+      error: "Upstream request failed",
+      message: "The request could not be completed right now. Please try again.",
+    });
+    expect(JSON.stringify(payload)).not.toContain("vault_owner_token");
+    expect(JSON.stringify(payload)).not.toContain("user_123");
+    expect(JSON.stringify(payload)).not.toContain("ECONNREFUSED");
+  });
+
   it("does not bypass missing auth in production-sensitive flows and preserves backend 401", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ detail: "Missing Authorization header" }), {
