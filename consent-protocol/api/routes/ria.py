@@ -1,8 +1,10 @@
-"""RIA onboarding, request, and workspace routes."""
+"""RIA onboarding, request, and workspace routes with bounded path parameters (CWE-400)."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -16,6 +18,8 @@ from hushh_mcp.services.ria_iam_service import (
 )
 
 router = APIRouter(prefix="/api/ria", tags=["RIA"])
+
+_InvestorUserId = Annotated[str, Path(min_length=1, max_length=128)]
 
 
 async def _require_ria_verified(
@@ -367,7 +371,7 @@ async def ria_clients(
 
 @router.get("/clients/{investor_user_id}", response_model=RIAClientDetailResponse)
 async def ria_client_detail(
-    investor_user_id: str,
+    investor_user_id: _InvestorUserId,
     firebase_uid: str = Depends(_require_ria_verified),
 ):
     service = RIAIAMService()
@@ -630,7 +634,7 @@ async def upload_ria_picks(
 
 @router.get("/workspace/{investor_user_id}")
 async def ria_workspace(
-    investor_user_id: str,
+    investor_user_id: _InvestorUserId,
     firebase_uid: str = Depends(_require_ria_verified),
 ):
     service = RIAIAMService()
@@ -644,7 +648,7 @@ async def ria_workspace(
 
 @router.post("/clients/{investor_user_id}/picks-share")
 async def set_ria_client_picks_share(
-    investor_user_id: str,
+    investor_user_id: _InvestorUserId,
     payload: RIAPicksShareStateRequest,
     firebase_uid: str = Depends(_require_ria_verified),
 ):

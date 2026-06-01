@@ -73,6 +73,11 @@ export function copyNativeImportE2eAsset({
 }
 
 export function syncNativeUiTestRunner({ repoRoot: root = repoRoot } = {}) {
+  const sourcePath = path.join(root, "scripts/native/native-ui-test-runner-source.js");
+  const publicRunnerPath = path.join(root, "out", "native-ui-test-runner.js");
+  fs.mkdirSync(path.dirname(publicRunnerPath), { recursive: true });
+  fs.copyFileSync(sourcePath, publicRunnerPath);
+
   execSync("node ./scripts/native/sync-native-ui-test-runner.mjs", {
     cwd: root,
     stdio: "inherit",

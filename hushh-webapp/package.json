@@ -28,6 +28,7 @@
     "verify:routes:uat": "HUSHH_APP_ORIGIN=https://uat.kai.hushh.ai HUSHH_VIEWPORT_FILTER=phone node ./scripts/testing/verify-signed-in-routes.mjs",
     "e2e:kai-import:uat": "node ./scripts/testing/run-kai-import-e2e.mjs",
     "ios:ui:test": "node ./scripts/native/ios-ui-interaction-audit.mjs",
+    "android:ui:test": "node ./scripts/native/android-ui-interaction-audit.mjs",
     "ios:device:ui:test": "bash ./scripts/native/ios-device-ui-test.sh",
     "verify:cache": "vitest run __tests__/services/cache-sync-mutation-cascade.test.ts __tests__/services/cache-service.test.ts __tests__/services/cache-hit-rate-contract.test.ts __tests__/services/use-stale-resource.test.tsx __tests__/services/use-stale-resource-lifecycle.test.tsx __tests__/services/pkm-cache.test.ts __tests__/services/pkm-domain-resource.test.ts",
     "report:contributor-impact:pdf": "node ./scripts/reports/export-contributor-impact-pdf.mjs",
