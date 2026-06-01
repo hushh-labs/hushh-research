@@ -155,7 +155,10 @@ ALTER TABLE pkm_events
       'decision_projection',
       'attribute_inference',
       'segment_repartition',
-      'legacy_cutover'
+      'legacy_cutover',
+      'scope_exposure_update',
+      'default_projection_publish',
+      'default_projection_revoke'
     )
   );
 

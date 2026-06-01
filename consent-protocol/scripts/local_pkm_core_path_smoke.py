@@ -345,10 +345,9 @@ class LocalPkmCorePathSmoke(UatKaiSmoke):
                 )
                 entities = scope_container.get("entities")
                 if isinstance(entities, dict) and isinstance(entities.get(target_entity_id), dict):
-                    entity = copy.deepcopy(entities[target_entity_id])
-                    entity["status"] = "deleted"
-                    entity["deleted_at"] = self._now_iso()
-                    entities[target_entity_id] = entity
+                    del entities[target_entity_id]
+                    if not entities:
+                        scope_container.pop("entities", None)
                     return next_domain_data
             return self._deep_merge(next_domain_data, candidate_payload)
 

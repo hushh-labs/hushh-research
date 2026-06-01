@@ -179,7 +179,7 @@ class _PhoneClaimFakeConnection:
         normalized = " ".join(query.lower().split())
         if "insert into actor_identity_cache" not in normalized:
             return None
-        user_id, phone_number = args
+        user_id, phone_number, source = args
         now = datetime.now(timezone.utc)
         row = self.rows.setdefault(
             user_id,
@@ -196,7 +196,7 @@ class _PhoneClaimFakeConnection:
             {
                 "phone_number": phone_number,
                 "phone_verified": True,
-                "source": "firebase_phone_claim",
+                "source": source,
                 "last_synced_at": now,
                 "updated_at": now,
             }
@@ -375,6 +375,49 @@ async def test_get_many_tolerates_pre_phone_shadow_schema(
     assert identity["phone_number"] is None
     assert identity["phone_verified"] is False
     assert conn.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_list_account_identifiers_uses_verified_account_aliases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = ActorIdentityService()
+
+    async def fake_sync_from_firebase(user_id: str):
+        assert user_id == "firebase-user-123456789012"
+        return {
+            "email": "Primary@Example.com",
+            "email_verified": True,
+            "phone_number": "+16505550101",
+            "phone_verified": True,
+        }
+
+    async def fake_list_aliases(user_id: str):
+        assert user_id == "firebase-user-123456789012"
+        return [
+            {
+                "email_normalized": "relay@privaterelay.appleid.com",
+                "verification_status": "verified",
+                "revoked_at": None,
+            },
+            {
+                "email_normalized": "pending@example.com",
+                "verification_status": "pending",
+                "revoked_at": None,
+            },
+        ]
+
+    monkeypatch.setattr(service, "sync_from_firebase", fake_sync_from_firebase)
+    monkeypatch.setattr(service, "list_verified_email_aliases", fake_list_aliases)
+
+    identifiers = await service.list_account_identifiers("firebase-user-123456789012")
+
+    assert identifiers == [
+        "firebase-user-123456789012",
+        "primary@example.com",
+        "+16505550101",
+        "relay@privaterelay.appleid.com",
+    ]
 
 
 @pytest.mark.asyncio

@@ -155,9 +155,12 @@ RETIRED_DOMAIN_REGISTRY_KEYS: tuple[str, ...] = (
 )
 
 CURRENT_PKM_MODEL_VERSION = 4
-CURRENT_READABLE_SUMMARY_VERSION = 1
+CURRENT_PKM_CONTRACT_VERSION = "4.1.0"
+CURRENT_READABLE_PROJECTION_VERSION = "4.1.0"
+CURRENT_READABLE_SUMMARY_VERSION = 2
+GENERIC_DOMAIN_CONTRACT_VERSION = 2
 FINANCIAL_DOMAIN_SCHEMA_VERSION = 3
-FINANCIAL_DOMAIN_CONTRACT_VERSION = 2
+FINANCIAL_DOMAIN_CONTRACT_VERSION = GENERIC_DOMAIN_CONTRACT_VERSION
 FINANCIAL_INTENT_MAP: tuple[str, ...] = (
     "portfolio",
     "profile",
@@ -255,10 +258,8 @@ def is_allowed_top_level_domain(domain: str) -> bool:
 
 
 def current_domain_contract_version(domain: str) -> int:
-    canonical = canonical_top_level_domain(domain)
-    if canonical == "financial":
-        return FINANCIAL_DOMAIN_CONTRACT_VERSION
-    return 1
+    _canonical = canonical_top_level_domain(domain)
+    return GENERIC_DOMAIN_CONTRACT_VERSION
 
 
 def get_canonical_domain_metadata(domain_key: str) -> DomainContractEntry | None:
