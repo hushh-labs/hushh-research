@@ -33,7 +33,10 @@ const analyticsMeasurementId = resolveAnalyticsMeasurementId();
 const loadWebAnalyticsScripts = shouldLoadWebAnalyticsScripts();
 
 export const metadata: Metadata = {
-  title: "One | Your Personal Agent",
+  title: {
+    default: "One | Your Personal Agent",
+    template: "%s · Hussh",
+  },
   description:
     "Personal AI agents with consent at the core. Your data, your control.",
   keywords: ["AI agents", "personal AI", "One", "consent-first", "privacy"],
