@@ -3,11 +3,12 @@
 Session token and user management endpoints.
 """
 
+import hmac
 import logging
 import os
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
 from api.middleware import require_vault_owner_token
 from api.models import LogoutRequest, SessionTokenRequest, SessionTokenResponse
@@ -16,6 +17,7 @@ from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.user_identifier_service import resolve_lookup_identifier
+from hushh_mcp.services.vault_keys_service import VaultKeysService
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +75,16 @@ async def issue_session_token(
             expires_in_ms=24 * 60 * 60 * 1000,  # 24 hours
         )
 
+        try:
+            VaultKeysService().ensure_actor_profile(request.userId)
+            await ActorIdentityService().sync_from_firebase(request.userId, force=False)
+        except Exception as identity_error:
+            logger.debug(
+                "session_token.identity_shadow_sync_skipped user=%s error=%s",
+                request.userId,
+                identity_error,
+            )
+
         logger.info("session_token.issued")
 
         return SessionTokenResponse(
@@ -109,9 +121,9 @@ async def logout_session(request: LogoutRequest):
 
 @router.get("/consent/history")
 async def get_consent_history(
-    userId: str,
-    page: int = 1,
-    limit: int = 50,
+    userId: str = Query(..., max_length=128),
+    page: int = Query(1, ge=1, le=10_000),
+    limit: int = Query(50, ge=1, le=200),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -148,22 +160,13 @@ async def get_consent_history(
             "grouped": grouped,
         }
     except Exception as e:
-        # SECURITY: Log error details server-side, return generic message (CodeQL fix)
         logger.error("consent_history.fetch_failed: %s", e)
-        return {
-            "userId": userId,
-            "page": page,
-            "limit": limit,
-            "total": 0,
-            "items": [],
-            "grouped": {},
-            "error": "Failed to fetch consent history",
-        }
+        raise HTTPException(status_code=500, detail="Failed to fetch consent history")
 
 
 @router.get("/consent/active")
 async def get_active_consents(
-    userId: str,
+    userId: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -201,9 +204,8 @@ async def get_active_consents(
 
         return {"grouped": grouped, "active": active_tokens}
     except Exception as e:
-        # SECURITY: Log error details server-side, return generic message (CodeQL fix)
         logger.error("consent_active.fetch_failed: %s", e)
-        return {"grouped": {}, "active": [], "error": "Failed to fetch active consents"}
+        raise HTTPException(status_code=500, detail="Failed to fetch active consents")
 
 
 @router.get("/user/lookup")
@@ -238,7 +240,7 @@ async def lookup_user(
     required_token = str(os.getenv("HUSHH_DEVELOPER_TOKEN", "")).strip()
     if not required_token:
         raise HTTPException(status_code=503, detail="Lookup endpoint not configured")
-    if not x_mcp_developer_token or x_mcp_developer_token != required_token:
+    if not x_mcp_developer_token or not hmac.compare_digest(x_mcp_developer_token, required_token):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     try:
@@ -250,7 +252,11 @@ async def lookup_user(
             country=country,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logger.warning("user_lookup.invalid_identifier: %s", exc)
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid lookup identifier. Provide a valid email, phone number, or user ID.",
+        ) from exc
 
     logger.info("user_lookup.requested kind=%s", lookup_kind)
 

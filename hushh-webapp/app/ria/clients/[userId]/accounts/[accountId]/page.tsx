@@ -6,7 +6,7 @@ const nativeStaticExportUserId =
   process.env.REVIEWER_UID ||
   process.env.UAT_SMOKE_USER_ID ||
   process.env.KAI_TEST_USER_ID ||
-  "s3xmA4lNSAQFrIaOytnSGAOzXlL2";
+  "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2";
 
 export async function generateStaticParams(): Promise<Array<{ userId: string; accountId: string }>> {
   if (process.env.CAPACITOR_BUILD !== "true") {

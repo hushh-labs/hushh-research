@@ -507,9 +507,9 @@ The mock below is a vision target for consent and mode clarity. The current chec
 ```python
 class KaiConsentScope:
     # Read operations
-    VAULT_READ_PORTFOLIO = "vault.read.portfolio"
-    VAULT_READ_RISK_PROFILE = "vault.read.risk_profile"
-    VAULT_READ_DECISION_HISTORY = "vault.read.decision_history"
+    FINANCIAL_PORTFOLIO = "attr.financial.holdings"
+    FINANCIAL_RISK_PROFILE = "attr.financial.risk_profile"
+    FINANCIAL_DECISION_HISTORY = "attr.financial.decision_history"
 
     # Agent operations
     AGENT_ANALYZE_STOCK = "agent.kai.analyze_stock"
@@ -521,8 +521,8 @@ class KaiConsentScope:
     EXTERNAL_MARKET_DATA = "external.market.data"
 
     # Write operations (elevated consent)
-    VAULT_WRITE_DECISION = "vault.write.decision"
-    VAULT_WRITE_RISK_PROFILE = "vault.write.risk_profile"
+    PKM_WRITE = "pkm.write"
+    AGENT_EXECUTE = "agent.kai.execute"
 ```
 
 ---

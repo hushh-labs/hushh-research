@@ -386,10 +386,22 @@ async function initializeNativeFCM(
     );
 
     if (response.ok) {
+      const payload = await response.clone().json().catch(() => null) as {
+        degraded?: unknown;
+        registered?: unknown;
+      } | null;
+      if (payload?.degraded || payload?.registered === false) {
+        console.warn("[FCM] Web push token was not registered because notifications backend is unavailable.");
+        return {
+          status: "push_failed",
+          detail: "backend_register_degraded",
+        };
+      }
       console.log("[FCM] ✅ Token registered with backend");
     } else {
       const detail = await response.text().catch(() => "");
-      console.error("[FCM] ❌ Failed to register token:", response.status, detail);
+      const log = response.status >= 500 ? console.warn : console.error;
+      log("[FCM] Failed to register token:", response.status, detail);
       return {
         status: "push_failed",
         detail: `backend_register_${response.status}`,
@@ -726,9 +738,15 @@ function setupNativeListeners(): void {
             typeof data.type === "string" &&
             data.type === "kai_analysis_complete"
           ) {
-            assignWindowLocation(ROUTES.KAI_DASHBOARD);
+            requestInternalAppNavigation({
+              href: ROUTES.KAI_DASHBOARD,
+              scroll: false,
+            });
           } else {
-            assignWindowLocation(ROUTES.HOME);
+            requestInternalAppNavigation({
+              href: ROUTES.HOME,
+              scroll: false,
+            });
           }
         }
       );

@@ -6,7 +6,59 @@
 
 import { registerPlugin } from "@capacitor/core";
 
+export interface PkmSyncCheckpointPluginMetadata {
+  schemaVersion: "pkm_sync_checkpoint.v1";
+  checkpointKey: string;
+  domain: string;
+  source: string;
+  attempt: number;
+  expectedDataVersion: number | null;
+  resultDataVersion?: number | null;
+  currentManifestVersion: number | null;
+  targetManifestVersion: number | null;
+  upgradedInSession: boolean;
+  conflictRetry: boolean;
+  upgradeRunId?: string | null;
+}
+
 export interface HushhPersonalKnowledgeModelPlugin {
+  /**
+   * Legacy PKM index read surface retained for native bridge compatibility.
+   * New callers should prefer getMetadata() plus getDomainData().
+   */
+  getIndex(options: { userId: string; vaultOwnerToken?: string }): Promise<Record<string, unknown>>;
+
+  /**
+   * Legacy attribute read surface retained for native bridge compatibility.
+   * New callers should prefer getDomainData().
+   */
+  getAttributes(options: { userId: string; vaultOwnerToken?: string }): Promise<Record<string, unknown>>;
+
+  /**
+   * Legacy attribute write surface retained for native bridge compatibility.
+   * New callers should prefer storeDomainData().
+   */
+  storeAttribute(options: {
+    userId: string;
+    domain?: string;
+    attributeKey?: string;
+    ciphertext?: string;
+    iv?: string;
+    tag?: string;
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>>;
+
+  /**
+   * Legacy attribute delete surface retained for native bridge compatibility.
+   * New callers should prefer clearDomain() or domain-level writes.
+   */
+  deleteAttribute(options: {
+    userId: string;
+    domain?: string;
+    attributeKey?: string;
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>>;
+
   getMetadata(options: { userId: string; vaultOwnerToken?: string }): Promise<{
     userId: string;
     domains: Array<{
@@ -57,7 +109,47 @@ export interface HushhPersonalKnowledgeModelPlugin {
     }>;
     allScopes: string[];
     wildcardScopes: string[];
+    scopeEntries?: Array<Record<string, unknown>>;
   }>;
+
+  /**
+   * Legacy Kai chat bootstrap surface retained for native bridge compatibility.
+   * Current callers should use the Kai plugin or service-layer methods.
+   */
+  getInitialChatState(options: {
+    userId: string;
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>>;
+
+  /**
+   * Legacy portfolio import surface retained for native bridge compatibility.
+   * Current callers should use the Kai plugin import path.
+   */
+  importPortfolio(options: {
+    userId: string;
+    fileData?: string;
+    fileName?: string;
+    fileBase64?: string;
+    mimeType?: string;
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>>;
+
+  listDomains(options: { vaultOwnerToken?: string }): Promise<Record<string, unknown>>;
+
+  getUserDomains(options: {
+    userId: string;
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>>;
+
+  getPortfolio(options: {
+    userId: string;
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>>;
+
+  listPortfolios(options: {
+    userId: string;
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>>;
 
   getEncryptedData(options: {
     userId: string;
@@ -106,6 +198,7 @@ export interface HushhPersonalKnowledgeModelPlugin {
       newReadableSummaryVersion?: number;
       retryCount?: number;
     };
+    syncCheckpoint?: PkmSyncCheckpointPluginMetadata;
     vaultOwnerToken?: string;
   }): Promise<{
     success: boolean;
