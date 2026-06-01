@@ -110,6 +110,43 @@ function locationState() {
         publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
         keyAlgorithm: "ECDH-P256-AES256-GCM",
         canReceiveLocation: true,
+        recommendationScore: 96,
+        recommendationRank: 1,
+        recommendationTier: "trusted_circle",
+        recommendationCategory: "trusted_circle",
+        recommendationCategoryLabel: "Trusted Circle",
+        recommendationSummary: "Recently shared location with you",
+        recommendationReasons: [
+          {
+            code: "recent_share",
+            label: "Recent share history",
+            weight: 60,
+          },
+        ],
+        trustLevel: "high",
+      },
+      {
+        userId: "user_c",
+        displayName: "Advisor C",
+        maskedPhone: "******4455",
+        phoneVerified: true,
+        keyId: null,
+        publicKeyJwk: null,
+        keyAlgorithm: "test-location-key-agreement",
+        canReceiveLocation: false,
+        recommendationScore: 42,
+        recommendationRank: 2,
+        recommendationTier: "setup_needed",
+        recommendationCategory: "professional_network",
+        recommendationCategoryLabel: "Advisor network",
+        recommendationSummary: "Open One Location once to finish setup",
+        recommendationReasons: [
+          {
+            code: "professional_match",
+            label: "Advisor network",
+            weight: 30,
+          },
+        ],
       },
     ],
     ownerGrants: [
@@ -226,6 +263,28 @@ describe("OneLocationAgentPage", () => {
       algorithm: "ECDH-P256-AES256-GCM",
     });
     expect(mockSyncCurrentUser).toHaveBeenCalledWith({ uid: "user_a" });
+  });
+
+  it("renders KAI Circle recommendation metadata without phone-derived labels", async () => {
+    render(<OneLocationAgentPageContent />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    expect(screen.getByRole("heading", { name: "KAI Circle" })).toBeTruthy();
+    expect(screen.getAllByText("Trusted Circle").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Recent share history").length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getByText("Recently shared location with you")).toBeTruthy();
+    expect(screen.queryByText(/8012|4455/)).toBeNull();
+
+    fireEvent.change(screen.getByPlaceholderText("Search KAI Circle..."), {
+      target: { value: "advisor" },
+    });
+
+    expect(screen.getAllByText("Advisor C").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Advisor network").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/8012|4455/)).toBeNull();
   });
 
   it("shows a skeleton while the first location state refresh is loading", async () => {

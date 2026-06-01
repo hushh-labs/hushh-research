@@ -5,6 +5,29 @@ export type LocationSourcePlatform =
   | "native"
   | "unknown";
 
+export type OneLocationRecommendationTier =
+  | "needs_action"
+  | "trusted_circle"
+  | "kai_network"
+  | "contacts"
+  | "setup_needed"
+  | "available"
+  | string;
+
+export type OneLocationRecommendationCategory =
+  | "needs_action"
+  | "trusted_circle"
+  | "professional_network"
+  | "location_ready"
+  | "needs_setup"
+  | string;
+
+export type OneLocationRecommendationReason = {
+  code: string;
+  label: string;
+  weight?: number;
+};
+
 export type OneLocationRecipient = {
   userId: string;
   displayName: string;
@@ -15,6 +38,18 @@ export type OneLocationRecipient = {
   keyAlgorithm: string;
   keyRegisteredAt?: string | null;
   canReceiveLocation: boolean;
+  recommendationScore?: number;
+  recommendationRank?: number;
+  recommendationTier?: OneLocationRecommendationTier | null;
+  recommendationCategory?: OneLocationRecommendationCategory | null;
+  recommendationCategoryLabel?: string | null;
+  recommendationReasons?: OneLocationRecommendationReason[];
+  recommendationSummary?: string | null;
+  trustLevel?: "high" | "medium" | "new" | "setup_needed" | string | null;
+  relationshipType?: string | null;
+  profileHeadline?: string | null;
+  verificationBadge?: string | null;
+  lastInteractionAt?: string | null;
 };
 
 export type OneLocationGrant = {

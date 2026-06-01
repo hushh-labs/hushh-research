@@ -75,6 +75,7 @@ import type {
   OneLocationGrant,
   OneLocationPublicInvite,
   OneLocationPublicInviteSubmission,
+  OneLocationRecommendationReason,
   OneLocationRecipient,
   OneLocationState,
   PlainLocationPoint,
@@ -132,6 +133,96 @@ function safePersonLabel(value?: string | null, fallback = "KAI member"): string
 
 function recipientLabel(recipient: OneLocationRecipient): string {
   return safePersonLabel(recipient.displayName);
+}
+
+function recommendationTierLabel(tier?: string | null): string {
+  switch (tier) {
+    case "needs_action":
+      return "Needs action";
+    case "trusted_circle":
+      return "Trusted Circle";
+    case "kai_network":
+      return "KAI Network";
+    case "contacts":
+      return "Contact match";
+    case "setup_needed":
+      return "Setup needed";
+    case "available":
+      return "Ready";
+    default:
+      return "KAI Circle";
+  }
+}
+
+function recommendationToneClassName(tier?: string | null): string {
+  switch (tier) {
+    case "needs_action":
+    case "setup_needed":
+      return "bg-[#fff3e6] text-[#9a5a00] dark:bg-orange-400/15 dark:text-orange-200";
+    case "trusted_circle":
+      return "bg-[#eaf9ef] text-[#2dbd5a] dark:bg-emerald-400/15 dark:text-emerald-200";
+    case "kai_network":
+      return "bg-[#eaf3ff] text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]";
+    default:
+      return "bg-[#f2f2f7] text-[#636366] dark:bg-white/10 dark:text-white/65";
+  }
+}
+
+function visibleRecommendationReasons(
+  recipient: OneLocationRecipient,
+): OneLocationRecommendationReason[] {
+  return (recipient.recommendationReasons ?? [])
+    .filter((reason) => reason.code && reason.label)
+    .slice(0, 2);
+}
+
+function recipientRecommendationLine(recipient: OneLocationRecipient): string {
+  return (
+    recipient.recommendationSummary ||
+    visibleRecommendationReasons(recipient)[0]?.label ||
+    (recipient.canReceiveLocation
+      ? "Ready for encrypted location access"
+      : "Needs a recipient key")
+  );
+}
+
+function recommendationCategoryLabel(recipient: OneLocationRecipient): string {
+  return (
+    recipient.recommendationCategoryLabel ||
+    recommendationTierLabel(recipient.recommendationTier)
+  );
+}
+
+function recommendationSearchText(recipient: OneLocationRecipient): string {
+  return [
+    recipientLabel(recipient),
+    recipient.profileHeadline,
+    recipient.relationshipType,
+    recipient.recommendationSummary,
+    recipient.recommendationCategory,
+    recommendationCategoryLabel(recipient),
+    ...(recipient.recommendationReasons ?? []).map((reason) => reason.label),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function rankRecipientsForRecommendation(
+  recipients: OneLocationRecipient[],
+): OneLocationRecipient[] {
+  return [...recipients].sort((a, b) => {
+    const aRank = a.recommendationRank ?? Number.MAX_SAFE_INTEGER;
+    const bRank = b.recommendationRank ?? Number.MAX_SAFE_INTEGER;
+    if (aRank !== bRank) return aRank - bRank;
+    const aScore = a.recommendationScore ?? 0;
+    const bScore = b.recommendationScore ?? 0;
+    if (aScore !== bScore) return bScore - aScore;
+    if (a.canReceiveLocation !== b.canReceiveLocation) {
+      return a.canReceiveLocation ? -1 : 1;
+    }
+    return recipientLabel(a).localeCompare(recipientLabel(b));
+  });
 }
 
 function grantCounterpartyLabel(grant: OneLocationGrant): string {
@@ -481,6 +572,7 @@ export function OneLocationAgentPageContent() {
   const [busy, setBusy] = useState<BusyState>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<ShareMode>("share");
+  const [recipientSearch, setRecipientSearch] = useState("");
   const [selectedRecipientId, setSelectedRecipientId] = useState("");
   const [selectedRequestOwnerId, setSelectedRequestOwnerId] = useState("");
   const [durationHours, setDurationHours] = useState("1");
@@ -501,6 +593,17 @@ export function OneLocationAgentPageContent() {
     () => state?.recipients ?? [],
     [state?.recipients],
   );
+  const rankedRecipients = useMemo(
+    () => rankRecipientsForRecommendation(recipients),
+    [recipients],
+  );
+  const visibleRecipients = useMemo(() => {
+    const query = recipientSearch.trim().toLowerCase();
+    if (!query) return rankedRecipients;
+    return rankedRecipients.filter((recipient) =>
+      recommendationSearchText(recipient).includes(query),
+    );
+  }, [rankedRecipients, recipientSearch]);
   const selectedRecipient = useMemo(
     () =>
       recipients.find(
@@ -664,11 +767,13 @@ export function OneLocationAgentPageContent() {
         ]);
         setPermission(nextPermission);
         setState(nextState);
+        const firstRecommendedRecipient =
+          rankRecipientsForRecommendation(nextState.recipients)[0];
         setSelectedRecipientId(
-          (current) => current || nextState.recipients[0]?.userId || "",
+          (current) => current || firstRecommendedRecipient?.userId || "",
         );
         setSelectedRequestOwnerId(
-          (current) => current || nextState.recipients[0]?.userId || "",
+          (current) => current || firstRecommendedRecipient?.userId || "",
         );
       } catch (error) {
         setLoadError(
@@ -1296,10 +1401,10 @@ export function OneLocationAgentPageContent() {
                 />
 
                 <div className="space-y-2">
-                  {sectionLabel("Frequent contacts")}
+                  {sectionLabel("KAI Circle")}
                   <div className="flex gap-4 overflow-x-auto px-1 pb-2 pt-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                    {recipients.length ? (
-                      recipients.map((recipient, index) => {
+                    {rankedRecipients.length ? (
+                      rankedRecipients.map((recipient, index) => {
                         const label = displayNameFromRecipient(recipient);
                         const selected =
                           activeMode === "share"
@@ -1309,6 +1414,9 @@ export function OneLocationAgentPageContent() {
                           <button
                             key={recipient.userId}
                             type="button"
+                            aria-label={`Select ${recipientLabel(
+                              recipient,
+                            )} from KAI Circle`}
                             onClick={() => {
                               if (activeMode === "share") {
                                 setSelectedRecipientId(recipient.userId);
@@ -1338,12 +1446,24 @@ export function OneLocationAgentPageContent() {
                             <span className="max-w-[68px] truncate text-[12px] font-medium text-[#1c1c1e] dark:text-white">
                               {label}
                             </span>
+                            <span
+                              className={cn(
+                                "max-w-[88px] truncate rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase",
+                                recommendationToneClassName(
+                                  recipient.recommendationTier,
+                                ),
+                              )}
+                            >
+                              {recommendationTierLabel(
+                                recipient.recommendationTier,
+                              )}
+                            </span>
                           </button>
                         );
                       })
                     ) : (
                       <p className="text-[13px] text-[#8e8e93] dark:text-white/55">
-                        Verified contacts will appear here.
+                        KAI Circle recommendations will appear here.
                       </p>
                     )}
                   </div>
@@ -1353,20 +1473,25 @@ export function OneLocationAgentPageContent() {
                   <div className="relative">
                     <Search className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-[#8e8e93]" />
                     <input
+                      value={recipientSearch}
+                      onChange={(event) =>
+                        setRecipientSearch(event.target.value)
+                      }
                       className="h-10 w-full rounded-[14px] border border-black/[0.04] bg-white pl-10 pr-4 text-[15px] text-[#1c1c1e] shadow-sm outline-none transition-shadow placeholder:text-[#8e8e93] focus:ring-2 focus:ring-[#007aff]/20 dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white"
-                      placeholder="Search contacts..."
+                      placeholder="Search KAI Circle..."
                       type="text"
                     />
                   </div>
 
                   <div className={onePanelClassName}>
-                    {recipients.length ? (
-                      recipients.map((recipient, index) => {
+                    {visibleRecipients.length ? (
+                      visibleRecipients.map((recipient, index) => {
                         const label = displayNameFromRecipient(recipient);
                         const selected =
                           activeMode === "share"
                             ? recipient.userId === selectedRecipientId
                             : recipient.userId === selectedRequestOwnerId;
+                        const reasons = visibleRecommendationReasons(recipient);
                         return (
                           <div
                             key={recipient.userId}
@@ -1389,12 +1514,32 @@ export function OneLocationAgentPageContent() {
                                       ? "Verified"
                                       : "Contact"}
                                   </span>
+                                  <span
+                                    className={cn(
+                                      "rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider",
+                                      recommendationToneClassName(
+                                        recipient.recommendationTier,
+                                      ),
+                                    )}
+                                  >
+                                    {recommendationCategoryLabel(recipient)}
+                                  </span>
                                 </div>
                                 <p className="mt-0.5 text-[12px] font-medium text-[#8e8e93] dark:text-white/55">
-                                  {recipient.canReceiveLocation
-                                    ? "Ready for encrypted location access"
-                                    : "Needs a recipient key"}
+                                  {recipientRecommendationLine(recipient)}
                                 </p>
+                                {reasons.length ? (
+                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                    {reasons.map((reason) => (
+                                      <span
+                                        key={reason.code}
+                                        className="rounded-full bg-[#f2f2f7] px-2 py-0.5 text-[11px] font-semibold text-[#636366] dark:bg-white/10 dark:text-white/65"
+                                      >
+                                        {reason.label}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : null}
                               </div>
                               {selected ? (
                                 <CheckCircle2 className="h-[22px] w-[22px] text-[#007aff] dark:text-[#76b7ff]" />
@@ -1423,8 +1568,16 @@ export function OneLocationAgentPageContent() {
                     ) : (
                       <EmptyOneState
                         icon={UsersRound}
-                        title="No verified contacts"
-                        description="Sync a trusted person before starting a share or request."
+                        title={
+                          recipients.length
+                            ? "No KAI Circle matches"
+                            : "No verified contacts"
+                        }
+                        description={
+                          recipients.length
+                            ? "Try another name, role, or recommendation signal."
+                            : "Sync a trusted person before starting a share or request."
+                        }
                       />
                     )}
                   </div>
@@ -1440,7 +1593,7 @@ export function OneLocationAgentPageContent() {
                             <SelectValue placeholder="Select verified person" />
                           </SelectTrigger>
                           <SelectContent>
-                            {recipients.map((recipient) => (
+                            {rankedRecipients.map((recipient) => (
                               <SelectItem
                                 key={recipient.userId}
                                 value={recipient.userId}
@@ -1498,7 +1651,7 @@ export function OneLocationAgentPageContent() {
                           <SelectValue placeholder="Select owner" />
                         </SelectTrigger>
                         <SelectContent>
-                          {recipients.map((recipient) => (
+                          {rankedRecipients.map((recipient) => (
                             <SelectItem
                               key={recipient.userId}
                               value={recipient.userId}
