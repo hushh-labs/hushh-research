@@ -7,9 +7,9 @@ Provides reusable dependency functions for route protection:
 """
 
 import logging
-from typing import Optional
+from typing import Any, Optional, cast
 
-from fastapi import BackgroundTasks, Header, HTTPException, status
+from fastapi import BackgroundTasks, Header, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
 
 from api.utils.firebase_auth import verify_firebase_bearer
@@ -18,6 +18,9 @@ from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 
 logger = logging.getLogger(__name__)
+
+_CONSENT_SCOPE_CACHE_ATTR = "_hushh_validated_consent_scopes"
+_NO_REQUEST = cast(Request, None)
 
 
 def _auth_error(detail: str) -> HTTPException:
@@ -30,7 +33,7 @@ def _auth_error(detail: str) -> HTTPException:
 
 
 def _extract_token(
-    value: Optional[str],
+    value: Optional[str] | Any,
     *,
     allow_raw: bool = False,
     missing_detail: str = "Missing Authorization header",
@@ -39,7 +42,7 @@ def _extract_token(
     Centralized token extraction. Forces strict 'Bearer ' compliance by default,
     but allows raw JWTs for custom headers when explicitly requested.
     """
-    if not value or not value.strip():
+    if not isinstance(value, str) or not value.strip():
         raise _auth_error(missing_detail)
 
     stripped = value.strip()
@@ -56,7 +59,14 @@ def _extract_token(
 
 
 def _token_data_dict(token: str, token_obj) -> dict:
-    scope_value = token_obj.scope_str if token_obj.scope_str else token_obj.scope.value
+    raw_scope = getattr(token_obj, "scope", "")
+    scope_value = (
+        token_obj.scope_str
+        if getattr(token_obj, "scope_str", None)
+        else raw_scope.value
+        if hasattr(raw_scope, "value")
+        else str(raw_scope)
+    )
     return {
         "user_id": token_obj.user_id,
         "agent_id": token_obj.agent_id,
@@ -66,6 +76,41 @@ def _token_data_dict(token: str, token_obj) -> dict:
         # Preserve parsed object for call-sites that need metadata.
         "token_obj": token_obj,
     }
+
+
+def _scope_cache_key(token: str, required_scope: str | ConsentScope) -> tuple[str, str]:
+    scope = (
+        required_scope.value if isinstance(required_scope, ConsentScope) else str(required_scope)
+    )
+    return token, scope
+
+
+def _request_scope_cache(request: Request | None) -> dict | None:
+    if request is None:
+        return None
+
+    cache = getattr(request.state, _CONSENT_SCOPE_CACHE_ATTR, None)
+    if cache is None:
+        cache = {}
+        setattr(request.state, _CONSENT_SCOPE_CACHE_ATTR, cache)
+    return cache
+
+
+async def _validate_token_with_scope_cache(
+    token: str,
+    required_scope: str | ConsentScope,
+    request: Request | None,
+):
+    cache = _request_scope_cache(request)
+    cache_key = _scope_cache_key(token, required_scope)
+    if cache is not None and cache_key in cache:
+        return cache[cache_key]
+
+    result = await validate_token_with_db(token, required_scope)
+    valid, _reason, token_obj = result
+    if cache is not None and valid and token_obj:
+        cache[cache_key] = result
+    return result
 
 
 async def require_firebase_auth(
@@ -131,6 +176,7 @@ def verify_user_id_match(firebase_uid: str, requested_user_id: str) -> None:
 
 
 async def require_vault_owner_token(
+    request: Request = _NO_REQUEST,
     authorization: Optional[str] = Header(
         None, description="Bearer token for vault owner authentication"
     ),
@@ -158,7 +204,9 @@ async def require_vault_owner_token(
         HTTPException 401 if token is missing or invalid
         HTTPException 403 if token scope is insufficient
     """
-    header_value = hushh_consent if hushh_consent is not None else authorization
+    header_value = (
+        hushh_consent if isinstance(hushh_consent, str) and hushh_consent.strip() else authorization
+    )
 
     # Explicitly allow raw tokens here to support the custom X-Hushh-Consent header
     token = _extract_token(
@@ -166,11 +214,13 @@ async def require_vault_owner_token(
     )
 
     # Validate token with VAULT_OWNER scope and DB-backed revocation check.
-    valid, reason, token_obj = await validate_token_with_db(token, ConsentScope.VAULT_OWNER)
+    valid, reason, token_obj = await _validate_token_with_scope_cache(
+        token, ConsentScope.VAULT_OWNER, request
+    )
 
     if not valid or not token_obj:
         logger.warning("Token validation failed: %s", reason)
-        raise _auth_error(f"Invalid token: {reason}")
+        raise _auth_error("Token validation failed.")
 
     return _token_data_dict(token, token_obj)
 
@@ -183,17 +233,20 @@ def require_consent_scope(required_scope: str | ConsentScope):
     """
 
     async def _require_scope_token(
+        request: Request = _NO_REQUEST,
         authorization: Optional[str] = Header(
             None, description="Bearer token for scoped consent authentication"
         ),
     ) -> dict:
 
         token = _extract_token(authorization, allow_raw=False)
-        valid, reason, token_obj = await validate_token_with_db(token, required_scope)
+        valid, reason, token_obj = await _validate_token_with_scope_cache(
+            token, required_scope, request
+        )
 
         if not valid or not token_obj:
             logger.warning("Scoped token validation failed for %s: %s", required_scope, reason)
-            raise _auth_error(f"Invalid token: {reason}")
+            raise _auth_error("Token validation failed.")
 
         return _token_data_dict(token, token_obj)
 

@@ -16,6 +16,7 @@ Block or patch before merge when a PR:
 8. Introduces broad dependencies or platform changes without install/build/runtime smoke tied to the changed surface.
 9. Has CI Status Gate green but another current check introduced by the PR is failing.
 10. Touches files with uncommitted local maintainer work unless that work is committed, stashed, rebased, or the useful PR content is explicitly harvested.
+11. Is proposed for maintainer patching but cannot name the accepted value, canonical attach point, files to patch, dropped/deferred pieces, and smallest proof command.
 
 ## Domain Gates
 
@@ -42,6 +43,19 @@ A changed component must be reachable from a current route, shell, service calle
 ### Use-Case Reachability
 
 Do not merge standalone logic just because it is readable or green. A PR must either improve a reachable app/backend/package path, strengthen a canonical proof surface for that path, or clearly scope itself as test/devex hygiene. If the claimed use case is not present in the app/backend/runtime, request changes or close instead of trying to invent a connection.
+
+Unattached helpers are not patchable by default. A helper, export, component,
+agent, service, script, or generic "infrastructure" module that is only used by
+its own tests is changes-requested unless the PR names the current canonical
+surface it attaches to and proves that path. Examples:
+
+1. A consent helper with no caller must attach to the current consent center,
+   consent cache, scope-bundle, token, or API flow before it can be patched.
+2. Vault tests can be accepted as vault proof, but an unrelated streaming export
+   in the same PR must be dropped, deferred, or requested separately unless it is
+   reachable from the current streaming runtime.
+3. Generic future infrastructure must be wired to an existing app, backend,
+   package, generated contract, or documented devex entrypoint before merge.
 
 ### Backend / API / Proxy
 

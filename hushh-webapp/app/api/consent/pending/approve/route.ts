@@ -85,10 +85,26 @@ export async function POST(request: NextRequest) {
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      console.error("[API] Backend error:", error);
+      const errorText = await response.text();
+      console.error("[API] Backend error:", errorText);
+      let message = "Failed to approve consent";
+      try {
+        const parsed = JSON.parse(errorText);
+        const detail = parsed?.detail;
+        if (typeof detail === "string") {
+          message = detail;
+        } else if (typeof detail?.message === "string") {
+          message = detail.message;
+        } else if (typeof parsed?.error === "string") {
+          message = parsed.error;
+        }
+      } catch {
+        if (errorText.trim()) {
+          message = errorText;
+        }
+      }
       return NextResponse.json(
-        { error: "Failed to approve consent" },
+        { error: message },
         { status: response.status }
       );
     }
