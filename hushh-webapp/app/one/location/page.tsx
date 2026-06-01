@@ -225,6 +225,52 @@ function rankRecipientsForRecommendation(
   });
 }
 
+function recipientSelectionFromIds(
+  recipients: OneLocationRecipient[],
+  selectedIds: string[],
+): OneLocationRecipient[] {
+  const recipientById = new Map(
+    recipients.map((recipient) => [recipient.userId, recipient]),
+  );
+  return selectedIds
+    .map((recipientId) => recipientById.get(recipientId))
+    .filter((recipient): recipient is OneLocationRecipient => Boolean(recipient));
+}
+
+function addSelectedId(selectedIds: string[], recipientId: string): string[] {
+  if (selectedIds.includes(recipientId)) return selectedIds;
+  return [...selectedIds, recipientId];
+}
+
+function toggleSelectedId(
+  selectedIds: string[],
+  recipientId: string,
+): string[] {
+  if (selectedIds.includes(recipientId)) {
+    return selectedIds.filter((selectedId) => selectedId !== recipientId);
+  }
+  return [...selectedIds, recipientId];
+}
+
+type ShareReadyRecipient = OneLocationRecipient & {
+  keyId: string;
+  publicKeyJwk: JsonWebKey;
+};
+
+function isShareReadyRecipient(
+  recipient: OneLocationRecipient,
+): recipient is ShareReadyRecipient {
+  return Boolean(
+    recipient.canReceiveLocation &&
+      recipient.keyId &&
+      recipient.publicKeyJwk,
+  );
+}
+
+function peopleCountLabel(count: number): string {
+  return count === 1 ? "1 person" : `${count} people`;
+}
+
 function grantCounterpartyLabel(grant: OneLocationGrant): string {
   return safePersonLabel(grant.recipientDisplayName);
 }
@@ -575,6 +621,12 @@ export function OneLocationAgentPageContent() {
   const [recipientSearch, setRecipientSearch] = useState("");
   const [selectedRecipientId, setSelectedRecipientId] = useState("");
   const [selectedRequestOwnerId, setSelectedRequestOwnerId] = useState("");
+  const [selectedRecipientIds, setSelectedRecipientIds] = useState<string[]>(
+    [],
+  );
+  const [selectedRequestOwnerIds, setSelectedRequestOwnerIds] = useState<
+    string[]
+  >([]);
   const [durationHours, setDurationHours] = useState("1");
   const [requestMessage, setRequestMessage] = useState("");
   const [referralTargets, setReferralTargets] = useState<
@@ -604,19 +656,24 @@ export function OneLocationAgentPageContent() {
       recommendationSearchText(recipient).includes(query),
     );
   }, [rankedRecipients, recipientSearch]);
-  const selectedRecipient = useMemo(
-    () =>
-      recipients.find(
-        (recipient) => recipient.userId === selectedRecipientId,
-      ) || null,
-    [recipients, selectedRecipientId],
+  const selectedShareRecipients = useMemo(
+    () => recipientSelectionFromIds(recipients, selectedRecipientIds),
+    [recipients, selectedRecipientIds],
   );
-  const selectedRequestOwner = useMemo(
+  const shareReadySelectedRecipients = useMemo(
+    () => selectedShareRecipients.filter(isShareReadyRecipient),
+    [selectedShareRecipients],
+  );
+  const setupNeededSelectedRecipients = useMemo(
     () =>
-      recipients.find(
-        (recipient) => recipient.userId === selectedRequestOwnerId,
-      ) || null,
-    [recipients, selectedRequestOwnerId],
+      selectedShareRecipients.filter(
+        (recipient) => !isShareReadyRecipient(recipient),
+      ),
+    [selectedShareRecipients],
+  );
+  const selectedRequestOwners = useMemo(
+    () => recipientSelectionFromIds(recipients, selectedRequestOwnerIds),
+    [recipients, selectedRequestOwnerIds],
   );
   const pendingOwnerRequests = useMemo(
     () =>
@@ -767,14 +824,43 @@ export function OneLocationAgentPageContent() {
         ]);
         setPermission(nextPermission);
         setState(nextState);
-        const firstRecommendedRecipient =
-          rankRecipientsForRecommendation(nextState.recipients)[0];
-        setSelectedRecipientId(
-          (current) => current || firstRecommendedRecipient?.userId || "",
+        const rankedNextRecipients = rankRecipientsForRecommendation(
+          nextState.recipients,
         );
-        setSelectedRequestOwnerId(
-          (current) => current || firstRecommendedRecipient?.userId || "",
+        const firstRecommendedRecipient = rankedNextRecipients[0];
+        const nextRecipientIds = new Set(
+          nextState.recipients.map((recipient) => recipient.userId),
         );
+        setSelectedRecipientId((current) =>
+          current && nextRecipientIds.has(current)
+            ? current
+            : firstRecommendedRecipient?.userId || "",
+        );
+        setSelectedRequestOwnerId((current) =>
+          current && nextRecipientIds.has(current)
+            ? current
+            : firstRecommendedRecipient?.userId || "",
+        );
+        setSelectedRecipientIds((current) => {
+          const validSelectedIds = current.filter((recipientId) =>
+            nextRecipientIds.has(recipientId),
+          );
+          return validSelectedIds.length
+            ? validSelectedIds
+            : firstRecommendedRecipient
+              ? [firstRecommendedRecipient.userId]
+              : [];
+        });
+        setSelectedRequestOwnerIds((current) => {
+          const validSelectedIds = current.filter((recipientId) =>
+            nextRecipientIds.has(recipientId),
+          );
+          return validSelectedIds.length
+            ? validSelectedIds
+            : firstRecommendedRecipient
+              ? [firstRecommendedRecipient.userId]
+              : [];
+        });
       } catch (error) {
         setLoadError(
           oneLocationErrorMessage(error, "Could not load location sharing."),
@@ -915,20 +1001,30 @@ export function OneLocationAgentPageContent() {
   const handleShare = useCallback(async () => {
     if (
       !vaultOwnerToken ||
-      !selectedRecipient?.keyId ||
-      !selectedRecipient.publicKeyJwk
+      !shareReadySelectedRecipients.length ||
+      setupNeededSelectedRecipients.length ||
+      permission?.state === "denied" ||
+      permission?.state === "restricted" ||
+      permission?.state === "unavailable"
     )
       return;
     setBusy("share");
     try {
-      const grant = await OneLocationService.createGrant({
-        vaultOwnerToken,
-        recipientUserId: selectedRecipient.userId,
-        recipientKeyId: selectedRecipient.keyId,
-        durationHours: Number(durationHours),
-      });
-      await publishEnvelope(grant, selectedRecipient);
-      toast.success("Location shared with encrypted recipient access.");
+      const point = await OneLocationService.captureCurrentPosition();
+      for (const recipient of shareReadySelectedRecipients) {
+        const grant = await OneLocationService.createGrant({
+          vaultOwnerToken,
+          recipientUserId: recipient.userId,
+          recipientKeyId: recipient.keyId,
+          durationHours: Number(durationHours),
+        });
+        await publishEnvelope(grant, recipient, point);
+      }
+      toast.success(
+        `Location shared with ${peopleCountLabel(
+          shareReadySelectedRecipients.length,
+        )}.`,
+      );
       await refresh();
     } catch (error) {
       toast.error(
@@ -939,9 +1035,11 @@ export function OneLocationAgentPageContent() {
     }
   }, [
     durationHours,
+    permission?.state,
     publishEnvelope,
     refresh,
-    selectedRecipient,
+    setupNeededSelectedRecipients.length,
+    shareReadySelectedRecipients,
     vaultOwnerToken,
   ]);
 
@@ -1112,17 +1210,25 @@ export function OneLocationAgentPageContent() {
   );
 
   const handleRequestAccess = useCallback(async () => {
-    if (!vaultOwnerToken || !selectedRequestOwner) return;
+    if (!vaultOwnerToken || !selectedRequestOwners.length) return;
     setBusy("request");
     try {
-      await OneLocationService.requestAccess({
-        vaultOwnerToken,
-        ownerUserId: selectedRequestOwner.userId,
-        message: requestMessage.trim() || undefined,
-      });
+      for (const owner of selectedRequestOwners) {
+        await OneLocationService.requestAccess({
+          vaultOwnerToken,
+          ownerUserId: owner.userId,
+          message: requestMessage.trim() || undefined,
+        });
+      }
       setRequestMessage("");
       playOneLocationNotificationSound();
-      toast.success("Request sent. We'll notify you here when they respond.");
+      toast.success(
+        selectedRequestOwners.length === 1
+          ? "Request sent. We'll notify you here when they respond."
+          : `Requests sent to ${peopleCountLabel(
+              selectedRequestOwners.length,
+            )}. We'll notify you here when they respond.`,
+      );
       await refresh();
     } catch (error) {
       toast.error(oneLocationErrorMessage(error, "Could not send request."));
@@ -1132,7 +1238,7 @@ export function OneLocationAgentPageContent() {
     } finally {
       setBusy(null);
     }
-  }, [refresh, requestMessage, selectedRequestOwner, vaultOwnerToken]);
+  }, [refresh, requestMessage, selectedRequestOwners, vaultOwnerToken]);
 
   const handleCreatePublicInvite = useCallback(async () => {
     if (!vaultOwnerToken) return;
@@ -1292,11 +1398,42 @@ export function OneLocationAgentPageContent() {
     [referralTargets, refresh, vaultOwnerToken],
   );
 
+  const addShareRecipient = useCallback((recipientId: string) => {
+    setSelectedRecipientId(recipientId);
+    setSelectedRecipientIds((current) => addSelectedId(current, recipientId));
+  }, []);
+  const toggleShareRecipient = useCallback((recipientId: string) => {
+    setSelectedRecipientId(recipientId);
+    setSelectedRecipientIds((current) => toggleSelectedId(current, recipientId));
+  }, []);
+  const removeShareRecipient = useCallback((recipientId: string) => {
+    setSelectedRecipientIds((current) =>
+      current.filter((selectedId) => selectedId !== recipientId),
+    );
+  }, []);
+  const addRequestOwner = useCallback((recipientId: string) => {
+    setSelectedRequestOwnerId(recipientId);
+    setSelectedRequestOwnerIds((current) =>
+      addSelectedId(current, recipientId),
+    );
+  }, []);
+  const toggleRequestOwner = useCallback((recipientId: string) => {
+    setSelectedRequestOwnerId(recipientId);
+    setSelectedRequestOwnerIds((current) =>
+      toggleSelectedId(current, recipientId),
+    );
+  }, []);
+  const removeRequestOwner = useCallback((recipientId: string) => {
+    setSelectedRequestOwnerIds((current) =>
+      current.filter((selectedId) => selectedId !== recipientId),
+    );
+  }, []);
+
   const canShare = Boolean(
     vaultOwnerToken &&
-    selectedRecipient?.canReceiveLocation &&
-    selectedRecipient.keyId &&
-    selectedRecipient.publicKeyJwk &&
+    selectedShareRecipients.length &&
+    shareReadySelectedRecipients.length &&
+    !setupNeededSelectedRecipients.length &&
     permission?.state !== "denied" &&
     permission?.state !== "restricted" &&
     permission?.state !== "unavailable",
@@ -1408,8 +1545,10 @@ export function OneLocationAgentPageContent() {
                         const label = displayNameFromRecipient(recipient);
                         const selected =
                           activeMode === "share"
-                            ? recipient.userId === selectedRecipientId
-                            : recipient.userId === selectedRequestOwnerId;
+                            ? selectedRecipientIds.includes(recipient.userId)
+                            : selectedRequestOwnerIds.includes(
+                                recipient.userId,
+                              );
                         return (
                           <button
                             key={recipient.userId}
@@ -1419,9 +1558,9 @@ export function OneLocationAgentPageContent() {
                             )} from KAI Circle`}
                             onClick={() => {
                               if (activeMode === "share") {
-                                setSelectedRecipientId(recipient.userId);
+                                toggleShareRecipient(recipient.userId);
                               } else {
-                                setSelectedRequestOwnerId(recipient.userId);
+                                toggleRequestOwner(recipient.userId);
                               }
                             }}
                             className="flex shrink-0 flex-col items-center gap-1.5"
@@ -1489,8 +1628,10 @@ export function OneLocationAgentPageContent() {
                         const label = displayNameFromRecipient(recipient);
                         const selected =
                           activeMode === "share"
-                            ? recipient.userId === selectedRecipientId
-                            : recipient.userId === selectedRequestOwnerId;
+                            ? selectedRecipientIds.includes(recipient.userId)
+                            : selectedRequestOwnerIds.includes(
+                                recipient.userId,
+                              );
                         const reasons = visibleRecommendationReasons(recipient);
                         return (
                           <div
@@ -1548,11 +1689,9 @@ export function OneLocationAgentPageContent() {
                                   type="button"
                                   onClick={() => {
                                     if (activeMode === "share") {
-                                      setSelectedRecipientId(recipient.userId);
+                                      toggleShareRecipient(recipient.userId);
                                     } else {
-                                      setSelectedRequestOwnerId(
-                                        recipient.userId,
-                                      );
+                                      toggleRequestOwner(recipient.userId);
                                     }
                                   }}
                                   className="inline-flex h-8 items-center gap-1 rounded-full bg-[#f2f2f7] px-3 text-[12px] font-semibold text-[#007aff] transition-colors hover:bg-[#e5e5ea] dark:bg-white/10 dark:text-[#76b7ff] dark:hover:bg-white/15"
@@ -1587,7 +1726,7 @@ export function OneLocationAgentPageContent() {
                       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_160px]">
                         <Select
                           value={selectedRecipientId}
-                          onValueChange={setSelectedRecipientId}
+                          onValueChange={addShareRecipient}
                         >
                           <SelectTrigger className="h-11 w-full rounded-[14px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]">
                             <SelectValue placeholder="Select verified person" />
@@ -1622,13 +1761,45 @@ export function OneLocationAgentPageContent() {
                           </SelectContent>
                         </Select>
                       </div>
-                      {selectedRecipient &&
-                      !selectedRecipient.canReceiveLocation ? (
-                        <div className="rounded-[14px] border border-[#ff9500]/30 bg-[#ff9500]/10 p-3 text-xs leading-5 text-[#9a5a00] dark:text-[#ffd79a]">
-                          Recipient key unavailable. Ask them to open One
-                          Location Agent once.
+                      {selectedShareRecipients.length ? (
+                        <div
+                          aria-label="Selected share recipients"
+                          className="flex flex-wrap gap-2"
+                        >
+                          {selectedShareRecipients.map((recipient) => (
+                            <button
+                              key={recipient.userId}
+                              type="button"
+                              onClick={() =>
+                                removeShareRecipient(recipient.userId)
+                              }
+                              className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[#eef5ff] px-3 text-[12px] font-semibold text-[#005bb5] transition-colors hover:bg-[#dfefff] dark:bg-[#0a84ff]/15 dark:text-[#a7d4ff] dark:hover:bg-[#0a84ff]/25"
+                            >
+                              {recipientLabel(recipient)}
+                              <X className="h-3.5 w-3.5" aria-hidden="true" />
+                              <span className="sr-only">
+                                Remove {recipientLabel(recipient)}
+                              </span>
+                            </button>
+                          ))}
                         </div>
                       ) : null}
+                      {setupNeededSelectedRecipients.length ? (
+                        <div className="rounded-[14px] border border-[#ff9500]/30 bg-[#ff9500]/10 p-3 text-xs leading-5 text-[#9a5a00] dark:text-[#ffd79a]">
+                          {peopleCountLabel(
+                            setupNeededSelectedRecipients.length,
+                          )}{" "}
+                          need One Location setup before private sharing can
+                          start.
+                        </div>
+                      ) : null}
+                      <p className="text-[12px] font-medium text-[#8e8e93] dark:text-white/55">
+                        {selectedShareRecipients.length
+                          ? `${peopleCountLabel(
+                              selectedShareRecipients.length,
+                            )} selected for private encrypted sharing.`
+                          : "Select one or more KAI users for private sharing."}
+                      </p>
                       <ActionButton
                         busy={busy}
                         busyKey="share"
@@ -1645,7 +1816,7 @@ export function OneLocationAgentPageContent() {
                     <div className="space-y-3">
                       <Select
                         value={selectedRequestOwnerId}
-                        onValueChange={setSelectedRequestOwnerId}
+                        onValueChange={addRequestOwner}
                       >
                         <SelectTrigger className="h-11 w-full rounded-[14px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]">
                           <SelectValue placeholder="Select owner" />
@@ -1661,6 +1832,36 @@ export function OneLocationAgentPageContent() {
                           ))}
                         </SelectContent>
                       </Select>
+                      {selectedRequestOwners.length ? (
+                        <div
+                          aria-label="Selected request owners"
+                          className="flex flex-wrap gap-2"
+                        >
+                          {selectedRequestOwners.map((recipient) => (
+                            <button
+                              key={recipient.userId}
+                              type="button"
+                              onClick={() =>
+                                removeRequestOwner(recipient.userId)
+                              }
+                              className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[#eef5ff] px-3 text-[12px] font-semibold text-[#005bb5] transition-colors hover:bg-[#dfefff] dark:bg-[#0a84ff]/15 dark:text-[#a7d4ff] dark:hover:bg-[#0a84ff]/25"
+                            >
+                              {recipientLabel(recipient)}
+                              <X className="h-3.5 w-3.5" aria-hidden="true" />
+                              <span className="sr-only">
+                                Remove {recipientLabel(recipient)}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      <p className="text-[12px] font-medium text-[#8e8e93] dark:text-white/55">
+                        {selectedRequestOwners.length
+                          ? `${peopleCountLabel(
+                              selectedRequestOwners.length,
+                            )} selected for approval-first requests.`
+                          : "Select one or more KAI users before requesting location access."}
+                      </p>
                       <Textarea
                         value={requestMessage}
                         onChange={(event) =>
@@ -1674,7 +1875,9 @@ export function OneLocationAgentPageContent() {
                         busy={busy}
                         busyKey="request"
                         onClick={() => void handleRequestAccess()}
-                        disabled={!vaultOwnerToken || !selectedRequestOwner}
+                        disabled={
+                          !vaultOwnerToken || !selectedRequestOwners.length
+                        }
                         className="h-12 w-full rounded-[16px] bg-gradient-to-b from-[#1a85ff] to-[#0066ff] text-[16px] font-semibold text-white shadow-[0_4px_14px_rgba(0,122,255,0.35)] hover:opacity-95"
                       >
                         <Send className="mr-2 h-4 w-4" aria-hidden="true" />

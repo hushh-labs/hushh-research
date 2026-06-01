@@ -148,6 +148,30 @@ function locationState() {
           },
         ],
       },
+      {
+        userId: "user_d",
+        displayName: "Investor D",
+        maskedPhone: "******9911",
+        phoneVerified: true,
+        keyId: "key_d",
+        publicKeyJwk: { kty: "EC", crv: "P-256", x: "x2", y: "y2" },
+        keyAlgorithm: "test-location-key-agreement",
+        canReceiveLocation: true,
+        recommendationScore: 78,
+        recommendationRank: 3,
+        recommendationTier: "kai_network",
+        recommendationCategory: "professional_network",
+        recommendationCategoryLabel: "Investor network",
+        recommendationSummary: "Aligned with your investor circle",
+        recommendationReasons: [
+          {
+            code: "investor_match",
+            label: "Investor network",
+            weight: 42,
+          },
+        ],
+        trustLevel: "medium",
+      },
     ],
     ownerGrants: [
       {
@@ -254,7 +278,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
     expect(screen.queryByText("Advisor meetup")).toBeNull();
     expect(screen.queryAllByText("Trusted B").length).toBeGreaterThan(0);
-    expect(screen.queryByText(/8012/)).toBeNull();
+    expect(screen.queryByText(/8012|9911/)).toBeNull();
     expect(screen.getByText("Share Encrypted Update")).toBeTruthy();
     expect(mockRegisterKey).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
@@ -276,7 +300,7 @@ describe("OneLocationAgentPage", () => {
       0,
     );
     expect(screen.getByText("Recently shared location with you")).toBeTruthy();
-    expect(screen.queryByText(/8012|4455/)).toBeNull();
+    expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
 
     fireEvent.change(screen.getByPlaceholderText("Search KAI Circle..."), {
       target: { value: "advisor" },
@@ -284,7 +308,7 @@ describe("OneLocationAgentPage", () => {
 
     expect(screen.getAllByText("Advisor C").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Advisor network").length).toBeGreaterThan(0);
-    expect(screen.queryByText(/8012|4455/)).toBeNull();
+    expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
   });
 
   it("shows a skeleton while the first location state refresh is loading", async () => {
@@ -352,7 +376,107 @@ describe("OneLocationAgentPage", () => {
         recipientKeyId: "key_b",
       }),
     });
-    expect(screen.queryByText(/8012/)).toBeNull();
+    expect(screen.queryByText(/8012|9911/)).toBeNull();
+  });
+
+  it("shares one GPS capture through separate encrypted grants for multiple selected recipients", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+    mockCreateGrant.mockImplementation(
+      async ({
+        recipientUserId,
+        recipientKeyId,
+        durationHours,
+      }: {
+        recipientUserId: string;
+        recipientKeyId: string;
+        durationHours: number;
+      }) => ({
+        id: `grant_${recipientUserId}`,
+        ownerUserId: "user_a",
+        recipientUserId,
+        recipientDisplayName:
+          recipientUserId === "user_d" ? "Investor D" : "Trusted B",
+        recipientKeyId,
+        status: "active",
+        consentScope: "cap.location.live.view",
+        capabilityScopes: ["cap.location.live.view"],
+        durationHours,
+        expiresAt: "2026-05-20T08:30:00.000Z",
+      }),
+    );
+    mockEncryptLocationForRecipient.mockImplementation(
+      async ({ point, recipientKeyId }) => ({
+        recipientKeyId,
+        ciphertext: `ciphertext-${recipientKeyId}`,
+        iv: `iv-${recipientKeyId}`,
+        senderEphemeralPublicKeyJwk: {
+          kty: "EC",
+          crv: "P-256",
+          x: "x",
+          y: "y",
+        },
+        capturedAt: point.capturedAt,
+        sourcePlatform: point.sourcePlatform,
+      }),
+    );
+
+    render(<OneLocationAgentPageContent />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    expect(await screen.findByText(/1 person selected/i)).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Investor D from KAI Circle/i,
+      }),
+    );
+    expect(await screen.findByText(/2 people selected/i)).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Start Sharing Location/i }),
+    );
+
+    await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(2));
+    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(
+      mockCreateGrant.mock.calls.map(([payload]) => payload.recipientUserId),
+    ).toEqual(["user_b", "user_d"]);
+    expect(
+      mockEncryptLocationForRecipient.mock.calls.map(
+        ([payload]) => payload.recipientKeyId,
+      ),
+    ).toEqual(["key_b", "key_d"]);
+    expect(mockEncryptLocationForRecipient.mock.calls[0][0].point).toBe(
+      mockEncryptLocationForRecipient.mock.calls[1][0].point,
+    );
+    expect(mockStoreEnvelope).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops private sharing when a selected recipient still needs setup", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
+    render(<OneLocationAgentPageContent />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Advisor C from KAI Circle/i,
+      }),
+    );
+
+    expect(
+      await screen.findByText(/need One Location setup before private sharing/i),
+    ).toBeTruthy();
+    const shareButton = screen.getByRole("button", {
+      name: /Start Sharing Location/i,
+    }) as HTMLButtonElement;
+    expect(shareButton.disabled).toBe(true);
+    expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 
   it("sends an approval-first location request without sharing coordinates", async () => {
@@ -373,6 +497,32 @@ describe("OneLocationAgentPage", () => {
       ownerUserId: "user_b",
       message: undefined,
     });
+    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+    expect(mockStoreEnvelope).not.toHaveBeenCalled();
+  });
+
+  it("fans out approval-first requests to multiple selected owners without coordinates", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
+    render(<OneLocationAgentPageContent />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "request" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Select Investor D from KAI Circle/i,
+      }),
+    );
+    expect(await screen.findByText(/2 people selected/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Send Request/i }));
+
+    await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(2));
+    expect(
+      mockRequestAccess.mock.calls.map(([payload]) => payload.ownerUserId),
+    ).toEqual(["user_b", "user_d"]);
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     expect(mockStoreEnvelope).not.toHaveBeenCalled();
   });
