@@ -120,18 +120,29 @@ export function SettingsGroup({
       {eyebrow || title || description ? (
         <div className="space-y-[var(--settings-heading-stack-gap)] px-0.5 sm:px-1">
           {eyebrow || title ? (
-            <div
-              role="heading"
-              aria-level={embedded ? 3 : 2}
-              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty text-[15px] font-semibold leading-tight tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[16px]"
-            >
-              {eyebrow ? (
-                <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground sm:text-[11px]">
-                  {eyebrow}
-                </span>
-              ) : null}
-              {title ? <span>{title}</span> : null}
-            </div>
+            embedded ? (
+              <h3
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty text-[15px] font-semibold leading-tight tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[16px]"
+              >
+                {eyebrow ? (
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground sm:text-[11px]">
+                    {eyebrow}
+                  </span>
+                ) : null}
+                {title ? <span>{title}</span> : null}
+              </h3>
+            ) : (
+              <h2
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty text-[15px] font-semibold leading-tight tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[16px]"
+              >
+                {eyebrow ? (
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground sm:text-[11px]">
+                    {eyebrow}
+                  </span>
+                ) : null}
+                {title ? <span>{title}</span> : null}
+              </h2>
+            )
           ) : null}
           {description ? (
             <p className="max-w-2xl text-[11px] leading-[1.45] text-muted-foreground [overflow-wrap:anywhere] sm:text-[12px]">
