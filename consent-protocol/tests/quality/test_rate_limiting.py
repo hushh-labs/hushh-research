@@ -296,7 +296,6 @@ class TestRateLimitEnforcement:
 
 
 class TestRateLimitKeyProxyFallback:
-
     def test_explicit_none_rate_limit_user_id_on_state_falls_through_to_bearer(self):
         """state.rate_limit_user_id = None must fall through to bearer decode, not IP."""
         token = _issue_vault_owner_token("state_none_user")
@@ -335,9 +334,7 @@ class TestRateLimitKeyProxyFallback:
     def test_authenticated_and_unauthenticated_request_never_share_bucket(self):
         """An authenticated user bucket must never collide with an IP bucket."""
         token = _issue_vault_owner_token("bucket_isolation_user")
-        authed_key = get_rate_limit_key(
-            MockRequest(headers={"Authorization": f"Bearer {token}"})
-        )
+        authed_key = get_rate_limit_key(MockRequest(headers={"Authorization": f"Bearer {token}"}))
         anon_key = get_rate_limit_key(MockRequest(ip="203.0.113.52"))
 
         assert authed_key != anon_key

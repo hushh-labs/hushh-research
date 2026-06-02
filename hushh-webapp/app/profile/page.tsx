@@ -25,6 +25,7 @@ import {
   Loader2,
   LogOut,
   Mail,
+  MapPin,
   Monitor,
   Phone,
   RefreshCw,
@@ -2894,6 +2895,15 @@ function ProfilePageContent() {
       />
 
       <SettingsGroup>
+        <SettingsRow
+          icon={MapPin}
+          title="Location sharing"
+          description="Share, request, and revoke encrypted live-location access."
+          trailing={<Badge variant="secondary">One</Badge>}
+          chevron
+          stackTrailingOnMobile
+          onClick={() => router.push(ROUTES.ONE_LOCATION)}
+        />
         <SettingsRow
           icon={ExternalLink}
           title="Consent center"

@@ -10,6 +10,7 @@ These tests assert the observable security properties:
   lookup params, NOT 403)
 - Source code uses ``hmac.compare_digest`` for the comparison
 """
+
 from __future__ import annotations
 
 import inspect

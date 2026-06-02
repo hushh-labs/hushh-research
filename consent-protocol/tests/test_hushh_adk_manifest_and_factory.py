@@ -320,9 +320,7 @@ class TestImportDottedPath:
 
     def test_real_decorated_tool_is_accepted(self):
         """A real @hushh_tool decorated function from the production path must be accepted."""
-        result = _import_dotted_path(
-            "hushh_mcp.agents.orchestrator.tools.delegate_to_food_agent"
-        )
+        result = _import_dotted_path("hushh_mcp.agents.orchestrator.tools.delegate_to_food_agent")
         assert callable(result)
         assert getattr(result, "_hushh_tool", False) is True
 

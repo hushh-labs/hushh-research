@@ -41,6 +41,12 @@ const reviewerIdentity = resolveReviewerTestIdentity({
 const reviewerVaultPassphrase = reviewerIdentity.reviewerVaultPassphrase;
 const reviewerUid = reviewerIdentity.reviewerUid;
 const uiFlows = filterUiFlows({ flowFilter, routeFilter });
+const REDACTED_REPORT_STATUS_KEYS = new Set([
+  "bootstrap_uid",
+  "body",
+  "bodySnippet",
+  "jserr",
+]);
 
 function run(cmd, args, options = {}) {
   const output = execFileSync(cmd, args, {
@@ -132,6 +138,15 @@ function parseStatus(raw) {
         const [key, ...rest] = part.split("=");
         return [key, rest.join("=")];
       })
+  );
+}
+
+function sanitizeStatusForReport(status = {}) {
+  return Object.fromEntries(
+    Object.entries(status || {}).map(([key, value]) => [
+      key,
+      REDACTED_REPORT_STATUS_KEYS.has(key) && value ? "<redacted>" : value,
+    ])
   );
 }
 
@@ -399,7 +414,7 @@ function main() {
     flows: uiFlows.map((flow) => flow.id),
     report: result.report,
     error: result.error || null,
-    last_status: result.status,
+    last_status: sanitizeStatusForReport(result.status),
   };
 
   fs.writeFileSync(reportPath, `${JSON.stringify(summary, null, 2)}\n`);
