@@ -122,7 +122,9 @@ class TestPoolInitLockPreventsDoublCreate:
                 patch.object(mod, "_get_database_url", return_value="postgresql://fake/db"),
                 patch.object(mod, "get_database_ssl", return_value=None),
                 patch.object(mod, "_get_connect_timeout_seconds", return_value=10),
-                patch("asyncpg.create_pool", side_effect=AsyncMock(return_value=_make_fake_pool(1))),
+                patch(
+                    "asyncpg.create_pool", side_effect=AsyncMock(return_value=_make_fake_pool(1))
+                ),
             ):
                 await mod.get_pool()
             return mod._pool_lock

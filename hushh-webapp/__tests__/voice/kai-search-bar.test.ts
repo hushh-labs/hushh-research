@@ -8,8 +8,16 @@ import {
 } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
+const { mockOpenAgent } = vi.hoisted(() => ({
+  mockOpenAgent: vi.fn(),
+}));
+
 vi.mock("lucide-react", () => ({
+  Bot: () => createElement("span", { "data-testid": "bot-icon" }),
   Bug: () => null,
+  Mic: () => createElement("span", { "data-testid": "mic-icon" }),
+  Search: () => createElement("span", { "data-testid": "search-icon" }),
+  X: () => createElement("span", { "data-testid": "x-icon" }),
 }));
 
 vi.mock("@/components/kai/kai-command-palette", () => ({
@@ -57,6 +65,39 @@ vi.mock("@/components/kai/voice/voice-ambient-search-surface", () => ({
 
 vi.mock("@/components/kai/voice/voice-debug-drawer", () => ({
   VoiceDebugDrawer: () => null,
+}));
+
+vi.mock("@/components/app-ui/shell-action-surface", () => ({
+  ShellActionSurface: ({
+    children,
+    onClick,
+    disabled,
+    "aria-label": ariaLabel,
+    "aria-disabled": ariaDisabled,
+  }: {
+    children: ReactNode;
+    onClick?: (event: unknown) => void;
+    disabled?: boolean;
+    "aria-label"?: string;
+    "aria-disabled"?: boolean;
+  }) =>
+    createElement(
+      "button",
+      {
+        type: "button",
+        disabled,
+        "aria-label": ariaLabel,
+        "aria-disabled": ariaDisabled,
+        onClick,
+      },
+      children,
+    ),
+}));
+
+vi.mock("@/components/agent/agent-popover-provider", () => ({
+  useOptionalAgentPopover: () => ({
+    openAgent: mockOpenAgent,
+  }),
 }));
 
 vi.mock("@/lib/morphy-ux/button", () => ({
@@ -240,6 +281,7 @@ describe("kai-search-bar helpers", () => {
       lastError: null,
     });
     sessionListener = null;
+    mockOpenAgent.mockClear();
     mockVoiceSessionStore.appendDebugEvent.mockClear();
     mockVoiceSessionStore.setLastAssistantReply.mockClear();
     mockVoiceSessionStore.setPendingConfirmation.mockClear();
@@ -365,6 +407,34 @@ describe("kai-search-bar helpers", () => {
     );
 
     expect(acquireMock).not.toHaveBeenCalled();
+  });
+
+  it("renders the compact RIA action bar instead of the ticker-first voice surface", () => {
+    vi.useRealTimers();
+
+    render(
+      createElement(KaiSearchBar, {
+        onSelectAction: vi.fn(),
+        onVoiceResponse: vi.fn(),
+        surfaceVariant: "ria",
+        userId: "user_1",
+        vaultOwnerToken: "vault_token",
+        voiceAvailable: false,
+        voiceVisibilityMode: "disabled",
+        voiceUnavailableReason: "Unlock your vault to use voice",
+      }),
+    );
+
+    expect(screen.getByTestId("ria-action-bar")).toBeTruthy();
+    expect(screen.queryByTestId("voice-ambient-search-surface")).toBeNull();
+    expect(screen.getByRole("button", { name: "Search RIA workspace" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start RIA voice" }).getAttribute("aria-disabled")).toBe(
+      "true",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Agent" }));
+
+    expect(mockOpenAgent).toHaveBeenCalledTimes(1);
   });
 
   it("acquires on explicit mic tap and releases on cancel", async () => {

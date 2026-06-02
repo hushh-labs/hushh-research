@@ -53,7 +53,7 @@ const vaultPresenceCache = new Map<string, boolean>();
 // ============================================================================
 
 export function VaultLockGuard({ children }: VaultLockGuardProps) {
-  const { isVaultUnlocked } = useVault();
+  const { isVaultUnlocked, unlockVault } = useVault();
   const router = useRouter();
   const nativeTestConfig = useNativeTestConfig();
   const nativeTestBootstrapManaged =
@@ -71,6 +71,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   const [hasVault, setHasVault] = useState<boolean | null>(null);
   const authStepDoneRef = useRef(false);
   const vaultStepDoneRef = useRef(false);
+  const nativeReplayAttemptedRef = useRef(false);
   const PROGRESS_SCOPE = "vault-lock-guard";
 
   useEffect(() => {
@@ -102,6 +103,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
   useEffect(() => {
     if (isVaultUnlocked) {
+      nativeReplayAttemptedRef.current = false;
       endTask(PROGRESS_SCOPE);
       authStepDoneRef.current = false;
       vaultStepDoneRef.current = false;
@@ -114,6 +116,21 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
       endTask(PROGRESS_SCOPE);
     };
   }, [beginTask, endTask, isVaultUnlocked]);
+
+  useEffect(() => {
+    if (!nativeTestBootstrapManaged || isVaultUnlocked || nativeReplayAttemptedRef.current) {
+      return;
+    }
+    const bridge =
+      typeof window !== "undefined" ? window.__HUSHH_NATIVE_TEST__ : null;
+    if (
+      bridge?.bootstrapState === "vault_unlocked" &&
+      typeof bridge.replayVaultUnlock === "function"
+    ) {
+      nativeReplayAttemptedRef.current = true;
+      bridge.replayVaultUnlock();
+    }
+  }, [isVaultUnlocked, nativeTestBootstrapManaged, unlockVault]);
 
   useEffect(() => {
     if (isVaultUnlocked || authLoading || authStepDoneRef.current) return;

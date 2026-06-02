@@ -1411,7 +1411,12 @@ def location_error_detail(exc: KaiLocationError) -> dict[str, str]:
 
 def database_error_detail(exc: DatabaseExecutionError) -> dict[str, str]:
     if exc.details:
-        logger.warning("[Location DB] database error code=%s details=%s hint=%s", exc.code, exc.details, exc.hint or "")
+        logger.warning(
+            "[Location DB] database error code=%s details=%s hint=%s",
+            exc.code,
+            exc.details,
+            exc.hint or "",
+        )
     return {
         "code": exc.code,
         "message": "Location database operation failed.",

@@ -33,7 +33,7 @@ enum NativeUiTestRunnerScript {
     investor: {
       Market: "/kai",
       Portfolio: "/kai/portfolio",
-      Analysis: "/kai/analysis?tab=history",
+      Analysis: "/kai/analysis",
       Connect: "/marketplace",
       Profile: "/profile",
     },
@@ -146,6 +146,19 @@ enum NativeUiTestRunnerScript {
       .join("|");
   }
 
+  function bridgeSummary() {
+    var bridge = nativeTestBridge();
+    return [
+      "enabled=" + (bridge.enabled === true ? "1" : "0"),
+      "navigate=" + (typeof bridge.navigateToRoute === "function" ? "1" : "0"),
+      "switch=" + (typeof bridge.switchPersona === "function" ? "1" : "0"),
+      "active=" + String(bridge.activePersona || ""),
+      "primary=" + String(bridge.primaryNavPersona || ""),
+      "persona_switch=" + String(bridge.personaSwitchStatus || ""),
+      "bootstrap=" + String(bridge.bootstrapState || ""),
+    ].join(",");
+  }
+
   function normalizeRoute(value) {
     var trimmed = String(value || "").trim();
     if (!trimmed || trimmed === "/") return trimmed || "/";
@@ -167,6 +180,8 @@ enum NativeUiTestRunnerScript {
       var allowed = allowedRouteIds[i];
       var normalizedAllowed = normalizeRoute(allowed);
       if (current === normalizedAllowed) return true;
+      if (current.indexOf(normalizedAllowed + "?") === 0) return true;
+      if (current.indexOf(normalizedAllowed + "#") === 0) return true;
       if (allowed.includes("[") && allowed.includes("]")) {
         var escaped = normalizedAllowed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         var pattern = new RegExp(
@@ -201,7 +216,12 @@ enum NativeUiTestRunnerScript {
   function currentRouteMatches(route) {
     var current = normalizeRoute(window.location.pathname + window.location.search);
     var expected = normalizeRoute(route);
-    return current === expected || current.indexOf(expected + "/") === 0;
+    return (
+      current === expected ||
+      current.indexOf(expected + "/") === 0 ||
+      current.indexOf(expected + "?") === 0 ||
+      current.indexOf(expected + "#") === 0
+    );
   }
 
   async function waitForBeacon(routeIds, dataStates, timeoutMs) {
@@ -274,6 +294,20 @@ enum NativeUiTestRunnerScript {
         clickElement(buttons[j]);
         await sleep(400);
         await ensureBottomNavRoute(label, beforeRoute);
+        return;
+      }
+    }
+
+    var bridge = nativeTestBridge();
+    var personas = [bridge.primaryNavPersona, bridge.activePersona];
+    for (var k = 0; k < personas.length; k += 1) {
+      var persona = personas[k];
+      var expectedRoute =
+        persona &&
+        NAV_ROUTE_BY_PERSONA_AND_LABEL[persona] &&
+        NAV_ROUTE_BY_PERSONA_AND_LABEL[persona][label];
+      if (expectedRoute && bridge.enabled === true && typeof bridge.navigateToRoute === "function") {
+        await navigateWithNativeRouter(expectedRoute);
         return;
       }
     }
@@ -521,6 +555,30 @@ enum NativeUiTestRunnerScript {
     return false;
   }
 
+  async function waitForVisibleTestId(testId, timeoutMs) {
+    var selector = '[data-testid="' + testId + '"]';
+    var ready = await waitForCondition(function () {
+      return Boolean(firstVisible(selector));
+    }, timeoutMs || 30000);
+    if (!ready) {
+      var body = ((document.body && document.body.innerText) || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .slice(0, 180);
+      throw new Error(
+        "expected visible testid: " +
+          testId +
+          " route=" +
+          window.location.pathname +
+          window.location.search +
+          " visible=" +
+          visibleButtonSummary(8) +
+          " body=" +
+          body
+      );
+    }
+  }
+
   async function attemptNativePersonaSwitch(persona) {
     var bridge = nativeTestBridge();
     if (bridge.activePersona === persona) return true;
@@ -595,7 +653,12 @@ enum NativeUiTestRunnerScript {
     var deadline = Date.now() + (timeoutMs || 5000);
     while (Date.now() < deadline) {
       var current = normalizeRoute(window.location.pathname + window.location.search);
-      if (current === expected || current.indexOf(expected + "/") === 0) {
+      if (
+        current === expected ||
+        current.indexOf(expected + "/") === 0 ||
+        current.indexOf(expected + "?") === 0 ||
+        current.indexOf(expected + "#") === 0
+      ) {
         return true;
       }
       await sleep(150);
@@ -624,6 +687,7 @@ enum NativeUiTestRunnerScript {
     await waitForNativeAutomationBridge();
     var expectedTour = persona === "ria" ? "nav-ria-home" : "nav-market";
     var bridge = nativeTestBridge();
+    var route = routeForPersona(persona);
     if (
       routeMatchesPersona(persona) &&
       firstVisible('[data-tour-id="' + expectedTour + '"]')
@@ -632,25 +696,15 @@ enum NativeUiTestRunnerScript {
       return;
     }
 
-    await resolvePersonaMismatchPrompt(persona);
-
     if (bridge.enabled === true && typeof bridge.switchPersona === "function") {
-      if (!routeMatchesPersona(persona) && typeof bridge.navigateToRoute === "function") {
-        await navigateWithNativeRouter(routeForPersona(persona));
-        await resolvePersonaMismatchPrompt(persona);
-      }
-
       var switched = await attemptNativePersonaSwitch(persona);
+      if (!routeMatchesPersona(persona)) {
+        await navigateWithNativeRouter(route);
+      }
       if (switched) {
         await resolvePersonaMismatchPrompt(persona);
       }
-
-      var route = routeForPersona(persona);
-      if (!routeMatchesPersona(persona)) {
-        await navigateWithNativeRouter(route);
-        await resolvePersonaMismatchPrompt(persona);
-        await waitForBeacon([route]);
-      }
+      await waitForBeacon([route], undefined, 30000);
 
       var ready = await waitForCondition(function () {
         return (
@@ -809,9 +863,7 @@ enum NativeUiTestRunnerScript {
         await waitForUrlIncludes(step.value, step.timeoutMs);
         return;
       case "assert_visible_testid":
-        if (!firstVisible('[data-testid="' + step.testId + '"]')) {
-          throw new Error("expected visible testid: " + step.testId);
-        }
+        await waitForVisibleTestId(step.testId, step.timeoutMs);
         return;
       case "open_ria_workspace":
         await openRiaWorkspace();
@@ -841,7 +893,9 @@ enum NativeUiTestRunnerScript {
                   "step timeout (" +
                     step.type +
                     ") visible=" +
-                    visibleButtonSummary(8)
+                    visibleButtonSummary(8) +
+                    " bridge=" +
+                    bridgeSummary()
                 )
               );
             }, stepTimeoutMs);

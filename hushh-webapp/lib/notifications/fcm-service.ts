@@ -356,6 +356,16 @@ async function initializeNativeFCM(
   idToken: string
 ): Promise<FCMInitResult> {
   try {
+    if (
+      typeof window !== "undefined" &&
+      window.__HUSHH_NATIVE_TEST__?.enabled === true
+    ) {
+      return {
+        status: "unsupported",
+        detail: "native_test_notifications_skipped",
+      };
+    }
+
     console.log("[FCM] Initializing for native platform...");
 
     const { FirebaseMessaging } = await import("@capacitor-firebase/messaging");
