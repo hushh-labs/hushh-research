@@ -112,7 +112,7 @@ async def export_user_data(
         failed_fields=["user_id", "consent_id"],
         clearance_level=ClearanceLevel.PARTIAL,
     )
-    return result.payload
+    return dict(result.payload)
 
 
 @router.delete(
