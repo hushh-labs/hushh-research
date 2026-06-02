@@ -322,7 +322,7 @@ async def get_pending_consents(
 @router.get("/pending/lookup")
 async def lookup_pending_consents(
     userId: str,
-    request_id: list[str] | None = Query(default=None),
+    request_id: list[str] | None = Query(default=None, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -969,8 +969,8 @@ async def get_consent_center(firebase_uid: str = Depends(require_firebase_auth))
 
 @router.get("/center/summary")
 async def get_consent_center_summary(
-    actor: str = Query(default="investor"),
-    mode: str = Query(default="consents"),
+    actor: str = Query(default="investor", max_length=50),
+    mode: str = Query(default="consents", max_length=50),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     service = ConsentCenterService()
@@ -979,10 +979,10 @@ async def get_consent_center_summary(
 
 @router.get("/center/list")
 async def get_consent_center_list(
-    actor: str = Query(default="investor"),
-    surface: str = Query(default="pending"),
-    mode: str = Query(default="consents"),
-    q: str | None = Query(default=None),
+    actor: str = Query(default="investor", max_length=50),
+    surface: str = Query(default="pending", max_length=50),
+    mode: str = Query(default="consents", max_length=50),
+    q: str | None = Query(default=None, max_length=200),
     top: int | None = Query(default=None, ge=1, le=10),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
@@ -1043,7 +1043,7 @@ async def create_generic_consent_request(
 @router.get("/handshake/history")
 async def get_handshake_history(
     counterpart_id: str = Query(..., min_length=1),
-    actor: str = Query(default="investor"),
+    actor: str = Query(default="investor", max_length=50),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=50, ge=1, le=200),
     firebase_uid: str = Depends(require_firebase_auth),
@@ -1306,7 +1306,7 @@ async def revoke_consent(
 @router.get("/data")
 async def get_consent_export_data(
     request: Request,
-    consent_token: str | None = Query(default=None),
+    consent_token: str | None = Query(default=None, max_length=2048),
 ):
     """
     Retrieve encrypted export data for a consent token (Zero-Knowledge).
