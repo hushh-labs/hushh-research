@@ -51,9 +51,9 @@ def test_extra_field_raises_validation_error():
             unknown_field="should_be_rejected",
         )
     errors = exc_info.value.errors()
-    assert any(
-        e.get("type") == "extra_forbidden" for e in errors
-    ), f"Expected extra_forbidden error, got: {errors}"
+    assert any(e.get("type") == "extra_forbidden" for e in errors), (
+        f"Expected extra_forbidden error, got: {errors}"
+    )
 
 
 def test_multiple_extra_fields_all_rejected():
@@ -158,9 +158,7 @@ def test_http_valid_payload_not_rejected_by_validation(client):
         },
     )
     # Should not be 422 — validation passes; it may 400/404/500 for business logic
-    assert resp.status_code != 422, (
-        "Valid payload was incorrectly rejected with 422"
-    )
+    assert resp.status_code != 422, "Valid payload was incorrectly rejected with 422"
 
 
 # ---------------------------------------------------------------------------

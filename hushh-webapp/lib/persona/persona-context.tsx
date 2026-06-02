@@ -94,6 +94,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
   const [refreshing, setRefreshing] = useState(false);
   const [personaTransitionTarget, setPersonaTransitionTarget] = useState<Persona | null>(null);
   const pathnameRef = useRef(pathname);
+  const personaMutationSeqRef = useRef(0);
 
   useEffect(() => {
     pathnameRef.current = pathname;
@@ -125,12 +126,16 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
       }
 
       setRefreshing(true);
+      const refreshSeq = personaMutationSeqRef.current;
       try {
         const idToken = await user.getIdToken();
         const nextPersona = await RiaService.getPersonaState(idToken, {
           userId,
           force,
         });
+        if (refreshSeq !== personaMutationSeqRef.current) {
+          return;
+        }
         setPersonaState(nextPersona);
         cache.set(CACHE_KEYS.PERSONA_STATE(userId), nextPersona, CACHE_TTL.SESSION);
 
@@ -193,6 +198,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
   const switchPersona = useCallback(
     async (target: Persona) => {
       if (!user || !isAuthenticated) return null;
+      personaMutationSeqRef.current += 1;
       setPersonaTransitionTarget(target);
       try {
         const idToken = await user.getIdToken();
@@ -200,15 +206,16 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
         const cache = CacheService.getInstance();
         CacheSyncService.onPersonaStateChanged(user.uid, { preservePersonaState: true });
         cache.set(CACHE_KEYS.PERSONA_STATE(user.uid), next, CACHE_TTL.SESSION);
+        personaMutationSeqRef.current += 1;
         setPersonaState(next);
-        void refresh({ force: true });
         return next;
       } catch (error) {
+        personaMutationSeqRef.current += 1;
         setPersonaTransitionTarget(null);
         throw error;
       }
     },
-    [isAuthenticated, refresh, user]
+    [isAuthenticated, user]
   );
 
   const riaCapability: RiaCapability = useMemo(() => {

@@ -48,14 +48,20 @@ class TestStreamGeminiResponseExceptionLeak:
 
         # Patch the module-level client so _require_gemini_ready returns True
         # and the actual generation path raises with the sentinel.
-        with patch.object(llm_mod, "_gemini_client", fake_client), \
-             patch.object(llm_mod, "GEMINI_AVAILABLE", True), \
-             patch.object(llm_mod, "_gemini_model_name", "gemini-flash"), \
-             patch("hushh_mcp.operons.kai.llm.types", MagicMock()):
-            frames = asyncio.run(_collect(stream_gemini_response(
-                prompt="analyze AAPL",
-                agent_name="bull",
-            )))
+        with (
+            patch.object(llm_mod, "_gemini_client", fake_client),
+            patch.object(llm_mod, "GEMINI_AVAILABLE", True),
+            patch.object(llm_mod, "_gemini_model_name", "gemini-flash"),
+            patch("hushh_mcp.operons.kai.llm.types", MagicMock()),
+        ):
+            frames = asyncio.run(
+                _collect(
+                    stream_gemini_response(
+                        prompt="analyze AAPL",
+                        agent_name="bull",
+                    )
+                )
+            )
 
         error_frames = [f for f in frames if f.get("type") == "error"]
         assert error_frames, "Expected at least one error frame"
@@ -76,14 +82,20 @@ class TestStreamGeminiResponseExceptionLeak:
             side_effect=RuntimeError("some internal failure")
         )
 
-        with patch.object(llm_mod, "_gemini_client", fake_client), \
-             patch.object(llm_mod, "GEMINI_AVAILABLE", True), \
-             patch.object(llm_mod, "_gemini_model_name", "gemini-flash"), \
-             patch("hushh_mcp.operons.kai.llm.types", MagicMock()):
-            frames = asyncio.run(_collect(stream_gemini_response(
-                prompt="analyze AAPL",
-                agent_name="bear",
-            )))
+        with (
+            patch.object(llm_mod, "_gemini_client", fake_client),
+            patch.object(llm_mod, "GEMINI_AVAILABLE", True),
+            patch.object(llm_mod, "_gemini_model_name", "gemini-flash"),
+            patch("hushh_mcp.operons.kai.llm.types", MagicMock()),
+        ):
+            frames = asyncio.run(
+                _collect(
+                    stream_gemini_response(
+                        prompt="analyze AAPL",
+                        agent_name="bear",
+                    )
+                )
+            )
 
         error_frames = [f for f in frames if f.get("type") == "error"]
         assert error_frames
@@ -96,12 +108,18 @@ class TestStreamGeminiResponseExceptionLeak:
 
         sentinel = "SENTINEL_UNAVAIL_REASON_init_failed_7x2"
 
-        with patch.object(llm_mod, "_gemini_unavailable_reason", sentinel), \
-             patch("hushh_mcp.operons.kai.llm._require_gemini_ready", return_value=False):
-            frames = asyncio.run(_collect(stream_gemini_response(
-                prompt="analyze AAPL",
-                agent_name="bull",
-            )))
+        with (
+            patch.object(llm_mod, "_gemini_unavailable_reason", sentinel),
+            patch("hushh_mcp.operons.kai.llm._require_gemini_ready", return_value=False),
+        ):
+            frames = asyncio.run(
+                _collect(
+                    stream_gemini_response(
+                        prompt="analyze AAPL",
+                        agent_name="bull",
+                    )
+                )
+            )
 
         error_frames = [f for f in frames if f.get("type") == "error"]
         assert error_frames, "Expected an error frame when Gemini is unavailable"
@@ -130,21 +148,23 @@ class TestAnalyzeFundamentalStreamingConsentLeak:
             "hushh_mcp.operons.kai.llm.validate_token",
             return_value=(False, sentinel, None),
         ):
-            frames = asyncio.run(_collect(analyze_fundamental_streaming(
-                ticker="AAPL",
-                user_id="user-test",
-                consent_token="bad-token",  # noqa: S106
-                sec_data={},
-            )))
+            frames = asyncio.run(
+                _collect(
+                    analyze_fundamental_streaming(
+                        ticker="AAPL",
+                        user_id="user-test",
+                        consent_token="bad-token",  # noqa: S106
+                        sec_data={},
+                    )
+                )
+            )
 
         error_frames = [f for f in frames if f.get("type") == "error"]
         assert error_frames, "Expected an error frame on consent failure"
 
         for frame in error_frames:
             msg = frame.get("message", "")
-            assert sentinel not in msg, (
-                f"Consent failure reason leaked into error frame: {msg!r}"
-            )
+            assert sentinel not in msg, f"Consent failure reason leaked into error frame: {msg!r}"
 
     def test_consent_error_static_message(self) -> None:
         """Consent error frame must use the approved static message."""
@@ -154,12 +174,16 @@ class TestAnalyzeFundamentalStreamingConsentLeak:
             "hushh_mcp.operons.kai.llm.validate_token",
             return_value=(False, "token expired", None),
         ):
-            frames = asyncio.run(_collect(analyze_fundamental_streaming(
-                ticker="AAPL",
-                user_id="user-test",
-                consent_token="expired",  # noqa: S106
-                sec_data={},
-            )))
+            frames = asyncio.run(
+                _collect(
+                    analyze_fundamental_streaming(
+                        ticker="AAPL",
+                        user_id="user-test",
+                        consent_token="expired",  # noqa: S106
+                        sec_data={},
+                    )
+                )
+            )
 
         error_frames = [f for f in frames if f.get("type") == "error"]
         assert error_frames
@@ -184,19 +208,27 @@ class TestAnalyzeFundamentalStreamingGeminiLeak:
 
         sentinel = "SENTINEL_GEMINI_INIT_REASON_7x2q"
 
-        with patch(
-            "hushh_mcp.operons.kai.llm.validate_token",
-            return_value=(True, None, MagicMock()),
-        ), patch(
-            "hushh_mcp.operons.kai.llm._require_gemini_ready",
-            return_value=False,
-        ), patch.object(llm_mod, "_gemini_unavailable_reason", sentinel):
-            frames = asyncio.run(_collect(analyze_fundamental_streaming(
-                ticker="TSLA",
-                user_id="user-test",
-                consent_token="good-token",  # noqa: S106
-                sec_data={},
-            )))
+        with (
+            patch(
+                "hushh_mcp.operons.kai.llm.validate_token",
+                return_value=(True, None, MagicMock()),
+            ),
+            patch(
+                "hushh_mcp.operons.kai.llm._require_gemini_ready",
+                return_value=False,
+            ),
+            patch.object(llm_mod, "_gemini_unavailable_reason", sentinel),
+        ):
+            frames = asyncio.run(
+                _collect(
+                    analyze_fundamental_streaming(
+                        ticker="TSLA",
+                        user_id="user-test",
+                        consent_token="good-token",  # noqa: S106
+                        sec_data={},
+                    )
+                )
+            )
 
         error_frames = [f for f in frames if f.get("type") == "error"]
         assert error_frames, "Expected an error frame when Gemini is unavailable"
@@ -212,23 +244,28 @@ class TestAnalyzeFundamentalStreamingGeminiLeak:
         from hushh_mcp.operons.kai import llm as llm_mod
         from hushh_mcp.operons.kai.llm import analyze_fundamental_streaming
 
-        with patch(
-            "hushh_mcp.operons.kai.llm.validate_token",
-            return_value=(True, None, MagicMock()),
-        ), patch(
-            "hushh_mcp.operons.kai.llm._require_gemini_ready",
-            return_value=False,
-        ), patch.object(llm_mod, "_gemini_unavailable_reason", "api key invalid"):
-            frames = asyncio.run(_collect(analyze_fundamental_streaming(
-                ticker="TSLA",
-                user_id="user-test",
-                consent_token="good-token",  # noqa: S106
-                sec_data={},
-            )))
+        with (
+            patch(
+                "hushh_mcp.operons.kai.llm.validate_token",
+                return_value=(True, None, MagicMock()),
+            ),
+            patch(
+                "hushh_mcp.operons.kai.llm._require_gemini_ready",
+                return_value=False,
+            ),
+            patch.object(llm_mod, "_gemini_unavailable_reason", "api key invalid"),
+        ):
+            frames = asyncio.run(
+                _collect(
+                    analyze_fundamental_streaming(
+                        ticker="TSLA",
+                        user_id="user-test",
+                        consent_token="good-token",  # noqa: S106
+                        sec_data={},
+                    )
+                )
+            )
 
         error_frames = [f for f in frames if f.get("type") == "error"]
         assert error_frames
-        assert (
-            error_frames[0]["message"]
-            == "The analysis service is temporarily unavailable."
-        )
+        assert error_frames[0]["message"] == "The analysis service is temporarily unavailable."
