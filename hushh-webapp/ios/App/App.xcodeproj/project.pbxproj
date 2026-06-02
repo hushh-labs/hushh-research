@@ -22,8 +22,10 @@
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		6146083798073DA5027983D9 /* NativeTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E424BC311E720A549078D16 /* NativeTestSupport.swift */; };
+		71A2B3C49D8E7F6012345678 /* NativeUiTestRunnerScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A2B3C49D8E7F6012345679 /* NativeUiTestRunnerScript.swift */; };
 		84C1C4976C8A006BA2171BFF /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D70EFDA31DB35F5785665EA6 /* Foundation.framework */; };
 		A11C0A710000000000000062 /* HushhLocationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A710000000000000061 /* HushhLocationPlugin.swift */; };
+		A11C0A720000000000000062 /* HushhContactsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A720000000000000061 /* HushhContactsPlugin.swift */; };
 		A1B2C3D42F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D52F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift */; };
 		A2774DC0614D2A490F85042E /* HushhConsentPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D0CE383269D3D6B23A9A02 /* HushhConsentPlugin.swift */; };
 		B54CF1772B3BDD70BFEC7B19 /* AppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 423141872FACCBA5C6BB6BE5 /* AppUITests.swift */; };
@@ -72,12 +74,14 @@
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		56ED1CF703740D03086A7499 /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		695EAEF496545F6564EEC117 /* HushhSettingsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhSettingsPlugin.swift; path = Plugins/HushhSettingsPlugin.swift; sourceTree = "<group>"; };
+		71A2B3C49D8E7F6012345679 /* NativeUiTestRunnerScript.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeUiTestRunnerScript.swift; sourceTree = "<group>"; };
 		844A95957616D891DBC4D212 /* NativeSupportTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeSupportTests.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		958DCC732DB07C7200EA8C5F /* release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = release.xcconfig; path = ../release.xcconfig; sourceTree = SOURCE_ROOT; };
 		99D0CE383269D3D6B23A9A02 /* HushhConsentPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhConsentPlugin.swift; path = Plugins/HushhConsentPlugin.swift; sourceTree = "<group>"; };
 		9ECA7AA8B6B21BD4F7D2F44F /* HushhKeystorePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhKeystorePlugin.swift; path = Plugins/HushhKeystorePlugin.swift; sourceTree = "<group>"; };
 		A11C0A710000000000000061 /* HushhLocationPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhLocationPlugin.swift; path = Plugins/HushhLocationPlugin.swift; sourceTree = "<group>"; };
+		A11C0A720000000000000061 /* HushhContactsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhContactsPlugin.swift; path = Plugins/HushhContactsPlugin.swift; sourceTree = "<group>"; };
 		A1B2C3D52F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PersonalKnowledgeModelPlugin.swift; path = Plugins/PersonalKnowledgeModelPlugin.swift; sourceTree = "<group>"; };
 		A280438C2F21B1FC005B42F3 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		D1F9F90F2F0E966A009FC3FB /* KaiPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = KaiPlugin.swift; path = Plugins/KaiPlugin.swift; sourceTree = "<group>"; };
@@ -166,6 +170,7 @@
 				23A8EB24F6FE1F57B965FEB1 /* MyViewController.swift */,
 				E01327B97C0E35A824E086A8 /* Plugins */,
 				0E424BC311E720A549078D16 /* NativeTestSupport.swift */,
+				71A2B3C49D8E7F6012345679 /* NativeUiTestRunnerScript.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -201,6 +206,7 @@
 				FACADE000000000000000001 /* HushhAccountPlugin.swift */,
 				FACADE000000000000000004 /* HushhNotificationsPlugin.swift */,
 				A11C0A710000000000000061 /* HushhLocationPlugin.swift */,
+				A11C0A720000000000000061 /* HushhContactsPlugin.swift */,
 			);
 			name = Plugins;
 			sourceTree = "<group>";
@@ -377,7 +383,9 @@
 				FACADE000000000000000002 /* HushhAccountPlugin.swift in Sources */,
 				FACADE000000000000000003 /* HushhNotificationsPlugin.swift in Sources */,
 				A11C0A710000000000000062 /* HushhLocationPlugin.swift in Sources */,
+				A11C0A720000000000000062 /* HushhContactsPlugin.swift in Sources */,
 				6146083798073DA5027983D9 /* NativeTestSupport.swift in Sources */,
+				71A2B3C49D8E7F6012345678 /* NativeUiTestRunnerScript.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -545,11 +553,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
-				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 19;
-				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = WVDK9JW99C;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 23;
+				DEVELOPMENT_TEAM = WVDK9JW99C;
 				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -557,12 +563,11 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.3.3;
+				MARKETING_VERSION = 1.3.5;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "Development Device Test";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_VERSION = 5.0;
@@ -577,11 +582,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
-				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 19;
-				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = WVDK9JW99C;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 23;
+				DEVELOPMENT_TEAM = WVDK9JW99C;
 				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -589,11 +592,10 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.3.3;
+				MARKETING_VERSION = 1.3.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "Development Device Test";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
 				SWIFT_VERSION = 5.0;

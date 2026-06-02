@@ -93,6 +93,7 @@ export function SettingsGroup({
   children,
   embedded = false,
   className,
+  testId = "settings-group",
 }: {
   eyebrow?: string;
   title?: ReactNode;
@@ -100,6 +101,7 @@ export function SettingsGroup({
   children: ReactNode;
   embedded?: boolean;
   className?: string;
+  testId?: string;
 }) {
   const shell = (
     <div
@@ -114,7 +116,7 @@ export function SettingsGroup({
   );
 
   return (
-    <section className={cn("w-full space-y-[var(--settings-group-stack-gap)]", className)}>
+    <section className={cn("w-full space-y-[var(--settings-group-stack-gap)]", className)} data-testid={testId}>
       {eyebrow || title || description ? (
         <div className="space-y-[var(--settings-heading-stack-gap)] px-0.5 sm:px-1">
           {eyebrow || title ? (
@@ -161,6 +163,7 @@ export function SettingsRow({
   voiceActionId,
   voiceLabel,
   voicePurpose,
+  testId = "settings-row",
 }: {
   asChild?: boolean;
   children?: ReactNode;
@@ -179,6 +182,7 @@ export function SettingsRow({
   voiceActionId?: string;
   voiceLabel?: string;
   voicePurpose?: string;
+  testId?: string;
 }) {
   const resolvedAsChild = asChild && isValidElement(children);
   const isInteractive = !disabled && (typeof onClick === "function" || resolvedAsChild);
@@ -274,7 +278,7 @@ export function SettingsRow({
 
   if (splitPrimaryAction) {
     return (
-      <div className={rowShellClassName}>
+      <div className={rowShellClassName} data-testid={testId}>
         <div
           className={cn(
             "relative z-10 grid w-full px-[var(--settings-row-px)] py-[var(--settings-row-py)]",
@@ -310,7 +314,7 @@ export function SettingsRow({
 
   if (resolvedAsChild) {
     return (
-      <div className={rowShellClassName}>
+      <div className={rowShellClassName} data-testid={testId}>
         {isInteractive ? (
           <span
             aria-hidden
@@ -332,7 +336,7 @@ export function SettingsRow({
   }
 
   return (
-    <div className={rowShellClassName}>
+    <div className={rowShellClassName} data-testid={testId}>
       {isInteractive ? (
         <span
           aria-hidden
@@ -387,16 +391,25 @@ export function SettingsDetailPanel({
   if (isMobile) {
     return (
       <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent className="h-[100dvh] max-h-[100dvh] rounded-none border-none bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)]">
+        <DrawerContent
+          className="h-[100dvh] max-h-[100dvh] rounded-none border-none bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)]"
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            (e.currentTarget as HTMLElement).focus();
+          }}
+        >
           <DrawerHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 text-left sm:px-5 sm:py-4">
             <DrawerTitle className="text-base font-semibold tracking-tight">
               {title}
             </DrawerTitle>
-            {description ? (
-              <DrawerDescription className="text-sm leading-5 sm:leading-6">
-                {description}
-              </DrawerDescription>
-            ) : null}
+            <DrawerDescription
+              className={cn(
+                "text-sm leading-5 sm:leading-6",
+                !description && "sr-only"
+              )}
+            >
+              {description ?? "Settings"}
+          </DrawerDescription>
           </DrawerHeader>
           <div className="flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-3 pb-[calc(var(--app-safe-area-bottom-effective,env(safe-area-inset-bottom,0px))+2rem)] pt-3 sm:px-4 sm:pt-4">
             {children}

@@ -68,8 +68,8 @@ class HushhLocationPlugin : Plugin() {
     }
 
     private fun permissionPayload(): JSObject {
-        val fineGranted = hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)
-        val coarseGranted = hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
+        val fineGranted = hasAndroidPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+        val coarseGranted = hasAndroidPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
         val state = if (fineGranted || coarseGranted) "granted" else "prompt"
         return JSObject()
             .put("state", state)
@@ -77,7 +77,7 @@ class HushhLocationPlugin : Plugin() {
             .put("background", "foreground-only")
     }
 
-    private fun hasPermission(permission: String): Boolean {
+    private fun hasAndroidPermission(permission: String): Boolean {
         return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
     }
 

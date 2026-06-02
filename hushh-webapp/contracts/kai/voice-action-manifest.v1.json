@@ -73,7 +73,7 @@
     {
       "id": "analysis.start",
       "label": "Start Stock Analysis",
-      "meaning": "Creates fresh analysis intent and opens the debate workspace.",
+      "meaning": "Opens the stock comparison preview so the user can confirm context before the debate starts.",
       "speaker_persona": "kai",
       "delegate_agent_id": null,
       "aliases": [

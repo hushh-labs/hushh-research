@@ -1,10 +1,18 @@
 """Behavioral tests for URL-building helpers in consent_request_links.py.
 
-build_consent_request_path and build_connection_request_path are pure functions
-(only urlencode + string formatting). The *_url variants compose the path
-helpers with frontend_origin(), which is patched to a fixed value in these tests.
+Canonical attach point: ``hushh_mcp/services/consent_request_links.py`` is
+called by ``hushh_mcp/services/consent_db.py`` (``build_consent_request_url``)
+to produce the deep-link URL embedded in consent-request push notifications,
+emails, and SSE events. A wrong URL breaks the consent flow for the end user.
 
-All tests are hermetic — no DB, network, or real env vars required.
+Functions under test:
+- ``build_consent_request_path``: query-param composition, actor/manager_view
+  whitelist, view default, empty-string fallback
+- ``build_connection_request_path``: selected param, tab default
+- ``build_consent_request_url`` / ``build_connection_request_url``: full URL
+  assembly with patched ``frontend_origin()``
+
+All tests are hermetic -- no DB, network, or real env vars required.
 """
 
 from __future__ import annotations
@@ -143,6 +151,29 @@ class TestBuildConsentRequestUrl:
         url = self._build(actor="ria")
         assert "actor=ria" in url
 
+    def test_url_no_double_slash(self):
+        url = self._build()
+        assert "//" not in url.replace("https://", "")
+
+    def test_url_carries_bundle_id(self):
+        url = self._build(bundle_id="b1")
+        assert "bundleId=b1" in url
+
+    def test_canonical_caller_path_consent_db(self):
+        """Exercises the same call pattern used by consent_db.py.
+
+        hushh_mcp/services/consent_db.py calls build_consent_request_url(
+            request_id=<id>, bundle_id=<id>
+        ) to embed in push notification payloads. This test mirrors that call.
+        """
+        url = self._build(request_id="consent-req-001", bundle_id="bundle-002")
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+        assert parsed.scheme == "https"
+        assert parsed.path == "/consents"
+        assert params["requestId"] == ["consent-req-001"]
+        assert params["bundleId"] == ["bundle-002"]
+
 
 # ---------------------------------------------------------------------------
 # build_connection_request_path
@@ -198,3 +229,11 @@ class TestBuildConnectionRequestUrl:
     def test_url_contains_selected(self):
         url = self._build(selected="xyz")
         assert "selected=xyz" in url
+
+    def test_url_no_double_slash(self):
+        url = self._build()
+        assert "//" not in url.replace("https://", "")
+
+    def test_tab_included_in_url(self):
+        url = self._build(tab="active")
+        assert "tab=active" in url

@@ -466,6 +466,14 @@ async def vault_setup(
 
     except ValueError as e:
         message = str(e)
+        if "Active vault already exists" in message:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": message,
+                    "code": "VAULT_ALREADY_EXISTS",
+                },
+            )
         if "primaryMethod + primaryWrapperId" in message:
             raise HTTPException(
                 status_code=400,

@@ -13,7 +13,7 @@ Use this pattern for any new Kai streaming feature.
 - Always set explicit `event:` and canonical JSON `data`.
 - Mark terminal events with `terminal=true`.
 - Keep payload object-only.
-- Enforce `120s` timeout and emit heartbeat-safe `stage` events every `3-5s`.
+- Enforce route-owned inactivity timeouts and emit heartbeat-safe events every `3-5s`.
 
 ## 2. Vertex AI Streaming
 

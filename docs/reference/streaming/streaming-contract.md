@@ -21,7 +21,7 @@ No legacy stream payload shape is supported.
 
 - `portfolio_import` timeout is `360s`.
 - `portfolio_optimize` timeout is `240s`.
-- `stock_analyze` timeout is `300s`.
+- `stock_analyze` inactivity timeout is `300s` and resets on every emitted application SSE event.
 - Producers emit heartbeat-safe `stage` updates roughly every `3-5s` while waiting for model chunks.
 - Terminal behavior is mandatory: every stream ends with one terminal `complete`, `aborted`, or `error`.
 
@@ -68,6 +68,7 @@ Rules:
 ### Import Portfolio (`stream_kind=portfolio_import`)
 
 - `stage`
+- `thinking` (optional Gemini thought-summary telemetry)
 - `chunk`
 - `progress`
 - `aborted` (terminal)
@@ -78,6 +79,7 @@ Import phase values now include:
 - `uploading`
 - `indexing`
 - `scanning`
+- `thinking`
 - `extracting`
 - `normalizing`
 - `validating`
@@ -160,7 +162,7 @@ Thought summaries are best-effort telemetry.
   - `token_source`
   - `timestamp` (envelope-normalized)
   - `progress_pct` (envelope-normalized)
-- Import extraction does not emit investor-visible thought chunks; `thought_count` remains `0` in diagnostics.
+- Import extraction may emit optional Gemini `thinking` summaries when the configured model returns thought parts. `thought_count` is telemetry only.
 - Import `holdings_preview` is derived from confirmed parsed holding objects during stream assembly.
 - Analyze stream continues to use `kai_thinking` plus `agent_token`; `agent_token` includes `token_source`.
 
