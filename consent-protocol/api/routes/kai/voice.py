@@ -360,12 +360,12 @@ class AppRuntimeState(BaseModel):
 
 
 class VoicePlanRequest(BaseModel):
-    user_id: str
-    transcript: str
+    user_id: str = Field(..., max_length=128)
+    transcript: str = Field(..., min_length=1, max_length=10_000)
     context: dict[str, Any] = Field(default_factory=dict)
     app_state: Optional[AppRuntimeState] = None
-    turn_id: Optional[str] = None
-    transcript_final: Optional[str] = None
+    turn_id: Optional[str] = Field(default=None, max_length=128)
+    transcript_final: Optional[str] = Field(default=None, max_length=10_000)
     context_structured: dict[str, Any] = Field(default_factory=dict)
     memory_short: list[dict[str, Any]] = Field(default_factory=list)
     memory_retrieved: list[dict[str, Any]] = Field(default_factory=list)
@@ -423,21 +423,21 @@ class VoicePlanResponse(BaseModel):
 
 
 class VoiceComposeRequest(BaseModel):
-    user_id: str
-    transcript: str
+    user_id: str = Field(..., max_length=128)
+    transcript: str = Field(..., min_length=1, max_length=10_000)
     response: VoiceResponsePayload
     app_state: Optional[AppRuntimeState] = None
     context: dict[str, Any] = Field(default_factory=dict)
     context_structured: dict[str, Any] = Field(default_factory=dict)
-    turn_id: Optional[str] = None
-    response_id: Optional[str] = None
-    mode: Optional[str] = None
-    action_id: Optional[str] = None
+    turn_id: Optional[str] = Field(default=None, max_length=128)
+    response_id: Optional[str] = Field(default=None, max_length=128)
+    mode: Optional[str] = Field(default=None, max_length=50)
+    action_id: Optional[str] = Field(default=None, max_length=128)
     slots: dict[str, Any] = Field(default_factory=dict)
     guards: list[str] = Field(default_factory=list)
-    reply_strategy: Optional[str] = None
+    reply_strategy: Optional[str] = Field(default=None, max_length=50)
     clarification: Optional[VoiceClarificationPayload] = None
-    action_completion: Optional[str] = None
+    action_completion: Optional[str] = Field(default=None, max_length=500)
     action_result: Optional[dict[str, Any]] = None
     memory_short: list[dict[str, Any]] = Field(default_factory=list)
     memory_retrieved: list[dict[str, Any]] = Field(default_factory=list)
@@ -454,13 +454,13 @@ class VoiceComposeResponse(BaseModel):
 
 
 class VoiceTTSRequest(BaseModel):
-    user_id: str
-    text: str
-    voice: Optional[str] = "alloy"
+    user_id: str = Field(..., max_length=128)
+    text: str = Field(..., min_length=1, max_length=4096)
+    voice: Optional[str] = Field(default="alloy", max_length=32)
 
 
 class VoiceCapabilityRequest(BaseModel):
-    user_id: str
+    user_id: str = Field(..., max_length=128)
 
 
 class VoiceCapabilityResponse(BaseModel):
@@ -482,8 +482,8 @@ class VoiceCapabilityResponse(BaseModel):
 
 
 class VoiceRealtimeSessionRequest(BaseModel):
-    user_id: str
-    voice: Optional[str] = None
+    user_id: str = Field(..., max_length=128)
+    voice: Optional[str] = Field(default=None, max_length=32)
 
 
 class VoiceRealtimeSessionResponse(BaseModel):

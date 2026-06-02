@@ -53,6 +53,7 @@ What this proves:
 6. docs and the implementation references remain aligned
 7. sandbox audit emits a local report for representative investor and RIA journeys without affecting GA4 numbers
 8. UAT smoke proves a real deployed UAT browser journey and direct GA4 collect handoff when maintainer-only smoke credentials are available
+9. cache and route performance events remain bounded metadata-only signals for UX KPIs, not user-data telemetry
 
 Repo verification fails if:
 
@@ -62,6 +63,14 @@ Repo verification fails if:
 4. UAT smoke credentials are unavailable for a deployed validation gate, or the smoke journey cannot produce the required live events
 5. docs verification fails
 6. the event schema drifts from the declared contract
+7. route/cache performance events accept raw user IDs, emails, PKM payloads, workflow IDs, cache keys, prompts, or decrypted values
+
+Cache performance KPI note:
+
+- `route_readiness_completed`, `cache_resource_resolved`, `route_refresh_completed`, and `warmup_completed` are system-health events used to measure warm-cache UX and loader friction.
+- UAT validates event shape, transport, and route IDs only.
+- Production is the source for real KPI conclusions such as warm-cache time to usable UI, stale render rate, blocking loader rate, refresh error rate, and warmup usefulness.
+- These metrics must not justify broader decrypted PKM retention; the vault and PKM memory-only boundary remains higher priority than performance.
 
 Sandbox audit note:
 

@@ -105,6 +105,8 @@ Consent-manager surface rules:
    - preview rows: first `5` items from the cached `center/list?surface=pending&page=1&limit=20` payload for the active persona
 7. Internal consent-review links must stay on SPA-native app routing; full document redirects are reserved for true external URLs only.
 8. Long consent lists must use backend-backed pagination metadata and must not rely on a load-all-then-slice page contract.
+9. Investor consent reads expand the authenticated Firebase UID to the account-owned identifier set before filtering `consent_audit`: Firebase UID, verified Firebase-auth email/phone, and verified non-revoked email aliases including Apple relay emails.
+10. Pending approve/deny/cancel and active revoke actions resolve through the same owned identifier set, then write terminal audit rows against the matched request or token subject id.
 
 ### Marketplace
 

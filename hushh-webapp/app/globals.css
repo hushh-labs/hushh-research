@@ -114,6 +114,7 @@ html body[data-scroll-locked] {
   --blur-light: 4px;
   --blur-standard: 8px;
   --blur-heavy: 16px;
+  --app-shared-chrome-mask-blur: 1.25px;
 
   /* Lucide defaults (see docs/reference/quality/design-system.md): change once to update all icons. */
   --lucide-stroke-width: 1;
@@ -1070,7 +1071,7 @@ md-ripple.morphy-md-ripple {
   /* Apple iCloud: match bg colors with transparency for glass blend */
   --app-bar-glass-bg-light: rgba(245, 245, 247, 0.72);
   --app-bar-glass-bg-dark: rgba(28, 28, 30, 0.72);
-  --app-bar-glass-blur: 2px;
+  --app-bar-glass-blur: var(--app-shared-chrome-mask-blur);
   --app-bar-border-top: 0;
   --app-bar-shadow: none;
   --app-bar-mask-overscan: 14px;

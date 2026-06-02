@@ -91,7 +91,7 @@
     {
       "action_id": "analysis.start",
       "label": "Start Stock Analysis",
-      "meaning": "Creates fresh analysis intent and opens the debate workspace.",
+      "meaning": "Opens the stock comparison preview so the user can confirm context before the debate starts.",
       "aliases": [
         "analyze stock",
         "start stock analysis",

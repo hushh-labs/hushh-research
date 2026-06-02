@@ -45,7 +45,7 @@ class GmailReconcileRequest(BaseModel):
 
 
 class GmailReceiptMemoryPreviewRequest(BaseModel):
-    user_id: str = Field(min_length=1)
+    user_id: str = Field(min_length=1, max_length=128)
     force_refresh: bool = False
 
 
@@ -320,7 +320,7 @@ async def gmail_receipts_memory_preview(
 @router.get("/gmail/receipts-memory/artifacts/{artifact_id}")
 async def gmail_receipts_memory_artifact(
     artifact_id: str,
-    user_id: str = Query(..., min_length=1),
+    user_id: str = Query(..., min_length=1, max_length=128),
     firebase_uid: str = Depends(require_firebase_auth),
     token_data: dict = Depends(require_vault_owner_token),
 ):
