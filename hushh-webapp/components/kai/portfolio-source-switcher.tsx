@@ -101,8 +101,7 @@ export function PortfolioSourceSwitcher({
   const showStatementControls = activeSource === "statement" && statementSnapshots.length > 0;
   const showDeleteStatement =
     showStatementControls && activeStatementId && typeof onDeleteStatementSnapshot === "function";
-  const showImportStatement =
-    activeSource === "statement" && typeof onImportStatement === "function";
+  const showImportStatement = typeof onImportStatement === "function";
   const showPlaidActions = activeSource === "plaid" && availableSources.includes("plaid");
 
   return (

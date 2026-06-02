@@ -91,6 +91,7 @@ tmp/
 /test-results/
 hushh-webapp/test-results/
 hushh-webapp/npm-audit-report.json
+hushh-webapp/native-ios-screenshots/
 **/build.log
 
 # Local debug/runtime artifacts

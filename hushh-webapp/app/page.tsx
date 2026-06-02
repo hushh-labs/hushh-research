@@ -13,7 +13,6 @@ import { PreviewCarouselStep } from "@/components/onboarding/PreviewCarouselStep
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveAppEnvironment } from "@/lib/app-env";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
-import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 
 type HomeStep = "intro" | "preview";
 
@@ -37,14 +36,15 @@ function HomeContent() {
      
     (window as any).resetOnboardingMarketing = async () => {
       await OnboardingLocalService.clearMarketingSeen();
-      assignWindowLocation("/");
+      setStep("intro");
+      router.replace("/");
     };
 
     return () => {
        
       delete (window as any).resetOnboardingMarketing;
     };
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     let cancelled = false;

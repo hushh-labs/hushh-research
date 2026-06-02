@@ -131,7 +131,7 @@ Migration scripts use `DB_*` variables only (same as runtime). `db/migrate.py` u
 
 ## Kai Portfolio Import Model Policy
 
-Kai portfolio import model selection is constants-driven in `hushh_mcp/constants.py` (`KAI_PORTFOLIO_IMPORT_*` constants) rather than per-environment toggles. Runtime environment controls provider/auth (`GOOGLE_GENAI_USE_VERTEXAI`, Vertex project/location credentials, API key).
+Kai portfolio import defaults to `KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3.5-flash"` in `hushh_mcp/constants.py`. Runtime can override the import model with `KAI_PORTFOLIO_IMPORT_MODEL` or `KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL`; provider/auth still come from `GOOGLE_GENAI_USE_VERTEXAI`, Vertex project/location credentials, or API key.
 
 ## Kai Portfolio Import Upload Limits
 

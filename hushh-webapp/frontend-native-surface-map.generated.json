@@ -316,7 +316,20 @@
           "PageHeader"
         ]
       },
-      "native": null,
+      "native": {
+        "route": "/agent",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fagent",
+        "expectedMarker": "native-route-agent",
+        "expectedRoute": "/agent",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -1234,6 +1247,72 @@
       }
     },
     {
+      "route": "/one/location",
+      "page_file": "app/one/location/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/one/location/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ]
+      },
+      "native": {
+        "route": "/one/location",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Flocation",
+        "expectedMarker": "native-route-one-location",
+        "expectedRoute": "/one/location",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": true,
+        "settings_ui": true,
+        "shared_loader": false,
+        "back_button_pattern": "route-local-check-required"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/location/request/[token]",
+      "page_file": "app/one/location/request/[token]/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Public one-location invite route is a standalone external-request form outside the signed-in app shell.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/portfolio/shared",
       "page_file": "app/portfolio/shared/page.tsx",
       "physical_page_exists": true,
@@ -1374,14 +1453,14 @@
       "native": {
         "route": "/profile/pkm",
         "classification": "native-required-functional",
+        "legacyAlias": true,
         "initialRoute": "/login?redirect=%2Fprofile%2Fpkm",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/profile?panel=my-data",
+        "expectedMarker": "native-route-profile-pkm",
+        "expectedRoute": "/profile/pkm-agent-lab",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded",
-          "redirect-valid"
+          "loaded"
         ]
       },
       "shell": {
@@ -1494,8 +1573,8 @@
         "route": "/register-phone",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fregister-phone",
-        "expectedMarker": "native-route-register-phone",
-        "expectedRoute": "/register-phone",
+        "expectedMarker": "native-route-kai-home",
+        "expectedRoute": "/kai",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [

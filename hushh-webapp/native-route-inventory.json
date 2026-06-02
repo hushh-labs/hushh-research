@@ -15,33 +15,13 @@
       "allowedDataStates": ["loaded"]
     },
     {
-      "route": "/login",
-      "classification": "native-required-functional",
-      "initialRoute": "/login",
-      "expectedMarker": "native-route-login",
-      "expectedRoute": "/login",
-      "autoReviewerLogin": false,
-      "expectedAuth": "anonymous",
-      "allowedDataStates": ["loaded"]
-    },
-    {
       "route": "/register-phone",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fregister-phone",
-      "expectedMarker": "native-route-register-phone",
-      "expectedRoute": "/register-phone",
+      "expectedMarker": "native-route-kai-home",
+      "expectedRoute": "/kai",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
-      "allowedDataStates": ["loaded"]
-    },
-    {
-      "route": "/logout",
-      "classification": "native-required-functional",
-      "initialRoute": "/logout",
-      "expectedMarker": "native-route-home",
-      "expectedRoute": "/",
-      "autoReviewerLogin": false,
-      "expectedAuth": "anonymous",
       "allowedDataStates": ["loaded"]
     },
     {
@@ -230,12 +210,13 @@
     {
       "route": "/profile/pkm",
       "classification": "native-required-functional",
+      "legacyAlias": true,
       "initialRoute": "/login?redirect=%2Fprofile%2Fpkm",
-      "expectedMarker": "native-route-profile",
-      "expectedRoute": "/profile?panel=my-data",
+      "expectedMarker": "native-route-profile-pkm",
+      "expectedRoute": "/profile/pkm-agent-lab",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
-      "allowedDataStates": ["loaded", "redirect-valid"]
+      "allowedDataStates": ["loaded"]
     },
     {
       "route": "/profile/receipts",
@@ -367,6 +348,26 @@
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": ["loaded", "empty-valid"]
+    },
+    {
+      "route": "/logout",
+      "classification": "native-required-functional",
+      "initialRoute": "/logout",
+      "expectedMarker": "native-route-home",
+      "expectedRoute": "/",
+      "autoReviewerLogin": false,
+      "expectedAuth": "anonymous",
+      "allowedDataStates": ["loaded"]
+    },
+    {
+      "route": "/login",
+      "classification": "native-required-functional",
+      "initialRoute": "/login",
+      "expectedMarker": "native-route-login",
+      "expectedRoute": "/login",
+      "autoReviewerLogin": false,
+      "expectedAuth": "anonymous",
+      "allowedDataStates": ["loaded"]
     },
     { "route": "/developers", "classification": "excluded-web-only" },
     { "route": "/labs/profile-appearance", "classification": "excluded-web-only" },

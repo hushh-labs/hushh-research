@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import hashlib
 import importlib.util
 import json
@@ -11,8 +12,9 @@ import sys
 import time
 import tempfile
 from collections import OrderedDict
+from functools import lru_cache
 from itertools import combinations
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
 from typing import Any
@@ -122,6 +124,19 @@ HIGH_SIGNAL_INVENTORY_KEYWORDS = (
     "vault",
     "voice",
 )
+STANDARD_MAINTAINER_RECORD_HEADINGS = (
+    "## Approved",
+    "## Changes Requested",
+    "## Closed",
+    "## Maintainer harvest staged",
+    "## Maintainer patch staged",
+    "## Merged",
+)
+DEFAULT_MAINTAINER_LOGINS = {
+    "kushaltrivedi5",
+    "RGlodAkshat",
+    "ankitkumarsingh1702",
+}
 SALVAGEABLE_HIGH_FINDINGS = {
     "account_export_schema_contract_mismatch",
     "backend_contract_without_caller_change",
@@ -832,7 +847,8 @@ def _run(cmd: list[str], timeout: int | None = None) -> str:
     raise RuntimeError(f"{' '.join(cmd)}: {last_message}")
 
 
-def _local_worktree_changed_paths() -> set[str]:
+@lru_cache(maxsize=1)
+def _local_worktree_changed_paths() -> frozenset[str]:
     """Return repo-relative paths with local, uncommitted changes."""
     output = _run(["git", "status", "--porcelain", "--untracked-files=all"])
     paths: set[str] = set()
@@ -848,7 +864,7 @@ def _local_worktree_changed_paths() -> set[str]:
             paths.add(new_path.strip())
         else:
             paths.add(entry)
-    return paths
+    return frozenset(paths)
 
 
 def _project_schematics() -> dict[str, Any]:
@@ -1052,6 +1068,47 @@ def _duplicate_group(contract_set: str, files: list[str]) -> str | None:
 
 def _normal_text(*values: str | None) -> str:
     return " ".join(str(value or "").lower() for value in values)
+
+
+def _strip_pr_template_sections(body: str | None) -> str:
+    if not body:
+        return ""
+
+    boilerplate_headings = (
+        "impact map",
+        "review-ready contract",
+        "tri-flow architecture check",
+        "testing",
+        "screenshots",
+        "screenshots / video",
+        "privacy & consent",
+        "licensing",
+    )
+    lines = str(body).splitlines()
+    kept: list[str] = []
+    skip_section = False
+    for raw_line in lines:
+        heading_match = re.match(r"^\s{0,3}#{1,6}\s+(.+?)\s*$", raw_line)
+        if heading_match:
+            heading = re.sub(r"\s+", " ", heading_match.group(1).strip().lower())
+            skip_section = any(heading.startswith(item) for item in boilerplate_headings)
+            if not skip_section:
+                continue
+        if skip_section:
+            continue
+        kept.append(raw_line)
+    return "\n".join(kept)
+
+
+def _claim_surface_text(title: str, body: str | None) -> str:
+    return _normal_text(title, _strip_pr_template_sections(body))
+
+
+def _contains_claim_keyword(text: str, keyword: str) -> bool:
+    escaped = re.escape(keyword.lower())
+    if re.search(r"\W", keyword):
+        return re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", text) is not None
+    return re.search(rf"\b{escaped}\b", text) is not None
 
 
 def _semantic_duplicate_group(
@@ -1403,6 +1460,7 @@ def _gh_diff_patch(repo: str, pr: int) -> str:
     return _run(["gh", "pr", "diff", str(pr), "--repo", repo, "--patch", "--color=never"])
 
 
+@lru_cache(maxsize=4096)
 def _git_show_origin_main(path: str) -> str | None:
     completed = subprocess.run(
         ["git", "show", f"origin/main:{path}"],
@@ -1416,7 +1474,8 @@ def _git_show_origin_main(path: str) -> str | None:
     return completed.stdout
 
 
-def _git_grep_origin_main(pattern: str) -> list[str]:
+@lru_cache(maxsize=4096)
+def _git_grep_origin_main(pattern: str) -> tuple[str, ...]:
     completed = subprocess.run(
         ["git", "grep", "-n", pattern, "origin/main", "--", "hushh-webapp"],
         capture_output=True,
@@ -1425,8 +1484,8 @@ def _git_grep_origin_main(pattern: str) -> list[str]:
         cwd=REPO_ROOT,
     )
     if completed.returncode not in (0, 1):
-        return []
-    return [line for line in completed.stdout.splitlines() if line.strip()]
+        return ()
+    return tuple(line for line in completed.stdout.splitlines() if line.strip())
 
 
 def _iso_or_empty(value: str | None) -> str:
@@ -1599,6 +1658,61 @@ def _is_doc_path(path: str) -> bool:
         or path.startswith("consent-protocol/docs/")
         or path.startswith("hushh-webapp/docs/")
     )
+
+
+def _test_patch_imports_production(section: str) -> bool:
+    production_import_patterns = (
+        r"^\+import\s+.+\s+from\s+['\"]@/",
+        r"^\+import\s+.+\s+from\s+['\"]\.\.?/",
+        r"^\+import\s+.+\s+from\s+['\"](?:hushh_mcp|api|scripts|consent_protocol)",
+        r"^\+from\s+(?:hushh_mcp|api|scripts|consent_protocol)\b",
+        r"^\+import\s+(?:hushh_mcp|api|scripts|consent_protocol)\b",
+        r"^\+vi\.mock\(['\"]@/",
+    )
+    return any(re.search(pattern, section, flags=re.MULTILINE) for pattern in production_import_patterns)
+
+
+def _test_patch_defines_local_subject(section: str) -> bool:
+    return any(
+        re.search(pattern, section, flags=re.MULTILINE)
+        for pattern in (
+            r"^\+function\s+[A-Z][A-Za-z0-9_]*\s*\(",
+            r"^\+const\s+[A-Z][A-Za-z0-9_]*\s*=",
+            r"^\+class\s+[A-Z][A-Za-z0-9_]*\b",
+        )
+    )
+
+
+def _mock_only_test_findings(
+    files: list[str],
+    patch_map: dict[str, str],
+) -> list[dict[str, Any]]:
+    if not files or any(not _is_test_path(path) for path in files):
+        return []
+
+    mock_only_files = [
+        path
+        for path in files
+        if path.startswith("hushh-webapp/__tests__/")
+        and "new file mode" in patch_map.get(path, "")
+        and _test_patch_defines_local_subject(patch_map.get(path, ""))
+        and not _test_patch_imports_production(patch_map.get(path, ""))
+    ]
+    if not mock_only_files:
+        return []
+
+    return [
+        {
+            "id": "mock_only_test_without_production_contract",
+            "severity": "high",
+            "summary": (
+                "PR adds test files that define local mock components/helpers and do not "
+                "import production code. These tests can pass even when the real app behavior "
+                "regresses, so they are not merge-ready proof."
+            ),
+            "files": mock_only_files,
+        }
+    ]
 
 
 def _pascal_from_component_path(path: str) -> str:
@@ -1774,7 +1888,13 @@ CLAIM_SURFACE_RULES: tuple[dict[str, Any], ...] = (
         "id": "consent",
         "keywords": (
             "consent",
-            "scope",
+            "consent scope",
+            "scope bundle",
+            "scope bundles",
+            "scope mismatch",
+            "scope check",
+            "expected_scope",
+            "commercial scope",
             "session",
             "token",
             "logout",
@@ -1795,12 +1915,12 @@ def _claim_surface_mismatch_findings(
     summary: str | None,
     files: list[str],
 ) -> list[dict[str, Any]]:
-    text = _normal_text(title, summary)
+    text = _claim_surface_text(title, summary)
     touched = "\n".join(files).lower()
     claimed = [
         rule
         for rule in CLAIM_SURFACE_RULES
-        if any(keyword in text for keyword in rule["keywords"])
+        if any(_contains_claim_keyword(text, keyword) for keyword in rule["keywords"])
     ]
     if len(claimed) < 1:
         return []
@@ -2464,6 +2584,7 @@ def _build_findings(files: list[str], patch_map: dict[str, str]) -> list[dict[st
             }
         )
 
+    findings.extend(_mock_only_test_findings(files, patch_map))
     findings.extend(_frontend_component_reachability_findings(files, patch_map))
     findings.extend(_new_export_reachability_findings(files, patch_map))
     findings.extend(_kai_finance_action_language_findings(files, patch_map))
@@ -3280,6 +3401,19 @@ def _related_surface_summary(report: dict[str, Any]) -> str:
 def _single_pr_live_assessment(report: dict[str, Any]) -> list[str]:
     pr = report["pr"]
     reason = report.get("patch_then_merge_reason") or report["decision"]["rationale"]
+    maintainer_record = report.get("latest_maintainer_record") or {}
+    maintainer_record_text = "none"
+    if maintainer_record:
+        maintainer_record_text = (
+            f"[{maintainer_record.get('kind', 'record')} by "
+            f"`{maintainer_record.get('author', 'unknown')}`]"
+            f"({maintainer_record.get('url')}) at `{maintainer_record.get('at', '')}`"
+            if maintainer_record.get("url")
+            else (
+                f"{maintainer_record.get('kind', 'record')} by "
+                f"`{maintainer_record.get('author', 'unknown')}` at `{maintainer_record.get('at', '')}`"
+            )
+        )
     lines = [
         f'<a id="pr-{pr["number"]}"></a>',
         f"### #{pr['number']} - {pr['title']}",
@@ -3289,6 +3423,7 @@ def _single_pr_live_assessment(report: dict[str, Any]) -> list[str]:
         f"- Draft: `{str(bool(pr.get('is_draft'))).lower()}`",
         f"- Mergeability: `{pr['mergeable']}` / `{pr['merge_state_status']}`",
         f"- Review decision: `{pr.get('review_decision') or 'none'}`",
+        f"- Latest maintainer record: {maintainer_record_text}",
         f"- Required gate: `{report.get('current_ci_status_gate') or 'UNKNOWN'}`",
         f"- Contract/lane: `{report['contract_set']}` / `{report['lane']}`",
         f"- Lean/core risk: `{_lean_core_risk(report)}`",
@@ -3317,15 +3452,21 @@ def _single_pr_live_assessment(report: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _has_fresh_repass_intake(report: dict[str, Any]) -> bool:
+    reason = report.get("actionable_intake_reason")
+    return bool(reason) and reason != "unattended_no_current_maintainer_record"
+
+
 def _is_actionable_live_candidate(report: dict[str, Any]) -> bool:
     pr = report["pr"]
+    fresh_repass = _has_fresh_repass_intake(report)
     if _has_current_check_failure(report):
         return False
     if report["lane"] in {"harvest_then_close", "close_duplicate"}:
         return True
     if pr.get("is_draft"):
         return False
-    if pr.get("review_decision") == "CHANGES_REQUESTED":
+    if pr.get("review_decision") == "CHANGES_REQUESTED" and not fresh_repass:
         return False
     if pr.get("mergeable") not in {"MERGEABLE", "UNKNOWN"}:
         return False
@@ -4030,6 +4171,7 @@ def _top_roots(files: list[str]) -> list[str]:
     return roots
 
 
+@lru_cache(maxsize=4096)
 def _path_exists_on_origin_main(path: str) -> bool:
     completed = subprocess.run(
         ["git", "cat-file", "-e", f"origin/main:{path}"],
@@ -4401,6 +4543,10 @@ def _train_subagent_map_entry(
         train_type=train_type,
         subagent_lane=lane,
         agent=agent,
+        lane_status="planned_spawn_required",
+        spawn_evidence="",
+        unavailable_reason="",
+        parent_local_task="GitHub writes, approvals, queueing, branch changes, report refreshes, and final synthesis stay in the parent session.",
         prs=prs,
         sequential_prs=sequential_prs,
         parallel_with=[],
@@ -4570,12 +4716,6 @@ def _hard_collision_reasons(left: dict[str, Any], right: dict[str, Any]) -> list
     shared_categories = sorted(left_categories & right_categories)
     if shared_categories:
         reasons.append(f"shared_hard_surface:{', '.join(shared_categories)}")
-
-    left_runtime = _runtime_collision_families(left)
-    right_runtime = _runtime_collision_families(right)
-    shared_runtime = sorted(left_runtime & right_runtime)
-    if shared_runtime:
-        reasons.append(f"sensitive_runtime_overlap:{', '.join(shared_runtime)}")
 
     return reasons
 
@@ -4878,9 +5018,11 @@ def _build_train_graph(
             if _has_local_dirty_overlap(report):
                 report["collision_reasons"].append("local_dirty_worktree_overlap")
             if len(component) > 1:
+                current_number = report["pr"]["number"]
                 report["must_wait_for"] = sorted(set(report.get("must_wait_for", [])) | {
                     previous["pr"]["number"]
                     for previous in component_reports[:index]
+                    if previous["pr"]["number"] in hard_edges.get(current_number, {})
                 })
 
     queue_candidates = [
@@ -4957,6 +5099,10 @@ def _build_train_graph(
         report
         for report in sorted(train_reports, key=_train_sequence_sort_key)
         if report.get("lane") == "block"
+        and not (
+            report.get("pr", {}).get("review_decision") == "CHANGES_REQUESTED"
+            and not _has_fresh_repass_intake(report)
+        )
     ]
     if closure_reports:
         decision_waves.append(
@@ -5167,7 +5313,8 @@ def _reviewed_state_for_report(report: dict[str, Any]) -> tuple[str, str]:
     if check_failure:
         return "blocked", check_failure
     pr = report.get("pr") or {}
-    if pr.get("review_decision") == "CHANGES_REQUESTED":
+    fresh_repass = _has_fresh_repass_intake(report)
+    if pr.get("review_decision") == "CHANGES_REQUESTED" and not fresh_repass:
         return "terminal", "current maintainer changes-requested record"
     if pr.get("is_draft"):
         return "blocked", "draft PR"
@@ -5193,6 +5340,8 @@ def _reviewed_state_summary(reports: list[dict[str, Any]]) -> OrderedDict[str, A
                 pr=int(report["pr"]["number"]),
                 url=report["pr"]["url"],
                 reason=reason,
+                maintainer_record_at=(report.get("latest_maintainer_record") or {}).get("at", ""),
+                maintainer_record_url=(report.get("latest_maintainer_record") or {}).get("url", ""),
             )
         )
     return OrderedDict(
@@ -5225,6 +5374,14 @@ def build_batch_report(
         )
         for pr in prs
     ]
+    intake_reasons = (scan_scope or {}).get("actionable_intake_reasons") or {}
+    for report in raw_reports:
+        reason = intake_reasons.get(str(report["pr"]["number"]))
+        if reason:
+            if report.get("deep_repass_stale"):
+                report.pop("actionable_intake_reason", None)
+            else:
+                report["actionable_intake_reason"] = report.get("deep_actionable_intake_reason") or reason
     reports = _apply_batch_context(raw_reports)
     train_graph = _build_train_graph(
         reports,
@@ -5411,6 +5568,351 @@ def _open_pr_inventory(repo: str) -> list[OrderedDict[str, Any]]:
     return rows
 
 
+def _parse_pr_numbers(text: str, *, allow_bare: bool = False) -> set[int]:
+    if not text:
+        return set()
+    if allow_bare:
+        return {int(match) for match in re.findall(r"#?(\d+)", text)}
+    return {int(match) for match in re.findall(r"#(\d+)", text)}
+
+
+def _pr_numbers_from_exclude_file(path: str | Path) -> set[int]:
+    text = Path(path).read_text(encoding="utf-8")
+    reviewed_lines = [
+        line for line in text.splitlines() if line.lstrip().startswith("- Reviewed PRs:")
+    ]
+    if reviewed_lines:
+        return _parse_pr_numbers("\n".join(reviewed_lines))
+    return _parse_pr_numbers(text)
+
+
+def _pr_numbers_from_exclude_files(paths: list[str] | None) -> set[int]:
+    excluded: set[int] = set()
+    for pattern in paths or []:
+        if not pattern:
+            continue
+        matched_paths = sorted(glob.glob(pattern))
+        if not matched_paths:
+            matched_paths = [pattern]
+        for path in matched_paths:
+            excluded |= _pr_numbers_from_exclude_file(path)
+    return excluded
+
+
+def _excluded_inventory_filter(
+    inventory: list[OrderedDict[str, Any]],
+    excluded_prs: set[int],
+) -> tuple[list[OrderedDict[str, Any]], int]:
+    if not excluded_prs:
+        return inventory, 0
+    filtered: list[OrderedDict[str, Any]] = []
+    removed = 0
+    for row in inventory:
+        if int(row["number"]) in excluded_prs:
+            removed += 1
+            continue
+        filtered.append(row)
+    return filtered, removed
+
+
+@lru_cache(maxsize=1)
+def _configured_maintainer_logins() -> frozenset[str]:
+    config_path = REPO_ROOT / "config/ci-governance.json"
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception:
+        return frozenset(DEFAULT_MAINTAINER_LOGINS)
+    main = payload.get("main") or {}
+    configured = set(DEFAULT_MAINTAINER_LOGINS)
+    for key in (
+        "review_bypass_users",
+        "merge_queue_bypass_users",
+        "protected_pipeline_edit_users",
+    ):
+        for login in main.get(key) or []:
+            if login:
+                configured.add(str(login))
+    return frozenset(configured)
+
+
+def _is_configured_maintainer(login: str | None) -> bool:
+    return bool(login) and str(login) in _configured_maintainer_logins()
+
+
+def _standardized_maintainer_record(body: str | None, state: str | None = None) -> bool:
+    if str(state or "").upper() in {"APPROVED", "CHANGES_REQUESTED"}:
+        return True
+    text = (body or "").lstrip()
+    return any(text.startswith(heading) for heading in STANDARD_MAINTAINER_RECORD_HEADINGS)
+
+
+def _pr_list_discussion_inventory(repo: str) -> list[OrderedDict[str, Any]]:
+    output = _run(
+        [
+            "gh",
+            "pr",
+            "list",
+            "--repo",
+            repo,
+            "--state",
+            "open",
+            "--limit",
+            "1000",
+            "--json",
+            ",".join(
+                [
+                    "number",
+                    "title",
+                    "author",
+                    "isDraft",
+                    "createdAt",
+                    "updatedAt",
+                    "headRefOid",
+                    "baseRefName",
+                    "url",
+                    "reviewDecision",
+                    "latestReviews",
+                ]
+            ),
+        ]
+    )
+    rows: list[OrderedDict[str, Any]] = []
+    for row in json.loads(output):
+        rows.append(
+            OrderedDict(
+                number=int(row["number"]),
+                title=row.get("title") or "",
+                author=(row.get("author") or {}).get("login"),
+                is_draft=bool(row.get("isDraft")),
+                created_at=row.get("createdAt") or "",
+                updated_at=row.get("updatedAt") or "",
+                head_sha=row.get("headRefOid") or "",
+                base_ref=row.get("baseRefName") or "",
+                url=row.get("url") or f"https://github.com/{repo}/pull/{row['number']}",
+                review_decision=row.get("reviewDecision") or "",
+                latest_reviews=row.get("latestReviews") or [],
+            )
+        )
+    rows.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+    return rows
+
+
+def _single_pr_discussion_inventory(repo: str, pr: int) -> OrderedDict[str, Any]:
+    row = _gh_json(
+        repo,
+        pr,
+        [
+            "number",
+            "title",
+            "author",
+            "isDraft",
+            "createdAt",
+            "updatedAt",
+            "headRefOid",
+            "baseRefName",
+            "url",
+            "reviewDecision",
+            "latestReviews",
+            "comments",
+            "commits",
+        ],
+    )
+    latest_reviews = row.get("latestReviews") or []
+    try:
+        rest_reviews = _pull_review_records(repo, pr)
+        if rest_reviews:
+            latest_reviews = rest_reviews
+    except Exception:
+        latest_reviews = row.get("latestReviews") or []
+    return OrderedDict(
+        number=int(row["number"]),
+        title=row.get("title") or "",
+        author=(row.get("author") or {}).get("login"),
+        is_draft=bool(row.get("isDraft")),
+        created_at=row.get("createdAt") or "",
+        updated_at=row.get("updatedAt") or "",
+        head_sha=row.get("headRefOid") or "",
+        base_ref=row.get("baseRefName") or "",
+        url=row.get("url") or f"https://github.com/{repo}/pull/{row['number']}",
+        review_decision=row.get("reviewDecision") or "",
+        latest_reviews=latest_reviews,
+        comments=row.get("comments") or [],
+        commits=row.get("commits") or [],
+    )
+
+
+def _pull_review_records(repo: str, pr: int) -> list[dict[str, Any]]:
+    raw = _run(
+        [
+            "gh",
+            "api",
+            f"repos/{repo}/pulls/{pr}/reviews?per_page=100",
+        ]
+    )
+    records = json.loads(raw)
+    if not isinstance(records, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for review in records:
+        if not isinstance(review, dict):
+            continue
+        normalized.append(
+            {
+                "author": {"login": ((review.get("user") or {}).get("login") or "")},
+                "body": review.get("body") or "",
+                "state": review.get("state") or "",
+                "submittedAt": review.get("submitted_at") or "",
+                "url": review.get("html_url") or "",
+                "commit": {"oid": review.get("commit_id") or ""},
+            }
+        )
+    return normalized
+
+
+def _merge_discussion_inventory(
+    inventory: list[OrderedDict[str, Any]],
+    discussion_inventory: list[OrderedDict[str, Any]],
+) -> list[OrderedDict[str, Any]]:
+    by_number = {int(row["number"]): row for row in discussion_inventory}
+    merged: list[OrderedDict[str, Any]] = []
+    for row in inventory:
+        enriched = by_number.get(int(row["number"]))
+        if enriched:
+            combined = OrderedDict(row)
+            for key in (
+                "review_decision",
+                "latest_reviews",
+                "head_sha",
+                "url",
+            ):
+                combined[key] = enriched.get(key, combined.get(key))
+            merged.append(combined)
+        else:
+            merged.append(row)
+    return merged
+
+
+def _latest_maintainer_record(row: dict[str, Any]) -> OrderedDict[str, Any] | None:
+    latest: OrderedDict[str, Any] | None = None
+    latest_ts = ""
+    for review in row.get("latest_reviews") or []:
+        author = (review.get("author") or {}).get("login")
+        if not _is_configured_maintainer(author):
+            continue
+        if not _standardized_maintainer_record(review.get("body"), review.get("state")):
+            continue
+        submitted_at = _iso_or_empty(review.get("submittedAt"))
+        if submitted_at >= latest_ts:
+            latest_ts = submitted_at
+            latest = OrderedDict(
+                kind="review",
+                author=author,
+                state=review.get("state") or "",
+                at=submitted_at,
+                url=review.get("url") or "",
+                commit_oid=((review.get("commit") or {}).get("oid") or ""),
+            )
+    for comment in row.get("comments") or []:
+        author = (comment.get("author") or {}).get("login")
+        if not _is_configured_maintainer(author):
+            continue
+        if not _standardized_maintainer_record(comment.get("body")):
+            continue
+        created_at = _iso_or_empty(comment.get("createdAt"))
+        if created_at >= latest_ts:
+            latest_ts = created_at
+            latest = OrderedDict(
+                kind="comment",
+                author=author,
+                state="COMMENTED",
+                at=created_at,
+                url=comment.get("url") or "",
+                commit_oid="",
+            )
+    return latest
+
+
+def _latest_contributor_activity(row: dict[str, Any]) -> OrderedDict[str, Any] | None:
+    latest: OrderedDict[str, Any] | None = None
+    latest_ts = ""
+    for comment in row.get("comments") or []:
+        author = (comment.get("author") or {}).get("login")
+        if _is_configured_maintainer(author):
+            continue
+        created_at = _iso_or_empty(comment.get("createdAt"))
+        if created_at >= latest_ts:
+            latest_ts = created_at
+            latest = OrderedDict(kind="comment", author=author or "", at=created_at)
+    for commit in row.get("commits") or []:
+        authors = commit.get("authors") or []
+        author_logins = [
+            str(author.get("login"))
+            for author in authors
+            if isinstance(author, dict) and author.get("login")
+        ]
+        if author_logins and all(_is_configured_maintainer(login) for login in author_logins):
+            continue
+        committed_at = _iso_or_empty(commit.get("committedDate") or commit.get("authoredDate"))
+        if committed_at >= latest_ts:
+            latest_ts = committed_at
+            latest = OrderedDict(
+                kind="commit",
+                author=",".join(author_logins),
+                at=committed_at,
+                oid=commit.get("oid") or "",
+            )
+    return latest
+
+
+def _actionable_intake_reason(row: dict[str, Any], *, allow_coarse: bool = True) -> str:
+    maintainer_record = _latest_maintainer_record(row)
+    if not maintainer_record:
+        return "unattended_no_current_maintainer_record"
+    contributor_activity = _latest_contributor_activity(row)
+    if contributor_activity and contributor_activity.get("at", "") > maintainer_record.get("at", ""):
+        return "repass_after_contributor_activity"
+    if allow_coarse and _iso_or_empty(row.get("updated_at")) > maintainer_record.get("at", ""):
+        return "coarse_pr_activity_after_maintainer_record"
+    if (
+        maintainer_record.get("commit_oid")
+        and row.get("head_sha")
+        and maintainer_record.get("commit_oid") != row.get("head_sha")
+    ):
+        return "material_head_changed_after_maintainer_record"
+    return ""
+
+
+def _apply_actionable_intake_filter(
+    inventory: list[OrderedDict[str, Any]],
+) -> tuple[list[OrderedDict[str, Any]], OrderedDict[str, Any]]:
+    selected: list[OrderedDict[str, Any]] = []
+    reasons: OrderedDict[str, str] = OrderedDict()
+    dormant: list[OrderedDict[str, Any]] = []
+    for row in inventory:
+        reason = _actionable_intake_reason(row)
+        if reason:
+            selected.append(row)
+            reasons[str(row["number"])] = reason
+        else:
+            maintainer_record = _latest_maintainer_record(row) or {}
+            dormant.append(
+                OrderedDict(
+                    pr=int(row["number"]),
+                    url=row.get("url") or "",
+                    reason="current_standardized_maintainer_record",
+                    maintainer_record_at=maintainer_record.get("at", ""),
+                    maintainer_record_url=maintainer_record.get("url", ""),
+                )
+            )
+    return selected, OrderedDict(
+        enabled=True,
+        selected_count=len(selected),
+        dormant_current_count=len(dormant),
+        reasons=reasons,
+        dormant_current_holds=dormant,
+    )
+
+
 def _ordered_inventory(
     inventory: list[OrderedDict[str, Any]],
     selection_order: str,
@@ -5460,9 +5962,12 @@ def _select_live_scan_prs(
     candidate_limit: int,
     per_pr_timeout_seconds: int,
     train_pool_size: int = DEFAULT_TRAIN_POOL_SIZE,
+    repass_after_changes: bool = False,
+    excluded_prs: set[int] | None = None,
 ) -> tuple[list[int], OrderedDict[str, Any]]:
     active_limit = max(1, active_limit)
     candidate_limit = max(0, candidate_limit)
+    excluded_prs = excluded_prs or set()
     scope = OrderedDict(
         mode=scan_mode,
         selection_order=selection_order,
@@ -5480,9 +5985,14 @@ def _select_live_scan_prs(
         reviewed_count=0,
         inventory_error="",
         subset_description="",
+        excluded_prs=sorted(excluded_prs),
+        excluded_count=0,
+        actionable_intake_filter=OrderedDict(enabled=False),
+        actionable_intake_reasons=OrderedDict(),
+        dormant_current_holds=[],
     )
 
-    if scan_mode == "active" and selection_order == "latest":
+    if scan_mode == "active" and selection_order == "latest" and not repass_after_changes and not excluded_prs:
         prs = _open_live_pr_numbers(repo, active_limit)
         scope["active_window_prs"] = prs
         scope["reviewed_prs"] = prs
@@ -5495,19 +6005,38 @@ def _select_live_scan_prs(
 
     if scan_mode == "active":
         try:
-            inventory = _ordered_inventory(_open_pr_inventory(repo), selection_order)
+            inventory = _open_pr_inventory(repo)
+            open_inventory_count = len(inventory)
+            if repass_after_changes:
+                try:
+                    inventory = _merge_discussion_inventory(inventory, _pr_list_discussion_inventory(repo))
+                    inventory, intake_filter = _apply_actionable_intake_filter(inventory)
+                    scope["actionable_intake_filter"] = intake_filter
+                    scope["actionable_intake_reasons"] = intake_filter["reasons"]
+                    scope["dormant_current_holds"] = intake_filter["dormant_current_holds"]
+                except Exception as exc:
+                    scope["inventory_error"] = f"actionable intake enrichment failed: {exc}"
+            inventory, excluded_count = _excluded_inventory_filter(inventory, excluded_prs)
+            scope["excluded_count"] = excluded_count
+            inventory = _ordered_inventory(inventory, selection_order)
             prs = [int(row["number"]) for row in inventory[:active_limit]]
-            scope["inventory_open_count"] = len(inventory)
+            scope["inventory_open_count"] = open_inventory_count
             scope["active_window_prs"] = prs
             scope["reviewed_prs"] = prs
             scope["reviewed_count"] = len(prs)
+            subset_kind = "actionable intake PRs" if scope["actionable_intake_filter"].get("enabled") else "PRs"
             scope["subset_description"] = (
-                f"active mode inventoried all {len(inventory)} open PRs to deep-review "
-                f"the {selection_order} {len(prs)} PRs"
+                f"active mode inventoried all {open_inventory_count} open PRs to deep-review "
+                f"the {selection_order} {len(prs)} {subset_kind}"
             )
             return prs, scope
         except Exception as exc:
-            prs = _open_live_pr_numbers(repo, active_limit)
+            prs = [
+                number
+                for number in _open_live_pr_numbers(repo, active_limit + len(excluded_prs))
+                if number not in excluded_prs
+            ][:active_limit]
+            scope["excluded_count"] = len(excluded_prs)
             scope["active_window_prs"] = prs
             scope["reviewed_prs"] = prs
             scope["reviewed_count"] = len(prs)
@@ -5518,9 +6047,27 @@ def _select_live_scan_prs(
             return prs, scope
 
     try:
-        inventory = _ordered_inventory(_open_pr_inventory(repo), selection_order)
+        inventory = _open_pr_inventory(repo)
+        open_inventory_count = len(inventory)
+        if repass_after_changes:
+            try:
+                inventory = _merge_discussion_inventory(inventory, _pr_list_discussion_inventory(repo))
+                inventory, intake_filter = _apply_actionable_intake_filter(inventory)
+                scope["actionable_intake_filter"] = intake_filter
+                scope["actionable_intake_reasons"] = intake_filter["reasons"]
+                scope["dormant_current_holds"] = intake_filter["dormant_current_holds"]
+            except Exception as exc:
+                scope["inventory_error"] = f"actionable intake enrichment failed: {exc}"
+        inventory, excluded_count = _excluded_inventory_filter(inventory, excluded_prs)
+        scope["excluded_count"] = excluded_count
+        inventory = _ordered_inventory(inventory, selection_order)
     except Exception as exc:
-        prs = _open_live_pr_numbers(repo, active_limit)
+        prs = [
+            number
+            for number in _open_live_pr_numbers(repo, active_limit + len(excluded_prs))
+            if number not in excluded_prs
+        ][:active_limit]
+        scope["excluded_count"] = len(excluded_prs)
         scope["active_window_prs"] = prs
         scope["reviewed_prs"] = prs
         scope["reviewed_count"] = len(prs)
@@ -5534,7 +6081,13 @@ def _select_live_scan_prs(
     if scan_mode == "full":
         prs = [int(row["number"]) for row in inventory]
         candidates: list[int] = []
-        subset = "full mode deep-reviewed every open PR from cheap inventory"
+        if repass_after_changes:
+            subset = (
+                f"full mode inventoried all {open_inventory_count} open PRs and deep-reviewed "
+                f"{len(prs)} actionable intake PRs after dormant-current filtering"
+            )
+        else:
+            subset = "full mode deep-reviewed every open PR from cheap inventory"
     else:
         candidates = _high_signal_inventory_numbers(
             inventory,
@@ -5542,12 +6095,13 @@ def _select_live_scan_prs(
             candidate_limit,
         )
         prs = list(dict.fromkeys(active + candidates))
+        subset_kind = "actionable intake PRs" if scope["actionable_intake_filter"].get("enabled") else "PRs"
         subset = (
-            f"hybrid mode inventoried all {len(inventory)} open PRs, deep-reviewed "
-            f"{selection_order} {len(active)} plus {len(candidates)} high-signal candidates"
+            f"hybrid mode inventoried all {open_inventory_count} open PRs, deep-reviewed "
+            f"{selection_order} {len(active)} {subset_kind} plus {len(candidates)} high-signal candidates"
         )
 
-    scope["inventory_open_count"] = len(inventory)
+    scope["inventory_open_count"] = open_inventory_count
     scope["active_window_prs"] = active
     scope["older_candidate_prs"] = candidates
     scope["reviewed_prs"] = prs
@@ -5578,6 +6132,27 @@ def _linked_prs(batch: dict[str, Any], numbers: list[int]) -> str:
     return ", ".join(parts) if parts else "none"
 
 
+def _maintainer_record_link(row: dict[str, Any]) -> str:
+    url = str(row.get("maintainer_record_url") or "")
+    at = str(row.get("maintainer_record_at") or "")
+    if url and at:
+        return f"[record]({url}) `{at}`"
+    if url:
+        return f"[record]({url})"
+    if at:
+        return f"record `{at}`"
+    return "record unavailable"
+
+
+def _report_freshness_line(generated_at: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+    except ValueError:
+        return "- Reuse window: unknown; refresh before state-changing waves."
+    fresh_until = (parsed + timedelta(hours=12)).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return f"- Reuse window: fresh until `{fresh_until}` if scope, heads, checks, mergeability, and GitHub writes do not change."
+
+
 def _scan_scope_lines(batch: dict[str, Any]) -> list[str]:
     scope = batch.get("scan_scope") or {}
     completeness = batch.get("scan_completeness") or {}
@@ -5598,6 +6173,26 @@ def _scan_scope_lines(batch: dict[str, Any]) -> list[str]:
     ]
     if scope.get("older_candidate_prs"):
         lines.append(f"- Older high-signal candidates included: {_linked_prs(batch, [int(item) for item in scope['older_candidate_prs']])}.")
+    if scope.get("excluded_prs"):
+        lines.append(
+            f"- Excluded from this tranche: `{scope.get('excluded_count', 0)}` PRs matched the exclusion set; "
+            "use this for worker-pool refill passes without repeating already-reviewed PRs."
+        )
+    intake_filter = scope.get("actionable_intake_filter") or {}
+    if intake_filter.get("enabled"):
+        lines.append(
+            f"- Actionable intake filter: selected `{intake_filter.get('selected_count', 0)}`; "
+            f"dormant-current holds `{intake_filter.get('dormant_current_count', 0)}`; "
+            "uses low-cardinality PR metadata before per-PR evidence review."
+        )
+        dormant = intake_filter.get("dormant_current_holds") or []
+        if dormant:
+            dormant_links = ", ".join(
+                f"{_linked_prs(batch, [int(item['pr'])])} ({_maintainer_record_link(item)})"
+                for item in dormant[:20]
+            )
+            suffix = f"; +{len(dormant) - 20} more" if len(dormant) > 20 else ""
+            lines.append(f"- Dormant-current holds filtered before deep review: {dormant_links}{suffix}.")
     if scope.get("inventory_error"):
         lines.append(f"- Inventory error: `{scope['inventory_error']}`.")
     return lines
@@ -5630,13 +6225,31 @@ def _subagent_taskforce_lines(batch: dict[str, Any]) -> list[str]:
         lines.append(
             f"- `{entry['id']}` / `{entry['train_type']}`: {_linked_prs(batch, [int(item) for item in entry['prs']])}; "
             f"lane `{entry['subagent_lane']}` via `{entry['agent']}`; "
+            f"lane status `{entry.get('lane_status') or 'planned_spawn_required'}`; "
             f"worker slot `{entry.get('worker_slot') or 'queued'}`; "
             f"terminal state `{entry.get('train_terminal_state') or 'needs_review'}`; "
             f"oldest-first sequence `{entry.get('sequential_prs') or []}`; "
             f"parallel with `{entry.get('parallel_with') or []}`; "
+            f"parent local task `{entry.get('parent_local_task') or 'state-changing actions stay in parent'}`; "
             f"signals `{'; '.join(entry.get('routing_signals') or [])}`."
         )
     return lines
+
+
+def _apply_subagent_status_metadata(batch: dict[str, Any], unavailable_reason: str = "") -> None:
+    for entry in batch.get("train_to_subagent_map") or []:
+        if unavailable_reason:
+            entry["lane_status"] = "unavailable"
+            entry["unavailable_reason"] = unavailable_reason
+            entry["spawn_evidence"] = ""
+        else:
+            entry.setdefault("lane_status", "planned_spawn_required")
+            entry.setdefault("unavailable_reason", "")
+            entry.setdefault("spawn_evidence", "")
+        entry.setdefault(
+            "parent_local_task",
+            "GitHub writes, approvals, queueing, branch changes, report refreshes, and final synthesis stay in the parent session.",
+        )
 
 
 def _collision_group_lines(batch: dict[str, Any]) -> list[str]:
@@ -5735,7 +6348,13 @@ def _reviewed_state_bucket_lines(batch: dict[str, Any]) -> list[str]:
         rows = state.get(key) or []
         if rows:
             links = _linked_prs(batch, [int(row["pr"]) for row in rows])
-            reasons = "; ".join(f"#{int(row['pr'])}: {row.get('reason') or 'not recorded'}" for row in rows[:10])
+            reasons = "; ".join(
+                (
+                    f"#{int(row['pr'])}: {row.get('reason') or 'not recorded'}"
+                    f" ({_maintainer_record_link(row)})"
+                )
+                for row in rows[:10]
+            )
             if len(rows) > 10:
                 reasons += f"; +{len(rows) - 10} more"
             lines.append(f"- {label}: {links}. Reasons: {reasons}.")
@@ -5746,6 +6365,7 @@ def _reviewed_state_bucket_lines(batch: dict[str, Any]) -> list[str]:
 
 def _live_report_text(batch: dict[str, Any]) -> str:
     generated_at = batch["generated_at"]
+    completeness = batch.get("scan_completeness") or {}
     actionable_reports = [
         report for report in batch["reports"] if _is_actionable_live_candidate(report)
     ]
@@ -5758,6 +6378,8 @@ def _live_report_text(batch: dict[str, Any]) -> str:
         "",
         "Status: live operational record",
         f"Last refreshed: {generated_at}",
+        _report_freshness_line(generated_at),
+        f"Completeness: `{completeness.get('status', 'unknown')}` - {completeness.get('message', 'no completeness record')}",
         f"Repo: https://github.com/{batch['repo']}",
         f"Scope: {(batch.get('scan_scope') or {}).get('subset_description') or 'explicit reviewed PR subset'}",
         "",
@@ -6081,10 +6703,17 @@ def build_report(repo: str, pr: int, *, repass_after_changes: bool = False) -> d
             "additions",
             "deletions",
             "changedFiles",
+            "files",
             "body",
         ],
     )
-    files = _gh_diff_name_only(repo, pr)
+    files = [
+        str(item.get("path") or "").strip()
+        for item in (pr_view.get("files") or [])
+        if str(item.get("path") or "").strip()
+    ]
+    if not files or int(pr_view.get("changedFiles") or 0) > len(files):
+        files = _gh_diff_name_only(repo, pr)
     patch = _gh_diff_patch(repo, pr)
     patch_map = _file_patch_map(patch)
     contract_set = _contract_set(files, patch_map)
@@ -6159,6 +6788,30 @@ def build_report(repo: str, pr: int, *, repass_after_changes: bool = False) -> d
             contract_set=contract_set,
         ),
     )
+    discussion_inventory: OrderedDict[str, Any] | None = None
+    if repass_after_changes and report["pr"]["review_decision"] == "CHANGES_REQUESTED":
+        try:
+            discussion_inventory = _single_pr_discussion_inventory(repo, pr)
+            strict_repass_reason = _actionable_intake_reason(discussion_inventory, allow_coarse=False)
+        except Exception as exc:
+            strict_repass_reason = ""
+            report["deep_repass_evidence_error"] = str(exc)
+        report["deep_repass_evidence_checked"] = True
+        report["deep_actionable_intake_reason"] = strict_repass_reason
+        if strict_repass_reason:
+            report["actionable_intake_reason"] = strict_repass_reason
+        else:
+            report["deep_repass_stale"] = True
+            report["repass_after_changes"] = False
+            repass_after_changes = False
+    if report["pr"]["review_decision"] == "CHANGES_REQUESTED" or repass_after_changes:
+        try:
+            if discussion_inventory is None:
+                discussion_inventory = _single_pr_discussion_inventory(repo, pr)
+            report["latest_maintainer_record"] = _latest_maintainer_record(discussion_inventory) or OrderedDict()
+        except Exception as exc:
+            report["latest_maintainer_record_error"] = str(exc)
+            report["latest_maintainer_record"] = OrderedDict()
     local_overlap = sorted(set(files) & _local_worktree_changed_paths())
     if local_overlap:
         _append_finding(
@@ -6255,7 +6908,10 @@ def main() -> int:
     parser.add_argument("--per-pr-timeout-seconds", type=int, default=DEFAULT_PER_PR_TIMEOUT_SECONDS, help="Maximum seconds to spend deep-scanning one PR before marking it incomplete.")
     parser.add_argument("--max-parallel-patch-trains", type=int, default=DEFAULT_MAX_PARALLEL_PATCH_TRAINS, help="Maximum disjoint maintainer patch trains to surface.")
     parser.add_argument("--train-pool-size", type=int, default=DEFAULT_TRAIN_POOL_SIZE, help="Active async train worker slots for live reports.")
+    parser.add_argument("--subagents-unavailable-reason", default="", help="Mark async train evidence lanes unavailable with this reason instead of planned for spawning.")
     parser.add_argument("--repass-after-changes", action="store_true", help="Re-review current heads that changed after requested changes without auto-blocking on the existing review decision.")
+    parser.add_argument("--exclude-prs", default="", help="Comma-separated PR numbers to omit from live-report tranche selection.")
+    parser.add_argument("--exclude-prs-file", action="append", default=[], help="Markdown/text file containing PR numbers to omit from live-report tranche selection. Repeat for multiple completed tranche reports. If a file has a '- Reviewed PRs:' line, only that line is parsed.")
     parser.add_argument("--output", help="Write output atomically to this path instead of stdout.")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--text", action="store_true")
@@ -6266,6 +6922,8 @@ def main() -> int:
         parser.error("use exactly one of --pr, --prs, or --live-report")
 
     try:
+        excluded_prs = _parse_pr_numbers(args.exclude_prs, allow_bare=True)
+        excluded_prs |= _pr_numbers_from_exclude_files(args.exclude_prs_file)
         if args.live_report:
             prs, scan_scope = _select_live_scan_prs(
                 args.repo,
@@ -6275,6 +6933,8 @@ def main() -> int:
                 candidate_limit=args.candidate_limit,
                 per_pr_timeout_seconds=args.per_pr_timeout_seconds,
                 train_pool_size=args.train_pool_size,
+                repass_after_changes=args.repass_after_changes,
+                excluded_prs=excluded_prs,
             )
             report = build_batch_report(
                 args.repo,
@@ -6305,6 +6965,8 @@ def main() -> int:
             report = build_report(args.repo, args.pr, repass_after_changes=args.repass_after_changes)
             is_batch = False
             is_live_report = False
+        if is_batch:
+            _apply_subagent_status_metadata(report, args.subagents_unavailable_reason)
     except Exception as exc:
         print(f"pr_review_checklist failed: {exc}", file=sys.stderr)
         return 1

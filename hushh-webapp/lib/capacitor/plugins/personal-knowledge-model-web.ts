@@ -15,6 +15,107 @@ export class HushhPersonalKnowledgeModelWeb
     return overrideToken ? `Bearer ${overrideToken}` : "";
   }
 
+  private async getJsonHeaders(
+    overrideToken?: string
+  ): Promise<Record<string, string>> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    const authHeader = await this.getAuthHeader(overrideToken);
+    if (authHeader) {
+      headers.Authorization = authHeader;
+    }
+    return headers;
+  }
+
+  private async readJsonResponse(
+    response: Response,
+    errorMessage: string
+  ): Promise<Record<string, unknown>> {
+    if (!response.ok) {
+      throw new Error(`${errorMessage}: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  async getIndex(options: {
+    userId: string;
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>> {
+    const response = await fetch(`/api/pkm/index/${options.userId}`, {
+      headers: {
+        Authorization: await this.getAuthHeader(options.vaultOwnerToken),
+      },
+    });
+    return this.readJsonResponse(response, "Failed to get PKM index");
+  }
+
+  async getAttributes(options: {
+    userId: string;
+    domain?: string;
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>> {
+    const params = new URLSearchParams();
+    if (options.domain) {
+      params.set("domain", options.domain);
+    }
+    const response = await fetch(
+      `/api/pkm/attributes/${options.userId}${params.toString() ? `?${params}` : ""}`,
+      {
+        headers: {
+          Authorization: await this.getAuthHeader(options.vaultOwnerToken),
+        },
+      }
+    );
+    return this.readJsonResponse(response, "Failed to get PKM attributes");
+  }
+
+  async storeAttribute(options: {
+    userId: string;
+    domain?: string;
+    attributeKey?: string;
+    ciphertext?: string;
+    iv?: string;
+    tag?: string;
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>> {
+    const response = await fetch("/api/pkm/attributes", {
+      method: "POST",
+      headers: await this.getJsonHeaders(options.vaultOwnerToken),
+      body: JSON.stringify({
+        user_id: options.userId,
+        domain: options.domain,
+        attribute_key: options.attributeKey,
+        ciphertext: options.ciphertext,
+        iv: options.iv,
+        tag: options.tag,
+      }),
+    });
+    return this.readJsonResponse(response, "Failed to store PKM attribute");
+  }
+
+  async deleteAttribute(options: {
+    userId: string;
+    domain?: string;
+    attributeKey?: string;
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>> {
+    if (!options.domain || !options.attributeKey) {
+      throw new Error("domain and attributeKey are required");
+    }
+
+    const response = await fetch(
+      `/api/pkm/attributes/${options.userId}/${options.domain}/${options.attributeKey}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: await this.getAuthHeader(options.vaultOwnerToken),
+        },
+      }
+    );
+    return this.readJsonResponse(response, "Failed to delete PKM attribute");
+  }
+
   async getMetadata(options: {
     userId: string;
     vaultOwnerToken?: string;
@@ -175,6 +276,109 @@ export class HushhPersonalKnowledgeModelWeb
         ),
       scopeEntries: Array.isArray(data.scope_entries) ? data.scope_entries : undefined,
     };
+  }
+
+  async getInitialChatState(options: {
+    userId: string;
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>> {
+    const response = await fetch(`/api/kai/chat/initial-state/${options.userId}`, {
+      headers: {
+        Authorization: await this.getAuthHeader(options.vaultOwnerToken),
+      },
+    });
+    return this.readJsonResponse(response, "Failed to get initial chat state");
+  }
+
+  async importPortfolio(options: {
+    userId: string;
+    fileData?: string;
+    fileName?: string;
+    fileBase64?: string;
+    mimeType?: string;
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>> {
+    const fileBase64 = options.fileBase64 || options.fileData;
+    if (!fileBase64) {
+      throw new Error("fileBase64 or fileData is required");
+    }
+
+    const binaryString = atob(fileBase64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let index = 0; index < binaryString.length; index += 1) {
+      bytes[index] = binaryString.charCodeAt(index);
+    }
+
+    const mimeType = options.mimeType || "text/csv";
+    const fileName = options.fileName || "portfolio.csv";
+    const blob = new Blob([bytes], { type: mimeType });
+    const file = new File([blob], fileName, { type: mimeType });
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("user_id", options.userId);
+
+    const response = await fetch("/api/kai/portfolio/import", {
+      method: "POST",
+      headers: {
+        Authorization: await this.getAuthHeader(options.vaultOwnerToken),
+      },
+      body: formData,
+    });
+    return this.readJsonResponse(response, "Failed to import portfolio");
+  }
+
+  async listDomains(options: {
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>> {
+    const response = await fetch("/api/pkm/domains", {
+      headers: {
+        Authorization: await this.getAuthHeader(options.vaultOwnerToken),
+      },
+    });
+    return this.readJsonResponse(response, "Failed to list PKM domains");
+  }
+
+  async getUserDomains(options: {
+    userId: string;
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>> {
+    const response = await fetch(`/api/pkm/domains/${options.userId}`, {
+      headers: {
+        Authorization: await this.getAuthHeader(options.vaultOwnerToken),
+      },
+    });
+    return this.readJsonResponse(response, "Failed to get user PKM domains");
+  }
+
+  async getPortfolio(options: {
+    userId: string;
+    portfolioName?: string;
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>> {
+    const params = new URLSearchParams({
+      portfolio_name: options.portfolioName || "Main Portfolio",
+    });
+    const response = await fetch(
+      `/api/pkm/portfolio/${options.userId}?${params.toString()}`,
+      {
+        headers: {
+          Authorization: await this.getAuthHeader(options.vaultOwnerToken),
+        },
+      }
+    );
+    return this.readJsonResponse(response, "Failed to get PKM portfolio");
+  }
+
+  async listPortfolios(options: {
+    userId: string;
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>> {
+    const response = await fetch(`/api/pkm/portfolios/${options.userId}`, {
+      headers: {
+        Authorization: await this.getAuthHeader(options.vaultOwnerToken),
+      },
+    });
+    return this.readJsonResponse(response, "Failed to list PKM portfolios");
   }
 
   async getEncryptedData(options: {

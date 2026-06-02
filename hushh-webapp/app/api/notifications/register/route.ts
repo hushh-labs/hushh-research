@@ -9,8 +9,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 export const dynamic = "force-dynamic";
+const REGISTER_TIMEOUT_MS = resolveSlowRequestTimeoutMs(10_000);
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,6 +34,7 @@ export async function POST(request: NextRequest) {
         Authorization: authHeader,
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(REGISTER_TIMEOUT_MS),
     });
 
     const data = await response.json().catch(() => ({}));
@@ -43,10 +46,14 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json(data);
   } catch (error) {
-    console.error("[API] Notifications register error:", error);
+    console.warn("[API] Notifications register unavailable:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
+      {
+        registered: false,
+        degraded: true,
+        error: "Notification registration unavailable",
+      },
+      { status: 200 }
     );
   }
 }
