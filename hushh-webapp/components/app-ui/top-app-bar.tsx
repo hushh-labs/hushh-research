@@ -310,16 +310,22 @@ export function TopAppBar({ className }: TopAppBarProps) {
     ],
   );
 
-  // Subscribe to scroll-direction store so top glass height follows tabs visibility.
-  const { progress: tabsScrollHideProgress } =
-    useKaiBottomChromeVisibility(showKaiTabs);
+  // Subscribe to the shared scroll-direction store so top chrome hides opposite
+  // the bottom nav while keeping the page layout spacer stable.
+  const { progress: topChromeHideProgress } =
+    useKaiBottomChromeVisibility(!hideChrome);
 
   const topGlassHeight = useMemo(
     () =>
       showKaiTabs
-        ? `calc(var(--top-inset) + var(--top-systembar-row-gap, 0px) + var(--top-bar-h) + ((1 - ${tabsScrollHideProgress}) * var(--top-tabs-h)) + var(--top-fade-active))`
+        ? `calc(var(--top-inset) + var(--top-systembar-row-gap, 0px) + var(--top-bar-h) + ((1 - ${topChromeHideProgress}) * var(--top-tabs-h)) + var(--top-fade-active))`
         : "var(--top-shell-visual-height)",
-    [showKaiTabs, tabsScrollHideProgress],
+    [showKaiTabs, topChromeHideProgress],
+  );
+  const topChromeTransform = useMemo(
+    () =>
+      `translate3d(0, calc(-1 * ${topChromeHideProgress} * var(--top-shell-reserved-height)), 0)`,
+    [topChromeHideProgress],
   );
 
   const topGlassStyle = useMemo<React.CSSProperties>(
@@ -327,7 +333,6 @@ export function TopAppBar({ className }: TopAppBarProps) {
       ({
         "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.76)",
         "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.76)",
-        "--app-bar-glass-blur": "6px",
         "--app-bar-shadow": "0 10px 26px rgba(120, 120, 128, 0.12)",
         "--app-bar-mask-overscan": "14px",
       }) as React.CSSProperties,
@@ -345,7 +350,11 @@ export function TopAppBar({ className }: TopAppBarProps) {
     >
       <div
         className="pointer-events-none relative w-full overflow-visible"
-        style={{ height: "var(--top-shell-reserved-height)" }}
+        style={{
+          height: "var(--top-shell-reserved-height)",
+          transform: topChromeTransform,
+          willChange: "transform",
+        }}
       >
         <div
           aria-hidden
@@ -504,7 +513,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
               >
                 <div
                   data-testid="top-app-bar-actions"
-                  className="pointer-events-auto flex flex-nowrap items-center justify-end gap-1.5 sm:gap-2"
+                  className="pointer-events-auto flex flex-nowrap items-center justify-end gap-1.5 sm:gap-2 pr-[env(safe-area-inset-right)]"
                 >
                   {showOnboardingActions ? (
                     <OnboardingRouteActions />

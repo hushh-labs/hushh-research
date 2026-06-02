@@ -32,7 +32,7 @@ describe("executeKaiCommand", () => {
     vi.clearAllMocks();
   });
 
-  it("starts live analysis intent for voice analyze commands", () => {
+  it("opens the comparison preview for voice analyze commands", () => {
     const input = baseInput();
 
     const result = executeKaiCommand({
@@ -43,12 +43,8 @@ describe("executeKaiCommand", () => {
       },
     });
 
-    expect(input.setAnalysisParams).toHaveBeenCalledWith({
-      ticker: "NVDA",
-      userId: "user_1",
-      riskProfile: "balanced",
-    });
-    expect(input.router.push).toHaveBeenCalledWith("/kai/analysis?focus=active&ticker=NVDA");
+    expect(input.setAnalysisParams).toHaveBeenCalledWith(null);
+    expect(input.router.push).toHaveBeenCalledWith("/kai/analysis?ticker=NVDA");
     expect(result).toEqual({
       status: "executed",
       reason: undefined,
@@ -56,10 +52,10 @@ describe("executeKaiCommand", () => {
         status: "started",
         actionId: "analysis.start",
         routeBefore: "/profile",
-        routeAfter: "/kai/analysis?focus=active&ticker=NVDA",
+        routeAfter: "/kai/analysis?ticker=NVDA",
         screenBefore: "profile_account",
         screenAfter: "kai_analysis",
-        resultSummary: "Started analysis for NVDA in the Kai analysis workspace.",
+        resultSummary: "Opened the NVDA comparison preview before starting the debate.",
         data: {
           command: "analyze",
           symbol: "NVDA",
@@ -90,7 +86,7 @@ describe("executeKaiCommand", () => {
     expect(result.actionResult.screenAfter).toBe("kai_analysis");
   });
 
-  it("starts analysis even when portfolio data has not been imported yet", () => {
+  it("opens preview even when portfolio data has not been imported yet", () => {
     const input = baseInput();
 
     const result = executeKaiCommand({
@@ -102,11 +98,12 @@ describe("executeKaiCommand", () => {
       },
     });
 
-    expect(input.router.push).toHaveBeenCalledWith("/kai/analysis?focus=active&ticker=AMD");
+    expect(input.setAnalysisParams).toHaveBeenCalledWith(null);
+    expect(input.router.push).toHaveBeenCalledWith("/kai/analysis?ticker=AMD");
     expect(result.actionResult).toMatchObject({
       status: "started",
       actionId: "analysis.start",
-      routeAfter: "/kai/analysis?focus=active&ticker=AMD",
+      routeAfter: "/kai/analysis?ticker=AMD",
       screenAfter: "kai_analysis",
     });
   });

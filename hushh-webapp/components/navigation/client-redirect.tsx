@@ -11,7 +11,7 @@ export function ClientRedirect({ to }: ClientRedirectProps) {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace(to);
+    router.replace(to, { scroll: false });
   }, [router, to]);
 
   return null;

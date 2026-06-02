@@ -34,6 +34,7 @@
   "required_commands": [
     "cd hushh-webapp && npm run verify:cache",
     "cd hushh-webapp && npm run audit:cache-coherence",
+    "cd hushh-webapp && npm run verify:analytics",
     "cd hushh-webapp && npm run verify:surface-map",
     "cd hushh-webapp && npm run verify:service-boundary"
   ],
@@ -43,12 +44,14 @@
       "commands": [
         "cd hushh-webapp && npm run verify:cache",
         "cd hushh-webapp && npm run audit:cache-coherence",
+        "cd hushh-webapp && npm run verify:analytics",
         "cd hushh-webapp && npm run verify:surface-map",
         "cd hushh-webapp && npm run verify:service-boundary"
       ],
       "tests": [
         "cd hushh-webapp && npm run verify:cache",
         "cd hushh-webapp && npm run audit:cache-coherence",
+        "cd hushh-webapp && npm run verify:analytics",
         "cd hushh-webapp && npm run verify:surface-map"
       ]
     }

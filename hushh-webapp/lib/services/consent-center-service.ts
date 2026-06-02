@@ -5,6 +5,7 @@ import {
   CACHE_TTL,
 } from "@/lib/services/cache-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { normalizeConsentResponse } from "@/src/lib/consent/normalizeConsent";
 
 export const CONSENT_CENTER_PAGE_SIZE = 20;
 
@@ -27,6 +28,8 @@ export interface ConsentCenterEntry {
     | "history"
     | "invite";
   status: string;
+  active?: boolean;
+  granted?: boolean;
   action: string;
   scope?: string | null;
   scope_description?: string | null;
@@ -258,6 +261,24 @@ interface ErrorPayload {
   error?: string;
 }
 
+function normalizeConsentEntry(entry: ConsentCenterEntry): ConsentCenterEntry {
+  const normalized = normalizeConsentResponse({
+    active: entry.active,
+    granted: entry.granted,
+    status: entry.status,
+    permissions: entry.existing_granted_scopes || undefined,
+    scopes: entry.scope ? [entry.scope] : undefined,
+  });
+  if (normalized.isGranted && !["approved", "active", "granted"].includes(entry.status)) {
+    return { ...entry, status: entry.kind === "active_grant" ? "active" : "approved" };
+  }
+  return entry;
+}
+
+function normalizeConsentEntries(entries: ConsentCenterEntry[] | undefined): ConsentCenterEntry[] {
+  return Array.isArray(entries) ? entries.map(normalizeConsentEntry) : [];
+}
+
 export class ConsentCenterService {
   static async getCenter(
     options: FetchCenterOptions,
@@ -306,6 +327,12 @@ export class ConsentCenterService {
       active: [],
       previous: [],
     };
+    payload.incoming_requests = normalizeConsentEntries(payload.incoming_requests);
+    payload.outgoing_requests = normalizeConsentEntries(payload.outgoing_requests);
+    payload.active_grants = normalizeConsentEntries(payload.active_grants);
+    payload.history = normalizeConsentEntries(payload.history);
+    payload.invites = normalizeConsentEntries(payload.invites);
+    payload.developer_requests = normalizeConsentEntries(payload.developer_requests);
     payload.self_activity_summary = payload.self_activity_summary || null;
 
     cache.set(cacheKey, payload, CACHE_TTL.SHORT);
@@ -339,7 +366,7 @@ export class ConsentCenterService {
         payload.detail || payload.error || `Request failed: ${response.status}`,
       );
     }
-    return { items: payload.items || [] };
+    return { items: normalizeConsentEntries(payload.items) };
   }
 
   static async lookupPendingRequests(options: {
@@ -494,7 +521,7 @@ export class ConsentCenterService {
         payload.detail || payload.error || `Request failed: ${response.status}`,
       );
     }
-    payload.items = Array.isArray(payload.items) ? payload.items : [];
+    payload.items = normalizeConsentEntries(payload.items);
     cache.set(cacheKey, payload, CACHE_TTL.SHORT);
     return payload;
   }
