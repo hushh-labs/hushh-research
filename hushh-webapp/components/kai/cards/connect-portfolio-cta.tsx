@@ -1,15 +1,13 @@
 "use client";
 
 import { ArrowRight } from "lucide-react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { Button } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
 
 export function ConnectPortfolioCta() {
-  const router = useRouter();
-
   return (
     <SurfaceCard accent="emerald">
       <SurfaceCardContent className="space-y-4 p-6 text-center">
@@ -25,11 +23,13 @@ export function ConnectPortfolioCta() {
         <Button
           size="lg"
           fullWidth
-          onClick={() => router.push("/kai/import")}
+          asChild
           showRipple
         >
-          Connect Portfolio
-          <Icon icon={ArrowRight} size="md" className="ml-2" />
+          <Link href="/kai/import">
+            Connect Portfolio
+            <Icon icon={ArrowRight} size="md" className="ml-2" />
+          </Link>
         </Button>
 
         <Button
@@ -37,10 +37,10 @@ export function ConnectPortfolioCta() {
           effect="fill"
           size="sm"
           fullWidth
-          onClick={() => router.push("/kai")}
+          asChild
           showRipple={false}
         >
-          Or continue exploring
+          <Link href="/kai">Or continue exploring</Link>
         </Button>
       </SurfaceCardContent>
     </SurfaceCard>

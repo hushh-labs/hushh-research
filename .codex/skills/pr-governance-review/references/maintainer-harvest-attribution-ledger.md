@@ -18,6 +18,36 @@ or additions/deletions. A replay commit may become the latest blame for replayed
 lines, but it must be documented as a transparent non-rewrite replay, not as
 retroactive mutation of the original merge.
 
+## 2026-05-30: Author-Scoped PR Governance Harvest
+
+Maintainer landing commit:
+`72c464be84a14f73c2872d1028edf2b8433b85a3`
+
+Landing status:
+
+- The commit is on `kushaltrivedi/feat/agent-kai-revamp`.
+- Native GitHub contributor credit remains pending until this co-authored
+  landing commit reaches `main`.
+- Source PRs remain open with `CHANGES_REQUESTED`; do not close them as
+  superseded until the landing commit is merged to `main` and linked from the
+  source PR records.
+
+Attribution status:
+
+- The landing commit contains valid co-author trailers for `Ayush04-C` and
+  `DamriaNeelesh`.
+- Internal impact credit remains attached to the source PRs.
+- If a source PR receives a fresh contributor update before the landing commit
+  reaches `main`, re-enter that PR through a repass train and prefer direct
+  contributor PR merge when safe.
+
+| Source PR | Contributor | Accepted Value |
+| --- | --- | --- |
+| [PR #1029](https://github.com/hushh-labs/hushh-research/pull/1029) | `Ayush04-C` | Visual not-found recovery on the canonical app route. |
+| [PR #1031](https://github.com/hushh-labs/hushh-research/pull/1031) | `Ayush04-C` | Motion-safe loader feedback and ARIA status polish. |
+| [PR #1066](https://github.com/hushh-labs/hushh-research/pull/1066) | `Ayush04-C` | Narrowed root metadata/SEO hardening. |
+| [PR #1667](https://github.com/hushh-labs/hushh-research/pull/1667) | `DamriaNeelesh` | One Location profile entry point. |
+
 ## 2026-05-14: PR #1013 Async PR Train Patch Wave One
 
 Original maintainer landing PR:

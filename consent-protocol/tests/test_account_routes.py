@@ -52,6 +52,8 @@ def test_claim_account_phone_requires_firebase_auth():
 
 
 def test_claim_account_phone_persists_verified_phone(monkeypatch):
+    cleanup_calls = []
+
     async def _mock_verify(raw_claim: str):
         assert raw_claim == "phone-claim-sample"
         return "+16505550101", "phone-session-uid"
@@ -66,10 +68,17 @@ def test_claim_account_phone_persists_verified_phone(monkeypatch):
             "source": "firebase_phone_claim",
         }
 
+    async def _mock_cleanup(
+        *, uid: str | None, phone_number: str | None, protected_uid: str | None = None
+    ):
+        cleanup_calls.append((uid, phone_number, protected_uid))
+        return "deleted"
+
     app = _build_app()
     app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
     monkeypatch.setattr(account, "_verify_phone_claim_id_token", _mock_verify)
     monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", _mock_claim)
+    monkeypatch.setattr(account, "_delete_safe_phone_only_firebase_user", _mock_cleanup)
 
     client = TestClient(app)
     response = client.post(
@@ -81,6 +90,8 @@ def test_claim_account_phone_persists_verified_phone(monkeypatch):
     assert payload["success"] is True
     assert payload["phone_verified"] is True
     assert payload["identity"]["phone_number"] == "+16505550101"
+    assert payload["phone_session_cleanup"] == "deleted"
+    assert cleanup_calls == [("phone-session-uid", "+16505550101", "firebase_uid_123")]
 
 
 def test_claim_account_phone_rejects_invalid_phone_token(monkeypatch):
@@ -330,6 +341,7 @@ def test_delete_account_requires_vault_owner_token():
 
 def test_delete_account_defaults_target_to_both(monkeypatch):
     deleted_auth_users = []
+    orphan_cleanup_calls = []
 
     async def _mock_delete(self, user_id: str, target: str = "both"):
         assert user_id == "user_123"
@@ -340,10 +352,31 @@ def test_delete_account_defaults_target_to_both(monkeypatch):
         deleted_auth_users.append(user_id)
         return "deleted"
 
+    async def _mock_get_many(self, user_ids):
+        assert user_ids == ["user_123"]
+        return {
+            "user_123": {
+                "phone_number": "+16505550101",
+                "phone_verified": True,
+            }
+        }
+
+    async def _mock_delete_phone_orphan(
+        *, phone_number: str | None, protected_uid: str | None = None
+    ):
+        orphan_cleanup_calls.append((phone_number, protected_uid))
+        return "deleted"
+
     app = _build_app()
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "user_123"}
     monkeypatch.setattr(AccountService, "delete_account", _mock_delete)
+    monkeypatch.setattr(ActorIdentityService, "get_many", _mock_get_many)
     monkeypatch.setattr(account, "_delete_firebase_auth_user", _mock_delete_firebase_user)
+    monkeypatch.setattr(
+        account,
+        "_delete_safe_phone_only_firebase_user_by_phone",
+        _mock_delete_phone_orphan,
+    )
 
     client = TestClient(app)
     response = client.delete("/api/account/delete")
@@ -353,7 +386,9 @@ def test_delete_account_defaults_target_to_both(monkeypatch):
     assert payload["success"] is True
     assert payload["account_deleted"] is True
     assert payload["details"]["firebase_auth_user"] == "deleted"
+    assert payload["details"]["firebase_phone_orphan_user"] == "deleted"
     assert deleted_auth_users == ["user_123"]
+    assert orphan_cleanup_calls == [("+16505550101", "user_123")]
 
 
 def test_delete_account_forwards_requested_target(monkeypatch):
@@ -393,15 +428,20 @@ def test_delete_account_maps_service_failure_to_500(monkeypatch):
         assert target == "both"
         return {"success": False, "error": "boom"}
 
+    async def _mock_get_many(self, user_ids):
+        assert user_ids == ["user_123"]
+        return {}
+
     app = _build_app()
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "user_123"}
     monkeypatch.setattr(AccountService, "delete_account", _mock_delete)
+    monkeypatch.setattr(ActorIdentityService, "get_many", _mock_get_many)
 
     client = TestClient(app)
     response = client.delete("/api/account/delete")
 
     assert response.status_code == 500
-    assert response.json()["detail"] == "Deletion failed: boom"
+    assert response.json()["detail"] == "Account deletion failed"
 
 
 def test_export_account_data_requires_vault_owner_token():

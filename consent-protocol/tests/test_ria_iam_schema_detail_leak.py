@@ -77,9 +77,7 @@ def test_iam_schema_not_ready_hides_internal_details(path: str) -> None:
     assert resp.status_code == 503
     body = resp.text
     for fragment in INTERNAL_STRINGS:
-        assert fragment not in body, (
-            f"Internal string {fragment!r} leaked in 503 body for {path}"
-        )
+        assert fragment not in body, f"Internal string {fragment!r} leaked in 503 body for {path}"
 
 
 def test_iam_schema_not_ready_returns_safe_code() -> None:
