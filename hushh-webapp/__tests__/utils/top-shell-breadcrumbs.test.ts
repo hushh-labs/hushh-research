@@ -59,6 +59,19 @@ describe("top shell breadcrumbs", () => {
       ],
     });
 
+    const accountParams = new URLSearchParams();
+    accountParams.set("panel", "account");
+
+    expect(resolveTopShellBreadcrumb("/profile", accountParams)).toEqual({
+      backHref: "/profile",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/profile" },
+        { label: "Account", href: undefined },
+      ],
+    });
+
     const detailParams = new URLSearchParams();
     detailParams.set("panel", "security");
     detailParams.set("detail", "vault");
@@ -84,6 +97,19 @@ describe("top shell breadcrumbs", () => {
       items: [
         { label: "Profile", href: "/profile" },
         { label: "Preferences", href: undefined },
+      ],
+    });
+  });
+
+  it("routes receipts back to the Gmail profile panel", () => {
+    expect(resolveTopShellBreadcrumb("/profile/receipts")).toEqual({
+      backHref: "/profile?panel=gmail",
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: "/profile?panel=gmail" },
+        { label: "Gmail receipts", href: "/profile?panel=gmail" },
+        { label: "Receipts" },
       ],
     });
   });

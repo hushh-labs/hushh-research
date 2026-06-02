@@ -27,7 +27,8 @@
   "required_reads": [
     "consent-protocol/docs/reference/personal-knowledge-model.md",
     "docs/reference/architecture/pkm-cutover-runbook.md",
-    "docs/project_context_map.md"
+    "docs/project_context_map.md",
+    ".codex/skills/vault-pkm-governance/references/vault-pkm-browser-data-boundary.md"
   ],
   "required_commands": [
     "cd consent-protocol && python3 -m pytest tests/test_vault.py -q",

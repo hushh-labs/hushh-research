@@ -66,17 +66,17 @@ export interface HushhAuthPlugin {
 
   /**
    * Sign in with Apple using native iOS AuthenticationServices or Firebase OAuthProvider
-   * 
+   *
    * iOS: Uses ASAuthorizationController (native Apple Sign-In sheet)
    * Android/Web: Uses Firebase OAuthProvider (web-based OAuth flow)
-   * 
+   *
    * Returns ID token for Firebase credential exchange
    * Note: Apple may return hidden email (relay address) if user chose to hide it
    */
   signInWithApple(): Promise<{
     idToken: string;
     accessToken?: string;
-    rawNonce?: string;  // iOS only - needed for JS SDK sync if required
+    rawNonce?: string; // iOS only - needed for JS SDK sync if required
     user: AuthUser;
   }>;
 
@@ -149,7 +149,7 @@ export interface HushhConsentPlugin {
    * Mirrors: verify_trust_link() in link.py
    */
   verifyTrustLink(
-    options: VerifyTrustLinkOptions
+    options: VerifyTrustLinkOptions,
   ): Promise<VerifyTrustLinkResult>;
 
   // ==================== Backend API Methods ====================
@@ -362,6 +362,17 @@ export interface HushhVaultPlugin {
     authToken?: string;
   }): Promise<{ success: boolean }>;
 
+  deleteVaultWrapper(options: {
+    userId: string;
+    vaultKeyHash: string;
+    method: string;
+    wrapperId?: string;
+    fallbackPrimaryMethod?: string;
+    fallbackPrimaryWrapperId?: string;
+    authToken?: string;
+    vaultOwnerToken?: string;
+  }): Promise<{ success: boolean }>;
+
   setPrimaryVaultMethod(options: {
     userId: string;
     primaryMethod: string;
@@ -439,6 +450,26 @@ export interface HushhVaultPlugin {
     vaultOwnerToken: string;
     authToken: string;
   }): Promise<Record<string, unknown>>;
+
+  /**
+   * Legacy domain-specific preference read kept for native bridge compatibility.
+   * @deprecated Use token-enforced vault/domain flows instead.
+   */
+  getFoodPreferences(options: {
+    userId: string;
+    vaultOwnerToken: string;
+    authToken?: string;
+  }): Promise<{ domain: "food"; preferences: unknown | null }>;
+
+  /**
+   * Legacy domain-specific profile read kept for native bridge compatibility.
+   * @deprecated Use token-enforced vault/domain flows instead.
+   */
+  getProfessionalData(options: {
+    userId: string;
+    vaultOwnerToken: string;
+    authToken?: string;
+  }): Promise<{ domain: "professional"; preferences: unknown | null }>;
 }
 
 export const HushhVault = registerPlugin<HushhVaultPlugin>("HushhVault", {
@@ -476,14 +507,14 @@ export interface HushhKeychainPlugin {
    * Store a value requiring biometric authentication to retrieve
    */
   setBiometric(
-    options: KeychainSetOptions & { promptMessage: string }
+    options: KeychainSetOptions & { promptMessage: string },
   ): Promise<void>;
 
   /**
    * Retrieve a biometric-protected value
    */
   getBiometric(
-    options: KeychainGetOptions & { promptMessage: string }
+    options: KeychainGetOptions & { promptMessage: string },
   ): Promise<KeychainGetResult>;
 }
 
@@ -492,7 +523,7 @@ export const HushhKeychain = registerPlugin<HushhKeychainPlugin>(
   {
     web: () =>
       import("./plugins/keychain-web").then((m) => new m.HushhKeychainWeb()),
-  }
+  },
 );
 
 // ==================== HushhSettingsPlugin ====================
@@ -514,7 +545,7 @@ export interface HushhSettingsData {
 export interface HushhSettingsPlugin {
   getSettings(): Promise<HushhSettingsData>;
   updateSettings(
-    options: Partial<HushhSettingsData>
+    options: Partial<HushhSettingsData>,
   ): Promise<{ success: boolean }>;
   resetSettings(): Promise<{ success: boolean }>;
   shouldUseLocalAgents(): Promise<{ value: boolean }>;
@@ -526,7 +557,7 @@ export const HushhSettingsNative = registerPlugin<HushhSettingsPlugin>(
   {
     web: () =>
       import("./plugins/settings-web").then((m) => new m.HushhSettingsWeb()),
-  }
+  },
 );
 
 // ==================== HushhDatabasePlugin ====================
@@ -561,7 +592,7 @@ export const HushhDatabase = registerPlugin<HushhDatabasePlugin>(
   {
     web: () =>
       import("./plugins/database-web").then((m) => new m.HushhDatabaseWeb()),
-  }
+  },
 );
 
 // ==================== HushhAgentPlugin ====================
@@ -704,10 +735,62 @@ export const HushhNotifications = registerPlugin<HushhNotificationsPlugin>(
   {
     web: () =>
       import("./plugins/notifications-web").then(
-        (m) => new m.HushhNotificationsWeb()
+        (m) => new m.HushhNotificationsWeb(),
       ),
-  }
+  },
 );
+
+// ==================== HushhLocationPlugin ====================
+// Foreground-only location capture for One Location Agent.
+
+export type HushhLocationPermissionState = {
+  state: "granted" | "denied" | "prompt" | "restricted" | "unavailable";
+  precise: boolean | null;
+  background: "foreground-only" | "available" | "restricted" | "unavailable";
+};
+
+export interface HushhLocationPlugin {
+  getPermissionState(): Promise<HushhLocationPermissionState>;
+  getCurrentPosition(options?: {
+    enableHighAccuracy?: boolean;
+    timeoutMs?: number;
+  }): Promise<{
+    latitude: number;
+    longitude: number;
+    accuracyM: number | null;
+    capturedAt: string;
+    sourcePlatform: "web" | "ios" | "android" | "native";
+  }>;
+}
+
+export const HushhLocation = registerPlugin<HushhLocationPlugin>("HushhLocation", {
+  web: () => import("./plugins/location-web").then((m) => new m.HushhLocationWeb()),
+});
+
+// ==================== HushhContactsPlugin ====================
+// Contact-book permission and read-only contact lookup for Connect matching.
+
+export type HushhContactsPermissionState = {
+  state: "granted" | "denied" | "prompt" | "restricted" | "unavailable";
+};
+
+export type HushhContactRecord = {
+  id?: string | null;
+  displayName?: string | null;
+  phoneNumbers: string[];
+};
+
+export interface HushhContactsPlugin {
+  getPermissionState(): Promise<HushhContactsPermissionState>;
+  readContacts(options?: { limit?: number }): Promise<{
+    contacts: HushhContactRecord[];
+    sourcePlatform: "web" | "ios" | "android" | "native";
+  }>;
+}
+
+export const HushhContacts = registerPlugin<HushhContactsPlugin>("HushhContacts", {
+  web: () => import("./plugins/contacts-web").then((m) => new m.HushhContactsWeb()),
+});
 
 // ==================== HushhPersonalKnowledgeModelPlugin ====================
 // PKM operations for dynamic domain/attribute management

@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@/lib/morphy-ux/button";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export function shouldRenderPaginatedListFooter(params: {
@@ -44,7 +44,8 @@ export function PaginatedListFooter({
   const pageCount = Math.max(1, Math.ceil(Math.max(0, total || 0) / safeLimit));
 
   return (
-    <div
+    <nav
+      aria-label="Pagination"
       className={cn(
         "flex items-center justify-between border-t border-border/60 px-4 py-3 text-sm text-muted-foreground",
         className
@@ -55,18 +56,24 @@ export function PaginatedListFooter({
       </span>
       <div className="flex gap-2">
         <Button
-          variant="none"
-          effect="fade"
+          variant="ghost"
           size="sm"
           disabled={safePage <= 1}
           onClick={onPrevious}
+          aria-label="Go to previous page"
         >
           Previous
         </Button>
-        <Button variant="none" effect="fade" size="sm" disabled={!hasMore} onClick={onNext}>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={!hasMore}
+          onClick={onNext}
+          aria-label="Go to next page"
+        >
           Next
         </Button>
       </div>
-    </div>
+    </nav>
   );
 }

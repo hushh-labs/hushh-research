@@ -7,7 +7,7 @@ import {
   type RiaOnboardingDraft,
 } from "@/lib/ria/ria-onboarding-flow";
 
-const KEY_PREFIX = "ria_onboarding_draft_v1";
+const KEY_PREFIX = "ria_onboarding_draft_v2";
 
 function keyForUser(userId: string): string {
   return `${KEY_PREFIX}:${userId}`;

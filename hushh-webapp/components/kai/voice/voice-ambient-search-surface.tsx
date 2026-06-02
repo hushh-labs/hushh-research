@@ -3,6 +3,7 @@
 import type { MouseEvent, ReactNode } from "react";
 import {
   AlertCircle,
+  Bug,
   Check,
   Loader2,
   Mic,
@@ -41,12 +42,15 @@ type VoiceAmbientSearchSurfaceProps = {
   showMic?: boolean;
   micDisabled?: boolean;
   micDisabledReason?: string | null;
+  showDebug?: boolean;
+  debugActive?: boolean;
   showSubmit?: boolean;
   submitEnabled?: boolean;
   ttsPlaying?: boolean;
   pendingConfirmation?: boolean;
   onOpenSearch: () => void;
   onMicToggle: (event: MouseEvent<HTMLButtonElement>) => void;
+  onDebugToggle?: (event: MouseEvent<HTMLButtonElement>) => void;
   onMuteToggle?: () => void;
   onSubmit?: () => void;
   onEnd?: () => void;
@@ -155,12 +159,15 @@ export function VoiceAmbientSearchSurface({
   showMic = true,
   micDisabled = false,
   micDisabledReason,
+  showDebug = false,
+  debugActive = false,
   showSubmit = false,
   submitEnabled = true,
   ttsPlaying = false,
   pendingConfirmation = false,
   onOpenSearch,
   onMicToggle,
+  onDebugToggle,
   onMuteToggle,
   onSubmit,
   onEnd,
@@ -231,7 +238,7 @@ export function VoiceAmbientSearchSurface({
               : "Open Kai command search"
           }
           className={cn(
-            "flex h-10 w-full items-center justify-start overflow-hidden rounded-full px-3 pr-32 text-[12px]",
+            "flex h-10 w-full items-center justify-start overflow-hidden rounded-full px-3 pr-36 text-[12px] sm:pr-40",
             getVariantStyles("none", "fade"),
             active
               ? "text-foreground shadow-lg shadow-black/5"
@@ -265,6 +272,16 @@ export function VoiceAmbientSearchSurface({
                 bars={7}
               />
             </div>
+          ) : null}
+
+          {showDebug ? (
+            <IconButton
+              label={debugActive ? "Close voice debug" : "Open voice debug"}
+              active={debugActive}
+              onClick={onDebugToggle}
+            >
+              <Bug className="h-3.5 w-3.5" />
+            </IconButton>
           ) : null}
 
           {mode === "idle" && showMic ? (

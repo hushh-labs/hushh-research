@@ -32,6 +32,17 @@ describe("deriveVoiceRouteScreen", () => {
     });
   });
 
+  it("maps One KYC to a voice-eligible screen", () => {
+    expect(deriveVoiceRouteScreen("/one/kyc")).toEqual({
+      screen: "one_kyc",
+      subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/one/kyc", "panel=aliases")).toEqual({
+      screen: "one_kyc",
+      subview: "aliases",
+    });
+  });
+
   it("preserves receipts, gmail, support, and investments screen specificity", () => {
     expect(deriveVoiceRouteScreen("/profile/receipts")).toEqual({
       screen: "profile_receipts",
