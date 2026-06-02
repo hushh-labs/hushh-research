@@ -13,11 +13,14 @@ export const ROUTE_ID_VALUES = [
   "profile_receipts",
   "profile_gmail_oauth_return",
   "consents",
+  "agent",
   "marketplace",
   "marketplace_connections",
   "marketplace_connection_portfolio",
   "marketplace_ria_profile",
   "one_kyc",
+  "one_location",
+  "one_location_public_request",
   "portfolio_shared",
   "ria_home",
   "ria_onboarding",
@@ -57,6 +60,7 @@ export function resolveRouteId(pathname: string): RouteId {
     return "profile_gmail_oauth_return";
   }
   if (pathname === ROUTES.CONSENTS) return "consents";
+  if (pathname === ROUTES.AGENT) return "agent";
   if (pathname === ROUTES.MARKETPLACE) return "marketplace";
   if (pathname === ROUTES.MARKETPLACE_CONNECTIONS) return "marketplace_connections";
   if (pathname === `${ROUTES.MARKETPLACE_CONNECTIONS}/portfolio`) {
@@ -69,6 +73,8 @@ export function resolveRouteId(pathname: string): RouteId {
     return "marketplace_ria_profile";
   }
   if (pathname === ROUTES.ONE_KYC) return "one_kyc";
+  if (pathname === ROUTES.ONE_LOCATION) return "one_location";
+  if (pathname.startsWith("/one/location/request/")) return "one_location_public_request";
   if (pathname === "/portfolio/shared") return "portfolio_shared";
   if (pathname === ROUTES.RIA_HOME) return "ria_home";
   if (pathname === ROUTES.RIA_ONBOARDING) return "ria_onboarding";
@@ -127,6 +133,70 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
   {
     regex: /^\/api\/pkm\/domain-data\/[^/?]+\/[^/?]+(?:\?.*)?$/i,
     template: "/api/pkm/domain-data/{user_id}/{domain}",
+  },
+  {
+    regex: /^\/api\/one\/location\/recipient-keys(?:\?.*)?$/i,
+    template: "/api/one/location/recipient-keys",
+  },
+  {
+    regex: /^\/api\/one\/location\/state(?:\?.*)?$/i,
+    template: "/api/one/location/state",
+  },
+  {
+    regex: /^\/api\/one\/location\/grants(?:\?.*)?$/i,
+    template: "/api/one/location/grants",
+  },
+  {
+    regex: /^\/api\/one\/location\/grants\/[^/?]+\/envelopes(?:\?.*)?$/i,
+    template: "/api/one/location/grants/{grant_id}/envelopes",
+  },
+  {
+    regex: /^\/api\/one\/location\/grants\/[^/?]+\/envelope(?:\?.*)?$/i,
+    template: "/api/one/location/grants/{grant_id}/envelope",
+  },
+  {
+    regex: /^\/api\/one\/location\/grants\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/one/location/grants/{grant_id}",
+  },
+  {
+    regex: /^\/api\/one\/location\/requests(?:\?.*)?$/i,
+    template: "/api/one/location/requests",
+  },
+  {
+    regex: /^\/api\/one\/location\/requests\/[^/?]+\/approve(?:\?.*)?$/i,
+    template: "/api/one/location/requests/{request_id}/approve",
+  },
+  {
+    regex: /^\/api\/one\/location\/requests\/[^/?]+\/deny(?:\?.*)?$/i,
+    template: "/api/one/location/requests/{request_id}/deny",
+  },
+  {
+    regex: /^\/api\/one\/location\/grants\/[^/?]+\/refer(?:\?.*)?$/i,
+    template: "/api/one/location/grants/{grant_id}/refer",
+  },
+  {
+    regex: /^\/api\/one\/location\/public-invites(?:\?.*)?$/i,
+    template: "/api/one/location/public-invites",
+  },
+  {
+    regex: /^\/api\/one\/location\/public-invites\/[^/?]+\/submit(?:\?.*)?$/i,
+    template: "/api/one/location/public-invites/{public_token}/submit",
+  },
+  {
+    regex: /^\/api\/one\/location\/public-invites\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/one/location/public-invites/{public_invite_id}",
+  },
+  {
+    regex: /^\/api\/kai\/agent\/chat\/stream(?:\?.*)?$/i,
+    template: "/api/kai/agent/chat/stream",
+  },
+  {
+    regex: /^\/api\/kai\/agent\/chat\/conversations\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/kai/agent/chat/conversations/{user_id}",
+  },
+  {
+    regex: /^\/api\/kai\/agent\/chat\/history\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/kai/agent/chat/history/{conversation_id}",
   },
   {
     regex: /^\/api\/kai\/market\/insights\/baseline\/[^/?]+(?:\?.*)?$/i,

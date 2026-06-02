@@ -1,10 +1,11 @@
-import { redirect } from "next/navigation";
-
+import { ClientRedirect } from "@/components/navigation/client-redirect";
 import { resolveAppEnvironment } from "@/lib/app-env";
 
 export default function PkmViewerPage() {
-  if (resolveAppEnvironment() === "production") {
-    redirect("/profile?panel=my-data");
-  }
-  redirect("/profile/pkm-agent-lab");
+  const target =
+    resolveAppEnvironment() === "production"
+      ? "/profile?panel=my-data"
+      : "/profile/pkm-agent-lab";
+
+  return <ClientRedirect to={target} />;
 }

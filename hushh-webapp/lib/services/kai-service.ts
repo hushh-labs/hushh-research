@@ -97,9 +97,9 @@ export async function grantKaiConsent(
 
   return Kai.grantConsent({
     userId,
-    // Updated to use dynamic attr.* scopes instead of legacy vault.read.*/vault.write.*
+    // Uses dynamic attr.* scopes instead of legacy vault wildcard scopes.
     scopes: scopes || [
-      "attr.financial.risk_profile", // Replaces vault.read.risk_profile
+      "attr.financial.risk_profile",
       "agent.kai.analyze",
     ],
     idToken,

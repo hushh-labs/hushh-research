@@ -65,12 +65,13 @@ def _resolve_users(
     source_user = auth.get_user(source_uid)
     target_user = auth.get_user_by_email(target_email)
 
-    auth.update_user(
-        target_user.uid,
-        display_name=source_user.display_name or "Kai Test Reviewer",
-        photo_url=source_user.photo_url,
-        password=target_password,
-    )
+    update_kwargs = {
+        "display_name": source_user.display_name or "Kai Test Reviewer",
+        "photo_url": source_user.photo_url,
+    }
+    if target_password:
+        update_kwargs["password"] = target_password
+    auth.update_user(target_user.uid, **update_kwargs)
 
     _log(
         f"Firebase target user ready: target_uid={target_user.uid} display_name={source_user.display_name or 'Kai Test Reviewer'}"
@@ -104,6 +105,7 @@ DELETE_TARGET_SQL = [
     "DELETE FROM ria_profiles WHERE user_id = $1",
     "DELETE FROM marketplace_public_profiles WHERE user_id = $1",
     "DELETE FROM runtime_persona_state WHERE user_id = $1",
+    "DELETE FROM one_kyc_client_connectors WHERE user_id = $1",
     "DELETE FROM actor_profiles WHERE user_id = $1",
     "DELETE FROM vault_key_wrappers WHERE user_id = $1",
     "DELETE FROM vault_keys WHERE user_id = $1",
@@ -547,6 +549,40 @@ async def _mirror_local_surface(conn: asyncpg.Connection, users: MirrorUsers) ->
             users.target_email,
         )
 
+        await conn.execute(
+            """
+            INSERT INTO one_kyc_client_connectors (
+              connector_id,
+              user_id,
+              connector_key_id,
+              connector_public_key,
+              connector_wrapping_alg,
+              public_key_fingerprint,
+              status,
+              created_at,
+              updated_at,
+              rotated_at,
+              revoked_at
+            )
+            SELECT
+              gen_random_uuid(),
+              $2,
+              connector_key_id,
+              connector_public_key,
+              connector_wrapping_alg,
+              public_key_fingerprint,
+              status,
+              created_at,
+              updated_at,
+              rotated_at,
+              revoked_at
+            FROM one_kyc_client_connectors
+            WHERE user_id = $1
+            """,
+            users.source_uid,
+            users.target_uid,
+        )
+
 
 async def _print_counts(conn: asyncpg.Connection, users: MirrorUsers) -> None:
     for table in [
@@ -561,6 +597,7 @@ async def _print_counts(conn: asyncpg.Connection, users: MirrorUsers) -> None:
         "marketplace_public_profiles",
         "ria_profiles",
         "runtime_persona_state",
+        "one_kyc_client_connectors",
     ]:
         count = await conn.fetchval(
             f"SELECT COUNT(*) FROM {table} WHERE user_id = $1", users.target_uid
@@ -604,7 +641,10 @@ def main() -> int:
     parser.add_argument(
         "--target-password",
         default="12345678",
-        help="Password to set on the target Firebase reviewer user.",
+        help=(
+            "Password to set on the target Firebase reviewer user. Pass an empty string "
+            "from callers that only need identity/vault mirroring."
+        ),
     )
     args = parser.parse_args()
     return asyncio.run(_run(args))
