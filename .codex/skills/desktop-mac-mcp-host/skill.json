@@ -1,0 +1,56 @@
+{
+  "id": "desktop-mac-mcp-host",
+  "role": "spoke",
+  "owner_family": "desktop-mac",
+  "primary_scope": "desktop-mac-mcp-host",
+  "description": "Use when implementing or reviewing the local MCP HTTP/SSE host on the Mac, the OpenClaw DataSourceBinding interface, CRT/DAT minting, or the OpenClaw conformance test harness inside the desktop-mac owner family.",
+  "owned_paths": [
+    "apps/one-mac/Sources/OneMCPServer"
+  ],
+  "non_owned_paths": [
+    "desktop-mac",
+    "mcp-developer-surface",
+    "hushh-consent-mcp"
+  ],
+  "task_types": [
+    "mcp-surface-change"
+  ],
+  "required_reads": [
+    "docs/future/one-mac-knowledge-base-app.md",
+    "consent-protocol/hushh_mcp/consent/token.py",
+    "consent-protocol/api/routes/pkm_routes_shared.py"
+  ],
+  "required_commands": [
+    "./bin/hushh native mac build",
+    "./bin/hushh native mac test"
+  ],
+  "verification_bundles": [
+    {
+      "id": "desktop-mac-mcp-host-core",
+      "commands": [
+        "./bin/hushh native mac build",
+        "./bin/hushh native mac test"
+      ],
+      "tests": [
+        "./bin/hushh native mac test"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "desktop-mac",
+    "desktop-mac-connectors",
+    "hushh-consent-mcp",
+    "mcp-developer-surface"
+  ],
+  "adjacent_skills": [
+    "desktop-mac",
+    "hushh-consent-mcp",
+    "mcp-developer-surface",
+    "vault-pkm-governance"
+  ],
+  "risk_tags": [
+    "mcp-host-drift",
+    "openclaw-conformance-drift",
+    "crt-rotation-drift"
+  ]
+}

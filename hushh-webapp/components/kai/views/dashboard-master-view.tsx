@@ -3,14 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   ArrowRight,
   BadgeDollarSign,
   Building2,
   Plus,
-  RefreshCw,
   Save,
-  Trash2,
   TrendingDown,
   TrendingUp,
   Loader2,
@@ -62,6 +61,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { useVault } from "@/lib/vault/vault-context";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import { getTickerUniverseSnapshot, preloadTickerUniverse } from "@/lib/kai/ticker-universe-cache";
@@ -74,8 +74,13 @@ import {
   type PlaidItemSummary,
   type PortfolioSource,
 } from "@/lib/kai/brokerage/portfolio-sources";
+import {
+  buildFinancialDomainSummary,
+  removePlaidSource,
+} from "@/lib/kai/brokerage/financial-sources";
 import { usePortfolioSources } from "@/lib/kai/brokerage/use-portfolio-sources";
 import { PortfolioSourceSwitcher } from "@/components/kai/portfolio-source-switcher";
+import { KaiPreferencesSheet } from "@/components/kai/onboarding/KaiPreferencesSheet";
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
 import {
   clearPlaidOAuthResumeSession,
@@ -432,6 +437,7 @@ export function DashboardMasterView({
     isPlaidRefreshing,
     changeActiveSource,
     changeActiveStatementSnapshot,
+    deleteStatementSnapshot,
     refreshPlaid,
     cancelPlaidRefresh,
     reload,
@@ -460,7 +466,9 @@ export function DashboardMasterView({
   });
   const [isSavingHoldings, setIsSavingHoldings] = useState(false);
   const [isDeletingImportedData, setIsDeletingImportedData] = useState(false);
+  const [isDeletingStatementSnapshot, setIsDeletingStatementSnapshot] = useState(false);
   const [deleteImportedDialogOpen, setDeleteImportedDialogOpen] = useState(false);
+  const [statementSnapshotDeleteId, setStatementSnapshotDeleteId] = useState<string | null>(null);
   const [editingHolding, setEditingHolding] = useState<ManagedHolding | null>(null);
   const [editingHoldingId, setEditingHoldingId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -469,6 +477,7 @@ export function DashboardMasterView({
   const [isSubmittingTransfer, setIsSubmittingTransfer] = useState(false);
   const [isReconcilingFunding, setIsReconcilingFunding] = useState(false);
   const [isSharingPortfolioPdf, setIsSharingPortfolioPdf] = useState(false);
+  const [preferencesSheetOpen, setPreferencesSheetOpen] = useState(false);
   const [dashboardMainTab, setDashboardMainTab] = useState<DashboardMainTab>("overview");
   const {
     activeControlId: activeVoiceControlId,
@@ -480,6 +489,20 @@ export function DashboardMasterView({
   const isPlaidView = activeSource === "plaid";
   const hasPlaidConnections = (plaidStatus?.aggregate?.item_count || 0) > 0;
   const plaidConfigured = plaidStatus?.configured ?? true;
+  const activePlaidItemIds = useMemo(
+    () =>
+      (plaidStatus?.items || [])
+        .filter((item) =>
+          ["active", "error", "relink_required", "permission_revoked"].includes(
+            String(item.status || "active")
+          )
+        )
+        .map((item) => String(item.item_id || "").trim())
+        .filter(Boolean),
+    [plaidStatus?.items]
+  );
+  const canDeletePlaid = isPlaidView && activePlaidItemIds.length > 0;
+  const canDeletePortfolio = canEditStatement || canDeletePlaid;
 
   useEffect(() => {
     const holdingsCount = displayedPortfolio?.holdings?.length || 0;
@@ -759,6 +782,25 @@ export function DashboardMasterView({
     [changeActiveStatementSnapshot]
   );
 
+  const handleDeleteStatementSnapshot = useCallback(
+    async (snapshotId: string) => {
+      if (!snapshotId || isDeletingStatementSnapshot) return;
+      setIsDeletingStatementSnapshot(true);
+      try {
+        await deleteStatementSnapshot(snapshotId);
+        toast.success("Statement deleted.");
+        setStatementSnapshotDeleteId(null);
+      } catch (error) {
+        toast.error("Could not delete that statement.", {
+          description: error instanceof Error ? error.message : "Please try again.",
+        });
+      } finally {
+        setIsDeletingStatementSnapshot(false);
+      }
+    },
+    [deleteStatementSnapshot, isDeletingStatementSnapshot]
+  );
+
   const openPlaidLinkFlow = useCallback(
     async (itemId?: string) => {
       if (!vaultOwnerToken) {
@@ -996,7 +1038,7 @@ export function DashboardMasterView({
           returnPath: ROUTES.KAI_PORTFOLIO,
           startedAt: new Date().toISOString(),
         });
-        window.location.assign(connect.authorization_url);
+        openExternalUrl(connect.authorization_url);
       } catch (oauthError) {
         toast.error("Could not start Alpaca login.", {
           description:
@@ -1271,6 +1313,14 @@ export function DashboardMasterView({
     });
     router.push(ROUTES.KAI_OPTIMIZE);
   }, [activeSource, router, setLosersInput, userId, workflowPortfolio, workflowPortfolioContext]);
+
+  const handleOpenInvestmentPreferences = useCallback(() => {
+    if (!vaultKey || !vaultOwnerToken) {
+      toast.info("Unlock your Vault to edit investment preferences.");
+      return;
+    }
+    setPreferencesSheetOpen(true);
+  }, [vaultKey, vaultOwnerToken]);
 
   const allocationData = useMemo(
     () =>
@@ -1688,15 +1738,68 @@ export function DashboardMasterView({
     vaultOwnerToken,
   ]);
 
-  const handleDeleteImportedData = useCallback(async () => {
-    if (!userId || !vaultKey || !statementEditablePortfolio) {
-      toast.error("Unlock your Vault to delete imported data.");
+  const handleDeletePortfolioData = useCallback(async () => {
+    if (!userId || !vaultKey || !vaultOwnerToken) {
+      toast.error("Unlock your Vault to delete portfolio data.");
       return;
     }
 
     setIsDeletingImportedData(true);
     try {
       const nowIso = new Date().toISOString();
+
+      if (activeSource === "plaid") {
+        if (activePlaidItemIds.length === 0) {
+          toast.info("There is no Plaid portfolio to delete.");
+          return;
+        }
+
+        for (const itemId of activePlaidItemIds) {
+          await PlaidPortfolioService.removeItem({
+            userId,
+            itemId,
+            vaultOwnerToken,
+          });
+        }
+
+        const result = await PkmWriteCoordinator.saveMergedDomain({
+          userId,
+          domain: "financial",
+          vaultKey,
+          vaultOwnerToken,
+          build: (context) => {
+            const nextFinancialDomain = removePlaidSource(
+              (context.currentDomainData as Record<string, unknown> | null) ?? {},
+              nowIso,
+              { clearActivePortfolio: true }
+            );
+            return {
+              domainData: nextFinancialDomain,
+              summary: buildFinancialDomainSummary(nextFinancialDomain),
+              mergeDecision: {
+                merge_mode: "replace_domain",
+                target_domain: "financial",
+              },
+            };
+          },
+        });
+
+        if (!result.success) {
+          throw new Error("Failed to remove Plaid portfolio data from Vault.");
+        }
+
+        CacheSyncService.onPkmDomainCleared(userId, "financial");
+        setDeleteImportedDialogOpen(false);
+        toast.success("Plaid portfolio deleted.");
+        await reload();
+        return;
+      }
+
+      if (!statementEditablePortfolio) {
+        toast.info("There is no statement portfolio to delete.");
+        return;
+      }
+
       const clearedPortfolioData: PortfolioData = {
         account_info: statementEditablePortfolio.account_info,
         account_summary: {
@@ -1736,7 +1839,7 @@ export function DashboardMasterView({
         userId,
         domain: "financial",
         vaultKey,
-        vaultOwnerToken: vaultOwnerToken || undefined,
+        vaultOwnerToken,
         build: (context) => {
           const existingFinancial =
             (context.currentDomainData as Record<string, unknown> | null) ?? {};
@@ -1747,6 +1850,13 @@ export function DashboardMasterView({
             !Array.isArray(existingDocumentsRaw)
               ? ({ ...(existingDocumentsRaw as Record<string, unknown>) } as Record<string, unknown>)
               : {};
+          const existingSourcesRaw = existingFinancial.sources;
+          const existingSources =
+            existingSourcesRaw &&
+            typeof existingSourcesRaw === "object" &&
+            !Array.isArray(existingSourcesRaw)
+              ? ({ ...(existingSourcesRaw as Record<string, unknown>) } as Record<string, unknown>)
+              : {};
 
           const nextFinancialDomain = {
             ...existingFinancial,
@@ -1756,6 +1866,19 @@ export function DashboardMasterView({
               source: "domain_registry_prepopulate",
               contract_version: 2,
               updated_at: nowIso,
+            },
+            sources: {
+              ...existingSources,
+              active_source: hasPlaidConnections ? "plaid" : "statement",
+              statement: {
+                source_type: "statement",
+                source_label: "Statement",
+                is_editable: true,
+                active_snapshot_id: null,
+                snapshot_count: 0,
+                snapshots: [],
+                updated_at: nowIso,
+              },
             },
             portfolio: {
               ...clearedPortfolioData,
@@ -1789,6 +1912,10 @@ export function DashboardMasterView({
 
           return {
             domainData: nextFinancialDomain as Record<string, unknown>,
+            mergeDecision: {
+              merge_mode: "replace_domain",
+              target_domain: "financial",
+            },
             summary: {
               intent_source: "kai_dashboard_delete_import",
               has_portfolio: false,
@@ -1814,31 +1941,33 @@ export function DashboardMasterView({
       });
 
       if (!result.success) {
-        throw new Error("Failed to delete imported data");
+        throw new Error("Failed to delete statement portfolio data");
       }
 
       CacheSyncService.onPkmDomainCleared(userId, "financial");
       baselineBySourceRef.current = new Map();
       setHoldingsDraft([]);
       setDeleteImportedDialogOpen(false);
-      toast.success("Imported portfolio data deleted.");
+      toast.success("Statement portfolio deleted.");
       await reload();
 
-      if ((plaidStatus?.aggregate?.item_count || 0) > 0) {
+      if (hasPlaidConnections) {
         await changeActiveSource("plaid").catch(() => undefined);
       } else if (typeof onReupload === "function") {
         onReupload();
       }
     } catch (error) {
-      console.error("[DashboardMasterView] Failed to delete imported data:", error);
-      toast.error("We could not delete imported data. Please try again.");
+      console.error("[DashboardMasterView] Failed to delete portfolio data:", error);
+      toast.error("We could not delete portfolio data. Please try again.");
     } finally {
       setIsDeletingImportedData(false);
     }
   }, [
+    activePlaidItemIds,
+    activeSource,
     changeActiveSource,
+    hasPlaidConnections,
     onReupload,
-    plaidStatus?.aggregate?.item_count,
     reload,
     statementEditablePortfolio,
     userId,
@@ -2185,11 +2314,18 @@ export function DashboardMasterView({
               purpose: "Returns to portfolio import for the editable statement source.",
               voiceAliases: ["import portfolio", "upload statement"],
             },
+          ]
+        : []),
+      ...(canDeletePortfolio
+        ? [
             {
-              id: "kai.portfolio.delete_imported_data",
-              label: "Delete imported data",
-              purpose: "Deletes the imported statement portfolio from Kai.",
-              voiceAliases: ["delete imported data"],
+              id: "kai.portfolio.delete_portfolio",
+              label: "Delete portfolio",
+              purpose:
+                activeSource === "plaid"
+                  ? "Disconnects the Plaid brokerage portfolio and removes the local mirror."
+                  : "Deletes the imported statement portfolio from Kai.",
+              voiceAliases: ["delete portfolio", "delete imported data"],
             },
           ]
         : []),
@@ -2254,15 +2390,24 @@ export function DashboardMasterView({
               actionId: "kai.portfolio.import_statement",
               role: "button",
             },
+          ]
+        : []),
+      ...(canDeletePortfolio
+        ? [
             {
               id: "delete_imported_data",
-              label: "Delete imported data",
-              purpose: "Deletes the imported statement portfolio from Kai.",
-              actionId: "kai.portfolio.delete_imported_data",
+              label: "Delete portfolio",
+              purpose:
+                activeSource === "plaid"
+                  ? "Disconnects the Plaid brokerage portfolio and removes the local mirror."
+                  : "Deletes the imported statement portfolio from Kai.",
+              actionId: "kai.portfolio.delete_portfolio",
               role: "button",
             },
           ]
-        : [
+        : []),
+      ...(!canEditStatement
+        ? [
             {
               id: "refresh_plaid",
               label: "Refresh Plaid",
@@ -2270,7 +2415,8 @@ export function DashboardMasterView({
               actionId: "kai.portfolio.refresh_plaid",
               role: "button",
             },
-          ]),
+          ]
+        : []),
     ];
 
     let visibleModules = ["Source overview", activeTabLabel];
@@ -2323,6 +2469,7 @@ export function DashboardMasterView({
         ...(isSubmittingTransfer ? ["funding_transfer"] : []),
         ...(isSavingHoldings ? ["holdings_save"] : []),
         ...(isDeletingImportedData ? ["delete_imported_data"] : []),
+        ...(isDeletingStatementSnapshot ? ["delete_statement_snapshot"] : []),
         ...(isSharingPortfolioPdf ? ["portfolio_share_pdf"] : []),
       ],
       screenMetadata: {
@@ -2346,6 +2493,7 @@ export function DashboardMasterView({
   }, [
     activeVoiceControlId,
     activeSource,
+    canDeletePortfolio,
     canEditStatement,
     dashboardMainTab,
     displayedPortfolio,
@@ -2353,6 +2501,7 @@ export function DashboardMasterView({
     freshness?.syncStatus,
     hasPlaidConnections,
     isDeletingImportedData,
+    isDeletingStatementSnapshot,
     isLinkingFunding,
     isLinkingPlaid,
     isPlaidView,
@@ -2369,6 +2518,92 @@ export function DashboardMasterView({
     statementSnapshots.length,
   ]);
   usePublishVoiceSurfaceMetadata(dashboardVoiceSurfaceMetadata);
+
+  const deletePortfolioDialog = (
+    <AlertDialog
+      open={deleteImportedDialogOpen}
+      onOpenChange={(open) => {
+        if (isDeletingImportedData) return;
+        setDeleteImportedDialogOpen(open);
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {activeSource === "plaid" ? "Delete Plaid portfolio?" : "Delete statement portfolio?"}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {activeSource === "plaid"
+              ? "This disconnects the Plaid brokerage portfolio and removes the local portfolio mirror from your Vault. Profile and consent data are kept."
+              : "This removes imported holdings and statement snapshots from your Vault. Profile and consent data are kept."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isDeletingImportedData}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={isDeletingImportedData}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={(event) => {
+              event.preventDefault();
+              void handleDeletePortfolioData();
+            }}
+          >
+            {isDeletingImportedData ? (
+              <>
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                Deleting...
+              </>
+            ) : (
+              "Delete Portfolio"
+            )}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+  const statementSnapshotToDelete =
+    statementSnapshots.find((snapshot) => snapshot.id === statementSnapshotDeleteId) ?? null;
+  const deleteStatementSnapshotDialog = (
+    <AlertDialog
+      open={Boolean(statementSnapshotDeleteId)}
+      onOpenChange={(open) => {
+        if (isDeletingStatementSnapshot) return;
+        if (!open) setStatementSnapshotDeleteId(null);
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete saved statement?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This removes this statement from your saved portfolio history. Your other saved
+            statements and connected brokerages are kept.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isDeletingStatementSnapshot}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={isDeletingStatementSnapshot || !statementSnapshotDeleteId}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={(event) => {
+              event.preventDefault();
+              if (statementSnapshotDeleteId) {
+                void handleDeleteStatementSnapshot(statementSnapshotDeleteId);
+              }
+            }}
+          >
+            {isDeletingStatementSnapshot ? (
+              <>
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                Deleting...
+              </>
+            ) : (
+              `Delete ${statementSnapshotToDelete?.label || "Statement"}`
+            )}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
 
   if (isSourcesLoading && !displayedPortfolio) {
     return (
@@ -2401,10 +2636,17 @@ export function DashboardMasterView({
           statementSnapshots={statementSnapshots}
           activeStatementSnapshotId={activeStatementSnapshotId}
           onStatementSnapshotChange={handleStatementSnapshotChange}
+          onDeleteStatementSnapshot={(snapshotId) => setStatementSnapshotDeleteId(snapshotId)}
           onRefreshPlaid={hasPlaidConnections ? () => handleRefreshPlaid() : undefined}
           onCancelRefreshPlaid={isPlaidRefreshing ? () => handleCancelPlaidRefresh() : undefined}
           onManageConnections={plaidConfigured !== false ? () => void openPlaidLinkFlow() : undefined}
+          onImportStatement={onReupload}
+          onDeletePortfolio={
+            canDeletePortfolio ? () => setDeleteImportedDialogOpen(true) : undefined
+          }
           isRefreshing={isPlaidRefreshing || isLinkingPlaid}
+          isDeletingPortfolio={isDeletingImportedData}
+          isDeletingStatementSnapshot={isDeletingStatementSnapshot}
         />
         <SurfaceCard>
           <SurfaceCardContent className="space-y-3 p-6">
@@ -2430,6 +2672,8 @@ export function DashboardMasterView({
             ) : null}
           </SurfaceCardContent>
         </SurfaceCard>
+        {deletePortfolioDialog}
+        {deleteStatementSnapshotDialog}
       </div>
     );
   }
@@ -2470,10 +2714,17 @@ export function DashboardMasterView({
         statementSnapshots={statementSnapshots}
         activeStatementSnapshotId={activeStatementSnapshotId}
         onStatementSnapshotChange={handleStatementSnapshotChange}
+        onDeleteStatementSnapshot={(snapshotId) => setStatementSnapshotDeleteId(snapshotId)}
         onRefreshPlaid={hasPlaidConnections ? () => handleRefreshPlaid() : undefined}
         onCancelRefreshPlaid={isPlaidRefreshing ? () => handleCancelPlaidRefresh() : undefined}
         onManageConnections={plaidConfigured !== false ? () => void openPlaidLinkFlow() : undefined}
+        onImportStatement={onReupload}
+        onDeletePortfolio={
+          canDeletePortfolio ? () => setDeleteImportedDialogOpen(true) : undefined
+        }
         isRefreshing={isPlaidRefreshing || isLinkingPlaid}
+        isDeletingPortfolio={isDeletingImportedData}
+        isDeletingStatementSnapshot={isDeletingStatementSnapshot}
       />
 
       {sourcesError ? (
@@ -2552,6 +2803,25 @@ export function DashboardMasterView({
             </p>
           </SurfaceInset>
 
+          <SurfaceInset className="flex flex-col gap-3 text-left sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">Investment preferences</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Risk, time horizon, and volatility settings guide portfolio optimization
+                and debate context from this section.
+              </p>
+            </div>
+            <MorphyButton
+              variant="none"
+              effect="fade"
+              onClick={handleOpenInvestmentPreferences}
+              className="shrink-0"
+              data-voice-control-id="edit_investment_preferences"
+            >
+              Edit preferences
+            </MorphyButton>
+          </SurfaceInset>
+
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
             <MorphyButton
               variant="blue-gradient"
@@ -2565,11 +2835,13 @@ export function DashboardMasterView({
             <MorphyButton
               variant="none"
               effect="fade"
-              onClick={() => router.push(ROUTES.KAI_INVESTMENTS)}
               data-voice-control-id="view_investments"
+              asChild
             >
-              <Building2 className="mr-2 h-4 w-4" />
-              View Investments
+              <Link href={ROUTES.KAI_INVESTMENTS}>
+                <Building2 className="mr-2 h-4 w-4" />
+                View Investments
+              </Link>
             </MorphyButton>
             {plaidConfigured !== false ? (
               <MorphyButton
@@ -2590,10 +2862,12 @@ export function DashboardMasterView({
             <MorphyButton
               variant="none"
               effect="fade"
-              onClick={() => router.push(ROUTES.KAI_FUNDING_TRADE)}
+              asChild
             >
-              <BadgeDollarSign className="mr-2 h-4 w-4" />
-              Fund + Trade
+              <Link href={ROUTES.KAI_FUNDING_TRADE}>
+                <BadgeDollarSign className="mr-2 h-4 w-4" />
+                Fund + Trade
+              </Link>
             </MorphyButton>
           </div>
         </SurfaceCardContent>
@@ -2851,60 +3125,6 @@ export function DashboardMasterView({
             </SurfaceCardContent>
           </SurfaceCard>
 
-          <SurfaceCard>
-            <SurfaceCardContent className="flex flex-col gap-3 p-5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:p-6">
-              <p>
-                {canEditStatement
-                  ? "Imported statement data is synced across dashboard and holdings views."
-                  : "Plaid brokerage data is broker-sourced, refreshable, and read-only inside Kai."}
-              </p>
-              <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-cols-2">
-                <MorphyButton
-                  variant="none"
-                  effect="fade"
-                  size="sm"
-                  fullWidth
-                  disabled={isDeletingImportedData}
-                  onClick={canEditStatement ? onReupload : () => void openPlaidLinkFlow()}
-                  data-voice-control-id="import_portfolio"
-                >
-                  {canEditStatement ? "Import Portfolio" : "Connect Another Brokerage"}
-                </MorphyButton>
-                {canEditStatement ? (
-                  <MorphyButton
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    fullWidth
-                    className="text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
-                    disabled={isDeletingImportedData}
-                    onClick={() => setDeleteImportedDialogOpen(true)}
-                    data-voice-control-id="delete_imported_data"
-                  >
-                    {isDeletingImportedData ? (
-                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="mr-1 h-4 w-4" />
-                    )}
-                    Delete Imported Data
-                  </MorphyButton>
-                ) : (
-                  <MorphyButton
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    fullWidth
-                    onClick={() => handleRefreshPlaid()}
-                    disabled={isPlaidRefreshing}
-                    data-voice-control-id="refresh_plaid"
-                  >
-                    <RefreshCw className={`mr-1 h-4 w-4 ${isPlaidRefreshing ? "animate-spin" : ""}`} />
-                    Refresh Plaid
-                  </MorphyButton>
-                )}
-              </div>
-            </SurfaceCardContent>
-          </SurfaceCard>
         </TabsContent>
 
         <TabsContent value="deep-dive" className="mt-0 space-y-4">
@@ -3008,43 +3228,18 @@ export function DashboardMasterView({
         onSave={handleSaveHolding}
       />
 
-      <AlertDialog
-        open={deleteImportedDialogOpen}
-        onOpenChange={(open) => {
-          if (isDeletingImportedData) return;
-          setDeleteImportedDialogOpen(open);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Imported Portfolio Data?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes imported holdings and statement snapshots from your Vault. Profile
-              and consent data are kept.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeletingImportedData}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={isDeletingImportedData}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={(event) => {
-                event.preventDefault();
-                void handleDeleteImportedData();
-              }}
-            >
-              {isDeletingImportedData ? (
-                <>
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                "Delete"
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {vaultKey && vaultOwnerToken ? (
+        <KaiPreferencesSheet
+          open={preferencesSheetOpen}
+          onOpenChange={setPreferencesSheetOpen}
+          userId={userId}
+          vaultKey={vaultKey}
+          vaultOwnerToken={vaultOwnerToken}
+        />
+      ) : null}
+
+      {deletePortfolioDialog}
+      {deleteStatementSnapshotDialog}
     </div>
   );
 }

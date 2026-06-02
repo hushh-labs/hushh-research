@@ -17,8 +17,8 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { Capacitor } from "@capacitor/core";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
-import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { useCache } from "@/lib/cache/cache-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -40,6 +40,11 @@ import { setOnboardingFlowActiveCookie } from "@/lib/services/onboarding-route-c
 import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { KAI_PORTFOLIO_IMPORT_IDLE_TIMEOUT_MS } from "@/lib/services/kai-import-stream-config";
+import type { LiveHoldingPreview } from "@/lib/kai/import/live-holdings-preview";
+import {
+  normalizeLiveHoldingPreviewRows,
+  replaceLiveHoldingPreviewRows,
+} from "@/lib/kai/import/live-holdings-preview";
 import { fetchDemoPortfolioTemplateAsset } from "@/lib/services/demo-mode-template-service";
 import { hasPortfolioHoldings, type PlaidPortfolioStatusResponse, type PortfolioSource } from "@/lib/kai/brokerage/portfolio-sources";
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
@@ -52,7 +57,6 @@ import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-servi
 import { useKaiFinancialResource } from "@/lib/kai/kai-financial-resource";
 import { useAuth } from "@/hooks/use-auth";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
-import { Capacitor } from "@capacitor/core";
 import {
   getSessionItem,
   removeSessionItem,
@@ -65,6 +69,7 @@ import {
   useVoiceSurfaceControlTracking,
 } from "@/lib/voice/voice-surface-metadata";
 import { trackEvent } from "@/lib/observability/client";
+import { preferPassphraseUnlockForAutomation } from "@/lib/testing/native-test";
 
 // =============================================================================
 // TYPES
@@ -125,17 +130,6 @@ interface QualityReport {
   diagnostics?: Record<string, unknown>;
   dropped_reasons?: Record<string, number>;
   quality_gate?: Record<string, unknown>;
-}
-
-interface LiveHoldingPreview {
-  symbol?: string;
-  name?: string;
-  market_value?: number | null;
-  quantity?: number | null;
-  asset_type?: string;
-  position_side?: "long" | "short" | "liability";
-  is_short_position?: boolean;
-  is_liability_position?: boolean;
 }
 
 // Streaming state
@@ -319,7 +313,6 @@ const MAX_RAW_STREAM_LINES = 350;
 const STREAM_STALL_WARNING_MS = 45_000;
 const STREAM_STALL_ABORT_MS = 150_000;
 const STREAM_STALL_CHECK_INTERVAL_MS = 5_000;
-const GENERIC_IMPORT_STREAM_LINE = "Reviewing your statement...";
 
 function normalizeTickerSymbol(
   value: unknown,
@@ -355,31 +348,28 @@ function normalizeRawStreamLine(input: string): string {
     .trim();
   if (!stripped) return "";
   if (/^[\]\[\{\},:]+$/.test(stripped)) return "";
-  const looksStructuredPayload =
-    /^\s*[\[{]/.test(stripped) ||
-    /"[^"]+"\s*:/.test(stripped) ||
-    /(?:portfolio_data_v2|raw_extract_v2|analytics_v2|quality_report_v2|holdings_preview|progress_pct|chunk_count|total_chars|run_id|cursor|seq)\b/i.test(
-      stripped
-    );
   const tagged = stripped.match(/^\[([^\]]+)\]\s*(.*)$/);
+  const payloadText = tagged ? (tagged[2] || "").trim() : stripped;
+  const looksStructuredPayload =
+    (!tagged && /^\s*[\[{]/.test(stripped)) ||
+    /"[^"]+"\s*:/.test(payloadText) ||
+    /(?:portfolio_data_v2|raw_extract_v2|analytics_v2|quality_report_v2|holdings_preview|progress_pct|chunk_count|total_chars|run_id|cursor|seq)\b/i.test(
+      payloadText
+    );
   if (tagged) {
+    const tag = (tagged[1] || "").trim().toUpperCase();
     const cleaned = (tagged[2] || "").trim();
-    const message = looksStructuredPayload
-      ? GENERIC_IMPORT_STREAM_LINE
-      : toInvestorStreamText(cleaned);
-    return message;
+    const message = looksStructuredPayload ? "" : toInvestorStreamText(cleaned);
+    return message ? `[${tag}] ${message}` : "";
   }
   if (looksStructuredPayload) {
-    return GENERIC_IMPORT_STREAM_LINE;
+    return "";
   }
   return toInvestorStreamText(stripped);
 }
 
 function rawStreamLineKey(line: string): string {
   const normalized = normalizeRawStreamLine(line);
-  if (normalized.toLowerCase() === GENERIC_IMPORT_STREAM_LINE.toLowerCase()) {
-    return normalized.toLowerCase();
-  }
   const match = normalized.match(/^\[([^\]]+)\]\s*(.*)$/);
   if (!match) return normalized.toLowerCase();
   const tag = (match[1] || "").trim().toUpperCase();
@@ -397,12 +387,6 @@ function appendRawStreamLines(
     const line = normalizeRawStreamLine(raw);
     if (!line) continue;
     const lineKey = rawStreamLineKey(line);
-    if (
-      lineKey === GENERIC_IMPORT_STREAM_LINE.toLowerCase() &&
-      next.some((entry) => rawStreamLineKey(entry) === lineKey)
-    ) {
-      continue;
-    }
     if (next.length > 0) {
       const prevLine = next[next.length - 1];
       if (prevLine && rawStreamLineKey(prevLine) === lineKey) {
@@ -424,99 +408,15 @@ function sanitizeInvestorCopy(value: unknown, fallback = ""): string {
 }
 
 function dedupeLiveHoldingPreviewRows(rows: LiveHoldingPreview[]): LiveHoldingPreview[] {
-  if (rows.length <= 1) return rows;
-  const seen = new Set<string>();
-  const unique: LiveHoldingPreview[] = [];
-  for (const row of rows) {
-    const symbol = normalizeTickerSymbol(row.symbol, {
-      name: row.name,
-      assetType: row.asset_type,
-    });
-    const name = String(row.name || "").trim().toLowerCase();
-    const qty =
-      typeof row.quantity === "number" && Number.isFinite(row.quantity)
-        ? row.quantity.toFixed(6)
-        : "";
-    const value =
-      typeof row.market_value === "number" && Number.isFinite(row.market_value)
-        ? row.market_value.toFixed(2)
-        : "";
-    const assetType = String(row.asset_type || "").trim().toLowerCase();
-    const positionSide = String(row.position_side || "").trim().toLowerCase();
-    const key = [symbol, name, qty, value, assetType, positionSide].join("|");
-    if (!key.replace(/\|/g, "").trim()) continue;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push({
-      ...row,
-      symbol: symbol || row.symbol,
-    });
-  }
-  return unique;
+  return normalizeLiveHoldingPreviewRows(rows);
 }
 
 function mergeLiveHoldingPreviewRows(
   current: LiveHoldingPreview[],
   incoming: LiveHoldingPreview[]
 ): LiveHoldingPreview[] {
-  if (!incoming.length) return current;
-  const merged = dedupeLiveHoldingPreviewRows([...current, ...incoming]);
-  const bySymbol = new Map<string, LiveHoldingPreview>();
-  for (const row of merged) {
-    const symbol = normalizeTickerSymbol(row.symbol, {
-      name: row.name,
-      assetType: row.asset_type,
-    });
-    if (!symbol) continue;
-    const existing = bySymbol.get(symbol);
-    if (!existing) {
-      bySymbol.set(symbol, {
-        symbol,
-        name: row.name,
-        market_value: row.market_value ?? null,
-        quantity: row.quantity ?? null,
-        asset_type: row.asset_type,
-        position_side: row.position_side,
-        is_short_position: row.is_short_position,
-        is_liability_position: row.is_liability_position,
-      });
-      continue;
-    }
-    const existingQty =
-      typeof existing.quantity === "number" && Number.isFinite(existing.quantity)
-        ? existing.quantity
-        : 0;
-    const incomingQty =
-      typeof row.quantity === "number" && Number.isFinite(row.quantity)
-        ? row.quantity
-        : 0;
-    const existingValue =
-      typeof existing.market_value === "number" && Number.isFinite(existing.market_value)
-        ? existing.market_value
-        : 0;
-    const incomingValue =
-      typeof row.market_value === "number" && Number.isFinite(row.market_value)
-        ? row.market_value
-        : 0;
-    bySymbol.set(symbol, {
-      symbol,
-      name: existing.name || row.name,
-      quantity: existingQty + incomingQty,
-      market_value: existingValue + incomingValue,
-      asset_type: existing.asset_type || row.asset_type,
-      position_side:
-        existing.position_side === "liability" || row.position_side === "liability"
-          ? "liability"
-          : existing.position_side === "short" || row.position_side === "short"
-            ? "short"
-            : "long",
-      is_short_position:
-        Boolean(existing.is_short_position) || Boolean(row.is_short_position),
-      is_liability_position:
-        Boolean(existing.is_liability_position) || Boolean(row.is_liability_position),
-    });
-  }
-  return Array.from(bySymbol.values());
+  // Backend preview events are cumulative snapshots, not deltas.
+  return replaceLiveHoldingPreviewRows(current, incoming);
 }
 
 function readHoldingsPreview(value: unknown): LiveHoldingPreview[] | undefined {
@@ -721,12 +621,14 @@ export function KaiFlow({
   const [flowData, setFlowData] = useState<FlowData>({
     hasFinancialData: false,
   });
-  const [error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
   const isDashboardMode = mode === "dashboard";
   const stateRef = useRef<FlowState>("checking");
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [resumeImportAfterVault, setResumeImportAfterVault] = useState(false);
+  const [pendingPlaidConnection, setPendingPlaidConnection] = useState(false);
+  const [resumePlaidAfterVault, setResumePlaidAfterVault] = useState(false);
   const [pendingSchemaPreload, setPendingSchemaPreload] = useState(false);
   const [resumePreloadAfterVault, setResumePreloadAfterVault] = useState(false);
   const [isPreloadingSchema, setIsPreloadingSchema] = useState(false);
@@ -1033,6 +935,7 @@ export function KaiFlow({
 
     if (snapshot.status === "failed" && snapshot.errorMessage) {
       setError(snapshot.errorMessage);
+      toast.error(snapshot.errorMessage);
       setState("import_required");
     }
   }, [mode, userId]);
@@ -1061,7 +964,9 @@ export function KaiFlow({
       }
 
       if (snapshot.status === "failed") {
-        setError(snapshot.errorMessage || "Import failed. Please try again.");
+        const message = snapshot.errorMessage || "Import failed. Please try again.";
+        setError(message);
+        toast.error(message);
         setState("import_required");
         return;
       }
@@ -1238,6 +1143,7 @@ export function KaiFlow({
               }
               case "progress": {
                 const statusMessage = sanitizeInvestorCopy(readString(payload.message), "");
+                const preview = readHoldingsPreview(payload.holdings_preview) ?? [];
                 applyStreaming((prev) => ({
                   ...prev,
                   statusMessage: statusMessage || prev.statusMessage,
@@ -1245,6 +1151,7 @@ export function KaiFlow({
                   holdingsExtracted:
                     readNumber(payload.holdings_extracted) ?? prev.holdingsExtracted,
                   holdingsTotal: readNumber(payload.holdings_total) ?? prev.holdingsTotal,
+                  liveHoldings: mergeLiveHoldingPreviewRows(prev.liveHoldings, preview),
                 }));
                 break;
               }
@@ -1267,12 +1174,17 @@ export function KaiFlow({
               }
               case "thinking": {
                 const statusMessage = sanitizeInvestorCopy(readString(payload.message), "");
+                const thought = sanitizeInvestorCopy(readString(payload.thought), "");
                 applyStreaming((prev) => ({
                   ...prev,
                   stage: "extracting",
-                  thoughtCount: prev.thoughtCount,
-                  thoughts: prev.thoughts,
+                  thoughtCount: readNumber(payload.count) ?? prev.thoughtCount + (thought ? 1 : 0),
+                  thoughts: thought ? [...prev.thoughts, thought].slice(-40) : prev.thoughts,
                   statusMessage: statusMessage || prev.statusMessage,
+                  rawStreamLines: appendRawStreamLines(
+                    prev.rawStreamLines,
+                    thought ? [`[THINKING] ${thought}`] : undefined
+                  ),
                   progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
                 }));
                 break;
@@ -1986,7 +1898,14 @@ export function KaiFlow({
         formData.append("user_id", userId);
 
         const runImportRequest = async (importToken: string): Promise<Response> => {
-          if (Capacitor.isNativePlatform()) {
+          // Fresh web uploads must keep start + stream on one backend request.
+          // UAT Cloud Run can route `/run/start` and `/run/{id}/stream` to different
+          // instances, while the portfolio import run manager is still in-memory.
+          // The direct stream endpoint starts the run and streams from the same instance.
+          if (!Capacitor.isNativePlatform()) {
+            activeImportRunIdRef.current = null;
+            activeImportCursorRef.current = 0;
+            persistBackgroundSnapshot("running");
             return ApiService.importPortfolioStream({
               formData,
               vaultOwnerToken: importToken,
@@ -2427,14 +2346,19 @@ export function KaiFlow({
               }
               case "thinking": {
                 const statusMessage = sanitizeInvestorCopy(readString(payload.message), "");
+                const thought = sanitizeInvestorCopy(readString(payload.thought), "");
                 applyStreaming((prev) => {
                   return {
                     ...prev,
                     stage: "extracting",
-                    thoughts: prev.thoughts,
-                    thoughtCount: prev.thoughtCount,
+                    thoughts: thought ? [...prev.thoughts, thought].slice(-40) : prev.thoughts,
+                    thoughtCount: readNumber(payload.count) ?? prev.thoughtCount + (thought ? 1 : 0),
                     progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
                     statusMessage: statusMessage || prev.statusMessage,
+                    rawStreamLines: appendRawStreamLines(
+                      prev.rawStreamLines,
+                      thought ? [`[THINKING] ${thought}`] : undefined
+                    ),
                     streamedText: fullModelTokenText || prev.streamedText,
                   };
                 });
@@ -2890,6 +2814,19 @@ export function KaiFlow({
     effectiveVaultOwnerToken,
   ]);
 
+  useEffect(() => {
+    if (vaultDialogOpen || resumePlaidAfterVault) return;
+    if (!pendingPlaidConnection) return;
+    if (vaultKey && effectiveVaultOwnerToken) return;
+    setPendingPlaidConnection(false);
+  }, [
+    vaultDialogOpen,
+    resumePlaidAfterVault,
+    pendingPlaidConnection,
+    vaultKey,
+    effectiveVaultOwnerToken,
+  ]);
+
   // Handle cancel import
   const handleCancelImport = useCallback(() => {
     userRequestedImportCancelRef.current = true;
@@ -3058,11 +2995,6 @@ export function KaiFlow({
   }, [flowData.portfolioData, mode, router]);
 
   const handleConnectPlaid = useCallback(async () => {
-    if (!effectiveVaultOwnerToken) {
-      toast.error("Please unlock your Vault first.");
-      return;
-    }
-
     setIsConnectingPlaid(true);
     try {
       const redirectUri = resolvePlaidRedirectUri();
@@ -3121,7 +3053,12 @@ export function KaiFlow({
                     [],
                 }));
                 toast.success("Brokerage connected with Plaid.");
-                if (mode === "import") {
+                if (!vaultKey || !effectiveVaultOwnerToken) {
+                  setPendingPlaidConnection(true);
+                  setResumePlaidAfterVault(false);
+                  setVaultDialogOpen(true);
+                  toast.info("Create or unlock your Vault to save Plaid details.");
+                } else if (mode === "import") {
                   setOnboardingFlowActiveCookie(false);
                   router.push(ROUTES.KAI_DASHBOARD);
                 } else {
@@ -3169,7 +3106,42 @@ export function KaiFlow({
       setIsConnectingPlaid(false);
       await loadPlaidStatusSnapshot();
     }
-  }, [effectiveVaultOwnerToken, loadPlaidStatusSnapshot, mode, router, userId]);
+  }, [
+    effectiveVaultOwnerToken,
+    loadPlaidStatusSnapshot,
+    mode,
+    router,
+    userId,
+    vaultKey,
+  ]);
+
+  useEffect(() => {
+    if (!resumePlaidAfterVault) return;
+    if (!vaultKey || !effectiveVaultOwnerToken) return;
+    setResumePlaidAfterVault(false);
+    setPendingPlaidConnection(false);
+    void (async () => {
+      const status = await loadPlaidStatusSnapshot();
+      if (!status) {
+        toast.error("Could not save Plaid details to Vault. Please retry.");
+        return;
+      }
+      toast.success("Plaid details saved to Vault.");
+      if (mode === "import") {
+        setOnboardingFlowActiveCookie(false);
+        router.push(ROUTES.KAI_DASHBOARD);
+      } else {
+        setState("dashboard");
+      }
+    })();
+  }, [
+    resumePlaidAfterVault,
+    vaultKey,
+    effectiveVaultOwnerToken,
+    loadPlaidStatusSnapshot,
+    mode,
+    router,
+  ]);
 
   // Handle re-import (upload new statement)
   const handleReimport = useCallback(() => {
@@ -3227,19 +3199,6 @@ export function KaiFlow({
   ]);
 
   useEffect(() => {
-    if (mode !== "import" || state !== "reviewing") return;
-    if (flowData.parsedPortfolio) return;
-
-    const timer = window.setTimeout(() => {
-      if (stateRef.current !== "reviewing" || flowData.parsedPortfolio) return;
-      setError("Could not open review data. Please load sample data again.");
-      setState("import_required");
-    }, 250);
-
-    return () => window.clearTimeout(timer);
-  }, [mode, state, flowData.parsedPortfolio]);
-
-  useEffect(() => {
     if (!resumePreloadAfterVault) return;
     if (!vaultKey || !effectiveVaultOwnerToken) return;
     setResumePreloadAfterVault(false);
@@ -3279,36 +3238,6 @@ export function KaiFlow({
 
   return (
     <div className="flex w-full flex-col">
-      {/* Error display */}
-      {error && state !== "importing" && state !== "import_complete" && (
-        <SurfaceCard tone="critical" className="mb-4">
-          <SurfaceCardContent className="space-y-3 pt-5">
-            <div className="flex items-start gap-2 text-red-600 dark:text-red-400">
-              <svg
-                className="mt-0.5 h-5 w-5 shrink-0"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <span className="text-sm font-medium">{error}</span>
-            </div>
-            <button
-              onClick={() => setError(null)}
-              className="text-left text-sm font-medium text-red-700 underline underline-offset-4 hover:no-underline dark:text-red-300"
-            >
-              Dismiss
-            </button>
-          </SurfaceCardContent>
-        </SurfaceCard>
-      )}
-
       {/* State-based rendering */}
       {state === "import_required" && (
         <PortfolioImportView
@@ -3450,11 +3379,23 @@ export function KaiFlow({
           user={user}
           open={vaultDialogOpen}
           onOpenChange={setVaultDialogOpen}
-          title="Create or unlock Vault to import portfolio"
-          description="You need to create or unlock your Vault before importing your statement."
-          enableGeneratedDefault
+          title={
+            pendingPlaidConnection
+              ? "Create or unlock Vault to save Plaid details"
+              : "Create or unlock Vault to import portfolio"
+          }
+          description={
+            pendingPlaidConnection
+              ? "Your brokerage is connected. Create or unlock your Vault to save the Plaid portfolio details in your PKM."
+              : "You need to create or unlock your Vault before importing your statement."
+          }
+          enableGeneratedDefault={!preferPassphraseUnlockForAutomation()}
           onSuccess={() => {
             setVaultDialogOpen(false);
+            if (pendingPlaidConnection) {
+              setResumePlaidAfterVault(true);
+              return;
+            }
             if (pendingImportFile) {
               setResumeImportAfterVault(true);
               return;

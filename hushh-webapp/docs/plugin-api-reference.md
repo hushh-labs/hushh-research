@@ -147,6 +147,25 @@ This plugin owns mobile-facing `Cryptographic Primitives` such as key derivation
 | recoveryIv | string | Yes | Recovery IV |
 | authToken | string | No | Firebase ID token |
 
+### deleteVaultWrapper
+Removes an enrolled non-passphrase vault wrapper. If the removed wrapper is the primary unlock method, the backend switches primary unlock to the provided enrolled fallback before removal.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| userId | string | Yes | User ID |
+| vaultKeyHash | string | Yes | Hash of the unlocked vault key |
+| method | string | Yes | Wrapper method to remove |
+| wrapperId | string | No | Wrapper identifier (default: `default`) |
+| fallbackPrimaryMethod | string | No | Enrolled fallback method (default: `passphrase`) |
+| fallbackPrimaryWrapperId | string | No | Enrolled fallback wrapper ID (default: `default`) |
+| authToken | string | No | Firebase ID token |
+| vaultOwnerToken | string | Yes | Fresh VAULT_OWNER token from the unlocked vault session |
+
+**Returns:**
+| Field | Type | Description |
+|-------|------|-------------|
+| success | boolean | Whether the wrapper was removed |
+
 ### isPasskeyAvailable
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

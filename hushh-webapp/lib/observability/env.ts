@@ -42,6 +42,13 @@ export function isObservabilityEnabled(): boolean {
   return !["0", "false", "no", "off"].includes(raw);
 }
 
+export function shouldLoadWebAnalyticsScripts(): boolean {
+  if (!isObservabilityEnabled()) return false;
+  const raw = normalizeValue(process.env.NEXT_PUBLIC_OBSERVABILITY_LOAD_IN_DEV);
+  if (["1", "true", "yes", "on"].includes(raw)) return true;
+  return process.env.NODE_ENV === "production";
+}
+
 export function isObservabilityDebugEnabled(): boolean {
   const raw = normalizeValue(process.env.NEXT_PUBLIC_OBSERVABILITY_DEBUG);
   return ["1", "true", "yes", "on"].includes(raw);

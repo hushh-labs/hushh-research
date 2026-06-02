@@ -15,7 +15,11 @@ import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-mandate-service";
 
 const FLOW_SHELL_STYLE = {
-  "--page-top-local-offset": "clamp(1.25rem, 4vh, 3rem)",
+  "--page-top-local-offset": "0px",
+  "--phone-mandate-safe-pt":
+    "calc(var(--app-safe-area-top-effective, env(safe-area-inset-top, 0px)) + clamp(1.25rem, 4vh, 3rem))",
+  "--phone-mandate-safe-pb":
+    "calc(var(--app-safe-area-bottom-effective, env(safe-area-inset-bottom, 0px)) + 2.5rem)",
 } as CSSProperties;
 
 function requiresVaultUnlockForRedirect(path?: string | null): boolean {
@@ -68,13 +72,14 @@ function PhoneMandatePageContent() {
         return;
       }
 
-      await AccountIdentityService.syncCurrentUser(activeUser);
+      const identity = await AccountIdentityService.syncCurrentUser(activeUser);
       const idToken = await activeUser.getIdToken().catch(() => undefined);
       const nextPath = await PostAuthRouteService.resolveAfterLogin({
         userId: activeUser.uid,
         redirectPath,
         idToken,
         phoneNumber: activeUser.phoneNumber,
+        phoneVerified: AccountIdentityService.hasVerifiedPhone(identity),
         hostname: window.location.hostname,
       });
       router.replace(nextPath);
@@ -108,7 +113,7 @@ function PhoneMandatePageContent() {
     <FullscreenFlowShell
       as="main"
       width="narrow"
-      className="min-h-screen px-6 pb-10"
+      className="min-h-[100dvh] px-6 pb-[var(--phone-mandate-safe-pb)] pt-[var(--phone-mandate-safe-pt)]"
       style={FLOW_SHELL_STYLE}
     >
       <NativeRouteMarker
@@ -117,7 +122,7 @@ function PhoneMandatePageContent() {
         authState="authenticated"
         dataState="loaded"
       />
-      <div className="mx-auto w-full max-w-[28rem] pt-2 sm:pt-3">
+      <div className="mx-auto w-full max-w-[28rem]">
         <div className="space-y-3">
           <h1 className="max-w-[18rem] text-[clamp(2.5rem,9vw,3.5rem)] font-black leading-[0.94] tracking-tight text-foreground">
             Verify your phone number
