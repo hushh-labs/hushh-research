@@ -1,4 +1,10 @@
 export const REQUEST_ID_HEADER = "x-request-id";
+export const REQUEST_TIMESTAMP_HEADER = "x-request-timestamp-ms";
+export const DEFAULT_MAX_CLOCK_DRIFT_MS = 60_000;
+export const FUTURE_TIMESTAMP_ERROR =
+  "CONSTRAINT_VIOLATION_FUTURE_TIMESTAMPS";
+export const INVALID_TIMESTAMP_ERROR =
+  "CONSTRAINT_VIOLATION_INVALID_TIMESTAMP";
 
 const SAFE_REQUEST_ID_REGEX = /^[a-zA-Z0-9_.:-]{8,128}$/;
 
@@ -50,4 +56,51 @@ export function getOrCreateRequestId(
 ): string {
   const fromHeader = sanitizeRequestId(extractHeaderValue(headers, REQUEST_ID_HEADER));
   return fromHeader || createRequestId();
+}
+
+export interface HeaderTimestampValidation {
+  isSyncBlockAccepted: boolean;
+  errorLabel: string | null;
+}
+
+export function validateHeaderTimestampConstraints(
+  headerTimestampMs: number,
+  options: {
+    nowMs?: number;
+    maxClockDriftMs?: number;
+  } = {}
+): HeaderTimestampValidation {
+  const nowMs = options.nowMs ?? Date.now();
+  const maxClockDriftMs =
+    options.maxClockDriftMs ?? DEFAULT_MAX_CLOCK_DRIFT_MS;
+
+  if (!Number.isFinite(headerTimestampMs)) {
+    return {
+      isSyncBlockAccepted: false,
+      errorLabel: INVALID_TIMESTAMP_ERROR,
+    };
+  }
+
+  if (headerTimestampMs > nowMs + maxClockDriftMs) {
+    return {
+      isSyncBlockAccepted: false,
+      errorLabel: FUTURE_TIMESTAMP_ERROR,
+    };
+  }
+
+  return {
+    isSyncBlockAccepted: true,
+    errorLabel: null,
+  };
+}
+
+export function getOrCreateRequestTimestampMs(
+  headers: Headers | HeadersInit | null | undefined,
+  nowMs = Date.now()
+): number {
+  const fromHeader = extractHeaderValue(headers, REQUEST_TIMESTAMP_HEADER);
+  const parsed = fromHeader ? Number(fromHeader) : Number.NaN;
+  const validation = validateHeaderTimestampConstraints(parsed, { nowMs });
+
+  return validation.isSyncBlockAccepted ? parsed : nowMs;
 }

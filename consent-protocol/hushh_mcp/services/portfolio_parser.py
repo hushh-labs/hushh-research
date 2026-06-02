@@ -119,7 +119,7 @@ class PortfolioParser:
                 return self._parse_generic_csv(content, filename)
 
         except Exception as e:
-            logger.error(f"Error parsing CSV: {e}")
+            logger.error("portfolio_parser.parse_csv.error filename=%r: %s", filename, e)
             return Portfolio(holdings=[], broker=broker, source_filename=filename)
 
     def _detect_broker(self, content: str) -> BrokerType:
@@ -172,19 +172,36 @@ class PortfolioParser:
             if not ticker:
                 continue
 
+            parsed_quantity = self._parse_number(row.get(qty_col)) if qty_col else None
             holding = Holding(
                 ticker=ticker,
                 name=row.get(name_col) if name_col else None,
-                quantity=self._parse_number(row.get(qty_col)) if qty_col else 0.0,
+                # Fall back to 0.0 when the column is absent or the value is
+                # unparseable; avoids None leaking into a float-typed field.
+                quantity=parsed_quantity if parsed_quantity is not None else 0.0,
                 cost_basis=self._parse_number(row.get(cost_col)) if cost_col else None,
                 current_value=self._parse_number(row.get(value_col)) if value_col else None,
                 current_price=self._parse_number(row.get(price_col)) if price_col else None,
                 gain_loss=self._parse_number(row.get(gain_col)) if gain_col else None,
             )
 
-            # Calculate gain/loss percentage if we have the data
-            if holding.cost_basis and holding.current_value and holding.cost_basis > 0:
+            # Fill in gain_loss and gain_loss_pct only when the CSV did not
+            # already supply them.  Broker-reported values (adjusted cost
+            # basis, wash-sale corrections, dividend offsets) must not be
+            # overwritten with the naive current_value − cost_basis estimate.
+            if (
+                holding.gain_loss is None
+                and holding.cost_basis
+                and holding.current_value
+                and holding.cost_basis > 0
+            ):
                 holding.gain_loss = holding.current_value - holding.cost_basis
+            if (
+                holding.gain_loss_pct is None
+                and holding.gain_loss is not None
+                and holding.cost_basis
+                and holding.cost_basis > 0
+            ):
                 holding.gain_loss_pct = (holding.gain_loss / holding.cost_basis) * 100
 
             holdings.append(holding)

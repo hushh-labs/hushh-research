@@ -60,13 +60,13 @@ class TestNormalizePrivateKey:
         assert _normalize_private_key("") == ""
 
     def test_replaces_escaped_newlines(self):
-        raw = "-----BEGIN RSA PRIVATE KEY-----\\nMIIEpAIBAAK\\n-----END RSA PRIVATE KEY-----"
+        raw = "test-private-key-header\\nMIIEpAIBAAK\\ntest-private-key-footer"
         result = _normalize_private_key(raw)
         assert "\\n" not in result
         assert "\n" in result
 
     def test_strips_surrounding_double_quotes(self):
-        quoted = '"-----BEGIN RSA PRIVATE KEY-----\\nFOO\\n-----END RSA PRIVATE KEY-----"'
+        quoted = '"test-private-key-header\\nFOO\\ntest-private-key-footer"'
         result = _normalize_private_key(quoted)
         assert not result.startswith('"')
         assert not result.endswith('"')
@@ -77,7 +77,7 @@ class TestNormalizePrivateKey:
         assert result.startswith('"')
 
     def test_plain_key_returned_as_is(self):
-        key = "-----BEGIN RSA PRIVATE KEY-----\nFOO\n-----END RSA PRIVATE KEY-----"
+        key = "test-private-key-header\nFOO\ntest-private-key-footer"
         assert _normalize_private_key(key) == key
 
     def test_whitespace_stripped_before_processing(self):

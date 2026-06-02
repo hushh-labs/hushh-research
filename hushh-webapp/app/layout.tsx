@@ -1,3 +1,4 @@
+import { NetworkStatusBanner } from "@/components/system/network-status-banner";
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
 import Script from "next/script";
@@ -6,6 +7,7 @@ import { RootLayoutClient } from "./layout-client";
 import {
   resolveAnalyticsMeasurementId,
   resolveGtmContainerId,
+  shouldLoadWebAnalyticsScripts,
 } from "@/lib/observability/env";
 
 const geistSans = Geist({
@@ -28,9 +30,11 @@ const headingSans = Inter({
 
 const gtmContainerId = resolveGtmContainerId();
 const analyticsMeasurementId = resolveAnalyticsMeasurementId();
+const loadWebAnalyticsScripts = shouldLoadWebAnalyticsScripts();
 
 export const metadata: Metadata = {
-  title: "One: Your Personal Agent",
+  metadataBase: new URL("https://hushh.ai"),
+  title: "One | Your Personal Agent",
   description:
     "Personal AI agents with consent at the core. Your data, your control.",
   keywords: ["AI agents", "personal AI", "One", "consent-first", "privacy"],
@@ -46,9 +50,25 @@ export const metadata: Metadata = {
   },
   manifest: "/manifest.webmanifest",
   openGraph: {
-    title: "One: Your Personal Agent",
+    title: "One | Your Personal Agent",
     description: "Personal AI agents with consent at the core.",
+    siteName: "Hussh",
+    url: "https://hushh.ai",
     type: "website",
+    images: [
+      {
+        url: "/quiet-emoji-icon.png",
+        width: 512,
+        height: 512,
+        alt: "Hussh One",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "One | Your Personal Agent",
+    description: "Personal AI agents with consent at the core.",
+    images: ["/quiet-emoji-icon.png"],
   },
 };
 
@@ -85,7 +105,7 @@ export default function RootLayout({
             background-image: none !important;
           }
         `}</style>
-        {analyticsMeasurementId ? (
+        {loadWebAnalyticsScripts && analyticsMeasurementId ? (
           <>
             <Script
               id="ga-base"
@@ -101,7 +121,7 @@ export default function RootLayout({
             />
           </>
         ) : null}
-        {gtmContainerId ? (
+        {loadWebAnalyticsScripts && gtmContainerId ? (
           <Script
             id="gtm-base"
             strategy="afterInteractive"
@@ -114,6 +134,7 @@ export default function RootLayout({
       <RootLayoutClient
         fontClasses={`${geistSans.variable} ${geistMono.variable} ${headingSans.variable}`}
       >
+        <NetworkStatusBanner />
         {children}
       </RootLayoutClient>
     </html>

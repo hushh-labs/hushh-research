@@ -140,7 +140,7 @@ async def extract_with_llm(text: str, brokerage: str = "unknown") -> Dict[str, A
     Use Gemini LLM to extract holdings from complex/unstructured text.
 
     This is a fallback when structured parsing fails.
-    Uses gemini-3-flash-preview for optimal extraction.
+    Uses gemini-3.5-flash for optimal extraction.
 
     Args:
         text: Extracted text from document
