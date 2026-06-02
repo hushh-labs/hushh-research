@@ -39,11 +39,9 @@ def _redact_uid(uid: str | None) -> str:
 class KaiChatRequest(BaseModel):
     """Request body for Kai chat endpoint."""
 
-    user_id: str = Field(..., description="User's Firebase UID", min_length=1, max_length=128)
-    message: str = Field(..., description="User's message to Kai", min_length=1, max_length=4000)
-    conversation_id: Optional[str] = Field(
-        None, description="Existing conversation ID to continue", max_length=128
-    )
+    user_id: str = Field(..., min_length=1, max_length=128, description="User's Firebase UID")
+    message: str = Field(..., min_length=1, max_length=4000, description="User's message to Kai")
+    conversation_id: Optional[str] = Field(None, max_length=200, description="Existing conversation ID to continue")
 
 
 class KaiChatResponseModel(BaseModel):
