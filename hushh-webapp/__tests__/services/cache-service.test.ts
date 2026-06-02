@@ -76,4 +76,17 @@ describe("CacheService", () => {
 
     expect(secondSnapshot).toStrictEqual(firstSnapshot);
   });
+
+  it("keeps one cache namespace across module reloads within the same request runtime", async () => {
+    const cache = CacheService.getInstance();
+    cache.set("request-scoped-resource", { namespace: "stable" }, 5_000);
+
+    vi.resetModules();
+    const { CacheService: ReloadedCacheService } = await import("@/lib/services/cache-service");
+
+    expect(ReloadedCacheService.getInstance().get("request-scoped-resource")).toEqual({
+      namespace: "stable",
+    });
+    expect(ReloadedCacheService.getInstance()).toBe(cache);
+  });
 });
