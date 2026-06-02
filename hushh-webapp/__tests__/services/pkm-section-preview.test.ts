@@ -35,6 +35,7 @@ describe("buildPkmSectionPreviewPresentation", () => {
     }
     expect(presentation.groups[0].items[0]?.title).toBe("I live in New York City now.");
     expect(presentation.groups[0].items[0]?.subtitle).toBe("correction · active");
+    expect(presentation.groups[0].items[0]?.deletable).toBe(true);
     expect(
       presentation.groups[0].items[0]?.fields.some(
         (field) => field.label === "Entity Id" && field.value === "sf_residence_001"
@@ -52,12 +53,46 @@ describe("buildPkmSectionPreviewPresentation", () => {
       topLevelScopePath: "receipts_memory",
       value: {
         receipts_memory: {
-          readable_summary: "You often return to Uber and Wonder.",
-          inferred_preferences: ["rideshare", "late-night food"],
-          observed_facts: ["Frequent Uber rides", "Repeat Wonder orders"],
+          readable_summary: {
+            text: "You often return to Uber and Wonder.",
+            highlights: ["97 receipts reviewed"],
+          },
+          inferred_preferences: {
+            preference_signals: {
+              items: [
+                {
+                  label: "rideshare",
+                  confidence: 0.91,
+                  basis_codes: ["merchant_affinity"],
+                },
+              ],
+            },
+          },
+          observed_facts: {
+            recent_highlights: {
+              items: [
+                {
+                  merchant_label: "Uber",
+                  amount: 24.51,
+                  currency: "USD",
+                  purchased_at: "2026-04-15T10:00:00Z",
+                },
+              ],
+            },
+            merchant_affinity: {
+              items: [
+                {
+                  merchant_label: "Wonder",
+                  receipt_count_365d: 4,
+                  affinity_score: 0.82,
+                },
+              ],
+            },
+          },
           provenance: {
             source_kind: "gmail_receipts",
-            updated_at: "2026-04-16T05:54:08.696Z",
+            receipt_count_used: 97,
+            latest_receipt_updated_at: "2026-04-16T05:54:08.696Z",
           },
           schema_version: 4,
         },
@@ -66,10 +101,16 @@ describe("buildPkmSectionPreviewPresentation", () => {
 
     expect(presentation.title).toBe("Receipts memory");
     expect(presentation.summary).toBe("You often return to Uber and Wonder.");
+    expect(presentation.stats).toEqual([
+      { label: "Receipts", value: "97" },
+      { label: "Purchases", value: "1" },
+      { label: "Preferences", value: "1" },
+    ]);
     expect(presentation.groups.map((group) => group.title)).toEqual([
-      "Inferred preferences",
-      "Observed facts",
-      "Source",
+      "Receipt highlights",
+      "Recent purchases",
+      "Merchant patterns",
+      "Preference signals",
     ]);
   });
 });

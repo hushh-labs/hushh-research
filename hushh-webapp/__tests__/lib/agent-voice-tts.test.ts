@@ -1,0 +1,116 @@
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  AgentTtsQueue,
+  extractCompleteSpeechChunks,
+  markdownToSpeechText,
+} from "@/lib/agent/agent-voice-tts";
+
+describe("agent voice TTS", () => {
+  it("cleans Markdown before speech synthesis", () => {
+    expect(
+      markdownToSpeechText(
+        "## Nvidia analysis\n\n- **Revenue** grew. See [details](https://example.com). `NVDA`"
+      )
+    ).toBe("Nvidia analysis Revenue grew. See details. NVDA");
+  });
+
+  it("extracts sentence chunks and keeps partial text buffered", () => {
+    const result = extractCompleteSpeechChunks(
+      "Starting Nvidia analysis. Waiting for Kai to open the page"
+    );
+
+    expect(result.chunks).toEqual(["Starting Nvidia analysis."]);
+    expect(result.remainder).toBe("Waiting for Kai to open the page");
+  });
+
+  it("queues TTS per completed sentence from streamed Markdown snapshots", async () => {
+    const synthesize = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        new Response(new Blob(["audio"], { type: "audio/wav" }), {
+          status: 200,
+          headers: { "Content-Type": "audio/wav" },
+        })
+      )
+    );
+    const playAudio = vi.fn().mockResolvedValue(undefined);
+    const queue = new AgentTtsQueue({
+      userId: "user-1",
+      vaultOwnerToken: "vault-token",
+      synthesize,
+      playAudio,
+    });
+
+    queue.pushMarkdownSnapshot("Starting **Nvidia** analysis.");
+    queue.pushMarkdownSnapshot("Starting **Nvidia** analysis. Opening the Analysis page");
+    queue.flushStream();
+    await vi.waitFor(() => expect(synthesize).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(playAudio).toHaveBeenCalledTimes(2));
+
+    expect(synthesize.mock.calls.map(([input]) => input.text)).toEqual([
+      "Starting Nvidia analysis.",
+      "Opening the Analysis page",
+    ]);
+  });
+
+  it("emits an early chunk for long speech without punctuation", () => {
+    const longText =
+      "This voice response is intentionally long and does not include a sentence boundary yet because Gemini can stream a useful explanation before punctuation arrives in the chat";
+
+    const result = extractCompleteSpeechChunks(longText);
+
+    expect(result.chunks).toHaveLength(1);
+    expect(result.chunks[0].length).toBeGreaterThan(40);
+    expect(result.remainder.length).toBeGreaterThan(0);
+  });
+
+  it("retries transient TTS synthesis failures", async () => {
+    const synthesize = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("nope", { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response(new Blob(["audio"], { type: "audio/wav" }), {
+          status: 200,
+          headers: { "Content-Type": "audio/wav" },
+        })
+      );
+    const playAudio = vi.fn().mockResolvedValue(undefined);
+    const queue = new AgentTtsQueue({
+      userId: "user-1",
+      vaultOwnerToken: "vault-token",
+      synthesize,
+      playAudio,
+      maxAttempts: 2,
+    });
+
+    queue.speakNow("Retry this sentence.");
+
+    await vi.waitFor(() => expect(synthesize).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(playAudio).toHaveBeenCalledTimes(1));
+  });
+
+  it("aborts current TTS work on cancel", async () => {
+    let aborted = false;
+    const synthesize = vi.fn(
+      ({ signal }) =>
+        new Promise<Response>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => {
+            aborted = true;
+            reject(new DOMException("Aborted", "AbortError"));
+          });
+        })
+    );
+    const queue = new AgentTtsQueue({
+      userId: "user-1",
+      vaultOwnerToken: "vault-token",
+      synthesize,
+      playAudio: vi.fn(),
+    });
+
+    queue.speakNow("This is a long spoken response.");
+    await vi.waitFor(() => expect(synthesize).toHaveBeenCalledTimes(1));
+    queue.cancel();
+
+    expect(aborted).toBe(true);
+  });
+});

@@ -39,4 +39,14 @@ describe("RIA client test profile builders", () => {
       account_count: 2,
     });
   });
+    it("preserves client id propagation across detail and workspace payloads", () => {
+    const clientId = "client-empty-state";
+
+    const detail = buildKaiTestClientDetail(clientId);
+    const workspace = buildKaiTestClientWorkspace(clientId);
+
+    expect(detail.investor_user_id).toBe(clientId);
+    expect(workspace.investor_user_id).toBe(clientId);
+    expect(workspace.account_branches).toHaveLength(detail.account_branches.length);
+  });
 });

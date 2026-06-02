@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Hushh
 // SPDX-License-Identifier: Apache-2.0
 
-import XCTest
 @testable import OneShared
+import XCTest
 
 final class KnowledgeItemTests: XCTestCase {
     func testCodableRoundTrip() throws {

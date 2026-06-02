@@ -19,7 +19,11 @@ import {
   CONSENT_ACTION_COMPLETE_EVENT,
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
-import { buildConsentExportForScope } from "@/lib/consent/export-builder";
+import {
+  buildConsentExportForScope,
+  ConsentExportNoDataError,
+} from "@/lib/consent/export-builder";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 // ============================================================================
 // Types
@@ -73,6 +77,24 @@ function getScopeDataEndpoint(scope: string): string | null {
     "attr.financial.*": "/api/vault/finance",
   };
   return scopeMap[scope] || null;
+}
+
+function extractConsentActionError(errorText: string): string {
+  try {
+    const parsed = JSON.parse(errorText);
+    if (typeof parsed?.error === "string") {
+      return parsed.error;
+    }
+    if (typeof parsed?.detail === "string") {
+      return parsed.detail;
+    }
+    if (typeof parsed?.detail?.message === "string") {
+      return parsed.detail.message;
+    }
+  } catch {
+    // Fall through to the raw response body.
+  }
+  return errorText || "Failed to approve";
 }
 
 // ============================================================================
@@ -161,7 +183,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           action: {
             label: "Unlock",
             onClick: () => {
-              window.location.href = "/kai";
+              requestInternalAppNavigation({ href: "/kai", scroll: false });
             },
           },
         });
@@ -196,6 +218,9 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
             if (err instanceof SyntaxError) {
               console.error("[Consent] Failed to parse PKM blob after decrypt");
               throw new Error("Could not prepare export; check vault.");
+            }
+            if (err instanceof ConsentExportNoDataError) {
+              throw err;
             }
             console.error("[Consent] PKM export build failed:", err);
             throw new Error("Could not load your data; try again.");
@@ -372,7 +397,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         if (!response.ok) {
           const errorText = await response.text();
           console.error("[NativeDebug] Approval failed:", errorText);
-          throw new Error(errorText || "Failed to approve");
+          throw new Error(extractConsentActionError(errorText));
         }
 
         return "Consent approved!";
