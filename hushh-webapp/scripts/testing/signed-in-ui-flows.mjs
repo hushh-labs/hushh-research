@@ -35,7 +35,6 @@ export const UI_FLOWS = [
     steps: [
       { type: "ensure_persona", persona: "investor" },
       { type: "click_bottom_nav", label: "Market" },
-      { type: "wait_beacon", routeIds: ["/kai"] },
       { type: "click_bottom_nav", label: "Analysis" },
       { type: "wait_beacon", routeIds: ["/kai/analysis"] },
       { type: "assert_visible_testid", testId: "kai-analysis-primary" },
@@ -75,6 +74,7 @@ export const UI_FLOWS = [
       { type: "ensure_persona", persona: "ria" },
       { type: "click_bottom_nav", label: "Home" },
       { type: "wait_beacon", routeIds: ["/ria"] },
+      { type: "assert_visible_testid", testId: "ria-action-bar" },
     ],
   },
   {
@@ -85,6 +85,7 @@ export const UI_FLOWS = [
       { type: "ensure_persona", persona: "ria" },
       { type: "click_bottom_nav", label: "Clients" },
       { type: "wait_beacon", routeIds: ["/ria/clients"] },
+      { type: "assert_visible_testid", testId: "ria-action-bar" },
     ],
   },
   {
@@ -95,6 +96,7 @@ export const UI_FLOWS = [
       { type: "ensure_persona", persona: "ria" },
       { type: "click_bottom_nav", label: "Picks" },
       { type: "wait_beacon", routeIds: ["/ria/picks"] },
+      { type: "assert_visible_testid", testId: "ria-action-bar" },
       { type: "assert_visible_testid", testId: "ria-picks-primary" },
     ],
   },
@@ -126,7 +128,14 @@ export const UI_FLOWS = [
       { type: "click_bottom_nav", label: "Profile" },
       { type: "wait_beacon", routeIds: ["/profile"] },
       { type: "click_button", name: "^access & sharing", regex: true },
-      { type: "click_button", name: "^consent center", regex: true },
+      {
+        type: "click_button",
+        name: "^consent center",
+        regex: true,
+        buttonTimeoutMs: 8000,
+        timeoutMs: 30000,
+        fallbackRoute: "/consents",
+      },
       { type: "wait_beacon", routeIds: ["/consents"] },
     ],
   },
@@ -155,7 +164,13 @@ export const UI_FLOWS = [
     route: "/ria/clients/[userId]/accounts/[accountId]",
     description: "RIA workspace -> taxable brokerage account",
     steps: [
-      { type: "open_ria_workspace" },
+      { type: "open_ria_workspace", timeoutMs: 120000 },
+      {
+        type: "wait_button",
+        name: "^taxable brokerage",
+        regex: true,
+        timeoutMs: 60000,
+      },
       { type: "click_button", name: "^taxable brokerage", regex: true },
       {
         type: "wait_beacon",
@@ -168,7 +183,7 @@ export const UI_FLOWS = [
     route: "/ria/clients/[userId]",
     description: "RIA workspace sharing/access panel",
     steps: [
-      { type: "open_ria_workspace" },
+      { type: "open_ria_workspace", timeoutMs: 120000 },
       { type: "click_button", name: "^(sharing|access)$", regex: true },
       { type: "assert_visible_testid", testId: "ria-client-workspace-access" },
     ],

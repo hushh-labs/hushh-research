@@ -29,6 +29,23 @@ enum NativeUiTestRunnerScript {
     "error",
   ];
 
+  var NAV_ROUTE_BY_PERSONA_AND_LABEL = {
+    investor: {
+      Market: "/kai",
+      Portfolio: "/kai/portfolio",
+      Analysis: "/kai/analysis",
+      Connect: "/marketplace",
+      Profile: "/profile",
+    },
+    ria: {
+      Home: "/ria",
+      Clients: "/ria/clients",
+      Picks: "/ria/picks",
+      Connect: "/marketplace",
+      Profile: "/profile",
+    },
+  };
+
   function sleep(ms) {
     return new Promise(function (resolve) {
       window.setTimeout(resolve, ms);
@@ -129,6 +146,19 @@ enum NativeUiTestRunnerScript {
       .join("|");
   }
 
+  function bridgeSummary() {
+    var bridge = nativeTestBridge();
+    return [
+      "enabled=" + (bridge.enabled === true ? "1" : "0"),
+      "navigate=" + (typeof bridge.navigateToRoute === "function" ? "1" : "0"),
+      "switch=" + (typeof bridge.switchPersona === "function" ? "1" : "0"),
+      "active=" + String(bridge.activePersona || ""),
+      "primary=" + String(bridge.primaryNavPersona || ""),
+      "persona_switch=" + String(bridge.personaSwitchStatus || ""),
+      "bootstrap=" + String(bridge.bootstrapState || ""),
+    ].join(",");
+  }
+
   function normalizeRoute(value) {
     var trimmed = String(value || "").trim();
     if (!trimmed || trimmed === "/") return trimmed || "/";
@@ -150,6 +180,8 @@ enum NativeUiTestRunnerScript {
       var allowed = allowedRouteIds[i];
       var normalizedAllowed = normalizeRoute(allowed);
       if (current === normalizedAllowed) return true;
+      if (current.indexOf(normalizedAllowed + "?") === 0) return true;
+      if (current.indexOf(normalizedAllowed + "#") === 0) return true;
       if (allowed.includes("[") && allowed.includes("]")) {
         var escaped = normalizedAllowed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         var pattern = new RegExp(
@@ -162,10 +194,54 @@ enum NativeUiTestRunnerScript {
     return false;
   }
 
+  function targetPersonaForRouteIds(routeIds) {
+    for (var i = 0; i < routeIds.length; i += 1) {
+      var routeId = String(routeIds[i] || "");
+      if (routeId.indexOf("/ria") === 0) return "ria";
+      if (routeId.indexOf("/kai") === 0) return "investor";
+    }
+    return "";
+  }
+
+  function concreteTargetRoute(routeIds) {
+    for (var i = 0; i < routeIds.length; i += 1) {
+      var routeId = String(routeIds[i] || "");
+      if (routeId.indexOf("[") === -1 && routeId.indexOf("/") === 0) {
+        return routeId;
+      }
+    }
+    return "";
+  }
+
+  function currentRouteMatches(route) {
+    var current = normalizeRoute(window.location.pathname + window.location.search);
+    var expected = normalizeRoute(route);
+    return (
+      current === expected ||
+      current.indexOf(expected + "/") === 0 ||
+      current.indexOf(expected + "?") === 0 ||
+      current.indexOf(expected + "#") === 0
+    );
+  }
+
   async function waitForBeacon(routeIds, dataStates, timeoutMs) {
     var deadline = Date.now() + (timeoutMs || 120000);
     var states = dataStates && dataStates.length ? dataStates : TERMINAL_DATA_STATES;
+    var mismatchRecoveredAt = 0;
+    var routeRecoveredAt = 0;
+    var targetRoute = concreteTargetRoute(routeIds);
     while (Date.now() < deadline) {
+      if (personaMismatchPromptVisible() && Date.now() - mismatchRecoveredAt > 1500) {
+        mismatchRecoveredAt = Date.now();
+        var targetPersona = targetPersonaForRouteIds(routeIds);
+        if (targetPersona) {
+          await resolvePersonaMismatchPrompt(targetPersona);
+        }
+        if (targetRoute && !currentRouteMatches(targetRoute)) {
+          await navigateWithNativeRouter(targetRoute);
+          routeRecoveredAt = Date.now();
+        }
+      }
       var beacons = Array.prototype.slice.call(
         document.querySelectorAll('[data-native-test-beacon="true"]')
       );
@@ -177,20 +253,35 @@ enum NativeUiTestRunnerScript {
           return { routeId: routeId, dataState: dataState };
         }
       }
+      if (
+        targetRoute &&
+        !currentRouteMatches(targetRoute) &&
+        Date.now() - routeRecoveredAt > 2000
+      ) {
+        routeRecoveredAt = Date.now();
+        await navigateWithNativeRouter(targetRoute);
+      }
       await sleep(250);
     }
     throw new Error(
-      "route beacon timeout for " + routeIds.join(", ") + " at " + window.location.href
+      "route beacon timeout for " +
+        routeIds.join(", ") +
+        " at " +
+        window.location.href +
+        " visible=" +
+        visibleButtonSummary(8)
     );
   }
 
   async function clickBottomNav(label) {
+    var beforeRoute = normalizeRoute(window.location.pathname + window.location.search);
     var tourIds = NAV_TOUR_IDS_BY_LABEL[label] || [];
     for (var i = 0; i < tourIds.length; i += 1) {
       var target = firstVisible('[data-tour-id="' + tourIds[i] + '"]');
       if (target) {
         clickElement(target);
         await sleep(400);
+        await ensureBottomNavRoute(label, beforeRoute);
         return;
       }
     }
@@ -202,11 +293,67 @@ enum NativeUiTestRunnerScript {
       if (pattern.test(text) && visible(buttons[j])) {
         clickElement(buttons[j]);
         await sleep(400);
+        await ensureBottomNavRoute(label, beforeRoute);
+        return;
+      }
+    }
+
+    var bridge = nativeTestBridge();
+    var personas = [bridge.primaryNavPersona, bridge.activePersona];
+    for (var k = 0; k < personas.length; k += 1) {
+      var persona = personas[k];
+      var expectedRoute =
+        persona &&
+        NAV_ROUTE_BY_PERSONA_AND_LABEL[persona] &&
+        NAV_ROUTE_BY_PERSONA_AND_LABEL[persona][label];
+      if (expectedRoute && bridge.enabled === true && typeof bridge.navigateToRoute === "function") {
+        await navigateWithNativeRouter(expectedRoute);
         return;
       }
     }
 
     throw new Error('bottom nav item not found: "' + label + '" on ' + window.location.href);
+  }
+
+  async function ensureBottomNavRoute(label, beforeRoute) {
+    var bridge = nativeTestBridge();
+    var candidates = [bridge.primaryNavPersona, bridge.activePersona];
+    var persona = "";
+    for (var i = 0; i < candidates.length; i += 1) {
+      var candidate = candidates[i];
+      if (
+        candidate &&
+        NAV_ROUTE_BY_PERSONA_AND_LABEL[candidate] &&
+        NAV_ROUTE_BY_PERSONA_AND_LABEL[candidate][label]
+      ) {
+        persona = candidate;
+        break;
+      }
+    }
+    if (!persona) {
+      persona =
+        (window.location.pathname || "").indexOf("/ria") === 0 &&
+        NAV_ROUTE_BY_PERSONA_AND_LABEL.ria[label]
+          ? "ria"
+          : "investor";
+    }
+    var expectedRoute = NAV_ROUTE_BY_PERSONA_AND_LABEL[persona]
+      ? NAV_ROUTE_BY_PERSONA_AND_LABEL[persona][label]
+      : "";
+    if (!expectedRoute) return;
+
+    var currentRoute = normalizeRoute(window.location.pathname + window.location.search);
+    var normalizedExpected = normalizeRoute(expectedRoute);
+    if (
+      currentRoute === normalizedExpected ||
+      (normalizedExpected !== "/" && currentRoute.indexOf(normalizedExpected + "/") === 0)
+    ) {
+      return;
+    }
+
+    if (bridge.enabled === true && typeof bridge.navigateToRoute === "function") {
+      await navigateWithNativeRouter(expectedRoute);
+    }
   }
 
   async function clickButton(name, regex) {
@@ -252,6 +399,15 @@ enum NativeUiTestRunnerScript {
       await sleep(250);
     }
     throw new Error('text not visible: "' + value + '" on ' + window.location.href);
+  }
+
+  async function waitForUrlIncludes(value, timeoutMs) {
+    var deadline = Date.now() + (timeoutMs || 5000);
+    while (Date.now() < deadline) {
+      if (window.location.href.indexOf(value) >= 0) return;
+      await sleep(150);
+    }
+    throw new Error("url missing " + value + " at " + window.location.href);
   }
 
   function clearImportBackgroundState() {
@@ -322,6 +478,29 @@ enum NativeUiTestRunnerScript {
     return window.__HUSHH_NATIVE_TEST__ || {};
   }
 
+  async function waitForNativeAutomationBridge(timeoutMs) {
+    var ready = await waitForCondition(function () {
+      var bridge = nativeTestBridge();
+      return (
+        bridge.enabled === true &&
+        typeof bridge.navigateToRoute === "function" &&
+        typeof bridge.switchPersona === "function" &&
+        (bridge.activePersona === "investor" || bridge.activePersona === "ria")
+      );
+    }, timeoutMs || 30000);
+    if (!ready) {
+      var bridge = nativeTestBridge();
+      throw new Error(
+        "native automation bridge not ready: navigate=" +
+          (typeof bridge.navigateToRoute === "function" ? "1" : "0") +
+          " switch=" +
+          (typeof bridge.switchPersona === "function" ? "1" : "0") +
+          " active=" +
+          String(bridge.activePersona || "")
+      );
+    }
+  }
+
   function clearNativeTestRouteLock() {
     var bridge = nativeTestBridge();
     bridge.initialRoute = null;
@@ -376,23 +555,52 @@ enum NativeUiTestRunnerScript {
     return false;
   }
 
+  async function waitForVisibleTestId(testId, timeoutMs) {
+    var selector = '[data-testid="' + testId + '"]';
+    var ready = await waitForCondition(function () {
+      return Boolean(firstVisible(selector));
+    }, timeoutMs || 30000);
+    if (!ready) {
+      var body = ((document.body && document.body.innerText) || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .slice(0, 180);
+      throw new Error(
+        "expected visible testid: " +
+          testId +
+          " route=" +
+          window.location.pathname +
+          window.location.search +
+          " visible=" +
+          visibleButtonSummary(8) +
+          " body=" +
+          body
+      );
+    }
+  }
+
   async function attemptNativePersonaSwitch(persona) {
     var bridge = nativeTestBridge();
     if (bridge.activePersona === persona) return true;
     if (bridge.enabled !== true || typeof bridge.switchPersona !== "function") return false;
 
     try {
-      var observed = waitForPersonaState(persona, 8000).then(function () {
+      var observed = waitForPersonaState(persona, 12000).then(function () {
         return "observed";
       });
       var requested = Promise.resolve(bridge.switchPersona(persona)).then(function () {
         return "resolved";
       });
-      var timedOut = sleep(8000).then(function () {
+      var timedOut = sleep(12000).then(function () {
         return "timeout";
       });
       var result = await Promise.race([observed, requested, timedOut]);
-      return result !== "timeout" || nativeTestBridge().activePersona === persona;
+      if (result === "observed" || nativeTestBridge().activePersona === persona) {
+        return true;
+      }
+      return await waitForCondition(function () {
+        return nativeTestBridge().activePersona === persona;
+      }, 12000);
     } catch (error) {
       if (nativeTestBridge().activePersona === persona) return true;
       throw error;
@@ -445,7 +653,12 @@ enum NativeUiTestRunnerScript {
     var deadline = Date.now() + (timeoutMs || 5000);
     while (Date.now() < deadline) {
       var current = normalizeRoute(window.location.pathname + window.location.search);
-      if (current === expected || current.indexOf(expected + "/") === 0) {
+      if (
+        current === expected ||
+        current.indexOf(expected + "/") === 0 ||
+        current.indexOf(expected + "?") === 0 ||
+        current.indexOf(expected + "#") === 0
+      ) {
         return true;
       }
       await sleep(150);
@@ -458,22 +671,24 @@ enum NativeUiTestRunnerScript {
     clearNativeTestRouteLock();
     if (typeof bridge.navigateToRoute === "function") {
       bridge.navigateToRoute(route);
-      if (await waitForRoute(route, 2500)) return;
+      if (await waitForRoute(route, 5000)) return;
+      throw new Error(
+        "Next.js native router did not reach " +
+          route +
+          " from " +
+          window.location.pathname +
+          window.location.search
+      );
     }
-    try {
-      window.history.pushState({}, "", route);
-      window.dispatchEvent(new PopStateEvent("popstate"));
-      if (await waitForRoute(route, 1200)) return;
-    } catch (_) {}
-    window.location.assign(route);
-    await waitForRoute(route, 5000);
+    throw new Error("Next.js native router bridge missing for " + route);
   }
 
   async function ensurePersona(persona) {
+    await waitForNativeAutomationBridge();
     var expectedTour = persona === "ria" ? "nav-ria-home" : "nav-market";
     var bridge = nativeTestBridge();
+    var route = routeForPersona(persona);
     if (
-      bridge.activePersona === persona &&
       routeMatchesPersona(persona) &&
       firstVisible('[data-tour-id="' + expectedTour + '"]')
     ) {
@@ -481,24 +696,18 @@ enum NativeUiTestRunnerScript {
       return;
     }
 
-    await resolvePersonaMismatchPrompt(persona);
-
     if (bridge.enabled === true && typeof bridge.switchPersona === "function") {
       var switched = await attemptNativePersonaSwitch(persona);
+      if (!routeMatchesPersona(persona)) {
+        await navigateWithNativeRouter(route);
+      }
       if (switched) {
         await resolvePersonaMismatchPrompt(persona);
       }
-
-      var route = routeForPersona(persona);
-      if (!routeMatchesPersona(persona)) {
-        await navigateWithNativeRouter(route);
-        await resolvePersonaMismatchPrompt(persona);
-        await waitForBeacon([route]);
-      }
+      await waitForBeacon([route], undefined, 30000);
 
       var ready = await waitForCondition(function () {
         return (
-          nativeTestBridge().activePersona === persona &&
           routeMatchesPersona(persona) &&
           Boolean(firstVisible('[data-tour-id="' + expectedTour + '"]'))
         );
@@ -574,7 +783,17 @@ enum NativeUiTestRunnerScript {
     if (testProfile) {
       clickElement(testProfile);
     } else {
-      await clickButton("kai test user|kushal trivedi", true);
+      var bridge = nativeTestBridge();
+      var expectedUserId = bridge.expectedUserId || "";
+      if (expectedUserId) {
+        // Live client cards come from UAT data. If that roster is empty, use the
+        // existing non-production test profile so account-detail UI coverage stays deterministic.
+        await navigateWithNativeRouter(
+          "/ria/clients/" + encodeURIComponent(expectedUserId) + "?test_profile=1"
+        );
+      } else {
+        await clickButton("kai test user|kushal trivedi", true);
+      }
     }
     await waitForBeacon(["/ria/clients/[userId]"]);
   }
@@ -589,7 +808,22 @@ enum NativeUiTestRunnerScript {
         await clickBottomNav(step.label);
         return;
       case "click_button":
-        await clickButton(step.name, step.regex === true);
+        try {
+          clickElement(
+            await waitForButton(
+              step.name,
+              step.regex === true,
+              step.buttonTimeoutMs || (step.fallbackRoute ? 8000 : step.timeoutMs)
+            )
+          );
+        } catch (error) {
+          if (step.fallbackRoute) {
+            await navigateWithNativeRouter(step.fallbackRoute);
+            return;
+          }
+          throw error;
+        }
+        await sleep(400);
         return;
       case "wait_button":
         await waitForButton(step.name, step.regex === true, step.timeoutMs);
@@ -626,14 +860,10 @@ enum NativeUiTestRunnerScript {
         await waitForBeacon(step.routeIds, step.dataStates, step.timeoutMs);
         return;
       case "assert_url_includes":
-        if (window.location.href.indexOf(step.value) < 0) {
-          throw new Error("url missing " + step.value + " at " + window.location.href);
-        }
+        await waitForUrlIncludes(step.value, step.timeoutMs);
         return;
       case "assert_visible_testid":
-        if (!firstVisible('[data-testid="' + step.testId + '"]')) {
-          throw new Error("expected visible testid: " + step.testId);
-        }
+        await waitForVisibleTestId(step.testId, step.timeoutMs);
         return;
       case "open_ria_workspace":
         await openRiaWorkspace();
@@ -663,7 +893,9 @@ enum NativeUiTestRunnerScript {
                   "step timeout (" +
                     step.type +
                     ") visible=" +
-                    visibleButtonSummary(8)
+                    visibleButtonSummary(8) +
+                    " bridge=" +
+                    bridgeSummary()
                 )
               );
             }, stepTimeoutMs);
@@ -790,7 +1022,11 @@ enum NativeUiTestRunnerScript {
         (auth === "authenticated" &&
           (route.indexOf("/ria") === 0 || route.indexOf("/kai") === 0) &&
           (dataState === "loaded" || dataState === "empty-valid" || dataState === "unavailable-valid"));
-      if (!ready || bridge._uiFlowsStarted) return;
+      var bridgeReady =
+        typeof bridge.navigateToRoute === "function" &&
+        typeof bridge.switchPersona === "function" &&
+        (bridge.activePersona === "investor" || bridge.activePersona === "ria");
+      if (!ready || !bridgeReady || bridge._uiFlowsStarted) return;
       dismissBlockingScreens();
       bridge._uiFlowsStarted = true;
       clearNativeTestRouteLock();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { getNativeTestConfig } from "@/lib/testing/native-test";
@@ -66,22 +66,39 @@ function canRecoverToExpectedRoute() {
 export function NativeTestRouter() {
   const router = useRouter();
   const pathname = usePathname();
+  const [pendingNativeRoute, setPendingNativeRoute] = useState<{
+    route: string;
+    requestedAt: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!pendingNativeRoute?.route) {
+      return;
+    }
+    router.replace(pendingNativeRoute.route, { scroll: false });
+  }, [pendingNativeRoute, router]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
 
-    const bridge = window.__HUSHH_NATIVE_TEST__;
     const navigateToRoute = (route: string) => {
+      setPendingNativeRoute({ route, requestedAt: Date.now() });
       router.replace(route, { scroll: false });
     };
-    if (bridge?.enabled) {
-      bridge.navigateToRoute = navigateToRoute;
-    }
+    const installNavigationBridge = () => {
+      const bridge = window.__HUSHH_NATIVE_TEST__;
+      if (bridge?.enabled && bridge.navigateToRoute !== navigateToRoute) {
+        bridge.navigateToRoute = navigateToRoute;
+      }
+      return bridge;
+    };
+    installNavigationBridge();
 
     let missingConfigAttempts = 0;
     const maybeRoute = () => {
+      installNavigationBridge();
       const config = getNativeTestConfig();
       if (!config.enabled || !config.initialRoute) {
         missingConfigAttempts += 1;
@@ -109,6 +126,14 @@ export function NativeTestRouter() {
           lastAppliedExpectedRouteRecovery?.key === recoveryKey &&
           now - lastAppliedExpectedRouteRecovery.appliedAt <
             EXPECTED_ROUTE_RECOVERY_RETRY_MS;
+
+        const recoverToExpectedRoute = () => {
+          if (!config.expectedRoute) return;
+          lastAppliedInitialRoute = config.initialRoute;
+          lastAppliedExpectedRouteRecovery = { key: recoveryKey, appliedAt: now };
+          router.replace(config.expectedRoute, { scroll: false });
+        };
+
         if (
           config.autoReviewerLogin &&
           config.expectedRoute &&
@@ -117,9 +142,8 @@ export function NativeTestRouter() {
           canRecoverToExpectedRoute() &&
           !recoveryRecentlyApplied
         ) {
-          lastAppliedInitialRoute = config.initialRoute;
-          lastAppliedExpectedRouteRecovery = { key: recoveryKey, appliedAt: now };
-          router.replace(config.expectedRoute, { scroll: false });
+          recoverToExpectedRoute();
+          return true;
         }
 
         if (
@@ -131,9 +155,19 @@ export function NativeTestRouter() {
           canRecoverToExpectedRoute() &&
           !recoveryRecentlyApplied
         ) {
-          lastAppliedInitialRoute = config.initialRoute;
-          lastAppliedExpectedRouteRecovery = { key: recoveryKey, appliedAt: now };
-          router.replace(config.expectedRoute, { scroll: false });
+          recoverToExpectedRoute();
+          return true;
+        }
+
+        if (
+          config.autoReviewerLogin &&
+          config.expectedRoute &&
+          !sameRoute(currentRoute, config.expectedRoute) &&
+          canRecoverToExpectedRoute() &&
+          !recoveryRecentlyApplied
+        ) {
+          recoverToExpectedRoute();
+          return true;
         }
 
         const alreadyAtExpectedRoute =

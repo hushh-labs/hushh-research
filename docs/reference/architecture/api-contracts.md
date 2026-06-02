@@ -322,11 +322,11 @@ Frontend reads/writes these fields through the centralized onboarding/profile fl
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | POST | `/api/account/identity/refresh` | Refresh backend identity shadow from Firebase Auth |
-| POST | `/api/account/phone/claim` | Persist a secondary Firebase phone-session token as the signed-in actor's verified app-level phone claim |
+| POST | `/api/account/phone/claim` | Persist a secondary Firebase phone-session token as the signed-in actor's verified app-level phone claim, then delete the safe phone-only secondary Firebase user when it differs from the signed-in UID |
 | GET | `/api/account/email-aliases` | List vault-owner account email aliases |
 | POST | `/api/account/email-aliases/verification/start` | Start explicit email alias verification; dev/UAT review mode may echo the code |
 | POST | `/api/account/email-aliases/verification/confirm` | Confirm an email alias before it can match One Email KYC intake |
-| DELETE | `/api/account/delete` | Delete user account and all data |
+| DELETE | `/api/account/delete` | Delete user account and all data; full-account deletion also removes the primary Firebase Auth UID and any safe phone-only orphan UID for the verified phone |
 
 Reserved future surface:
 
