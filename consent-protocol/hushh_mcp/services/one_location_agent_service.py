@@ -43,6 +43,7 @@ COORDINATE_METADATA_KEYS = {
     "map_url",
     "reverse_geocode",
 }
+LOCATION_TERMINAL_RETENTION_HOURS = 12
 
 
 def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -598,6 +599,7 @@ class OneLocationAgentService:
         }
 
     def _expire_stale_grants(self, user_id: str) -> None:
+        retention_cutoff = _utcnow() - timedelta(hours=LOCATION_TERMINAL_RETENTION_HOURS)
         expired = self._execute_many(
             """
             UPDATE one_location_share_grants
@@ -605,7 +607,7 @@ class OneLocationAgentService:
             WHERE status = 'active'
               AND expires_at <= NOW()
               AND (owner_user_id = :user_id OR recipient_user_id = :user_id)
-            RETURNING id, owner_user_id, recipient_user_id
+            RETURNING id, owner_user_id, recipient_user_id, expires_at
             """,
             {"user_id": user_id},
         )
@@ -613,6 +615,9 @@ class OneLocationAgentService:
             grant_id = str(row.get("id") or "") or None
             owner_user_id = str(row.get("owner_user_id") or "")
             recipient_user_id = str(row.get("recipient_user_id") or "")
+            expires_at = _parse_datetime(row.get("expires_at"), field_name="expires_at")
+            if expires_at <= retention_cutoff:
+                continue
             owner_label = _identity_display_label(self._identity_row(owner_user_id))
             self._insert_event(
                 owner_user_id=owner_user_id,
@@ -636,6 +641,197 @@ class OneLocationAgentService:
                         "owner_display_label": owner_label,
                     },
                 )
+        self._purge_terminal_work(user_id=user_id)
+
+    def _purge_terminal_work(
+        self,
+        *,
+        user_id: str | None = None,
+        older_than_hours: float = LOCATION_TERMINAL_RETENTION_HOURS,
+    ) -> dict[str, Any]:
+        hours = max(1.0, min(float(older_than_hours or LOCATION_TERMINAL_RETENTION_HOURS), 168.0))
+        row = (
+            self._execute_one(
+                """
+            WITH stale_grants AS (
+              SELECT id
+              FROM one_location_share_grants
+              WHERE ((
+                  status = 'expired'
+                  AND expires_at <= NOW() - (:hours * INTERVAL '1 hour')
+                )
+                OR (
+                  status = 'revoked'
+                  AND COALESCE(revoked_at, updated_at, expires_at, created_at)
+                    <= NOW() - (:hours * INTERVAL '1 hour')
+                ))
+                AND (
+                  :user_id IS NULL
+                  OR owner_user_id = :user_id
+                  OR recipient_user_id = :user_id
+                )
+              LIMIT 500
+            ),
+            stale_requests AS (
+              SELECT id
+              FROM one_location_access_requests
+              WHERE ((
+                  status IN ('approved', 'denied', 'cancelled')
+                  AND COALESCE(resolved_at, requested_at)
+                    <= NOW() - (:hours * INTERVAL '1 hour')
+                )
+                OR approved_grant_id IN (SELECT id FROM stale_grants))
+                AND (
+                  :user_id IS NULL
+                  OR owner_user_id = :user_id
+                  OR requester_user_id = :user_id
+                  OR referred_by_user_id = :user_id
+                )
+              LIMIT 500
+            ),
+            stale_referrals AS (
+              SELECT id
+              FROM one_location_referrals
+              WHERE ((
+                  status IN ('approved', 'denied', 'cancelled')
+                  AND COALESCE(resolved_at, created_at)
+                    <= NOW() - (:hours * INTERVAL '1 hour')
+                )
+                OR grant_id IN (SELECT id FROM stale_grants)
+                OR request_id IN (SELECT id FROM stale_requests))
+                AND (
+                  :user_id IS NULL
+                  OR owner_user_id = :user_id
+                  OR referring_user_id = :user_id
+                  OR referred_user_id = :user_id
+                )
+              LIMIT 500
+            ),
+            stale_public_invites AS (
+              SELECT id
+              FROM one_location_public_invites
+              WHERE ((
+                  status = 'expired'
+                  AND expires_at <= NOW() - (:hours * INTERVAL '1 hour')
+                )
+                OR (
+                  status = 'revoked'
+                  AND COALESCE(revoked_at, updated_at, expires_at, created_at)
+                    <= NOW() - (:hours * INTERVAL '1 hour')
+                ))
+                AND (
+                  :user_id IS NULL
+                  OR owner_user_id = :user_id
+                )
+              LIMIT 500
+            ),
+            stale_public_submissions AS (
+              SELECT id
+              FROM one_location_public_invite_submissions
+              WHERE ((
+                  status IN ('approved', 'denied', 'cancelled')
+                  AND COALESCE(resolved_at, submitted_at)
+                    <= NOW() - (:hours * INTERVAL '1 hour')
+                )
+                OR invite_id IN (SELECT id FROM stale_public_invites)
+                OR request_id IN (SELECT id FROM stale_requests))
+                AND (
+                  :user_id IS NULL
+                  OR owner_user_id = :user_id
+                  OR matched_user_id = :user_id
+                )
+              LIMIT 500
+            ),
+            deleted_events AS (
+              DELETE FROM one_location_events e
+              WHERE e.grant_id IN (SELECT id FROM stale_grants)
+                 OR e.request_id IN (SELECT id FROM stale_requests)
+                 OR e.referral_id IN (SELECT id FROM stale_referrals)
+                 OR (
+                   e.event_type IN (
+                     'location_public_invite_created',
+                     'location_public_invite_revoked',
+                     'location_public_invite_submitted'
+                   )
+                   AND (
+                     e.metadata->>'invite_id' IN (
+                       SELECT id::text FROM stale_public_invites
+                     )
+                     OR e.metadata->>'submission_id' IN (
+                       SELECT id::text FROM stale_public_submissions
+                     )
+                   )
+                 )
+              RETURNING id
+            ),
+            deleted_public_submissions AS (
+              DELETE FROM one_location_public_invite_submissions s
+              WHERE s.id IN (SELECT id FROM stale_public_submissions)
+                AND (SELECT COUNT(*) FROM deleted_events) >= 0
+              RETURNING id
+            ),
+            deleted_envelopes AS (
+              DELETE FROM one_location_envelopes e
+              WHERE e.grant_id IN (SELECT id FROM stale_grants)
+                AND (SELECT COUNT(*) FROM deleted_public_submissions) >= 0
+              RETURNING id
+            ),
+            deleted_referrals AS (
+              DELETE FROM one_location_referrals r
+              WHERE (
+                  r.id IN (SELECT id FROM stale_referrals)
+                  OR r.grant_id IN (SELECT id FROM stale_grants)
+                  OR r.request_id IN (SELECT id FROM stale_requests)
+                )
+                AND (SELECT COUNT(*) FROM deleted_envelopes) >= 0
+              RETURNING id
+            ),
+            deleted_requests AS (
+              DELETE FROM one_location_access_requests req
+              WHERE req.id IN (SELECT id FROM stale_requests)
+                AND (SELECT COUNT(*) FROM deleted_referrals) >= 0
+              RETURNING id
+            ),
+            deleted_grants AS (
+              DELETE FROM one_location_share_grants g
+              WHERE g.id IN (SELECT id FROM stale_grants)
+                AND (SELECT COUNT(*) FROM deleted_requests) >= 0
+              RETURNING id
+            ),
+            deleted_public_invites AS (
+              DELETE FROM one_location_public_invites i
+              WHERE i.id IN (SELECT id FROM stale_public_invites)
+                AND (SELECT COUNT(*) FROM deleted_grants) >= 0
+              RETURNING id
+            )
+            SELECT
+              (SELECT COUNT(*) FROM deleted_grants) AS deleted_grants,
+              (SELECT COUNT(*) FROM deleted_envelopes) AS deleted_envelopes,
+              (SELECT COUNT(*) FROM deleted_requests) AS deleted_requests,
+              (SELECT COUNT(*) FROM deleted_referrals) AS deleted_referrals,
+              (SELECT COUNT(*) FROM deleted_public_invites) AS deleted_public_invites,
+              (SELECT COUNT(*) FROM deleted_public_submissions) AS deleted_public_submissions,
+              (SELECT COUNT(*) FROM deleted_events) AS deleted_events
+            """,
+                {"user_id": user_id, "hours": hours},
+            )
+            or {}
+        )
+        return {
+            "deleted_grants": int(row.get("deleted_grants") or 0),
+            "deleted_envelopes": int(row.get("deleted_envelopes") or 0),
+            "deleted_requests": int(row.get("deleted_requests") or 0),
+            "deleted_referrals": int(row.get("deleted_referrals") or 0),
+            "deleted_public_invites": int(row.get("deleted_public_invites") or 0),
+            "deleted_public_submissions": int(row.get("deleted_public_submissions") or 0),
+            "deleted_events": int(row.get("deleted_events") or 0),
+            "retention_hours": hours,
+        }
+
+    def purge_terminal_work(
+        self, *, older_than_hours: float = LOCATION_TERMINAL_RETENTION_HOURS
+    ) -> dict[str, Any]:
+        return self._purge_terminal_work(user_id=None, older_than_hours=older_than_hours)
 
     def register_recipient_key(
         self,

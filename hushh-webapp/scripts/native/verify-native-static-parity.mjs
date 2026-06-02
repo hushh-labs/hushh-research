@@ -27,6 +27,22 @@ function routeValuesFromRoutesTs(source) {
 }
 
 const infoPlist = read(iosInfoPlistPath);
+const iosUsageDescriptionKeys = [
+  ...infoPlist.matchAll(/<key>(NS[A-Za-z0-9]+UsageDescription)<\/key>/g),
+].map((match) => match[1]);
+const allowedIosUsageDescriptionKeys = new Set([
+  "NSMicrophoneUsageDescription",
+  "NSLocationWhenInUseUsageDescription",
+  "NSContactsUsageDescription",
+]);
+const unexpectedIosUsageDescriptionKeys = iosUsageDescriptionKeys.filter(
+  (key) => !allowedIosUsageDescriptionKeys.has(key)
+);
+if (unexpectedIosUsageDescriptionKeys.length > 0) {
+  fail(
+    `iOS Info.plist has unexpected permission usage descriptions: ${unexpectedIosUsageDescriptionKeys.join(", ")}.`
+  );
+}
 const micUsageMatch = infoPlist.match(
   /<key>NSMicrophoneUsageDescription<\/key>\s*<string>([^<]+)<\/string>/
 );
@@ -39,8 +55,32 @@ const locationUsageMatch = infoPlist.match(
 if (!locationUsageMatch?.[1]?.trim()) {
   fail("iOS Info.plist must include non-empty NSLocationWhenInUseUsageDescription.");
 }
+const contactsUsageMatch = infoPlist.match(
+  /<key>NSContactsUsageDescription<\/key>\s*<string>([^<]+)<\/string>/
+);
+if (!contactsUsageMatch?.[1]?.trim()) {
+  fail("iOS Info.plist must include non-empty NSContactsUsageDescription.");
+}
 
 const androidManifest = read(androidManifestPath);
+const androidPermissions = [
+  ...androidManifest.matchAll(/<uses-permission\b[^>]*android:name="([^"]+)"/g),
+].map((match) => match[1]);
+const allowedAndroidPermissions = new Set([
+  "android.permission.INTERNET",
+  "android.permission.RECORD_AUDIO",
+  "android.permission.ACCESS_FINE_LOCATION",
+  "android.permission.ACCESS_COARSE_LOCATION",
+  "android.permission.READ_CONTACTS",
+]);
+const unexpectedAndroidPermissions = androidPermissions.filter(
+  (permission) => !allowedAndroidPermissions.has(permission)
+);
+if (unexpectedAndroidPermissions.length > 0) {
+  fail(
+    `AndroidManifest.xml has unexpected permissions: ${unexpectedAndroidPermissions.join(", ")}.`
+  );
+}
 if (!androidManifest.includes('android.permission.RECORD_AUDIO')) {
   fail("AndroidManifest.xml must include android.permission.RECORD_AUDIO.");
 }
@@ -49,6 +89,9 @@ if (!androidManifest.includes('android.permission.ACCESS_FINE_LOCATION')) {
 }
 if (!androidManifest.includes('android.permission.ACCESS_COARSE_LOCATION')) {
   fail("AndroidManifest.xml must include android.permission.ACCESS_COARSE_LOCATION.");
+}
+if (!androidManifest.includes('android.permission.READ_CONTACTS')) {
+  fail("AndroidManifest.xml must include android.permission.READ_CONTACTS.");
 }
 if (androidManifest.includes('android.permission.ACCESS_BACKGROUND_LOCATION')) {
   fail("One Location Agent v1 must not request android.permission.ACCESS_BACKGROUND_LOCATION.");

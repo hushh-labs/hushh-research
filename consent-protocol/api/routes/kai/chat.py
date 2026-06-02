@@ -17,7 +17,7 @@ Authentication:
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
@@ -39,9 +39,11 @@ def _redact_uid(uid: str | None) -> str:
 class KaiChatRequest(BaseModel):
     """Request body for Kai chat endpoint."""
 
-    user_id: str = Field(..., description="User's Firebase UID")
+    user_id: str = Field(..., description="User's Firebase UID", min_length=1, max_length=128)
     message: str = Field(..., description="User's message to Kai", min_length=1, max_length=4000)
-    conversation_id: Optional[str] = Field(None, description="Existing conversation ID to continue")
+    conversation_id: Optional[str] = Field(
+        None, description="Existing conversation ID to continue", max_length=128
+    )
 
 
 class KaiChatResponseModel(BaseModel):
@@ -134,7 +136,7 @@ async def kai_chat(
 
 @router.get("/chat/history/{conversation_id}", response_model=ConversationHistoryResponse)
 async def get_conversation_history(
-    conversation_id: str,
+    conversation_id: str = Path(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
     limit: int = Query(default=50, ge=1, le=500),
 ) -> ConversationHistoryResponse:
