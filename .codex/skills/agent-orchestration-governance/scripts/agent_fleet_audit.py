@@ -76,6 +76,8 @@ def _load_skills(root: Path) -> dict[str, dict[str, Any]]:
                 "path": str(path.relative_to(root)),
                 "owner_family": data.get("owner_family") or data.get("role") or "",
                 "role": data.get("role") or "",
+                "lane_label": "master" if data.get("role") == "owner" else "spoke",
+                "task_types": data.get("task_types") or [],
             }
     return skills
 
@@ -109,6 +111,9 @@ def _load_workflows(root: Path) -> dict[str, dict[str, Any]]:
         if not isinstance(policy, dict):
             workflows[workflow_id] = {
                 "path": str(path.relative_to(root)),
+                "owner_skill": data.get("owner_skill"),
+                "default_spoke": data.get("default_spoke"),
+                "task_type": data.get("task_type"),
                 "inherits_global_policy": True,
                 "lanes": lanes,
             }
@@ -122,6 +127,9 @@ def _load_workflows(root: Path) -> dict[str, dict[str, Any]]:
             }
         workflows[workflow_id] = {
             "path": str(path.relative_to(root)),
+            "owner_skill": data.get("owner_skill"),
+            "default_spoke": data.get("default_spoke"),
+            "task_type": data.get("task_type"),
             "inherits_global_policy": False,
             "lanes": lanes,
         }
@@ -210,6 +218,64 @@ def audit(root: Path) -> OrderedDict[str, Any]:
         (workflow_id, "repo-global" if workflow["inherits_global_policy"] else "explicit")
         for workflow_id, workflow in workflows.items()
     )
+    skill_agent_matrix: dict[str, dict[str, Any]] = OrderedDict()
+    skill_to_agents: dict[str, list[str]] = defaultdict(list)
+    for agent_name, skill_ids in agent_skill_matrix.items():
+        for skill_id in skill_ids:
+            if skill_id in skills:
+                skill_to_agents[skill_id].append(agent_name)
+
+    task_to_workflows: dict[str, list[str]] = defaultdict(list)
+    for workflow_id, workflow in workflows.items():
+        task_type = workflow.get("task_type")
+        if task_type:
+            task_to_workflows[str(task_type)].append(workflow_id)
+
+    for skill_id, skill in skills.items():
+        workflow_rows: list[dict[str, Any]] = []
+        for workflow_id, workflow in workflows.items():
+            roles: list[str] = []
+            if workflow.get("owner_skill") == skill_id:
+                roles.append("owner_skill")
+            if workflow.get("default_spoke") == skill_id:
+                roles.append("default_spoke")
+            if workflow_id in {
+                item
+                for task_type in skill.get("task_types", [])
+                for item in task_to_workflows.get(str(task_type), [])
+            }:
+                roles.append("task_type")
+            if roles:
+                workflow_rows.append(
+                    {
+                        "id": workflow_id,
+                        "roles": sorted(set(roles)),
+                        "delegation_policy": "repo-global"
+                        if workflow["inherits_global_policy"]
+                        else "explicit",
+                        "agents": sorted(set(workflow["lanes"].values())),
+                    }
+                )
+
+        agent_names = sorted(skill_to_agents.get(skill_id, []))
+        mechanisms: list[str] = []
+        if agent_names:
+            mechanisms.append("agent-skill-block")
+        if any(row["delegation_policy"] == "explicit" for row in workflow_rows):
+            mechanisms.append("workflow-explicit-delegation")
+        if any(row["delegation_policy"] == "repo-global" for row in workflow_rows):
+            mechanisms.append("repo-global-delegation-router")
+        if not mechanisms:
+            mechanisms.append("parent-skill-trigger-only")
+
+        skill_agent_matrix[skill_id] = {
+            "lane_label": skill["lane_label"],
+            "role": skill["role"],
+            "owner_family": skill["owner_family"],
+            "agents": agent_names,
+            "workflows": workflow_rows,
+            "detection_mechanisms": mechanisms,
+        }
 
     return OrderedDict(
         schema_version="agent-fleet-audit.v1",
@@ -224,6 +290,7 @@ def audit(root: Path) -> OrderedDict[str, Any]:
         agent_skill_matrix=agent_skill_matrix,
         workflow_agent_coverage=workflow_agent_coverage,
         workflow_policy_summary=workflow_policy_summary,
+        skill_agent_matrix=skill_agent_matrix,
         inherited_global_workflows=inherited_global_workflows,
         global_agent_pool=global_agent_pool,
         covered_owner_families=sorted(covered_owner_families),
@@ -263,8 +330,16 @@ def _text(payload: dict[str, Any]) -> str:
         lines.append(f"- global agent pool: {', '.join(payload['global_agent_pool'])}")
     else:
         lines.append("- none")
+    lines.append("Skill agent/subagent detection:")
+    for skill_id, row in payload["skill_agent_matrix"].items():
+        agents = ", ".join(row["agents"]) if row["agents"] else "none"
+        workflows = ", ".join(workflow["id"] for workflow in row["workflows"]) if row["workflows"] else "none"
+        mechanisms = ", ".join(row["detection_mechanisms"])
+        lines.append(
+            f"- {row['lane_label']} {skill_id}: agents={agents}; workflows={workflows}; mechanisms={mechanisms}"
+        )
     if payload["parent_skill_only_families"]:
-        lines.append("Parent-skill-only owner families:")
+        lines.append("Parent-skill-only master families:")
         for owner, skills in payload["parent_skill_only_families"].items():
             lines.append(f"- {owner}: {', '.join(skills)}")
     return "\n".join(lines)

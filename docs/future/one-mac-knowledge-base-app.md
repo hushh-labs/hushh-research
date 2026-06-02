@@ -56,7 +56,8 @@ Before One-mac becomes current-state runtime, the repo needs these primitives:
 
 The planned One-mac runtime must match Hussh's current zero-knowledge posture: client-side AES-256-GCM with Secure-Enclave-wrapped keys plus HMAC-signed bearer tokens. When implemented, plaintext should exist only in the daemon's process memory during a consented read. Cloud should hold ciphertext and manifests; the server must not decrypt vault contents. Cryptographic ZK proofs (Merkle-sealed transparency log, Pedersen commitments, Sigstore-style cosignatures) remain future-state and are deferred to Phase 6+.
 
-## OpenClaw Alignment
+## OpenClaw Alignment:
+Implementation PRs should keep OpenClaw protocol boundaries testable without requiring Hussh cloud credentials.
 
 `apps/one-mac/Sources/OneMCPServer/` is currently a Phase 0 stub and the intended target for the first concrete reference implementation of the planned open-source OpenClaw consent-MCP host. Promotion criteria for the planned `wiki/concepts/openclaw.md` page from private to public are:
 

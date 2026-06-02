@@ -1,20 +1,17 @@
-"use client";
-
 /**
  * Kai Dashboard Layout
  *
- * Top route tabs are now mounted at app/kai/layout.tsx so they persist across
+ * Top route tabs are mounted at app/kai/layout.tsx to persist across
  * Market / Dashboard / Analysis route switches without remount flicker.
  */
-
 export default function KaiDashboardLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
-    <div className="w-full">
-      <div className="w-full pb-24">{children}</div>
-    </div>
+    <section className="w-full pb-24">
+      {children}
+    </section>
   );
 }
