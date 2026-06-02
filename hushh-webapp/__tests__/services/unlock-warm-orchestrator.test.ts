@@ -115,6 +115,17 @@ vi.mock("@/lib/services/app-background-task-service", () => ({
   },
 }));
 
+const trackEventMock = vi.fn();
+vi.mock("@/lib/observability/client", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/observability/client")>(
+    "@/lib/observability/client"
+  );
+  return {
+    ...actual,
+    trackEvent: (...a: unknown[]) => trackEventMock(...a),
+  };
+});
+
 vi.mock("@/lib/utils/portfolio-normalize", () => ({
   normalizeStoredPortfolio: vi.fn((raw: unknown) => raw),
 }));
@@ -173,6 +184,16 @@ describe("UnlockWarmOrchestrator", () => {
       expect(upgradeEnsureRunningMock).toHaveBeenCalledTimes(1);
       expect(appBackgroundStartTaskMock).toHaveBeenCalledTimes(1);
       expect(appBackgroundCompleteTaskMock).toHaveBeenCalledTimes(1);
+      expect(trackEventMock).toHaveBeenCalledWith(
+        "startup_readiness_warmup_completed",
+        expect.objectContaining({
+          result: "success",
+          warm_priority: "market",
+          duration_ms: expect.any(Number),
+          duration_ms_bucket: expect.any(String),
+          kai_market_warmed: expect.any(Boolean),
+        })
+      );
       expect(result).toBeDefined();
     });
 

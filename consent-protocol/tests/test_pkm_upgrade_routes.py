@@ -124,6 +124,7 @@ def test_scope_exposure_route_forwards_payload(monkeypatch):
                 "scope_handle": "s_demo",
                 "top_level_scope_path": "portfolio",
                 "exposure_enabled": False,
+                "visibility_posture": None,
             }
         ],
         "revoke_matching_active_grants": True,

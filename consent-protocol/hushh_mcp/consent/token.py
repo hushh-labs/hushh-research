@@ -1,10 +1,11 @@
 # hushh_mcp/consent/token.py
 
 import base64
+import binascii
 import hashlib
 import hmac
 import logging
-import os
+import threading
 import time
 from typing import Optional, Tuple, Union
 
@@ -15,9 +16,93 @@ from hushh_mcp.types import AgentID, HushhConsentToken, UserID
 logger = logging.getLogger(__name__)
 
 # ========== Internal Revocation Registry ==========
-# In-memory set for fast revocation checks (immediate effect)
-# Also persisted to DB for cross-instance consistency
-_revoked_tokens: set[str] = set()
+
+
+class _BoundedRevocationCache:
+    """Thread-safe in-memory revocation cache with expiry-based eviction.
+
+    Entries are kept until one hour after the token's embedded expiry. Because
+    validate_token() rejects expired tokens, dropping expired revocation markers
+    does not make an expired token usable again. Unexpired revocations are not
+    evicted for size pressure: local revocation must stay strict even if the DB
+    is temporarily unavailable.
+    """
+
+    _EXPIRED_TOKEN_GRACE_MS: int = 60 * 60 * 1000
+    _MALFORMED_TOKEN_TTL_MS: int = DEFAULT_CONSENT_TOKEN_EXPIRY_MS + _EXPIRED_TOKEN_GRACE_MS
+    _MAX_SIZE: int = 100_000
+
+    def __init__(self) -> None:
+        self._entries: dict[str, int] = {}  # token_str -> evict_after_ms
+        self._lock = threading.Lock()
+
+    # ------------------------------------------------------------------
+    # Public interface — drop-in replacement for set[str]
+    # ------------------------------------------------------------------
+
+    def add(self, token_str: str) -> None:
+        now_ms = int(time.time() * 1000)
+        with self._lock:
+            self._evict_expired_locked(now_ms)
+            if len(self._entries) >= self._MAX_SIZE:
+                logger.warning(
+                    "revocation_cache.size_cap_exceeded size=%s max_size=%s",
+                    len(self._entries),
+                    self._MAX_SIZE,
+                )
+            self._entries[token_str] = self._evict_after_ms(token_str, now_ms)
+
+    def __contains__(self, token_str: object) -> bool:
+        if not isinstance(token_str, str):
+            return False
+        now_ms = int(time.time() * 1000)
+        with self._lock:
+            evict_after_ms = self._entries.get(token_str)
+            if evict_after_ms is None:
+                return False
+            if now_ms >= evict_after_ms:
+                # Safe to evict: the token's own expiry has passed with grace.
+                del self._entries[token_str]
+                return False
+            return True
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._entries)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _evict_expired_locked(self, now_ms: int) -> int:
+        """Remove TTL-expired entries.  Caller must hold self._lock."""
+        expired = [k for k, evict_after_ms in self._entries.items() if evict_after_ms <= now_ms]
+        for k in expired:
+            del self._entries[k]
+        return len(expired)
+
+    def _evict_after_ms(self, token_str: str, now_ms: int) -> int:
+        try:
+            _prefix, signed_part = token_str.split(":", 1)
+            encoded, _signature = signed_part.split(".", 1)
+            decoded = base64.urlsafe_b64decode(encoded.encode()).decode()
+            parts = decoded.split("|")
+            if len(parts) in {5, 6}:
+                return int(parts[4]) + self._EXPIRED_TOKEN_GRACE_MS
+        except Exception:
+            logger.debug("revocation_cache.expiry_parse_failed", exc_info=True)
+        return now_ms + self._MALFORMED_TOKEN_TTL_MS
+
+
+# In-memory cache for fast revocation checks (immediate effect).
+# Also persisted to DB for cross-instance consistency.
+_revoked_tokens: _BoundedRevocationCache = _BoundedRevocationCache()
+_verifier_prewarm_lock = threading.Lock()
+_verifier_prewarmed = False
 
 # ========== Token Generator ==========
 
@@ -165,6 +250,13 @@ def validate_token(
         if not hmac.compare_digest(signature, expected_sig):
             return False, "Invalid signature", None
 
+        # Check expiry BEFORE scope so that an expired token with the wrong
+        # scope returns "Token expired" rather than "Scope mismatch".
+        # Returning scope information for an expired token leaks which scopes
+        # the token held to a caller who should only learn it is expired.
+        if int(time.time() * 1000) >= int(expires_at_str):
+            return False, "Token expired", None
+
         # SCOPE VALIDATION with domain isolation
         if expected_scope:
             # Convert enum to string if needed
@@ -185,9 +277,6 @@ def validate_token(
                     None,
                 )
 
-        if int(time.time() * 1000) >= int(expires_at_str):
-            return False, "Token expired", None
-
         # Commercial-flag gate (issue #30).
         if require_commercial is True and not commercial:
             return False, "Commercial consent required for this operation", None
@@ -207,11 +296,42 @@ def validate_token(
         )
         return True, None, token
 
-    except (ValueError, UnicodeDecodeError) as e:
+    except (ValueError, UnicodeDecodeError, binascii.Error) as e:
         return False, f"Malformed token: {str(e)}", None
     except Exception as e:
-        logger.error(f"Unexpected error during token validation: {e}", exc_info=True)
+        logger.error("Unexpected error during token validation: %s", e, exc_info=True)
         raise
+
+
+def prewarm_consent_token_verifier() -> None:
+    """Exercise the hot consent-token verification path during process startup.
+
+    validate_token() intentionally imports scope matching lazily so most token
+    checks avoid loading scope helpers until they need scope enforcement.  That
+    lazy import shows up on the first real scoped consent request after a backend
+    restart.  This synthetic, in-memory round trip moves that import and the HMAC
+    verifier setup into startup without requiring a database connection.
+    """
+    global _verifier_prewarmed
+
+    if _verifier_prewarmed:
+        return
+
+    with _verifier_prewarm_lock:
+        if _verifier_prewarmed:
+            return
+
+        token = issue_token(
+            UserID("__startup_prewarm_user__"),
+            AgentID("__startup_prewarm_agent__"),
+            "attr.startup.*",
+            expires_in_ms=60_000,
+        )
+        valid, reason, parsed = validate_token(token.token, expected_scope="attr.startup.health")
+        if not valid or parsed is None:
+            raise RuntimeError(f"Consent-token verifier prewarm failed: {reason}")
+
+        _verifier_prewarmed = True
 
 
 async def validate_token_with_db(
@@ -251,13 +371,12 @@ async def validate_token_with_db(
                 str(token_obj.agent_id),
             )
             if not is_active:
-                if str(os.getenv("TESTING", "")).strip().lower() == "true":
-                    logger.info("TESTING mode: skipping DB inactive check for token validation")
-                    return valid, reason, token_obj
-
                 # Add to in-memory set for future fast checks
                 _revoked_tokens.add(token_str)
-                logger.warning(f"Token revoked in DB but not in memory: {token_str[:30]}...")
+                logger.warning(
+                    "Token revoked in DB but not in memory (fingerprint=%s)",
+                    _token_fingerprint(token_str),
+                )
                 return False, "Token has been revoked (DB check)", None
     except Exception as e:
         # DB is unreachable — apply fail-closed policy based on token scope.
@@ -298,6 +417,11 @@ def is_token_revoked(token_str: str) -> bool:
 
 
 # ========== Internal Signer ==========
+
+
+def _token_fingerprint(token_str: str) -> str:
+    """Return a short SHA-256 fingerprint of a token for safe log messages."""
+    return hashlib.sha256(token_str.encode()).hexdigest()[:12]
 
 
 def _sign(input_string: str) -> str:

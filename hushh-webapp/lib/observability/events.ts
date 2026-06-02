@@ -78,7 +78,12 @@ export type ObservabilityEventName =
   | "growth_funnel_step_completed"
   | "investor_activation_completed"
   | "ria_activation_completed"
-  | "api_request_completed";
+  | "api_request_completed"
+  | "route_readiness_completed"
+  | "cache_resource_resolved"
+  | "route_refresh_completed"
+  | "warmup_completed"
+  | "startup_readiness_warmup_completed";
 
 export type StatusBucket =
   | "2xx"
@@ -97,6 +102,47 @@ export type DurationBucket =
   | "gte_10s";
 
 export type EventResult = "success" | "expected_error" | "error";
+export type CacheTier =
+  | "memory"
+  | "secure_device"
+  | "plain_device"
+  | "network"
+  | "none";
+export type CacheFreshness = "fresh" | "stale" | "missing" | "locked" | "unsafe";
+export type CacheResourceClass =
+  | "public_static"
+  | "auth_state"
+  | "vault_metadata"
+  | "pkm_metadata"
+  | "pkm_projection"
+  | "financial_resource"
+  | "consent_list"
+  | "market_data"
+  | "ria_workspace"
+  | "realtime_stream"
+  | "unknown";
+export type RouteRenderPath =
+  | "fresh_memory"
+  | "secure_device_stale"
+  | "plain_device_stale"
+  | "background_refresh"
+  | "cold_loader"
+  | "blocked_locked"
+  | "realtime_patch";
+export type RefreshTrigger =
+  | "initial_load"
+  | "route_change"
+  | "focus"
+  | "manual"
+  | "mutation"
+  | "warmup";
+export type CacheFootprintBucket =
+  | "none"
+  | "lt_50kb"
+  | "50kb_250kb"
+  | "250kb_1mb"
+  | "1mb_5mb"
+  | "gte_5mb";
 
 export type AuthMethod = "google" | "apple" | "reviewer" | "redirect" | "existing_session";
 export type ConsentAction = "approve" | "deny" | "revoke";
@@ -159,6 +205,11 @@ const EVENT_CATEGORY_BY_NAME: Record<
   investor_activation_completed: "funnel",
   ria_activation_completed: "funnel",
   api_request_completed: "system",
+  route_readiness_completed: "system",
+  cache_resource_resolved: "system",
+  route_refresh_completed: "system",
+  warmup_completed: "system",
+  startup_readiness_warmup_completed: "system",
 };
 
 export function resolveObservabilityEventCategory(
@@ -356,6 +407,55 @@ export interface EventPayloadMap {
     status_bucket: StatusBucket;
     duration_ms_bucket: DurationBucket;
     retry_count?: number;
+  };
+  route_readiness_completed: {
+    route_id: RouteId;
+    result: EventResult;
+    render_path: RouteRenderPath;
+    cache_tier: CacheTier;
+    resource_class: CacheResourceClass;
+    duration_ms_bucket: DurationBucket;
+    blocking_loader_shown: boolean;
+    stale_rendered: boolean;
+  };
+  cache_resource_resolved: {
+    route_id?: RouteId;
+    result: EventResult;
+    resource_class: CacheResourceClass;
+    cache_tier: CacheTier;
+    freshness: CacheFreshness;
+    duration_ms_bucket: DurationBucket;
+    footprint_bucket?: CacheFootprintBucket;
+  };
+  route_refresh_completed: {
+    route_id: RouteId;
+    result: EventResult;
+    resource_class: CacheResourceClass;
+    refresh_trigger: RefreshTrigger;
+    duration_ms_bucket: DurationBucket;
+    retry_count?: number;
+  };
+  warmup_completed: {
+    route_id?: RouteId;
+    result: EventResult;
+    resource_class: CacheResourceClass;
+    cache_tier: CacheTier;
+    warm_priority: string;
+    duration_ms_bucket: DurationBucket;
+    footprint_bucket?: CacheFootprintBucket;
+  };
+  startup_readiness_warmup_completed: {
+    result: EventResult;
+    warm_priority: string;
+    duration_ms: number;
+    duration_ms_bucket: DurationBucket;
+    onboarding_synced: boolean;
+    metadata_warmed: boolean;
+    financial_warmed: boolean;
+    kai_market_warmed: boolean;
+    dashboard_picks_warmed: boolean;
+    consents_warmed: boolean;
+    vault_status_warmed: boolean;
   };
 }
 

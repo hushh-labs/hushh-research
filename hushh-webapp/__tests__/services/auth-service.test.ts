@@ -8,7 +8,27 @@ const {
   mockPhoneAuthProvider,
   mockUpdatePhoneNumber,
   mockLinkWithCredential,
+  mockSignInWithCredential,
+  mockFirebaseSignOut,
+  mockSetPersistence,
+  mockGetAuth,
+  mockGetApps,
+  mockInitializeApp,
+  mockFirebaseApp,
+  mockPhoneClaimAuth,
 } = vi.hoisted(() => ({
+  mockFirebaseApp: {
+    name: "[DEFAULT]",
+    options: {
+      projectId: "demo-project",
+      apiKey: "demo-key",
+    },
+  },
+  mockPhoneClaimAuth: {
+    app: {
+      name: "hushh-phone-claim",
+    },
+  },
   mockAuth: {
     currentUser: null as any,
     onAuthStateChanged: vi.fn(),
@@ -36,6 +56,12 @@ const {
   mockPhoneAuthProvider: vi.fn(),
   mockUpdatePhoneNumber: vi.fn(),
   mockLinkWithCredential: vi.fn(),
+  mockSignInWithCredential: vi.fn(),
+  mockFirebaseSignOut: vi.fn(),
+  mockSetPersistence: vi.fn(),
+  mockGetAuth: vi.fn(),
+  mockGetApps: vi.fn(),
+  mockInitializeApp: vi.fn(),
 }));
 
 vi.mock("@capacitor/core", () => ({
@@ -52,7 +78,13 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@/lib/firebase/config", () => ({
+  app: mockFirebaseApp,
   auth: mockAuth,
+}));
+
+vi.mock("firebase/app", () => ({
+  getApps: mockGetApps,
+  initializeApp: mockInitializeApp,
 }));
 
 vi.mock("firebase/auth", () => ({
@@ -60,15 +92,18 @@ vi.mock("firebase/auth", () => ({
     credential: vi.fn(),
     credentialFromResult: vi.fn(),
   },
+  getAuth: mockGetAuth,
+  inMemoryPersistence: "in-memory-persistence",
   OAuthProvider: vi.fn(),
   PhoneAuthProvider: Object.assign(mockPhoneAuthProvider, {
     credential: vi.fn(),
   }),
   linkWithCredential: mockLinkWithCredential,
-  signInWithCredential: vi.fn(),
+  setPersistence: mockSetPersistence,
+  signInWithCredential: mockSignInWithCredential,
   signInWithCustomToken: vi.fn(),
   signInWithPopup: vi.fn(),
-  signOut: vi.fn(),
+  signOut: mockFirebaseSignOut,
   onAuthStateChanged: vi.fn(),
   updatePhoneNumber: mockUpdatePhoneNumber,
 }));
@@ -89,6 +124,9 @@ import {
   linkWithCredential,
   onAuthStateChanged,
   PhoneAuthProvider,
+  setPersistence,
+  signInWithCredential,
+  signOut as firebaseSignOut,
   updatePhoneNumber,
 } from "firebase/auth";
 import { HushhAuth } from "@/lib/capacitor";
@@ -105,13 +143,34 @@ function createIdToken(expiresInSeconds: number): string {
   return `${header}.${payload}.signature`;
 }
 
+function enableLocalDevPhoneTest() {
+  vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
+  vi.stubEnv("NEXT_PUBLIC_FIREBASE_PHONE_AUTH_DISABLE_APP_VERIFICATION", "true");
+  vi.stubEnv("NEXT_PUBLIC_FIREBASE_PHONE_AUTH_LOCAL_TEST_PHONE", "+918080469407");
+  vi.stubEnv("NEXT_PUBLIC_FIREBASE_PHONE_AUTH_LOCAL_TEST_CODE", "000000");
+  vi.stubGlobal("window", {
+    location: {
+      hostname: "localhost",
+      host: "localhost:3001",
+    },
+  });
+}
+
 describe("AuthService.restoreNativeSession", () => {
   beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     vi.clearAllMocks();
     mockCapacitor.isNativePlatform.mockReturnValue(true);
     mockCapacitor.getPlatform.mockReturnValue("ios");
     mockAuth.currentUser = null;
     mockAuth.onAuthStateChanged.mockReset();
+    mockGetApps.mockReturnValue([mockFirebaseApp] as any);
+    mockInitializeApp.mockReturnValue(mockFirebaseApp as any);
+    mockGetAuth.mockReturnValue(mockPhoneClaimAuth as any);
+    vi.mocked(setPersistence).mockResolvedValue(undefined);
+    vi.mocked(signInWithCredential).mockReset();
+    vi.mocked(firebaseSignOut).mockResolvedValue(undefined);
     vi.mocked(onAuthStateChanged).mockImplementation(((_auth, next) => {
       next(null);
       return vi.fn();
@@ -271,6 +330,47 @@ describe("AuthService.restoreNativeSession", () => {
     });
   });
 
+  it("starts local dev phone verification without calling Firebase for the configured test phone", async () => {
+    enableLocalDevPhoneTest();
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const verifyPhoneNumber = vi.fn().mockResolvedValue("firebase-verification-id");
+    mockPhoneAuthProvider.mockImplementation(function () {
+      return {
+        verifyPhoneNumber,
+      };
+    });
+    mockAuth.currentUser = {
+      uid: "web-user",
+      phoneNumber: null,
+    } as any;
+
+    const result = await AuthService.startPhoneLinkVerification("+918080469407", {
+      recaptchaVerifier: {} as any,
+    });
+
+    expect(verifyPhoneNumber).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      autoVerified: false,
+      verificationId: "local-dev-phone:%2B918080469407",
+    });
+  });
+
+  it("confirms local dev phone verification with the configured OTP", async () => {
+    enableLocalDevPhoneTest();
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    mockAuth.currentUser = {
+      uid: "web-user",
+      phoneNumber: null,
+    } as any;
+
+    const verifiedUser = await AuthService.confirmLocalDevPhoneVerification({
+      verificationCode: "000000",
+      verificationId: "local-dev-phone:%2B918080469407",
+    });
+
+    expect(verifiedUser).toBe(mockAuth.currentUser);
+  });
+
   it("normalizes Firebase SMS throttle errors during web phone verification", async () => {
     mockCapacitor.isNativePlatform.mockReturnValue(false);
     const verifyPhoneNumber = vi.fn().mockRejectedValue({
@@ -296,6 +396,70 @@ describe("AuthService.restoreNativeSession", () => {
       message:
         "Firebase is temporarily blocking SMS verification for this phone number or device after too many attempts. Wait before trying again, or use a different phone number.",
     });
+  });
+
+  it("normalizes duplicate live-account phone errors during web phone verification", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const verifyPhoneNumber = vi.fn().mockRejectedValue({
+      code: "auth/phone-number-already-exists",
+      message: "Firebase: Error (auth/phone-number-already-exists).",
+    });
+    mockPhoneAuthProvider.mockImplementation(function () {
+      return {
+        verifyPhoneNumber,
+      };
+    });
+    mockAuth.currentUser = {
+      uid: "web-user",
+      phoneNumber: null,
+    } as any;
+
+    await expect(
+      AuthService.startPhoneLinkVerification("+16505550101", {
+        recaptchaVerifier: {} as any,
+      })
+    ).rejects.toMatchObject({
+      code: "phone-number-already-exists",
+      message:
+        "This phone number is already associated with another active account. If the account was just deleted, wait a moment and try again.",
+    });
+  });
+
+  it("uses native Firebase phone linking without minting a web phone claim token", async () => {
+    const listeners: Record<string, (event: any) => void | Promise<void>> = {};
+    mockCapacitor.isNativePlatform.mockReturnValue(true);
+    mockAuth.currentUser = {
+      uid: "native-user",
+      phoneNumber: null,
+    } as any;
+    vi.mocked(FirebaseAuthentication.addListener).mockImplementation(
+      async (eventName: string, callback: (event: any) => void | Promise<void>) => {
+        listeners[eventName] = callback;
+        return { remove: vi.fn() } as any;
+      }
+    );
+
+    const startPromise = AuthService.startPhoneLinkVerification("+16505550101", {
+      resendCode: true,
+      timeout: 30,
+    });
+
+    for (let i = 0; i < 10 && !listeners.phoneCodeSent; i += 1) {
+      await Promise.resolve();
+    }
+    expect(listeners.phoneCodeSent).toBeTypeOf("function");
+    await listeners.phoneCodeSent({ verificationId: "native-verification-id" });
+
+    await expect(startPromise).resolves.toEqual({
+      autoVerified: false,
+      verificationId: "native-verification-id",
+    });
+    expect(FirebaseAuthentication.linkWithPhoneNumber).toHaveBeenCalledWith({
+      phoneNumber: "+16505550101",
+      resendCode: true,
+      timeout: 30,
+    });
+    expect(signInWithCredential).not.toHaveBeenCalled();
   });
 
   it("links the web user phone number during link confirmation", async () => {
@@ -327,6 +491,39 @@ describe("AuthService.restoreNativeSession", () => {
     expect(linkWithCredential).toHaveBeenCalledWith(mockAuth.currentUser, "phone-credential");
     expect(reload).toHaveBeenCalledTimes(1);
     expect(verifiedUser).toBe(linkedUser);
+  });
+
+  it("mints a web phone claim token without linking the primary Firebase user", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const getIdToken = vi.fn().mockResolvedValue("phone-claim-id-token");
+    vi.mocked(PhoneAuthProvider.credential).mockReturnValue("phone-credential" as any);
+    vi.mocked(signInWithCredential).mockResolvedValue({
+      user: {
+        getIdToken,
+      },
+    } as any);
+
+    const claimToken = await AuthService.getPhoneClaimIdToken({
+      verificationCode: "123456",
+      verificationId: "claim-verification-id",
+    });
+
+    expect(PhoneAuthProvider.credential).toHaveBeenCalledWith(
+      "claim-verification-id",
+      "123456"
+    );
+    expect(setPersistence).toHaveBeenCalledWith(
+      mockPhoneClaimAuth,
+      "in-memory-persistence"
+    );
+    expect(signInWithCredential).toHaveBeenCalledWith(
+      mockPhoneClaimAuth,
+      "phone-credential"
+    );
+    expect(linkWithCredential).not.toHaveBeenCalled();
+    expect(getIdToken).toHaveBeenCalledWith(true);
+    expect(firebaseSignOut).toHaveBeenCalledWith(mockPhoneClaimAuth);
+    expect(claimToken).toBe("phone-claim-id-token");
   });
 
   it("updates the web user phone number during replacement confirmation", async () => {
@@ -366,5 +563,11 @@ describe("AuthService.restoreNativeSession", () => {
       message: "This phone number is already linked to your account.",
       code: "phone-already-linked-to-current-user",
     });
+  });
+
+  it("recognizes UAT phone test verification ids without treating them as local dev ids", () => {
+    expect(AuthService.isUatPhoneTestVerificationId("uat-test-phone:abc123")).toBe(true);
+    expect(AuthService.isUatPhoneTestVerificationId("local-dev-phone:%2B16505550101")).toBe(false);
+    expect(AuthService.isLocalDevPhoneVerificationId("uat-test-phone:abc123")).toBe(false);
   });
 });

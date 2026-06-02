@@ -4,6 +4,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "@/lib/morphy-ux/button";
 import { Card } from "@/lib/morphy-ux/card";
 import { AlertTriangle } from "lucide-react";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 interface Props {
   children: ReactNode;
@@ -42,13 +43,20 @@ export class RouteErrorBoundary extends Component<Props, State> {
   };
 
   private handleGoHome = () => {
-    window.location.href = this.props.fallbackRoute ?? "/";
+    requestInternalAppNavigation({
+      href: this.props.fallbackRoute ?? "/",
+      replace: true,
+      scroll: false,
+    });
   };
 
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex min-h-[60vh] flex-col items-center justify-center px-6">
+        <div
+          role="alert"
+          className="flex min-h-[60vh] flex-col items-center justify-center px-6"
+        >
           <Card
             preset="default"
             effect="glass"
@@ -70,6 +78,7 @@ export class RouteErrorBoundary extends Component<Props, State> {
                   variant="muted"
                   effect="glass"
                   size="sm"
+                  className="min-h-[44px]"
                   onClick={this.handleRetry}
                 >
                   Try again
@@ -78,6 +87,7 @@ export class RouteErrorBoundary extends Component<Props, State> {
                   variant="blue-gradient"
                   effect="fill"
                   size="sm"
+                  className="min-h-[44px]"
                   onClick={this.handleGoHome}
                 >
                   Go home

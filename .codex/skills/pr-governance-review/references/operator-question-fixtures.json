@@ -1,0 +1,78 @@
+{
+  "schema_version": "operator-question-fixtures.v1",
+  "description": "Canonical fixtures for operator questions that must be answered with current research, a recommended path, explicit risk, and a decision prompt.",
+  "fixtures": [
+    {
+      "id": "merge-batch-with-overlapping-runtime-surfaces",
+      "operator_prompt": "Can I merge this green PR batch together?",
+      "evidence_sources": [
+        ".codex/skills/pr-governance-review/references/operator-batch-output-contract.md",
+        ".codex/skills/pr-governance-review/scripts/pr_review_checklist.py"
+      ],
+      "current_truth": "The batch can only be judged after current head SHAs, CI status, touched files, duplicate groups, contract sets, and runtime schematics are checked.",
+      "recommended_path": "Treat the question as a merge-governance decision, split PRs with exact file overlap or duplicate contracts, and merge only the lane that has current evidence.",
+      "risk_if_accepted_blindly": "Green checks can hide stale runs, overlapping edits, or duplicate architecture that would make a batch merge look safe while regressing the runtime contract.",
+      "decision_needed": "Should the operator merge only the researched safe lane now, or hold the full batch until overlap and contract evidence is resolved?",
+      "options": [
+        {
+          "label": "Merge researched safe lane",
+          "recommended": true,
+          "expected_output": "Report current truth, recommend merging only the evidence-backed lane, and identify the held PRs with risk and next evidence needed."
+        },
+        {
+          "label": "Merge full green batch",
+          "recommended": false,
+          "expected_output": "Reject this as insufficient because CI alone is not a merge-readiness proof."
+        }
+      ]
+    },
+    {
+      "id": "close-duplicate-after-harvesting-useful-tests",
+      "operator_prompt": "Should I close this duplicate PR because another branch already covers the same feature?",
+      "evidence_sources": [
+        ".codex/skills/pr-governance-review/references/review-axes.md",
+        ".codex/skills/pr-governance-review/references/operator-batch-output-contract.md"
+      ],
+      "current_truth": "Duplicate closure requires current comparison of touched contracts, surviving useful tests, public comment policy, and whether the duplicate contains unique evidence worth harvesting.",
+      "recommended_path": "Harvest any unique regression coverage or maintainer-safe patch first, then close the duplicate with direct links to the surviving PR and evidence that explains the decision.",
+      "risk_if_accepted_blindly": "Closing on memory alone can discard useful tests, erase contributor credit, or leave the surviving PR without the coverage that made the duplicate valuable.",
+      "decision_needed": "Should the operator harvest the useful test coverage before closing, or keep both PRs open until the surviving branch carries the evidence?",
+      "options": [
+        {
+          "label": "Harvest then close",
+          "recommended": true,
+          "expected_output": "Recommend harvesting the useful coverage first, then closing with direct PR links and a concise researched explanation."
+        },
+        {
+          "label": "Close immediately",
+          "recommended": false,
+          "expected_output": "Reject this unless current evidence proves the duplicate has no unique coverage, contract changes, or contributor-facing value."
+        }
+      ]
+    },
+    {
+      "id": "request-changes-on-trust-boundary-regression",
+      "operator_prompt": "The PR is small and tests pass. Can I approve it?",
+      "evidence_sources": [
+        ".codex/skills/pr-governance-review/references/blocker-gates.md",
+        ".codex/skills/pr-governance-review/references/comment-and-report-contract.md"
+      ],
+      "current_truth": "A small diff still needs current review for trust-boundary regressions, raw-error leakage, consent scope drift, and schema-contract changes before approval.",
+      "recommended_path": "Block or request changes when the researched evidence shows a trust-boundary regression, even if the diff is small and current CI is green.",
+      "risk_if_accepted_blindly": "Approving because the patch is small can let consent or security regressions ship without the public finding that tells the contributor what must change.",
+      "decision_needed": "Should the operator request changes with the researched blocker, or approve because the PR is small and green?",
+      "options": [
+        {
+          "label": "Request researched changes",
+          "recommended": true,
+          "expected_output": "Lead with the blocker, cite the current evidence, and explain the smallest path to approval."
+        },
+        {
+          "label": "Approve small green PR",
+          "recommended": false,
+          "expected_output": "Reject this when current evidence shows a trust-boundary regression."
+        }
+      ]
+    }
+  ]
+}

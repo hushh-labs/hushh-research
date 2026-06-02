@@ -37,6 +37,33 @@ Optional, depending on the work:
 - Xcode / Android Studio for native work
 - `cloud-sql-proxy` only for the `local` backend path
 
+### Windows Git Troubleshooting
+
+If PowerShell reports `git` as an unknown command, install Git for Windows and reopen PowerShell so `PATH` refreshes. Keep the installer option that makes Git available from the command line, then verify:
+
+```powershell
+git --version
+```
+
+If `git status` reports `fatal: not a git repository`, you are in a folder without a `.git` directory. Clone the repo or move into the real checkout before running Git commands:
+
+```powershell
+cd D:\
+git clone https://github.com/hushh-labs/hushh-research.git hushh-research
+cd D:\hushh-research
+git status
+```
+
+External contributors usually cannot push directly to `hushh-labs/hushh-research`. Push a signed-off branch to your fork and open a pull request:
+
+```powershell
+git checkout -b docs-windows-setup
+git add docs\guides\getting-started.md
+git commit -s -m "Docs: clarify Windows Git setup"
+git remote add fork https://github.com/<your-user>/hushh-research.git
+git push -u fork docs-windows-setup
+```
+
 ## First Run
 
 ```bash
@@ -151,6 +178,27 @@ When you do need the full local stack:
 ```
 
 That separate-terminal backend + frontend flow is the preferred maintainer path. Use `./bin/hushh terminal stack --mode local` only if you deliberately want one visible terminal window to own both processes.
+
+### Optional Container Backend Support
+
+Use the Docker-backed helper only when you intentionally want local backend
+support services in containers:
+
+```bash
+./bin/hushh compose init
+./bin/hushh compose up dev
+```
+
+The `dev` compose profile starts the backend, Redis, and Mailhog. It does not
+replace `./bin/hushh web`, and it does not switch the repo to a Docker-first
+workflow. The local Postgres profile is standalone and opt-in:
+
+```bash
+./bin/hushh compose up db
+```
+
+The backend continues to follow `consent-protocol/.env` unless an operator
+explicitly changes those values.
 
 The local backend path is the only place that uses:
 
