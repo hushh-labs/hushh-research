@@ -32,6 +32,7 @@ const flowFilter = (process.env.IOS_UI_FLOW_FILTER || "").trim();
 const routeFilter = (process.env.IOS_UI_ROUTE_FILTER || "").trim();
 const xcodeProject = "ios/App/App.xcodeproj";
 const xcodeScheme = "App";
+const keepAppAfterAudit = process.env.IOS_UI_INTERACTION_KEEP_APP === "true";
 
 const reviewerIdentity = resolveReviewerTestIdentity({
   envFiles: defaultReviewerIdentityEnvFiles({ repoRoot: monorepoRoot, webDir: repoRoot }),
@@ -39,6 +40,12 @@ const reviewerIdentity = resolveReviewerTestIdentity({
 const reviewerVaultPassphrase = reviewerIdentity.reviewerVaultPassphrase;
 const reviewerUid = reviewerIdentity.reviewerUid;
 const uiFlows = filterUiFlows({ flowFilter, routeFilter });
+const REDACTED_REPORT_STATUS_KEYS = new Set([
+  "bootstrap_uid",
+  "body",
+  "bodySnippet",
+  "jserr",
+]);
 
 function resolveSimulatorDestination(deviceName) {
   try {
@@ -182,6 +189,15 @@ function parseStatus(raw) {
   );
 }
 
+function sanitizeStatusForReport(status = {}) {
+  return Object.fromEntries(
+    Object.entries(status || {}).map(([key, value]) => [
+      key,
+      REDACTED_REPORT_STATUS_KEYS.has(key) && value ? "<redacted>" : value,
+    ])
+  );
+}
+
 function readUiReportFromContainer() {
   const container = run("xcrun", [
     "simctl",
@@ -224,6 +240,18 @@ function launchUiInteractionAudit() {
     reviewerUid,
   ];
   run("xcrun", args);
+}
+
+function captureFailureScreenshot() {
+  const screenshotPath = path.join(repoRoot, "native-ios-ui-interaction-failure.png");
+  tryRun("xcrun", [
+    "simctl",
+    "io",
+    simulatorDevice,
+    "screenshot",
+    screenshotPath,
+  ]);
+  return screenshotPath;
 }
 
 function waitForUiInteractionReport() {
@@ -299,7 +327,11 @@ function main() {
   ensureSimulatorBooted();
   launchUiInteractionAudit();
   const result = waitForUiInteractionReport();
-  tryRun("xcrun", ["simctl", "terminate", simulatorDevice, bundleId]);
+  const auditOk = Boolean(result.ok && result.report?.ok);
+  const failureScreenshotPath = auditOk ? null : captureFailureScreenshot();
+  if (!keepAppAfterAudit) {
+    tryRun("xcrun", ["simctl", "terminate", simulatorDevice, bundleId]);
+  }
 
   const summary = {
     generated_at: new Date().toISOString(),
@@ -307,11 +339,12 @@ function main() {
     flow_count: uiFlows.length,
     passed_flows: result.report?.flows?.filter((flow) => flow.ok).length ?? 0,
     failed_flows: result.report?.flows?.filter((flow) => !flow.ok).length ?? 0,
-    ok: Boolean(result.ok && result.report?.ok),
+    ok: auditOk,
     flows: uiFlows.map((flow) => flow.id),
     report: result.report,
     error: result.error || null,
-    last_status: result.status,
+    failure_screenshot: failureScreenshotPath,
+    last_status: sanitizeStatusForReport(result.status),
   };
 
   fs.writeFileSync(reportPath, `${JSON.stringify(summary, null, 2)}\n`);

@@ -77,9 +77,7 @@ class TestStreamAnalyzeRequestBounds:
         from pydantic.fields import FieldInfo
 
         field: FieldInfo = StreamAnalyzeRequest.model_fields["user_id"]
-        max_len_values = [
-            c.max_length for c in field.metadata if hasattr(c, "max_length")
-        ]
+        max_len_values = [c.max_length for c in field.metadata if hasattr(c, "max_length")]
         assert max_len_values, "user_id must have a max_length constraint"
         assert _USER_ID_MAX_LEN in max_len_values, (
             f"user_id max_length should be {_USER_ID_MAX_LEN}; found {max_len_values}"

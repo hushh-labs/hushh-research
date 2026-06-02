@@ -74,6 +74,7 @@ export const UI_FLOWS = [
       { type: "ensure_persona", persona: "ria" },
       { type: "click_bottom_nav", label: "Home" },
       { type: "wait_beacon", routeIds: ["/ria"] },
+      { type: "assert_visible_testid", testId: "ria-action-bar" },
     ],
   },
   {
@@ -84,6 +85,7 @@ export const UI_FLOWS = [
       { type: "ensure_persona", persona: "ria" },
       { type: "click_bottom_nav", label: "Clients" },
       { type: "wait_beacon", routeIds: ["/ria/clients"] },
+      { type: "assert_visible_testid", testId: "ria-action-bar" },
     ],
   },
   {
@@ -94,6 +96,7 @@ export const UI_FLOWS = [
       { type: "ensure_persona", persona: "ria" },
       { type: "click_bottom_nav", label: "Picks" },
       { type: "wait_beacon", routeIds: ["/ria/picks"] },
+      { type: "assert_visible_testid", testId: "ria-action-bar" },
       { type: "assert_visible_testid", testId: "ria-picks-primary" },
     ],
   },
