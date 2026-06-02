@@ -48,9 +48,9 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import {
-  KAI_GEMINI_RUNTIME_CREDENTIAL_REF,
-  KAI_RUNTIME_CREDENTIAL_MODE_REF,
+  GEMINI_RUNTIME_CREDENTIAL_REF,
   PersonalKnowledgeModelService,
+  RUNTIME_CREDENTIAL_MODE_REF,
   type KaiRuntimeCredentialMode,
 } from "@/lib/services/personal-knowledge-model-service";
 import {
@@ -124,8 +124,6 @@ const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   totalAttributes: 0,
   updatedAt: null,
 };
-const AGENT_GEMINI_CREDENTIAL_REF = KAI_GEMINI_RUNTIME_CREDENTIAL_REF;
-const AGENT_CREDENTIAL_MODE_REF = KAI_RUNTIME_CREDENTIAL_MODE_REF;
 const AGENT_STREAM_RENDER_FRAME_MS = 32;
 
 const EXPLICIT_PKM_SAVE_PATTERN =
@@ -1553,7 +1551,7 @@ export function AgentChatWorkspace({
     try {
       let agentPkmContext = EMPTY_PKM_CONTEXT;
       let runtimeCredential: string | null = null;
-      let runtimeCredentialMode: KaiRuntimeCredentialMode = "byok";
+      let runtimeCredentialMode: KaiRuntimeCredentialMode = "hushh_managed_vertex";
       try {
         agentPkmContext = await loadAgentPkmContext({
           userId,
@@ -1590,28 +1588,26 @@ export function AgentChatWorkspace({
           userId,
           vaultKey,
           vaultOwnerToken: token,
-          credentialRef: AGENT_CREDENTIAL_MODE_REF,
+          credentialRef: RUNTIME_CREDENTIAL_MODE_REF,
         });
         runtimeCredentialMode =
-          storedCredentialMode === "hushh_managed_vertex"
-            ? "hushh_managed_vertex"
-            : "byok";
+          storedCredentialMode === "byok" ? "byok" : "hushh_managed_vertex";
         if (runtimeCredentialMode === "byok") {
           runtimeCredential = await PersonalKnowledgeModelService.loadRuntimeSecret({
             userId,
             vaultKey,
             vaultOwnerToken: token,
-            credentialRef: AGENT_GEMINI_CREDENTIAL_REF,
+            credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
           });
         }
         appendDebugEvent(debugTurnId, "runtime_secret_loaded", {
-          credential_ref: AGENT_GEMINI_CREDENTIAL_REF,
+          credential_ref: GEMINI_RUNTIME_CREDENTIAL_REF,
           credential_mode: runtimeCredentialMode,
           resolved: Boolean(runtimeCredential),
         });
       } catch (error) {
         appendDebugEvent(debugTurnId, "runtime_secret_load_failed", {
-          credential_ref: AGENT_GEMINI_CREDENTIAL_REF,
+          credential_ref: GEMINI_RUNTIME_CREDENTIAL_REF,
           message:
             error instanceof Error && error.message
               ? error.message

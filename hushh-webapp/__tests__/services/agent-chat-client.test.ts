@@ -170,6 +170,30 @@ describe("agent chat client", () => {
     );
   });
 
+  it("maps missing runtime credential details to a user-friendly message", async () => {
+    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail: "No runtime credential resolved for 'pkm:runtime_secrets.llm.gemini_api_key'.",
+        }),
+        {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+
+    await expect(
+      streamAgentChat({
+        userId: "user-1",
+        message: "Hello",
+        vaultOwnerToken: "vault-token",
+      })
+    ).rejects.toThrow(
+      "Kai needs your Gemini key to continue. Add or update it in Profile > Runtime keys, or switch Kai to Hushh managed Gemini."
+    );
+  });
+
   it("throws streamed backend error events after notifying the handler", async () => {
     vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
       sseResponse([
@@ -191,6 +215,32 @@ describe("agent chat client", () => {
       })
     ).rejects.toThrow("Agent chat failed. Please try again.");
     expect(errors).toEqual(["Agent chat failed. Please try again."]);
+  });
+
+  it("maps streamed runtime credential errors before notifying the handler", async () => {
+    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
+      sseResponse([
+        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-2.5-pro"}\n\n',
+        'event: error\ndata: {"message":"No runtime credential resolved for \'pkm:runtime_secrets.llm.gemini_api_key\'."}\n\n',
+      ])
+    );
+    const errors: string[] = [];
+
+    await expect(
+      streamAgentChat({
+        userId: "user-1",
+        message: "Hello",
+        vaultOwnerToken: "vault-token",
+        handlers: {
+          onError: (message) => errors.push(message),
+        },
+      })
+    ).rejects.toThrow(
+      "Kai needs your Gemini key to continue. Add or update it in Profile > Runtime keys, or switch Kai to Hushh managed Gemini."
+    );
+    expect(errors).toEqual([
+      "Kai needs your Gemini key to continue. Add or update it in Profile > Runtime keys, or switch Kai to Hushh managed Gemini.",
+    ]);
   });
 
   it("reads recent conversations and history", async () => {

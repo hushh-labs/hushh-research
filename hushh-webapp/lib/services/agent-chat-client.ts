@@ -63,6 +63,22 @@ function readRecord(record: Record<string, unknown>, key: string): Record<string
   return asRecord(record[key]) || {};
 }
 
+function formatAgentChatErrorMessage(message: string): string {
+  const normalized = message.trim();
+  if (!normalized) {
+    return "Agent chat failed.";
+  }
+
+  if (
+    /No runtime credential resolved/i.test(normalized) ||
+    /pkm:runtime_secrets\.llm\.gemini_api_key/i.test(normalized)
+  ) {
+    return "Kai needs your Gemini key to continue. Add or update it in Profile > Runtime keys, or switch Kai to Hushh managed Gemini.";
+  }
+
+  return normalized;
+}
+
 function normalizeToolEvent(payload: Record<string, unknown>): AgentChatToolEvent {
   return {
     callId: readString(payload, "call_id"),
@@ -86,7 +102,7 @@ async function readError(response: Response): Promise<string> {
       readString(record, "detail") ||
       readString(record, "message")
     : "";
-  return detail || `Agent chat request failed (${response.status})`;
+  return formatAgentChatErrorMessage(detail || `Agent chat request failed (${response.status})`);
 }
 
 export async function streamAgentChat(input: {
@@ -167,7 +183,9 @@ export async function streamAgentChat(input: {
       return;
     }
     if (event === "error") {
-      streamError = readString(payload, "message") || "Agent chat failed.";
+      streamError = formatAgentChatErrorMessage(
+        readString(payload, "message") || "Agent chat failed.",
+      );
       input.handlers?.onError?.(streamError);
     }
   };

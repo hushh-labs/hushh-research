@@ -649,4 +649,67 @@ describe("PersonalKnowledgeModelService runtime secrets", () => {
       }),
     );
   });
+
+  it("stores non-Gemini runtime keys without exposing raw key material in metadata", async () => {
+    const rawKey = "openai-user-key-123";
+    vi.spyOn(PersonalKnowledgeModelService, "loadDomainData").mockResolvedValue({
+      llm: { gemini_api_key: "keep-gemini" },
+    });
+    vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
+    const storeSpy = vi
+      .spyOn(PersonalKnowledgeModelService, "storeDomainData")
+      .mockResolvedValue({ success: true });
+
+    await PersonalKnowledgeModelService.storeRuntimeSecret({
+      userId: "user-1",
+      vaultKey: "vault-key-1",
+      vaultOwnerToken: "vault-owner-token",
+      credentialRef: "pkm:runtime_secrets.llm.openai_api_key",
+      secret: rawKey,
+    });
+
+    expect(storeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        domain: "runtime_secrets",
+        domainData: {
+          llm: {
+            gemini_api_key: "keep-gemini",
+            openai_api_key: rawKey,
+          },
+        },
+        summary: expect.objectContaining({
+          configured_runtime_providers: ["gemini", "openai"],
+          configured_provider_count: 2,
+          has_gemini_api_key: true,
+          has_openai_api_key: true,
+          has_claude_api_key: false,
+          has_grok_api_key: false,
+        }),
+      }),
+    );
+
+    const storedPayload = storeSpy.mock.calls[0]?.[0];
+    expect(stringify(storedPayload?.summary)).not.toContain(rawKey);
+    expect(stringify(storedPayload?.manifest)).not.toContain(rawKey);
+    expect(stringify(storedPayload?.structureDecision)).not.toContain(rawKey);
+    expect(storedPayload?.manifest?.paths).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          json_path: "llm.claude_api_key",
+          exposure_eligibility: false,
+          sensitivity_label: "restricted",
+        }),
+        expect.objectContaining({
+          json_path: "llm.grok_api_key",
+          exposure_eligibility: false,
+          sensitivity_label: "restricted",
+        }),
+        expect.objectContaining({
+          json_path: "llm.openai_api_key",
+          exposure_eligibility: false,
+          sensitivity_label: "restricted",
+        }),
+      ]),
+    );
+  });
 });

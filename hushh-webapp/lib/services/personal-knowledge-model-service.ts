@@ -123,9 +123,15 @@ export interface StoreDomainDataResult {
   updatedAt?: string;
 }
 
-export const KAI_GEMINI_RUNTIME_CREDENTIAL_REF =
+export const GEMINI_RUNTIME_CREDENTIAL_REF =
   "pkm:runtime_secrets.llm.gemini_api_key";
-export const KAI_RUNTIME_CREDENTIAL_MODE_REF =
+export const CLAUDE_RUNTIME_CREDENTIAL_REF =
+  "pkm:runtime_secrets.llm.claude_api_key";
+export const GROK_RUNTIME_CREDENTIAL_REF =
+  "pkm:runtime_secrets.llm.grok_api_key";
+export const OPENAI_RUNTIME_CREDENTIAL_REF =
+  "pkm:runtime_secrets.llm.openai_api_key";
+export const RUNTIME_CREDENTIAL_MODE_REF =
   "pkm:runtime_secrets.llm.credential_mode";
 export type KaiRuntimeCredentialMode = "byok" | "hushh_managed_vertex";
 
@@ -1216,14 +1222,44 @@ export class PersonalKnowledgeModelService {
   } {
     const nowIso = new Date().toISOString();
     const domainContractVersion = currentDomainContractVersion(params.domain);
-    const hasGeminiKey =
-      this.getValueAtPath(params.domainData, "llm.gemini_api_key") !== undefined;
+    const providerDescriptors = [
+      {
+        provider: "gemini",
+        jsonPath: "llm.gemini_api_key",
+        summaryKey: "has_gemini_api_key",
+        consentLabel: "Gemini API key",
+      },
+      {
+        provider: "claude",
+        jsonPath: "llm.claude_api_key",
+        summaryKey: "has_claude_api_key",
+        consentLabel: "Claude API key",
+      },
+      {
+        provider: "grok",
+        jsonPath: "llm.grok_api_key",
+        summaryKey: "has_grok_api_key",
+        consentLabel: "Grok API key",
+      },
+      {
+        provider: "openai",
+        jsonPath: "llm.openai_api_key",
+        summaryKey: "has_openai_api_key",
+        consentLabel: "OpenAI API key",
+      },
+    ] as const;
+    const providerPresence = providerDescriptors.map((descriptor) => ({
+      ...descriptor,
+      configured: this.getValueAtPath(params.domainData, descriptor.jsonPath) !== undefined,
+    }));
     const credentialMode = this.getValueAtPath(params.domainData, "llm.credential_mode");
     const safeCredentialMode =
       credentialMode === "byok" || credentialMode === "hushh_managed_vertex"
         ? credentialMode
         : "byok";
-    const configuredProviders = hasGeminiKey ? ["gemini"] : [];
+    const configuredProviders = providerPresence
+      .filter((descriptor) => descriptor.configured)
+      .map((descriptor) => descriptor.provider);
     const manifestVersion = Math.max(1, params.previousManifest?.manifest_version || 0) + 1;
     const paths: PathDescriptor[] = [
       {
@@ -1237,17 +1273,19 @@ export class PersonalKnowledgeModelService {
         scope_handle: "runtime_secrets.llm",
         source_agent: "runtime_secret_settings",
       },
-      {
-        json_path: "llm.gemini_api_key",
-        parent_path: "llm",
-        path_type: "leaf",
-        exposure_eligibility: false,
-        consent_label: "Gemini API key",
-        sensitivity_label: "restricted",
-        segment_id: "llm",
-        scope_handle: "runtime_secrets.llm",
-        source_agent: "runtime_secret_settings",
-      },
+      ...providerDescriptors.map(
+        (descriptor): PathDescriptor => ({
+          json_path: descriptor.jsonPath,
+          parent_path: "llm",
+          path_type: "leaf",
+          exposure_eligibility: false,
+          consent_label: descriptor.consentLabel,
+          sensitivity_label: "restricted",
+          segment_id: "llm",
+          scope_handle: "runtime_secrets.llm",
+          source_agent: "runtime_secret_settings",
+        }),
+      ),
       {
         json_path: "llm.credential_mode",
         parent_path: "llm",
@@ -1272,7 +1310,12 @@ export class PersonalKnowledgeModelService {
       storage_mode: "encrypted_domain",
       configured_runtime_providers: configuredProviders,
       configured_provider_count: configuredProviders.length,
-      has_gemini_api_key: hasGeminiKey,
+      ...Object.fromEntries(
+        providerPresence.map((descriptor) => [
+          descriptor.summaryKey,
+          descriptor.configured,
+        ]),
+      ),
       credential_mode: safeCredentialMode,
     };
     const structureDecision: StructureDecision = {
@@ -1284,7 +1327,9 @@ export class PersonalKnowledgeModelService {
       summary_projection: summary,
       sensitivity_labels: {
         llm: "restricted",
-        "llm.gemini_api_key": "restricted",
+        ...Object.fromEntries(
+          providerDescriptors.map((descriptor) => [descriptor.jsonPath, "restricted"]),
+        ),
         "llm.credential_mode": "restricted",
       },
       confidence: 1,
