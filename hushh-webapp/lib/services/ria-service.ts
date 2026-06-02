@@ -1655,7 +1655,7 @@ export class RiaService {
     options?: CachedReadOptions,
   ): Promise<RiaRequestBundleRecord[]> {
     const cacheKey = options?.userId
-      ? `ria_request_bundles_${options.userId}`
+      ? CACHE_KEYS.RIA_REQUEST_BUNDLES(options.userId)
       : null;
     return this.readCachedOrFetch({
       cacheKey,
