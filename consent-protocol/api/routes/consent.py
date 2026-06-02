@@ -21,6 +21,7 @@ from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.utils.firebase_auth import verify_firebase_bearer
+from hushh_mcp.consent.privacy_engine import noisy_approval_count
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
 from hushh_mcp.consent.token import issue_token, revoke_token, validate_token_with_db
@@ -1013,7 +1014,19 @@ async def get_consent_center_summary(
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     service = ConsentCenterService()
-    return await service.get_center_summary(firebase_uid, actor=actor, mode=mode)
+    summary = await service.get_center_summary(firebase_uid, actor=actor, mode=mode)
+
+    # Differential-privacy noise — apply Laplace mechanism to the aggregate
+    # counts before returning them.  Individual consent decisions cannot be
+    # reverse-engineered from the published counts (ε = 1.0, sensitivity = 1).
+    # Canonical attach point: hushh_mcp/consent/privacy_engine.py → noisy_approval_count
+    # Integrated by Abdul Gaffar — canonical DP boundary for consent analytics.
+    counts = summary.get("counts", {})
+    summary["counts"] = {
+        surface: round(noisy_approval_count(int(v)))
+        for surface, v in counts.items()
+    }
+    return summary
 
 
 @router.get("/center/list")
