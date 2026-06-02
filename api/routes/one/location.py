@@ -14,8 +14,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
-from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.one_location_agent_service import (
+    DatabaseExecutionError,
     OneLocationAgentError,
     OneLocationAgentService,
     database_error_detail,
