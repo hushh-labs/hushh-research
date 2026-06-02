@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 function Empty({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
+      role="status"
       data-slot="empty"
       role="status"
       className={cn(

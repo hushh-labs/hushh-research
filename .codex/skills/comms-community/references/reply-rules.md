@@ -75,33 +75,34 @@ Use these rules for public community responses:
    - correct the premise first when a proposal describes shipped functionality as missing
    - separate `already_exists`, `partially_exists`, and `wrong_direction`
    - prefer the smallest useful next PR boundary over broad agreement
-45. For MCP, consent, scope, and tool-discovery questions, always check the current shipped contract before drafting:
+45. For material founder-language, product-direction, One/Kai/Nav, PCHP/BYOA, PKM/World Model, or roadmap replies, use the Founder Wiki North-Star Probe locally before drafting when the wiki MCP is available. Private wiki evidence stays local-only; public/community replies should use public-safe language and cite repo docs unless the user explicitly asks for wiki links. Treat repo/wiki disagreement as `current_state_vs_north_star_drift`.
+46. For MCP, consent, scope, and tool-discovery questions, always check the current shipped contract before drafting:
    - dynamic per-user scopes already exist through `discover_user_domains(user_id)` and `/api/v1/user-scopes/{user_id}`
    - MCP tool visibility is already filtered by the current developer principal's allowed tool groups
    - tool list visibility is not the security boundary; every tool call still needs server-side entitlement, token, and consent validation
    - if the contributor proposes "make tools dynamic based on consent," answer by distinguishing dynamic scope discovery, developer/tool entitlement, and per-call consent gating
-46. Do not reduce high-risk product questions to conversational approval. For adaptive agent behavior, recommendations, finance outcomes, consent authority, vault access, or PKM memory:
+47. Do not reduce high-risk product questions to conversational approval. For adaptive agent behavior, recommendations, finance outcomes, consent authority, vault access, or PKM memory:
    - name the risk introduced by the proposed mechanism
    - name the safe version of the idea
    - name the first acceptable implementation lane
    - if the change could affect regulated advice, trust boundaries, or durable memory, default to shadow/evaluation mode before runtime mutation
-47. When a contributor suggests a feature that overlaps existing infrastructure, the reply should include one crisp maintainer sentence:
+48. When a contributor suggests a feature that overlaps existing infrastructure, the reply should include one crisp maintainer sentence:
    - `That part already exists; the useful contribution is ...`
    - `That is not the boundary we want; the safer version is ...`
    - `Do not build a parallel path; extend the existing ... contract.`
-48. For Kai decision, recommendation, portfolio outcome, and agent-weight questions, verify the shipped decision/stream contract before drafting:
+49. For Kai decision, recommendation, portfolio outcome, and agent-weight questions, verify the shipped decision/stream contract before drafting:
    - realtime quote data is already part of the analysis provider path; do not accept "price is missing" without checking the current decision payload and raw card
    - current stream decisions already carry valuation/trend fields, `analysis_updated_at`, diagnostics, and a `market_snapshot` in the live stream path
    - the likely missing piece is usually a durable shadow-evaluation contract, not the visible decision card itself
    - keep user-facing Decision Card fields separate from internal evaluation telemetry unless the product surface explicitly needs the field
    - never suggest live agent-weight mutation from outcomes; recommend shadow logging, offline cohort evaluation, and promotion gates first
-49. For statements phrased as "we are missing X," use this sequence:
+50. For statements phrased as "we are missing X," use this sequence:
    - check whether X already exists in code/docs/contracts
    - if X exists, say `we already capture X; the gap is Y`
    - if X exists only transiently, say `we compute X but do not persist it in the right evaluation surface yet`
    - if X truly does not exist, name the smallest contract where it belongs
    - do not draft a reply that treats an unverified "missing" claim as fact
-50. Keep normal Q&A lean:
+51. Keep normal Q&A lean:
    - do not output three variants unless `Firmer reply` adds real value
    - do not add memo-like headings beyond `Brief reply` and `Detailed reply`
    - do not repeat the same point in both replies unless the detailed version needs it for clarity

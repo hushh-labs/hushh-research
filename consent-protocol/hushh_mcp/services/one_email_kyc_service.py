@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import email.utils
 import hashlib
 import html
@@ -21,6 +22,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.message import EmailMessage
+from html.parser import HTMLParser
 from typing import Any, Iterable
 
 from google.auth.transport.requests import AuthorizedSession
@@ -30,6 +32,8 @@ from google.oauth2 import service_account
 
 from api.utils.firebase_admin import ensure_firebase_auth_admin, get_firebase_auth_app
 from db.db_client import get_db
+from hushh_mcp.consent.scope_generator import get_scope_generator
+from hushh_mcp.consent.scope_helpers import scope_matches
 from hushh_mcp.runtime_settings import get_firebase_credential_settings
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import build_consent_request_url, frontend_origin
@@ -55,6 +59,7 @@ _FINANCIAL_FULL_SCOPE = "attr.financial.*"
 _FINANCIAL_PORTFOLIO_SCOPE = "attr.financial.portfolio.*"
 _FINANCIAL_PROFILE_SCOPE = "attr.financial.profile.*"
 _FINANCIAL_DOCUMENTS_SCOPE = "attr.financial.documents.*"
+_ONE_EMAIL_ATTR_SCOPE_RE = re.compile(r"^attr\.[a-z0-9_]+(?:\.[a-z0-9_]+)*(?:\.\*)?$")
 _ALLOWED_KYC_DATA_SCOPES = frozenset({_DEFAULT_KYC_SCOPE})
 _ALLOWED_ONE_EMAIL_DATA_SCOPES = frozenset(
     {
@@ -73,7 +78,12 @@ _KYC_REQUEST_SOURCE = "one_email_kyc_v1"
 _KYC_REQUEST_ID_PREFIX = "okyc_"
 _CONSENT_REQUEST_ID_MAX_LENGTH = 32
 _MAX_STORED_TEXT = 500
-_MAX_DRAFT_BODY = 6000
+_MAX_DRAFT_BODY = 12000
+_MAX_DRAFT_HTML = 50000
+_MAX_WORKFLOW_PAGE_LIMIT = 100
+_MAX_RECENT_MAIL_SYNC_LIMIT = 25
+_DEFAULT_RECENT_MAIL_SYNC_LIMIT = 12
+_DEFAULT_RECENT_MAIL_LOOKBACK_DAYS = 7
 _SENSITIVE_WORKFLOW_METADATA_KEYS = frozenset(
     {"access_token", "consent_token", "token", "token_id"}
 )
@@ -87,6 +97,116 @@ _KYC_WORKFLOW_STATES = {
     "completed",
     "blocked",
 }
+_IDENTITY_REQUIRED_FIELDS = frozenset(
+    {
+        "full_name",
+        "date_of_birth",
+        "address",
+        "phone_number",
+        "email",
+        "tax_residency",
+        "nationality",
+        "employment",
+        "source_of_funds",
+        "brokerage_profile",
+        "identity_profile",
+    }
+)
+_FINANCIAL_REQUIRED_FIELDS = frozenset({"financial_profile", "portfolio", "financial_documents"})
+
+_DYNAMIC_SCOPE_TERMS: dict[str, tuple[str, ...]] = {
+    "travel": (
+        "travel",
+        "trip",
+        "trips",
+        "destination",
+        "destinations",
+        "location",
+        "locations",
+        "place",
+        "places",
+        "favorite location",
+        "favourite location",
+        "favorite places",
+        "favourite places",
+        "hotel",
+        "flight",
+    ),
+    "location": (
+        "location",
+        "locations",
+        "place",
+        "places",
+        "favorite location",
+        "favourite location",
+        "favorite places",
+        "favourite places",
+    ),
+    "food": (
+        "food",
+        "restaurant",
+        "restaurants",
+        "diet",
+        "dietary",
+        "cuisine",
+        "favorite food",
+        "favourite food",
+    ),
+    "entertainment": (
+        "entertainment",
+        "movie",
+        "movies",
+        "music",
+        "shows",
+        "events",
+        "favorite shows",
+        "favourite shows",
+    ),
+    "shopping": (
+        "shopping",
+        "brands",
+        "purchases",
+        "wishlist",
+        "favorite brands",
+        "favourite brands",
+    ),
+    "health": ("health", "wellness", "fitness", "medical"),
+    "work": ("work", "job", "career", "employment", "company"),
+    "education": ("education", "school", "university", "degree"),
+}
+_SCOPE_MATCH_STOPWORDS = frozenset(
+    {
+        "and",
+        "are",
+        "can",
+        "create",
+        "data",
+        "draft",
+        "entities",
+        "entity",
+        "for",
+        "from",
+        "get",
+        "has",
+        "here",
+        "id",
+        "information",
+        "into",
+        "items",
+        "kind",
+        "observations",
+        "one",
+        "preference",
+        "preferences",
+        "that",
+        "the",
+        "this",
+        "updated",
+        "with",
+        "you",
+        "your",
+    }
+)
 
 
 def _runtime_environment() -> str:
@@ -236,15 +356,15 @@ def _validate_kyc_data_scope(scope: str) -> str:
 
 
 def _validate_one_email_data_scope(scope: str) -> str:
-    normalized = _clean_text(scope)
-    if normalized not in _ALLOWED_ONE_EMAIL_DATA_SCOPES:
+    normalized = _clean_text(scope).lower()
+    if not normalized or not _ONE_EMAIL_ATTR_SCOPE_RE.fullmatch(normalized):
         raise OneEmailKycError(
             "One email requested scope is not approved for this lane.",
             status_code=400,
             code="ONE_KYC_SCOPE_NOT_ALLOWED",
             payload={
                 "scope": normalized,
-                "allowed_scopes": sorted(_ALLOWED_ONE_EMAIL_DATA_SCOPES),
+                "allowed_scope_pattern": "attr.<domain>[.<path>][.*]",
             },
         )
     return normalized
@@ -379,6 +499,214 @@ def _truncate(value: str | None, limit: int = _MAX_STORED_TEXT) -> str | None:
     return text[:limit]
 
 
+def _encode_workflow_cursor(created_at: Any, workflow_id: Any) -> str | None:
+    created_text = _iso(created_at) or _clean_text(created_at)
+    workflow_text = _clean_text(workflow_id)
+    if not created_text or not workflow_text:
+        return None
+    payload = json.dumps(
+        {"created_at": created_text, "workflow_id": workflow_text},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def _decode_workflow_cursor(cursor: str | None) -> tuple[str, str] | None:
+    value = _clean_text(cursor)
+    if not value:
+        return None
+    try:
+        padded = value + "=" * (-len(value) % 4)
+        decoded = base64.urlsafe_b64decode(padded.encode("ascii"))
+        payload = json.loads(decoded.decode("utf-8"))
+    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError):
+        raise OneEmailKycError(
+            "Email request cursor is invalid.",
+            status_code=400,
+            code="ONE_KYC_CURSOR_INVALID",
+        )
+    created_at = _clean_text(payload.get("created_at") if isinstance(payload, dict) else None)
+    workflow_id = _clean_text(payload.get("workflow_id") if isinstance(payload, dict) else None)
+    if not created_at or not workflow_id:
+        raise OneEmailKycError(
+            "Email request cursor is invalid.",
+            status_code=400,
+            code="ONE_KYC_CURSOR_INVALID",
+        )
+    return created_at, workflow_id
+
+
+def _workflow_sort_key(workflow: dict[str, Any]) -> tuple[str, str]:
+    return (
+        _iso(workflow.get("created_at")) or _clean_text(workflow.get("created_at")),
+        _clean_text(workflow.get("workflow_id")),
+    )
+
+
+_APPROVED_HTML_ALLOWED_TAGS = frozenset(
+    {
+        "br",
+        "div",
+        "h1",
+        "h2",
+        "h3",
+        "li",
+        "ol",
+        "p",
+        "section",
+        "span",
+        "strong",
+        "table",
+        "tbody",
+        "td",
+        "th",
+        "thead",
+        "tr",
+        "ul",
+    }
+)
+_APPROVED_HTML_VOID_TAGS = frozenset({"br"})
+_APPROVED_HTML_ALLOWED_ATTRS = frozenset(
+    {"align", "cellpadding", "cellspacing", "colspan", "role", "style"}
+)
+_APPROVED_HTML_ALLOWED_STYLES = frozenset(
+    {
+        "background",
+        "background-color",
+        "border",
+        "border-collapse",
+        "border-radius",
+        "border-spacing",
+        "border-top",
+        "box-shadow",
+        "color",
+        "display",
+        "font-family",
+        "font-size",
+        "font-weight",
+        "height",
+        "letter-spacing",
+        "line-height",
+        "margin",
+        "margin-top",
+        "margin-right",
+        "margin-bottom",
+        "margin-left",
+        "max-width",
+        "min-width",
+        "overflow-x",
+        "padding",
+        "padding-top",
+        "padding-right",
+        "padding-bottom",
+        "padding-left",
+        "text-align",
+        "text-transform",
+        "white-space",
+        "width",
+    }
+)
+
+
+def _sanitize_inline_style(value: str | None) -> str:
+    safe_parts: list[str] = []
+    for declaration in _clean_text(value).split(";"):
+        if ":" not in declaration:
+            continue
+        raw_name, raw_value = declaration.split(":", 1)
+        name = raw_name.strip().lower()
+        css_value = raw_value.strip()
+        lowered = css_value.lower()
+        if name not in _APPROVED_HTML_ALLOWED_STYLES:
+            continue
+        if any(blocked in lowered for blocked in ("expression", "javascript:", "url(")):
+            continue
+        if "<" in css_value or ">" in css_value:
+            continue
+        safe_parts.append(f"{name}:{css_value}")
+    return ";".join(safe_parts)
+
+
+class _ApprovedHtmlSanitizer(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.parts: list[str] = []
+        self.skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        normalized = tag.lower()
+        if normalized in {"script", "style"}:
+            self.skip_depth += 1
+            return
+        if self.skip_depth:
+            return
+        if normalized not in _APPROVED_HTML_ALLOWED_TAGS:
+            return
+        rendered_attrs: list[str] = []
+        for raw_name, raw_value in attrs:
+            name = raw_name.lower()
+            if name not in _APPROVED_HTML_ALLOWED_ATTRS:
+                continue
+            if name == "style":
+                style = _sanitize_inline_style(raw_value)
+                if style:
+                    rendered_attrs.append(f'style="{html.escape(style, quote=True)}"')
+                continue
+            value = _clean_text(raw_value)
+            if value:
+                rendered_attrs.append(f'{name}="{html.escape(value, quote=True)}"')
+        attr_text = f" {' '.join(rendered_attrs)}" if rendered_attrs else ""
+        self.parts.append(f"<{normalized}{attr_text}>")
+
+    def handle_endtag(self, tag: str) -> None:
+        normalized = tag.lower()
+        if normalized in {"script", "style"} and self.skip_depth:
+            self.skip_depth -= 1
+            return
+        if self.skip_depth:
+            return
+        if normalized in _APPROVED_HTML_ALLOWED_TAGS and normalized not in _APPROVED_HTML_VOID_TAGS:
+            self.parts.append(f"</{normalized}>")
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+
+    def handle_data(self, data: str) -> None:
+        if self.skip_depth:
+            return
+        self.parts.append(html.escape(data, quote=False))
+
+    def handle_entityref(self, name: str) -> None:
+        if self.skip_depth:
+            return
+        self.parts.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        if self.skip_depth:
+            return
+        self.parts.append(f"&#{name};")
+
+    def html(self) -> str:
+        return "".join(self.parts).strip()
+
+
+def _sanitize_approved_html(value: str | None) -> str | None:
+    raw = _clean_text(value)
+    if not raw:
+        return None
+    if len(raw) > _MAX_DRAFT_HTML:
+        raise OneEmailKycError(
+            "Approved KYC reply HTML is too long.",
+            status_code=400,
+            code="ONE_KYC_APPROVED_HTML_TOO_LONG",
+        )
+    sanitizer = _ApprovedHtmlSanitizer()
+    sanitizer.feed(raw)
+    sanitizer.close()
+    cleaned = sanitizer.html()
+    return cleaned or None
+
+
 def _decode_b64url(data: str | None) -> str:
     value = _clean_text(data)
     if not value:
@@ -449,6 +777,22 @@ def _message_text(message: dict[str, Any]) -> str:
     return "\n".join(plain or html_parts)
 
 
+def _strip_quoted_reply_text(body: str) -> str:
+    lines = str(body or "").splitlines()
+    kept: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith(">"):
+            break
+        if re.match(r"^On .+ wrote:$", stripped):
+            break
+        if stripped in {"--", "-----Original Message-----"}:
+            break
+        kept.append(line)
+    text = "\n".join(kept).strip()
+    return text or str(body or "")
+
+
 def _has_attachments(message: dict[str, Any]) -> bool:
     payload = message.get("payload") if isinstance(message.get("payload"), dict) else {}
     for part in _iter_payload_parts(payload):
@@ -468,8 +812,15 @@ def _scope_candidate(
     reason: str,
     recommended: bool = True,
     sensitivity: str = "standard",
+    path: str | None = None,
+    wildcard: bool | None = None,
+    source_kind: str | None = None,
+    matched_terms: list[str] | None = None,
+    visibility_posture: str | None = None,
+    default_projection_ready: bool | None = None,
+    default_projection_updated_at: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    candidate = {
         "scope": scope,
         "domain": domain,
         "label": label,
@@ -478,6 +829,101 @@ def _scope_candidate(
         "recommended": recommended,
         "sensitivity": sensitivity,
     }
+    if path is not None:
+        candidate["path"] = path
+    if wildcard is not None:
+        candidate["wildcard"] = wildcard
+    if source_kind:
+        candidate["source_kind"] = source_kind
+    if matched_terms:
+        candidate["matched_terms"] = matched_terms
+    if visibility_posture:
+        candidate["visibility_posture"] = visibility_posture
+    if default_projection_ready is not None:
+        candidate["default_projection_ready"] = bool(default_projection_ready)
+    if default_projection_updated_at:
+        candidate["default_projection_updated_at"] = default_projection_updated_at
+    return candidate
+
+
+def _scope_domain(scope: str) -> str | None:
+    parts = _clean_text(scope).lower().split(".")
+    if len(parts) < 2 or parts[0] != "attr":
+        return None
+    return parts[1]
+
+
+def _scope_path(scope: str, explicit_path: str | None = None) -> str | None:
+    normalized_path = _clean_text(explicit_path).lower()
+    if normalized_path:
+        return normalized_path
+    parsed_domain, parsed_path, _ = get_scope_generator().parse_scope(_clean_text(scope).lower())
+    if parsed_domain and parsed_path:
+        return parsed_path
+    return None
+
+
+def _scope_primary_field(scope: str, explicit_path: str | None = None) -> str | None:
+    path = _scope_path(scope, explicit_path)
+    if path:
+        return path.split(".", 1)[0]
+    domain = _scope_domain(scope)
+    if domain and domain not in {"identity", "financial"}:
+        return f"{domain}_information"
+    return None
+
+
+def _scope_label_from_entry(entry: dict[str, Any]) -> str:
+    label = _clean_text(entry.get("label"))
+    if label:
+        return label
+    scope = _clean_text(entry.get("scope"))
+    domain = _clean_text(entry.get("domain")) or (_scope_domain(scope) or "")
+    path = _clean_text(entry.get("path"))
+    text = path or domain or scope
+    return text.replace("_", " ").replace(".", " ").title() or "Scoped data"
+
+
+def _scope_terms_from_entry(entry: dict[str, Any]) -> set[str]:
+    terms: set[str] = set()
+    scope = _clean_text(entry.get("scope")).lower()
+    domain = _clean_text(entry.get("domain")).lower() or (_scope_domain(scope) or "")
+    path = _clean_text(entry.get("path")).lower()
+    label = _clean_text(entry.get("label")).lower()
+    registry_handle = _clean_text(entry.get("registry_handle")).lower()
+    top_level_path = _clean_text(entry.get("top_level_scope_path")).lower()
+    description = _clean_text(entry.get("description")).lower()
+    for item in (
+        domain,
+        path,
+        label,
+        registry_handle,
+        top_level_path,
+        description,
+        scope.removeprefix("attr."),
+    ):
+        normalized_item = item.replace("_", " ").replace(".", " ").strip()
+        tokens = [token for token in re.split(r"[^a-z0-9]+", normalized_item) if len(token) >= 3]
+        for size in (3, 2):
+            for index in range(0, max(len(tokens) - size + 1, 0)):
+                phrase_tokens = tokens[index : index + size]
+                if all(token in _SCOPE_MATCH_STOPWORDS for token in phrase_tokens):
+                    continue
+                terms.add(" ".join(phrase_tokens))
+        for token in re.split(r"[^a-z0-9_]+", item.replace(".", " ")):
+            if len(token) >= 3 and token not in _SCOPE_MATCH_STOPWORDS:
+                terms.add(token.replace("_", " "))
+        compact = normalized_item
+        if len(compact) >= 3 and compact not in _SCOPE_MATCH_STOPWORDS:
+            terms.add(compact)
+    for term in _DYNAMIC_SCOPE_TERMS.get(domain, ()):
+        terms.add(term)
+    return {term for term in terms if term}
+
+
+def _term_matches_text(term: str, text: str) -> bool:
+    escaped = re.escape(term).replace(r"\ ", r"\s+")
+    return re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", text) is not None
 
 
 def _dedupe_scope_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -524,6 +970,52 @@ def _workflow_selected_scopes(workflow: dict[str, Any]) -> list[str]:
     return [_validate_one_email_data_scope(scope) for scope in _dedupe(values)]
 
 
+def _workflow_recommended_candidate_scopes(workflow: dict[str, Any]) -> list[str]:
+    metadata = workflow.get("metadata", {})
+    raw = metadata.get("candidate_scopes") if isinstance(metadata, dict) else None
+    if not isinstance(raw, list):
+        return []
+
+    recommended: list[str] = []
+    fallback: list[str] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        scope = _clean_text(item.get("scope"))
+        if not scope:
+            continue
+        if item.get("recommended") is False:
+            fallback.append(scope)
+        else:
+            recommended.append(scope)
+
+    return [_validate_one_email_data_scope(scope) for scope in _dedupe(recommended or fallback)]
+
+
+def _workflow_default_available_scopes(
+    workflow: dict[str, Any],
+    selected_scopes: list[str],
+) -> list[dict[str, Any]]:
+    metadata = workflow.get("metadata", {})
+    raw = metadata.get("candidate_scopes") if isinstance(metadata, dict) else None
+    selected = {_validate_one_email_data_scope(scope) for scope in selected_scopes}
+    if not isinstance(raw, list) or not selected:
+        return []
+    ready: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        scope = _clean_text(item.get("scope"))
+        if not scope or scope not in selected:
+            continue
+        if (
+            _clean_text(item.get("visibility_posture")).lower() == "default_available"
+            and item.get("default_projection_ready") is True
+        ):
+            ready.append(item)
+    return ready
+
+
 def _scope_requires_more_data(instructions: str) -> bool:
     haystack = instructions.lower()
     indicators = (
@@ -541,6 +1033,24 @@ def _scope_requires_more_data(instructions: str) -> bool:
         "phone",
     )
     return any(item in haystack for item in indicators)
+
+
+def _redraft_requests_more_data(instructions: str) -> bool:
+    haystack = instructions.lower()
+    if not _scope_requires_more_data(haystack):
+        return False
+    request_verbs = (
+        "add",
+        "also include",
+        "include",
+        "fetch",
+        "get",
+        "retrieve",
+        "pull",
+        "bring in",
+        "attach",
+    )
+    return any(re.search(rf"\b{re.escape(verb)}\b", haystack) for verb in request_verbs)
 
 
 def _metadata_from_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -885,15 +1395,25 @@ class OneEmailKycService:
         previous_history_id = _clean_text(state.get("history_id") if state else None)
         if not previous_history_id:
             self._upsert_mailbox_state(history_id=history_id, last_notification=True)
-            return {"accepted": True, "handled": False, "reason": "history_primed"}
+            ids = await asyncio.to_thread(
+                self._list_recent_message_ids,
+                max_results=_DEFAULT_RECENT_MAIL_SYNC_LIMIT,
+                newer_than_days=_DEFAULT_RECENT_MAIL_LOOKBACK_DAYS,
+            )
+            results = await self._process_message_ids(ids, history_id=history_id)
+            return {
+                "accepted": True,
+                "handled": bool(results),
+                "reason": "history_primed_recent_catchup",
+                "message_count": len(ids),
+                "results": results,
+            }
 
         ids = await asyncio.to_thread(
             self._list_message_ids_from_history,
             previous_history_id,
         )
-        results = []
-        for item_id in ids:
-            results.append(await self.process_message_id(item_id, history_id=history_id))
+        results = await self._process_message_ids(ids, history_id=history_id)
         self._upsert_mailbox_state(history_id=history_id, last_notification=True)
         return {
             "accepted": True,
@@ -901,6 +1421,31 @@ class OneEmailKycService:
             "message_count": len(results),
             "results": results,
         }
+
+    async def _process_message_ids(
+        self,
+        message_ids: list[str],
+        *,
+        history_id: str | None,
+    ) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        for item_id in _dedupe(message_ids):
+            try:
+                results.append(await self.process_message_id(item_id, history_id=history_id))
+            except Exception as exc:
+                logger.warning(
+                    "one_email_kyc.message_process_failed message_id=%s reason=%s",
+                    item_id,
+                    exc,
+                )
+                results.append(
+                    {
+                        "handled": False,
+                        "reason": "message_process_failed",
+                        "message_id": item_id,
+                    }
+                )
+        return results
 
     async def process_message_id(
         self,
@@ -1007,11 +1552,249 @@ class OneEmailKycService:
                     ids.append(item_id)
         return ids
 
+    def _list_recent_message_ids(
+        self,
+        *,
+        max_results: int = _DEFAULT_RECENT_MAIL_SYNC_LIMIT,
+        newer_than_days: int = _DEFAULT_RECENT_MAIL_LOOKBACK_DAYS,
+    ) -> list[str]:
+        bounded_limit = max(1, min(int(max_results or 1), _MAX_RECENT_MAIL_SYNC_LIMIT))
+        bounded_days = max(1, min(int(newer_than_days or 1), 30))
+        params: dict[str, Any] = {
+            "maxResults": bounded_limit,
+            "q": f"newer_than:{bounded_days}d",
+        }
+        label_ids = tuple(item for item in self.config.watch_label_ids if _clean_text(item))
+        if label_ids:
+            params["labelIds"] = list(label_ids)
+        response = self._get_json_sync(_GMAIL_MESSAGES_URL, params=params)
+        ids: list[str] = []
+        for item in response.get("messages", []) or []:
+            if not isinstance(item, dict):
+                continue
+            item_id = _clean_text(item.get("id"))
+            if item_id and item_id not in ids:
+                ids.append(item_id)
+        return ids
+
+    async def sync_recent_messages(
+        self,
+        *,
+        user_id: str,
+        max_results: int = _DEFAULT_RECENT_MAIL_SYNC_LIMIT,
+    ) -> dict[str, Any]:
+        ids = await asyncio.to_thread(
+            self._list_recent_message_ids,
+            max_results=max_results,
+            newer_than_days=_DEFAULT_RECENT_MAIL_LOOKBACK_DAYS,
+        )
+        results: list[dict[str, Any]] = []
+        workflows: list[dict[str, Any]] = []
+        seen_workflow_ids: set[str] = set()
+        for item_id in _dedupe(ids):
+            existing = self._workflow_by_message_id(item_id)
+            if existing:
+                if existing.get("user_id") == user_id:
+                    result = await self.process_message_id(item_id, history_id=None)
+                    results.append(result)
+                else:
+                    results.append(
+                        {
+                            "handled": False,
+                            "reason": "sender_user_mismatch",
+                            "message_id": item_id,
+                        }
+                    )
+                continue
+            try:
+                message = await asyncio.to_thread(self._fetch_message, item_id)
+                headers = _header_map(message)
+                sender_addresses = _extract_addresses(headers.get("from"))
+                sender_match = self._match_verified_user(
+                    [sender_addresses[0]] if sender_addresses else []
+                )
+                if sender_match.get("user_id") != user_id:
+                    results.append(
+                        {
+                            "handled": False,
+                            "reason": "sender_user_mismatch",
+                            "message_id": item_id,
+                        }
+                    )
+                    continue
+                results.append(await self._process_message(message, history_id=None))
+            except Exception as exc:
+                logger.warning(
+                    "one_email_kyc.recent_sync_message_failed message_id=%s reason=%s",
+                    item_id,
+                    exc,
+                )
+                results.append(
+                    {
+                        "handled": False,
+                        "reason": "message_process_failed",
+                        "message_id": item_id,
+                    }
+                )
+        for result in results:
+            workflow = result.get("workflow") if isinstance(result, dict) else None
+            if not isinstance(workflow, dict) or workflow.get("user_id") != user_id:
+                continue
+            workflow_id = _clean_text(workflow.get("workflow_id"))
+            if workflow_id and workflow_id not in seen_workflow_ids:
+                seen_workflow_ids.add(workflow_id)
+                workflows.append(workflow)
+        workflows.sort(key=_workflow_sort_key, reverse=True)
+        return {
+            "accepted": True,
+            "scanned_count": len(ids),
+            "processed_count": len(results),
+            "matched_count": len(workflows),
+            "workflows": workflows,
+        }
+
     def _fetch_message(self, message_id: str) -> dict[str, Any]:
         return self._get_json_sync(
             f"{_GMAIL_MESSAGES_URL}/{message_id}",
             params={"format": "full"},
         )
+
+    async def _available_one_email_scope_entries(self, user_id: str) -> list[dict[str, Any]]:
+        try:
+            entries = await get_scope_generator().get_available_scope_entries(user_id)
+        except Exception as exc:
+            logger.warning(
+                "one_email_kyc.dynamic_scope_entries_failed user_id=%s reason=%s",
+                user_id,
+                exc,
+            )
+            return []
+
+        visible_entries: list[dict[str, Any]] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("consumer_visible") is False or entry.get("internal_only") is True:
+                continue
+            try:
+                scope = _validate_one_email_data_scope(entry.get("scope"))
+            except OneEmailKycError:
+                continue
+            visible_entries.append(
+                {
+                    **entry,
+                    "scope": scope,
+                    "domain": _clean_text(entry.get("domain")) or (_scope_domain(scope) or ""),
+                    "label": _scope_label_from_entry({**entry, "scope": scope}),
+                }
+            )
+        return visible_entries
+
+    async def _detect_available_scope_candidates(
+        self,
+        *,
+        user_id: str,
+        subject: str,
+        body: str,
+    ) -> list[dict[str, Any]]:
+        haystack = f"{subject}\n{body}".lower()
+        if not haystack.strip():
+            return []
+        candidates: list[tuple[int, dict[str, Any]]] = []
+        for entry in await self._available_one_email_scope_entries(user_id):
+            scope = _clean_text(entry.get("scope"))
+            domain = _clean_text(entry.get("domain")) or (_scope_domain(scope) or "data")
+            path = _clean_text(entry.get("path")).lower()
+            label = _scope_label_from_entry(entry)
+            matched_terms = [
+                term
+                for term in sorted(_scope_terms_from_entry(entry), key=len, reverse=True)
+                if term and _term_matches_text(term, haystack)
+            ]
+            if not matched_terms:
+                continue
+            domain_terms = {_clean_text(domain).lower(), *_DYNAMIC_SCOPE_TERMS.get(domain, ())}
+            score = max(len(term.split()) for term in matched_terms)
+            if any(term in domain_terms for term in matched_terms):
+                score += 8
+            if path and any(term not in domain_terms for term in matched_terms):
+                score += 12
+            if scope == get_scope_generator().generate_domain_wildcard(domain):
+                score += 4
+            elif entry.get("wildcard") is True:
+                score += 2
+            candidates.append(
+                (
+                    score,
+                    _scope_candidate(
+                        scope=scope,
+                        domain=domain,
+                        label=label,
+                        description=f"Approved {label.lower()} fields available in your vault.",
+                        reason=(
+                            "The email mentions "
+                            f"{', '.join(matched_terms[:3])}, which matches available {label.lower()} data."
+                        ),
+                        sensitivity="high" if domain in {"financial", "health"} else "standard",
+                        path=path or None,
+                        wildcard=bool(entry.get("wildcard")),
+                        source_kind=_clean_text(entry.get("source_kind")) or None,
+                        matched_terms=matched_terms[:5],
+                        visibility_posture=_clean_text(entry.get("visibility_posture"))
+                        or "consent_required",
+                        default_projection_ready=entry.get("default_projection_ready") is True,
+                        default_projection_updated_at=_clean_text(
+                            entry.get("default_projection_updated_at")
+                        )
+                        or None,
+                    ),
+                )
+            )
+        ranked = sorted(candidates, key=lambda item: -item[0])
+        if not ranked:
+            return []
+        top_score = ranked[0][0]
+        return _dedupe_scope_candidates(
+            [candidate for score, candidate in ranked if score == top_score][:6]
+        )
+
+    def _effective_required_fields_for_candidates(
+        self,
+        *,
+        extracted_fields: list[str],
+        candidates: list[dict[str, Any]],
+    ) -> list[str]:
+        fields: list[str] = []
+        for candidate in candidates:
+            scope = _clean_text(candidate.get("scope"))
+            domain = _clean_text(candidate.get("domain")) or (_scope_domain(scope) or "")
+            if not scope:
+                continue
+            if domain in {"identity", "financial"}:
+                for field in extracted_fields:
+                    if field not in fields:
+                        fields.append(field)
+                continue
+            path = _clean_text(candidate.get("path"))
+            primary_field = _scope_primary_field(scope, path)
+            if not path:
+                dynamic_extracted = [
+                    field
+                    for field in extracted_fields
+                    if field
+                    and field not in _IDENTITY_REQUIRED_FIELDS
+                    and field not in _FINANCIAL_REQUIRED_FIELDS
+                ]
+                for field in dynamic_extracted:
+                    if field not in fields:
+                        fields.append(field)
+                if dynamic_extracted:
+                    continue
+            if primary_field and primary_field not in fields:
+                fields.append(primary_field)
+        if fields:
+            return fields
+        return extracted_fields
 
     async def _process_message(
         self,
@@ -1027,10 +1810,16 @@ class OneEmailKycService:
         gmail_message_id = _clean_text(message.get("id"))
         gmail_thread_id = _clean_text(message.get("threadId"))
         rfc_message_id = _clean_text(headers.get("message-id")) or None
-        body_text = _message_text(message)
-        body_hash = hashlib.sha256(body_text.encode("utf-8")).hexdigest() if body_text else None
+        raw_body_text = _message_text(message)
+        body_text = _strip_quoted_reply_text(raw_body_text)
+        body_hash = (
+            hashlib.sha256(raw_body_text.encode("utf-8")).hexdigest() if raw_body_text else None
+        )
+        request_body_hash = (
+            hashlib.sha256(body_text.encode("utf-8")).hexdigest() if body_text else None
+        )
         snippet = None
-        mailbox = self.config.mailbox_email
+        mailbox = (self.config.mailbox_email or "").lower()
         participants = [
             item
             for item in _extract_addresses(
@@ -1041,33 +1830,23 @@ class OneEmailKycService:
             )
             if item != mailbox
         ]
-        recipient_participants = _without_addresses(
-            _extract_addresses(headers.get("to"), headers.get("cc"), headers.get("reply-to")),
-            {mailbox},
-        )
-
         if sender_email == mailbox:
             return {"handled": False, "reason": "self_sent_message", "message_id": gmail_message_id}
 
         is_kyc = self._looks_like_kyc(subject=subject, body=body_text)
         is_financial = self._looks_like_financial_request(subject=subject, body=body_text)
-        scope_candidates = self._detect_scope_candidates(subject=subject, body=body_text)
+        scope_candidates = self._detect_scope_candidates(
+            subject=subject,
+            body=body_text,
+            include_fallback=False,
+        )
         candidate_scopes = [candidate["scope"] for candidate in scope_candidates]
         has_attachments = _has_attachments(message)
-        recipient_user_match = self._match_verified_user(recipient_participants)
-        if recipient_user_match.get("user_id") or recipient_user_match.get("error_code") in (
-            "ambiguous_identity_resolution",
-            "ambiguous_user_match",
-        ):
-            user_match = {
-                **recipient_user_match,
-                "matched_from": "recipients",
-            }
-        else:
-            user_match = {
-                **self._match_verified_user(participants),
-                "matched_from": "participants",
-            }
+        sender_user_match = self._match_verified_user([sender_email] if sender_email else [])
+        user_match = {
+            **sender_user_match,
+            "matched_from": "sender",
+        }
         common = {
             "workflow_id": uuid.uuid4().hex,
             "user_id": user_match.get("user_id"),
@@ -1084,6 +1863,8 @@ class OneEmailKycService:
             "metadata": {
                 "source": _KYC_REQUEST_SOURCE,
                 "body_sha256": body_hash,
+                "request_body_sha256": request_body_hash,
+                "quoted_reply_text_stripped": body_text != raw_body_text,
                 "classification": (
                     "kyc_financial"
                     if is_kyc and is_financial
@@ -1112,6 +1893,7 @@ class OneEmailKycService:
                     if has_attachments
                     else None
                 ),
+                "recipient_identity_inference_disabled": True,
             },
         }
         common["metadata"]["reply_thread"] = self._reply_thread_metadata(
@@ -1128,11 +1910,45 @@ class OneEmailKycService:
                 requested_scope=None,
                 last_error_code=user_match.get("error_code") or "user_not_found",
                 last_error_message=user_match.get("message")
-                or "No unique verified Hussh user matched the email participants.",
+                or "No unique verified Hussh user matched the email sender.",
             )
             return {"handled": True, "workflow": workflow, "blocked": True}
 
-        if not (is_kyc or is_financial):
+        dynamic_scope_candidates = await self._detect_available_scope_candidates(
+            user_id=user_match["user_id"],
+            subject=subject,
+            body=body_text,
+        )
+        scope_candidates = _dedupe_scope_candidates([*scope_candidates, *dynamic_scope_candidates])
+        if not scope_candidates and (is_kyc or is_financial):
+            scope_candidates = self._detect_scope_candidates(
+                subject=subject,
+                body=body_text,
+                include_fallback=True,
+            )
+        candidate_scopes = [candidate["scope"] for candidate in scope_candidates]
+        common["metadata"].update(
+            {
+                "classification": (
+                    "kyc_financial"
+                    if is_kyc and is_financial
+                    else "kyc"
+                    if is_kyc
+                    else "financial"
+                    if is_financial
+                    else "dynamic_disclosure"
+                    if dynamic_scope_candidates
+                    else "unsupported"
+                ),
+                "detected_domains": sorted(
+                    {str(candidate.get("domain")) for candidate in scope_candidates}
+                ),
+                "candidate_scopes": scope_candidates,
+                "dynamic_scope_detection": bool(dynamic_scope_candidates),
+            }
+        )
+
+        if not scope_candidates:
             workflow = self._insert_workflow(
                 **common,
                 status="blocked",
@@ -1140,13 +1956,15 @@ class OneEmailKycService:
                 requested_scope=None,
                 last_error_code="unsupported_email_task",
                 last_error_message=(
-                    "One email intake only handles KYC, compliance, and financial disclosure "
-                    "requests in this lane."
+                    "One could not match this email to any available shareable scope."
                 ),
             )
             return {"handled": True, "workflow": workflow, "blocked": True}
 
-        required_fields = self._extract_required_fields(subject=subject, body=body_text)
+        required_fields = self._effective_required_fields_for_candidates(
+            extracted_fields=self._extract_required_fields(subject=subject, body=body_text),
+            candidates=scope_candidates,
+        )
         connector = self._get_active_client_connector(user_match.get("user_id"))
         if not connector:
             workflow = self._insert_workflow(
@@ -1220,7 +2038,13 @@ class OneEmailKycService:
         )
         return any(pattern in haystack for pattern in patterns)
 
-    def _detect_scope_candidates(self, *, subject: str, body: str) -> list[dict[str, Any]]:
+    def _detect_scope_candidates(
+        self,
+        *,
+        subject: str,
+        body: str,
+        include_fallback: bool = True,
+    ) -> list[dict[str, Any]]:
         haystack = f"{subject}\n{body}".lower()
         candidates: list[dict[str, Any]] = []
         if self._looks_like_kyc(subject=subject, body=body):
@@ -1290,7 +2114,7 @@ class OneEmailKycService:
                             sensitivity="high",
                         )
                     )
-        if not candidates:
+        if not candidates and include_fallback:
             candidates.append(
                 _scope_candidate(
                     scope=self.config.default_kyc_scope,
@@ -1309,7 +2133,14 @@ class OneEmailKycService:
             "date_of_birth": ("date of birth", "dob", "birth date"),
             "address": ("address", "residential address", "mailing address"),
             "phone_number": ("phone", "mobile", "telephone"),
-            "email": ("email", "e-mail"),
+            "email": (
+                "email address",
+                "e-mail address",
+                "contact email",
+                "email id",
+                "email on file",
+                "account email",
+            ),
             "tax_residency": ("tax residency", "tax residence", "tax status"),
             "nationality": ("nationality", "citizenship"),
             "employment": ("employment", "occupation", "employer"),
@@ -1318,12 +2149,32 @@ class OneEmailKycService:
             "financial_profile": ("financial profile", "financial information", "net worth"),
             "portfolio": ("portfolio", "holdings", "investment holdings"),
             "financial_documents": ("statement", "statements", "financial documents"),
+            "seat_preferences": (
+                "seat preference",
+                "seat preferences",
+                "preferred seat",
+                "preferred seats",
+            ),
+            "favorite_locations": (
+                "favorite location",
+                "favorite locations",
+                "favourite location",
+                "favourite locations",
+                "favorite places",
+                "favourite places",
+            ),
+            "locations": ("locations", "places", "destinations"),
+            "preferences": ("preference", "preferences", "favourites", "favorites"),
         }
         fields = [
             field
             for field, aliases in known_fields.items()
             if any(alias in haystack for alias in aliases)
         ]
+        if "favorite_locations" in fields and "locations" in fields:
+            fields.remove("locations")
+        if "seat_preferences" in fields and "preferences" in fields:
+            fields.remove("preferences")
         if not fields:
             fields.append("identity_profile")
         return fields
@@ -1335,22 +2186,23 @@ class OneEmailKycService:
         sender_email: str | None,
         matched_user_emails: list[str],
     ) -> dict[str, Any]:
-        mailbox = self.config.mailbox_email
+        mailbox = (self.config.mailbox_email or "").lower()
         reply_to = _extract_addresses(headers.get("reply-to"))
         original_to = _extract_addresses(headers.get("to"))
         original_cc = _extract_addresses(headers.get("cc"))
-        excluded = {mailbox, *[email.lower() for email in matched_user_emails if email]}
+        excluded = {mailbox}
         to_addresses = reply_to or ([sender_email] if sender_email else [])
-        cc_candidates = [*([] if reply_to else []), *original_to, *original_cc]
+        to_addresses = _dedupe(
+            address for address in to_addresses if address and address not in excluded
+        )
+        to_address_set = set(to_addresses)
+        cc_candidates = [*original_to, *original_cc]
         if reply_to and sender_email:
             cc_candidates.append(sender_email)
         cc_addresses = _dedupe(
             address
             for address in cc_candidates
-            if address and address not in excluded and address not in to_addresses
-        )
-        to_addresses = _dedupe(
-            address for address in to_addresses if address and address not in excluded
+            if address and address not in excluded and address not in to_address_set
         )
         references = _clean_text(headers.get("references")) or None
         message_id = _clean_text(headers.get("message-id")) or None
@@ -1404,7 +2256,7 @@ class OneEmailKycService:
                 "error_code": (
                     "ambiguous_identity_resolution" if alias_rows else "ambiguous_user_match"
                 ),
-                "message": "Multiple verified Hussh users matched the email participants.",
+                "message": "Multiple verified Hussh users matched the sender email.",
             }
 
         firebase_matches = self._find_firebase_users_by_email(unique_emails)
@@ -1418,12 +2270,12 @@ class OneEmailKycService:
             return {
                 "user_id": None,
                 "error_code": "ambiguous_user_match",
-                "message": "Multiple Firebase users matched the email participants.",
+                "message": "Multiple Firebase users matched the sender email.",
             }
         return {
             "user_id": None,
             "error_code": "user_not_found",
-            "message": "No verified Hussh user matched the email participants.",
+            "message": "No verified Hussh user matched the sender email.",
         }
 
     def _find_actor_identity_rows(self, emails: list[str]) -> list[dict[str, Any]]:
@@ -1581,6 +2433,197 @@ class OneEmailKycService:
             "selected_scopes": scopes,
         }
 
+    async def _ready_workflow_from_existing_grants(
+        self,
+        *,
+        workflow: dict[str, Any],
+        selected_scopes: list[str],
+    ) -> dict[str, Any] | None:
+        user_id = _clean_text(workflow.get("user_id"))
+        if not user_id:
+            return None
+
+        consent_requests: list[dict[str, Any]] = []
+        statuses: list[dict[str, Any]] = []
+        exports: list[dict[str, Any]] = []
+        default_available = _workflow_default_available_scopes(workflow, selected_scopes)
+        if default_available and len(default_available) == len(selected_scopes):
+            metadata = _redact_sensitive_workflow_metadata(workflow.get("metadata", {}))
+            scopes = [_validate_one_email_data_scope(scope) for scope in selected_scopes]
+            return self._update_workflow(
+                workflow["workflow_id"],
+                status="waiting_on_user",
+                requested_scope=scopes[0],
+                consent_request_id=None,
+                draft_status="ready",
+                draft_subject=self._reply_subject(workflow.get("subject")),
+                draft_body=None,
+                last_error_code=None,
+                last_error_message=None,
+                metadata={
+                    **metadata,
+                    "consent_request_url": None,
+                    "consent_bundle_id": None,
+                    "consent_bundle_label": None,
+                    "consent_requests": [],
+                    "consent_statuses": [
+                        {
+                            "scope": item.get("scope"),
+                            "action": "DEFAULT_AVAILABLE",
+                            "visibility_posture": "default_available",
+                        }
+                        for item in default_available
+                    ],
+                    "consent_exports": [],
+                    "consent_export": None,
+                    "default_available_scopes": scopes,
+                    "client_draft_required": True,
+                    "draft_revision": int(metadata.get("draft_revision") or 0) + 1,
+                    "scope_selection_required": False,
+                    "selected_scopes": scopes,
+                    "requested_scopes": scopes,
+                    "reused_default_available_projection": True,
+                },
+            )
+        for scope in [_validate_one_email_data_scope(scope) for scope in selected_scopes]:
+            grant = await self._active_consent_grant_for_scope(user_id=user_id, scope=scope)
+            if not grant:
+                return None
+            export_package = await self._get_validated_consent_export(
+                workflow={**workflow, "requested_scope": scope},
+                consent_token=grant["token_id"],
+                expected_scope=grant["granted_scope"],
+            )
+            if not export_package:
+                return None
+            consent_requests.append(
+                {
+                    "request_id": grant["request_id"],
+                    "scope": scope,
+                    "status": "granted",
+                    "request_url": _kyc_consent_request_url(grant["request_id"]),
+                }
+            )
+            statuses.append(
+                {
+                    "request_id": grant["request_id"],
+                    "scope": scope,
+                    "action": "CONSENT_GRANTED",
+                    "reused_existing_grant": True,
+                    "granted_scope": grant["granted_scope"],
+                }
+            )
+            exports.append(
+                {
+                    "request_id": grant["request_id"],
+                    "scope": scope,
+                    "metadata": self._public_export_metadata(export_package),
+                }
+            )
+
+        if not consent_requests or len(exports) != len(consent_requests):
+            return None
+
+        export_metadata = [
+            item["metadata"] | {"request_id": item["request_id"]} for item in exports
+        ]
+        metadata = _redact_sensitive_workflow_metadata(workflow.get("metadata", {}))
+        return self._update_workflow(
+            workflow["workflow_id"],
+            status="waiting_on_user",
+            requested_scope=consent_requests[0]["scope"],
+            consent_request_id=consent_requests[0]["request_id"],
+            draft_status="ready",
+            draft_subject=self._reply_subject(workflow.get("subject")),
+            draft_body=None,
+            last_error_code=None,
+            last_error_message=None,
+            metadata={
+                **metadata,
+                "consent_request_url": (
+                    _kyc_consent_bundle_url(_kyc_consent_bundle_id(workflow["workflow_id"]))
+                    if len(consent_requests) > 1
+                    else consent_requests[0]["request_url"]
+                ),
+                "consent_bundle_id": _kyc_consent_bundle_id(workflow["workflow_id"]),
+                "consent_bundle_label": (
+                    f"One request for {workflow.get('counterparty_label') or 'the counterparty'}"
+                ),
+                "consent_requests": consent_requests,
+                "consent_statuses": statuses,
+                "consent_exports": export_metadata,
+                "consent_export": export_metadata[0] if export_metadata else None,
+                "client_draft_required": True,
+                "draft_revision": int(metadata.get("draft_revision") or 0) + 1,
+                "scope_selection_required": False,
+                "selected_scopes": [item["scope"] for item in consent_requests],
+                "requested_scopes": [item["scope"] for item in consent_requests],
+                "reused_existing_consent_grant": True,
+            },
+        )
+
+    async def _active_consent_grant_for_scope(
+        self,
+        *,
+        user_id: str,
+        scope: str,
+        preferred_request_id: str | None = None,
+    ) -> dict[str, str] | None:
+        requested_scope = _validate_one_email_data_scope(scope)
+        active_tokens = await self.consent_db.get_covering_active_tokens(
+            user_id,
+            requested_scope=requested_scope,
+            agent_id=_KYC_AGENT_ID,
+        )
+        if not active_tokens:
+            return None
+        preferred = _clean_text(preferred_request_id)
+        token = next(
+            (
+                item
+                for item in active_tokens
+                if preferred and _clean_text(item.get("request_id")) == preferred
+            ),
+            active_tokens[0],
+        )
+        request_id = _clean_text(token.get("request_id")) or preferred
+        token_id = _clean_text(token.get("token_id"))
+        granted_scope = _validate_one_email_data_scope(
+            _clean_text(token.get("scope")) or requested_scope
+        )
+        if not request_id or not token_id:
+            return None
+        return {
+            "request_id": request_id,
+            "token_id": token_id,
+            "requested_scope": requested_scope,
+            "granted_scope": granted_scope,
+        }
+
+    async def _should_reissue_consent_requests(
+        self,
+        *,
+        workflow: dict[str, Any],
+        consent_requests: list[dict[str, str]],
+    ) -> bool:
+        user_id = _clean_text(workflow.get("user_id"))
+        if not user_id or not consent_requests:
+            return False
+
+        for request in consent_requests:
+            request_id = _clean_text(request.get("request_id"))
+            if not request_id:
+                return True
+            status = await self.consent_db.get_request_status(user_id, request_id)
+            action = _clean_text(status.get("action") if status else None).upper()
+            if action in {"CONSENT_GRANTED", "CONSENT_DENIED", "DENIED", "REVOKED"}:
+                return False
+            pending = await self.consent_db.get_pending_by_request_id(user_id, request_id)
+            if not pending:
+                return True
+
+        return False
+
     async def _ensure_consent_request(
         self,
         workflow: dict[str, Any],
@@ -1588,18 +2631,8 @@ class OneEmailKycService:
         connector: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         existing_request_id = _clean_text(workflow.get("consent_request_id"))
-        if existing_request_id:
-            metadata = workflow.get("metadata", {})
-            if _is_legacy_consent_request_url(metadata.get("consent_request_url")):
-                return self._update_workflow(
-                    workflow["workflow_id"],
-                    metadata={
-                        **metadata,
-                        "consent_request_url": _kyc_consent_request_url(existing_request_id),
-                    },
-                )
-            return workflow
-
+        existing_requests = _workflow_consent_requests(workflow)
+        metadata = workflow.get("metadata", {})
         connector = connector or self._get_active_client_connector(workflow.get("user_id"))
         if not connector:
             return self._update_workflow(
@@ -1618,6 +2651,16 @@ class OneEmailKycService:
 
         selected_scopes = _workflow_selected_scopes(workflow)
         metadata = workflow.get("metadata", {})
+        if not selected_scopes:
+            candidate_scopes = _workflow_recommended_candidate_scopes(workflow)
+            if candidate_scopes:
+                ready_from_candidate_grants = await self._ready_workflow_from_existing_grants(
+                    workflow=workflow,
+                    selected_scopes=candidate_scopes,
+                )
+                if ready_from_candidate_grants:
+                    return ready_from_candidate_grants
+
         if (
             not selected_scopes
             and isinstance(metadata, dict)
@@ -1644,6 +2687,29 @@ class OneEmailKycService:
                 workflow.get("requested_scope") or self.config.default_kyc_scope
             )
         ]
+        ready_from_existing_grants = await self._ready_workflow_from_existing_grants(
+            workflow=workflow,
+            selected_scopes=selected_scopes,
+        )
+        if ready_from_existing_grants:
+            return ready_from_existing_grants
+
+        if existing_requests:
+            if _is_legacy_consent_request_url(metadata.get("consent_request_url")):
+                workflow = self._update_workflow(
+                    workflow["workflow_id"],
+                    metadata={
+                        **metadata,
+                        "consent_request_url": _kyc_consent_request_url(existing_request_id),
+                    },
+                )
+                metadata = workflow.get("metadata", {})
+            if not await self._should_reissue_consent_requests(
+                workflow=workflow,
+                consent_requests=existing_requests,
+            ):
+                return workflow
+
         bundle = await self._create_scope_consent_requests(
             workflow=workflow,
             connector=connector,
@@ -1666,6 +2732,9 @@ class OneEmailKycService:
                 "consent_requests": bundle["consent_requests"],
                 "client_connector_key_id": connector["connector_key_id"],
                 "client_connector_fingerprint": connector.get("public_key_fingerprint"),
+                "consent_request_reissued_at": (
+                    _utcnow().isoformat() if existing_requests else None
+                ),
                 "strict_client_zk": True,
                 "scope_selection_required": False,
                 "selected_scopes": bundle["selected_scopes"],
@@ -1681,9 +2750,9 @@ class OneEmailKycService:
         selected_scopes: list[str],
     ) -> dict[str, Any]:
         workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
-        if workflow.get("status") not in {"needs_scope", "needs_client_connector"}:
+        if workflow.get("status") in {"waiting_on_counterparty", "completed"}:
             raise OneEmailKycError(
-                "Scopes can only be selected before consent is resolved.",
+                "Data selection cannot be changed after the reply is sent.",
                 status_code=409,
                 code="ONE_KYC_SCOPE_SELECTION_NOT_ALLOWED",
             )
@@ -1713,9 +2782,6 @@ class OneEmailKycService:
                     code="ONE_KYC_SCOPE_SELECTION_INVALID",
                     payload={"invalid_scopes": invalid, "candidate_scopes": candidate_scopes},
                 )
-        existing = _workflow_consent_requests(workflow)
-        if existing and _workflow_selected_scopes(workflow) == selected:
-            return workflow
         connector = self._get_active_client_connector(user_id)
         if not connector:
             return self._update_workflow(
@@ -1736,14 +2802,27 @@ class OneEmailKycService:
         prepared = self._update_workflow(
             workflow_id,
             status="needs_scope",
+            consent_request_id=None,
             requested_scope=selected[0],
+            draft_subject=None,
+            draft_status="not_ready",
+            send_status="not_started",
             last_error_code=None,
             last_error_message=None,
             metadata={
                 **metadata,
+                "consent_request_url": None,
+                "consent_bundle_id": None,
+                "consent_bundle_label": None,
+                "consent_requests": None,
+                "consent_statuses": None,
+                "consent_export": None,
+                "consent_exports": None,
+                "client_draft_required": False,
                 "selected_scopes": selected,
                 "requested_scopes": selected,
                 "scope_selection_required": False,
+                "scope_selection_updated_at": _utcnow().isoformat(),
                 "client_connector_key_id": connector["connector_key_id"],
                 "client_connector_fingerprint": connector.get("public_key_fingerprint"),
                 "strict_client_zk": True,
@@ -1751,19 +2830,98 @@ class OneEmailKycService:
         )
         return await self._ensure_consent_request(prepared, connector=connector)
 
-    async def list_workflows(self, *, user_id: str) -> dict[str, Any]:
+    async def list_workflows(
+        self,
+        *,
+        user_id: str,
+        limit: int = 25,
+        cursor: str | None = None,
+        status_filter: str | None = None,
+        include_archived: bool = False,
+    ) -> dict[str, Any]:
+        page_limit = max(1, min(int(limit or 25), _MAX_WORKFLOW_PAGE_LIMIT))
+        decoded_cursor = _decode_workflow_cursor(cursor)
+        status_value = _clean_text(status_filter)
+        if status_value and status_value not in _KYC_WORKFLOW_STATES:
+            raise OneEmailKycError(
+                "Email request status filter is invalid.",
+                status_code=400,
+                code="ONE_KYC_STATUS_FILTER_INVALID",
+            )
+
+        params: dict[str, Any] = {
+            "user_id": user_id,
+            "limit": page_limit + 1,
+            "include_archived": bool(include_archived),
+            "status": status_value or "",
+            "status_filter_enabled": bool(status_value),
+            "cursor_created_at": None,
+            "cursor_workflow_id": "",
+        }
+        if status_value:
+            params["status"] = status_value
+        if decoded_cursor:
+            cursor_created_at, cursor_workflow_id = decoded_cursor
+            params["cursor_created_at"] = cursor_created_at
+            params["cursor_workflow_id"] = cursor_workflow_id
+
         sql = """
             SELECT *
             FROM one_kyc_workflows
             WHERE user_id = :user_id
-            ORDER BY created_at DESC
-            LIMIT 100
+              AND (
+                :include_archived = TRUE
+                OR metadata->>'archived_at' IS NULL
+                OR metadata->>'archived_at' = ''
+              )
+              AND (:status_filter_enabled = FALSE OR status = :status)
+              AND (
+                :cursor_created_at IS NULL
+                OR created_at < :cursor_created_at
+                OR (
+                  created_at = :cursor_created_at
+                  AND workflow_id < :cursor_workflow_id
+                )
+              )
+            ORDER BY created_at DESC, workflow_id DESC
+            LIMIT :limit
         """
-        rows = [
-            self._public_workflow(dict(row))
-            for row in self.db.execute_raw(sql, {"user_id": user_id}).data
-        ]
-        return {"workflows": rows}
+        rows = [self._public_workflow(dict(row)) for row in self.db.execute_raw(sql, params).data]
+
+        # The in-memory test DB returns all matching user rows regardless of SQL cursor clauses.
+        # Keep the same semantics in-process so contract tests exercise cursor behavior.
+        if not include_archived:
+            rows = [
+                row
+                for row in rows
+                if not _clean_text((row.get("metadata") or {}).get("archived_at"))
+            ]
+        if status_value:
+            rows = [row for row in rows if row.get("status") == status_value]
+        rows.sort(key=_workflow_sort_key, reverse=True)
+        if decoded_cursor:
+            cursor_created_at, cursor_workflow_id = decoded_cursor
+            rows = [
+                row
+                for row in rows
+                if _workflow_sort_key(row) < (cursor_created_at, cursor_workflow_id)
+            ]
+
+        has_more = len(rows) > page_limit
+        page_rows = rows[:page_limit]
+        next_cursor = (
+            _encode_workflow_cursor(
+                page_rows[-1].get("created_at"), page_rows[-1].get("workflow_id")
+            )
+            if has_more and page_rows
+            else None
+        )
+        return {
+            "workflows": page_rows,
+            "limit": page_limit,
+            "has_more": has_more,
+            "next_cursor": next_cursor,
+        }
 
     async def get_workflow(self, *, user_id: str, workflow_id: str) -> dict[str, Any]:
         workflow = self._get_workflow_for_user(user_id=user_id, workflow_id=workflow_id)
@@ -1775,11 +2933,46 @@ class OneEmailKycService:
             )
         return workflow
 
+    async def archive_workflow(self, *, user_id: str, workflow_id: str) -> dict[str, Any]:
+        workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
+        metadata = _redact_sensitive_workflow_metadata(workflow.get("metadata", {}))
+        archived_at = _utcnow().isoformat()
+        return self._update_workflow(
+            workflow_id,
+            metadata={
+                **metadata,
+                "archived_at": archived_at,
+            },
+        )
+
     async def refresh_workflow(self, *, user_id: str, workflow_id: str) -> dict[str, Any]:
         workflow = await self.get_workflow(user_id=user_id, workflow_id=workflow_id)
-        if workflow["status"] == "needs_client_connector":
+        if (
+            workflow.get("status") == "blocked"
+            and workflow.get("last_error_code") == "consent_not_granted"
+        ):
+            selected_scopes = _workflow_selected_scopes(workflow) or [
+                _validate_one_email_data_scope(
+                    workflow.get("requested_scope") or self.config.default_kyc_scope
+                )
+            ]
+            ready_from_existing_grants = await self._ready_workflow_from_existing_grants(
+                workflow=workflow,
+                selected_scopes=selected_scopes,
+            )
+            if ready_from_existing_grants:
+                return ready_from_existing_grants
+        if workflow["status"] in {"needs_client_connector", "needs_scope"}:
             workflow = await self._ensure_consent_request(workflow)
-        if workflow["status"] not in {"needs_scope", "needs_documents"}:
+        should_revalidate_ready_draft = (
+            workflow["status"] == "waiting_on_user"
+            and workflow.get("draft_status") == "ready"
+            and bool(_workflow_consent_requests(workflow))
+        )
+        if (
+            workflow["status"] not in {"needs_scope", "needs_documents"}
+            and not should_revalidate_ready_draft
+        ):
             return workflow
         consent_requests = _workflow_consent_requests(workflow)
         metadata = workflow.get("metadata", {})
@@ -1809,8 +3002,17 @@ class OneEmailKycService:
             if not export_package:
                 return self._update_workflow(
                     workflow_id,
+                    status="needs_scope",
+                    draft_status="not_ready",
+                    draft_body=None,
                     last_error_code="scoped_export_pending",
                     last_error_message="Consent is granted; One is waiting for the scoped encrypted export.",
+                    metadata={
+                        **_redact_sensitive_workflow_metadata(workflow.get("metadata", {})),
+                        "consent_export": None,
+                        "consent_exports": None,
+                        "client_draft_required": False,
+                    },
                 )
             export_metadata = self._public_export_metadata(export_package)
             workflow = self._update_workflow(
@@ -1850,13 +3052,50 @@ class OneEmailKycService:
         exports: list[dict[str, Any]] = []
         denied: list[dict[str, str]] = []
         pending: list[str] = []
+        resolved_consent_requests: list[dict[str, str]] = []
         for request in consent_requests:
             request_id = request["request_id"]
             scope = _validate_one_email_data_scope(request["scope"])
             status = await self.consent_db.get_request_status(workflow["user_id"], request_id)
             action = _clean_text(status.get("action") if status else None).upper()
+            grant = await self._active_consent_grant_for_scope(
+                user_id=workflow["user_id"],
+                scope=scope,
+                preferred_request_id=request_id,
+            )
+            if action != "CONSENT_GRANTED" and grant:
+                request_id = grant["request_id"]
+                status = {
+                    "action": "CONSENT_GRANTED",
+                    "request_id": grant["request_id"],
+                    "scope": grant["requested_scope"],
+                    "token_id": grant["token_id"],
+                    "reused_existing_grant": True,
+                    "granted_scope": grant["granted_scope"],
+                }
+                action = "CONSENT_GRANTED"
             statuses.append(
-                {"request_id": request_id, "scope": scope, "action": action or "PENDING"}
+                {
+                    "request_id": request_id,
+                    "scope": scope,
+                    "action": action or "PENDING",
+                    **(
+                        {
+                            "reused_existing_grant": True,
+                            "granted_scope": _clean_text(status.get("granted_scope")),
+                        }
+                        if status and status.get("reused_existing_grant")
+                        else {}
+                    ),
+                }
+            )
+            resolved_consent_requests.append(
+                {
+                    "request_id": request_id,
+                    "scope": scope,
+                    "status": "granted" if action == "CONSENT_GRANTED" else "requested",
+                    "request_url": _kyc_consent_request_url(request_id),
+                }
             )
             if action in {"CONSENT_DENIED", "DENIED", "REVOKED"}:
                 denied.append({"request_id": request_id, "scope": scope})
@@ -1865,10 +3104,13 @@ class OneEmailKycService:
                 pending.append(request_id)
                 continue
             token_id = _clean_text(status.get("token_id") if status else None)
+            expected_export_scope = (
+                _clean_text(status.get("granted_scope") if status else None) or scope
+            )
             export_package = await self._get_validated_consent_export(
                 workflow=workflow,
                 consent_token=token_id,
-                expected_scope=scope,
+                expected_scope=expected_export_scope,
             )
             if not export_package:
                 pending.append(request_id)
@@ -1883,6 +3125,7 @@ class OneEmailKycService:
         metadata = {
             **_redact_sensitive_workflow_metadata(workflow.get("metadata", {})),
             "consent_statuses": statuses,
+            "consent_requests": resolved_consent_requests,
         }
         if denied:
             return self._update_workflow(
@@ -1895,6 +3138,9 @@ class OneEmailKycService:
                 ),
                 metadata={
                     **metadata,
+                    "consent_export": None,
+                    "consent_exports": None,
+                    "client_draft_required": False,
                     "denied_scopes": [item["scope"] for item in denied],
                     "external_reply_blocked": True,
                     "internal_user_explanation": (
@@ -1905,11 +3151,19 @@ class OneEmailKycService:
         if pending or len(exports) != len(consent_requests):
             return self._update_workflow(
                 workflow["workflow_id"],
+                status="needs_scope",
+                draft_status="not_ready",
+                draft_body=None,
                 last_error_code="scoped_export_pending" if exports else None,
                 last_error_message=(
                     "One is waiting for all selected scoped encrypted exports." if exports else None
                 ),
-                metadata=metadata,
+                metadata={
+                    **metadata,
+                    "consent_export": None,
+                    "consent_exports": None,
+                    "client_draft_required": False,
+                },
             )
         export_metadata = [
             item["metadata"] | {"request_id": item["request_id"]} for item in exports
@@ -1917,6 +3171,8 @@ class OneEmailKycService:
         return self._update_workflow(
             workflow["workflow_id"],
             status="waiting_on_user",
+            requested_scope=resolved_consent_requests[0]["scope"],
+            consent_request_id=resolved_consent_requests[0]["request_id"],
             draft_status="ready",
             draft_subject=self._reply_subject(workflow.get("subject")),
             draft_body=None,
@@ -1954,14 +3210,32 @@ class OneEmailKycService:
                 code="ONE_KYC_CONSENT_REVALIDATION_MISSING",
             )
         status = await self.consent_db.get_request_status(user, request_id)
-        if _clean_text(status.get("action") if status else None).upper() != "CONSENT_GRANTED":
+        scope = _validate_one_email_data_scope(_clean_text(workflow.get("requested_scope")))
+        action = _clean_text(status.get("action") if status else None).upper()
+        if action != "CONSENT_GRANTED":
+            grant = await self._active_consent_grant_for_scope(
+                user_id=user,
+                scope=scope,
+                preferred_request_id=request_id,
+            )
+            if grant:
+                status = {
+                    "action": "CONSENT_GRANTED",
+                    "request_id": grant["request_id"],
+                    "scope": grant["requested_scope"],
+                    "token_id": grant["token_id"],
+                    "granted_scope": grant["granted_scope"],
+                    "reused_existing_grant": True,
+                }
+                action = "CONSENT_GRANTED"
+        if action != "CONSENT_GRANTED":
             raise OneEmailKycError(
                 "KYC consent is not active enough to load the encrypted export.",
                 status_code=409,
                 code="ONE_KYC_CONSENT_NOT_ACTIVE",
             )
         token_id = _clean_text(status.get("token_id") if status else None)
-        expected_scope = _clean_text(workflow.get("requested_scope"))
+        expected_scope = _clean_text(status.get("granted_scope") if status else None) or scope
         export_package = await self._get_validated_consent_export(
             workflow=workflow,
             consent_token=token_id,
@@ -1994,7 +3268,25 @@ class OneEmailKycService:
             request_id = request["request_id"]
             scope = _validate_one_email_data_scope(request["scope"])
             status = await self.consent_db.get_request_status(user_id, request_id)
-            if _clean_text(status.get("action") if status else None).upper() != "CONSENT_GRANTED":
+            action = _clean_text(status.get("action") if status else None).upper()
+            if action != "CONSENT_GRANTED":
+                grant = await self._active_consent_grant_for_scope(
+                    user_id=user_id,
+                    scope=scope,
+                    preferred_request_id=request_id,
+                )
+                if grant:
+                    request_id = grant["request_id"]
+                    status = {
+                        "action": "CONSENT_GRANTED",
+                        "request_id": grant["request_id"],
+                        "scope": grant["requested_scope"],
+                        "token_id": grant["token_id"],
+                        "granted_scope": grant["granted_scope"],
+                        "reused_existing_grant": True,
+                    }
+                    action = "CONSENT_GRANTED"
+            if action != "CONSENT_GRANTED":
                 raise OneEmailKycError(
                     "KYC consent is not active enough to load every encrypted export.",
                     status_code=409,
@@ -2002,10 +3294,13 @@ class OneEmailKycService:
                     payload={"request_id": request_id, "scope": scope},
                 )
             token_id = _clean_text(status.get("token_id") if status else None)
+            expected_export_scope = (
+                _clean_text(status.get("granted_scope") if status else None) or scope
+            )
             export_package = await self._get_validated_consent_export(
                 workflow=workflow,
                 consent_token=token_id,
-                expected_scope=scope,
+                expected_scope=expected_export_scope,
             )
             if not export_package:
                 raise OneEmailKycError(
@@ -2017,7 +3312,7 @@ class OneEmailKycService:
             self._validate_send_export_binding(
                 workflow=workflow,
                 export_package=export_package,
-                expected_scope=scope,
+                expected_scope=expected_export_scope,
             )
             public_export = self._public_encrypted_export(export_package)
             public_export["request_id"] = request_id
@@ -2070,7 +3365,8 @@ class OneEmailKycService:
         expected = _validate_one_email_data_scope(
             _clean_text(expected_scope) or _clean_text(workflow.get("requested_scope"))
         )
-        if _clean_text(export_package.get("scope")) != expected:
+        actual_scope = _validate_one_email_data_scope(_clean_text(export_package.get("scope")))
+        if not scope_matches(actual_scope, expected):
             raise OneEmailKycError(
                 "KYC scoped export does not match the requested workflow scope.",
                 status_code=409,
@@ -2326,6 +3622,7 @@ class OneEmailKycService:
         workflow_id: str,
         approved_subject: str | None,
         approved_body: str,
+        approved_html: str | None = None,
         client_draft_hash: str | None = None,
         consent_export_revision: int | None = None,
         pkm_writeback_artifact_hash: str | None = None,
@@ -2362,6 +3659,7 @@ class OneEmailKycService:
                 status_code=400,
                 code="ONE_KYC_APPROVED_BODY_TOO_LONG",
             )
+        html_body = _sanitize_approved_html(approved_html)
         subject = self._thread_safe_subject(
             workflow,
             approved_subject=approved_subject,
@@ -2391,6 +3689,9 @@ class OneEmailKycService:
                 "send_status": "sending",
                 "client_draft_hash": _truncate(client_draft_hash, 128),
                 "approved_send_hash": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+                "approved_send_html_hash": (
+                    hashlib.sha256(html_body.encode("utf-8")).hexdigest() if html_body else None
+                ),
                 "pkm_writeback_status": "pending",
                 "pkm_writeback_artifact_hash": writeback_artifact_hash,
             },
@@ -2401,6 +3702,7 @@ class OneEmailKycService:
                 pending,
                 approved_subject=subject,
                 approved_body=body,
+                approved_html=html_body,
             )
         except Exception:
             self._update_workflow(
@@ -2451,7 +3753,25 @@ class OneEmailKycService:
             request_id = request["request_id"]
             scope = _validate_one_email_data_scope(request["scope"])
             status = await self.consent_db.get_request_status(user_id, request_id)
-            if _clean_text(status.get("action") if status else None).upper() != "CONSENT_GRANTED":
+            action = _clean_text(status.get("action") if status else None).upper()
+            if action != "CONSENT_GRANTED":
+                grant = await self._active_consent_grant_for_scope(
+                    user_id=user_id,
+                    scope=scope,
+                    preferred_request_id=request_id,
+                )
+                if grant:
+                    request_id = grant["request_id"]
+                    status = {
+                        "action": "CONSENT_GRANTED",
+                        "request_id": grant["request_id"],
+                        "scope": grant["requested_scope"],
+                        "token_id": grant["token_id"],
+                        "granted_scope": grant["granted_scope"],
+                        "reused_existing_grant": True,
+                    }
+                    action = "CONSENT_GRANTED"
+            if action != "CONSENT_GRANTED":
                 raise OneEmailKycError(
                     "KYC consent is not active enough to send this draft.",
                     status_code=409,
@@ -2459,10 +3779,13 @@ class OneEmailKycService:
                     payload={"request_id": request_id, "scope": scope},
                 )
             token_id = _clean_text(status.get("token_id") if status else None)
+            expected_export_scope = (
+                _clean_text(status.get("granted_scope") if status else None) or scope
+            )
             export_package = await self._get_validated_consent_export(
                 workflow=workflow,
                 consent_token=token_id,
-                expected_scope=scope,
+                expected_scope=expected_export_scope,
             )
             if not export_package:
                 raise OneEmailKycError(
@@ -2475,7 +3798,7 @@ class OneEmailKycService:
                 workflow=workflow,
                 export_package=export_package,
                 consent_export_revision=consent_export_revision,
-                expected_scope=scope,
+                expected_scope=expected_export_scope,
             )
 
     async def redraft(
@@ -2501,7 +3824,7 @@ class OneEmailKycService:
                 code="ONE_KYC_REDRAFT_INSTRUCTIONS_REQUIRED",
             )
         selected_scopes = _workflow_selected_scopes(workflow)
-        if _scope_requires_more_data(cleaned_instructions):
+        if _redraft_requests_more_data(cleaned_instructions):
             scope_candidates = self._detect_scope_candidates(
                 subject=workflow.get("subject") or "",
                 body=cleaned_instructions,
@@ -2509,7 +3832,10 @@ class OneEmailKycService:
             requested_new_scopes = [
                 candidate["scope"]
                 for candidate in scope_candidates
-                if candidate.get("scope") not in selected_scopes
+                if not any(
+                    scope_matches(selected_scope, str(candidate.get("scope") or ""))
+                    for selected_scope in selected_scopes
+                )
             ]
             if requested_new_scopes:
                 return self._update_workflow(
@@ -2689,6 +4015,7 @@ class OneEmailKycService:
         *,
         approved_subject: str,
         approved_body: str,
+        approved_html: str | None = None,
     ) -> dict[str, Any]:
         metadata = workflow.get("metadata", {})
         reply_thread = metadata.get("reply_thread") if isinstance(metadata, dict) else {}
@@ -2720,6 +4047,8 @@ class OneEmailKycService:
         if references:
             msg["References"] = references
         msg.set_content(approved_body)
+        if approved_html:
+            msg.add_alternative(approved_html, subtype="html")
         encoded = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
         thread_id = _clean_text(workflow.get("gmail_thread_id"))
         if not thread_id:
