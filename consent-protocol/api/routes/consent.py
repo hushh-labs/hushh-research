@@ -21,6 +21,7 @@ from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.utils.firebase_auth import verify_firebase_bearer
+from hushh_mcp.consent.policy_engine import PolicyViolationError, TenantPolicy, policy_engine
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
 from hushh_mcp.consent.token import issue_token, revoke_token, validate_token_with_db
@@ -595,6 +596,39 @@ async def approve_consent(
     expiry_hours = metadata.get("expiry_hours", 24)
     if isinstance(requested_duration_hours, int) and requested_duration_hours > 0:
         expiry_hours = min(requested_duration_hours, 24 * 365)
+
+    # MODULAR COMPLIANCE CHECK: Tenant Policy
+    # If the pending request carries a consent_policy in its metadata, evaluate
+    # it now — before issuing any token.  A policy violation blocks the approval
+    # and returns 403 so the request is never written to the DB.
+    # Canonical attach point: hushh_mcp/consent/policy_engine.py → PolicyEngine
+    # Integrated by Abdul Gaffar — canonical policy-engine boundary.
+    if isinstance(metadata, dict) and "consent_policy" in metadata:
+        try:
+            _brand_policy = TenantPolicy.from_dict(metadata["consent_policy"])
+            _policy_ctx = policy_engine.build_context(
+                {
+                    "scope": requested_scope,
+                    "userId": userId,
+                    "developer": developer_label,
+                },
+                extra={k: v for k, v in metadata.items() if k != "consent_policy"},
+            )
+            policy_engine.check_or_raise(_policy_ctx, _brand_policy)
+        except PolicyViolationError as _pve:
+            logger.warning(
+                "consent.approve.policy_violation user=%s scope=%s reason=%s",
+                userId,
+                requested_scope,
+                _pve,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error_code": "POLICY_VIOLATION",
+                    "message": str(_pve),
+                },
+            )
 
     # MODULAR COMPLIANCE CHECK: Idempotency
     # Before issuing a NEW token, check if a valid token for this scope/agent already exists.
