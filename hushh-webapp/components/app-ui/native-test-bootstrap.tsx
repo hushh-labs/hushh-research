@@ -53,6 +53,7 @@ export function NativeTestBootstrap() {
   const authAttemptedRef = useRef(false);
   const authAttemptedAtRef = useRef(0);
   const unlockedForUidRef = useRef<string | null>(null);
+  const unlockInFlightForUidRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!config.enabled || !config.autoReviewerLogin) {
@@ -174,17 +175,21 @@ export function NativeTestBootstrap() {
 
     if (isVaultUnlocked) {
       unlockedForUidRef.current = user.uid;
+      unlockInFlightForUidRef.current = null;
       updateBootstrapStatus("vault_unlocked", {
         userId: user.uid,
       });
       return;
     }
 
-    if (unlockedForUidRef.current === user.uid) {
+    if (
+      unlockedForUidRef.current === user.uid ||
+      unlockInFlightForUidRef.current === user.uid
+    ) {
       return;
     }
 
-    unlockedForUidRef.current = user.uid;
+    unlockInFlightForUidRef.current = user.uid;
     updateBootstrapStatus("loading_vault_state", {
       userId: user.uid,
     });
@@ -208,12 +213,16 @@ export function NativeTestBootstrap() {
         const { token, expiresAt } = await VaultService.getOrIssueVaultOwnerToken(
           user.uid
         );
+        if (typeof window !== "undefined" && window.__HUSHH_NATIVE_TEST__?.enabled) {
+          window.__HUSHH_NATIVE_TEST__.replayVaultUnlock = () => {
+            unlockVault(decryptedKey, token, expiresAt);
+          };
+        }
         unlockVault(decryptedKey, token, expiresAt);
         updateBootstrapStatus("vault_unlocked", {
           userId: user.uid,
         });
       } catch (error) {
-        unlockedForUidRef.current = null;
         const message =
           error instanceof Error ? error.message : "Native test vault bootstrap failed";
         updateBootstrapStatus("vault_error", {
@@ -221,6 +230,10 @@ export function NativeTestBootstrap() {
           error: message,
         });
         console.error("[NativeTestBootstrap] Vault bootstrap failed:", error);
+      } finally {
+        if (unlockInFlightForUidRef.current === user.uid) {
+          unlockInFlightForUidRef.current = null;
+        }
       }
     })();
   }, [

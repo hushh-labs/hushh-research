@@ -224,7 +224,7 @@ export const Navbar = () => {
         router.push(ROUTES.KAI_DASHBOARD);
         return;
       case "analysis":
-        router.push(`${ROUTES.KAI_ANALYSIS}?tab=history`);
+        router.push(ROUTES.KAI_ANALYSIS);
         return;
       case "connect":
         router.push(ROUTES.MARKETPLACE);

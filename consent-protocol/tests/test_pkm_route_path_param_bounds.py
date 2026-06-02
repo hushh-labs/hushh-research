@@ -6,6 +6,7 @@ allowing arbitrarily long strings to reach service layer logic.
 Note: The auth dependency runs before path param validation in FastAPI, so
 tests must stub the vault-owner dependency to reach the validation layer.
 """
+
 from __future__ import annotations
 
 import pytest
