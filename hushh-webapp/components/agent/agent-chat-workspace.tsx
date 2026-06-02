@@ -55,10 +55,6 @@ import {
   type KaiRuntimeCredentialMode,
 } from "@/lib/services/personal-knowledge-model-service";
 import {
-  AgentRealtimeClient,
-  type AgentRealtimeVoiceState,
-} from "@/lib/services/agent-realtime-client";
-import {
   AGENT_VOICE_STT_TIMEOUT_MS,
   AgentVoiceClient,
   transcribeAgentVoice,
