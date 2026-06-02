@@ -84,9 +84,42 @@ export function syncNativeUiTestRunner({ repoRoot: root = repoRoot } = {}) {
   });
 }
 
+export function patchFirebaseMessagingForNativeTests({
+  repoRoot: root = repoRoot,
+} = {}) {
+  const pluginPath = path.join(
+    root,
+    "node_modules/@capacitor-firebase/messaging/ios/Plugin/FirebaseMessaging.swift"
+  );
+  if (!fs.existsSync(pluginPath)) {
+    return false;
+  }
+
+  const source = fs.readFileSync(pluginPath, "utf8");
+  if (source.includes("arguments.contains(\"-UITestMode\")")) {
+    return true;
+  }
+
+  const target = "        UIApplication.shared.registerForRemoteNotifications()";
+  const replacement = [
+    "        if !ProcessInfo.processInfo.arguments.contains(\"-UITestMode\") {",
+    "            UIApplication.shared.registerForRemoteNotifications()",
+    "        }",
+  ].join("\n");
+  if (!source.includes(target)) {
+    throw new Error(
+      "Unable to patch @capacitor-firebase/messaging native-test notification prompt guard."
+    );
+  }
+  fs.writeFileSync(pluginPath, source.replace(target, replacement));
+  console.log("==> patched Firebase Messaging iOS notification prompt for native tests");
+  return true;
+}
+
 export function prepareNativeTestArtifacts(options = {}) {
   const manifest = writeNativeUiFlowsManifest(options);
   copyNativeImportE2eAsset({ ...options, flows: manifest.flows });
   syncNativeUiTestRunner(options);
+  patchFirebaseMessagingForNativeTests(options);
   return manifest;
 }

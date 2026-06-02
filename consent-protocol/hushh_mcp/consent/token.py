@@ -373,7 +373,10 @@ async def validate_token_with_db(
             if not is_active:
                 # Add to in-memory set for future fast checks
                 _revoked_tokens.add(token_str)
-                logger.warning("Token revoked in DB but not in memory (fingerprint=%s)", _token_fingerprint(token_str))
+                logger.warning(
+                    "Token revoked in DB but not in memory (fingerprint=%s)",
+                    _token_fingerprint(token_str),
+                )
                 return False, "Token has been revoked (DB check)", None
     except Exception as e:
         # DB is unreachable — apply fail-closed policy based on token scope.

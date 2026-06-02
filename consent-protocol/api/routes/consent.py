@@ -1400,9 +1400,7 @@ async def get_consent_export_data(
                 detail="Legacy plaintext export format is no longer supported. Request consent again.",
             )
         else:
-            logger.info(
-                "consent.export_served_from_cache scope=%s", export_data.get("scope")
-            )
+            logger.info("consent.export_served_from_cache scope=%s", export_data.get("scope"))
             return {
                 "status": "success",
                 "encrypted_data": export_data["encrypted_data"],

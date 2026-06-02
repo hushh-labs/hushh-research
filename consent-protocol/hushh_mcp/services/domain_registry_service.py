@@ -350,7 +350,11 @@ class DomainRegistryService:
                 self._cache_time = datetime.utcnow()
                 return domain_info
         except Exception as e:
-            logger.warning("domain_registry.auto_register.rpc_failed domain=%s, falling back: %s", domain_key, e)
+            logger.warning(
+                "domain_registry.auto_register.rpc_failed domain=%s, falling back: %s",
+                domain_key,
+                e,
+            )
 
         # Fallback: Direct upsert
         try:

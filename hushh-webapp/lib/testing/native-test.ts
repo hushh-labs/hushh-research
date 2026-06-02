@@ -22,6 +22,7 @@ declare global {
       };
       triggerReviewerLogin?: (() => void) | null;
       triggerVaultUnlock?: (() => void) | null;
+      replayVaultUnlock?: (() => void) | null;
       switchPersona?: ((target: "investor" | "ria") => Promise<unknown>) | null;
       navigateToRoute?: ((route: string) => void) | null;
       bootstrapState?: string;
