@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -125,6 +126,7 @@ export type AgentChatWorkspaceVariant = "page" | "popover";
 type AgentChatWorkspaceProps = {
   variant?: AgentChatWorkspaceVariant;
   className?: string;
+  windowControls?: ReactNode;
   onMinimize?: () => void;
   onNavigationActionComplete?: (result: AgentActionRuntimeResult) => void;
 };
@@ -384,7 +386,7 @@ function AgentBubble({ message }: { message: AgentMessage }) {
           <Bot className="h-4 w-4" />
         </div>
       ) : null}
-      <div className={cn("max-w-[78%]", isUser && "order-first")}>
+      <div className={cn("max-w-[min(78%,52rem)]", isUser && "order-first")}>
         <div
           aria-live={!isUser && isStreaming ? "polite" : undefined}
           className={cn(
@@ -473,6 +475,7 @@ function shouldMinimizeForNavigationResult(result: AgentActionRuntimeResult): bo
 export function AgentChatWorkspace({
   variant = "page",
   className,
+  windowControls,
   onMinimize,
   onNavigationActionComplete,
 }: AgentChatWorkspaceProps) {
@@ -2202,6 +2205,7 @@ export function AgentChatWorkspace({
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
+          {windowControls}
           <span className="hidden rounded-md border border-border/70 bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground sm:inline-flex">
             {statusText}
           </span>
