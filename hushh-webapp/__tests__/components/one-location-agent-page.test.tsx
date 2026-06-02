@@ -7,11 +7,13 @@ const {
   mockUseVault,
   mockEnsureKey,
   mockEncryptLocationForRecipient,
+  mockDecryptLocationEnvelope,
   mockRegisterKey,
   mockGetPermissionState,
   mockCaptureCurrentPosition,
   mockCreateGrant,
   mockStoreEnvelope,
+  mockViewEnvelope,
   mockRevokeGrant,
   mockRequestAccess,
   mockCreatePublicInvite,
@@ -27,11 +29,13 @@ const {
   mockUseVault: vi.fn(),
   mockEnsureKey: vi.fn(),
   mockEncryptLocationForRecipient: vi.fn(),
+  mockDecryptLocationEnvelope: vi.fn(),
   mockRegisterKey: vi.fn(),
   mockGetPermissionState: vi.fn(),
   mockCaptureCurrentPosition: vi.fn(),
   mockCreateGrant: vi.fn(),
   mockStoreEnvelope: vi.fn(),
+  mockViewEnvelope: vi.fn(),
   mockRevokeGrant: vi.fn(),
   mockRequestAccess: vi.fn(),
   mockCreatePublicInvite: vi.fn(),
@@ -64,6 +68,7 @@ vi.mock("@/lib/vault/vault-context", () => ({
 
 vi.mock("@/lib/observability/client", () => ({
   trackEvent: mockTrackEvent,
+  toDurationBucket: () => "lt_100ms",
 }));
 
 vi.mock("@/components/vault/vault-lock-guard", () => ({
@@ -73,7 +78,7 @@ vi.mock("@/components/vault/vault-lock-guard", () => ({
 vi.mock("@/lib/one-location/encryption", () => ({
   ensureLocationRecipientKey: mockEnsureKey,
   encryptLocationForRecipient: mockEncryptLocationForRecipient,
-  decryptLocationEnvelope: vi.fn(),
+  decryptLocationEnvelope: mockDecryptLocationEnvelope,
 }));
 
 vi.mock("@/lib/one-location/service", () => ({
@@ -85,7 +90,7 @@ vi.mock("@/lib/one-location/service", () => ({
     createGrant: mockCreateGrant,
     storeEnvelope: mockStoreEnvelope,
     captureCurrentPosition: mockCaptureCurrentPosition,
-    viewEnvelope: vi.fn(),
+    viewEnvelope: mockViewEnvelope,
     revokeGrant: mockRevokeGrant,
     requestAccess: mockRequestAccess,
     approveRequest: vi.fn(),
@@ -285,6 +290,7 @@ function locationActivity() {
 describe("OneLocationAgentPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
     mockSearchParamsGet.mockReturnValue(null);
     mockUseRequireAuth.mockReturnValue({
       loading: false,
@@ -336,6 +342,30 @@ describe("OneLocationAgentPage", () => {
       sourcePlatform: "web",
     });
     mockStoreEnvelope.mockResolvedValue({});
+    mockViewEnvelope.mockResolvedValue({
+      grant: {},
+      envelope: {
+        recipientKeyId: "key_a",
+        algorithm: "ECDH-P256-AES256-GCM",
+        ciphertext: "ciphertext",
+        iv: "iv",
+        senderEphemeralPublicKeyJwk: {
+          kty: "EC",
+          crv: "P-256",
+          x: "x",
+          y: "y",
+        },
+        capturedAt: "2026-05-20T07:30:00.000Z",
+        sourcePlatform: "web",
+      },
+    });
+    mockDecryptLocationEnvelope.mockResolvedValue({
+      latitude: 28.6139,
+      longitude: 77.209,
+      accuracyM: 18,
+      capturedAt: "2026-05-20T07:30:00.000Z",
+      sourcePlatform: "web",
+    });
     mockRevokeGrant.mockResolvedValue({});
     mockRequestAccess.mockResolvedValue({});
     mockCreatePublicInvite.mockResolvedValue({
@@ -457,6 +487,68 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
   });
 
+  it("warns the recipient when the decrypted location update is stale", async () => {
+    const staleGrant = {
+      id: "grant_stale",
+      ownerUserId: "user_a",
+      recipientUserId: "user_b",
+      ownerDisplayName: "Trusted A",
+      recipientKeyId: "key_b",
+      status: "active",
+      consentScope: "cap.location.live.view",
+      capabilityScopes: ["cap.location.live.view"],
+      durationHours: 1,
+      expiresAt: "2099-05-20T08:00:00.000Z",
+    };
+    mockUseRequireAuth.mockReturnValue({
+      loading: false,
+      isAuthenticated: true,
+      userId: "user_b",
+      user: { uid: "user_b" },
+    });
+    window.localStorage.setItem(
+      "one_location_opened_grants_v1:user_b",
+      JSON.stringify(["grant_stale"]),
+    );
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [staleGrant],
+    });
+    mockViewEnvelope.mockResolvedValueOnce({
+      grant: staleGrant,
+      envelope: {
+        recipientKeyId: "key_b",
+        algorithm: "ECDH-P256-AES256-GCM",
+        ciphertext: "ciphertext",
+        iv: "iv",
+        senderEphemeralPublicKeyJwk: {
+          kty: "EC",
+          crv: "P-256",
+          x: "x",
+          y: "y",
+        },
+        capturedAt: "2000-01-01T00:00:00.000Z",
+        sourcePlatform: "web",
+      },
+    });
+    mockDecryptLocationEnvelope.mockResolvedValueOnce({
+      latitude: 28.6139,
+      longitude: 77.209,
+      accuracyM: 18,
+      capturedAt: "2000-01-01T00:00:00.000Z",
+      sourcePlatform: "web",
+    });
+
+    render(<OneLocationAgentPageContent />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await waitFor(() => expect(mockViewEnvelope).toHaveBeenCalled());
+    expect(
+      await screen.findByText("Location update may be stale. Ask them to refresh sharing."),
+    ).toBeTruthy();
+  });
+
   it("tracks public request-link creation without location or identity payloads", async () => {
     render(<OneLocationAgentPageContent />);
 
@@ -539,6 +631,47 @@ describe("OneLocationAgentPage", () => {
         success_count: 1,
         failure_count: 0,
       }),
+    );
+  });
+
+  it("retries transient foreground publish failures and tracks backoff metadata", async () => {
+    mockGetState.mockResolvedValueOnce({
+      ...locationState(),
+      ownerGrants: [],
+    });
+    mockStoreEnvelope
+      .mockRejectedValueOnce(
+        Object.assign(new Error("One API unavailable"), { status: 503 }),
+      )
+      .mockResolvedValueOnce({});
+
+    render(<OneLocationAgentPageContent />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: /Review Share/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm & Share Location/i }),
+    );
+
+    await waitFor(() => expect(mockStoreEnvelope).toHaveBeenCalledTimes(2));
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      "one_location_foreground_retry",
+      expect.objectContaining({
+        route_id: "one_location",
+        operation: "publish",
+        trigger: "manual",
+        result: "expected_error",
+        attempt_count: 1,
+        retry_count: 1,
+        backoff_bucket: "lt_500ms",
+        error_class: "one_api_unavailable",
+      }),
+    );
+    const retryCall = mockTrackEvent.mock.calls.find(
+      ([eventName]) => eventName === "one_location_foreground_retry",
+    );
+    expect(JSON.stringify(retryCall)).not.toMatch(
+      /8012|9911|latitude|longitude|28\.6139|77\.209|ciphertext|grant_new/u,
     );
   });
 

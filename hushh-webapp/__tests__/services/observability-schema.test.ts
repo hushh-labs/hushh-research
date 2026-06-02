@@ -114,6 +114,39 @@ describe("observability schema", () => {
     expect(result.sanitized.success_count).toBe(2);
   });
 
+  it("accepts One Location foreground retry metadata without location payloads", () => {
+    const result = validateAndSanitizeEvent(
+      "one_location_foreground_retry",
+      {
+        env: "uat",
+        platform: "web",
+        event_category: "system",
+        app_version: "2.1.0",
+        route_id: "one_location",
+        operation: "publish",
+        trigger: "foreground_interval",
+        result: "expected_error",
+        attempt_count: 1,
+        retry_count: 1,
+        backoff_bucket: "lt_500ms",
+        duration_ms_bucket: "300ms_1s",
+        error_class: "one_api_unavailable",
+        grant_id: "one_location_grant_identifier_forbidden",
+        latitude: "28.6139",
+        longitude: "77.209",
+        public_token: "public_token_value_forbidden",
+      } as any,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.droppedKeys).toContain("grant_id");
+    expect(result.droppedKeys).toContain("public_token");
+    expect(result.sanitized.operation).toBe("publish");
+    expect(result.sanitized.trigger).toBe("foreground_interval");
+    expect(result.sanitized.backoff_bucket).toBe("lt_500ms");
+    expect(result.sanitized.error_class).toBe("one_api_unavailable");
+  });
+
   it("accepts phone verification lifecycle metadata without phone values", () => {
     const result = validateAndSanitizeEvent("phone_verification_started", {
       env: "uat",

@@ -91,7 +91,7 @@ import type {
 } from "@/lib/one-location/types";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
-import { trackEvent } from "@/lib/observability/client";
+import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
 
@@ -104,6 +104,8 @@ const DURATION_OPTIONS = [
 ];
 
 const LIVE_LOCATION_UPDATE_INTERVAL_MS = 20_000;
+const LIVE_LOCATION_STALE_THRESHOLD_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS * 3;
+const FOREGROUND_RETRY_DELAYS_MS = [450, 900] as const;
 
 type BusyState =
   | "load"
@@ -141,6 +143,14 @@ type OneLocationSelectionSurface =
   | "select_menu";
 
 type OneLocationDurationBucket = "15m" | "30m" | "1h" | "4h" | "24h" | "custom";
+type OneLocationForegroundOperation = "publish" | "view";
+type OneLocationForegroundTrigger = "manual" | "foreground_interval";
+type OneLocationBackoffBucket =
+  | "none"
+  | "lt_500ms"
+  | "500ms_1s"
+  | "1s_3s"
+  | "gte_3s";
 
 type OneLocationContactSignalStatus =
   | "idle"
@@ -615,6 +625,87 @@ function isTransientOneApiError(error: unknown): boolean {
   return status === 502 || status === 503 || status === 504;
 }
 
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function oneLocationBackoffBucket(delayMs: number): OneLocationBackoffBucket {
+  if (delayMs <= 0) return "none";
+  if (delayMs < 500) return "lt_500ms";
+  if (delayMs < 1000) return "500ms_1s";
+  if (delayMs < 3000) return "1s_3s";
+  return "gte_3s";
+}
+
+function oneLocationFailureClass(error: unknown): string {
+  if (isTransientOneApiError(error)) return "one_api_unavailable";
+  const name =
+    error && typeof error === "object" && "name" in error
+      ? String((error as { name?: unknown }).name || "").toLowerCase()
+      : "";
+  const message =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : String((error as { message?: unknown })?.message || error || "").toLowerCase();
+  if (name === "aborterror" || message.includes("abort")) return "aborted";
+  if (message.includes("network") || message.includes("fetch")) return "network";
+  if (message.includes("permission") || message.includes("location")) return "permission";
+  if (
+    message.includes("key") ||
+    message.includes("encrypt") ||
+    message.includes("decrypt")
+  ) {
+    return "encryption";
+  }
+  return "unknown";
+}
+
+function isRetryableForegroundError(error: unknown): boolean {
+  const failureClass = oneLocationFailureClass(error);
+  return failureClass === "one_api_unavailable" || failureClass === "network";
+}
+
+async function runOneLocationForegroundAttempt<T>(params: {
+  operation: OneLocationForegroundOperation;
+  trigger: OneLocationForegroundTrigger;
+  task: () => Promise<T>;
+}): Promise<T> {
+  const startedAt = Date.now();
+  let attemptIndex = 0;
+
+  for (;;) {
+    try {
+      return await params.task();
+    } catch (error) {
+      const retryDelayMs = FOREGROUND_RETRY_DELAYS_MS[attemptIndex] ?? 0;
+      const shouldRetry =
+        retryDelayMs > 0 && isRetryableForegroundError(error);
+      const retryCount = shouldRetry
+        ? attemptIndex + 1
+        : Math.min(attemptIndex, FOREGROUND_RETRY_DELAYS_MS.length);
+
+      trackEvent("one_location_foreground_retry", {
+        route_id: "one_location",
+        operation: params.operation,
+        trigger: params.trigger,
+        result: shouldRetry ? "expected_error" : "error",
+        attempt_count: attemptIndex + 1,
+        retry_count: retryCount,
+        backoff_bucket: oneLocationBackoffBucket(retryDelayMs),
+        duration_ms_bucket: toDurationBucket(Date.now() - startedAt),
+        error_class: oneLocationFailureClass(error),
+      });
+
+      if (!shouldRetry) {
+        throw error;
+      }
+
+      attemptIndex += 1;
+      await wait(retryDelayMs);
+    }
+  }
+}
+
 function oneLocationErrorMessage(error: unknown, fallback: string): string {
   if (isTransientOneApiError(error)) {
     return "One is still catching up. Please refresh once, then check this page before retrying.";
@@ -622,8 +713,15 @@ function oneLocationErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+function isLocationPointStale(point: PlainLocationPoint): boolean {
+  const capturedAt = new Date(point.capturedAt).getTime();
+  if (!Number.isFinite(capturedAt)) return false;
+  return Date.now() - capturedAt > LIVE_LOCATION_STALE_THRESHOLD_MS;
+}
+
 function LocalMapPreview({ point }: { point: PlainLocationPoint }) {
   const captured = formatDateTime(point.capturedAt);
+  const isStale = isLocationPointStale(point);
   return (
     <div className="overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)]">
       <div className="relative h-44 bg-[linear-gradient(to_right,rgba(15,23,42,0.08)_1px,transparent_1px),linear-gradient(to_bottom,rgba(15,23,42,0.08)_1px,transparent_1px)] bg-[length:28px_28px] dark:bg-[linear-gradient(to_right,rgba(255,255,255,0.10)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.10)_1px,transparent_1px)]">
@@ -655,6 +753,17 @@ function LocalMapPreview({ point }: { point: PlainLocationPoint }) {
           <div className="text-foreground">{captured}</div>
         </div>
       </div>
+      {isStale ? (
+        <div
+          role="status"
+          className="mx-3 mb-3 flex items-start gap-2 rounded-[12px] border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-[12px] font-medium text-amber-800 dark:text-amber-100"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>
+            Location update may be stale. Ask them to refresh sharing.
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1370,6 +1479,21 @@ export function OneLocationAgentPageContent() {
     [vaultOwnerToken],
   );
 
+  const publishEnvelopeWithRetry = useCallback(
+    async (
+      grant: OneLocationGrant,
+      recipient: OneLocationRecipient,
+      trigger: OneLocationForegroundTrigger,
+      pointOverride?: PlainLocationPoint,
+    ) =>
+      runOneLocationForegroundAttempt({
+        operation: "publish",
+        trigger,
+        task: () => publishEnvelope(grant, recipient, pointOverride),
+      }),
+    [publishEnvelope],
+  );
+
   const handleShare = useCallback(async () => {
     if (
       !vaultOwnerToken ||
@@ -1391,7 +1515,7 @@ export function OneLocationAgentPageContent() {
           recipientKeyId: recipient.keyId,
           durationHours: Number(durationHours),
         });
-        await publishEnvelope(grant, recipient, point);
+        await publishEnvelopeWithRetry(grant, recipient, "manual", point);
         successCount += 1;
       }
       trackEvent("one_location_share_confirmed", {
@@ -1431,7 +1555,7 @@ export function OneLocationAgentPageContent() {
   }, [
     durationHours,
     permission?.state,
-    publishEnvelope,
+    publishEnvelopeWithRetry,
     refresh,
     setupNeededSelectedRecipients.length,
     shareReviewOpen,
@@ -1448,7 +1572,7 @@ export function OneLocationAgentPageContent() {
       }
       setBusy("publish");
       try {
-        await publishEnvelope(grant, recipient);
+        await publishEnvelopeWithRetry(grant, recipient, "manual");
         toast.success("Encrypted location update published.");
         await refresh();
       } catch (error) {
@@ -1459,22 +1583,33 @@ export function OneLocationAgentPageContent() {
         setBusy(null);
       }
     },
-    [publishEnvelope, recipientForGrant, refresh],
+    [publishEnvelopeWithRetry, recipientForGrant, refresh],
   );
 
   const viewGrantEnvelope = useCallback(
-    async (grant: OneLocationGrant, options?: { silent?: boolean }) => {
+    async (
+      grant: OneLocationGrant,
+      options?: { silent?: boolean; trigger?: OneLocationForegroundTrigger },
+    ) => {
       if (!auth.userId || !vaultOwnerToken) return;
+      const activeUserId = auth.userId;
       const silent = Boolean(options?.silent);
+      const trigger = options?.trigger ?? (silent ? "foreground_interval" : "manual");
       if (!silent) setBusy("view");
       try {
-        const response = await OneLocationService.viewEnvelope({
-          vaultOwnerToken,
-          grantId: grant.id,
-        });
-        const point = await decryptLocationEnvelope({
-          userId: auth.userId,
-          envelope: response.envelope,
+        const point = await runOneLocationForegroundAttempt({
+          operation: "view",
+          trigger,
+          task: async () => {
+            const response = await OneLocationService.viewEnvelope({
+              vaultOwnerToken,
+              grantId: grant.id,
+            });
+            return decryptLocationEnvelope({
+              userId: activeUserId,
+              envelope: response.envelope,
+            });
+          },
         });
         setDecryptedPoints((current) => ({ ...current, [grant.id]: point }));
       } catch (error) {
@@ -1528,7 +1663,12 @@ export function OneLocationAgentPageContent() {
         for (const grant of activeOwnerGrants) {
           const recipient = recipientForGrant(grant);
           if (!recipient?.keyId || !recipient.publicKeyJwk) continue;
-          await publishEnvelope(grant, recipient, point);
+          await publishEnvelopeWithRetry(
+            grant,
+            recipient,
+            "foreground_interval",
+            point,
+          );
         }
       } catch (error) {
         console.warn(
@@ -1550,7 +1690,7 @@ export function OneLocationAgentPageContent() {
     activeOwnerGrants,
     busy,
     permission?.state,
-    publishEnvelope,
+    publishEnvelopeWithRetry,
     recipientForGrant,
     vaultOwnerToken,
   ]);
@@ -1570,7 +1710,10 @@ export function OneLocationAgentPageContent() {
       try {
         await Promise.allSettled(
           activeVisibleReceivedGrants.map((grant) =>
-            viewGrantEnvelope(grant, { silent: true }),
+            viewGrantEnvelope(grant, {
+              silent: true,
+              trigger: "foreground_interval",
+            }),
           ),
         );
       } finally {
@@ -1918,7 +2061,7 @@ export function OneLocationAgentPageContent() {
           requestId: request.id,
           durationHours: Number(durationHours),
         });
-        await publishEnvelope(response.grant, requester);
+        await publishEnvelopeWithRetry(response.grant, requester, "manual");
         toast.success("Request approved and encrypted update published.");
         await refresh();
       } catch (error) {
@@ -1929,7 +2072,7 @@ export function OneLocationAgentPageContent() {
         setBusy(null);
       }
     },
-    [durationHours, publishEnvelope, recipients, refresh, vaultOwnerToken],
+    [durationHours, publishEnvelopeWithRetry, recipients, refresh, vaultOwnerToken],
   );
 
   const handleDeny = useCallback(

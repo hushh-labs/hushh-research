@@ -116,6 +116,17 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "matched_count",
     "invite_candidate_count",
   ],
+  one_location_foreground_retry: [
+    ...BASE_ALLOWED_KEYS,
+    "operation",
+    "trigger",
+    "result",
+    "attempt_count",
+    "retry_count",
+    "backoff_bucket",
+    "duration_ms_bucket",
+    "error_class",
+  ],
   growth_funnel_step_completed: [
     ...BASE_ALLOWED_KEYS,
     "journey",

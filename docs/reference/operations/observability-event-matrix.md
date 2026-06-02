@@ -85,6 +85,20 @@ Every emitted observability event carries centrally added shared params:
 | `gmail_sync_result` | Gmail sync queue/already-running result | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | sync queue health | GA DebugView |
 | `gmail_receipts_loaded` | Receipt list load result | `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | receipts UX quality | GA DebugView |
 
+## One Location
+
+One Location events are metadata-only. They must never include coordinates, ciphertext, raw grant IDs, public tokens, phone values, names, addresses, or decrypted map values.
+
+| Event | Business purpose | Required params | Primary emitter | Destination use | Proof path |
+| --- | --- | --- | --- | --- | --- |
+| `one_location_recommendation_selected` | KAI Circle recipient selection quality without identity payloads | `route_id`, `action`, `selection_surface`, `result`, `selected_count`, `can_receive_location` | `hushh-webapp/app/one/location/page.tsx` | recommendation UX tuning | `npm run verify:analytics`, One Location component tests |
+| `one_location_share_review_opened` | Safety review exposure before sensitive private sharing | `route_id`, `result`, `selected_count`, `duration_bucket`, review warning booleans | `hushh-webapp/app/one/location/page.tsx` | review friction and safety posture | `npm run verify:analytics`, One Location component tests |
+| `one_location_share_confirmed` | Private encrypted share outcome counts only | `route_id`, `result`, `selected_count`, `success_count`, `failure_count`, `duration_bucket`, `review_required` | `hushh-webapp/app/one/location/page.tsx` | share success/error rate | `npm run verify:analytics`, One Location component tests |
+| `one_location_request_sent` | Approval-first location request outcome counts only | `route_id`, `result`, `selected_count`, `success_count`, `failure_count`, `has_note` | `hushh-webapp/app/one/location/page.tsx` | request-flow success/error rate | `npm run verify:analytics`, One Location component tests |
+| `one_location_public_link_created` | Approval-first public request link creation without public live-location access | `route_id`, `result`, `duration_bucket`, `copied_to_clipboard`, `active_invite_count` | `hushh-webapp/app/one/location/page.tsx` | request-link UX and safety tracking | `npm run verify:analytics`, One Location component tests |
+| `one_location_contact_signal_synced` | Optional contact-signal matching quality without phone payloads | `route_id`, `result`, `source_platform`, `contact_count_bucket`, `matched_count`, `invite_candidate_count` | `hushh-webapp/app/one/location/page.tsx` | KAI Circle cold-start tuning | `npm run verify:analytics`, One Location component tests |
+| `one_location_foreground_retry` | Failed foreground live publish/view attempt with retry and backoff metadata | `route_id`, `operation`, `trigger`, `result`, `attempt_count`, `retry_count`, `backoff_bucket`, `duration_ms_bucket` | `hushh-webapp/app/one/location/page.tsx` | live-location reliability and One API transient health | `npm run verify:analytics`, One Location component tests |
+
 ## Growth Funnel Canonical Events
 
 | Event | Business purpose | Required params | Primary emitter | Destination use | Proof path |
