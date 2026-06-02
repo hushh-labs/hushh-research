@@ -63,19 +63,13 @@ export async function POST(request: NextRequest) {
     );
 
     if (!backendResponse.ok) {
-      const errorText = await backendResponse.text();
-      let errorPayload: unknown = null;
-      try {
-        errorPayload = JSON.parse(errorText);
-      } catch {
-        errorPayload = { error: errorText || `Backend error: ${backendResponse.status}` };
-      }
-      console.error("[StoreDomain] Backend error:", backendResponse.status, errorPayload);
+      console.error("[StoreDomain] Backend error:", backendResponse.status);
       return NextResponse.json(
-        errorPayload,
+        { error: "Backend error" },
         { status: backendResponse.status }
       );
     }
+    
 
     const data = await backendResponse.json();
     return NextResponse.json(data);
