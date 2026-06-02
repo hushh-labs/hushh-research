@@ -299,3 +299,170 @@ class TestTrustBoundaryProof:
     async def test_in_flight_is_dict(self, orchestrator):
         """_in_flight must be a dict for per-ticker coalescing."""
         assert isinstance(orchestrator._in_flight, dict)
+
+
+# ===========================================================================
+# Canonical caller proof — lock fires via api/routes/kai/analyze.py
+# ===========================================================================
+
+
+class TestAnalyzeRouteAttachPoint:
+    """
+    Canonical surface  : hushh_mcp.agents.kai.orchestrator.KaiOrchestrator.analyze()
+                         asyncio.Lock + _in_flight coalescing guard
+    Canonical caller   : api/routes/kai/analyze.py → analyze_ticker()
+                           → KaiOrchestrator(user_id, risk_profile, processing_mode)
+                           → await orchestrator.analyze(ticker, consent_token, context)
+    Attach-point proof : Calls analyze_ticker() (the real route handler function)
+                         with stubbed auth/LLM/market dependencies, captures the
+                         KaiOrchestrator instance created inside the handler, and
+                         asserts that _transition_count == 1 and _in_flight is
+                         empty — proving the lock fired on the canonical caller path.
+    """
+
+    async def test_analyze_route_fires_orchestrator_lock(self, monkeypatch):
+        """
+        analyze_ticker() is the real production route.  This test proves:
+          1. The route constructs a KaiOrchestrator instance.
+          2. orchestrator.analyze() runs the _transition_lock code path.
+          3. _transition_count == 1 after the call (lock fired exactly once).
+          4. _in_flight["AAPL"] is cleaned up (no memory leak after the route returns).
+        """
+        import json
+        from unittest.mock import AsyncMock
+
+        from api.routes.kai.analyze import AnalyzeRequest, analyze_ticker
+        from hushh_mcp.agents.kai.orchestrator import KaiOrchestrator
+
+        # ── Capture the orchestrator instance created by the route ─────────
+        captured: list[KaiOrchestrator] = []
+        _orig_init = KaiOrchestrator.__init__
+
+        def _capturing_init(self, user_id, risk_profile="balanced", processing_mode="hybrid"):
+            _orig_init(self, user_id, risk_profile, processing_mode)
+            captured.append(self)
+
+        monkeypatch.setattr(KaiOrchestrator, "__init__", _capturing_init)
+
+        # ── Stub async boundaries — no real token / LLM / market I/O ───────
+        monkeypatch.setattr(
+            KaiOrchestrator, "_validate_consent", AsyncMock(return_value=None)
+        )
+        monkeypatch.setattr(
+            KaiOrchestrator, "_execute_analysis", AsyncMock(return_value=_stub_decision_card())
+        )
+
+        # ── Stub decision_generator.to_json (called after analyze() returns) ─
+        _json_stub = json.dumps({
+            "decision_id": "dec-route-proof-001",
+            "ticker": "AAPL",
+            "decision": "hold",
+            "confidence": 0.72,
+            "headline": "Stable outlook",
+            "processing_mode": "hybrid",
+            "timestamp": "2026-06-02T00:00:00",
+            "risk_alignment": "balanced",
+            "fundamental_confidence": 0.7,
+            "sentiment_confidence": 0.7,
+            "valuation_confidence": 0.7,
+        })
+        monkeypatch.setattr(
+            "hushh_mcp.agents.kai.decision_generator.DecisionGenerator.to_json",
+            lambda self, card: _json_stub,
+        )
+
+        # ── Build minimal request and token_data (bypass HTTP + auth layers) ─
+        request = AnalyzeRequest(
+            user_id="usr-route-attach-proof",
+            ticker="AAPL",
+            consent_token=_TOKEN,
+            risk_profile="balanced",
+            processing_mode="hybrid",
+        )
+        token_data = {
+            "user_id": "usr-route-attach-proof",
+            "token": _TOKEN,
+        }
+
+        # ── Call the real route handler — not a direct orchestrator call ──────
+        response = await analyze_ticker(request=request, token_data=token_data)
+
+        # ── Prove: route created exactly one orchestrator ─────────────────────
+        assert len(captured) == 1, (
+            "analyze_ticker() must construct exactly one KaiOrchestrator per call"
+        )
+        orch = captured[0]
+
+        # ── Prove: the lock fired (transition_count > 0) ──────────────────────
+        assert orch._transition_count == 1, (
+            "The concurrency lock must fire via analyze_ticker() → orchestrator.analyze(); "
+            "expected _transition_count == 1 after one route call"
+        )
+
+        # ── Prove: _in_flight cleaned up (no memory leak) ────────────────────
+        assert "AAPL" not in orch._in_flight, (
+            "_in_flight['AAPL'] must be removed after analyze_ticker() returns"
+        )
+
+        # ── Prove: route returned a valid AnalyzeResponse ────────────────────
+        assert response.ticker == "AAPL"
+
+    async def test_analyze_route_creates_lock_bearing_orchestrator(self, monkeypatch):
+        """
+        Structural proof: the route instantiates a KaiOrchestrator that carries
+        the lock primitives introduced by this PR.
+        """
+        from unittest.mock import AsyncMock
+
+        from api.routes.kai.analyze import AnalyzeRequest, analyze_ticker
+        from hushh_mcp.agents.kai.orchestrator import KaiOrchestrator
+
+        captured: list[KaiOrchestrator] = []
+        _orig_init = KaiOrchestrator.__init__
+
+        def _capturing_init(self, user_id, risk_profile="balanced", processing_mode="hybrid"):
+            _orig_init(self, user_id, risk_profile, processing_mode)
+            captured.append(self)
+
+        monkeypatch.setattr(KaiOrchestrator, "__init__", _capturing_init)
+        monkeypatch.setattr(
+            KaiOrchestrator, "_validate_consent", AsyncMock(return_value=None)
+        )
+        monkeypatch.setattr(
+            KaiOrchestrator, "_execute_analysis", AsyncMock(return_value=_stub_decision_card())
+        )
+
+        import json
+        _json_stub = json.dumps({
+            "decision_id": "dec-struct-proof-001",
+            "ticker": "TSLA",
+            "decision": "buy",
+            "confidence": 0.8,
+            "headline": "Strong momentum",
+            "processing_mode": "hybrid",
+            "timestamp": "2026-06-02T00:00:00",
+            "risk_alignment": "aggressive",
+        })
+        monkeypatch.setattr(
+            "hushh_mcp.agents.kai.decision_generator.DecisionGenerator.to_json",
+            lambda self, card: _json_stub,
+        )
+
+        await analyze_ticker(
+            request=AnalyzeRequest(
+                user_id="usr-struct-proof",
+                ticker="TSLA",
+                consent_token=_TOKEN,
+                risk_profile="aggressive",
+            ),
+            token_data={"user_id": "usr-struct-proof", "token": _TOKEN},
+        )
+
+        assert len(captured) == 1
+        orch = captured[0]
+        assert isinstance(orch._transition_lock, asyncio.Lock), (
+            "KaiOrchestrator created by the route must have asyncio.Lock as _transition_lock"
+        )
+        assert isinstance(orch._in_flight, dict), (
+            "KaiOrchestrator created by the route must have dict as _in_flight"
+        )
