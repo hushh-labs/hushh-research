@@ -95,7 +95,7 @@ async def kai_chat(request: ChatRequest):
         )
     except Exception as e:
         logger.error(f"📈 Kai Agent Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Agent processing failed")
 
 
 @router.get("/agents/kai/info")
