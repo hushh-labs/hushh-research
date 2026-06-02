@@ -420,8 +420,8 @@ describe("PkmUpgradeOrchestrator", () => {
 
       expect(AppBackgroundTaskService.failTask).toHaveBeenCalledWith(
         expect.stringContaining("pkm_upgrade_"),
-        expect.stringContaining("Manifest read failed (500)"),
-        expect.stringContaining("We paused while updating"),
+        "We could not update your personal data right now.",
+        "We paused while updating food details.",
         expect.objectContaining({
           domain: "food",
           stage: "run",
@@ -447,9 +447,9 @@ describe("PkmUpgradeOrchestrator", () => {
       expect(pkmValidatePreparedDomainStoreMock).not.toHaveBeenCalled();
       expect(pkmStoreMergedDomainMock).toHaveBeenCalledTimes(1);
       expect(toastSuccessMock).toHaveBeenCalledWith(
-        "Personal Knowledge Model updated",
+        "Personal data updated",
         expect.objectContaining({
-          description: "Your Personal Knowledge Model is current.",
+          description: "Your personal data is up to date.",
         })
       );
     });
@@ -490,7 +490,7 @@ describe("PkmUpgradeOrchestrator", () => {
       expect(pkmStoreMergedDomainMock).not.toHaveBeenCalled();
       expect(AppBackgroundTaskService.completeTask).toHaveBeenCalledWith(
         expect.stringContaining("pkm_upgrade_"),
-        expect.stringContaining("no-write upgrade check"),
+        "Your personal data is ready to review.",
         expect.objectContaining({
           dummySaveValidated: true,
           mode: "rehearsal_no_write",
@@ -559,18 +559,18 @@ describe("PkmUpgradeOrchestrator", () => {
       expect(AppBackgroundTaskService.startTask).toHaveBeenCalledWith(
         expect.objectContaining({
           kind: "pkm_upgrade",
-          title: "Updating your Personal Knowledge Model",
+          title: "Updating your personal data",
         })
       );
       expect(AppBackgroundTaskService.completeTask).toHaveBeenCalledWith(
         expect.stringContaining("pkm_upgrade_"),
-        "Your Personal Knowledge Model is current.",
+        "Your personal data is up to date.",
         null
       );
       expect(toastSuccessMock).toHaveBeenCalledWith(
-        "Personal Knowledge Model updated",
+        "Personal data updated",
         expect.objectContaining({
-          description: "Your Personal Knowledge Model is current.",
+          description: "Your personal data is up to date.",
         })
       );
     });

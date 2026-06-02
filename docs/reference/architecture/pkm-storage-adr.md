@@ -3,7 +3,25 @@
 
 ## Visual Context
 
-Canonical visual owner: [Architecture Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
+Canonical visual owner: [Architecture Index](README.md). Use that map for the top-down system view. The detailed PKM table, read/write, cache, and PKM-to-MCP encrypted export diagrams live in [Personal Knowledge Model](../../../consent-protocol/docs/reference/personal-knowledge-model.md#visual-map).
+
+```mermaid
+flowchart LR
+  client["Unlocked first-party client<br/>plaintext only in memory"]
+  blobs["pkm_blobs<br/>segmented AES-GCM ciphertext"]
+  metadata["Manifest/index/scope metadata<br/>sanitized JSONB projections"]
+  export["consent_exports<br/>encrypted scoped export + wrapped key bundle"]
+  mcp["MCP / Developer API<br/>ciphertext-only response"]
+  connector["External connector<br/>local unwrap + decrypt"]
+
+  client -->|encrypt domain + segments| blobs
+  client -->|write non-secret structure/projection| metadata
+  metadata -->|discover domains + scope handles| mcp
+  blobs -->|fetch selected ciphertext| client
+  client -->|build scoped JSON after vault unlock| export
+  export --> mcp
+  mcp --> connector
+```
 
 ## Status
 
@@ -11,7 +29,7 @@ Accepted.
 
 ## Decision
 
-Kai stores Personal Knowledge Model payloads as segmented encrypted blobs, not as JSONB objects with plaintext keys and encrypted leaf values.
+The current PKM runtime stores Personal Knowledge Model payloads as segmented encrypted blobs, not as JSONB objects with plaintext keys and encrypted leaf values.
 
 ## Why
 
