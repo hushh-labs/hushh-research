@@ -109,9 +109,7 @@ class TestHushhAgentFromManifestCallProof:
 
     def test_manifest_loader_load_from_yaml_file(self):
         """ManifestLoader.load must parse a valid YAML file on disk."""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as fh:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as fh:
             yaml.dump(_MINIMAL_MANIFEST, fh)
             tmp_path = fh.name
 
@@ -129,9 +127,7 @@ class TestHushhAgentFromManifestCallProof:
 
     def test_manifest_loader_raises_on_malformed_yaml(self):
         """ManifestLoader.load must raise ValueError for YAML that is not a mapping."""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as fh:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as fh:
             fh.write("- this\n- is\n- a\n- list\n")
             tmp_path = fh.name
 
@@ -147,9 +143,7 @@ class TestHushhAgentFromManifestCallProof:
 
     def test_from_manifest_constructs_agent_from_file(self):
         """from_manifest must return a HushhAgent with correct name and scopes."""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as fh:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as fh:
             yaml.dump(_MINIMAL_MANIFEST, fh)
             tmp_path = fh.name
 
@@ -181,9 +175,7 @@ class TestHushhAgentFromManifestCallProof:
             "agent.yaml",
         )
         manifest_path = os.path.abspath(manifest_path)
-        assert os.path.exists(manifest_path), (
-            f"Expected kai agent.yaml at {manifest_path}"
-        )
+        assert os.path.exists(manifest_path), f"Expected kai agent.yaml at {manifest_path}"
         manifest = ManifestLoader.load(manifest_path)
         assert manifest.id == "agent_kai"
         assert manifest.name  # non-empty
@@ -213,9 +205,7 @@ class TestHushhAgentFromManifestCallProof:
         # Instantiate fresh (bypass singleton)
         agent = KaiAgent()
 
-        assert len(load_calls) >= 1, (
-            "KaiAgent.__init__ must call ManifestLoader.load at least once"
-        )
+        assert len(load_calls) >= 1, "KaiAgent.__init__ must call ManifestLoader.load at least once"
         assert any("agent.yaml" in p for p in load_calls), (
             f"ManifestLoader.load must be called with kai agent.yaml; got {load_calls}"
         )

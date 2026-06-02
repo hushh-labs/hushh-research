@@ -294,12 +294,12 @@ function ensureNativeTestBuildEnv() {
 
 function buildApp() {
   ensureNativeTestBuildEnv();
-  prepareNativeTestArtifacts();
   execSync("npm run cap:build", {
     cwd: repoRoot,
     stdio: "inherit",
     env: process.env,
   });
+  prepareNativeTestArtifacts();
   execSync("npm run cap:sync:ios", {
     cwd: repoRoot,
     stdio: "inherit",
