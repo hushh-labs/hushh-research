@@ -266,3 +266,94 @@ class TestComplianceEngineSingleton:
         from utils.compliance import compliance_engine as e2
 
         assert compliance_engine is e2
+
+
+# ---------------------------------------------------------------------------
+# Canonical attach-point proof — redactor wired into /compliance/export
+# ---------------------------------------------------------------------------
+
+
+class TestExportRedactionAttachPoint:
+    """
+    Canonical surface  : api/routes/compliance.py → POST /compliance/export
+    Canonical caller   : export_user_data() calls redaction_engine.apply()
+                         from hushh_mcp.consent.redactor immediately after
+                         compliance_engine.export_user_data() returns the
+                         raw UserConsentExport dict.
+    Attach-point proof : The export response masks user_id and consent_id
+                         fields through the Privacy Guardrail Engine before
+                         any data leaves the consent data boundary.
+    """
+
+    async def test_export_route_masks_user_id_via_redactor(self):
+        """
+        /compliance/export passes the export dict through redaction_engine.apply()
+        — user_id in the response is masked, not the raw Firebase UID.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from api.routes.compliance import export_user_data
+        from utils.compliance import ConsentEventRecord
+
+        uid = "firebase-uid-redaction-proof"
+        events = [ConsentEventRecord(consent_id="cid-001", brand_id="brand-x", action="GRANT", updated_at=_NOW_MS)]
+
+        # Patch require_firebase_auth to inject the test UID directly
+        # and _fetch_events_stub to return controlled events.
+        with (
+            patch(
+                "api.routes.compliance._fetch_events_stub",
+                AsyncMock(return_value=events),
+            ),
+        ):
+            response = await export_user_data(firebase_uid=uid)
+
+        # The raw UID must NOT appear verbatim in the response — the
+        # redactor masks it to show only the first two chars followed by ***.
+        assert response["user_id"] != uid, (
+            "export_user_data() must return a redacted user_id, not the raw Firebase UID"
+        )
+        assert "***" in response["user_id"], (
+            "Redacted user_id must contain *** (MASK action from _REDACTION_TABLE)"
+        )
+
+    async def test_export_route_top_level_user_id_is_always_masked(self):
+        """
+        The top-level user_id is the primary quasi-identifier.  The redactor
+        applies MASK to it regardless of whether any events are present.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from api.routes.compliance import export_user_data
+
+        uid = "firebase-uid-no-events-mask"
+
+        with (
+            patch(
+                "api.routes.compliance._fetch_events_stub",
+                AsyncMock(return_value=[]),
+            ),
+        ):
+            response = await export_user_data(firebase_uid=uid)
+
+        assert response["user_id"] != uid, (
+            "user_id must be masked even when the events list is empty"
+        )
+        assert "***" in response["user_id"], (
+            "Masked user_id must contain *** regardless of event count"
+        )
+
+    async def test_redactor_imported_and_reachable_from_compliance_route(self):
+        """
+        Structural proof: the compliance route module imports redaction_engine
+        from hushh_mcp.consent.redactor (the canonical consent boundary).
+        """
+        import api.routes.compliance as compliance_module
+
+        assert hasattr(compliance_module, "redaction_engine"), (
+            "api/routes/compliance.py must import redaction_engine from "
+            "hushh_mcp.consent.redactor to prove the canonical attach point"
+        )
+        assert hasattr(compliance_module, "ClearanceLevel"), (
+            "api/routes/compliance.py must import ClearanceLevel alongside redaction_engine"
+        )

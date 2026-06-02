@@ -20,6 +20,7 @@ import logging
 from fastapi import APIRouter, Depends, status
 
 from api.middleware import require_firebase_auth
+from hushh_mcp.consent.redactor import ClearanceLevel, redaction_engine
 from utils.compliance import (
     ConsentEventRecord,
     ForgetMeReport,
@@ -100,7 +101,18 @@ async def export_user_data(
         firebase_uid,
         fetch_events=_fetch_events_stub,
     )
-    return export.to_dict()
+    # Pass the export dict through the consent-data redaction boundary before
+    # returning it.  user_id is masked; consent_id fields are masked per the
+    # _REDACTION_TABLE in hushh_mcp/consent/redactor.py.  This is the
+    # canonical attach point between the compliance export route and the
+    # Privacy Guardrail Engine.
+    raw = export.to_dict()
+    result = redaction_engine.apply(
+        raw,
+        failed_fields=["user_id", "consent_id"],
+        clearance_level=ClearanceLevel.PARTIAL,
+    )
+    return result.payload
 
 
 @router.delete(
