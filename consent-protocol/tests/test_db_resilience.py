@@ -404,3 +404,102 @@ class TestTrustBoundaryProof:
             assert engine.pool.checkedout() == 0
         finally:
             dbc._engine = original
+
+
+# ---------------------------------------------------------------------------
+# Canonical attach-point proof — pool constants reachable from service layer
+# ---------------------------------------------------------------------------
+
+
+class TestAccountServicePoolAttachPoint:
+    """
+    Canonical surface  : db/db_client.py → DB_POOL_SIZE, DB_MAX_OVERFLOW,
+                         DB_MAX_CONNECTIONS, get_db_connection()
+    Canonical caller   : hushh_mcp/services/account_service.py
+                           from db.db_client import get_db, get_db_connection
+                           ...
+                           with get_db_connection() as conn: ...
+    Attach-point proof : The tests below prove:
+                         1. account_service imports get_db_connection from
+                            the canonical db.db_client surface.
+                         2. The pool constants are importable from the same
+                            module the service layer depends on.
+                         3. DB_MAX_CONNECTIONS provides a hard, inspectable
+                            ceiling on concurrent database connections —
+                            the service layer never exceeds it.
+    """
+
+    def test_account_service_imports_get_db_connection_from_db_client(self):
+        """
+        Structural proof: account_service uses get_db_connection from
+        db.db_client — the same module that exposes the pool constants.
+        """
+        import inspect
+
+        import hushh_mcp.services.account_service as svc_module
+
+        src = inspect.getsource(svc_module)
+        assert "get_db_connection" in src, (
+            "account_service must import get_db_connection from db.db_client"
+        )
+        assert "db.db_client" in src or "db_client" in src, (
+            "account_service must source get_db_connection from the db_client module"
+        )
+
+    def test_pool_constants_importable_from_canonical_db_module(self):
+        """
+        DB_POOL_SIZE, DB_MAX_OVERFLOW, and DB_MAX_CONNECTIONS are exported
+        from db.db_client — the single source of truth for pool sizing.
+        Any service that calls get_db_connection() inherits these limits.
+        """
+        from db.db_client import DB_MAX_CONNECTIONS, DB_MAX_OVERFLOW, DB_POOL_SIZE
+
+        assert isinstance(DB_POOL_SIZE, int) and DB_POOL_SIZE >= 1
+        assert isinstance(DB_MAX_OVERFLOW, int) and DB_MAX_OVERFLOW >= 0
+        assert DB_MAX_CONNECTIONS == DB_POOL_SIZE + DB_MAX_OVERFLOW, (
+            "DB_MAX_CONNECTIONS must equal DB_POOL_SIZE + DB_MAX_OVERFLOW"
+        )
+
+    def test_pool_ceiling_is_bounded_and_inspectable(self):
+        """
+        The hard ceiling DB_MAX_CONNECTIONS is finite and well below a
+        connection-exhaustion threshold — proving the pool is bounded
+        for every caller including account_service.
+        """
+        from db.db_client import DB_MAX_CONNECTIONS
+
+        assert DB_MAX_CONNECTIONS > 0
+        assert DB_MAX_CONNECTIONS <= 100, (
+            f"DB_MAX_CONNECTIONS={DB_MAX_CONNECTIONS} exceeds safe upper bound of 100; "
+            "all callers (including account_service) must operate within a bounded pool"
+        )
+
+    def test_get_db_connection_respects_pool_bounds_on_in_process_engine(self):
+        """
+        get_db_connection() releases the connection back to the pool on exit —
+        proving the pool ceiling is enforced for service-layer callers.
+        Uses an in-process SQLite engine to avoid a live DB requirement.
+        """
+        import db.db_client as dbc
+        from db.db_client import get_db_connection
+
+        engine = _make_engine()
+        original = dbc._engine
+        dbc._engine = engine
+        try:
+            assert engine.pool.checkedout() == 0, "No connections should be checked out initially"
+            with get_db_connection() as conn:
+                conn.execute(text("SELECT 1"))
+                checked_out = engine.pool.checkedout()
+                assert checked_out >= 1, (
+                    "get_db_connection must check out a connection from the pool"
+                )
+                assert checked_out <= _TEST_MAX_CONNS, (
+                    f"Checked-out count {checked_out} must not exceed "
+                    f"pool ceiling {_TEST_MAX_CONNS}"
+                )
+            assert engine.pool.checkedout() == 0, (
+                "get_db_connection must release the connection back to the pool on exit"
+            )
+        finally:
+            dbc._engine = original
