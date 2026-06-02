@@ -244,6 +244,34 @@ class TestInviteTokenPathBounds:
             r = client.get("/api/invites/valid-token")
         assert r.status_code == 503
 
+    def test_iam_schema_not_ready_hides_internal_paths(self):
+        client = _invites_client()
+        from hushh_mcp.services.ria_iam_service import IAMSchemaNotReadyError
+
+        internal_detail = (
+            "missing schema at C:\\Users\\DIVYA\\Downloads\\hushh-research-main\\"
+            "consent-protocol\\db\\verify\\verify_iam_schema.py"
+        )
+        with patch.object(
+            invites_module.RIAIAMService,
+            "get_ria_invite",
+            new=AsyncMock(side_effect=IAMSchemaNotReadyError(internal_detail)),
+        ):
+            r = client.get("/api/invites/valid-token")
+
+        payload = r.json()
+        serialized_payload = r.text
+
+        assert r.status_code == 503
+        assert payload == {
+            "error": "RIA verification service is temporarily unavailable",
+            "code": "IAM_SCHEMA_NOT_READY",
+        }
+        assert "C:\\Users" not in serialized_payload
+        assert "Downloads" not in serialized_payload
+        assert "verify_iam_schema.py" not in serialized_payload
+        assert "consent-protocol" not in serialized_payload
+
     def test_valid_token_returns_invite_data(self):
         client = _invites_client()
         with patch.object(

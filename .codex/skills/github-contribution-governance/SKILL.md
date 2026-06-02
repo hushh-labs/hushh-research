@@ -29,70 +29,40 @@ Non-owned surfaces:
 
 ## Do Use
 
-1. Confirm the active GitHub account before committing, pushing, opening PRs, or merging.
-2. Verify local Git author identity before creating new commits.
-3. Diagnose why a commit, branch, or PR is not showing on the GitHub contribution graph.
-4. Keep daily contribution work on a PR path into `main`, `develop`, or the repository default branch.
-5. Check that GitHub attributes pushed commits to the intended account via the GitHub API.
-6. Build maintainer-harvest attribution plans that separate official GitHub commit credit from public acknowledgement and internal impact credit.
+1. Confirm active GitHub account and local Git author identity before commits.
+2. Diagnose missing contribution graph, green-dot, PR target, or attribution behavior.
+3. Build maintainer-harvest attribution plans that separate GitHub commit credit, public acknowledgement, and internal impact credit.
 
 ## Do Not Use
 
-1. Do not rewrite already-pushed history without an explicit user request for the exact branch.
-2. Do not merge a PR before required checks and repository policy are understood.
-3. Do not expose private verified emails from `gh api user/emails`; summarize whether a verified address exists.
-4. Do not treat a pushed feature branch as green-dot complete until GitHub shows an eligible PR or default-branch path.
-5. Do not handle failing CI root cause here; route that to `github:gh-fix-ci` or `repo-operations`.
+1. Do not rewrite pushed history without explicit branch-level user approval.
+2. Do not merge before required checks and repo policy are understood.
+3. Do not expose private verified emails.
+4. Do not handle failing CI root cause; route to `github:gh-fix-ci` or `repo-operations`.
 
 ## Read First
 
 1. `docs/reference/operations/ci.md`
 2. `docs/reference/operations/branch-governance.md`
-3. `https://docs.github.com/en/account-and-profile/reference/profile-contributions-reference`
-4. `https://docs.github.com/en/account-and-profile/how-tos/contribution-settings/troubleshooting-missing-contributions`
-5. `https://docs.github.com/en/account-and-profile/how-tos/email-preferences/setting-your-commit-email-address`
+3. `.codex/skills/github-contribution-governance/references/contribution-attribution.md`
 
 ## Workflow
 
-1. Establish identity:
-   - run `gh auth status`
-   - run `gh api user --jq '.login'`
-   - run `git config --get user.name` and `git config --get user.email`
-2. If the local commit email is blank, generic, or not the GitHub no-reply/verified email for the active account, set repo-local Git config before committing.
-3. Before committing, confirm the worktree scope and stage only files that belong to the contribution task.
-4. After committing and pushing, verify attribution with:
-   - `gh api repos/<owner>/<repo>/commits/<sha> --jq '{authorLogin:.author.login,email:.commit.author.email,date:.commit.author.date}'`
-5. If there is no PR for the branch, create one against the requested base or the repository default branch.
-6. For green-dot commit credit, do not stop at branch push. GitHub counts commits when the author email is associated with the account and the commits land on the default branch or `gh-pages`; PRs and issues can also count as contribution events when opened in a standalone repository.
-7. Monitor PR checks through `./bin/hushh codex ci-status` or `gh run list` before merge. If checks fail, hand off to `github:gh-fix-ci`.
-8. Merge only when repository policy allows it and the user has requested merge. After merge, verify the landed commit on `main` or the canonical base.
-9. For older `.local` commits from the last working window, explain the two safe recovery paths:
-   - amend/rebase those commits with the verified email and force-push the feature branch before merge
-   - create a new correctly-authored follow-up commit and merge it
-   Do not rewrite shared history without explicit branch-level approval.
-10. For maintainer-harvest PRs, decide attribution before the commit lands:
-   - use `Co-authored-by:` trailers only when contributor code or tests are
-     materially reused in the actual landing commit
-   - use public GitHub no-reply identities derived from the contributor's
-     public user id and login, or another verified address provided by the
-     contributor
-   - never expose private emails from `gh api user/emails`
-   - if only the idea/direction is used, record public acknowledgement and
-     internal dashboard harvest credit instead of co-authoring
-   - never rewrite `main` to retrofit co-author credit after merge
-11. If a maintainer harvest already merged without co-author trailers and the
-    operator explicitly wants external GitHub credit, use a transparent
-    follow-up PR with a real, non-empty co-authored harvest replay or
-    supplemental harvest patch plus a repo ledger entry. Make clear that this
-    credits the follow-up commit; it does not change the original merge commit
-    or original additions/deletions.
+1. Establish active GitHub login and repo-local Git author identity.
+2. If local commit email is blank, generic, or not associated with the account, set repo-local Git config before committing.
+3. Before committing, confirm worktree scope and stage only files that belong to the contribution task.
+4. After committing and pushing, verify attribution on the pushed commit through GitHub.
+5. If there is no PR, create one against the requested base or repository default branch.
+6. Do not stop at branch push for green-dot credit; use the contribution rules in `contribution-attribution.md`.
+7. Monitor PR checks before merge and hand off failing CI to the CI owner.
+8. For maintainer harvests, decide co-author trailers versus acknowledgement before the commit lands.
 
 ## Handoff Rules
 
-1. If the request is still broad or ambiguous, route it back to `repo-operations`.
-2. If the task is full branch publish or PR creation, use `github:yeet` after this skill verifies author identity.
-3. If the PR checks fail, use `github:gh-fix-ci`.
-4. If branch protection, merge queue, or deployment gates block merge, use `repo-operations`.
+1. Broad or ambiguous repo workflow routes back to `repo-operations`.
+2. Full branch publish or PR creation can use `github:yeet` after identity is verified.
+3. Failing PR checks route to `github:gh-fix-ci`.
+4. Branch protection, merge queue, or deploy gates route to `repo-operations`.
 
 ## Required Checks
 

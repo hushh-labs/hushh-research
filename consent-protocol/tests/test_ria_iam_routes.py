@@ -142,6 +142,181 @@ def test_marketplace_rias_public_read(monkeypatch):
     assert data["items"][0]["display_name"] == "RIA Alpha"
 
 
+def test_marketplace_investors_exposes_public_sec_discovery_contract(monkeypatch):
+    async def _mock_search(self, **kwargs):  # noqa: ANN003
+        assert kwargs.get("limit") == 20
+        assert kwargs.get("persona") == "ria"
+        assert kwargs.get("deck") == "qualified"
+        assert kwargs.get("location") is None
+        return [
+            {
+                "id": "public_sec:42",
+                "source_type": "public_sec",
+                "user_id": None,
+                "public_profile_id": "42",
+                "display_name": "Morgan Public",
+                "headline": "Managing Partner at Public Capital Partners",
+                "location_hint": "Kirkland, WA 98033",
+                "strategy_summary": "Public investor profile assembled from public filings.",
+                "connectable": False,
+                "admission_status": "qualified",
+                "curation_tier": "showcase",
+                "quality_score": 95,
+                "actions": ["shortlist", "view_more"],
+                "evidence": {
+                    "confidence": "official_public_records",
+                    "sources": ["SEC EDGAR", "Form 13F"],
+                    "business_address": {"city": "KIRKLAND", "state": "WA", "zip": "98033"},
+                },
+                "is_test_profile": False,
+            }
+        ]
+
+    monkeypatch.setattr(RIAIAMService, "search_marketplace_investors", _mock_search)
+
+    client = TestClient(_build_app())
+    response = client.get("/api/marketplace/investors")
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["source_type"] == "public_sec"
+    assert item["user_id"] is None
+    assert item["connectable"] is False
+    assert item["admission_status"] == "qualified"
+    assert item["actions"] == ["shortlist", "view_more"]
+    assert item["location_hint"] == "Kirkland, WA 98033"
+    assert item["evidence"]["confidence"] == "official_public_records"
+
+
+def test_marketplace_investors_forwards_deck_and_location_filters(monkeypatch):
+    async def _mock_search(self, **kwargs):  # noqa: ANN003
+        assert kwargs == {
+            "query": "98033",
+            "limit": 32,
+            "persona": "ria",
+            "deck": "showcase",
+            "location": "Kirkland",
+        }
+        return []
+
+    monkeypatch.setattr(RIAIAMService, "search_marketplace_investors", _mock_search)
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/marketplace/investors",
+        params={
+            "query": "98033",
+            "limit": "32",
+            "persona": "ria",
+            "deck": "showcase",
+            "location": "Kirkland",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+
+
+def test_marketplace_investor_deck_is_authenticated_and_returns_metadata(monkeypatch):
+    async def _mock_deck(self, user_id: str, **kwargs):  # noqa: ANN003
+        assert user_id == "user_test_123"
+        assert kwargs == {
+            "query": "98033",
+            "limit": 12,
+            "persona": "ria",
+            "deck": "qualified",
+            "location": None,
+        }
+        return {
+            "items": [
+                {
+                    "id": "public_sec:42",
+                    "source_type": "public_sec",
+                    "display_name": "GATES FOUNDATION TRUST",
+                    "connectable": False,
+                    "actions": ["shortlist", "view_more"],
+                }
+            ],
+            "remaining_count": 1,
+            "handled_count": 8,
+            "deck_complete": False,
+        }
+
+    monkeypatch.setattr(RIAIAMService, "search_marketplace_investor_deck", _mock_deck)
+
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/marketplace/investors/deck",
+        params={"query": "98033", "limit": "12"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["id"] == "public_sec:42"
+    assert payload["remaining_count"] == 1
+    assert payload["handled_count"] == 8
+    assert payload["deck_complete"] is False
+
+
+def test_marketplace_investor_action_routes_are_authenticated_and_forwarded(monkeypatch):
+    async def _mock_record(self, user_id: str, **kwargs):  # noqa: ANN003
+        assert user_id == "user_test_123"
+        assert kwargs == {
+            "action": "shortlist",
+            "source_type": "public_sec",
+            "public_profile_id": "42",
+            "target_user_id": None,
+            "metadata": {"gesture": "right_swipe"},
+        }
+        return {
+            "id": "action_1",
+            "actor_user_id": user_id,
+            "source_type": "public_sec",
+            "target_key": "public_sec:42",
+            "public_profile_id": "42",
+            "action": "shortlist",
+            "status": "shortlisted",
+        }
+
+    async def _mock_list(self, user_id: str, **kwargs):  # noqa: ANN003
+        assert user_id == "user_test_123"
+        assert kwargs == {"status": "shortlisted", "action": None, "limit": 20}
+        return [
+            {
+                "id": "action_1",
+                "actor_user_id": user_id,
+                "source_type": "public_sec",
+                "target_key": "public_sec:42",
+                "public_profile_id": "42",
+                "action": "shortlist",
+                "status": "shortlisted",
+            }
+        ]
+
+    monkeypatch.setattr(RIAIAMService, "record_marketplace_investor_action", _mock_record)
+    monkeypatch.setattr(RIAIAMService, "list_marketplace_investor_actions", _mock_list)
+
+    client = TestClient(_build_app())
+    post_response = client.post(
+        "/api/marketplace/investors/actions",
+        json={
+            "action": "shortlist",
+            "source_type": "public_sec",
+            "public_profile_id": "42",
+            "metadata": {"gesture": "right_swipe"},
+        },
+    )
+    assert post_response.status_code == 200
+    assert post_response.json()["target_key"] == "public_sec:42"
+
+    get_response = client.get(
+        "/api/marketplace/investors/actions",
+        params={"status": "shortlisted", "limit": "20"},
+    )
+    assert get_response.status_code == 200
+    assert get_response.json()["items"][0]["status"] == "shortlisted"
+
+
 def test_marketplace_query_filters_are_bounded():
     client = TestClient(_build_app())
 

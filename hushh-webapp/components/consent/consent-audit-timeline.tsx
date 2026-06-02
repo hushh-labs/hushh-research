@@ -7,7 +7,12 @@ import { Badge } from "@/components/ui/badge";
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
 import { cn } from "@/lib/utils";
 
-type ConsentAuditEventType = "all" | "granted" | "updated" | "revoked" | "expired";
+type ConsentAuditEventType =
+  | "all"
+  | "granted"
+  | "updated"
+  | "revoked"
+  | "expired";
 
 const FILTERS: Array<{ value: ConsentAuditEventType; label: string }> = [
   { value: "all", label: "All" },
@@ -18,10 +23,12 @@ const FILTERS: Array<{ value: ConsentAuditEventType; label: string }> = [
 ];
 
 const TYPE_STYLES: Record<Exclude<ConsentAuditEventType, "all">, string> = {
-  granted: "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  granted:
+    "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
   updated: "border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300",
   revoked: "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300",
-  expired: "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  expired:
+    "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
 };
 
 interface ConsentAuditTimelineProps {
@@ -32,17 +39,27 @@ interface ConsentAuditTimelineProps {
   summarizeEntry: (entry: ConsentCenterEntry) => string;
 }
 
-function resolveEventType(entry: ConsentCenterEntry): Exclude<ConsentAuditEventType, "all"> {
+function resolveEventType(
+  entry: ConsentCenterEntry,
+): Exclude<ConsentAuditEventType, "all"> {
   const status = String(entry.status || "").toLowerCase();
   const action = String(entry.action || "").toLowerCase();
 
-  if (status.includes("revok") || action.includes("revok") || status === "denied") {
+  if (
+    status.includes("revok") ||
+    action.includes("revok") ||
+    status === "denied"
+  ) {
     return "revoked";
   }
   if (status.includes("expir") || action.includes("expir")) {
     return "expired";
   }
-  if (action.includes("update") || action.includes("scope") || Boolean(entry.is_scope_upgrade)) {
+  if (
+    action.includes("update") ||
+    action.includes("scope") ||
+    Boolean(entry.is_scope_upgrade)
+  ) {
     return "updated";
   }
   return "granted";
@@ -56,8 +73,23 @@ function formatEventDate(entry: ConsentCenterEntry) {
   return date.toLocaleString();
 }
 
-function entryKey(entry: ConsentCenterEntry) {
-  return entry.request_id || entry.id;
+function entryKey(entry: ConsentCenterEntry, index: number) {
+  return [
+    entry.kind,
+    entry.id,
+    entry.request_id,
+    entry.action,
+    entry.status,
+    entry.issued_at,
+    entry.expires_at,
+    index,
+  ]
+    .filter((part) => {
+      if (part === undefined || part === null) return false;
+      return String(part).trim().length > 0;
+    })
+    .map(String)
+    .join(":");
 }
 
 export function ConsentAuditTimeline({
@@ -67,20 +99,23 @@ export function ConsentAuditTimeline({
   resolveCounterpartLabel,
   summarizeEntry,
 }: ConsentAuditTimelineProps) {
-  const [activeFilter, setActiveFilter] = useState<ConsentAuditEventType>("all");
+  const [activeFilter, setActiveFilter] =
+    useState<ConsentAuditEventType>("all");
   const filteredEntries = useMemo(
     () =>
       activeFilter === "all"
         ? entries
         : entries.filter((entry) => resolveEventType(entry) === activeFilter),
-    [activeFilter, entries]
+    [activeFilter, entries],
   );
 
   return (
     <div className="space-y-4 px-2 py-2">
       <div className="flex flex-col gap-3 px-2 pt-1 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-foreground">Consent audit timeline</h2>
+          <h2 className="text-sm font-semibold text-foreground">
+            Consent audit timeline
+          </h2>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
             Real consent history from the active access ledger.
           </p>
@@ -90,7 +125,10 @@ export function ConsentAuditTimeline({
         </Badge>
       </div>
 
-      <div className="flex flex-wrap gap-2 px-2" aria-label="Filter consent audit timeline">
+      <div
+        className="flex flex-wrap gap-2 px-2"
+        aria-label="Filter consent audit timeline"
+      >
         {FILTERS.map((filter) => (
           <button
             key={filter.value}
@@ -100,7 +138,7 @@ export function ConsentAuditTimeline({
               "rounded-[var(--app-card-radius-compact)] border px-3 py-1.5 text-xs font-medium transition-colors",
               activeFilter === filter.value
                 ? "border-sky-500/24 bg-sky-500/10 text-sky-700 dark:text-sky-300"
-                : "border-border/70 bg-background/80 text-muted-foreground hover:bg-muted/60"
+                : "border-border/70 bg-background/80 text-muted-foreground hover:bg-muted/60",
             )}
             aria-pressed={activeFilter === filter.value}
           >
@@ -111,26 +149,30 @@ export function ConsentAuditTimeline({
 
       {filteredEntries.length === 0 ? (
         <div className="mx-2 rounded-[var(--app-card-radius-compact)] border border-dashed border-border/70 px-4 py-8 text-center">
-          <p className="text-sm font-medium text-foreground">No matching consent history</p>
+          <p className="text-sm font-medium text-foreground">
+            No matching consent history
+          </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Change the filter or wait for the next consent decision to be recorded.
+            Change the filter or wait for the next consent decision to be
+            recorded.
           </p>
         </div>
       ) : (
         <div className="space-y-3">
-          {filteredEntries.map((entry) => {
+          {filteredEntries.map((entry, index) => {
             const type = resolveEventType(entry);
-            const selected = selectedId === entry.id || selectedId === entry.request_id;
+            const selected =
+              selectedId === entry.id || selectedId === entry.request_id;
             return (
               <button
-                key={entryKey(entry)}
+                key={entryKey(entry, index)}
                 type="button"
                 onClick={() => onSelect(entry)}
                 className={cn(
                   "group relative w-full rounded-[var(--app-card-radius-compact)] border px-4 py-3 text-left transition-colors",
                   selected
                     ? "border-sky-500/24 bg-sky-500/7"
-                    : "border-[color:var(--app-card-border-standard)]/50 bg-[color:var(--app-card-surface-compact)]/55 hover:bg-[color:var(--app-card-surface-compact)]"
+                    : "border-[color:var(--app-card-border-standard)]/50 bg-[color:var(--app-card-surface-compact)]/55 hover:bg-[color:var(--app-card-surface-compact)]",
                 )}
               >
                 <div className="flex items-start gap-3">
@@ -143,9 +185,13 @@ export function ConsentAuditTimeline({
                         <p className="truncate text-sm font-semibold text-foreground">
                           {resolveCounterpartLabel(entry)}
                         </p>
-                        <p className="text-xs text-muted-foreground">{formatEventDate(entry)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatEventDate(entry)}
+                        </p>
                       </div>
-                      <Badge className={cn("capitalize", TYPE_STYLES[type])}>{type}</Badge>
+                      <Badge className={cn("capitalize", TYPE_STYLES[type])}>
+                        {type}
+                      </Badge>
                     </div>
                     <p className="line-clamp-2 text-sm leading-6 text-foreground/80">
                       {summarizeEntry(entry)}

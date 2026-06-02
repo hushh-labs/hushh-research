@@ -29,7 +29,7 @@ This reference documents the canonical GitHub board workflow for this repo.
 
 1. Use issue-backed project items.
 2. Prefer `hushh-labs/hushh-research` unless the task is explicitly for another repo.
-3. Put ownership on the GitHub issue assignee.
+3. Put ownership on the GitHub issue assignee and mirror it into the board `Hierarchy` field when the owner has a matching option.
 4. Avoid draft issues, labels, or milestones unless the user asks for them.
 5. When the user asks for labels, update them explicitly and verify the final label set on the issue.
 6. If a task is duplicate or redundant, consolidate its remaining scope into the canonical issue, add a traceability comment, and remove the duplicate project item from the board. Preserve GitHub issue history unless the user explicitly asks for destructive issue deletion.
@@ -62,16 +62,17 @@ For date-bounded reporting:
 For personal/user-owned requests:
 
 1. prefer the authenticated GitHub user as assignee
-2. use active execution defaults unless the user asks for backlog or review placement
-3. present tasks as `#<number> <title>` in summaries and change logs
-4. do not use bare issue numbers when the title is available
+2. set the board `Hierarchy` owner when a matching option exists, such as `Kushal` for `kushaltrivedi5`
+3. use active execution defaults unless the user asks for backlog or review placement
+4. present tasks as `#<number> <title>` in summaries and change logs
+5. do not use bare issue numbers when the title is available
 
 ## Helper commands
 
 ```bash
 python3 .codex/skills/planning-board/scripts/board_ops.py summary --from YYYY-MM-DD --to YYYY-MM-DD
-python3 .codex/skills/planning-board/scripts/board_ops.py create-task --title "..." --body "..." --assignee <login> --start-date YYYY-MM-DD --target-date YYYY-MM-DD --labels enhancement
-python3 .codex/skills/planning-board/scripts/board_ops.py update-task --issue 123 --status "In progress" --labels enhancement,learning/research
+python3 .codex/skills/planning-board/scripts/board_ops.py create-task --title "..." --body "..." --assignee <login> --hierarchy Kushal --start-date YYYY-MM-DD --target-date YYYY-MM-DD --labels enhancement
+python3 .codex/skills/planning-board/scripts/board_ops.py update-task --issue 123 --status "In progress" --hierarchy Kushal --labels enhancement,learning/research
 python3 .codex/skills/planning-board/scripts/board_ops.py update-task --issue 123 --sync-current-sprint --start-date YYYY-MM-DD --target-date YYYY-MM-DD
 python3 .codex/skills/planning-board/scripts/board_ops.py audit-state
 python3 .codex/skills/planning-board/scripts/board_ops.py remove-task --issue 123

@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from api.middleware import require_firebase_auth, verify_user_id_match
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.vault_keys_service import VaultKeysService
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,7 @@ def _raise_database_http_exception(exc: Exception) -> None:
                 **({"hint": hint} if hint else {}),
             },
         ) from exc
+    raise HTTPException(status_code=500, detail="Database error") from exc
 
 
 async def require_vault_owner_consent_header(
@@ -296,7 +298,6 @@ async def vault_check(
     except Exception as e:
         logger.error(f"vault/check error: {e}")
         _raise_database_http_exception(e)
-        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.post("/vault/bootstrap-state", response_model=VaultBootstrapStateResponse)
@@ -330,14 +331,13 @@ async def vault_bootstrap_state(
             preNavTourSkippedAt=state.get("preNavTourSkippedAt"),
             preStateUpdatedAt=state.get("preStateUpdatedAt"),
         )
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
-            status_code=400, detail={"error": str(e), "code": "VAULT_VALIDATION_ERROR"}
+            status_code=400, detail={"error": "Validation error", "code": "VAULT_VALIDATION_ERROR"}
         )
     except Exception as e:
-        logger.error("vault/bootstrap-state error user=%s: %s", _mask_user_id(user_id), e)
+        logger.error("vault/bootstrap-state error user=%s", _mask_user_id(user_id), exc_info=True)
         _raise_database_http_exception(e)
-        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.post("/vault/pre-vault-state", response_model=VaultBootstrapStateResponse)
@@ -377,14 +377,13 @@ async def vault_pre_vault_state(
             preNavTourSkippedAt=state.get("preNavTourSkippedAt"),
             preStateUpdatedAt=state.get("preStateUpdatedAt"),
         )
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(
-            status_code=400, detail={"error": str(e), "code": "VAULT_VALIDATION_ERROR"}
+            status_code=400, detail={"error": "Validation error", "code": "VAULT_VALIDATION_ERROR"}
         )
     except Exception as e:
-        logger.error("vault/pre-vault-state error user=%s: %s", _mask_user_id(user_id), e)
+        logger.error("vault/pre-vault-state error user=%s", _mask_user_id(user_id), exc_info=True)
         _raise_database_http_exception(e)
-        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.post("/vault/get", response_model=VaultStateData)
@@ -416,7 +415,6 @@ async def vault_get(
     except Exception as e:
         logger.error(f"vault/get error: {e}")
         _raise_database_http_exception(e)
-        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.post("/vault/setup", response_model=SuccessResponse)
@@ -456,10 +454,26 @@ async def vault_setup(
             wrappers=[wrapper.model_dump() for wrapper in request.wrappers],
             primary_wrapper_id=request.primaryWrapperId,
         )
+        try:
+            await ActorIdentityService().sync_from_firebase(firebase_uid, force=False)
+        except Exception as identity_error:
+            logger.debug(
+                "vault/setup identity shadow sync skipped for %s: %s",
+                _mask_user_id(request.userId),
+                identity_error,
+            )
         return SuccessResponse(success=True)
 
     except ValueError as e:
         message = str(e)
+        if "Active vault already exists" in message:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": message,
+                    "code": "VAULT_ALREADY_EXISTS",
+                },
+            )
         if "primaryMethod + primaryWrapperId" in message:
             raise HTTPException(
                 status_code=400,
@@ -480,7 +494,6 @@ async def vault_setup(
             e,
         )
         _raise_database_http_exception(e)
-        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.post("/vault/wrapper/upsert", response_model=SuccessResponse)
@@ -538,7 +551,6 @@ async def vault_wrapper_upsert(
             e,
         )
         _raise_database_http_exception(e)
-        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.post("/vault/wrapper/delete", response_model=SuccessResponse)
@@ -600,7 +612,6 @@ async def vault_wrapper_delete(
             e,
         )
         _raise_database_http_exception(e)
-        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.post("/vault/primary/set", response_model=SuccessResponse)
@@ -645,7 +656,6 @@ async def vault_primary_set(
             e,
         )
         _raise_database_http_exception(e)
-        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.post("/vault/integrity", response_model=VaultIntegrityResponse)
@@ -696,7 +706,6 @@ async def vault_integrity(
     except Exception as e:
         logger.error("vault/integrity error user=%s: %s", _mask_user_id(request.userId), e)
         _raise_database_http_exception(e)
-        raise HTTPException(status_code=500, detail="Database error")
 
 
 # ============================================================================
@@ -776,11 +785,10 @@ async def get_vault_status(
 
         return status
 
-    except ValueError as e:
-        # Consent validation errors
-        raise HTTPException(status_code=401, detail=str(e))
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Unauthorized")
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"❌ Vault status error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.error("vault.status.error", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")

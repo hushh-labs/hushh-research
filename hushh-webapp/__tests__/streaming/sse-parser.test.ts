@@ -103,4 +103,129 @@ describe("parseSSEBlocks", () => {
       expect(parsed.payload.stage).toBe("recovered");
     }
   });
+
+  it("preserves SSE event ordering across fragmented chunks", () => {
+    const first =
+      'event: stage\nid: 1\ndata: {"schema_version":"1.0","stream_id":"strm_order","stream_kind":"portfolio_import","seq":1,"event":"stage","terminal":false,"payload":{"stage":"one"}}\n\n' +
+      'event: chunk\nid: 2\ndata: {"schema_version":"1.0","stream_id":"strm_order","stream_kind":"portfolio_import","seq":2,';
+
+    const firstResult = parseSSEBlocks(first);
+
+    expect(firstResult.events).toHaveLength(1);
+    expect(firstResult.events[0]?.event).toBe("stage");
+    expect(firstResult.remainder).toContain("event: chunk");
+
+    const second =
+      '"event":"chunk","terminal":false,"payload":{"text":"two"}}\n\n' +
+      'event: done\nid: 3\ndata: {"schema_version":"1.0","stream_id":"strm_order","stream_kind":"portfolio_import","seq":3,"event":"done","terminal":true,"payload":{"status":"complete"}}\n\n';
+
+    const secondResult = parseSSEBlocks(second, firstResult.remainder);
+
+    expect(secondResult.remainder).toBe("");
+    expect(secondResult.events.map((event) => event.id)).toEqual(["2", "3"]);
+    expect(secondResult.events.map((event) => event.event)).toEqual([
+      "chunk",
+      "done",
+    ]);
+  });
+
+  it("preserves SSE comment heartbeat isolation from valid events", () => {
+    const input =
+      ": heartbeat\n" +
+      ": keepalive\n\n" +
+      "event: stage\n" +
+      "id: 7\n" +
+      'data: {"schema_version":"1.0","stream_id":"strm_hb","stream_kind":"portfolio_import","seq":7,"event":"stage","terminal":false,"payload":{"stage":"syncing"}}\n\n';
+
+    const result = parseSSEBlocks(input);
+
+    expect(result.remainder).toBe("");
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      event: "stage",
+      id: "7",
+    });
+  });
+
+  it("preserves empty remainder after consecutive valid SSE frames", () => {
+    const input =
+      "event: stage\n" +
+      "id: 11\n" +
+      'data: {"schema_version":"1.0","stream_id":"strm_empty","stream_kind":"portfolio_import","seq":11,"event":"stage","terminal":false,"payload":{"stage":"loading"}}\n\n' +
+      "event: done\n" +
+      "id: 12\n" +
+      'data: {"schema_version":"1.0","stream_id":"strm_empty","stream_kind":"portfolio_import","seq":12,"event":"done","terminal":true,"payload":{"status":"complete"}}\n\n';
+
+    const result = parseSSEBlocks(input);
+
+    expect(result.remainder).toBe("");
+    expect(result.events).toHaveLength(2);
+    expect(result.events.map((event) => event.id)).toEqual(["11", "12"]);
+  });
+
+  it("normalizes CRLF-delimited SSE frame boundaries", () => {
+    const input =
+      "event: stage\r\n" +
+      "id: 21\r\n" +
+      'data: {"schema_version":"1.0","stream_id":"strm_crlf","stream_kind":"portfolio_import","seq":21,"event":"stage","terminal":false,"payload":{"stage":"loading"}}\r\n\r\n';
+
+    const result = parseSSEBlocks(input);
+
+    expect(result.remainder).toBe("");
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      event: "stage",
+      id: "21",
+    });
+  });
+
+  it("preserves empty event id handling without dropping valid payloads", () => {
+    const input =
+      "event: chunk\n" +
+      "id:\n" +
+      'data: {"schema_version":"1.0","stream_id":"strm_empty_id","stream_kind":"portfolio_import","seq":31,"event":"chunk","terminal":false,"payload":{"text":"hello"}}\n\n';
+
+    const result = parseSSEBlocks(input);
+
+    expect(result.remainder).toBe("");
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      event: "chunk",
+      id: "",
+    });
+  });
+
+  it("preserves trailing newline payload integrity", () => {
+    const input =
+      "event: chunk\n" +
+      "id: 41\n" +
+      'data: {"schema_version":"1.0","stream_id":"strm_tail","stream_kind":"portfolio_import","seq":41,"event":"chunk","terminal":false,"payload":{"text":"line1\\n"}}\n\n';
+
+    const result = parseSSEBlocks(input);
+
+    expect(result.remainder).toBe("");
+    expect(result.events).toHaveLength(1);
+
+    const parsed = JSON.parse(result.events[0]!.data) as {
+      payload: { text: string };
+    };
+    expect(parsed.payload.text.endsWith("\n")).toBe(true);
+  });
+
+  it("preserves unicode payload integrity across SSE parsing", () => {
+    const input =
+      "event: chunk\n" +
+      "id: 51\n" +
+      'data: {"schema_version":"1.0","stream_id":"strm_unicode","stream_kind":"portfolio_import","seq":51,"event":"chunk","terminal":false,"payload":{"text":"こんにちは 🌍"}}\n\n';
+
+    const result = parseSSEBlocks(input);
+
+    expect(result.remainder).toBe("");
+    expect(result.events).toHaveLength(1);
+
+    const parsed = JSON.parse(result.events[0]!.data) as {
+      payload: { text: string };
+    };
+    expect(parsed.payload.text).toBe("こんにちは 🌍");
+  });
 });

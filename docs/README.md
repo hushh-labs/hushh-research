@@ -52,6 +52,7 @@ Start here:
 - [guides/environment-model.md](./guides/environment-model.md): runtime profiles
 - [reference/operations/documentation-architecture-map.md](./reference/operations/documentation-architecture-map.md): canonical docs-home map
 - [reference/architecture/architecture.md](./reference/architecture/architecture.md): canonical seven-layer Hussh platform architecture, integration model, deployment model, and runtime sequences
+- [reference/architecture/architecture-view-catalog.md](./reference/architecture/architecture-view-catalog.md): C4 + ISO 42010 catalog of Hussh system, container, component, dynamic, deployment, network, physical, and data-boundary views
 - [reference/architecture/founder-language-matrix.md](./reference/architecture/founder-language-matrix.md): founder-language terminology contract
 - [reference/operations/brand-and-compatibility-contract.md](./reference/operations/brand-and-compatibility-contract.md): public naming rule and compatibility boundary
 - [reference/operations/branch-governance.md](./reference/operations/branch-governance.md): delivery model

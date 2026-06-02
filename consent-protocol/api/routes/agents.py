@@ -94,8 +94,11 @@ async def kai_chat(request: ChatRequest):
             options=[],
         )
     except Exception as e:
-        logger.error(f"📈 Kai Agent Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # SECURITY: Never expose internal exception details to the client.
+        # str(e) from a Gemini/DB call can leak model IDs, internal endpoints,
+        # API key fragments, table/column names, or file paths with user IDs.
+        logger.error("kai_chat.error user=%s: %s", request.userId, e)
+        raise HTTPException(status_code=500, detail="Internal error processing chat")
 
 
 @router.get("/agents/kai/info")
