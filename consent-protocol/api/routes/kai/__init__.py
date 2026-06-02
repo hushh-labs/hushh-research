@@ -1,6 +1,6 @@
 # api/routes/kai/__init__.py
 """
-Agent Kai API Routes — Modular Package
+Agent Kai API Routes - Modular Package
 
 This package organizes Kai routes into logical modules:
 - chat.py: Conversational chat endpoint with auto-learning
@@ -11,12 +11,19 @@ This package organizes Kai routes into logical modules:
 - decisions.py: Decision history (reads from domain_summaries; legacy CRUD returns 410)
 - consent.py: Kai-specific consent grants
 - support.py: Profile support and bug-report messaging via Gmail API
+- agent_chat.py: Gemini-backed Agent text chat with encrypted durable history
+- agent_realtime.py: Minimal OpenAI Realtime endpoint for the Agent chat and voice surface
+- agent_voice.py: Gemini STT adapter for chained Agent voice mode
+- location.py: legacy prototype only; not mounted for product traffic
 
 All sub-routers are aggregated into `kai_router` for backward compatibility.
 """
 
 from fastapi import APIRouter
 
+from .agent_chat import router as agent_chat_router
+from .agent_realtime import router as agent_realtime_router
+from .agent_voice import router as agent_voice_router
 from .analyze import router as analyze_router
 from .chat import router as chat_router
 from .consent import router as consent_router
@@ -42,6 +49,12 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/chat/history/{conversation_id}",
     "/chat/conversations/{user_id}",
     "/chat/initial-state/{user_id}",
+    "/agent/chat/stream",
+    "/agent/chat/conversations/{user_id}",
+    "/agent/chat/history/{conversation_id}",
+    "/agent/voice/stt",
+    "/agent/voice/tts",
+    "/agent/realtime/session",
     "/consent/grant",
     "/analyze",
     "/analyze/stream",
@@ -109,6 +122,9 @@ KAI_ROUTE_CONTRACT_PATHS = [
 
 # Include all sub-routers (no prefix since main router has /api/kai)
 kai_router.include_router(health_router)
+kai_router.include_router(agent_chat_router)
+kai_router.include_router(agent_realtime_router)
+kai_router.include_router(agent_voice_router)
 kai_router.include_router(chat_router)
 kai_router.include_router(portfolio_router)
 kai_router.include_router(plaid_router)

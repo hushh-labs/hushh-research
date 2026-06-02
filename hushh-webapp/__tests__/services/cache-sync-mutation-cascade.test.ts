@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false } }));
+vi.mock("@capacitor/core", () => ({
+  Capacitor: { isNativePlatform: () => false },
+}));
 vi.mock("@/lib/kai/kai-financial-resource", () => ({
   KaiFinancialResourceService: { invalidate: vi.fn() },
 }));
@@ -15,7 +17,11 @@ vi.mock("@/lib/services/unlock-warm-orchestrator", () => ({
 }));
 
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
-import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
+import {
+  CacheService,
+  CACHE_KEYS,
+  CACHE_TTL,
+} from "@/lib/services/cache-service";
 
 describe("CacheSyncService mutation cascades", () => {
   const userId = "test-user-123";
@@ -50,13 +56,19 @@ describe("CacheSyncService mutation cascades", () => {
     expect(invalidatedKeys).toContain(CACHE_KEYS.PENDING_CONSENTS(userId));
     expect(invalidatedKeys).toContain(CACHE_KEYS.CONSENT_AUDIT_LOG(userId));
     expect(invalidatedKeys).toContain(CACHE_KEYS.CONSENT_CENTER(userId, "all"));
-    expect(invalidatedKeys).toContain(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "investor"));
-    expect(invalidatedKeys).toContain(CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "ria"));
+    expect(invalidatedKeys).toContain(
+      CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "investor"),
+    );
+    expect(invalidatedKeys).toContain(
+      CACHE_KEYS.CONSENT_CENTER_SUMMARY(userId, "ria"),
+    );
     expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_HOME(userId));
     expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_ROSTER_SUMMARY(userId));
     expect(invalidatedKeys).toContain(CACHE_KEYS.VAULT_STATUS(userId));
 
     const patternArgs = spyInvalidatePattern.mock.calls.map((c) => c[0]);
+    expect(patternArgs).toContain(`consent_center_${userId}_`);
+    expect(patternArgs).toContain(`consent_center_summary_${userId}_`);
     expect(patternArgs).toContain(`consent_center_list_${userId}_`);
     expect(patternArgs).toContain(`ria_clients_${userId}_`);
     expect(patternArgs).toContain(`ria_client_detail_${userId}_`);
@@ -72,11 +84,16 @@ describe("CacheSyncService mutation cascades", () => {
     expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_ONBOARDING_STATUS(userId));
     expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_HOME(userId));
     expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_ROSTER_SUMMARY(userId));
+    const patternArgs = spyInvalidatePattern.mock.calls.map((c) => c[0]);
+    expect(patternArgs).toContain(`consent_center_${userId}_`);
+    expect(patternArgs).toContain(`consent_center_summary_${userId}_`);
   });
 
   // ---------- 3. onPersonaStateChanged with preservePersonaState ----------
   it("onPersonaStateChanged with preservePersonaState skips PERSONA_STATE but still clears RIA caches", () => {
-    CacheSyncService.onPersonaStateChanged(userId, { preservePersonaState: true });
+    CacheSyncService.onPersonaStateChanged(userId, {
+      preservePersonaState: true,
+    });
 
     const invalidatedKeys = spyInvalidate.mock.calls.map((c) => c[0]);
     expect(invalidatedKeys).not.toContain(CACHE_KEYS.PERSONA_STATE(userId));
@@ -117,7 +134,7 @@ describe("CacheSyncService mutation cascades", () => {
     expect(spySet).toHaveBeenCalledWith(
       CACHE_KEYS.VAULT_CHECK(userId),
       true,
-      CACHE_TTL.SESSION
+      CACHE_TTL.SESSION,
     );
     const invalidatedKeys = spyInvalidate.mock.calls.map((c) => c[0]);
     expect(invalidatedKeys).toContain(CACHE_KEYS.VAULT_STATUS(userId));
@@ -130,11 +147,33 @@ describe("CacheSyncService mutation cascades", () => {
     expect(spySet).toHaveBeenCalledWith(
       CACHE_KEYS.VAULT_CHECK(userId),
       false,
-      CACHE_TTL.SESSION
+      CACHE_TTL.SESSION,
     );
     const invalidatedKeys = spyInvalidate.mock.calls.map((c) => c[0]);
     expect(invalidatedKeys).toContain(CACHE_KEYS.VAULT_STATUS(userId));
-    expect(invalidatedKeys).toContain(CACHE_KEYS.KAI_FINANCIAL_RESOURCE(userId));
+    expect(invalidatedKeys).toContain(
+      CACHE_KEYS.KAI_FINANCIAL_RESOURCE(userId),
+    );
+  });
+
+  it("onVaultRekeyed invalidates stale PKM session state and domain prefixes", () => {
+    cache.set(CACHE_KEYS.PKM_METADATA(userId), { userId }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.PKM_BLOB(userId), { ciphertext: "old" }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId), { financial: {} }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"), { ciphertext: "old" }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.DOMAIN_DATA(userId, "financial"), { holdings: [] }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial"), { domain: "financial" }, CACHE_TTL.SESSION);
+    cache.set(CACHE_KEYS.PORTFOLIO_DATA(userId), { holdings: [] }, CACHE_TTL.SESSION);
+
+    CacheSyncService.onVaultRekeyed(userId);
+
+    expect(cache.get(CACHE_KEYS.PKM_METADATA(userId))).toBeNull();
+    expect(cache.get(CACHE_KEYS.PKM_BLOB(userId))).toBeNull();
+    expect(cache.get(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId))).toBeNull();
+    expect(cache.get(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"))).toBeNull();
+    expect(cache.get(CACHE_KEYS.DOMAIN_DATA(userId, "financial"))).toBeNull();
+    expect(cache.get(CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial"))).toBeNull();
+    expect(cache.get(CACHE_KEYS.PORTFOLIO_DATA(userId))).toBeNull();
   });
 
   // ---------- 9. onPkmDomainStored (financial) ----------
@@ -150,16 +189,90 @@ describe("CacheSyncService mutation cascades", () => {
     expect(spySet).toHaveBeenCalledWith(
       CACHE_KEYS.PORTFOLIO_DATA(userId),
       portfolioData,
-      CACHE_TTL.SESSION
+      CACHE_TTL.SESSION,
     );
     expect(spySet).toHaveBeenCalledWith(
       CACHE_KEYS.DOMAIN_DATA(userId, "financial"),
       portfolioData,
-      CACHE_TTL.SESSION
+      CACHE_TTL.SESSION,
     );
 
     const invalidatedKeys = spyInvalidate.mock.calls.map((c) => c[0]);
     expect(invalidatedKeys).toContain(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
+  });
+
+  it("onPkmDomainStored keeps the full financial domain fresh after encrypted portfolio writes", () => {
+    const portfolioData = {
+      holdings: [{ symbol: "MSFT", shares: 2 }],
+    };
+    const domainData = {
+      schema_version: 3,
+      portfolio: portfolioData,
+      documents: {
+        statements: [{ id: "stmt-new", canonical_v2: portfolioData }],
+      },
+      sources: {
+        active_source: "statement",
+        statement: {
+          active_snapshot_id: "stmt-new",
+          snapshots: [{ id: "stmt-new", canonical_v2: portfolioData }],
+        },
+      },
+    };
+
+    CacheSyncService.onPkmDomainStored(userId, "financial", {
+      portfolioData: portfolioData as any,
+      domainData,
+      encryptedBlob: {
+        ciphertext: "ciphertext-new",
+        iv: "iv-new",
+        tag: "tag-new",
+        dataVersion: 7,
+        updatedAt: "2026-05-18T05:55:00.000Z",
+      },
+    });
+
+    expect(cache.get(CACHE_KEYS.PORTFOLIO_DATA(userId))).toEqual(portfolioData);
+    expect(cache.get(CACHE_KEYS.DOMAIN_DATA(userId, "financial"))).toEqual(
+      domainData,
+    );
+    expect(
+      cache.get(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial")),
+    ).toMatchObject({
+      dataVersion: 7,
+      updatedAt: "2026-05-18T05:55:00.000Z",
+    });
+  });
+
+  it("onPortfolioUpserted preserves a full financial domain already cached from PKM", () => {
+    const thinPortfolio = {
+      holdings: [{ symbol: "NVDA", shares: 3 }],
+    };
+    const fullFinancialDomain = {
+      schema_version: 3,
+      portfolio: {
+        holdings: [{ symbol: "MSFT", shares: 2 }],
+      },
+      documents: {
+        statements: [{ id: "stmt-existing" }],
+      },
+      sources: {
+        active_source: "statement",
+      },
+    };
+
+    cache.set(
+      CACHE_KEYS.DOMAIN_DATA(userId, "financial"),
+      fullFinancialDomain,
+      CACHE_TTL.SESSION,
+    );
+
+    CacheSyncService.onPortfolioUpserted(userId, thinPortfolio as any);
+
+    expect(cache.get(CACHE_KEYS.PORTFOLIO_DATA(userId))).toEqual(thinPortfolio);
+    expect(cache.get(CACHE_KEYS.DOMAIN_DATA(userId, "financial"))).toEqual(
+      fullFinancialDomain,
+    );
   });
 
   // ---------- 10. onPkmDomainCleared (financial) ----------
@@ -167,8 +280,12 @@ describe("CacheSyncService mutation cascades", () => {
     CacheSyncService.onPkmDomainCleared(userId, "financial");
 
     const invalidatedKeys = spyInvalidate.mock.calls.map((c) => c[0]);
-    expect(invalidatedKeys).toContain(CACHE_KEYS.DOMAIN_DATA(userId, "financial"));
-    expect(invalidatedKeys).toContain(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"));
+    expect(invalidatedKeys).toContain(
+      CACHE_KEYS.DOMAIN_DATA(userId, "financial"),
+    );
+    expect(invalidatedKeys).toContain(
+      CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"),
+    );
     expect(invalidatedKeys).toContain(CACHE_KEYS.PKM_BLOB(userId));
     expect(invalidatedKeys).toContain(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
     expect(invalidatedKeys).toContain(CACHE_KEYS.PKM_METADATA(userId));
@@ -183,8 +300,12 @@ describe("CacheSyncService mutation cascades", () => {
     expect(invalidatedKeys).toContain(CACHE_KEYS.ANALYSIS_HISTORY(userId));
     expect(invalidatedKeys).toContain(CACHE_KEYS.PKM_BLOB(userId));
     expect(invalidatedKeys).toContain(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
-    expect(invalidatedKeys).toContain(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"));
-    expect(invalidatedKeys).toContain(CACHE_KEYS.DOMAIN_DATA(userId, "financial"));
+    expect(invalidatedKeys).toContain(
+      CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"),
+    );
+    expect(invalidatedKeys).toContain(
+      CACHE_KEYS.DOMAIN_DATA(userId, "financial"),
+    );
     expect(invalidatedKeys).toContain(CACHE_KEYS.PKM_METADATA(userId));
     expect(invalidatedKeys).toContain(CACHE_KEYS.STOCK_CONTEXT(userId, "AAPL"));
   });
@@ -198,7 +319,7 @@ describe("CacheSyncService mutation cascades", () => {
     expect(spySet).toHaveBeenCalledWith(
       CACHE_KEYS.ANALYSIS_HISTORY(userId),
       historyMap,
-      CACHE_TTL.SESSION
+      CACHE_TTL.SESSION,
     );
     const invalidatedKeys = spyInvalidate.mock.calls.map((c) => c[0]);
     expect(invalidatedKeys).toContain(CACHE_KEYS.STOCK_CONTEXT(userId, "AAPL"));

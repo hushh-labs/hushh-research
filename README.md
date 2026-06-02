@@ -79,8 +79,8 @@ Command default note:
 Fastest frontend-only hosted shortcut:
 
 ```bash
-./bin/hushh bootstrap --mode uat
-./bin/hushh web --mode uat
+./bin/hushh terminal backend --mode local --reload
+./bin/hushh web
 ```
 
 ## Choose Your Lane

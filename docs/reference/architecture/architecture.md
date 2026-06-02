@@ -147,11 +147,11 @@ This is the literal platform meaning behind Human Secure Socket Host: infrastruc
   - encrypted PKM storage and metadata split
   - runtime DB fact sheet, provenance ledger, and degraded-state handling
   - explicit storage boundary between private encrypted context and shared/query-heavy data
-- Production data-plane split:
+- Current and conditional data-plane split:
   - transactional app DB for workflow, actor, consent, and regulated operational state
   - encrypted PKM/vault plane for user-private memory and key-boundary metadata
   - provider/cache plane for refreshable Plaid, Gmail, market, and other integration state
-  - partner CRM plane for CRM-native contact/workflow metadata, consent receipt ids, scope labels, audit references, and narrowly approved fields when a partner workflow has a clear business or legal purpose
+  - conditional future partner CRM plane for CRM-native contact/workflow metadata, consent receipt ids, scope labels, audit references, and narrowly approved fields only when a partner workflow has a clear business or legal purpose and explicit consent
   - analytics/warehouse plane for GA4, BigQuery, and dashboard truth outside the app DB
 - Partner PII rule:
   - enterprise systems such as Salesforce must not become mirrors of Hussh PKM, KYC documents, financial memory, Gmail bodies, vault data, user keys, or broad personal profiles

@@ -37,13 +37,13 @@ class _FakeAsyncClient:
         assert url.endswith("/api/user/lookup")
         assert headers == {"X-MCP-Developer-Token": "dev-token"}
 
-        if identifier == "jd77v9k4nx@privaterelay.appleid.com":
+        if identifier == "kushaltrivedi1711@gmail.com":
             return _FakeResponse(
                 {
                     "exists": True,
-                    "user_id": "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
-                    "email": "jd77v9k4nx@privaterelay.appleid.com",
-                    "display_name": "Kai Test User",
+                    "user_id": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+                    "email": "kushaltrivedi1711@gmail.com",
+                    "display_name": "Kushal Trivedi",
                 }
             )
 
@@ -77,12 +77,12 @@ def test_consent_tools_resolve_email_to_uid_uses_header_token(monkeypatch):
     monkeypatch.setattr(consent_tools.httpx, "AsyncClient", _FakeAsyncClient)
 
     resolved_uid, email, display_name = asyncio.run(
-        consent_tools.resolve_email_to_uid("jd77v9k4nx@privaterelay.appleid.com")
+        consent_tools.resolve_email_to_uid("kushaltrivedi1711@gmail.com")
     )
 
-    assert resolved_uid == "s3xmA4lNSAQFrIaOytnSGAOzXlL2"
-    assert email == "jd77v9k4nx@privaterelay.appleid.com"
-    assert display_name == "Kai Test User"
+    assert resolved_uid == "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2"
+    assert email == "kushaltrivedi1711@gmail.com"
+    assert display_name == "Kushal Trivedi"
 
 
 def test_consent_tools_resolve_phone_to_uid_uses_header_token(monkeypatch):
@@ -102,11 +102,9 @@ def test_data_tools_resolve_email_to_uid_uses_header_token(monkeypatch):
     monkeypatch.setenv("HUSHH_DEVELOPER_TOKEN", "dev-token")
     monkeypatch.setattr(consent_tools.httpx, "AsyncClient", _FakeAsyncClient)
 
-    resolved_uid = asyncio.run(
-        data_tools.resolve_email_to_uid("jd77v9k4nx@privaterelay.appleid.com")
-    )
+    resolved_uid = asyncio.run(data_tools.resolve_email_to_uid("kushaltrivedi1711@gmail.com"))
 
-    assert resolved_uid == "s3xmA4lNSAQFrIaOytnSGAOzXlL2"
+    assert resolved_uid == "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2"
 
 
 def test_data_tools_resolve_phone_to_uid_uses_header_token(monkeypatch):
