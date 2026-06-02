@@ -41,7 +41,9 @@ class KaiChatRequest(BaseModel):
 
     user_id: str = Field(..., min_length=1, max_length=128, description="User's Firebase UID")
     message: str = Field(..., min_length=1, max_length=4000, description="User's message to Kai")
-    conversation_id: Optional[str] = Field(None, max_length=200, description="Existing conversation ID to continue")
+    conversation_id: Optional[str] = Field(
+        None, max_length=128, description="Existing conversation ID to continue"
+    )
 
 
 class KaiChatResponseModel(BaseModel):
