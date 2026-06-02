@@ -847,6 +847,16 @@ class ReceiptMemoryPkmMapper:
         )
         observed = projection.get("observed_facts", {})
         signals = projection.get("inferred_preferences", [])
+        merchant_affinity = (observed.get("merchant_affinity") or [])[:RECEIPT_MEMORY_MAX_MERCHANTS]
+        purchase_patterns = (observed.get("purchase_patterns") or [])[:RECEIPT_MEMORY_MAX_PATTERNS]
+        recent_highlights = (observed.get("recent_highlights") or [])[
+            :RECEIPT_MEMORY_MAX_HIGHLIGHTS
+        ]
+        retained_fact_ids = self._retained_fact_ids(
+            merchant_affinity=merchant_affinity,
+            purchase_patterns=purchase_patterns,
+            recent_highlights=recent_highlights,
+        )
         receipts_memory = {
             "schema_version": 1,
             "readable_summary": {
@@ -858,6 +868,7 @@ class ReceiptMemoryPkmMapper:
             "observed_facts": {
                 "merchant_affinity": [
                     {
+                        "fact_id": self._fact_id_for(item, "merchant"),
                         "merchant_id": item.get("merchant_id"),
                         "merchant_label": item.get("merchant_label"),
                         "affinity_score": item.get("affinity_score"),
@@ -865,12 +876,11 @@ class ReceiptMemoryPkmMapper:
                         "last_purchase_at": item.get("last_purchase_at"),
                         "top_currency": item.get("primary_currency"),
                     }
-                    for item in (observed.get("merchant_affinity") or [])[
-                        :RECEIPT_MEMORY_MAX_MERCHANTS
-                    ]
+                    for item in merchant_affinity
                 ],
                 "purchase_patterns": [
                     {
+                        "fact_id": self._fact_id_for(item, "pattern"),
                         "pattern_id": item.get("pattern_id"),
                         "merchant_label": item.get("merchant_label"),
                         "cadence": item.get("cadence"),
@@ -878,21 +888,19 @@ class ReceiptMemoryPkmMapper:
                         "last_observed_at": item.get("last_observed_at"),
                         "confidence": item.get("confidence"),
                     }
-                    for item in (observed.get("purchase_patterns") or [])[
-                        :RECEIPT_MEMORY_MAX_PATTERNS
-                    ]
+                    for item in purchase_patterns
                 ],
                 "recent_highlights": [
                     {
+                        "fact_id": self._fact_id_for(item, "highlight"),
+                        "highlight_id": item.get("highlight_id"),
                         "merchant_label": item.get("merchant_label"),
                         "purchased_at": item.get("purchased_at"),
                         "amount": item.get("amount"),
                         "currency": item.get("currency"),
                         "reason_code": item.get("reason_code"),
                     }
-                    for item in (observed.get("recent_highlights") or [])[
-                        :RECEIPT_MEMORY_MAX_HIGHLIGHTS
-                    ]
+                    for item in recent_highlights
                 ],
             },
             "inferred_preferences": {
@@ -901,7 +909,10 @@ class ReceiptMemoryPkmMapper:
                         "signal_id": item.get("signal_id"),
                         "label": item.get("label"),
                         "confidence": item.get("confidence"),
-                        "basis_codes": list(item.get("supporting_fact_ids") or [])[:4],
+                        "basis_codes": self._retained_basis_codes(
+                            item.get("supporting_fact_ids"),
+                            retained_fact_ids=retained_fact_ids,
+                        ),
                     }
                     for item in signals[:RECEIPT_MEMORY_MAX_SIGNALS]
                 ]
@@ -928,6 +939,54 @@ class ReceiptMemoryPkmMapper:
         }
         self._apply_budget(receipts_memory)
         return {"receipts_memory": receipts_memory}
+
+    def _retained_fact_ids(
+        self,
+        *,
+        merchant_affinity: list[dict[str, Any]],
+        purchase_patterns: list[dict[str, Any]],
+        recent_highlights: list[dict[str, Any]],
+    ) -> set[str]:
+        fact_ids: set[str] = set()
+        for collection in (merchant_affinity, purchase_patterns, recent_highlights):
+            for item in collection:
+                fact_id = self._fact_id_for(item, None)
+                if fact_id:
+                    fact_ids.add(fact_id)
+        return fact_ids
+
+    def _fact_id_for(self, item: dict[str, Any], kind: str | None) -> str:
+        explicit = _clean_text(item.get("fact_id"))
+        if explicit:
+            return explicit
+        if kind == "merchant":
+            merchant_id = _clean_text(item.get("merchant_id"))
+            return f"merchant:{merchant_id}" if merchant_id else ""
+        if kind == "pattern":
+            return _clean_text(item.get("pattern_id"))
+        if kind == "highlight":
+            return _clean_text(item.get("highlight_id"))
+        for fallback_kind in ("merchant", "pattern", "highlight"):
+            fact_id = self._fact_id_for(item, fallback_kind)
+            if fact_id:
+                return fact_id
+        return ""
+
+    def _retained_basis_codes(
+        self,
+        supporting_fact_ids: Any,
+        *,
+        retained_fact_ids: set[str],
+    ) -> list[str]:
+        basis_codes: list[str] = []
+        for value in supporting_fact_ids or []:
+            fact_id = _clean_text(value)
+            if not fact_id or fact_id not in retained_fact_ids or fact_id in basis_codes:
+                continue
+            basis_codes.append(fact_id)
+            if len(basis_codes) >= 4:
+                break
+        return basis_codes
 
     def _resolve_summary(
         self,

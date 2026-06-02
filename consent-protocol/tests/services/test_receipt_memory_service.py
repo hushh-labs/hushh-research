@@ -160,6 +160,7 @@ def test_pkm_mapper_uses_deterministic_summary_when_enrichment_missing():
     assert candidate["receipts_memory"]["readable_summary"]["text"]
     assert candidate["receipts_memory"]["provenance"]["artifact_id"] == "artifact-1"
     assert candidate["receipts_memory"]["observed_facts"]["merchant_affinity"][0] == {
+        "fact_id": "merchant:amazon",
         "merchant_id": "amazon",
         "merchant_label": "Amazon",
         "affinity_score": 0.9,
@@ -167,6 +168,58 @@ def test_pkm_mapper_uses_deterministic_summary_when_enrichment_missing():
         "last_purchase_at": "2026-03-28T00:00:00Z",
         "top_currency": "USD",
     }
+
+
+def test_pkm_mapper_filters_signal_basis_codes_to_retained_fact_ids():
+    mapper = ReceiptMemoryPkmMapper()
+    merchants = [
+        {
+            "fact_id": f"merchant:{index}",
+            "merchant_id": f"merchant-{index}",
+            "merchant_label": f"Merchant {index}",
+            "affinity_score": 0.9,
+            "receipt_count_365d": 4,
+            "last_purchase_at": "2026-03-28T00:00:00Z",
+            "primary_currency": "USD",
+        }
+        for index in range(14)
+    ]
+    projection = {
+        "source": {
+            "projection_hash": "projection-hash",
+            "inference_window_days": 365,
+            "highlights_window_days": 90,
+            "source_watermark": {},
+        },
+        "budget_stats": {"eligible_receipt_count": 14},
+        "observed_facts": {
+            "merchant_affinity": merchants,
+            "purchase_patterns": [],
+            "recent_highlights": [],
+        },
+        "inferred_preferences": [
+            {
+                "signal_id": "signal:merchant_loyalty:mixed",
+                "label": "Mixed retained and trimmed facts",
+                "confidence": 0.91,
+                "supporting_fact_ids": ["merchant:1", "merchant:13", "merchant:missing"],
+            }
+        ],
+    }
+
+    candidate = mapper.build_candidate_payload(
+        projection=projection,
+        enrichment=None,
+        artifact_id="artifact-1",
+    )
+
+    receipts_memory = candidate["receipts_memory"]
+    retained_fact_ids = {
+        item["fact_id"] for item in receipts_memory["observed_facts"]["merchant_affinity"]
+    }
+    basis_codes = receipts_memory["inferred_preferences"]["preference_signals"][0]["basis_codes"]
+    assert "merchant:13" not in retained_fact_ids
+    assert basis_codes == ["merchant:1"]
 
 
 @pytest.mark.asyncio
