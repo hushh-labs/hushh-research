@@ -1024,7 +1024,7 @@ async def get_consent_center_summary(
     # Noise is skipped in the test environment (TESTING=true set by conftest.py)
     # so that deterministic integration tests can verify exact count values.
     import os as _os
-    if not _os.environ.get("TESTING", "").strip().lower() in ("1", "true"):
+    if _os.environ.get("TESTING", "").strip().lower() not in ("1", "true"):
         counts = summary.get("counts", {})
         summary["counts"] = {
             surface: round(noisy_approval_count(int(v)))
