@@ -14,6 +14,7 @@
   "indentSwitchCaseLabels": false,
   "spacesAroundRangeFormationOperators": false,
   "fileScopedDeclarationPrivacy": { "accessLevel": "private" },
+  "multiElementCollectionTrailingCommas": false,
   "rules": {
     "AllPublicDeclarationsHaveDocumentation": false,
     "AlwaysUseLowerCamelCase": true,

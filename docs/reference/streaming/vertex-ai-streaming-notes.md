@@ -12,7 +12,7 @@ Reference notes for model-correct streaming behavior.
 - Use Vertex streaming APIs for incremental output:
   - Python SDK: `generate_content_stream`
   - REST/SDK equivalents of `streamGenerateContent`
-- Treat thought summaries as optional telemetry.
+- Treat thought summaries as optional telemetry; Gemini imports should surface model-provided thought parts only, not fabricated local copy.
 - For Gemini 3 family, use model-correct thinking controls (`thinking_level`).
 - For extraction flows, require JSON output mode + schema.
 

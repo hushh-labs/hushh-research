@@ -55,7 +55,7 @@ Non-owned surfaces:
 7. Keep blocking versus advisory skill drift explicit. Only owner/workflow drift that weakens runtime, deploy, release, or test authority should block the core loop; metadata-only drift should stay advisory.
 8. When PR governance comment templates change, enforce them through `skill_lint.py` so stale public-comment headings such as `Acknowledgment`, `Verification`, or maintainer-only `Next` do not re-enter generated templates.
 9. Keep recurring SOPs short in skills and route durable detail to canonical docs or workflow packs. Skills should point to `runtime-db-fact-sheet.md`, the data-plane contract, or a workflow playbook rather than duplicating long table inventories.
-10. Treat context-size findings from `./bin/hushh codex audit` as review-required advisories: extract durable detail before adding more SOP, but do not split a skill just because it crosses a line-count threshold.
+10. Treat compact-kernel lint findings as blocking; report owner lanes as `master <skill-id>` while keeping manifest role `owner`.
 11. Enforce the truth-first operating kernel through deterministic smoke fixtures so skills, workflows, and agents do not slide back into blind premise acceptance.
 12. For industry-grade skills, prefer a compact operating kernel in `SKILL.md` plus focused `references/` files for detailed gates, templates, and calibration rules. Do not let incident-specific fixes accumulate as repeated inline SOP unless they belong in deterministic scripts or a focused reference.
 13. When retrofitting a skill, scan the full skill body for duplicated rules, stale historical examples, and oversized decision trees. Keep the main skill procedural; move reusable detail into references and executable logic into scripts.
@@ -72,8 +72,10 @@ Non-owned surfaces:
 
 ```bash
 python3 .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py
+python3 .codex/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py
 python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 .codex/skills/codex-skill-authoring/scripts/skill_fleet_audit.py --text
 python3 .codex/skills/codex-skill-authoring/scripts/init_skill.py --name example-owner --role owner --owner-family example-owner --owned-path README.md --task-type repo-orientation --verification-bundle example-owner --workflow-pack example-owner --dry-run
 ./bin/hushh codex audit
-python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py .codex/skills/codex-skill-authoring/scripts/init_skill.py
+python3 -m py_compile .codex/skills/codex-skill-authoring/scripts/skill_lint.py .codex/skills/codex-skill-authoring/scripts/truth_first_smoke.py .codex/skills/codex-skill-authoring/scripts/init_skill.py .codex/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py .codex/skills/codex-skill-authoring/scripts/skill_fleet_audit.py
 ```
