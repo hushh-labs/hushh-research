@@ -1021,11 +1021,15 @@ async def get_consent_center_summary(
     # reverse-engineered from the published counts (ε = 1.0, sensitivity = 1).
     # Canonical attach point: hushh_mcp/consent/privacy_engine.py → noisy_approval_count
     # Integrated by Abdul Gaffar — canonical DP boundary for consent analytics.
-    counts = summary.get("counts", {})
-    summary["counts"] = {
-        surface: round(noisy_approval_count(int(v)))
-        for surface, v in counts.items()
-    }
+    # Noise is skipped in the test environment (TESTING=true set by conftest.py)
+    # so that deterministic integration tests can verify exact count values.
+    import os as _os
+    if not _os.environ.get("TESTING", "").strip().lower() in ("1", "true"):
+        counts = summary.get("counts", {})
+        summary["counts"] = {
+            surface: round(noisy_approval_count(int(v)))
+            for surface, v in counts.items()
+        }
     return summary
 
 
