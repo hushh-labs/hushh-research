@@ -181,14 +181,17 @@ class MainActivity : BridgeActivity() {
                   if (window.top !== window) return;
                   var config = $payload;
                   var bridge = window.__HUSHH_NATIVE_TEST__ || {};
+                  var uiFlowsOwnRouting = bridge.runUiFlows === true && bridge._uiFlowsStarted === true;
                   bridge.enabled = config.enabled === true;
-                  bridge.initialRoute = config.initialRoute || null;
-                  bridge.expectedMarker = config.expectedMarker || null;
-                  bridge.expectedRoute = config.expectedRoute || null;
                   bridge.autoReviewerLogin = config.autoReviewerLogin === true;
                   bridge.vaultPassphrase = config.vaultPassphrase || "";
                   bridge.expectedUserId = config.expectedUserId || "";
-                  bridge.runUiFlows = config.runUiFlows === true;
+                  bridge.runUiFlows = bridge.runUiFlows === true || config.runUiFlows === true;
+                  if (!uiFlowsOwnRouting) {
+                    bridge.initialRoute = config.initialRoute || null;
+                    bridge.expectedMarker = config.expectedMarker || null;
+                    bridge.expectedRoute = config.expectedRoute || null;
+                  }
                   bridge.lastJsError = bridge.lastJsError || "";
                   bridge.lastUnhandledRejection = bridge.lastUnhandledRejection || "";
                   try {
@@ -209,9 +212,9 @@ class MainActivity : BridgeActivity() {
                     if (root) {
                       root.setAttribute("data-hushh-native-test-enabled", bridge.enabled ? "true" : "false");
                       root.setAttribute("data-hushh-native-test-auto-reviewer-login", bridge.autoReviewerLogin ? "true" : "false");
-                      root.setAttribute("data-hushh-native-test-expected-marker", bridge.expectedMarker || "");
-                      root.setAttribute("data-hushh-native-test-initial-route", bridge.initialRoute || "");
-                      root.setAttribute("data-hushh-native-test-expected-route", bridge.expectedRoute || "");
+                      root.setAttribute("data-hushh-native-test-expected-marker", uiFlowsOwnRouting ? "" : (bridge.expectedMarker || ""));
+                      root.setAttribute("data-hushh-native-test-initial-route", uiFlowsOwnRouting ? "" : (bridge.initialRoute || ""));
+                      root.setAttribute("data-hushh-native-test-expected-route", uiFlowsOwnRouting ? "" : (bridge.expectedRoute || ""));
                       root.setAttribute("data-hushh-native-test-run-ui-flows", bridge.runUiFlows ? "true" : "false");
                     }
                   } catch (_) {}

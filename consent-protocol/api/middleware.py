@@ -238,7 +238,6 @@ def require_consent_scope(required_scope: str | ConsentScope):
             None, description="Bearer token for scoped consent authentication"
         ),
     ) -> dict:
-
         token = _extract_token(authorization, allow_raw=False)
         valid, reason, token_obj = await _validate_token_with_scope_cache(
             token, required_scope, request

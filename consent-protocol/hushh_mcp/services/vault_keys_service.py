@@ -765,6 +765,44 @@ class VaultKeysService:
         ]
 
         with supabase.engine.begin() as conn:
+            existing_vault = conn.execute(
+                text(
+                    """
+                    SELECT vault_status, vault_key_hash
+                    FROM vault_keys
+                    WHERE user_id = :user_id
+                    FOR UPDATE
+                    """
+                ),
+                {"user_id": user_id_clean},
+            ).fetchone()
+            if existing_vault is not None:
+
+                def row_get(row: Any, key: str) -> Any:
+                    if isinstance(row, dict):
+                        return row.get(key)
+                    return getattr(row, "_mapping", {}).get(key)
+
+                existing_status = self._normalize_vault_status(
+                    row_get(existing_vault, "vault_status")
+                )
+                existing_hash = (
+                    self._clean_base64ish(
+                        row_get(existing_vault, "vault_key_hash"),
+                        allow_none=True,
+                    )
+                    or ""
+                )
+                if (
+                    existing_status == "active"
+                    and existing_hash
+                    and existing_hash != vault_key_hash_clean
+                ):
+                    raise ValueError(
+                        "Active vault already exists; refusing to replace vault key hash "
+                        "without vault owner proof"
+                    )
+
             upsert_key_result = conn.execute(
                 text(
                     """
