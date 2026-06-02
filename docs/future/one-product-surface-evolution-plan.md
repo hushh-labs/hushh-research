@@ -38,6 +38,7 @@ The repo already has the pieces needed for this transition:
 - encrypted PKM architecture, provenance docs, runtime DB boundaries, and cache-coherence rules
 - One Email KYC as a bounded identity workflow, not a broad autonomous email agent
 - PCHP implemented today through the Consent Protocol Developer API and MCP consent/export flow
+- partner CRM handoff must stay minimized: Salesforce-style systems may store CRM-native metadata and narrowly approved fields, but must not become mirrors of Hussh PKM, KYC documents, vault data, or broad personal memory
 
 The gap is product-surface composition. Current implementation docs are strong by subsystem, but the product needs one evolution path that tells contributors how new surfaces become part of One instead of becoming standalone roots.
 
@@ -68,6 +69,7 @@ Kai, Nav, KYC, and future specialists remain below One:
 | Signature and document trust | Nav/KYC under One | North-star surface only unless backed by checked routes/contracts | Preserve vault, consent, audit, approval, and document provenance boundaries |
 | iBrokerage | Kai under One | Future-facing brokerage direction | Use current brokerage contracts as implementation truth before expanding claims |
 | PCHP brand-side access | PCHP / Developer API / MCP | Future-facing ecosystem framing; current PCHP maps to consent/export APIs | No separate trust plane; every brand/app path uses scoped consent and audit |
+| Partner CRM / PII handoff | Hussh trust boundary plus partner CRM policy | Planning and partner-confirmation lane; current Hussh export remains ciphertext-first | Field inventory, purpose, consent scope, retention, masking/encryption, deletion, and audit ownership are confirmed before persistent PII storage |
 | OpenClaw / LLM Wiki projections | PKM / World Model under One | Interoperability pattern, not canonical memory | Projections must derive from encrypted consented PKM and stay revocable/exportable |
 | BYOA and on-device execution | Platform constraint | Future-state unless a current AI runtime proves support | Provider/model/key/local execution docs and tests prove each claim |
 

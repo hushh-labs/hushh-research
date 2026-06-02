@@ -68,6 +68,47 @@ class VaultKeysService:
     def _invalidate_vault_state_cache(self, user_id: str) -> None:
         self._vault_state_cache.pop(user_id, None)
 
+    def ensure_actor_profile(self, user_id: str) -> bool:
+        """Ensure vault-backed users are present in the actor profile spine."""
+        user_id_clean = (user_id or "").strip()
+        if not user_id_clean:
+            return False
+
+        supabase = self._get_supabase()
+        with supabase.engine.begin() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    INSERT INTO actor_profiles (
+                        user_id,
+                        personas,
+                        last_active_persona,
+                        investor_marketplace_opt_in
+                    )
+                    SELECT
+                        :user_id,
+                        ARRAY['investor'],
+                        'investor',
+                        FALSE
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM vault_keys
+                        WHERE user_id = :user_id
+                    )
+                    ON CONFLICT (user_id) DO NOTHING
+                    RETURNING user_id
+                    """
+                ),
+                {"user_id": user_id_clean},
+            )
+            inserted = result.fetchone() is not None
+
+        if inserted:
+            logger.info(
+                "actor profile created for vault user %s", self._mask_user_id(user_id_clean)
+            )
+        return True
+
     @staticmethod
     def _mask_user_id(user_id: str) -> str:
         if not user_id:
@@ -724,6 +765,44 @@ class VaultKeysService:
         ]
 
         with supabase.engine.begin() as conn:
+            existing_vault = conn.execute(
+                text(
+                    """
+                    SELECT vault_status, vault_key_hash
+                    FROM vault_keys
+                    WHERE user_id = :user_id
+                    FOR UPDATE
+                    """
+                ),
+                {"user_id": user_id_clean},
+            ).fetchone()
+            if existing_vault is not None:
+
+                def row_get(row: Any, key: str) -> Any:
+                    if isinstance(row, dict):
+                        return row.get(key)
+                    return getattr(row, "_mapping", {}).get(key)
+
+                existing_status = self._normalize_vault_status(
+                    row_get(existing_vault, "vault_status")
+                )
+                existing_hash = (
+                    self._clean_base64ish(
+                        row_get(existing_vault, "vault_key_hash"),
+                        allow_none=True,
+                    )
+                    or ""
+                )
+                if (
+                    existing_status == "active"
+                    and existing_hash
+                    and existing_hash != vault_key_hash_clean
+                ):
+                    raise ValueError(
+                        "Active vault already exists; refusing to replace vault key hash "
+                        "without vault owner proof"
+                    )
+
             upsert_key_result = conn.execute(
                 text(
                     """
@@ -773,6 +852,27 @@ class VaultKeysService:
             )
             if upsert_key_result.fetchone() is None:
                 raise RuntimeError("Failed to upsert vault_keys row.")
+
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO actor_profiles (
+                        user_id,
+                        personas,
+                        last_active_persona,
+                        investor_marketplace_opt_in
+                    )
+                    VALUES (
+                        :user_id,
+                        ARRAY['investor'],
+                        'investor',
+                        FALSE
+                    )
+                    ON CONFLICT (user_id) DO NOTHING
+                    """
+                ),
+                {"user_id": user_id_clean},
+            )
 
             conn.execute(
                 text("DELETE FROM vault_key_wrappers WHERE user_id = :user_id"),
@@ -995,6 +1095,159 @@ class VaultKeysService:
         self._invalidate_vault_state_cache(user_id_clean)
         return True
 
+    async def delete_wrapper(
+        self,
+        *,
+        user_id: str,
+        vault_key_hash: str,
+        method: str,
+        wrapper_id: Optional[str] = None,
+        fallback_primary_method: Optional[str] = "passphrase",
+        fallback_primary_wrapper_id: Optional[str] = "default",
+    ) -> bool:
+        """Remove a non-passphrase wrapper after proving the caller has the vault key."""
+        supabase = self._get_supabase()
+        user_id_clean = (user_id or "").strip()
+        if not user_id_clean:
+            raise ValueError("userId is required")
+
+        vault_key_hash_clean = self._clean_base64ish(vault_key_hash) or ""
+        if not vault_key_hash_clean:
+            raise ValueError("vaultKeyHash is required")
+
+        method_norm = self._normalize_method(method)
+        wrapper_norm = self._normalize_wrapper_id(wrapper_id)
+        if method_norm == "passphrase":
+            raise ValueError("Passphrase wrapper cannot be removed")
+
+        def row_get(row: Any, key: str) -> Any:
+            if isinstance(row, dict):
+                return row.get(key)
+            return getattr(row, "_mapping", {}).get(key)
+
+        with supabase.engine.begin() as conn:
+            vault_row = conn.execute(
+                text(
+                    """
+                    SELECT vault_key_hash, primary_method, primary_wrapper_id
+                    FROM vault_keys
+                    WHERE user_id = :user_id
+                    FOR UPDATE
+                    """
+                ),
+                {"user_id": user_id_clean},
+            ).fetchone()
+            if vault_row is None:
+                raise ValueError("Vault not found")
+
+            existing_hash = self._clean_base64ish(row_get(vault_row, "vault_key_hash")) or ""
+            if existing_hash != vault_key_hash_clean:
+                raise ValueError("vaultKeyHash mismatch")
+
+            wrappers = conn.execute(
+                text(
+                    """
+                    SELECT method, wrapper_id
+                    FROM vault_key_wrappers
+                    WHERE user_id = :user_id
+                    FOR UPDATE
+                    """
+                ),
+                {"user_id": user_id_clean},
+            ).fetchall()
+            if not any(
+                row_get(row, "method") == method_norm
+                and self._normalize_wrapper_id(row_get(row, "wrapper_id")) == wrapper_norm
+                for row in wrappers
+            ):
+                raise ValueError("Vault wrapper not found")
+
+            if len(wrappers) <= 1:
+                raise ValueError("Cannot remove the only vault unlock method")
+
+            has_passphrase = any(
+                row_get(row, "method") == "passphrase"
+                and self._normalize_wrapper_id(row_get(row, "wrapper_id")) == "default"
+                for row in wrappers
+            )
+            if not has_passphrase:
+                raise ValueError(
+                    "Passphrase wrapper is missing; repair passphrase before removing quick unlock"
+                )
+
+            primary_method = self._normalize_method(
+                row_get(vault_row, "primary_method") or "passphrase"
+            )
+            primary_wrapper = self._normalize_wrapper_id(row_get(vault_row, "primary_wrapper_id"))
+            deleting_primary = primary_method == method_norm and primary_wrapper == wrapper_norm
+
+            if deleting_primary:
+                fallback_method = self._normalize_method(fallback_primary_method or "passphrase")
+                fallback_wrapper = self._normalize_wrapper_id(fallback_primary_wrapper_id)
+                if fallback_method == method_norm and fallback_wrapper == wrapper_norm:
+                    raise ValueError("Fallback primary cannot be the wrapper being removed")
+
+                fallback_exists = any(
+                    row_get(row, "method") == fallback_method
+                    and self._normalize_wrapper_id(row_get(row, "wrapper_id")) == fallback_wrapper
+                    for row in wrappers
+                )
+                if not fallback_exists:
+                    raise ValueError("Fallback primary method/wrapper must be an enrolled wrapper")
+
+                now_ms = int(datetime.now().timestamp() * 1000)
+                updated_primary = conn.execute(
+                    text(
+                        """
+                        UPDATE vault_keys
+                        SET primary_method = :fallback_method,
+                            primary_wrapper_id = :fallback_wrapper,
+                            updated_at = :updated_at
+                        WHERE user_id = :user_id
+                          AND primary_method = :primary_method
+                          AND primary_wrapper_id = :primary_wrapper
+                        RETURNING user_id
+                        """
+                    ),
+                    {
+                        "user_id": user_id_clean,
+                        "fallback_method": fallback_method,
+                        "fallback_wrapper": fallback_wrapper,
+                        "updated_at": now_ms,
+                        "primary_method": primary_method,
+                        "primary_wrapper": primary_wrapper,
+                    },
+                ).fetchone()
+                if updated_primary is None:
+                    raise RuntimeError("Failed to switch primary method before wrapper removal.")
+
+            deleted_wrapper = conn.execute(
+                text(
+                    """
+                    DELETE FROM vault_key_wrappers
+                    WHERE user_id = :user_id
+                      AND method = :method
+                      AND wrapper_id = :wrapper_id
+                    RETURNING method
+                    """
+                ),
+                {
+                    "user_id": user_id_clean,
+                    "method": method_norm,
+                    "wrapper_id": wrapper_norm,
+                },
+            ).fetchone()
+            if deleted_wrapper is None:
+                raise RuntimeError("Failed to remove vault wrapper.")
+
+        logger.info(
+            "✅ Removed wrapper '%s' for user %s",
+            method_norm,
+            self._mask_user_id(user_id_clean),
+        )
+        self._invalidate_vault_state_cache(user_id_clean)
+        return True
+
     async def get_vault_status(self, user_id: str, consent_token: str) -> Dict[str, Any]:
         """Get status for all vault domains."""
         # Validate consent token
@@ -1032,7 +1285,7 @@ class VaultKeysService:
                     prefs_summary.get("field_count", 0) if isinstance(prefs_summary, dict) else 0
                 )
         except Exception as e:  # pragma: no cover
-            logger.warning(f"Failed to check pkm_index for vault status: {e}")
+            logger.warning("vault_keys.get_vault_status.pkm_index_check_failed: %s", e)
 
         domains = {
             "kai": {
@@ -1045,6 +1298,6 @@ class VaultKeysService:
         total_active = 1 if kai_has_data else 0
         total = 1
 
-        logger.info(f"✅ Vault status for {user_id}: {total_active}/{total} domains active")
+        logger.info("vault_keys.vault_status user_id=%s active=%d/%d", user_id, total_active, total)
 
         return {"domains": domains, "totalActive": total_active, "total": total}

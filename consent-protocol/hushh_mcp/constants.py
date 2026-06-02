@@ -62,6 +62,15 @@ class ConsentScope(str, Enum):
     AGENT_KYC_DRAFT = "agent.kyc.draft"
     AGENT_KYC_WRITEBACK = "agent.kyc.writeback"
 
+    # ==================== LIVE LOCATION CAPABILITIES ====================
+    # Capability scopes for One Location Agent. These are workflow/action
+    # scopes, not durable attr.location.* PKM scopes.
+    CAP_LOCATION_LIVE_SHARE = "cap.location.live.share"
+    CAP_LOCATION_LIVE_VIEW = "cap.location.live.view"
+    CAP_LOCATION_LIVE_REQUEST = "cap.location.live.request"
+    CAP_LOCATION_LIVE_REVOKE = "cap.location.live.revoke"
+    CAP_LOCATION_LIVE_REFER_REQUEST = "cap.location.live.refer_request"
+
     # ==================== EXTERNAL DATA SOURCES ====================
     # Hybrid mode - per-request consent
     EXTERNAL_SEC_FILINGS = "external.sec.filings"
@@ -210,6 +219,17 @@ class ConsentScope(str, Enum):
         ]
 
     @classmethod
+    def capability_scopes(cls):
+        """Return workflow capability scopes that are not durable attr.* PKM scopes."""
+        return [
+            cls.CAP_LOCATION_LIVE_SHARE,
+            cls.CAP_LOCATION_LIVE_VIEW,
+            cls.CAP_LOCATION_LIVE_REQUEST,
+            cls.CAP_LOCATION_LIVE_REVOKE,
+            cls.CAP_LOCATION_LIVE_REFER_REQUEST,
+        ]
+
+    @classmethod
     def external_scopes(cls):
         """Return all external data source scopes."""
         return [
@@ -258,7 +278,7 @@ GEMINI_MODEL_VERTEX = "gemini-3.1-pro-preview"
 # ==================== Kai Portfolio Import Defaults ====================
 
 # Portfolio import extraction is prompt-first and optimized for lower latency.
-KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3-flash-preview"
+KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3.5-flash"
 KAI_PORTFOLIO_IMPORT_ENABLE_THINKING = True
 KAI_PORTFOLIO_IMPORT_THINKING_LEVEL = "LOW"
 KAI_PORTFOLIO_IMPORT_MAX_OUTPUT_TOKENS = 32768
