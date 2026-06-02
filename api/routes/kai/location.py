@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
-from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.kai_location_service import (
+    DatabaseExecutionError,
     KaiLocationError,
     KaiLocationService,
     database_error_detail,
