@@ -20,6 +20,8 @@ flowchart TD
   root --> n5
   n6["Pr Impact Checklist"]
   root --> n6
+  n9["Pr Contributor Readiness"]
+  root --> n9
   n7["Profile Settings Design System"]
   root --> n7
 ```
@@ -35,4 +37,5 @@ This is the north-star entrypoint for design-system rules plus verification cont
 - [frontend-pattern-catalog.md](./frontend-pattern-catalog.md): implementation patterns and allowed primitives.
 - [app-surface-audit-matrix.md](./app-surface-audit-matrix.md): current rollout matrix across routes.
 - [pr-impact-checklist.md](./pr-impact-checklist.md): change-impact review checklist.
+- [pr-contributor-readiness.md](./pr-contributor-readiness.md): contributor-facing merge readiness, common blockers, maintainer patch/harvest handling, and attribution rules.
 - [analytics-verification-contract.md](./analytics-verification-contract.md): proof ladder for GA4, Firebase, BigQuery, and growth dashboard trust.

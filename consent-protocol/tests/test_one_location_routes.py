@@ -453,6 +453,7 @@ def test_one_location_retention_auth_can_be_disabled_in_local_test_mode(
     assert response.status_code == 200
     assert response.json()["retention_hours"] == 12
 
+
 def test_one_location_route_preserves_db_error_mapping_without_db_client_import() -> None:
     source = inspect.getsource(one_location)
     assert "from db.db_client import" not in source
