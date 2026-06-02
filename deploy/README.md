@@ -111,6 +111,22 @@ UAT and production now use the same frontend runtime contract shape:
 - one active measurement ID: `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID`
 - one active GTM ID: `NEXT_PUBLIC_GTM_ID`
 
+### MuleSoft Managed Omni Gateway connectivity
+
+The MuleSoft Managed Omni Gateway private-space handoff lives in:
+
+- [deploy/mulesoft/README.md](./mulesoft/README.md)
+- [docs/reference/operations/mulesoft-managed-omni-private-space.md](../docs/reference/operations/mulesoft-managed-omni-private-space.md)
+
+Start with the read-only inventory before sending final CIDRs or applying GCP network changes:
+
+```bash
+bash deploy/mulesoft/gcp_private_space_inventory.sh
+```
+
+The provisioning script defaults to `ACTION=plan`; use `ACTION=apply` only after MuleSoft peer VPN values and the private endpoint design are reviewed.
+Non-Prod defaults target the US East Ohio lane in GCP `us-east5`.
+
 ---
 
 ## 📋 Prerequisites
