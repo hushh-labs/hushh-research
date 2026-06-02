@@ -72,17 +72,24 @@ def _parse_cors_allowed_origins() -> list[str]:
     if frontend_url and frontend_url not in origins:
         origins.append(frontend_url)
 
+    if not _is_production():
+        for dev_origin in (
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3001",
+            "http://10.0.0.177:3000",
+        ):
+            if dev_origin not in origins:
+                origins.append(dev_origin)
+
     if origins:
         return origins
 
     if _is_production():
         return []
 
-    return [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://10.0.0.177:3000",
-    ]
+    return []
 
 
 # Import route modules
@@ -418,6 +425,27 @@ async def startup_pkm_scope_validator_warmup() -> None:
 
     logger.info(
         "startup.pkm_scope_validator_warmed duration_ms=%.2f",
+        (time.perf_counter() - started_at) * 1000,
+    )
+
+
+@app.on_event("startup")
+async def startup_consent_token_verifier_prewarm() -> None:
+    """Prewarm consent-token verifier work before the first scoped request."""
+    started_at = time.perf_counter()
+    try:
+        from hushh_mcp.consent.token import prewarm_consent_token_verifier
+
+        prewarm_consent_token_verifier()
+    except Exception as exc:
+        logger.warning(
+            "startup.consent_token_verifier_prewarm_failed reason=%s",
+            exc,
+        )
+        return
+
+    logger.info(
+        "startup.consent_token_verifier_prewarmed duration_ms=%.2f",
         (time.perf_counter() - started_at) * 1000,
     )
 

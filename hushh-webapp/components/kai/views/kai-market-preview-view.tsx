@@ -58,6 +58,7 @@ import {
 } from "@/lib/kai/kai-financial-resource";
 import { KaiMarketHomeResourceService } from "@/lib/kai/kai-market-home-resource";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
+import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
 import { ensureKaiVaultOwnerToken } from "@/lib/services/kai-token-guard";
 import {
   type KaiHomeInsightsV2,
@@ -71,7 +72,10 @@ import {
   getKaiActivePickSource,
   setKaiActivePickSource,
 } from "@/lib/kai/pick-source-selection";
-import { assignWindowLocation, openExternalUrl } from "@/lib/utils/browser-navigation";
+import {
+  openExternalUrl,
+  requestInternalAppNavigation,
+} from "@/lib/utils/browser-navigation";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import {
@@ -110,10 +114,14 @@ const MARKET_SIGNAL_CARD_CLASSNAME = cn(
 
 const MARKET_SIGNAL_INSET_CLASSNAME = marketInsetClassName;
 
+function normalizeMarketSymbol(value: unknown): string {
+  return String(value || "").trim().toUpperCase();
+}
+
 function normalizeTrackedSymbols(symbols: string[] | null | undefined): string[] {
   if (!Array.isArray(symbols)) return [];
   return symbols
-    .map((symbol) => String(symbol || "").trim().toUpperCase())
+    .map((symbol) => normalizeMarketSymbol(symbol))
     .filter(Boolean)
     .filter((symbol, index, arr) => arr.indexOf(symbol) === index)
     .slice(0, 8);
@@ -122,7 +130,7 @@ function normalizeTrackedSymbols(symbols: string[] | null | undefined): string[]
 function normalizeAllSymbols(symbols: string[] | null | undefined): string[] {
   if (!Array.isArray(symbols)) return [];
   return symbols
-    .map((symbol) => String(symbol || "").trim().toUpperCase())
+    .map((symbol) => normalizeMarketSymbol(symbol))
     .filter(Boolean)
     .filter((symbol, index, arr) => arr.indexOf(symbol) === index);
 }
@@ -384,7 +392,7 @@ function deriveSignalSupportingItems(
   const directItems = Array.isArray(signal?.supporting_items)
     ? signal.supporting_items
         .map((item) => ({
-          symbol: String(item?.symbol || "").trim().toUpperCase(),
+          symbol: normalizeMarketSymbol(item?.symbol),
           company_name: String(item?.company_name || "").trim() || undefined,
         }))
         .filter((item) => item.symbol)
@@ -459,7 +467,7 @@ function signalDetailGroups(
   const pickRowMap = new Map(
     pickRows
       .map((row) => {
-        const symbol = String(row.symbol || "").trim().toUpperCase();
+        const symbol = normalizeMarketSymbol(row.symbol);
         if (!symbol) return null;
         return [
           symbol,
@@ -478,12 +486,12 @@ function signalDetailGroups(
     const higher = pickRows
       .filter((row) => typeof row.change_pct === "number" && row.change_pct > 0)
       .sort((left, right) => Math.abs(Number(right.change_pct || 0)) - Math.abs(Number(left.change_pct || 0)))
-      .map((row) => String(row.symbol || "").trim().toUpperCase())
+      .map((row) => normalizeMarketSymbol(row.symbol))
       .filter(Boolean);
     const lower = pickRows
       .filter((row) => typeof row.change_pct === "number" && row.change_pct < 0)
       .sort((left, right) => Math.abs(Number(right.change_pct || 0)) - Math.abs(Number(left.change_pct || 0)))
-      .map((row) => String(row.symbol || "").trim().toUpperCase())
+      .map((row) => normalizeMarketSymbol(row.symbol))
       .filter(Boolean);
     return [
       higher.length ? { label: "Higher today", items: toItems(higher) } : null,
@@ -527,7 +535,7 @@ function signalDetailGroups(
         return normalized === dominantRecommendation;
       })
       .sort((left, right) => Math.abs(Number(right.change_pct || 0)) - Math.abs(Number(left.change_pct || 0)))
-      .map((row) => String(row.symbol || "").trim().toUpperCase())
+      .map((row) => normalizeMarketSymbol(row.symbol))
       .filter(Boolean);
     return supporting.length ? [{ label: "Buy leaders", items: toItems(supporting) }] : [];
   }
@@ -773,7 +781,7 @@ function SpotlightFeatureTile({
           openExternalUrl(primaryHref);
           return;
         }
-        assignWindowLocation(primaryHref);
+        requestInternalAppNavigation({ href: primaryHref, scroll: false });
       }}
       className={cn(
         surfaceInteractiveShellClassName,
@@ -1087,23 +1095,23 @@ function toBreadthMetric(
     pickRows
       .filter((row) => typeof row.change_pct === "number" && row.change_pct > 0)
       .sort((left, right) => Math.abs(Number(right.change_pct || 0)) - Math.abs(Number(left.change_pct || 0)))
-      .map((row) => String(row.symbol || "").trim().toUpperCase())
+      .map((row) => normalizeMarketSymbol(row.symbol))
   );
   const lowerToday = normalizeAllSymbols(
     pickRows
       .filter((row) => typeof row.change_pct === "number" && row.change_pct < 0)
       .sort((left, right) => Math.abs(Number(right.change_pct || 0)) - Math.abs(Number(left.change_pct || 0)))
-      .map((row) => String(row.symbol || "").trim().toUpperCase())
+      .map((row) => normalizeMarketSymbol(row.symbol))
   );
   const _topHigher = Array.isArray(movers?.gainers)
     ? movers.gainers
-        .map((row) => String(row?.symbol || "").trim().toUpperCase())
+        .map((row) => normalizeMarketSymbol(row?.symbol))
         .filter(Boolean)
         .slice(0, 3)
     : [];
   const _topLower = Array.isArray(movers?.losers)
     ? movers.losers
-        .map((row) => String(row?.symbol || "").trim().toUpperCase())
+        .map((row) => normalizeMarketSymbol(row?.symbol))
         .filter(Boolean)
         .slice(0, 3)
     : [];
@@ -1722,13 +1730,23 @@ function useKaiMarketHomeController() {
     payload,
     loading: !payload && baselineResource.loading,
     refreshing: baselineResource.refreshing || personalizedResource.refreshing,
-    error: payload
-      ? personalizedResource.error || baselineResource.error
-      : baselineResource.error || personalizedResource.error,
+    error: sanitizeMarketHomeError(
+      payload
+        ? personalizedResource.error || baselineResource.error
+        : baselineResource.error || personalizedResource.error
+    ),
     activePickSource,
     loadInsights,
     handlePickSourceChange,
   };
+}
+
+function sanitizeMarketHomeError(error: string | null): string | null {
+  if (!error) return null;
+  if (/\b404\b/.test(error) || /not ready yet/i.test(error)) {
+    return null;
+  }
+  return sanitizeErrorMessage(error).message;
 }
 
 export function KaiMarketPreviewView() {

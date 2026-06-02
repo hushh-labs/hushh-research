@@ -41,6 +41,40 @@ router = APIRouter(prefix="/api/consent", tags=["Consent Management"])
 # NOTE: Export data is now persisted to database via ConsentDBService.store_consent_export()
 # The in-memory dict is kept as a fast cache but database is the source of truth
 _consent_exports: Dict[str, Dict] = {}
+
+# Consent tokens are valid for 24 hours.  Keep cache entries for the token
+# lifetime plus a one-hour grace period, then drop them.  Without this bound,
+# tokens that expire naturally (without explicit revocation) leave stale blobs
+# in the process heap indefinitely.
+_CONSENT_EXPORT_TTL_MS: int = 25 * 60 * 60 * 1000  # 24 h token lifetime + 1 h grace
+
+
+def _evict_stale_consent_exports() -> int:
+    """Remove entries whose token has certainly expired (created_at older than TTL).
+
+    Caller does NOT need to hold any lock — dict mutation in CPython is protected
+    by the GIL for single operations, and this sweep is only triggered from
+    request-handling coroutines (one event-loop thread).
+
+    Returns the number of entries evicted.
+    """
+    now_ms = int(time.time() * 1000)
+    stale = [
+        k
+        for k, v in _consent_exports.items()
+        if now_ms - int(v.get("created_at") or 0) >= _CONSENT_EXPORT_TTL_MS
+    ]
+    for k in stale:
+        del _consent_exports[k]
+    if stale:
+        logger.debug(
+            "consent_exports.ttl_eviction evicted=%s remaining=%s",
+            len(stale),
+            len(_consent_exports),
+        )
+    return len(stale)
+
+
 _UUID_LIKE_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
     re.IGNORECASE,
@@ -286,7 +320,7 @@ class RefreshExportFailureRequest(BaseModel):
 
 @router.get("/pending")
 async def get_pending_consents(
-    userId: str,
+    userId: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -321,7 +355,7 @@ async def get_pending_consents(
 
 @router.get("/pending/lookup")
 async def lookup_pending_consents(
-    userId: str,
+    userId: str = Query(..., max_length=128),
     request_id: list[str] | None = Query(default=None),
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -411,7 +445,10 @@ class ConsentApprovalPayload(BaseModel):
     Integrated by Abdul Gaffar — canonical field-level validation logic.
     """
 
-    model_config = ConfigDict(extra="allow")
+    # Reject unknown fields with HTTP 422 rather than silently storing them.
+    # extra="allow" let callers inject arbitrary keys into __pydantic_extra__,
+    # which propagated to downstream DB writes and log entries (CWE-915 / DoS).
+    model_config = ConfigDict(extra="forbid")
 
     version: int = Field(default=1, ge=1, le=2)
 
@@ -436,6 +473,7 @@ class ConsentApprovalPayload(BaseModel):
     wrappedKeyIv: str | None = Field(default=None, max_length=512)
     wrappedKeyTag: str | None = Field(default=None, max_length=512)
     senderPublicKey: str | None = Field(default=None, max_length=4096)
+    connectorPublicKey: str | None = Field(default=None, max_length=8192)
     wrappingAlg: str | None = Field(default=None, max_length=64)
     connectorKeyId: str | None = Field(default=None, max_length=256)
     durationHours: int | None = Field(default=None, ge=1, le=8760)
@@ -749,7 +787,8 @@ async def approve_consent(
         if not stored:
             raise HTTPException(status_code=500, detail="Failed to store encrypted consent export")
 
-        # Also cache in memory for fast access
+        # Also cache in memory for fast access; sweep stale entries first.
+        _evict_stale_consent_exports()
         _consent_exports[token.token] = {
             "encrypted_data": payload_data,
             "iv": payload_iv,
@@ -855,8 +894,8 @@ async def approve_consent(
 
 @router.post("/pending/deny")
 async def deny_consent(
-    userId: str,
     requestId: str,
+    userId: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -1042,7 +1081,7 @@ async def create_generic_consent_request(
 
 @router.get("/handshake/history")
 async def get_handshake_history(
-    counterpart_id: str = Query(..., min_length=1),
+    counterpart_id: str = Query(..., min_length=1, max_length=128),
     actor: str = Query(default="investor"),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=50, ge=1, le=200),
@@ -1345,28 +1384,34 @@ async def get_consent_export_data(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Try in-memory cache first (fast path)
+    # Try in-memory cache first (fast path); skip entries whose token has expired.
+    now_ms = int(time.time() * 1000)
     if consent_token in _consent_exports:
         export_data = _consent_exports[consent_token]
-        if not export_data.get("wrapped_key_bundle"):
+        entry_age_ms = now_ms - int(export_data.get("created_at") or 0)
+        if entry_age_ms >= _CONSENT_EXPORT_TTL_MS:
+            # Token has certainly expired — drop the stale cache entry and fall
+            # through to the DB path (which will return 404 for expired tokens).
+            del _consent_exports[consent_token]
+            logger.debug("consent_exports.lazy_evict token expired from cache")
+        elif not export_data.get("wrapped_key_bundle"):
             raise HTTPException(
                 status_code=410,
                 detail="Legacy plaintext export format is no longer supported. Request consent again.",
             )
-        logger.info(
-            f"✅ Returning encrypted export from cache for scope: {export_data.get('scope')}"
-        )
-        return {
-            "status": "success",
-            "encrypted_data": export_data["encrypted_data"],
-            "iv": export_data["iv"],
-            "tag": export_data["tag"],
-            "wrapped_key_bundle": export_data.get("wrapped_key_bundle"),
-            "scope": export_data["scope"],
-            "export_revision": export_data.get("export_revision", 1),
-            "export_generated_at": export_data.get("export_generated_at"),
-            "export_refresh_status": export_data.get("refresh_status", "current"),
-        }
+        else:
+            logger.info("consent.export_served_from_cache scope=%s", export_data.get("scope"))
+            return {
+                "status": "success",
+                "encrypted_data": export_data["encrypted_data"],
+                "iv": export_data["iv"],
+                "tag": export_data["tag"],
+                "wrapped_key_bundle": export_data.get("wrapped_key_bundle"),
+                "scope": export_data["scope"],
+                "export_revision": export_data.get("export_revision", 1),
+                "export_generated_at": export_data.get("export_generated_at"),
+                "export_refresh_status": export_data.get("refresh_status", "current"),
+            }
 
     # Fall back to database (cross-instance consistency)
     service = ConsentDBService()
@@ -1381,7 +1426,8 @@ async def get_consent_export_data(
             detail="Legacy plaintext export format is no longer supported. Request consent again.",
         )
 
-    # Cache for future requests
+    # Cache for future requests; sweep stale entries first.
+    _evict_stale_consent_exports()
     _consent_exports[consent_token] = export_data
 
     logger.info("consent.export_served_from_db")
@@ -1401,7 +1447,7 @@ async def get_consent_export_data(
 
 @router.get("/export-refresh/jobs")
 async def list_export_refresh_jobs(
-    userId: str,
+    userId: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data["user_id"] != userId:
@@ -1517,6 +1563,7 @@ async def upload_refreshed_export(
     if not stored:
         raise HTTPException(status_code=500, detail="Failed to store refreshed encrypted export")
 
+    _evict_stale_consent_exports()
     _consent_exports[request.consentToken] = {
         "encrypted_data": request.encryptedData,
         "iv": request.encryptedIv,

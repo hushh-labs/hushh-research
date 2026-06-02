@@ -82,7 +82,9 @@ Non-owned surfaces:
 12. After the cold `/login` boot, Playwright analytics smoke must use Next client navigation for protected route transitions so the in-memory vault key is preserved.
 13. Web observability must push `dataLayer` for GTM compatibility and send direct GA4 `gtag` events to the configured measurement ID; do not let GTM trigger drift be the only path for governed KPI events.
 14. UAT smoke must verify direct GA4 collect handoff for required web events in addition to client-side `dataLayer` capture.
-15. Spawn subagents only for independent, bounded, non-blocking lanes such as read-only route coverage audits, docs/skill updates, or disjoint verification automation patches; keep the immediate critical-path task local.
+15. Cache and route performance KPIs must be metadata-only: route ID, resource class, cache tier, freshness, result, duration bucket, and footprint bucket are allowed; user IDs, emails, workflow IDs, raw cache keys, PKM payloads, prompts, portfolio values, and decrypted values are not.
+16. Treat UAT as event-shape and transport validation for performance KPIs; production is the source for real user conclusions such as warm-cache time to usable UI, stale-render rate, blocking-loader rate, and refresh error rate.
+17. Spawn subagents only for independent, bounded, non-blocking lanes such as read-only route coverage audits, docs/skill updates, or disjoint verification automation patches; keep the immediate critical-path task local.
 
 ## Handoff Rules
 

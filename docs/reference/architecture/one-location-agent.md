@@ -2,7 +2,7 @@
 
 Status: v1 implementation contract
 Owner: One + IAM/consent governance
-Last updated: 2026-05-21
+Last updated: 2026-05-22
 
 ## Visual Map
 
@@ -143,6 +143,18 @@ Location notifications are best-effort and metadata-only. Payloads may include
 safe ids, actor ids, action type, expiry/countdown metadata, and `/one/location`
 navigation. They must not include coordinates, addresses, map previews,
 freshness trails, ciphertext, token values, or debug terminology.
+
+## Retention Contract
+
+Expired or revoked One Location work is short-lived. Terminal grants, their
+ciphertext envelopes, terminal access requests, referrals, and related
+metadata-only events are retained for at most 12 hours after expiry or
+revocation, then purged from the database. The runtime runs opportunistic
+cleanup during state/read flows, and hosted environments may call
+`POST /api/one/location/retention/purge?older_than_hours=12` with
+`X-Hushh-Maintenance-Token` backed by the dedicated
+`ONE_LOCATION_RETENTION_TOKEN` for scheduled cleanup. Public request-link
+invites and submissions follow the same terminal-state retention boundary.
 
 ## Native Contract
 

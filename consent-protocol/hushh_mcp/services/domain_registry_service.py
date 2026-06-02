@@ -4,6 +4,14 @@ Domain Registry Service - Dynamic domain discovery and management.
 
 This service manages the domain_registry table which tracks all domains
 dynamically without hardcoded enums. Domains are auto-registered on first use.
+
+Attach points:
+- DomainRegistryService.auto_register_domain
+- DomainRegistryService.get_domain
+- DomainRegistryService.list_domains
+- DomainRegistryService.get_user_domains
+- DomainRegistryService.update_domain
+- DomainRegistryService.delete_domain
 """
 
 import logging
@@ -342,7 +350,11 @@ class DomainRegistryService:
                 self._cache_time = datetime.utcnow()
                 return domain_info
         except Exception as e:
-            logger.warning(f"RPC auto_register_domain failed, falling back to direct insert: {e}")
+            logger.warning(
+                "domain_registry.auto_register.rpc_failed domain=%s, falling back: %s",
+                domain_key,
+                e,
+            )
 
         # Fallback: Direct upsert
         try:
@@ -372,7 +384,7 @@ class DomainRegistryService:
                 self._cache_time = datetime.utcnow()
                 return domain_info
         except Exception as e:
-            logger.error(f"Error registering domain {domain_key}: {e}")
+            logger.error("domain_registry.auto_register.error domain=%s: %s", domain_key, e)
 
         # Return minimal info if all else fails
         return DomainInfo(
@@ -405,7 +417,7 @@ class DomainRegistryService:
             self._cache[domain_key] = domain_info
             return domain_info
         except Exception as e:
-            logger.error(f"Error getting domain {domain_key}: {e}")
+            logger.error("domain_registry.get_domain.error domain=%s: %s", domain_key, e)
             return None
 
     async def list_domains(self, include_empty: bool = False) -> list[DomainInfo]:
@@ -432,7 +444,7 @@ class DomainRegistryService:
 
             return domains
         except Exception as e:
-            logger.error(f"Error listing domains: {e}")
+            logger.error("domain_registry.list_domains.error: %s", e)
             return []
 
     async def get_user_domains(self, user_id: str) -> list[DomainInfo]:
@@ -469,7 +481,7 @@ class DomainRegistryService:
                     domains.append(domain_info)
             return sorted(domains, key=lambda d: d.display_name)
         except Exception as e:
-            logger.error(f"Error getting user domains for {user_id}: {e}")
+            logger.error("domain_registry.get_user_domains.error user_id=%s: %s", user_id, e)
             return []
 
     async def update_domain(
@@ -503,7 +515,7 @@ class DomainRegistryService:
             self._invalidate_cache()
             return True
         except Exception as e:
-            logger.error(f"Error updating domain {domain_key}: {e}")
+            logger.error("domain_registry.update_domain.error domain=%s: %s", domain_key, e)
             return False
 
     async def delete_domain(self, domain_key: str) -> bool:
@@ -519,7 +531,7 @@ class DomainRegistryService:
             self._invalidate_cache()
             return True
         except Exception as e:
-            logger.error(f"Error deleting domain {domain_key}: {e}")
+            logger.error("domain_registry.delete_domain.error domain=%s: %s", domain_key, e)
             return False
 
     def _row_to_domain_info(self, row: dict) -> DomainInfo:

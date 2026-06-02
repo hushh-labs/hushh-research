@@ -1,25 +1,19 @@
 ---
-name: 💡 Feature or Operon Request
-about: Suggest a new idea or a new Modular Operon
-title: "[FEAT] "
+name: Feature Request
+about: Suggest an improvement or new feature
+title: "[Feature]: "
 labels: enhancement
-assignees: ""
+assignees: ''
 ---
 
-**Is your feature request related to a problem? Please describe.**
-A clear and concise description of what the problem is. Ex. I'm always frustrated when...
+## Summary
+Describe the feature request.
 
-**Describe the solution you'd like**
-A clear and concise description of what you want to happen.
-_If proposing an Operon, describe the inputs, outputs, and privacy scope._
+## Problem Statement
+What problem does this solve?
 
-**Describe alternatives you've considered**
-A clear and concise description of any alternative solutions or features you've considered.
+## Proposed Solution
+Describe your proposed approach.
 
-**Tri-Flow Impact**
-
-- Does this require Native (iOS/Android) access? [Yes/No]
-- Can this be built as a pure Python Operon? [Yes/No]
-
-**Additional context**
-Add any other context or screenshots about the feature request here.
+## Additional Context
+Add references or screenshots if applicable.
