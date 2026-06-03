@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import limiter
+from api.routes._schema_not_ready import IAM_SCHEMA_NOT_READY_BODY, iam_schema_not_ready_response
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
@@ -30,7 +31,7 @@ async def _require_ria_verified(
     try:
         await service.require_ria_verified(firebase_uid)
     except IAMSchemaNotReadyError as exc:
-        raise HTTPException(status_code=503, detail="Verification service unavailable") from exc
+        raise HTTPException(status_code=503, detail=IAM_SCHEMA_NOT_READY_BODY) from exc
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return firebase_uid
@@ -194,16 +195,6 @@ class RIAClientDetailResponse(BaseModel):
     pkm_updated_at: str | None = None
 
 
-def _iam_schema_not_ready_response() -> JSONResponse:
-    return JSONResponse(
-        status_code=503,
-        content={
-            "error": "RIA verification service is temporarily unavailable",
-            "code": "IAM_SCHEMA_NOT_READY",
-        },
-    )
-
-
 @router.post("/onboarding/submit")
 async def submit_onboarding(
     payload: RIAOnboardingSubmitRequest,
@@ -244,7 +235,7 @@ async def submit_onboarding(
             business_longitude=payload.business_longitude,
         )
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -282,7 +273,7 @@ async def verify_onboarding_license(
             force_live_verification=payload.force_live_verification,
         )
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -293,7 +284,7 @@ async def onboarding_status(firebase_uid: str = Depends(require_firebase_auth)):
     try:
         return await service.get_ria_onboarding_status(firebase_uid)
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
 
 
 @router.post("/profile/refresh-license")
@@ -313,7 +304,7 @@ async def refresh_profile_license(
             force_live_verification=payload.force_live_verification,
         )
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         if exc.status_code == 409:
             return JSONResponse(
@@ -333,7 +324,7 @@ async def ria_home(firebase_uid: str = Depends(require_firebase_auth)):
     try:
         return await service.get_ria_home(firebase_uid)
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
 
 
 @router.get("/firms")
@@ -342,7 +333,7 @@ async def ria_firms(firebase_uid: str = Depends(require_firebase_auth)):
     try:
         return {"items": await service.list_ria_firms(firebase_uid)}
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
 
 
 @router.get("/clients")
@@ -366,7 +357,7 @@ async def ria_clients(
             params["limit"] = limit
         return await service.list_ria_clients(firebase_uid, **params)
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
 
 
 @router.get("/clients/{investor_user_id}", response_model=RIAClientDetailResponse)
@@ -378,7 +369,7 @@ async def ria_client_detail(
     try:
         return await service.get_ria_client_detail(firebase_uid, investor_user_id)
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -389,7 +380,7 @@ async def ria_requests(firebase_uid: str = Depends(require_firebase_auth)):
     try:
         return {"items": await service.list_outgoing_requests(firebase_uid)}
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
 
 
 @router.get("/request-bundles")
@@ -398,7 +389,7 @@ async def ria_request_bundles(firebase_uid: str = Depends(require_firebase_auth)
     try:
         return {"items": await service.list_ria_request_bundles(firebase_uid)}
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
 
 
 @router.get("/request-scopes")
@@ -407,7 +398,7 @@ async def ria_request_scopes(firebase_uid: str = Depends(require_firebase_auth))
     try:
         return {"items": await service.list_requestable_scope_templates(firebase_uid)}
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -418,7 +409,7 @@ async def ria_invites(firebase_uid: str = Depends(require_firebase_auth)):
     try:
         return {"items": await service.list_ria_invites(firebase_uid)}
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
 
 
 @router.post("/invites")
@@ -438,7 +429,7 @@ async def create_ria_invites(
             targets=[target.model_dump() for target in payload.targets],
         )
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -457,7 +448,7 @@ async def update_ria_marketplace_discoverability(
             strategy_summary=payload.strategy_summary,
         )
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -482,7 +473,7 @@ async def create_ria_request(
             reason=payload.reason,
         )
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -504,7 +495,7 @@ async def create_ria_request_bundle(
             reason=payload.reason,
         )
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -579,7 +570,7 @@ async def ria_pick_uploads(firebase_uid: str = Depends(require_firebase_auth)):
     try:
         return await service.get_active_ria_pick_package(firebase_uid)
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -603,7 +594,7 @@ async def parse_ria_picks_csv(
             )
         }
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -627,7 +618,7 @@ async def upload_ria_picks(
             retire_legacy=payload.retire_legacy,
         )
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -641,7 +632,7 @@ async def ria_workspace(
     try:
         return await service.get_ria_workspace(firebase_uid, investor_user_id)
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -660,6 +651,6 @@ async def set_ria_client_picks_share(
             enabled=payload.enabled,
         )
     except IAMSchemaNotReadyError:
-        return _iam_schema_not_ready_response()
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

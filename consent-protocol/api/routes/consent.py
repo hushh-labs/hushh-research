@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.routes._schema_not_ready import iam_schema_not_ready_response
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
@@ -1057,8 +1058,8 @@ async def create_generic_consent_request(
         service = RIAIAMService()
         try:
             await service.require_ria_verified(firebase_uid)
-        except IAMSchemaNotReadyError as exc:
-            raise HTTPException(status_code=503, detail="Verification service unavailable") from exc
+        except IAMSchemaNotReadyError:
+            return iam_schema_not_ready_response()
         except RIAIAMPolicyError as exc:
             raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -1075,6 +1076,8 @@ async def create_generic_consent_request(
             firm_id=payload.firm_id,
             reason=payload.reason,
         )
+    except IAMSchemaNotReadyError:
+        return iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
