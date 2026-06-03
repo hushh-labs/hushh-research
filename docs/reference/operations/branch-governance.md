@@ -6,34 +6,38 @@
 ```mermaid
 flowchart LR
   feature["feature / fix / dev branches"]
+  train["integration/pr-train"]
   main["main"]
   green["Green main SHA"]
   uat["UAT deploy<br/>manual exact SHA"]
   prod["Production deploy<br/>manual chosen SHA"]
-  feature --> main --> green
+  feature --> train --> main --> green
   green --> uat
   green --> prod
 ```
 
-This repo now runs on one integration branch plus SHA-based environment deployment:
+This repo now runs on a dedicated PR-train branch, a protected promotion branch, and SHA-based environment deployment:
 
 | Lane | Purpose | Default policy |
 |---|---|---|
-| `main` | Team integration branch | Every feature PR targets `main` |
+| `integration/pr-train` | Normal PR intake and async train landing | Every feature/fix/docs PR targets `integration/pr-train` |
+| `main` | Promotion branch for deployable history | Only `integration/pr-train` may open normal promotion PRs into `main` |
 | UAT | Hosted validation environment | Manual deploy of an exact green `main` SHA |
 | Production | Live user traffic | Manual deploy of an approved green `main` SHA |
 
 ## Working Rules
 
-1. Start all development branches from `main`.
-2. Merge all feature/fix/docs work back into `main`.
-3. Continue follow-up fixes on the active development branch by default; do not create extra temporary branches for routine polish, validation follow-up, or same-lane fixes.
-4. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
-5. After an isolated hotfix lands, return local work to the normal development branch or `main` and delete the temporary branch after rollout validation.
-6. Do not use `deploy_uat` or `deploy` as release branches; they are retired from the deployment path.
-7. UAT deploys only from a successful `Main Post-Merge Smoke` run on `main` and uses an explicitly chosen exact green commit SHA.
-8. Production deploys only from a manually chosen SHA that is reachable from `origin/main` and already green in CI.
-9. Do not open release PRs into environment branches; the deployment source of truth is `main`.
+1. Start all development branches from the current `integration/pr-train` unless an isolated `main` hotfix is explicitly required.
+2. Merge all normal feature/fix/docs work into `integration/pr-train`.
+3. Promote `integration/pr-train` into `main` through a PR after the train is green and ancestry-clean.
+4. Do not open direct feature, contributor, or agent PRs into `main`; CI blocks them unless the head branch is `integration/pr-train`.
+5. Continue follow-up fixes on the active development branch by default; do not create extra temporary branches for routine polish, validation follow-up, or same-lane fixes.
+6. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
+7. After an isolated hotfix lands, return local work to the normal development branch or `integration/pr-train` and delete the temporary branch after rollout validation.
+8. Do not use `deploy_uat` or `deploy` as release branches; they are retired from the deployment path.
+9. UAT deploys only from a successful `Main Post-Merge Smoke` run on `main` and uses an explicitly chosen exact green commit SHA.
+10. Production deploys only from a manually chosen SHA that is reachable from `origin/main` and already green in CI.
+11. Do not open release PRs into environment branches; the deployment source of truth is `main`.
 
 ## Codex Branch Preservation Gate
 
@@ -44,15 +48,17 @@ Coding agents must run this gate before CI, deploy, PR, hotfix, or validation wo
 3. Do not create temporary branches for routine follow-up work, UAT validation fixes, PR polish, or local hardening.
 4. Use a temporary branch only when branch isolation is explicitly requested, an isolated `main` hotfix is required, or unrelated in-flight work makes the preserved branch unsafe for the fix.
 5. If a temporary branch is used, delete it locally and remotely after merge and rollout validation when safe, then switch back to the preserved developer branch.
-6. If a fix lands on `main`, merge or rebase the landed `origin/main` commits into the preserved developer branch before handoff.
-7. Do not end a task detached, on `main`, or on a temporary branch unless the user explicitly requested that final state or a concrete conflict blocks restoration.
+6. If a normal fix lands on `integration/pr-train`, merge or rebase the landed train commits into the preserved developer branch before handoff.
+7. If an emergency hotfix lands on `main`, merge or rebase the landed `origin/main` commits into `integration/pr-train` and the preserved developer branch before handoff.
+8. Do not end a task detached, on `main`, or on a temporary branch unless the user explicitly requested that final state or a concrete conflict blocks restoration.
 
 ## Branch Types and Retention
 
 | Branch type | Naming pattern | Retention |
 |---|---|---|
 | Developer branch | `feature/*`, `feat/*`, `agent_*`, developer-owned names | Keep while active |
-| Hotfix branch | `fix/*` | Delete after merge to `main` and successful UAT validation |
+| PR train branch | `integration/pr-train` | Durable protected intake branch |
+| Hotfix branch | `fix/*` | Delete after merge to `main`, sync back to `integration/pr-train`, and successful UAT validation |
 | Deployment artifact | exact green `main` SHA | Keep in Git history and deployment logs |
 | Local backup branch | `backup/*`, `publishable/*` | Audit unique commits, salvage if needed, then delete |
 
@@ -60,7 +66,7 @@ Before deleting a local backup branch, classify its unique commits as:
 
 1. already represented in `main`
 2. obsolete and safe to drop
-3. still valuable and worth promoting onto a fresh salvage branch from current `main`
+3. still valuable and worth promoting onto a fresh salvage branch from current `integration/pr-train`
 
 ## Deployment Lanes
 
@@ -90,13 +96,26 @@ Before deleting a local backup branch, classify its unique commits as:
 1. Preserve the active developer branch before switching away.
 2. Create the hotfix branch from the latest `main` only when an isolated hotfix is materially required.
 3. Merge the hotfix into `main`.
-4. If hosted validation is required, manually deploy that same green `main` SHA to UAT.
-5. Delete the hotfix branch locally and remotely after merge and rollout validation when safe.
-6. Switch back to the preserved developer branch and merge or rebase the landed `origin/main` commits into it.
-7. If another blocker appears after that rollout, create a new hotfix branch from the updated `main` only when the same isolation criteria still applies.
-8. Do not reuse an already-merged hotfix branch for a second fix.
+4. Immediately sync the landed hotfix back into `integration/pr-train` so the train branch does not drift behind the promotion branch.
+5. If hosted validation is required, manually deploy that same green `main` SHA to UAT.
+6. Delete the hotfix branch locally and remotely after merge and rollout validation when safe.
+7. Switch back to the preserved developer branch and merge or rebase the landed train/main commits into it.
+8. If another blocker appears after that rollout, create a new hotfix branch from the updated `main` only when the same isolation criteria still applies.
+9. Do not reuse an already-merged hotfix branch for a second fix.
 
 ## GitHub Admin Checklist
+
+### `integration/pr-train`
+
+1. Require pull requests before merge.
+2. Require the `CI Status Gate` status check.
+3. Require strict/up-to-date checks.
+4. Require conversation resolution before merge.
+5. Enable merge queue for `integration/pr-train`.
+6. Block force-pushes.
+7. Block branch deletion.
+8. Require at least 1 independent PR approval and approval of the most recent push.
+9. Use this branch as the only normal PR landing branch.
 
 ### `main`
 
@@ -109,23 +128,23 @@ Before deleting a local backup branch, classify its unique commits as:
 7. Block branch deletion.
 8. Require at least 1 independent PR approval on `main`; CI status plus merge queue remain required merge gates.
 9. Use review bypass plus the dedicated `Allowed Maintainers to Approve` team for the sanctioned maintainer bypass cohort only; do not rely on overlapping push restrictions.
-10. Keep ordinary development off `main`; use PRs from developer branches.
+10. Keep ordinary development off `main`; only promote from `integration/pr-train` except explicit emergency hotfixes.
 
 Current operating note:
 
 - `enforce_admins` should stay enabled
 - DCO is enforced in CI, not via a separate GitHub branch-protection primitive
 - verify the live setting with `../../../scripts/ci/verify-main-branch-protection.sh`
-- `main` requires 1 independent approval; the external community goes through PR + CI + review + queue
+- `integration/pr-train` and `main` both require 1 independent approval; the external community goes through PR + CI + review + queue on `integration/pr-train`
 - admin ownership does not count as an independent PR approval
 - require approval of the most recent push is enabled, so stale approvals cannot carry newly pushed code
 - a PR author cannot self-approve through GitHub; sanctioned maintainer "self approval" means explicit branch-protection bypass, not a counted GitHub review
-- the current live `main` branch protection review-bypass allowlist is `kushaltrivedi5`, `RGlodAkshat`, and `ankitkumarsingh1702`
-- the current live merge-queue bypass team is `Allowed Maintainers to Approve`, containing those same 3 users only
+- the current live branch protection review-bypass allowlist is `kushaltrivedi5`, `RGlodAkshat`, `ankitkumarsingh1702`, and `azfx`
+- the current live merge-queue bypass team is `Allowed Maintainers to Approve`, containing those same 4 users only
 - the sanctioned review-bypass cohort is intentional policy and should not be reported as governance drift when it matches `config/ci-governance.json`
 - if an admin needs to proceed on a green PR, verify whether the live ruleset allows queue entry; do not assume approval is implicitly satisfied
 - bypass actors may waive review through branch protection and bypass queue through the dedicated owner team path
-- direct pushes to `main` are not the default bypass model; the preferred path is a green PR plus bypass merge
+- direct pushes to `main` are not the default bypass model; the preferred path is a green `integration/pr-train` promotion PR plus bypass merge when justified
 - CI should still gate the landing decision; bypass is for review policy, not for skipping validation
 
 ### Retired release branches

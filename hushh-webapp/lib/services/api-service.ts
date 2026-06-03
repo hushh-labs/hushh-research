@@ -2721,6 +2721,15 @@ export class ApiService {
               const raw =
                 error instanceof Error ? String(error.message || "") : String(error || "");
               if (
+                /native import stream ended without terminal event|stream ended without terminal event/i.test(
+                  raw
+                )
+              ) {
+                return new Error(
+                  "We could not finish importing this statement. Please retry."
+                );
+              }
+              if (
                 /network connection was lost|stream error|failed to fetch|network error/i.test(
                   raw
                 )
@@ -3037,7 +3046,9 @@ export class ApiService {
               });
 
               if (!sawTerminalEvent) {
-                const error = new Error("Native import stream ended without terminal event");
+                const error = new Error(
+                  "We could not finish importing this statement. Please retry."
+                );
                 updateNativePortfolioImportDebug({
                   portfolioStreamState: "missing_terminal",
                   portfolioStreamLastError: error.message,
