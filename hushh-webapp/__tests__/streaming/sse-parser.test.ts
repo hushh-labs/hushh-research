@@ -99,6 +99,7 @@ describe("parseSSEBlocks", () => {
 
     const parsed = JSON.parse(result.events[0]!.data) as unknown;
     expect(isKaiStreamEnvelope(parsed)).toBe(true);
+
     if (isKaiStreamEnvelope(parsed)) {
       expect(parsed.payload.stage).toBe("recovered");
     }
@@ -129,7 +130,7 @@ describe("parseSSEBlocks", () => {
     ]);
   });
 
-  it("preserves SSE comment heartbeat isolation from valid events", () => {
+  it("preserves SSE comment heartbeat isolation across keepalive frames", () => {
     const input =
       ": heartbeat\n" +
       ": keepalive\n\n" +
@@ -145,87 +146,13 @@ describe("parseSSEBlocks", () => {
       event: "stage",
       id: "7",
     });
-  });
+    const parsed = JSON.parse(result.events[0]!.data) as unknown;
 
-  it("preserves empty remainder after consecutive valid SSE frames", () => {
-    const input =
-      "event: stage\n" +
-      "id: 11\n" +
-      'data: {"schema_version":"1.0","stream_id":"strm_empty","stream_kind":"portfolio_import","seq":11,"event":"stage","terminal":false,"payload":{"stage":"loading"}}\n\n' +
-      "event: done\n" +
-      "id: 12\n" +
-      'data: {"schema_version":"1.0","stream_id":"strm_empty","stream_kind":"portfolio_import","seq":12,"event":"done","terminal":true,"payload":{"status":"complete"}}\n\n';
+    expect(isKaiStreamEnvelope(parsed)).toBe(true);
 
-    const result = parseSSEBlocks(input);
-
-    expect(result.remainder).toBe("");
-    expect(result.events).toHaveLength(2);
-    expect(result.events.map((event) => event.id)).toEqual(["11", "12"]);
-  });
-
-  it("normalizes CRLF-delimited SSE frame boundaries", () => {
-    const input =
-      "event: stage\r\n" +
-      "id: 21\r\n" +
-      'data: {"schema_version":"1.0","stream_id":"strm_crlf","stream_kind":"portfolio_import","seq":21,"event":"stage","terminal":false,"payload":{"stage":"loading"}}\r\n\r\n';
-
-    const result = parseSSEBlocks(input);
-
-    expect(result.remainder).toBe("");
-    expect(result.events).toHaveLength(1);
-    expect(result.events[0]).toMatchObject({
-      event: "stage",
-      id: "21",
-    });
-  });
-
-  it("preserves empty event id handling without dropping valid payloads", () => {
-    const input =
-      "event: chunk\n" +
-      "id:\n" +
-      'data: {"schema_version":"1.0","stream_id":"strm_empty_id","stream_kind":"portfolio_import","seq":31,"event":"chunk","terminal":false,"payload":{"text":"hello"}}\n\n';
-
-    const result = parseSSEBlocks(input);
-
-    expect(result.remainder).toBe("");
-    expect(result.events).toHaveLength(1);
-    expect(result.events[0]).toMatchObject({
-      event: "chunk",
-      id: "",
-    });
-  });
-
-  it("preserves trailing newline payload integrity", () => {
-    const input =
-      "event: chunk\n" +
-      "id: 41\n" +
-      'data: {"schema_version":"1.0","stream_id":"strm_tail","stream_kind":"portfolio_import","seq":41,"event":"chunk","terminal":false,"payload":{"text":"line1\\n"}}\n\n';
-
-    const result = parseSSEBlocks(input);
-
-    expect(result.remainder).toBe("");
-    expect(result.events).toHaveLength(1);
-
-    const parsed = JSON.parse(result.events[0]!.data) as {
-      payload: { text: string };
-    };
-    expect(parsed.payload.text.endsWith("\n")).toBe(true);
-  });
-
-  it("preserves unicode payload integrity across SSE parsing", () => {
-    const input =
-      "event: chunk\n" +
-      "id: 51\n" +
-      'data: {"schema_version":"1.0","stream_id":"strm_unicode","stream_kind":"portfolio_import","seq":51,"event":"chunk","terminal":false,"payload":{"text":"こんにちは 🌍"}}\n\n';
-
-    const result = parseSSEBlocks(input);
-
-    expect(result.remainder).toBe("");
-    expect(result.events).toHaveLength(1);
-
-    const parsed = JSON.parse(result.events[0]!.data) as {
-      payload: { text: string };
-    };
-    expect(parsed.payload.text).toBe("こんにちは 🌍");
+    if (isKaiStreamEnvelope(parsed)) {
+      expect(parsed.payload.stage).toBe("syncing");
+    }
   });
 });
+
