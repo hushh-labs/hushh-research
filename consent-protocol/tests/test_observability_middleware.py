@@ -1,3 +1,6 @@
+import json
+import logging
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -31,7 +34,7 @@ def _build_app() -> FastAPI:
 
     @app.get("/boom")
     async def boom_route():
-        raise RuntimeError("boom")
+        raise RuntimeError("SENTINEL_INTERNAL_EXCEPTION_DETAIL_/srv/db/password")
 
     return app
 
@@ -105,6 +108,33 @@ def test_unhandled_exception_returns_request_id_header():
     assert response.status_code == 500
     assert response.headers.get(REQUEST_ID_HEADER)
     assert response.headers.get(TRACE_ID_HEADER)
+
+
+def test_unhandled_exception_trace_log_omits_internal_detail(caplog):
+    client = TestClient(_build_app())
+
+    with caplog.at_level(logging.ERROR, logger="api.middlewares.observability"):
+        response = client.get("/boom")
+
+    assert response.status_code == 500
+    assert "SENTINEL_INTERNAL_EXCEPTION_DETAIL" not in caplog.text
+    assert "Traceback" not in caplog.text
+
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "api.middlewares.observability"
+        and '"message":"request.summary"' in record.message
+    ]
+    assert len(records) == 1
+    assert records[0].exc_info is None
+
+    payload = json.loads(records[0].message)
+    assert payload["message"] == "request.summary"
+    assert payload["status_code"] == 500
+    assert payload["outcome_class"] == "server_error"
+    assert "exception" not in payload
+    assert "error" not in payload
 
 
 def test_expected_status_bucket_classification():
