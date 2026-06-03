@@ -2,7 +2,7 @@ name: "Queue Validation"
 
 on:
   merge_group:
-    branches: [main]
+    branches: [main, integration/pr-train]
 
 permissions:
   contents: read
@@ -39,10 +39,14 @@ jobs:
         id: scan-range
         shell: bash
         run: |
-          DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
-          git fetch origin "$DEFAULT_BRANCH" --quiet || true
-          if git rev-parse "origin/$DEFAULT_BRANCH" >/dev/null 2>&1; then
-            LOG_OPTS="--ancestry-path origin/$DEFAULT_BRANCH..${{ github.sha }}"
+          BASE_REF="${{ github.event.merge_group.base_ref }}"
+          BASE_REF="${BASE_REF#refs/heads/}"
+          if [ -z "$BASE_REF" ]; then
+            BASE_REF="${{ github.event.repository.default_branch }}"
+          fi
+          git fetch origin "$BASE_REF" --quiet || true
+          if git rev-parse "origin/$BASE_REF" >/dev/null 2>&1; then
+            LOG_OPTS="--ancestry-path origin/$BASE_REF..${{ github.sha }}"
           else
             LOG_OPTS="${{ github.sha }}"
           fi
@@ -180,7 +184,7 @@ jobs:
         run: bash scripts/ci/subtree-sync-check.sh
 
   main-freshness-gate:
-    name: "Main Freshness Gate"
+    name: "Base Freshness Gate"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -189,13 +193,18 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.sha }}
 
-      - name: Verify queue freshness against origin/main
+      - name: Verify queue freshness against merge-group base
         env:
           MAIN_SYNC_REMOTE: origin
-          MAIN_SYNC_BRANCH: main
           MAIN_SYNC_MODE: block
           MAIN_SYNC_CURRENT_BRANCH: ${{ github.ref_name }}
-        run: sh scripts/git/check-main-sync.sh
+          QUEUE_BASE_REF: ${{ github.event.merge_group.base_ref }}
+        run: |
+          base="${QUEUE_BASE_REF#refs/heads/}"
+          if [ -z "$base" ]; then
+            base="main"
+          fi
+          MAIN_SYNC_BRANCH="$base" sh scripts/git/check-main-sync.sh
 
   ci-status:
     name: "CI Status Gate"
