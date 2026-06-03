@@ -1228,7 +1228,7 @@ export default function PortfolioHealthPage() {
                                     </div>
                                   </div>
                                 )}
-                                <Button size="sm" variant="muted" className="h-8 w-8 p-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Button size="sm" variant="muted" aria-label="More information" title="More information" className="h-8 w-8 p-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity">
                                   <Icon icon={Info} size="xs" />
                                 </Button>
                               </div>
