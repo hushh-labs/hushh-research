@@ -270,6 +270,7 @@ describe("kai-action-gateway", () => {
 
     expect(kycActions.map((action) => action.action_id)).toEqual([
       "route.one_kyc",
+      "kyc.aliases.manage",
       "kyc.workflow.sync_status",
       "kyc.draft.review",
       "kyc.draft.request_redraft",
@@ -348,5 +349,40 @@ describe("kai-action-gateway", () => {
     expect(
       riaResults.find((entry) => entry.action.action_id === "route.ria_home")?.availability.status
     ).toBe("requires_persona_switch");
+  });
+
+  it("orders executable commands before vault-locked unavailable commands", () => {
+    const results = searchKaiActions({
+      query: "profile",
+      appRuntimeState: makeRuntimeState({
+        vault: {
+          unlocked: false,
+          token_available: false,
+          token_valid: false,
+        },
+        route: {
+          pathname: "/profile",
+          screen: "profile_account",
+          subview: null,
+        },
+      }),
+      limit: 40,
+    });
+    const unavailableStatuses = new Set(["blocked", "dead", "manual_only", "unwired"]);
+    const firstUnavailableIndex = results.findIndex((entry) =>
+      unavailableStatuses.has(entry.availability.status)
+    );
+
+    expect(firstUnavailableIndex).toBeGreaterThan(0);
+    expect(
+      results.some(
+        (entry) => entry.availability.reason === "Unlock the vault to use this action."
+      )
+    ).toBe(true);
+    expect(
+      results
+        .slice(firstUnavailableIndex + 1)
+        .some((entry) => !unavailableStatuses.has(entry.availability.status))
+    ).toBe(false);
   });
 });

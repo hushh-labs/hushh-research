@@ -5,7 +5,17 @@ Personal Knowledge Model API routes.
 Canonical API surface for PKM.
 """
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Body,
+    Depends,
+    Header,
+    HTTPException,
+    Path,
+    Query,
+    status,
+)
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
@@ -113,6 +123,7 @@ class PKMAgentLabStructureRequest(BaseModel):
     user_id: str
     message: str = Field(min_length=1, max_length=12000)
     current_domains: list[str] = Field(default_factory=list)
+    current_manifests: list[dict] = Field(default_factory=list)
     simulated_state: dict | None = None
 
 
@@ -158,7 +169,7 @@ async def validate_store_domain(
 
 @router.get("/data/{user_id}", response_model=dict)
 async def get_encrypted_data(
-    user_id: str,
+    user_id: str = Path(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _get_encrypted_data(user_id, token_data)
@@ -166,8 +177,8 @@ async def get_encrypted_data(
 
 @router.get("/domain-data/{user_id}/{domain}", response_model=DomainDataResponse)
 async def get_domain_data(
-    user_id: str,
-    domain: str,
+    user_id: str = Path(..., max_length=128),
+    domain: str = Path(..., max_length=64),
     segment_ids: list[str] | None = Query(default=None),
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -176,8 +187,8 @@ async def get_domain_data(
 
 @router.get("/manifest/{user_id}/{domain}", response_model=DomainManifestResponse)
 async def get_domain_manifest(
-    user_id: str,
-    domain: str,
+    user_id: str = Path(..., max_length=128),
+    domain: str = Path(..., max_length=64),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _get_domain_manifest(user_id, domain, token_data)
@@ -185,8 +196,8 @@ async def get_domain_manifest(
 
 @router.delete("/domain-data/{user_id}/{domain}", response_model=DeleteDomainResponse)
 async def delete_domain_data(
-    user_id: str,
-    domain: str,
+    user_id: str = Path(..., max_length=128),
+    domain: str = Path(..., max_length=64),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _delete_domain_data(user_id, domain, token_data)
@@ -299,6 +310,7 @@ async def preview_pkm_structure(
         user_id=request.user_id,
         message=request.message,
         current_domains=request.current_domains,
+        current_manifests=request.current_manifests,
         simulated_state=request.simulated_state,
     )
     return PKMAgentLabStructureResponse(**payload)

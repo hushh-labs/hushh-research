@@ -32,6 +32,28 @@ describe("deriveVoiceRouteScreen", () => {
     });
   });
 
+  it("maps One KYC to a voice-eligible screen", () => {
+    expect(deriveVoiceRouteScreen("/one/kyc")).toEqual({
+      screen: "one_kyc",
+      subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/one/kyc", "panel=aliases")).toEqual({
+      screen: "one_kyc",
+      subview: "aliases",
+    });
+  });
+
+  it("maps marketplace routes to generated action gateway screens", () => {
+    expect(deriveVoiceRouteScreen("/marketplace")).toEqual({
+      screen: "marketplace",
+      subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/marketplace/ria", "riaId=ria_123")).toEqual({
+      screen: "marketplace_ria_profile",
+      subview: "profile",
+    });
+  });
+
   it("preserves receipts, gmail, support, and investments screen specificity", () => {
     expect(deriveVoiceRouteScreen("/profile/receipts")).toEqual({
       screen: "profile_receipts",

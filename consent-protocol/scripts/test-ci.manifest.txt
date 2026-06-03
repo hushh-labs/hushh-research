@@ -9,7 +9,11 @@ tests/services/test_pkm_service_store_domain_data.py
 tests/test_pkm_upgrade_routes.py
 tests/test_pkm_upgrade_service.py
 tests/test_vault_keys_metadata.py
+tests/test_one_location_routes.py
 tests/test_adk_a2a_compliance_script.py
 tests/test_ria_iam_service_architecture.py
 tests/test_kai_optimize_realtime_contract.py
 tests/test_portfolio_stream_quality_rules.py
+tests/test_stream_path_query_bounds_cwe400.py
+tests/performance/test_market_cache_instrumentation.py
+tests/test_llm_operon_stream_error_leak.py

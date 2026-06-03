@@ -8,11 +8,12 @@ import {
   type AnalysisHistoryEntry,
 } from "@/lib/services/kai-history-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
+import { enforceMinimumRetryDelayMs } from "@/lib/runtime/retry-delay";
 import { getSessionItem, setSessionItem } from "@/lib/utils/session-storage";
 
 const RUN_MANAGER_STORAGE_KEY = "kai_debate_run_manager_v1";
 const RUN_MANAGER_SESSION_KEY = "kai_debate_session_id_v1";
-const RETRY_DELAYS_MS = [750, 2000, 4500];
+const RETRY_DELAYS_MS = [750, 2000, 4500].map(enforceMinimumRetryDelayMs);
 const FINANCIAL_WRITE_WAIT_TIMEOUT_MS = 20_000;
 const FINANCIAL_WRITE_POLL_MS = 400;
 
@@ -555,6 +556,45 @@ class DebateRunManager {
     }
   }
 
+  private async verifyActiveRunWithBackend(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    vaultKey?: string;
+  }): Promise<DebateRunTask | null> {
+    const { userId, vaultOwnerToken, vaultKey } = params;
+    const response = await ApiService.getActiveKaiDebateRun({
+      userId,
+      debateSessionId: this.debateSessionId,
+      vaultOwnerToken,
+    });
+    if (!response.ok) {
+      if (response.status === 404) {
+        this.markMissingActiveRun(userId);
+        return null;
+      }
+      throw new Error(`Failed to verify active run: HTTP ${response.status}`);
+    }
+    const payload = (await response.json()) as { run?: Record<string, unknown> };
+    if (!payload.run) {
+      this.markMissingActiveRun(userId);
+      return null;
+    }
+
+    const task = this.upsertTask(this.makeTaskFromServer(payload.run));
+    this.runSecrets.set(task.runId, { vaultOwnerToken, vaultKey });
+    if (task.status !== "running") {
+      return null;
+    }
+    await this.connectRunStream(task.runId, {
+      userId,
+      vaultOwnerToken,
+      vaultKey,
+      cursor: 0,
+      resetBuffer: this.getOrCreateBuffer(task.runId).length === 0,
+    });
+    return this.getTask(task.runId);
+  }
+
   private async waitForFinancialWritesToSettle(userId: string): Promise<void> {
     const startedAt = Date.now();
     while (Date.now() - startedAt < FINANCIAL_WRITE_WAIT_TIMEOUT_MS) {
@@ -578,36 +618,7 @@ class DebateRunManager {
     vaultOwnerToken: string;
     vaultKey?: string;
   }): Promise<DebateRunTask | null> {
-    const { userId, vaultOwnerToken, vaultKey } = params;
-    const response = await ApiService.getActiveKaiDebateRun({
-      userId,
-      debateSessionId: this.debateSessionId,
-      vaultOwnerToken,
-    });
-    if (!response.ok) {
-      if (response.status === 404) {
-        this.markMissingActiveRun(userId);
-        return null;
-      }
-      throw new Error(`Failed to check active run: HTTP ${response.status}`);
-    }
-    const payload = (await response.json()) as { run?: Record<string, unknown> };
-    if (!payload.run) {
-      this.markMissingActiveRun(userId);
-      return null;
-    }
-    const task = this.upsertTask(this.makeTaskFromServer(payload.run));
-    this.runSecrets.set(task.runId, { vaultOwnerToken, vaultKey });
-    if (task.status === "running") {
-      await this.connectRunStream(task.runId, {
-        userId,
-        vaultOwnerToken,
-        vaultKey,
-        cursor: 0,
-        resetBuffer: true,
-      });
-    }
-    return this.getTask(task.runId);
+    return this.verifyActiveRunWithBackend(params);
   }
 
   async ensureRun(params: {
@@ -634,11 +645,19 @@ class DebateRunManager {
     } = params;
     const activeTask = this.getActiveTaskForUser(userId);
     if (activeTask) {
+      const verifiedActiveTask = await this.verifyActiveRunWithBackend({
+        userId,
+        vaultOwnerToken,
+        vaultKey,
+      });
+      if (!verifiedActiveTask) {
+        return this.ensureRun(params);
+      }
       const refreshedActiveTask = this.upsertTask({
-        ...activeTask,
-        pickSource: pickSource || activeTask.pickSource,
-        pickSourceLabel: pickSourceLabel || activeTask.pickSourceLabel,
-        pickSourceKind: pickSourceKind || activeTask.pickSourceKind,
+        ...verifiedActiveTask,
+        pickSource: pickSource || verifiedActiveTask.pickSource,
+        pickSourceLabel: pickSourceLabel || verifiedActiveTask.pickSourceLabel,
+        pickSourceKind: pickSourceKind || verifiedActiveTask.pickSourceKind,
       });
       this.runSecrets.set(refreshedActiveTask.runId, { vaultOwnerToken, vaultKey });
       if (refreshedActiveTask.status === "running") {
