@@ -18,6 +18,7 @@
       "ankitkumarsingh1702",
       "azfx"
     ],
+    "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
     "merge_queue_ruleset_name": "main merge queue",
     "merge_queue_bypass_team_name": "Allowed Maintainers to Approve",
@@ -54,6 +55,7 @@
       "ankitkumarsingh1702",
       "azfx"
     ],
+    "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
     "merge_queue_ruleset_name": "integration pr train merge queue",
     "merge_queue_bypass_team_name": "Allowed Maintainers to Approve",

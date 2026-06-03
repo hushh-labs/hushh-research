@@ -73,6 +73,7 @@ require_conversation_resolution = (
     else bool(branch_policy.get("require_conversation_resolution", False))
 )
 expected_bypass = sorted(branch_policy["review_bypass_users"])
+expected_bypass_team_slug = str(branch_policy.get("review_bypass_team_slug") or "").strip()
 expected_queue_bypass = sorted(branch_policy["merge_queue_bypass_users"])
 expected_queue_bypass_team_name = str(branch_policy.get("merge_queue_bypass_team_name") or "").strip()
 expected_queue_bypass_team_slug = str(branch_policy.get("merge_queue_bypass_team_slug") or "").strip()
@@ -113,6 +114,15 @@ bypass_users = sorted(
         .get("users", [])
     )
     if user.get("login")
+)
+bypass_team_slugs = sorted(
+    team.get("slug", "").strip()
+    for team in (
+        data.get("required_pull_request_reviews", {})
+        .get("bypass_pull_request_allowances", {})
+        .get("teams", [])
+    )
+    if team.get("slug")
 )
 
 merge_queue_bypass = []
@@ -197,6 +207,10 @@ if require_merge_queue and not merge_queue_enabled:
     errors.append("merge queue rule is not enabled on the branch")
 if bypass_users != expected_bypass:
     errors.append(f"review bypass users drifted: expected {expected_bypass}, got {bypass_users}")
+if expected_bypass_team_slug and bypass_team_slugs != [expected_bypass_team_slug]:
+    errors.append(
+        f"review bypass team drifted: expected {[expected_bypass_team_slug]}, got {bypass_team_slugs}"
+    )
 if merge_queue_bypass != expected_queue_bypass:
     errors.append(
         f"merge queue bypass actors drifted: expected {expected_queue_bypass}, got {merge_queue_bypass}"
@@ -215,7 +229,8 @@ print(f"Branch protection summary ({branch}): checks={checks}, approvals={approv
       f"enforce_admins={admins_enforced}, allow_force_pushes={force_pushes}, "
       f"allow_deletions={deletions}, conversation_resolution={conversation_resolution}, "
       f"merge_queue_enabled={merge_queue_enabled}, "
-      f"review_bypass_users={bypass_users}, merge_queue_bypass={merge_queue_bypass}, "
+      f"review_bypass_users={bypass_users}, review_bypass_team_slugs={bypass_team_slugs}, "
+      f"merge_queue_bypass={merge_queue_bypass}, "
       f"merge_queue_bypass_team_names={merge_queue_bypass_team_names}, "
       f"merge_queue_bypass_team_slugs={merge_queue_bypass_team_slugs}")
 
