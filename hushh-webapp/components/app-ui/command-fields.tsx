@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { Check, ChevronsUpDown, FilePenLine, X } from "lucide-react";
 
 import {
@@ -297,6 +297,7 @@ export function PopupTextEditorField({
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value);
+  const textareaId = useId();
 
   useEffect(() => {
     if (!open) {
@@ -373,7 +374,12 @@ export function PopupTextEditorField({
           </>
         }
       >
+        <label htmlFor={textareaId} className="sr-only">
+          {typeof title === "string" ? title : placeholder}
+        </label>
+
         <Textarea
+          id={textareaId}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder={placeholder}
