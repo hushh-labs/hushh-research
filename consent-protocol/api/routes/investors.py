@@ -19,9 +19,10 @@ import re
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Body, HTTPException, Path, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 
+from api.middleware import require_firebase_auth
 from hushh_mcp.services.investor_db import InvestorDBService
 
 logger = logging.getLogger(__name__)
@@ -173,11 +174,17 @@ async def get_investor_by_cik(
 
 
 @router.post("/", status_code=201)
-async def create_investor(investor: InvestorCreateRequest):
+async def create_investor(
+    investor: InvestorCreateRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
     """
     Create or update an investor profile.
 
     Admin endpoint for data ingestion from SEC EDGAR, etc.
+
+    Requires Firebase ID token. Without this guard any unauthenticated caller
+    can overwrite or poison public investor profile records.
     """
 
     # Use service layer
@@ -235,6 +242,7 @@ async def create_investor(investor: InvestorCreateRequest):
 @router.post("/bulk", status_code=201)
 async def bulk_create_investors(
     investors: List[InvestorCreateRequest] = Body(...),
+    firebase_uid: str = Depends(require_firebase_auth),
 ):
     """
     Bulk create investor profiles from list.
@@ -242,6 +250,9 @@ async def bulk_create_investors(
     Used for initial data seeding from JSON file.
     Capped at _BULK_INVESTOR_MAX records per request to protect the
     database connection pool.
+
+    Requires Firebase ID token. Without this guard an unauthenticated caller
+    can write up to _BULK_INVESTOR_MAX fake records per request.
     """
     if len(investors) > _BULK_INVESTOR_MAX:
         raise HTTPException(
@@ -252,7 +263,7 @@ async def bulk_create_investors(
 
     results = []
     for investor in investors:
-        result = await create_investor(investor)
+        result = await create_investor(investor, firebase_uid=firebase_uid)
         results.append(result)
 
     logger.info(f"Bulk created {len(results)} investor profiles")
