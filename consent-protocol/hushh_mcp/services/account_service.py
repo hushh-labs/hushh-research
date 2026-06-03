@@ -103,6 +103,7 @@ class AccountService:
                 "WHERE actor_user_id = :user_id OR target_user_id = :user_id"
             ),
             "pkm_data": text("DELETE FROM pkm_data WHERE user_id = :user_id"),
+            "pkm_migration_state": text("DELETE FROM pkm_migration_state WHERE user_id = :user_id"),
             "pkm_upgrade_runs": text("DELETE FROM pkm_upgrade_runs WHERE user_id = :user_id"),
             "kai_plaid_user_profile_cache": text(
                 "DELETE FROM kai_plaid_user_profile_cache WHERE user_id = :user_id"
@@ -166,6 +167,10 @@ class AccountService:
                 "DELETE FROM runtime_persona_state WHERE user_id = :user_id"
             ),
             "user_push_tokens": text("DELETE FROM user_push_tokens WHERE user_id = :user_id"),
+            "vault_key_wrappers": text("DELETE FROM vault_key_wrappers WHERE user_id = :user_id"),
+            "world_model_index_v2": text(
+                "DELETE FROM world_model_index_v2 WHERE user_id = :user_id"
+            ),
         }
         self._safe_export_queries = {
             "actor_profile": text(
@@ -399,7 +404,9 @@ class AccountService:
             "pkm_manifest_paths": False,
             "pkm_scope_registry": False,
             "pkm_events": False,
+            "pkm_migration_state": False,
             "pkm_upgrade_runs": False,
+            "world_model_index_v2": False,
             "plaid_items": False,
             "plaid_refresh_runs": False,
             "plaid_link_sessions": False,
@@ -444,6 +451,7 @@ class AccountService:
             "one_location_share_grants": False,
             "one_location_recipient_keys": False,
             "runtime_persona_state": False,
+            "vault_key_wrappers": False,
             "vault_keys": False,
         }
 
@@ -509,6 +517,14 @@ class AccountService:
                 results["pkm_blobs"] = True
                 conn.execute(text("DELETE FROM pkm_index WHERE user_id = :user_id"), params)
                 results["pkm_index"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="world_model_index_v2", params=params
+                )
+                results["world_model_index_v2"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="pkm_migration_state", params=params
+                )
+                results["pkm_migration_state"] = True
                 self._delete_user_rows_if_table_exists(conn, table_name="pkm_data", params=params)
                 results["pkm_data"] = True
                 conn.execute(
@@ -664,6 +680,10 @@ class AccountService:
                     conn, table_name="actor_profiles", params=params
                 )
                 results["actor_profiles"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="vault_key_wrappers", params=params
+                )
+                results["vault_key_wrappers"] = True
                 conn.execute(text("DELETE FROM vault_keys WHERE user_id = :user_id"), params)
                 results["vault_keys"] = True
 

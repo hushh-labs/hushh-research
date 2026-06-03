@@ -134,6 +134,17 @@ Growth-parameter policy:
 | --- | --- | --- | --- | --- | --- |
 | `api_request_completed` | Central API health signal with normalized route and status buckets | `endpoint_template`, `http_method`, `result`, `status_bucket`, `duration_ms_bucket` | `hushh-webapp/lib/observability/client.ts`, called from `hushh-webapp/lib/services/api-service.ts` | request health, expected/unexpected failure classification, dashboard health rollups | `npm run verify:analytics`, GA DebugView, BigQuery instrumentation-health query |
 
+## Cache Performance and UX Readiness
+
+These events are metadata-only. They must never include raw user IDs, emails, PKM payloads, workflow IDs, cache keys, prompts, portfolio values, or decrypted data.
+
+| Event | Business purpose | Required params | Primary emitter | Destination use | Proof path |
+| --- | --- | --- | --- | --- | --- |
+| `route_readiness_completed` | Measures whether a route reached usable UI through the best safe cache path or a blocking loader | `route_id`, `result`, `render_path`, `cache_tier`, `resource_class`, `duration_ms_bucket`, `blocking_loader_shown`, `stale_rendered` | Route resource hooks and cache-aware screen shells via `hushh-webapp/lib/observability/client.ts` | warm-cache UX, loader exposure, route readiness KPI | `npm run verify:analytics`, `npm run audit:cache-coherence` |
+| `cache_resource_resolved` | Measures cache hit, stale-hit, miss, locked, or unsafe resolution without exposing cache keys | `resource_class`, `cache_tier`, `freshness`, `result`, `duration_ms_bucket` | Resource services and shared cache wrappers via `hushh-webapp/lib/observability/client.ts` | cache tier health, stale rate, miss rate, footprint trend | `npm run verify:analytics` |
+| `route_refresh_completed` | Measures background refresh outcome after stale render, focus, manual refresh, mutation, or warmup | `route_id`, `resource_class`, `refresh_trigger`, `result`, `duration_ms_bucket` | Route resource hooks and domain services via `hushh-webapp/lib/observability/client.ts` | refresh reliability, retry pressure, loader avoidance | `npm run verify:analytics`, `npm run audit:cache-coherence` |
+| `warmup_completed` | Measures route/resource warmup completion by safe cache tier | `resource_class`, `cache_tier`, `warm_priority`, `result`, `duration_ms_bucket` | Unlock warmup and route-adjacent warmers via `hushh-webapp/lib/observability/client.ts` | warmup usefulness, cold unlock friction, over-warm detection | `npm run verify:analytics` |
+
 ## Declared but Not Currently Emitted
 
 These events are declared in the schema, but there is no current live emitter in the web app codebase.

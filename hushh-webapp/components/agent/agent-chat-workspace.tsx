@@ -13,11 +13,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Bot,
   BriefcaseBusiness,
-  Bug,
   ChevronDown,
-  Copy,
   Mic,
-  MicOff,
   Send,
   UserRound,
 } from "lucide-react";
@@ -27,6 +24,7 @@ import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
+import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
 import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -41,6 +39,7 @@ import {
   getIgnoredPkmCards,
   getReviewRequiredPkmCards,
   loadAgentPkmContext,
+  peekAgentPkmContext,
   previewAgentPkmMemory,
   type AgentPkmContext,
   type AgentPkmPreviewCard,
@@ -50,9 +49,22 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import {
-  AgentRealtimeClient,
-  type AgentRealtimeVoiceState,
-} from "@/lib/services/agent-realtime-client";
+  AGENT_VOICE_STT_TIMEOUT_MS,
+  AgentVoiceClient,
+  transcribeAgentVoice,
+} from "@/lib/services/agent-voice-client";
+import {
+  useAgentVoiceState,
+  type AgentVoiceStatus,
+} from "@/lib/agent/agent-voice-state";
+import { handleAgentVoiceTranscriptTurn } from "@/lib/agent/agent-voice-turn";
+import { AgentTtsQueue, markdownToSpeechText } from "@/lib/agent/agent-voice-tts";
+import {
+  AGENT_VOICE_SETTINGS_CHANGED_EVENT,
+  isAgentGeminiVoiceEnabled,
+  readAgentVoiceSettings,
+  type AgentGeminiTtsVoice,
+} from "@/lib/agent/agent-voice-settings";
 import {
   deleteAgentChatConversation,
   getAgentChatHistory,
@@ -101,6 +113,13 @@ type AgentPkmActivity = {
   status: "streaming" | "done" | "error";
 };
 
+type AgentVoiceTranscriptReview = {
+  transcript: string;
+  reason: string | null;
+};
+
+type AgentTurnSource = "typed" | "voice";
+
 export type AgentChatWorkspaceVariant = "page" | "popover";
 
 type AgentChatWorkspaceProps = {
@@ -121,9 +140,35 @@ const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   updatedAt: null,
 };
 const AGENT_STREAM_RENDER_FRAME_MS = 32;
+const VOICE_PKM_CONTEXT_DEADLINE_MS = 1_800;
+const VOICE_AGENT_FIRST_EVENT_TIMEOUT_MS = 25_000;
+const VOICE_AGENT_IDLE_TIMEOUT_MS = 45_000;
 
 const EXPLICIT_PKM_SAVE_PATTERN =
   /\b(?:add|save|store|remember)\b[\s\S]{0,140}\b(?:pkm|personal knowledge|memory|memories)\b|\b(?:add|save|store|remember)\s+(?:this|that)\b/i;
+
+async function withDeadline<T>(
+  promise: Promise<T>,
+  timeoutMs: number
+): Promise<{ timedOut: false; value: T } | { timedOut: true }> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise.then((value) => ({ timedOut: false as const, value })),
+      new Promise<{ timedOut: true }>((resolve) => {
+        timeoutId = setTimeout(() => resolve({ timedOut: true }), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
 
 function formatNow(): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -379,56 +424,6 @@ function AgentBubble({ message }: { message: AgentMessage }) {
   );
 }
 
-function AgentDebugPanel({
-  events,
-  onCopyLatest,
-}: {
-  events: AgentDebugEvent[];
-  onCopyLatest: () => void;
-}) {
-  return (
-    <div className="rounded-lg border border-border/70 bg-background/80 p-3 text-xs">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="font-medium text-foreground">Tool debug</div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 gap-2"
-          onClick={onCopyLatest}
-          disabled={events.length === 0}
-        >
-          <Copy className="h-3.5 w-3.5" />
-          Copy debug
-        </Button>
-      </div>
-      {events.length === 0 ? (
-        <p className="text-muted-foreground">No tool calls for the latest turn.</p>
-      ) : (
-        <div className="max-h-64 space-y-2 overflow-y-auto">
-          {events.map((event) => (
-            <div key={event.id} className="rounded-md border border-border/60 bg-card p-2">
-              <div className="mb-1 flex items-center justify-between gap-3">
-                <span className="font-medium text-foreground">{event.event}</span>
-                <span className="text-muted-foreground">
-                  {new Intl.DateTimeFormat(undefined, {
-                    hour: "numeric",
-                    minute: "2-digit",
-                    second: "2-digit",
-                  }).format(new Date(event.timestamp))}
-                </span>
-              </div>
-              <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-4 text-muted-foreground">
-                {JSON.stringify(event.payload, null, 2)}
-              </pre>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function AgentPkmActivityLine({ item }: { item: AgentPkmActivity }) {
   return (
     <div
@@ -515,32 +510,45 @@ export function AgentChatWorkspace({
   const [isStreaming, setIsStreaming] = useState(false);
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
-  const [debugOpen, setDebugOpen] = useState(false);
-  const [debugEvents, setDebugEvents] = useState<AgentDebugEvent[]>([]);
-  const [latestDebugTurnId, setLatestDebugTurnId] = useState<string | null>(null);
   const [pkmReviews, setPkmReviews] = useState<AgentPkmReview[]>([]);
   const [pkmActivity, setPkmActivity] = useState<AgentPkmActivity[]>([]);
-  const [voiceState, setVoiceState] = useState<AgentRealtimeVoiceState>("idle");
+  const [voiceState, setVoiceState] = useState<AgentVoiceStatus>("idle");
+  const [voiceTranscriptReview, setVoiceTranscriptReview] =
+    useState<AgentVoiceTranscriptReview | null>(null);
+  const [selectedVoice, setSelectedVoice] = useState<AgentGeminiTtsVoice>(() =>
+    readAgentVoiceSettings().ttsVoice
+  );
   const [hasPortfolioData, setHasPortfolioData] = useState(false);
   const [backgroundTaskState, setBackgroundTaskState] = useState(() =>
     AppBackgroundTaskService.getState()
   );
-  const voiceClientRef = useRef<AgentRealtimeClient | null>(null);
+  const voiceClientRef = useRef<AgentVoiceClient | null>(null);
+  const voiceTtsQueueRef = useRef<AgentTtsQueue | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const voiceUserMessageIdRef = useRef<string | null>(null);
-  const voiceAssistantMessageIdRef = useRef<string | null>(null);
   const historyLoadKeyRef = useRef<string | null>(null);
   const streamAbortControllerRef = useRef<AbortController | null>(null);
+  const voiceSttAbortControllerRef = useRef<AbortController | null>(null);
+  const voiceSessionEpochRef = useRef(0);
+  const voiceTtsSpeakingRef = useRef(false);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
 
   const voiceActive = voiceState !== "idle";
+  const voiceMuted = voiceState === "muted";
+  const voiceLevel = useAgentVoiceState((state) => state.level);
+  const setGlobalVoiceActive = useAgentVoiceState((state) => state.setActive);
+  const setGlobalVoiceStatus = useAgentVoiceState((state) => state.setStatus);
+  const setGlobalVoiceLevel = useAgentVoiceState((state) => state.setLevel);
+  const resetGlobalVoiceState = useAgentVoiceState((state) => state.reset);
   const isToolWorking = activeFrontendToolCount > 0;
   const isPkmMemoryWorking = activePkmToolCount > 0;
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
+  const agentVoiceEnabled = isAgentGeminiVoiceEnabled();
   const abortAgentTurnWork = useCallback(() => {
     streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = null;
+    voiceSttAbortControllerRef.current?.abort();
+    voiceSttAbortControllerRef.current = null;
     for (const controller of pkmAbortControllersRef.current) {
       controller.abort();
     }
@@ -636,8 +644,8 @@ export function AgentChatWorkspace({
         ria_setup_available: riaSetupAvailable,
       },
       voice: {
-        available: false,
-        tts_playing: voiceActive,
+        available: voiceActive,
+        tts_playing: voiceState === "speaking",
         last_tool_name: null,
         last_ticker: null,
       },
@@ -663,6 +671,7 @@ export function AgentChatWorkspace({
       user?.uid,
       vaultOwnerToken,
       voiceActive,
+      voiceState,
     ]
   );
   const appRuntimeStateRef = useRef(appRuntimeState);
@@ -677,7 +686,8 @@ export function AgentChatWorkspace({
     !isStreaming &&
     !voiceActive &&
     input.trim().length > 0;
-  const canToggleVoice = hasChatAccess && (!isVoiceConnecting || voiceActive);
+  const canToggleVoice =
+    agentVoiceEnabled && hasChatAccess && (!isVoiceConnecting || voiceActive);
   const historyInteractionDisabled =
     isLoadingHistory ||
     isChatLoading ||
@@ -690,10 +700,14 @@ export function AgentChatWorkspace({
       if (authLoading) return "Checking access";
       if (!user?.uid) return "Sign in required";
       if (!isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh) return "Vault locked";
+      if (!agentVoiceEnabled && voiceActive) return "Voice disabled";
       if (voiceState === "connecting") return "Voice connecting";
       if (voiceState === "listening") return "Listening";
+      if (voiceState === "muted") return "Muted";
+      if (voiceState === "transcribing") return "Transcribing";
       if (voiceState === "thinking") return "Thinking";
       if (voiceState === "speaking") return "Speaking";
+      if (voiceState === "error") return "Voice error";
       if (isLoadingHistory) return "Loading";
       if (isVoiceConnecting) return "Voice connecting";
       if (isToolWorking) return "Working";
@@ -704,6 +718,7 @@ export function AgentChatWorkspace({
     },
     [
       authLoading,
+      agentVoiceEnabled,
       isChatLoading,
       isLoadingHistory,
       isPkmMemoryWorking,
@@ -715,6 +730,7 @@ export function AgentChatWorkspace({
       user?.uid,
       vaultOwnerToken,
       voiceState,
+      voiceActive,
     ]
   );
 
@@ -724,11 +740,27 @@ export function AgentChatWorkspace({
 
   useEffect(() => {
     return () => {
+      voiceSessionEpochRef.current += 1;
       abortAgentTurnWork();
-      voiceClientRef.current?.close();
+      void voiceClientRef.current?.stop();
       voiceClientRef.current = null;
+      voiceTtsQueueRef.current?.cancel();
+      voiceTtsQueueRef.current = null;
+      resetGlobalVoiceState();
     };
-  }, [abortAgentTurnWork]);
+  }, [abortAgentTurnWork, resetGlobalVoiceState]);
+
+  useEffect(() => {
+    const syncVoiceSettings = () => {
+      setSelectedVoice(readAgentVoiceSettings().ttsVoice);
+    };
+    window.addEventListener(AGENT_VOICE_SETTINGS_CHANGED_EVENT, syncVoiceSettings);
+    window.addEventListener("storage", syncVoiceSettings);
+    return () => {
+      window.removeEventListener(AGENT_VOICE_SETTINGS_CHANGED_EVENT, syncVoiceSettings);
+      window.removeEventListener("storage", syncVoiceSettings);
+    };
+  }, []);
 
   useEffect(() => {
     const unsubscribe = AppBackgroundTaskService.subscribe((state) => {
@@ -777,28 +809,28 @@ export function AgentChatWorkspace({
 
   useEffect(() => {
     abortAgentTurnWork();
-    voiceClientRef.current?.close();
+    void voiceClientRef.current?.stop();
     voiceClientRef.current = null;
+    voiceTtsQueueRef.current?.cancel();
+    voiceTtsQueueRef.current = null;
     setIsChatLoading(false);
     setIsLoadingHistory(false);
     setIsVoiceConnecting(false);
     setIsStreaming(false);
     setActiveFrontendToolCount(0);
     setActivePkmToolCount(0);
-    setDebugEvents([]);
-    setLatestDebugTurnId(null);
     setPkmReviews([]);
     setPkmActivity([]);
     setVoiceState("idle");
+    setVoiceTranscriptReview(null);
+    resetGlobalVoiceState();
     setConversationId(null);
     setConversations([]);
     setHistoryActionPendingId(null);
     setMessages([createGreetingMessage()]);
     historyLoadKeyRef.current = null;
     latestVisibleTurnIdRef.current = null;
-    voiceUserMessageIdRef.current = null;
-    voiceAssistantMessageIdRef.current = null;
-  }, [abortAgentTurnWork, user?.uid, isVaultUnlocked]);
+  }, [abortAgentTurnWork, resetGlobalVoiceState, user?.uid, isVaultUnlocked]);
 
   const updateMessage = (
     messageId: string,
@@ -814,40 +846,11 @@ export function AgentChatWorkspace({
   };
 
   const appendDebugEvent = useCallback(
-    (turnId: string, event: string, payload: unknown) => {
-      setDebugEvents((current) => [
-        ...current.slice(-79),
-        {
-          id: `${turnId}-${event}-${Date.now()}-${current.length}`,
-          turnId,
-          timestamp: new Date().toISOString(),
-          event,
-          payload,
-        },
-      ]);
+    (_turnId: string, _event: AgentDebugEvent["event"], _payload: AgentDebugEvent["payload"]) => {
+      // Debug events are intentionally kept internal while the Agent debug UI is disabled.
     },
     []
   );
-
-  const latestDebugEvents = useMemo(
-    () =>
-      latestDebugTurnId
-        ? debugEvents.filter((event) => event.turnId === latestDebugTurnId)
-        : [],
-    [debugEvents, latestDebugTurnId]
-  );
-
-  const handleCopyLatestDebug = useCallback(() => {
-    if (!latestDebugTurnId || latestDebugEvents.length === 0) return;
-    const payload = {
-      turn_id: latestDebugTurnId,
-      events: latestDebugEvents,
-    };
-    void navigator.clipboard
-      .writeText(JSON.stringify(payload, null, 2))
-      .then(() => toast.success("Agent debug copied."))
-      .catch(() => toast.error("Could not copy Agent debug."));
-  }, [latestDebugEvents, latestDebugTurnId]);
 
   const addErrorMessage = (text: string) => {
     appendMessage({
@@ -924,8 +927,6 @@ export function AgentChatWorkspace({
       setConversationId(nextConversationId);
       setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
       setPkmActivity([]);
-      setDebugEvents([]);
-      setLatestDebugTurnId(null);
       setPkmReviews([]);
     },
     []
@@ -950,8 +951,6 @@ export function AgentChatWorkspace({
     setConversationId(null);
     setMessages([createGreetingMessage()]);
     setInput("");
-    setDebugEvents([]);
-    setLatestDebugTurnId(null);
     setPkmReviews([]);
     setPkmActivity([]);
   }, [abortAgentTurnWork]);
@@ -1145,41 +1144,18 @@ export function AgentChatWorkspace({
     [appendDebugEvent, getVaultOwnerToken, pkmReviews, user?.uid, vaultKey]
   );
 
-  const ensureVoiceUserMessage = () => {
-    if (voiceUserMessageIdRef.current) return voiceUserMessageIdRef.current;
-    const id = `msg-${Date.now()}-voice-user`;
-    voiceUserMessageIdRef.current = id;
-    appendMessage({
-      id,
-      role: "user",
-      text: "",
-      timestamp: formatNow(),
-      status: "streaming",
-    });
-    return id;
-  };
-
-  const ensureVoiceAssistantMessage = () => {
-    if (voiceAssistantMessageIdRef.current) return voiceAssistantMessageIdRef.current;
-    const id = `msg-${Date.now()}-voice-assistant`;
-    voiceAssistantMessageIdRef.current = id;
-    appendMessage({
-      id,
-      role: "assistant",
-      text: "",
-      timestamp: formatNow(),
-      status: "streaming",
-    });
-    return id;
-  };
-
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const text = input.trim();
+  const runAgentTurn = async (
+    textInput: string,
+    options: { source: AgentTurnSource } = { source: "typed" }
+  ) => {
+    const text = textInput.trim();
     if (!text || !hasChatAccess || !user?.uid) return;
 
     const userId = user.uid;
     const token = getVaultOwnerToken();
+    const isVoiceTurn = options.source === "voice";
+    let voiceAssistantMarkdown = "";
+    let voiceReceiptSpoken = false;
     const timestamp = formatNow();
     const turnId = Date.now();
     const debugTurnId = `agent_turn_${turnId}`;
@@ -1192,6 +1168,29 @@ export function AgentChatWorkspace({
     let pkmAddToolHandled = false;
     let pendingAssistantDelta = "";
     let assistantFlushFrame: number | null = null;
+    if (isVoiceTurn && token) {
+      voiceTtsQueueRef.current?.cancel();
+      voiceTtsQueueRef.current = new AgentTtsQueue({
+        userId,
+        vaultOwnerToken: token,
+        voice: selectedVoice,
+        onStateChange: (state) => {
+          if (state === "speaking") {
+            voiceTtsSpeakingRef.current = true;
+            voiceClientRef.current?.setCapturePaused(true);
+            setAgentVoiceStatus("speaking");
+            return;
+          }
+          voiceTtsSpeakingRef.current = false;
+          voiceClientRef.current?.setCapturePaused(false);
+          if (voiceClientRef.current?.isActive) {
+            setAgentVoiceStatus(voiceClientRef.current.isMuted ? "muted" : "listening");
+          }
+        },
+      });
+      voiceTtsQueueRef.current.resetStream();
+      setAgentVoiceStatus("thinking");
+    }
 
     const flushAssistantDelta = () => {
       assistantFlushFrame = null;
@@ -1213,12 +1212,42 @@ export function AgentChatWorkspace({
       assistantFlushFrame = window.requestAnimationFrame(flushAssistantDelta);
     };
 
+    const queueVoiceAssistantDelta = (delta: string) => {
+      if (!isVoiceTurn || !voiceTtsQueueRef.current) return;
+      voiceAssistantMarkdown += delta;
+      voiceTtsQueueRef.current.pushMarkdownSnapshot(voiceAssistantMarkdown);
+    };
+
+    const speakVoiceReceipt = (messageText: string) => {
+      if (!isVoiceTurn || !voiceTtsQueueRef.current) return;
+      const cleanReceipt = markdownToSpeechText(messageText);
+      if (!cleanReceipt) return;
+      const currentAssistantSpeech = markdownToSpeechText(voiceAssistantMarkdown);
+      if (currentAssistantSpeech.includes(cleanReceipt)) {
+        voiceReceiptSpoken = true;
+        return;
+      }
+      voiceReceiptSpoken = true;
+      voiceTtsQueueRef.current.speakNow(cleanReceipt);
+    };
+
     const cancelAssistantFlush = () => {
       if (assistantFlushFrame !== null) {
         window.cancelAnimationFrame(assistantFlushFrame);
         assistantFlushFrame = null;
       }
       pendingAssistantDelta = "";
+    };
+
+    const finishCanceledTurn = () => {
+      flushAssistantDelta();
+      updateMessage(assistantMessageId, (message) => ({
+        ...message,
+        text: message.text || (isVoiceTurn ? "Voice turn canceled." : "Agent turn canceled."),
+        status: "done",
+      }));
+      setIsChatLoading(false);
+      setIsStreaming(false);
     };
 
     const upsertToolStatusMessage = (
@@ -1453,6 +1482,9 @@ export function AgentChatWorkspace({
         });
         appendDebugEvent(debugTurnId, "tool_result", result);
         upsertToolStatusMessage(result.resultSummary, toolResultStatus(result));
+        if (voiceReceiptSpoken === false) {
+          speakVoiceReceipt(result.resultSummary);
+        }
         if (shouldMinimizeForNavigationResult(result)) {
           onNavigationActionComplete?.(result);
         }
@@ -1611,12 +1643,13 @@ export function AgentChatWorkspace({
         status: "streaming",
       },
     ]);
-    setInput("");
+    if (options.source === "typed") {
+      setInput("");
+    }
     latestVisibleTurnIdRef.current = debugTurnId;
     setPkmActivity([]);
     setIsChatLoading(true);
     setIsStreaming(true);
-    setLatestDebugTurnId(debugTurnId);
 
     if (!token) {
       updateMessage(assistantMessageId, (message) => ({
@@ -1632,18 +1665,99 @@ export function AgentChatWorkspace({
     const streamAbortController = new AbortController();
     streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = streamAbortController;
+    let voiceStreamTimeoutMessage: string | null = null;
+    let voiceStreamWatchdog: ReturnType<typeof setTimeout> | null = null;
 
-    try {
-      let agentPkmContext = EMPTY_PKM_CONTEXT;
-      try {
-        agentPkmContext = await loadAgentPkmContext({
+    const clearVoiceStreamWatchdog = () => {
+      if (voiceStreamWatchdog !== null) {
+        clearTimeout(voiceStreamWatchdog);
+        voiceStreamWatchdog = null;
+      }
+    };
+
+    const armVoiceStreamWatchdog = (timeoutMs: number, message: string) => {
+      if (!isVoiceTurn || streamAbortController.signal.aborted) return;
+      clearVoiceStreamWatchdog();
+      voiceStreamWatchdog = setTimeout(() => {
+        voiceStreamTimeoutMessage = message;
+        streamAbortController.abort();
+      }, timeoutMs);
+    };
+
+    const finishVoiceTimedOutTurn = (message: string) => {
+      flushAssistantDelta();
+      updateMessage(assistantMessageId, (current) => ({
+        ...current,
+        text: current.text || message,
+        status: "error",
+      }));
+      voiceTtsQueueRef.current?.speakNow(message);
+      setIsChatLoading(false);
+      setIsStreaming(false);
+      setAgentVoiceStatus(voiceClientRef.current?.isActive ? "error" : "idle", message);
+    };
+
+    const loadTurnPkmContext = async (): Promise<AgentPkmContext> => {
+      if (!vaultKey) return EMPTY_PKM_CONTEXT;
+      if (!isVoiceTurn) {
+        return loadAgentPkmContext({
           userId,
           vaultOwnerToken: token,
           vaultKey,
           message: text,
         });
+      }
+
+      const cachedContext = peekAgentPkmContext({
+        userId,
+        message: text,
+      });
+      if (cachedContext?.text) {
+        void loadAgentPkmContext({
+          userId,
+          vaultOwnerToken: token,
+          vaultKey,
+          message: text,
+        }).catch(() => undefined);
+        return cachedContext;
+      }
+
+      const contextPromise = loadAgentPkmContext({
+        userId,
+        vaultOwnerToken: token,
+        vaultKey,
+        message: text,
+      });
+      const result = await withDeadline(contextPromise, VOICE_PKM_CONTEXT_DEADLINE_MS);
+      if (!result.timedOut) return result.value;
+
+      appendDebugEvent(debugTurnId, "pkm_context_deferred_for_voice_latency", {
+        deadline_ms: VOICE_PKM_CONTEXT_DEADLINE_MS,
+      });
+      void contextPromise.catch((error) => {
+        appendDebugEvent(debugTurnId, "pkm_context_deferred_load_failed", {
+          message:
+            error instanceof Error && error.message
+              ? error.message
+              : "Failed to refresh PKM context in the background.",
+        });
+      });
+      return EMPTY_PKM_CONTEXT;
+    };
+
+    try {
+      let agentPkmContext = EMPTY_PKM_CONTEXT;
+      try {
+        agentPkmContext = await loadTurnPkmContext();
         turnPkmContext = agentPkmContext;
-        if (streamAbortController.signal.aborted) return;
+        if (streamAbortController.signal.aborted) {
+          if (voiceStreamTimeoutMessage) {
+            finishVoiceTimedOutTurn(voiceStreamTimeoutMessage);
+          } else {
+            finishCanceledTurn();
+          }
+          return;
+        }
         if (agentPkmContext.text) {
           appendDebugEvent(debugTurnId, "pkm_context_loaded", {
             domain_count: agentPkmContext.domains.length,
@@ -1663,6 +1777,10 @@ export function AgentChatWorkspace({
         });
       }
 
+      armVoiceStreamWatchdog(
+        VOICE_AGENT_FIRST_EVENT_TIMEOUT_MS,
+        "Agent voice response timed out before it started. Please try again."
+      );
       await streamAgentChat({
         userId,
         message: text,
@@ -1673,40 +1791,67 @@ export function AgentChatWorkspace({
         handlers: {
           onStart: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
+            armVoiceStreamWatchdog(
+              VOICE_AGENT_IDLE_TIMEOUT_MS,
+              "Agent voice response stalled. Please try again."
+            );
             if (nextConversationId) {
               setConversationId(nextConversationId);
             }
           },
           onToolStart: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
+            armVoiceStreamWatchdog(
+              VOICE_AGENT_IDLE_TIMEOUT_MS,
+              "Agent voice tool call stalled. Please try again."
+            );
             appendDebugEvent(debugTurnId, "tool_start", toolEvent);
           },
           onToolWaiting: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
+            armVoiceStreamWatchdog(
+              VOICE_AGENT_IDLE_TIMEOUT_MS,
+              "Agent voice tool call stalled. Please try again."
+            );
             appendDebugEvent(debugTurnId, "tool_waiting", toolEvent);
             upsertToolStatusMessage(
               toolEvent.message || "Working on that in Kai...",
               "streaming"
             );
+            speakVoiceReceipt(toolEvent.message || "Working on that in Kai...");
             executeToolIfNeeded(toolEvent);
           },
           onToolResult: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
+            armVoiceStreamWatchdog(
+              VOICE_AGENT_IDLE_TIMEOUT_MS,
+              "Agent voice tool result stalled. Please try again."
+            );
             appendDebugEvent(debugTurnId, "tool_result", toolEvent);
             if (toolEvent.execution === "blocked" || toolEvent.status === "blocked") {
               upsertToolStatusMessage(
                 toolEvent.message || "That action is blocked in Agent.",
                 "error"
               );
+              speakVoiceReceipt(toolEvent.message || "That action is blocked in Agent.");
             }
           },
           onToken: (delta) => {
             if (streamAbortController.signal.aborted) return;
+            armVoiceStreamWatchdog(
+              VOICE_AGENT_IDLE_TIMEOUT_MS,
+              "Agent voice response stalled. Please try again."
+            );
             queueAssistantDelta(delta);
+            queueVoiceAssistantDelta(delta);
           },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
+            clearVoiceStreamWatchdog();
             flushAssistantDelta();
+            if (isVoiceTurn) {
+              voiceTtsQueueRef.current?.flushStream();
+            }
             if (nextConversationId) {
               setConversationId(nextConversationId);
             }
@@ -1719,7 +1864,11 @@ export function AgentChatWorkspace({
           },
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
+            clearVoiceStreamWatchdog();
             flushAssistantDelta();
+            if (isVoiceTurn) {
+              voiceTtsQueueRef.current?.speakNow(message);
+            }
             updateMessage(assistantMessageId, (current) => ({
               ...current,
               text: current.text || message,
@@ -1730,8 +1879,19 @@ export function AgentChatWorkspace({
           },
         },
       });
-      if (streamAbortController.signal.aborted) return;
+      if (streamAbortController.signal.aborted) {
+        if (voiceStreamTimeoutMessage) {
+          finishVoiceTimedOutTurn(voiceStreamTimeoutMessage);
+        } else {
+          finishCanceledTurn();
+        }
+        return;
+      }
+      clearVoiceStreamWatchdog();
       flushAssistantDelta();
+      if (isVoiceTurn) {
+        voiceTtsQueueRef.current?.flushStream();
+      }
       updateMessage(assistantMessageId, (message) => {
         if (message.status === "error") return message;
         return {
@@ -1751,7 +1911,14 @@ export function AgentChatWorkspace({
       setIsChatLoading(false);
       setIsStreaming(false);
     } catch (error) {
-      if (streamAbortController.signal.aborted) return;
+      if (streamAbortController.signal.aborted) {
+        if (voiceStreamTimeoutMessage) {
+          finishVoiceTimedOutTurn(voiceStreamTimeoutMessage);
+        } else {
+          finishCanceledTurn();
+        }
+        return;
+      }
       flushAssistantDelta();
       const message =
         error instanceof Error && error.message
@@ -1762,10 +1929,14 @@ export function AgentChatWorkspace({
         text: current.text || message,
         status: "error",
       }));
+      if (isVoiceTurn) {
+        voiceTtsQueueRef.current?.speakNow(message);
+      }
       void loadConversationList().catch(() => undefined);
       setIsChatLoading(false);
       setIsStreaming(false);
     } finally {
+      clearVoiceStreamWatchdog();
       cancelAssistantFlush();
       if (streamAbortControllerRef.current === streamAbortController) {
         streamAbortControllerRef.current = null;
@@ -1773,11 +1944,57 @@ export function AgentChatWorkspace({
     }
   };
 
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await runAgentTurn(input, { source: "typed" });
+  };
+
+  const setAgentVoiceStatus = (status: AgentVoiceStatus, message?: string | null) => {
+    setVoiceState(status);
+    setGlobalVoiceStatus(status, message ?? null);
+  };
+
+  const handleCancelVoice = useCallback(async () => {
+    voiceSessionEpochRef.current += 1;
+    abortAgentTurnWork();
+    voiceTtsQueueRef.current?.cancel();
+    voiceTtsQueueRef.current = null;
+    voiceTtsSpeakingRef.current = false;
+    await voiceClientRef.current?.stop();
+    voiceClientRef.current = null;
+    setIsVoiceConnecting(false);
+    setIsChatLoading(false);
+    setIsStreaming(false);
+    setVoiceTranscriptReview(null);
+    setVoiceState("idle");
+    resetGlobalVoiceState();
+  }, [abortAgentTurnWork, resetGlobalVoiceState]);
+
+  const handleVoiceTranscriptAccepted = (transcript: string) => {
+    setVoiceTranscriptReview(null);
+    if (!voiceClientRef.current?.isActive) return;
+    void runAgentTurn(transcript, { source: "voice" }).finally(() => {
+      voiceClientRef.current?.setMuted(false);
+    });
+  };
+
+  const handleVoiceTranscriptRetry = () => {
+    setVoiceTranscriptReview(null);
+    voiceClientRef.current?.setMuted(false);
+  };
+
   const handleToggleVoice = async () => {
+    if (!agentVoiceEnabled) {
+      addErrorMessage("Agent Gemini voice is disabled for this environment.");
+      return;
+    }
     if (!hasChatAccess || !user?.uid) return;
 
     if (voiceActive) {
-      await voiceClientRef.current?.stopMicrophone();
+      voiceClientRef.current?.toggleMuted();
+      if (voiceTtsSpeakingRef.current) {
+        setAgentVoiceStatus("speaking");
+      }
       return;
     }
 
@@ -1787,84 +2004,128 @@ export function AgentChatWorkspace({
       return;
     }
 
-    voiceUserMessageIdRef.current = null;
-    voiceAssistantMessageIdRef.current = null;
     setIsVoiceConnecting(true);
-    setVoiceState("connecting");
+    setGlobalVoiceActive(true);
+    voiceSessionEpochRef.current += 1;
+    voiceTtsSpeakingRef.current = false;
+    setAgentVoiceStatus("connecting");
 
     try {
       if (!voiceClientRef.current) {
-        voiceClientRef.current = new AgentRealtimeClient();
+        voiceClientRef.current = new AgentVoiceClient();
       }
-      await voiceClientRef.current.connect({
-        userId: user.uid,
-        vaultOwnerToken: token,
-      });
-      await voiceClientRef.current.startMicrophone({
-        onInputTranscriptDelta: (delta) => {
-          const id = ensureVoiceUserMessage();
-          updateMessage(id, (message) => ({
-            ...message,
-            text: `${message.text}${delta}`,
-            status: "streaming",
-          }));
+      await voiceClientRef.current.start({
+        onStatus: (status, message) => {
+          setAgentVoiceStatus(status, message);
+          if (status !== "connecting") {
+            setIsVoiceConnecting(false);
+          }
         },
-        onInputTranscriptDone: (text) => {
-          const cleanText = text.trim();
-          if (!cleanText) return;
-          const id = ensureVoiceUserMessage();
-          updateMessage(id, (message) => ({
-            ...message,
-            text: cleanText || message.text,
-            status: "done",
-          }));
+        onLevel: (level) => {
+          setGlobalVoiceLevel(level);
         },
-        onResponseStart: () => {
-          setIsStreaming(true);
-          ensureVoiceAssistantMessage();
-        },
-        onResponseDelta: (delta) => {
-          const id = ensureVoiceAssistantMessage();
-          updateMessage(id, (message) => ({
-            ...message,
-            text: `${message.text}${delta}`,
-            status: "streaming",
-          }));
-        },
-        onResponseDone: (text) => {
-          const id = ensureVoiceAssistantMessage();
-          updateMessage(id, (message) => ({
-            ...message,
-            text: text.trim() || message.text,
-            status: "done",
-          }));
-          setIsStreaming(false);
-          voiceUserMessageIdRef.current = null;
-          voiceAssistantMessageIdRef.current = null;
-        },
-        onVoiceState: (state) => {
-          setVoiceState(state);
+        onUtterance: async ({ audio }) => {
+          const voiceSessionEpoch = voiceSessionEpochRef.current;
+          const sttAbortController = new AbortController();
+          voiceSttAbortControllerRef.current?.abort();
+          voiceSttAbortControllerRef.current = sttAbortController;
+          setAgentVoiceStatus("transcribing");
+          try {
+            const result = await transcribeAgentVoice({
+              userId: user.uid,
+              vaultOwnerToken: token,
+              audio,
+              signal: sttAbortController.signal,
+              timeoutMs: AGENT_VOICE_STT_TIMEOUT_MS,
+            });
+            if (
+              sttAbortController.signal.aborted ||
+              voiceSessionEpoch !== voiceSessionEpochRef.current ||
+              !voiceClientRef.current?.isActive
+            ) {
+              return;
+            }
+
+            await handleAgentVoiceTranscriptTurn({
+              result,
+              runTurn: async (transcript) => {
+                if (
+                  sttAbortController.signal.aborted ||
+                  voiceSessionEpoch !== voiceSessionEpochRef.current ||
+                  !voiceClientRef.current?.isActive
+                ) {
+                  return;
+                }
+                await runAgentTurn(transcript, { source: "voice" });
+              },
+              requestReview: (transcript, reason) => {
+                if (
+                  sttAbortController.signal.aborted ||
+                  voiceSessionEpoch !== voiceSessionEpochRef.current ||
+                  !voiceClientRef.current?.isActive
+                ) {
+                  return;
+                }
+                voiceClientRef.current?.setMuted(true);
+                setVoiceTranscriptReview({ transcript, reason });
+              },
+            });
+          } catch (error) {
+            if (
+              sttAbortController.signal.aborted ||
+              voiceSessionEpoch !== voiceSessionEpochRef.current
+            ) {
+              return;
+            }
+            if (isAbortError(error)) {
+              throw new Error("Voice transcription timed out. Please try again.");
+            }
+            throw error;
+          } finally {
+            if (voiceSttAbortControllerRef.current === sttAbortController) {
+              voiceSttAbortControllerRef.current = null;
+            }
+          }
         },
         onError: (message) => {
           addErrorMessage(message);
           setIsVoiceConnecting(false);
-          setIsStreaming(false);
+          setAgentVoiceStatus("error", message);
         },
       });
       setIsVoiceConnecting(false);
     } catch (error) {
+      voiceSttAbortControllerRef.current?.abort();
+      voiceSttAbortControllerRef.current = null;
+      voiceTtsSpeakingRef.current = false;
       const message =
         error instanceof Error && error.message
           ? error.message
           : "Voice session failed.";
       addErrorMessage(message);
       setIsVoiceConnecting(false);
-      setIsStreaming(false);
-      setVoiceState("idle");
-      voiceClientRef.current?.close();
+      setAgentVoiceStatus("idle");
+      resetGlobalVoiceState();
+      await voiceClientRef.current?.stop();
       voiceClientRef.current = null;
     }
   };
+
+  useEffect(() => {
+    if (!voiceActive) return;
+    if (agentVoiceEnabled && user?.uid && isVaultUnlocked && vaultOwnerToken && tokenIsFresh) {
+      return;
+    }
+    void handleCancelVoice();
+  }, [
+    agentVoiceEnabled,
+    handleCancelVoice,
+    isVaultUnlocked,
+    tokenIsFresh,
+    user?.uid,
+    vaultOwnerToken,
+    voiceActive,
+  ]);
 
   const accessMessage = authLoading
     ? "Checking access..."
@@ -1919,7 +2180,7 @@ export function AgentChatWorkspace({
           </div>
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-primary">
-              Agent
+              Kai
             </p>
             <h1
               className={cn(
@@ -1941,18 +2202,6 @@ export function AgentChatWorkspace({
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          <Button
-            type="button"
-            variant={debugOpen ? "secondary" : "outline"}
-            size="icon"
-            className="h-9 w-9"
-            onClick={() => setDebugOpen((current) => !current)}
-            aria-label={debugOpen ? "Hide Agent debug" : "Show Agent debug"}
-            aria-pressed={debugOpen}
-            title={debugOpen ? "Hide Agent debug" : "Show Agent debug"}
-          >
-            <Bug className="h-4 w-4" />
-          </Button>
           <span className="hidden rounded-md border border-border/70 bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground sm:inline-flex">
             {statusText}
           </span>
@@ -1993,7 +2242,7 @@ export function AgentChatWorkspace({
           onDeleteConversation={handleDeleteConversation}
         />
 
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/70 bg-card shadow-sm">
+        <section className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/70 bg-card shadow-sm">
           <div
             className={cn(
               "min-h-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-5",
@@ -2004,13 +2253,6 @@ export function AgentChatWorkspace({
               <div className="rounded-lg border border-border/70 bg-background px-4 py-5 text-sm text-muted-foreground">
                 {accessMessage}
               </div>
-            ) : null}
-
-            {debugOpen ? (
-              <AgentDebugPanel
-                events={latestDebugEvents}
-                onCopyLatest={handleCopyLatestDebug}
-              />
             ) : null}
 
             {messages.map((message) => (
@@ -2033,37 +2275,91 @@ export function AgentChatWorkspace({
             <div ref={messagesEndRef} />
           </div>
 
+          {voiceTranscriptReview ? (
+            <div className="absolute inset-0 z-20 grid place-items-end bg-background/30 p-4 backdrop-blur-[1px] sm:place-items-center">
+              <div
+                className="w-full max-w-sm rounded-md border border-primary/30 bg-background p-4 shadow-xl"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Confirm voice transcript"
+              >
+                <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary">
+                  Confirm voice transcript
+                </p>
+                <p className="mt-2 text-sm text-foreground">
+                  {voiceTranscriptReview.transcript || "I could not hear a clear transcript."}
+                </p>
+                {voiceTranscriptReview.reason ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {voiceTranscriptReview.reason}
+                  </p>
+                ) : null}
+                <div className="mt-3 flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleVoiceTranscriptRetry}
+                  >
+                    Retry
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={!voiceTranscriptReview.transcript.trim()}
+                    onClick={() =>
+                      handleVoiceTranscriptAccepted(voiceTranscriptReview.transcript)
+                    }
+                  >
+                    Continue
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           <form
             onSubmit={handleSubmit}
             className="flex shrink-0 items-center gap-2 border-t border-border/70 bg-background/80 p-3"
           >
-            <input
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              disabled={
-                !hasChatAccess ||
-                isLoadingHistory ||
-                isVoiceConnecting ||
-                voiceActive
-              }
-              placeholder="Ask Agent about markets, portfolio, analysis..."
-              className="h-11 min-w-0 flex-1 rounded-md border border-border/70 bg-background px-4 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/60"
-            />
-            <Button
-              type="button"
-              variant={voiceActive ? "secondary" : "outline"}
-              size="icon"
-              disabled={!canToggleVoice}
-              onClick={handleToggleVoice}
-              aria-label={voiceActive ? "Stop voice session" : "Start voice session"}
-              aria-pressed={voiceActive}
-              title={voiceActive ? "Stop voice session" : "Start voice session"}
-            >
-              {voiceActive ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-            </Button>
-            <Button type="submit" size="icon" disabled={!canSend} aria-label="Send message">
-              <Send className="h-4 w-4" />
-            </Button>
+            {voiceActive ? (
+              <AgentVoiceWaveInput
+                status={voiceState}
+                level={voiceLevel}
+                muted={voiceMuted}
+                disabled={!hasChatAccess || isVoiceConnecting}
+                onToggleMute={handleToggleVoice}
+                onCancel={() => {
+                  void handleCancelVoice();
+                }}
+              />
+            ) : (
+              <>
+                <input
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  disabled={!hasChatAccess || isLoadingHistory || isVoiceConnecting}
+                  placeholder="Ask Agent about markets, portfolio, analysis..."
+                  className="h-11 min-w-0 flex-1 rounded-md border border-border/70 bg-background px-4 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/60"
+                />
+                {agentVoiceEnabled ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    disabled={!canToggleVoice}
+                    onClick={handleToggleVoice}
+                    aria-label="Start voice mode"
+                    title="Start voice mode"
+                  >
+                    <Mic className="h-4 w-4" />
+                  </Button>
+                ) : null}
+                <Button type="submit" size="icon" disabled={!canSend} aria-label="Send message">
+                  <Send className="h-4 w-4" />
+                </Button>
+              </>
+            )}
           </form>
         </section>
       </div>
