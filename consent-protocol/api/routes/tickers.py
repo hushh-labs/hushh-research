@@ -42,7 +42,7 @@ async def search_tickers(q: str = Query(..., min_length=1), limit: int = Query(1
         return results
     except Exception as e:
         logger.error(f"Error searching tickers: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Ticker search failed")
 
 
 @router.get("/all", response_model=List[dict])
@@ -56,7 +56,7 @@ async def all_tickers(refresh: bool = Query(False)):
         return ticker_cache.all()
     except Exception as e:
         logger.error(f"Error returning all tickers: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Ticker lookup failed")
 
 
 @router.get("/cache-status")
@@ -94,4 +94,4 @@ async def sync_tickers_from_holdings(
         return {"success": True, **result}
     except Exception as e:
         logger.error("Error syncing tickers from holdings for %s: %s", user_id, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Holdings sync failed")
