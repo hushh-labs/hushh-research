@@ -34,7 +34,7 @@ export function LiquidGlassContainerDemo() {
           <a
             href="https://unsplash.com/@visaxslr"
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
             className="absolute left-3 top-3 inline-block text-[9px] uppercase tracking-wider text-white/40"
           >
             Photo by @visaxslr

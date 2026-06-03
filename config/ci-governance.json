@@ -1,4 +1,11 @@
 {
+  "branch_flow": {
+    "train_branch": "integration/pr-train",
+    "promotion_branch": "main",
+    "main_allowed_head_branches": [
+      "integration/pr-train"
+    ]
+  },
   "main": {
     "required_status_check": "CI Status Gate",
     "required_approving_reviews": 1,
@@ -8,20 +15,25 @@
     "review_bypass_users": [
       "kushaltrivedi5",
       "RGlodAkshat",
-      "ankitkumarsingh1702"
+      "ankitkumarsingh1702",
+      "azfx"
     ],
+    "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
+    "merge_queue_ruleset_name": "main merge queue",
     "merge_queue_bypass_team_name": "Allowed Maintainers to Approve",
     "merge_queue_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_bypass_users": [
       "kushaltrivedi5",
       "RGlodAkshat",
-      "ankitkumarsingh1702"
+      "ankitkumarsingh1702",
+      "azfx"
     ],
     "protected_pipeline_edit_users": [
       "kushaltrivedi5",
       "RGlodAkshat",
-      "ankitkumarsingh1702"
+      "ankitkumarsingh1702",
+      "azfx"
     ],
     "protected_pipeline_paths": [
       ".github/workflows/",
@@ -29,6 +41,30 @@
       "scripts/ci/",
       "deploy/",
       "config/ci-governance.json"
+    ]
+  },
+  "pr_train": {
+    "required_status_check": "CI Status Gate",
+    "required_approving_reviews": 1,
+    "require_last_push_approval": true,
+    "require_strict_status_checks": true,
+    "require_conversation_resolution": true,
+    "review_bypass_users": [
+      "kushaltrivedi5",
+      "RGlodAkshat",
+      "ankitkumarsingh1702",
+      "azfx"
+    ],
+    "review_bypass_team_slug": "allowed-maintainers-to-approve",
+    "merge_queue_required": true,
+    "merge_queue_ruleset_name": "integration pr train merge queue",
+    "merge_queue_bypass_team_name": "Allowed Maintainers to Approve",
+    "merge_queue_bypass_team_slug": "allowed-maintainers-to-approve",
+    "merge_queue_bypass_users": [
+      "kushaltrivedi5",
+      "RGlodAkshat",
+      "ankitkumarsingh1702",
+      "azfx"
     ]
   },
   "uat": {

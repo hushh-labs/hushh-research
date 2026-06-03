@@ -69,6 +69,7 @@ import {
   type ProfileStackEntry,
 } from "@/components/profile/profile-stack-navigator";
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
+import { RuntimeSecretSettingsCard } from "@/components/profile/runtime-secret-settings-card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   AlertDialog,
@@ -2835,40 +2836,51 @@ function ProfilePageContent() {
   ];
 
   const myDataContent = (
-    <PkmDataManagerPanel
-      signedIn={Boolean(user)}
-      loading={profileManagerLoading}
-      metadataReady={pkmMetadataReady}
-      metadataError={pkmError}
-      sharingReady={consentCenterReady}
-      sharingError={consentCenterError}
-      needsVaultCreation={vaultAccess.needsVaultCreation}
-      needsUnlock={vaultAccess.needsUnlock}
-      summary={profileSummary}
-      domains={domainPresentations}
-      manifestsByDomain={domainManifests}
-      loadingManifestsByDomain={loadingDomainManifests}
-      manifestErrorsByDomain={domainManifestErrors}
-      upgradeStatesByDomain={upgradeStatesByDomain}
-      onOpenSharing={() =>
-        updateProfileView({ panel: "access", detail: null }, "push")
-      }
-      onOpenImport={() => router.push(ROUTES.KAI_IMPORT)}
-      onRefresh={() => {
-        void refreshPkmMetadata(true);
-        void refreshConsentCenter(true);
-        void refreshVisibleDomainManifests(true);
-      }}
-      onOpenDomain={(domain) =>
-        updateProfileView(
-          {
-            panel: "my-data",
-            detail: `domain:${domain.key}`,
-          },
-          "push",
-        )
-      }
-    />
+    <div className="space-y-4 sm:space-y-5">
+      <RuntimeSecretSettingsCard
+        userId={user?.uid}
+        vaultKey={vaultKey}
+        vaultOwnerToken={vaultOwnerToken}
+        needsVaultCreation={vaultAccess.needsVaultCreation}
+        needsUnlock={vaultAccess.needsUnlock}
+        onRequestVaultUnlock={() => requestVaultUnlock("profile_data")}
+        onRequestVaultCreation={() => setShowVaultCreation(true)}
+      />
+      <PkmDataManagerPanel
+        signedIn={Boolean(user)}
+        loading={profileManagerLoading}
+        metadataReady={pkmMetadataReady}
+        metadataError={pkmError}
+        sharingReady={consentCenterReady}
+        sharingError={consentCenterError}
+        needsVaultCreation={vaultAccess.needsVaultCreation}
+        needsUnlock={vaultAccess.needsUnlock}
+        summary={profileSummary}
+        domains={domainPresentations}
+        manifestsByDomain={domainManifests}
+        loadingManifestsByDomain={loadingDomainManifests}
+        manifestErrorsByDomain={domainManifestErrors}
+        upgradeStatesByDomain={upgradeStatesByDomain}
+        onOpenSharing={() =>
+          updateProfileView({ panel: "access", detail: null }, "push")
+        }
+        onOpenImport={() => router.push(ROUTES.KAI_IMPORT)}
+        onRefresh={() => {
+          void refreshPkmMetadata(true);
+          void refreshConsentCenter(true);
+          void refreshVisibleDomainManifests(true);
+        }}
+        onOpenDomain={(domain) =>
+          updateProfileView(
+            {
+              panel: "my-data",
+              detail: `domain:${domain.key}`,
+            },
+            "push",
+          )
+        }
+      />
+    </div>
   );
 
   const accessContent = (
