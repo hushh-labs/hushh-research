@@ -36,6 +36,7 @@ type CacheListener = (event: CacheEvent) => void;
 
 // Default TTL: 5 minutes
 const DEFAULT_TTL = 5 * 60 * 1000;
+const GLOBAL_CACHE_INSTANCE_KEY = "__hushhCacheServiceInstance";
 
 class CacheService {
   private cache = new Map<string, CacheEntry<unknown>>();
@@ -50,9 +51,13 @@ class CacheService {
    * Get the singleton instance
    */
   static getInstance(): CacheService {
-    if (!CacheService.instance) {
-      CacheService.instance = new CacheService();
+    const globalCache = globalThis as typeof globalThis & {
+      [GLOBAL_CACHE_INSTANCE_KEY]?: CacheService | null;
+    };
+    if (!globalCache[GLOBAL_CACHE_INSTANCE_KEY]) {
+      globalCache[GLOBAL_CACHE_INSTANCE_KEY] = CacheService.instance ?? new CacheService();
     }
+    CacheService.instance = globalCache[GLOBAL_CACHE_INSTANCE_KEY] ?? null;
     return CacheService.instance;
   }
 
