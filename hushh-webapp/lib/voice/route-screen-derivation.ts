@@ -83,6 +83,18 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath.startsWith(ROUTES.CONSENTS)) {
     return { screen: "consents", subview: query.get("tab") || null };
   }
+  if (normalizedPath === ROUTES.ONE_KYC) {
+    return { screen: "one_kyc", subview: query.get("panel") || null };
+  }
+  if (normalizedPath.startsWith(ROUTES.MARKETPLACE_RIA_PROFILE)) {
+    return {
+      screen: "marketplace_ria_profile",
+      subview: query.get("riaId") ? "profile" : null,
+    };
+  }
+  if (normalizedPath.startsWith(ROUTES.MARKETPLACE)) {
+    return { screen: "marketplace", subview: query.get("tab") || null };
+  }
   if (
     normalizedPath === ROUTES.PROFILE_PKM_AGENT_LAB ||
     normalizedPath === ROUTES.PROFILE_PKM

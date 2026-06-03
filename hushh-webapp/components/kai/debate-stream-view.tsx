@@ -29,13 +29,14 @@ import {
   DebateRunManagerService,
   type DebateRunTask,
 } from "@/lib/services/debate-run-manager";
+import { showDebateAlreadyRunningToast } from "@/lib/kai/debate-run-notifications";
 import {
   fetchLatestMarketSnapshot,
   getLatestMarketSnapshotFromCache,
   pickPreferredMarketSnapshot,
 } from "@/lib/kai/market-snapshot";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
-import { assignWindowLocation } from "@/lib/utils/browser-navigation";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { trackEvent } from "@/lib/observability/client";
 import {
   getInitialRoundCollapseState,
@@ -1426,12 +1427,16 @@ export function DebateStreamView({
           });
           resolvedTask = ensureResult.task;
           if (ensureResult.kind === "blocked") {
-            toast.error("A debate is already running in this session.", {
+            showDebateAlreadyRunningToast(toast, {
+              level: "error",
               description: "Opening the active run.",
               action: {
                 label: "Open active",
                 onClick: () => {
-                  assignWindowLocation("/kai/analysis");
+                  requestInternalAppNavigation({
+                    href: "/kai/analysis",
+                    scroll: false,
+                  });
                 },
               },
             });

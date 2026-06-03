@@ -1,0 +1,63 @@
+{
+  "id": "desktop-mac",
+  "role": "owner",
+  "owner_family": "desktop-mac",
+  "primary_scope": "desktop-mac-intake",
+  "description": "Use when the request is broadly about the native macOS One app, the LaunchAgent daemon, the on-device knowledge index, the local MCP host, or BYOA agent surfaces on a Mac, and the correct Mac specialist spoke is not yet clear.",
+  "owned_paths": [
+    "apps/one-mac",
+    "docs/future/one-mac-knowledge-base-app.md"
+  ],
+  "non_owned_paths": [
+    "mobile-native",
+    "backend",
+    "docs-governance"
+  ],
+  "task_types": [
+    "new-feature-tri-flow",
+    "release-readiness"
+  ],
+  "required_reads": [
+    "docs/future/one-mac-knowledge-base-app.md",
+    "apps/one-mac/README.md",
+    "docs/future/README.md"
+  ],
+  "required_commands": [
+    "./bin/hushh native mac build",
+    "./bin/hushh native mac test",
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+  ],
+  "verification_bundles": [
+    {
+      "id": "desktop-mac-core",
+      "commands": [
+        "./bin/hushh native mac build",
+        "./bin/hushh native mac test"
+      ],
+      "tests": [
+        "./bin/hushh native mac test"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "desktop-mac-connectors",
+    "desktop-mac-mcp-host",
+    "vault-pkm-governance",
+    "mcp-developer-surface",
+    "hushh-consent-mcp",
+    "repo-context"
+  ],
+  "adjacent_skills": [
+    "mobile-native",
+    "vault-pkm-governance",
+    "mcp-developer-surface",
+    "hushh-consent-mcp",
+    "iam-consent-governance",
+    "oss-license-governance"
+  ],
+  "risk_tags": [
+    "desktop-mac-host-drift",
+    "openclaw-conformance-drift",
+    "byoa-agent-trust-drift"
+  ]
+}
