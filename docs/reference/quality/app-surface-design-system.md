@@ -35,15 +35,33 @@ Rules:
    - deletion and revocation
    - suspicious-access or trust-state warnings
 5. Route navigation action ids use `route.*`. The `nav.*` namespace is reserved for true Nav guardian actions, not navigation.
-6. KYC owns explicit identity/KYC workflow copy:
-   - requirements and missing-document state
+6. Email Helper owns approval-gated email replies:
+   - plain-language information-needed state
+   - selectable data sections
    - approval-gated drafts
-   - workflow status
-   - structured PKM writeback summaries
+   - sent-reply summaries
+   - hidden workflow/writeback metadata
+   - Gmail-safe plaintext and HTML generated through the shared client renderer
 7. Local voice/action contracts must set `speaker_persona` to `one`, `kai`, `nav`, or `kyc` using the same ownership rules.
 8. Actions executed by a specialist on behalf of One should set `delegate_agent_id` to `kai`, `nav`, or `kyc`.
 9. Persona switching changes the workspace context. It does not change the top relationship agent; One stays the default shell voice.
 10. Canonical app copy uses neutral voice descriptors. Do not encode celebrity references or personal numeric preferences in maintained UI copy or docs.
+
+## Consumer Copy Contract
+
+Persona-facing surfaces are for everyday users, not implementers.
+
+Rules:
+
+1. Use plain labels such as `Personal Data`, `saved details`, `sharing`, and `access`.
+2. Do not expose implementation terms in consumer UI, including `PKM`, `manifest`, `schema`, `export`, `token`, `runtime`, `debug`, `dummy save`, route names, correlation ids, thread ids, workflow ids, consent ids, hashes, timings, or raw provider errors.
+3. Background notifications must summarize what the user can understand or do. Diagnostics belong in logs, metadata, developer routes, or an explicit debug-only view.
+4. Error copy should explain the next user action. Keep low-level failure details out of visible app text unless the route is explicitly developer-facing.
+5. Route links from consumer notifications must point to consumer surfaces such as Profile, Personal Data, Access Center, or the relevant workspace, not labs or raw explorer tools.
+6. Row-level saves, deletes, refreshes, and short-lived failures must use the shadcn Sonner notification stack. Do not add inline route banners for transient row actions because they shift page layout and create loading bounce.
+7. Destructive actions must use the shadcn AlertDialog confirmation pattern before mutation. Keep the in-flight state inside the dialog or the initiating row action, not as a page-level loader.
+8. Email Helper draft previews must not expose raw data structure terms such as `changes`, `entities`, hashes, provenance, parser metadata, or internal ids. Use readable sections, facts, and tables from the approved render model.
+9. Dense email tables, especially portfolios and holdings, should remain complete and readable on mobile through horizontal scrolling. Do not force all table columns to fit the viewport when that creates overlap.
 
 ## Shell Contract
 
@@ -112,6 +130,10 @@ Rules:
    - actions
    - full-width description
 15. `actionsInlineMobile` is reserved for short utility headers; do not use it on primary route headers with full-width descriptive copy.
+16. The three-part eyebrow/title/description composition belongs to the primary page header only. Body sections must not recreate page-header hierarchy.
+17. Body section subheaders must use the shared compact section scale through `SectionHeader` or `SettingsGroup`: larger than row/body text, smaller than the page title, and independent of global `h1`/`h2` element rules.
+18. Shared body section primitives must expose accessible compact headings with `role="heading"` and `aria-level`; they must not render raw `h2` elements that can inherit page-scale global heading rules.
+19. Settings-style body sections may show a short eyebrow inline with the section title and one optional supporting line. They must not stack eyebrow, title, and description as three separate lines.
 
 ## Row and Card Interaction Contract
 
@@ -271,6 +293,14 @@ Use the `Subtle Apple` depth model:
    - critical params
 4. Visibility and interval refreshes should be stale-aware, not unconditional.
 5. Unlock warmup can seed cache, but route loaders must still own stale-refresh policy.
+6. New or changed screens must stay covered by `cd hushh-webapp && npm run audit:cache-coherence`.
+7. Performance is part of the UX contract:
+   - use the safest available render path before showing a blocking loader
+   - preserve stale safe content while refresh runs
+   - avoid bounce or blank reload effects when a warm snapshot exists
+   - emit bounded route/cache KPI metadata for route readiness and refresh outcomes
+8. Cache and performance events must be consumer-safe metadata only. Never log raw user values, PKM payloads, workflow IDs, portfolio values, prompts, or cache keys.
+9. If a route cannot render from cache safely, the loading state must explain the real user-facing reason, such as locked vault, first setup, or reconnect needed.
 
 ## Icon Policy
 

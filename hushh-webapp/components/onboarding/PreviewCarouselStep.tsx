@@ -179,9 +179,9 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
         "min-h-[100dvh] w-full bg-transparent flex flex-col"
       )}
     >
-      <div className="w-full min-h-[100dvh] px-4 pt-6 pb-[var(--app-screen-footer-pad)]">
+      <div className="w-full min-h-[100dvh] px-4 pt-[calc(16px+var(--app-safe-area-top-effective,0px))] pb-[var(--app-screen-footer-pad)]">
         <div className="relative mx-auto flex h-full w-full flex-col">
-          <div className="absolute right-0 top-0 z-10">
+          <div className="z-10 flex justify-end" style={{ paddingRight: "4rem" }}>
             <Button
               variant="blue-gradient"
               effect="fade"
@@ -199,7 +199,7 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
             className={cn(
               "w-full mx-auto text-center flex flex-col justify-end gap-3",
               // Keep copy + spacing responsive without clipping on larger screens.
-              "min-h-[clamp(168px,22vh,248px)] pt-8",
+              "min-h-[clamp(148px,20vh,220px)] pt-5",
               "sm:max-w-lg"
             )}
           >
@@ -233,8 +233,8 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
                   </CarouselItem>
                 ))}
               </CarouselContent>
-              <CarouselPrevious className="left-2 border border-[var(--morphy-primary-start)]/25 bg-gradient-to-r from-[var(--morphy-primary-start)]/14 to-[var(--morphy-primary-end)]/14 text-[var(--morphy-primary-start)] backdrop-blur-sm transition-colors hover:from-[var(--morphy-primary-start)]/20 hover:to-[var(--morphy-primary-end)]/20 disabled:border-border/60 disabled:bg-muted/70 disabled:text-muted-foreground disabled:opacity-100" />
-              <CarouselNext className="right-2 border border-[var(--morphy-primary-start)]/25 bg-gradient-to-r from-[var(--morphy-primary-start)]/14 to-[var(--morphy-primary-end)]/14 text-[var(--morphy-primary-start)] backdrop-blur-sm transition-colors hover:from-[var(--morphy-primary-start)]/20 hover:to-[var(--morphy-primary-end)]/20 disabled:border-border/60 disabled:bg-muted/70 disabled:text-muted-foreground disabled:opacity-100" />
+              <CarouselPrevious aria-label="Previous slide" className="left-2 border border-[var(--morphy-primary-start)]/25 bg-gradient-to-r from-[var(--morphy-primary-start)]/14 to-[var(--morphy-primary-end)]/14 text-[var(--morphy-primary-start)] backdrop-blur-sm transition-colors hover:from-[var(--morphy-primary-start)]/20 hover:to-[var(--morphy-primary-end)]/20 disabled:border-border/60 disabled:bg-muted/70 disabled:text-muted-foreground disabled:opacity-100" />
+              <CarouselNext aria-label="Next slide" className="right-2 border border-[var(--morphy-primary-start)]/25 bg-gradient-to-r from-[var(--morphy-primary-start)]/14 to-[var(--morphy-primary-end)]/14 text-[var(--morphy-primary-start)] backdrop-blur-sm transition-colors hover:from-[var(--morphy-primary-start)]/20 hover:to-[var(--morphy-primary-end)]/20 disabled:border-border/60 disabled:bg-muted/70 disabled:text-muted-foreground disabled:opacity-100" />
             </Carousel>
           </div>
 

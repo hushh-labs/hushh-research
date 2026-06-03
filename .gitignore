@@ -3,6 +3,7 @@ iwebtechno-code/
 hushh-adk-agents/
 consent-protocol-old/
 hushh_starter_idea.md
+graphify-out/
 
 # Editor/IDE
 .idea/
@@ -86,10 +87,26 @@ continue-dev-tools-usage.md
 temp/
 tmp/
 .playwright-artifacts/
+.playwright-mcp/
 /test-results/
 hushh-webapp/test-results/
 hushh-webapp/npm-audit-report.json
+hushh-webapp/native-ios-screenshots/
 **/build.log
+
+# Local debug/runtime artifacts
+*.tsbuildinfo
+*.stackdump
+*.pid
+*.seed
+*.pid.lock
+
+# Runtime-generated PKM debug logs
+**/pkm-debug.log*
+**/pkm-debug-*.log*
+**/pkm-debug-*.jsonl
+**/pkm-debug-*.ndjson
+**/.pkm-debug/
 
 # Generated native/build artifacts
 hushh-webapp/.next/
@@ -113,6 +130,13 @@ Personal_Tasks/
 *.key
 *credentials*.json
 *secret*.json
+
+# Private partner gateway handoff material
+deploy/mulesoft/
+docs/reference/operations/mulesoft-managed-omni-private-space.md
+**/vpn-guides/
+**/*vpn*guide*
+**/*private-space*handoff*
 
 # Local validation scripts
 test_kai_endpoints.py
