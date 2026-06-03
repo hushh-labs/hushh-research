@@ -377,7 +377,6 @@ export function PopupTextEditorField({
         <label htmlFor={textareaId} className="sr-only">
           {typeof title === "string" ? title : placeholder}
         </label>
-
         <Textarea
           id={textareaId}
           value={draft}
