@@ -9,6 +9,7 @@ graphify-out/
 .idea/
 .cursor/
 .mcp.json
+.claude/projects/
 *.swp
 *.swo
 *.swx
