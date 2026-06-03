@@ -110,6 +110,7 @@ from api.routes import (  # noqa: E402
     debug_firebase,
     developer,
     health,
+    mobile_sync,
     notifications,
     session,
     sse,
@@ -238,6 +239,9 @@ app.include_router(db_proxy.router)
 
 # SSE routes for real-time consent notifications (/api/consent/events/...)
 app.include_router(sse.router)
+
+# Mobile sync endpoint (/sync/consent-state)
+app.include_router(mobile_sync.router)
 
 # Push notification token registration (/api/notifications/register)
 app.include_router(notifications.router)
