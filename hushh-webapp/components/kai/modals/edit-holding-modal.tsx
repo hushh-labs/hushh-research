@@ -412,11 +412,12 @@ export function EditHoldingModal({
         <div className="px-4 py-2 space-y-4 max-h-[60vh] overflow-y-auto">
           {/* Symbol */}
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label htmlFor="holding-symbol" className="block text-sm font-medium mb-1">
               Symbol <span className="text-red-500">*</span>
             </label>
             <div ref={symbolInputWrapRef} className="relative">
               <input
+                id="holding-symbol"
                 type="text"
                 value={formData.symbol}
                 onChange={(e) => handleChange("symbol", e.target.value.toUpperCase())}
