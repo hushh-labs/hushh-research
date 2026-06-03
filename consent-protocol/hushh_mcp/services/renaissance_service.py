@@ -202,7 +202,7 @@ class RenaissanceService:
             return False, None
 
         except Exception as e:
-            logger.error(f"Error checking Renaissance universe: {e}")
+            logger.error("Error checking Renaissance universe: %s", e, exc_info=True)
             return False, None
 
     async def get_tier_weight(self, ticker: str) -> float:
@@ -234,12 +234,12 @@ class RenaissanceService:
                     investment_thesis=row.get("investment_thesis", ""),
                     tier_rank=row.get("tier_rank", 0),
                 )
-                for row in response.data
+                for row in (response.data or [])
                 if self._is_supported_symbol(row["ticker"])
             ]
 
         except Exception as e:
-            logger.error(f"Error getting all investable stocks: {e}")
+            logger.error("Error getting all investable stocks: %s", e, exc_info=True)
             return []
 
     async def get_by_tier(self, tier: str) -> list[RenaissanceStock]:
@@ -263,12 +263,12 @@ class RenaissanceService:
                     investment_thesis=row.get("investment_thesis", ""),
                     tier_rank=row.get("tier_rank", 0),
                 )
-                for row in response.data
+                for row in (response.data or [])
                 if self._is_supported_symbol(row["ticker"])
             ]
 
         except Exception as e:
-            logger.error(f"Error getting tier {tier}: {e}")
+            logger.error("Error getting tier %s: %s", tier, e, exc_info=True)
             return []
 
     async def get_by_sector(self, sector: str) -> list[RenaissanceStock]:
@@ -292,12 +292,12 @@ class RenaissanceService:
                     investment_thesis=row.get("investment_thesis", ""),
                     tier_rank=row.get("tier_rank", 0),
                 )
-                for row in response.data
+                for row in (response.data or [])
                 if self._is_supported_symbol(row["ticker"])
             ]
 
         except Exception as e:
-            logger.error(f"Error getting sector {sector}: {e}")
+            logger.error("Error getting sector %s: %s", sector, e, exc_info=True)
             return []
 
     async def get_avoid_context(self, ticker: str) -> dict:
@@ -315,11 +315,12 @@ class RenaissanceService:
                 self.db.table("renaissance_avoid")
                 .select("*")
                 .eq("ticker", ticker.upper())
-                .single()
+                .limit(1)
                 .execute()
             )
-            if response.data:
-                row = response.data[0] if isinstance(response.data, list) else response.data
+            rows = response.data or []
+            if rows:
+                row = rows[0]
                 return {
                     "is_avoid": True,
                     "ticker": row.get("ticker", ticker.upper()),

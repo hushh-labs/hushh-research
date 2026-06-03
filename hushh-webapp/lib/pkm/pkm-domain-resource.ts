@@ -48,6 +48,10 @@ interface PreparedDomainWriteContext {
   expectedDataVersion: number | undefined;
 }
 
+function hasUserConsent(params: { vaultOwnerToken?: string | null }): boolean {
+  return Boolean(String(params.vaultOwnerToken || "").trim());
+}
+
 function normalizeSegmentIds(segmentIds?: string[]): string[] {
   return [...new Set((segmentIds || []).map((segmentId) => String(segmentId || "").trim().toLowerCase()).filter(Boolean))];
 }
@@ -125,7 +129,11 @@ function hydrateMemory(params: {
   domain: string;
   segmentIds?: string[];
   snapshot: PkmDomainResourceSnapshot;
+  canWriteCache?: boolean;
 }): PkmDomainResourceSnapshot {
+  if (params.canWriteCache === false) {
+    return params.snapshot;
+  }
   const cache = CacheService.getInstance();
   const cacheKey = toCacheKey(params);
   cache.set(cacheKey, params.snapshot, CACHE_TTL.SESSION);
@@ -169,6 +177,7 @@ export class PkmDomainResourceService {
       userId: params.userId,
       domain: params.domain,
       segmentIds: params.segmentIds,
+      canWriteCache: hasUserConsent(params),
       snapshot: {
         ...snapshot,
         audit: {
@@ -197,15 +206,23 @@ export class PkmDomainResourceService {
     const cachedBlobRevision = peekCachedBlobRevision(params);
 
     if (!params.forceRefresh && cached?.data) {
-      if (
-        cachedBlobRevision !== null &&
-        cached.data.key.contentRevision !== null &&
-        cached.data.key.contentRevision === cachedBlobRevision
-      ) {
+      if (cachedBlobRevision !== null) {
+        if (cached.data.key.contentRevision !== cachedBlobRevision) {
+          logRequest("revision_miss", {
+            userId: params.userId,
+            domain: params.domain,
+            segmentSignature: segmentSignature(params.segmentIds),
+            cachedRevision: cached.data.key.contentRevision,
+            liveRevision: cachedBlobRevision,
+            tier: "memory",
+          });
+          return await this.refresh(params);
+        }
         logRequest("revision_match_hit", {
           userId: params.userId,
           domain: params.domain,
           segmentSignature: segmentSignature(params.segmentIds),
+          tier: "memory",
         });
         return cached.data;
       }
@@ -235,7 +252,7 @@ export class PkmDomainResourceService {
     if (!params.forceRefresh) {
       const secure = await this.hydrateFromSecureCache(params);
       if (secure) {
-        if (cachedBlobRevision !== null && secure.key.contentRevision !== null) {
+        if (cachedBlobRevision !== null) {
           if (secure.key.contentRevision !== cachedBlobRevision) {
             logRequest("revision_miss", {
               userId: params.userId,
@@ -244,15 +261,15 @@ export class PkmDomainResourceService {
               cachedRevision: secure.key.contentRevision,
               liveRevision: cachedBlobRevision,
             });
-          } else {
-            logRequest("revision_match_hit", {
-              userId: params.userId,
-              domain: params.domain,
-              segmentSignature: segmentSignature(params.segmentIds),
-              tier: "device",
-            });
-            return secure;
+            return await this.refresh(params);
           }
+          logRequest("revision_match_hit", {
+            userId: params.userId,
+            domain: params.domain,
+            segmentSignature: segmentSignature(params.segmentIds),
+            tier: "device",
+          });
+          return secure;
         }
         if (params.backgroundRefresh !== false) {
           void this.refresh(params);
@@ -273,9 +290,17 @@ export class PkmDomainResourceService {
   static async prepareDomainWriteContext(
     params: PkmDomainResourceParams
   ): Promise<PreparedDomainWriteContext> {
+    const cachedBlob = PersonalKnowledgeModelService.peekCachedDomainBlob(
+      params.userId,
+      params.domain
+    );
     const memory = this.peek(params)?.data ?? null;
+    const memoryMatchesBlob =
+      !memory ||
+      typeof cachedBlob?.dataVersion !== "number" ||
+      memory.key.contentRevision === cachedBlob.dataVersion;
     const snapshot =
-      memory ??
+      (memoryMatchesBlob ? memory : null) ??
       (params.vaultKey
         ? await this.getStaleFirst({
             ...params,
@@ -284,10 +309,6 @@ export class PkmDomainResourceService {
         : null);
 
     const domainData = toRecord(snapshot?.data ?? null);
-    const cachedBlob = PersonalKnowledgeModelService.peekCachedDomainBlob(
-      params.userId,
-      params.domain
-    );
     const expectedDataVersion =
       snapshot?.key.contentRevision ??
       (typeof cachedBlob?.dataVersion === "number" ? cachedBlob.dataVersion : undefined);
@@ -347,15 +368,18 @@ export class PkmDomainResourceService {
           userId: params.userId,
           domain: params.domain,
           segmentIds: params.segmentIds,
+          canWriteCache: hasUserConsent(params),
           snapshot,
         });
-        await SecureResourceCacheService.write({
-          userId: params.userId,
-          resourceKey: toDeviceResourceKey(params),
-          value: snapshot,
-          ttlMs: DEVICE_TTL_MS,
-          vaultKey: params.vaultKey!,
-        });
+        if (hasUserConsent(params)) {
+          await SecureResourceCacheService.write({
+            userId: params.userId,
+            resourceKey: toDeviceResourceKey(params),
+            value: snapshot,
+            ttlMs: DEVICE_TTL_MS,
+            vaultKey: params.vaultKey!,
+          });
+        }
         return snapshot;
       })
       .catch((error) => {

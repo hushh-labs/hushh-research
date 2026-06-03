@@ -14,8 +14,8 @@ from urllib import request
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-DEFAULT_MCP_URL = "https://hussh-mcp-ci75e66ukq-ue.a.run.app/mcp"
-TOKEN_ENV = "HUSSH_FOUNDER_WIKI_MCP_TOKEN"
+DEFAULT_MCP_URL = "https://mcp.hushh.ai/mcp"
+TOKEN_ENV = "HUSHH_FOUNDER_WIKI_MCP_TOKEN"
 ANONYMOUS_PUBLIC_PAGE_COUNT = 77
 ANONYMOUS_TOOL_COUNT = 8
 

@@ -55,3 +55,9 @@ echo "==> native route audit"
 IOS_TEST_DESTINATION="$DESTINATION" \
 IOS_DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
   node ./scripts/native/ios-route-audit.mjs
+
+echo "==> native UI interaction audit"
+IOS_TEST_DESTINATION="$DESTINATION" \
+IOS_DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
+IOS_UI_INTERACTION_SKIP_BUILD=true \
+  node ./scripts/native/ios-ui-interaction-audit.mjs
