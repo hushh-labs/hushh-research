@@ -111,6 +111,20 @@ jobs:
           GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: bash scripts/ci/check-dco-signoff.sh
 
+  pr-base-policy:
+    name: "PR Base Policy"
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify PR target branch policy
+        run: |
+          python3 scripts/ci/verify-pr-base-policy.py \
+            --base-ref "${{ github.event.pull_request.base.ref }}" \
+            --head-ref "${{ github.event.pull_request.head.ref }}"
+
   repo-governance:
     name: "Governance"
     runs-on: ubuntu-latest
@@ -289,8 +303,8 @@ jobs:
         run: bash scripts/ci/subtree-sync-check.sh
 
   main-freshness-gate:
-    name: "Main Freshness Gate"
-    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    name: "Base Freshness Gate"
+    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -299,10 +313,10 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Verify branch freshness against origin/main
+      - name: Verify branch freshness against PR base
         env:
           MAIN_SYNC_REMOTE: origin
-          MAIN_SYNC_BRANCH: main
+          MAIN_SYNC_BRANCH: ${{ github.base_ref }}
           MAIN_SYNC_MODE: warn
           MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: sh scripts/git/check-main-sync.sh
@@ -312,6 +326,7 @@ jobs:
     needs:
       - secret-scan
       - dco-check
+      - pr-base-policy
       - repo-governance
       - paths
       - web-check
@@ -327,6 +342,7 @@ jobs:
         run: |
           SECRET_SCAN="${{ needs['secret-scan'].result }}"
           DCO="${{ needs['dco-check'].result }}"
+          PR_BASE_POLICY="${{ needs['pr-base-policy'].result }}"
           REPO_GOVERNANCE="${{ needs['repo-governance'].result }}"
           PATHS="${{ needs.paths.result }}"
           WEB="${{ needs['web-check'].result }}"
@@ -336,6 +352,7 @@ jobs:
 
           printf 'secret-scan=%s\n' "$SECRET_SCAN"
           printf 'dco-check=%s\n' "$DCO"
+          printf 'pr-base-policy=%s\n' "$PR_BASE_POLICY"
           printf 'repo-governance=%s\n' "$REPO_GOVERNANCE"
           printf 'paths=%s\n' "$PATHS"
           printf 'web-check=%s\n' "$WEB"
@@ -344,7 +361,7 @@ jobs:
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
           fail=0
-          for result in "$SECRET_SCAN" "$DCO" "$REPO_GOVERNANCE" "$PATHS" "$WEB" "$PROTOCOL" "$INTEGRATION" "$MAIN_FRESHNESS"; do
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$WEB" "$PROTOCOL" "$INTEGRATION" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi
