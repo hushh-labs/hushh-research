@@ -6,6 +6,7 @@ import { VoiceAmbientSearchSurface } from "@/components/kai/voice/voice-ambient-
 
 vi.mock("lucide-react", () => ({
   AlertCircle: () => null,
+  Bug: () => null,
   Check: () => null,
   Loader2: () => null,
   Mic: () => null,
@@ -58,6 +59,21 @@ describe("voice-ambient-search-surface", () => {
 
     expect(props.onMicToggle).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Analyze Nvidia")).toBeNull();
+  });
+
+  it("can place voice debug beside the microphone without opening search", () => {
+    const onDebugToggle = vi.fn();
+    const onOpenSearch = vi.fn();
+    renderSurface({
+      showDebug: true,
+      onDebugToggle,
+      onOpenSearch,
+    });
+
+    fireEvent.click(screen.getByLabelText("Open voice debug"));
+
+    expect(onDebugToggle).toHaveBeenCalledTimes(1);
+    expect(onOpenSearch).not.toHaveBeenCalled();
   });
 
   it("renders listening state inside the searchbar footprint", () => {

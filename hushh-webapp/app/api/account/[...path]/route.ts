@@ -42,9 +42,12 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     if (authHeader) headers.set("Authorization", authHeader);
 
     let body: BodyInit | undefined;
-    if (request.method !== "GET" && request.method !== "DELETE") {
-      headers.set("Content-Type", contentType || "application/json");
-      body = await request.text();
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      const requestBody = await request.text();
+      if (requestBody.length > 0) {
+        headers.set("Content-Type", contentType || "application/json");
+        body = requestBody;
+      }
     }
 
     const response = await fetch(url, {

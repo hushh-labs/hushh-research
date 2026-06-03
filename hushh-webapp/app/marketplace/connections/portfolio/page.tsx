@@ -1,18 +1,11 @@
-import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
-import { buildMarketplaceConnectionPortfolioRoute } from "@/lib/navigation/routes";
+import ConnectionPortfolioCompatibilityPageClient from "./page-client";
 
-type SearchParamsInput = Record<string, string | string[] | undefined>;
-
-function firstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] || "" : value || "";
-}
-
-export default function ConnectionPortfolioCompatibilityPage({
-  searchParams,
-}: {
-  searchParams?: SearchParamsInput;
-}) {
-  const connectionId = firstParam(searchParams?.connectionId).trim();
-  redirect(buildMarketplaceConnectionPortfolioRoute(connectionId));
+export default function ConnectionPortfolioCompatibilityPage() {
+  return (
+    <Suspense fallback={null}>
+      <ConnectionPortfolioCompatibilityPageClient />
+    </Suspense>
+  );
 }

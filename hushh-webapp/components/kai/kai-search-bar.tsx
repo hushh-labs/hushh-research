@@ -1,5 +1,6 @@
 "use client";
 
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import {
   useCallback,
   useEffect,
@@ -9,7 +10,7 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { Bug } from "lucide-react";
+import { Bot, Mic, Search, X } from "lucide-react";
 
 import {
   KaiCommandPalette,
@@ -20,6 +21,8 @@ import {
   type VoiceAmbientMode,
 } from "@/components/kai/voice/voice-ambient-search-surface";
 import { VoiceDebugDrawer } from "@/components/kai/voice/voice-debug-drawer";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { KAI_COMMAND_BAR_OPEN_EVENT } from "@/lib/navigation/kai-command-bar-events";
@@ -53,6 +56,7 @@ import type {
 } from "@/lib/voice/voice-types";
 
 type VoiceVisibilityMode = "enabled" | "disabled" | "hidden";
+type SearchSurfaceVariant = "kai" | "ria";
 
 const DEFAULT_TTS_VOICE =
   String(process.env.NEXT_PUBLIC_KAI_VOICE_TTS_VOICE || "alloy").trim() ||
@@ -86,6 +90,7 @@ interface KaiSearchBarProps {
   appRuntimeState?: AppRuntimeState;
   onTtsPlayingChange?: (playing: boolean) => void;
   voiceContext?: Record<string, unknown>;
+  surfaceVariant?: SearchSurfaceVariant;
   portfolioTickers?: Array<{
     symbol: string;
     name?: string;
@@ -306,10 +311,13 @@ export function KaiSearchBar({
   appRuntimeState,
   onTtsPlayingChange,
   voiceContext,
+  surfaceVariant = "kai",
   portfolioTickers = [],
 }: KaiSearchBarProps) {
   const { getVaultOwnerToken, vaultKey } = useVault();
+  const agentPopover = useOptionalAgentPopover();
   const [open, setOpen] = useState(false);
+  const [voiceDebugOpen, setVoiceDebugOpen] = useState(false);
   const [voiceUiState, setVoiceUiState] = useState<VoiceUiState>("idle");
   const [voiceErrorMessage, setVoiceErrorMessage] = useState<string | null>(
     null,
@@ -325,6 +333,11 @@ export function KaiSearchBar({
   const [lastReplyText, setLastReplyText] = useState<string>("");
   const [micPermissionStatus, setMicPermissionStatus] =
     useState<string>("unknown");
+    // If the text is stored in finalTranscript:
+const debouncedSearch = useDebouncedValue(finalTranscript, 500);
+
+// OR, if there is a standard text input state further down like 'query':
+// const debouncedSearch = useDebouncedValue(query, 500);
   const [stableMicDisabledReason, setStableMicDisabledReason] = useState<
     string | null
   >(null);
@@ -1627,6 +1640,30 @@ export function KaiSearchBar({
   const commandBarBottomOffset =
     "calc(var(--app-bottom-inset) + var(--kai-command-bottom-gap, 18px))";
   const visibleCommandBarBottomOffset = `calc(${commandBarBottomOffset} - (${hideBottomChromeProgress} * var(--app-bottom-fixed-ui, 0px)))`;
+  const isRiaSurface = surfaceVariant === "ria";
+  const riaVoiceActive = ambientMode !== "idle";
+  const riaVoiceDisabled =
+    !riaVoiceActive && (disabled || micDisabled || voiceVisibilityMode === "hidden");
+  const handleRiaVoiceClick = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      if (riaVoiceDisabled) {
+        toast.info(stableMicDisabledReason || "Voice is unavailable right now.");
+        return;
+      }
+      if (riaVoiceActive) {
+        cancelListening();
+        return;
+      }
+      handleMicTap(event);
+    },
+    [
+      cancelListening,
+      handleMicTap,
+      riaVoiceActive,
+      riaVoiceDisabled,
+      stableMicDisabledReason,
+    ],
+  );
 
   return (
     <>
@@ -1644,55 +1681,111 @@ export function KaiSearchBar({
           ref={barRef}
           className="pointer-events-auto w-full max-w-[360px] sm:max-w-[392px]"
         >
-          <VoiceAmbientSearchSurface
-            mode={ambientMode}
-            placeholder="Analyze, dashboard, consent with Kai"
-            transcriptPreview={transcriptPreview}
-            stageText={processingStageText}
-            replyText={
-              showSpeakingCompact || showRetryCompact
-                ? lastReplyText || finalTranscript
-                : finalTranscript
-            }
-            smoothedLevel={smoothedLevel}
-            disabled={disabled}
-            showMic={!micHidden}
-            micDisabled={micDisabled}
-            micDisabledReason={stableMicDisabledReason}
-            showSubmit={
-              VOICE_V2_FLAGS.submitDebugVisible &&
-              (showVoiceSheet || realtimeConnecting)
-            }
-            submitEnabled={
-              VOICE_V2_FLAGS.submitDebugVisible && realtimeSessionReady
-            }
-            ttsPlaying={ttsPlaybackState === "playing"}
-            pendingConfirmation={Boolean(
-              showRetryCompact && pendingConfirmation,
-            )}
-            onOpenSearch={() => setOpen(true)}
-            onMicToggle={handleMicTap}
-            onMuteToggle={toggleMuteListening}
-            onSubmit={submitDebugTurn}
-            onEnd={cancelListening}
-            onStopSpeaking={handleStopSpeaking}
-            onReplay={
-              showSpeakingCompact || showRetryCompact ? handleReplay : undefined
-            }
-            onRetry={
-              showRetryCompact && !pendingConfirmation ? handleRetry : undefined
-            }
-            onConfirm={
-              showRetryCompact && pendingConfirmation
-                ? handleConfirmPending
-                : undefined
-            }
-            onCancel={
-              showRetryCompact && pendingConfirmation
-                ? handleCancelPending
-                : undefined
-            }
-          />
+          {isRiaSurface ? (
+            <div
+              className="grid grid-cols-3 gap-1.5 rounded-full border border-[color:var(--app-shell-surface-border)] bg-[color:var(--app-shell-surface-bg)] bg-[image:var(--app-shell-surface-fill)] p-1 shadow-[var(--app-shell-surface-shadow)] backdrop-blur-[var(--app-shell-surface-blur)]"
+              data-testid="ria-action-bar"
+            >
+              <ShellActionSurface
+                variant="pill"
+                wrapperClassName="w-full"
+                className="h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]"
+                contentClassName="gap-1.5"
+                aria-label="Search RIA workspace"
+                onClick={() => setOpen(true)}
+              >
+                <Search className="h-4 w-4 shrink-0" />
+                <span className="truncate">Search</span>
+              </ShellActionSurface>
+              <ShellActionSurface
+                variant="pill"
+                wrapperClassName="w-full"
+                contentClassName="gap-1.5"
+                aria-label={riaVoiceActive ? "End RIA voice session" : "Start RIA voice"}
+                aria-disabled={riaVoiceDisabled}
+                className={cn(
+                  "h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]",
+                  riaVoiceDisabled && "opacity-60"
+                )}
+                onClick={handleRiaVoiceClick}
+              >
+                {riaVoiceActive ? (
+                  <X className="h-4 w-4 shrink-0" />
+                ) : (
+                  <Mic className="h-4 w-4 shrink-0" />
+                )}
+                <span className="truncate">Voice</span>
+              </ShellActionSurface>
+              <ShellActionSurface
+                variant="pill"
+                wrapperClassName="w-full"
+                className="h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]"
+                contentClassName="gap-1.5"
+                aria-label="Open Agent"
+                disabled={!agentPopover}
+                onClick={() => agentPopover?.openAgent()}
+              >
+                <Bot className="h-4 w-4 shrink-0" />
+                <span className="truncate">Agent</span>
+              </ShellActionSurface>
+            </div>
+          ) : (
+            <VoiceAmbientSearchSurface
+              mode={ambientMode}
+              placeholder="Analyze, dashboard, consent with Kai"
+              transcriptPreview={transcriptPreview}
+              stageText={processingStageText}
+              replyText={
+                showSpeakingCompact || showRetryCompact
+                  ? lastReplyText || debouncedSearch
+                  : debouncedSearch
+              }
+              smoothedLevel={smoothedLevel}
+              disabled={disabled}
+              showMic={!micHidden}
+              micDisabled={micDisabled}
+              micDisabledReason={stableMicDisabledReason}
+              showDebug={DEV_VOICE_DEBUG_ENABLED}
+              debugActive={voiceDebugOpen}
+              showSubmit={
+                VOICE_V2_FLAGS.submitDebugVisible &&
+                (showVoiceSheet || realtimeConnecting)
+              }
+              submitEnabled={
+                VOICE_V2_FLAGS.submitDebugVisible && realtimeSessionReady
+              }
+              ttsPlaying={ttsPlaybackState === "playing"}
+              pendingConfirmation={Boolean(
+                showRetryCompact && pendingConfirmation,
+              )}
+              onOpenSearch={() => setOpen(true)}
+              onMicToggle={handleMicTap}
+              onDebugToggle={(event) => {
+                event.stopPropagation();
+                setVoiceDebugOpen((current) => !current);
+              }}
+              onMuteToggle={toggleMuteListening}
+              onSubmit={submitDebugTurn}
+              onEnd={cancelListening}
+              onStopSpeaking={handleStopSpeaking}
+              onReplay={
+                showSpeakingCompact || showRetryCompact ? handleReplay : undefined
+              }
+              onRetry={
+                showRetryCompact && !pendingConfirmation ? handleRetry : undefined
+              }
+              onConfirm={
+                showRetryCompact && pendingConfirmation
+                  ? handleConfirmPending
+                  : undefined
+              }
+              onCancel={
+                showRetryCompact && pendingConfirmation
+                  ? handleCancelPending
+                  : undefined
+              }
+            />
+          )}
           {voiceErrorMessage ? (
             <p className="mt-1 text-center text-[10px] text-destructive">
               {voiceErrorMessage}
@@ -1727,17 +1820,10 @@ export function KaiSearchBar({
           voiceAvailable ? "available" : voiceUnavailableReason || "unavailable"
         }
         mobilePlacement="above-searchbar"
+        open={voiceDebugOpen}
+        onOpenChange={setVoiceDebugOpen}
+        showTrigger={false}
       />
-
-      {DEV_VOICE_DEBUG_ENABLED ? (
-        <div className="pointer-events-none fixed bottom-[108px] right-4 z-[150] hidden rounded-full border border-border/60 bg-background/90 px-2 py-1 text-[10px] text-muted-foreground shadow sm:block">
-          <span className="pointer-events-none inline-flex items-center gap-1">
-            <Bug className="h-3 w-3" />
-            {voiceUiState} | {ttsPlaybackState} | mic:{micPermissionStatus} |
-            session:{sessionStateText}
-          </span>
-        </div>
-      ) : null}
     </>
   );
 }
