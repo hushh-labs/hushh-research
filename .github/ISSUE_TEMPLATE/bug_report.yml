@@ -1,0 +1,126 @@
+name: Hushh bug report
+description: Raise a reproducible bug for the Hushh cross-team bug tracker.
+title: "[bug] "
+labels:
+  - type:bug
+  - status:needs-triage
+  - sector:hushh-research
+projects:
+  - hushh-labs/79
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for reproducible bugs only. Do not include secrets, tokens, private user data, or public security vulnerability details.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: This is a bug, not a feature request or general task.
+          required: true
+        - label: This is not a security vulnerability, secret leak, privacy issue, or exploit report.
+          required: true
+  - type: dropdown
+    id: sector
+    attributes:
+      label: Sector
+      options:
+        - Hushh Research
+        - HushhTech
+        - Hushh AI
+    validations:
+      required: true
+  - type: dropdown
+    id: lead
+    attributes:
+      label: Lead
+      options:
+        - Kushal
+        - Ankit
+    validations:
+      required: true
+  - type: dropdown
+    id: owner
+    attributes:
+      label: Owner
+      options:
+        - Jhumma
+        - Kushal
+        - Ankit
+        - Akshat
+        - Unassigned
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - P0 Critical
+        - P1 High
+        - P2 Medium
+        - P3 Low
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - Production
+        - UAT
+        - Local
+        - GitHub/CI
+    validations:
+      required: true
+  - type: input
+    id: affected_area
+    attributes:
+      label: Affected route, page, feature, or command
+      placeholder: "/login, /api/example, npm run test, Research onboarding flow"
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is broken? Keep this concise and specific.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: User or team impact
+      description: Who is affected, how often it happens, and why fixing it matters.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence link, screenshot, log, or recording
+      description: Add relevant proof. Do not paste secrets, tokens, or private user data.
