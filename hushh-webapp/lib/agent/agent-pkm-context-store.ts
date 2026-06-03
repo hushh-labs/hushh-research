@@ -4,11 +4,17 @@ import {
   PersonalKnowledgeModelService,
   type PersonalKnowledgeModelMetadata,
 } from "@/lib/services/personal-knowledge-model-service";
+import {
+  buildPkmMemorySnapshot,
+  selectRelevantPkmMemoryCards,
+  type PkmMemorySnapshot,
+} from "@/lib/pkm/pkm-memory-cards";
 
 type AgentPkmWorkingSet = {
   userId: string;
   metadata: PersonalKnowledgeModelMetadata | null;
   fullBlob: Record<string, unknown>;
+  memorySnapshot: PkmMemorySnapshot;
   loadedAt: number;
   metadataUpdatedAt: string | null;
 };
@@ -198,6 +204,26 @@ function domainSummaryLines(metadata: PersonalKnowledgeModelMetadata | null): st
     });
 }
 
+function memoryDomainSummaryLines(workingSet: AgentPkmWorkingSet): string[] {
+  if (workingSet.memorySnapshot.domainInsights.length === 0) {
+    return domainSummaryLines(workingSet.metadata);
+  }
+  return workingSet.memorySnapshot.domainInsights
+    .filter((domain) => domain.cardCount > 0 || domain.summary)
+    .map((domain) =>
+      [
+        `- ${domain.title} (${domain.domain})`,
+        `summary: ${clip(domain.summary, 260)}`,
+        domain.highlights.length > 0
+          ? `highlights: ${domain.highlights.map((item) => clip(item, 100)).join("; ")}`
+          : null,
+        domain.updatedAt ? `updated: ${domain.updatedAt}` : null,
+      ]
+        .filter(Boolean)
+        .join(" | ")
+    );
+}
+
 function buildContextText(params: {
   workingSet: AgentPkmWorkingSet;
   message: string;
@@ -219,6 +245,10 @@ function buildContextText(params: {
   const allLines = domainKeys.flatMap((domain) =>
     flattenDomain(domain, (workingSet.fullBlob || {})[domain], promptTokens)
   );
+  const relevantMemoryCards =
+    mode === "broad"
+      ? workingSet.memorySnapshot.cards.slice(0, 42)
+      : selectRelevantPkmMemoryCards(workingSet.memorySnapshot.cards, params.message, 24);
   const selectedLines =
     mode === "broad"
       ? allLines.slice(0, MAX_DETAIL_LINES)
@@ -239,7 +269,16 @@ function buildContextText(params: {
     workingSet.metadataUpdatedAt ? `Updated at: ${workingSet.metadataUpdatedAt}` : null,
     "",
     "Domain summaries:",
-    ...domainSummaryLines(workingSet.metadata).slice(0, 12),
+    ...memoryDomainSummaryLines(workingSet).slice(0, 12),
+    "",
+    relevantMemoryCards.length > 0
+      ? "Memory cards selected from decrypted PKM:"
+      : "Memory cards selected from decrypted PKM: none available.",
+    ...relevantMemoryCards.map((card) =>
+      `- ${card.title} | domain: ${card.domainTitle} | source: ${card.sourceLabel} | confidence: ${Math.round(
+        card.confidence * 100
+      )}% | ${card.detail}`
+    ),
     "",
     detailLines.length > 0 ? "Decrypted PKM details:" : "Decrypted PKM details: none available.",
     ...detailLines.map((line) => `- ${line.text}`),
@@ -253,9 +292,12 @@ function buildContextText(params: {
   return {
     text,
     domains: domainKeys,
-    totalAttributes: workingSet.metadata?.totalAttributes || detailLines.length,
+    totalAttributes:
+      workingSet.metadata?.totalAttributes ||
+      workingSet.memorySnapshot.totalCards ||
+      detailLines.length,
     updatedAt: workingSet.metadataUpdatedAt,
-    detailCount: detailLines.length,
+    detailCount: Math.max(detailLines.length, relevantMemoryCards.length),
     source: "decrypted_session_pkm",
     mode,
   };
@@ -272,6 +314,23 @@ export class AgentPkmContextStore {
 
   static invalidateUser(userId: string): void {
     workingSets.delete(userId);
+  }
+
+  static peek(params: {
+    userId: string;
+    message?: string;
+    maxChars?: number;
+  }): AgentPkmWorkingContext | null {
+    const cached = workingSets.get(params.userId);
+    if (!cached || Date.now() - cached.loadedAt >= SESSION_TTL_MS) {
+      return null;
+    }
+
+    return buildContextText({
+      workingSet: cached,
+      message: params.message || "",
+      maxChars: params.maxChars || DEFAULT_MAX_CONTEXT_CHARS,
+    });
   }
 
   static async load(params: {
@@ -297,17 +356,24 @@ export class AgentPkmContextStore {
     const workingSet =
       !params.forceRefresh && cacheFresh
         ? cached
-        : {
-            userId: params.userId,
-            metadata,
-            fullBlob: await PersonalKnowledgeModelService.loadFullBlob({
+        : await (async (): Promise<AgentPkmWorkingSet> => {
+            const fullBlob = await PersonalKnowledgeModelService.loadFullBlob({
               userId: params.userId,
               vaultKey: params.vaultKey,
               vaultOwnerToken: params.vaultOwnerToken,
-            }),
-            loadedAt: Date.now(),
-            metadataUpdatedAt,
-          };
+            });
+            return {
+              userId: params.userId,
+              metadata,
+              fullBlob,
+              memorySnapshot: buildPkmMemorySnapshot({
+                metadata,
+                fullBlob,
+              }),
+              loadedAt: Date.now(),
+              metadataUpdatedAt,
+            };
+          })();
 
     workingSets.set(params.userId, workingSet);
 
