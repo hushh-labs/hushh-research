@@ -6,6 +6,7 @@ import { VoiceAmbientSearchSurface } from "@/components/kai/voice/voice-ambient-
 
 vi.mock("lucide-react", () => ({
   AlertCircle: () => null,
+  Bot: () => null,
   Bug: () => null,
   Check: () => null,
   Loader2: () => null,
@@ -73,6 +74,21 @@ describe("voice-ambient-search-surface", () => {
     fireEvent.click(screen.getByLabelText("Open voice debug"));
 
     expect(onDebugToggle).toHaveBeenCalledTimes(1);
+    expect(onOpenSearch).not.toHaveBeenCalled();
+  });
+
+  it("opens Agent from the compact inline action without opening search", () => {
+    const onAgentOpen = vi.fn();
+    const onOpenSearch = vi.fn();
+    renderSurface({
+      showAgent: true,
+      onAgentOpen,
+      onOpenSearch,
+    });
+
+    fireEvent.click(screen.getByLabelText("Open Agent"));
+
+    expect(onAgentOpen).toHaveBeenCalledTimes(1);
     expect(onOpenSearch).not.toHaveBeenCalled();
   });
 
