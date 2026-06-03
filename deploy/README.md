@@ -113,7 +113,9 @@ UAT and production now use the same frontend runtime contract shape:
 
 ### Partner gateway connectivity
 
-Private partner gateway handoff files are not stored in this public repo. Keep live VPN, private DNS, endpoint, and peer material in approved secret-managed operational systems only.
+Partner gateway handoff material for MuleSoft Managed Omni Gateway lives outside the public repository. Do not commit VPN guides, tunnel values, private CIDRs, internal DNS details, Cloud Router state, peer IPs, or provisioning scripts for this lane.
+
+When operating this lane, use the private ops workspace and check available MCP connectors before falling back to direct platform APIs. Public docs may describe the trust boundary and governance model only.
 
 ---
 

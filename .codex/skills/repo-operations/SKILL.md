@@ -56,12 +56,13 @@ Non-owned surfaces:
 1. Record current branch/worktree state and preserve the user's development branch before branch, CI, deploy, PR, hotfix, or validation work.
 2. Prefer live verification over assumptions for GitHub, CI, deploy, ruleset, and runtime state.
 3. Use `./bin/hushh` as the canonical repo command surface and `gh` for live repository state.
-4. For PR work, verify pre-PR, DCO, current head SHA, required gates, queue state, and post-merge smoke.
-5. For core workflow chains, monitor until terminal success or a concrete blocker; queued or in-progress authority runs mean the task is not done.
-6. For merge/deploy requests, keep merge-to-main and deploy-to-UAT as separate operator cadences.
-7. For DB migration/contract changes, run the DB release gate before calling UAT ready.
-8. For local runtime/server work, follow `branch-runtime-ops.md` for visible terminal defaults, inline override, restart, and health-probe rules.
-9. For UAT runtime failures, start with the repo RCA command before editing or redeploying.
+4. When an operational request names an external platform, connector, gateway, marketplace, or MCP-enabled integration, discover available MCP/app tools first through the active tool discovery surface before falling back to direct CLI/API calls. Use the discovered tool only for capabilities it actually exposes; do not hardcode connector assumptions into this skill.
+5. For PR work, verify pre-PR, DCO, current head SHA, required gates, queue state, and post-merge smoke.
+6. For core workflow chains, monitor until terminal success or a concrete blocker; queued or in-progress authority runs mean the task is not done.
+7. For merge/deploy requests, keep merge-to-main and deploy-to-UAT as separate operator cadences.
+8. For DB migration/contract changes, run the DB release gate before calling UAT ready.
+9. For local runtime/server work, follow `branch-runtime-ops.md` for visible terminal defaults, inline override, restart, and health-probe rules.
+10. For UAT runtime failures, start with the repo RCA command before editing or redeploying.
 
 ## Handoff Rules
 
