@@ -805,3 +805,25 @@ def test_handshake_history_empty_for_unrelated_counterpart():
     assert resp.status_code == 200
     assert resp.json()["total"] == 0
     assert resp.json()["timeline"] == []
+
+
+def test_handshake_history_rejects_oversized_center_and_counterpart_ids():
+    """Relationship center/counterpart params are bounded before service dispatch."""
+    app = _build_app()
+    with patch(
+        "hushh_mcp.services.consent_center_service.ConsentCenterService.get_handshake_history",
+        new_callable=AsyncMock,
+    ) as history:
+        client = TestClient(app)
+        long_counterpart = client.get(
+            "/api/consent/handshake/history",
+            params={"counterpart_id": "c" * 129},
+        )
+        long_center_actor = client.get(
+            "/api/consent/handshake/history",
+            params={"counterpart_id": "profile_abc", "actor": "a" * 65},
+        )
+
+    assert long_counterpart.status_code == 422
+    assert long_center_actor.status_code == 422
+    history.assert_not_called()
