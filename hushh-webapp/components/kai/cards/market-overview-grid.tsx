@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   Activity,
   ChartColumnIncreasing,
@@ -14,6 +15,7 @@ import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 
+// 1. Ensure interfaces are correctly defined
 export interface MarketOverviewDetailSection {
   title: string;
   lines: string[];
@@ -27,7 +29,7 @@ export interface MarketOverviewDetailPanel {
   value?: string;
   delta?: string;
   statusLabel?: string;
-  statusTone?: MarketOverviewMetric["tone"];
+  statusTone?: "positive" | "negative" | "neutral" | "warning";
   sections?: MarketOverviewDetailSection[];
 }
 
@@ -43,6 +45,7 @@ export interface MarketOverviewMetric {
   icon: LucideIcon;
 }
 
+// 2. Define helper constant inside the file or import it
 const FALLBACK_ICON: Record<MarketOverviewMetric["tone"], LucideIcon> = {
   positive: TrendingUp,
   negative: TrendingDown,
@@ -53,15 +56,31 @@ const FALLBACK_ICON: Record<MarketOverviewMetric["tone"], LucideIcon> = {
 export function MarketOverviewGrid({
   metrics = [],
   onMetricSelect,
+  selectedId,
+  isLoading = false,
 }: {
   metrics?: MarketOverviewMetric[];
   onMetricSelect?: (metric: MarketOverviewMetric) => void;
+  selectedId?: string;
+  isLoading?: boolean;
 }) {
-  if (!metrics.length) {
+  const renderedMetrics = useMemo(() => metrics, [metrics]);
+
+  if (isLoading) {
     return (
-      <SurfaceCard tone="warning">
-        <SurfaceCardContent className="text-sm text-muted-foreground">
-          Market overview metrics are not available at the moment.
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4 animate-pulse">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="h-32 rounded-2xl bg-muted/50" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!renderedMetrics.length) {
+    return (
+      <SurfaceCard>
+        <SurfaceCardContent className="text-sm text-muted-foreground p-4">
+          Market overview metrics are currently unavailable.
         </SurfaceCardContent>
       </SurfaceCard>
     );
@@ -69,89 +88,56 @@ export function MarketOverviewGrid({
 
   return (
     <div className="grid grid-cols-2 gap-2.5 sm:gap-3 xl:grid-cols-4">
-      {metrics.map((metric) => {
+      {renderedMetrics.map((metric: MarketOverviewMetric) => {
+        const id = metric.id || metric.label;
+        const isActive = selectedId === id;
         const actionable = Boolean(metric.detailPanel && onMetricSelect);
 
-        const card = (
+        const cardContent = (
           <SurfaceCard
-            accent="none"
             className={cn(
-              "h-full",
+              "h-full transition-all duration-200 border-2",
               marketCardClassName,
-              actionable && "shadow-[var(--app-card-shadow-standard)]"
+              isActive ? "border-primary/50 shadow-lg" : "border-transparent",
+              actionable && !isActive && "hover:border-muted-foreground/20"
             )}
           >
-            <SurfaceCardContent className="flex h-full min-h-[96px] flex-col justify-between p-3.5 sm:min-h-[104px] sm:p-4">
-              <div className="flex items-start gap-3">
-                <div className="flex items-start gap-3">
-                  <span
-                    className={cn(
-                      "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl border shadow-sm sm:h-9 sm:w-9",
-                      metric.tone === "positive" &&
-                        "border-emerald-500/18 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-                      metric.tone === "negative" &&
-                        "border-rose-500/18 bg-rose-500/10 text-rose-700 dark:text-rose-300",
-                      metric.tone === "warning" &&
-                        "border-amber-500/18 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-                      metric.tone === "neutral" &&
-                        "border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-muted-foreground"
-                    )}
-                  >
-                    <Icon icon={metric.icon || FALLBACK_ICON[metric.tone]} size="sm" />
-                  </span>
-                  <div className="min-w-0">
-                    <span className="text-xs font-semibold leading-5 text-muted-foreground">
-                      {metric.label}
-                    </span>
-                  </div>
-                </div>
+            <SurfaceCardContent className="flex h-full flex-col justify-between p-3.5 sm:p-4">
+              <div className="flex items-center gap-2 mb-2">
+                 <span className={cn(
+                    "inline-flex h-8 w-8 items-center justify-center rounded-xl border",
+                    metric.tone === "positive" ? "bg-emerald-500/10 text-emerald-600" :
+                    metric.tone === "negative" ? "bg-rose-500/10 text-rose-600" :
+                    "bg-muted text-muted-foreground"
+                 )}>
+                   {/* Explicit check for icon */}
+                   <Icon icon={metric.icon || FALLBACK_ICON[metric.tone]} size="sm" />
+                 </span>
+                 <span className="text-xs font-medium text-muted-foreground truncate">{metric.label}</span>
               </div>
-              <div className="space-y-1.5">
-                <p className="text-base font-semibold leading-none tracking-tight text-foreground sm:text-lg">
-                  {metric.value}
-                </p>
-                <p
-                  className={cn(
-                    "text-xs font-medium",
-                    metric.tone === "positive" && "text-emerald-600 dark:text-emerald-400",
-                    metric.tone === "negative" && "text-rose-600 dark:text-rose-400",
-                    metric.tone === "warning" && "text-orange-600 dark:text-orange-400",
-                    metric.tone === "neutral" && "text-muted-foreground"
-                  )}
-                >
-                  {metric.delta}
-                </p>
-                {Array.isArray(metric.detailLines) && metric.detailLines.length ? (
-                  <div className="space-y-1 pt-0.5">
-                    {metric.detailLines.slice(0, 2).map((line) => (
-                      <p key={line} className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">
-                        {line}
-                      </p>
-                    ))}
-                  </div>
-                ) : metric.detail ? (
-                  <p className="line-clamp-2 text-[11px] leading-4 text-muted-foreground">
-                    {metric.detail}
-                  </p>
-                ) : null}
+              
+              <div>
+                <p className="text-lg font-bold tracking-tight text-foreground">{metric.value}</p>
+                <p className={cn("text-xs font-medium", 
+                  metric.tone === "positive" ? "text-emerald-600" : "text-rose-600"
+                )}>{metric.delta}</p>
               </div>
             </SurfaceCardContent>
           </SurfaceCard>
         );
 
-        if (!actionable) {
-          return card;
-        }
+        if (!actionable) return <div key={id}>{cardContent}</div>;
 
         return (
           <button
-            key={metric.id || metric.label}
+            key={id}
             type="button"
             onClick={() => onMetricSelect?.(metric)}
-            className="group relative isolate w-full rounded-[var(--app-card-radius-feature)] text-left outline-none focus-visible:ring-2 focus-visible:ring-foreground/15 focus-visible:ring-offset-2"
+            aria-label={`Select ${metric.label}`}
+            className="group relative isolate w-full rounded-[var(--app-card-radius-feature)] text-left outline-none focus-visible:ring-2 ring-primary ring-offset-2"
           >
-            {card}
-            <MaterialRipple variant="none" effect="fade" className="z-10" />
+            {cardContent}
+            <MaterialRipple effect="fade" className="z-10" />
           </button>
         );
       })}
