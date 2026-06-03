@@ -7,10 +7,15 @@ Use these axes in order. A green gate does not clear a PR if any blocker remains
 - Does the change make the repo leaner, clearer, and more scalable?
 - Does it preserve consent-first, trust-boundary clarity, and local-first contributor ergonomics?
 - Does it remove friction or add invisible complexity?
+- For material product or roadmap claims, does the Founder Wiki North-Star Probe confirm the direction, or is this `current_state_vs_north_star_drift`?
+- Is private wiki evidence kept local-only instead of leaking into public PR comments?
 
 ## 2. Lean/Core Bloat Control
 
 - Is the PR solving a core product/runtime/docs problem, or adding optional surface before the canonical path is stable?
+- Does the changed code connect to a reachable app/backend/package path, canonical proof surface, or documented devex entrypoint?
+- Does the PR title/body accurately describe the actual changed files and behavior?
+- Is this a stacked branch whose diff includes unrelated earlier PR work that must land or be rebased first?
 - Is it the smallest implementation that preserves correctness, security, maintainability, and contributor clarity?
 - Does it duplicate another open PR, an existing `main` concept, or a maintainer patch that should be the canonical path?
 - Are broad dependency/package/platform changes isolated and proven by install, build, and smoke checks?
@@ -29,12 +34,13 @@ Use these axes in order. A green gate does not clear a PR if any blocker remains
 - If a backend route changes, did the frontend caller or Next proxy change too?
 - If the runtime contract changes, did bootstrap, docs, and tests move with it?
 - If event semantics change, do clients still interpret them correctly?
+- If a new export/helper is added, is it used by current production/devex code, or only by a new test?
 
 ## 5. Main Overlap and Architecture Path Integrity
 
 - Does `main` already implement the concept in a different file family or route family?
 - Is the PR adding a second architecture path for the same product concept instead of extending the canonical one?
-- Is the right outcome `patch_then_merge` or `block` even though exact file overlap is zero?
+- Is the right outcome `maintainer_patch_then_merge` or `block` even though exact file overlap is zero?
 
 ## 6. Deploy and Runtime Integrity
 
@@ -58,13 +64,15 @@ Use these axes in order. A green gate does not clear a PR if any blocker remains
 - public ingress added without explicit rollout and abuse-control proof
 - a second product surface added when `main` already has the concept
 - tests that cannot fail, broad package churn without proof, or a new trust surface without explicit scope/caller contract
+- readable standalone code that is not reachable from a real use case
+- contributor claims that describe a different subsystem than the diff actually changes
 
 ## Decision Rule
 
 - Block merge if any high-severity finding remains.
-- Do not use `merge_now` for a PR that is directionally right but overbuilt; use `patch_then_merge` for bounded cleanup or `block` for split/product-decision/duplicate-closure cases.
+- Do not use `merge_now` for a PR that is directionally right but overbuilt; use `maintainer_patch_then_merge` for bounded cleanup or `block` for split/product-decision/duplicate-closure cases.
 - Do not thank, approve, or recommend merge while blockers remain.
-- For `merge_now` and `patch_then_merge`, always prepare the contributor-facing acknowledgment draft before the merge action.
+- For `merge_now` and `maintainer_patch_then_merge`, always prepare the contributor-facing acknowledgment draft before the merge action.
 - Post that note only after the monitored merge path reaches the required terminal state.
 - Once this policy is in force, do not require an extra confirmation step for posting the note.
 - When the merge affects a reusable subsystem or trust boundary, include a compact `Related Surfaces` section so the PR history points to the canonical files and higher-level docs that define the surrounding contract. Prefer clickable GitHub links when the target can be resolved safely, and add a one-line reason for every linked entry.
@@ -81,7 +89,7 @@ Use only when:
 - no blocker findings remain
 - any residual risk is low and already documented by the existing contract
 
-### 2. `patch_then_merge`
+### 2. `maintainer_patch_then_merge`
 
 Use when:
 - the direction is good
@@ -98,7 +106,7 @@ Execution rule:
 - if maintainers can modify the contributor branch, patch that branch directly
 - otherwise create a short-lived branch named `temp/pr-<number>-patch`, apply the fix there, and delete it after the issue is resolved
 - rerun CI on the updated merge candidate
-- then thank the author and explain what was integrated and what was corrected
+- then thank the author and explain the conversion map: what was kept, what moved into existing canonical docs/scripts/routes/packages, what was dropped or deferred, and where the accepted usage now lives
 
 ### 3. `block`
 

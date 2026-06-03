@@ -7,7 +7,10 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
+python3 scripts/ci/verify-pr-governance-sections.py
 python3 scripts/ci/verify-protected-pipeline-edits.py
+python3 scripts/ci/verify-pr-base-policy.py --self-test
+python3 scripts/ci/test_resolve_deploy_scope.py
 ./bin/hushh docs verify
 ./bin/hushh codex data-model-audit
 python3 scripts/licenses/verify_apache_surface.py

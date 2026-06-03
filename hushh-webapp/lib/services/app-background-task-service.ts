@@ -5,8 +5,15 @@ import { getSessionItem, setSessionItem } from "@/lib/utils/session-storage";
 const APP_BACKGROUND_TASKS_KEY = "kai_app_background_tasks_v1";
 const DEFAULT_PASSIVE_VISIBLE_AFTER_MS = 750;
 const DEFAULT_PASSIVE_AUTO_CLEAR_AFTER_MS = 10_000;
+const DEFAULT_PASSIVE_RUNNING_STALE_AFTER_MS = 15 * 60 * 1000;
+const DEFAULT_RUNNING_STALE_AFTER_MS = 0;
+const CONSENT_EXPORT_REFRESH_RUNNING_STALE_AFTER_MS = 90_000;
 
-export type AppBackgroundTaskStatus = "running" | "completed" | "failed" | "canceled";
+export type AppBackgroundTaskStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "canceled";
 export type AppBackgroundTaskVisibility = "primary" | "passive";
 export type AppBackgroundTaskMetadata = Record<string, unknown>;
 
@@ -28,6 +35,7 @@ export interface AppBackgroundTask {
   groupLabel: string | null;
   visibleAfterMs: number;
   autoClearAfterMs: number;
+  runningStaleAfterMs: number;
 }
 
 interface PersistedAppBackgroundTaskState {
@@ -46,7 +54,10 @@ function nowIso(): string {
 }
 
 function createTaskId(prefix: string): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return `${prefix}_${crypto.randomUUID()}`;
   }
   return `${prefix}_${Math.random().toString(36).slice(2)}_${Date.now()}`;
@@ -63,9 +74,37 @@ function normalizeDelay(value: unknown, fallback: number): number {
   return Math.floor(value);
 }
 
+function defaultRunningStaleAfterMs(params: {
+  kind?: unknown;
+  visibility?: AppBackgroundTaskVisibility;
+}): number {
+  if (params.kind === "consent_export_refresh") {
+    return CONSENT_EXPORT_REFRESH_RUNNING_STALE_AFTER_MS;
+  }
+  return params.visibility === "passive"
+    ? DEFAULT_PASSIVE_RUNNING_STALE_AFTER_MS
+    : DEFAULT_RUNNING_STALE_AFTER_MS;
+}
+
+function isHydratedRunningTaskStale(task: Partial<AppBackgroundTask>): boolean {
+  if (task.status !== "running") return false;
+  const staleAfterMs =
+    typeof task.runningStaleAfterMs === "number" &&
+    Number.isFinite(task.runningStaleAfterMs)
+      ? task.runningStaleAfterMs
+      : defaultRunningStaleAfterMs({
+          kind: task.kind,
+          visibility: task.visibility,
+        });
+  if (staleAfterMs <= 0) return false;
+  const timestamp = Date.parse(task.updatedAt || task.startedAt || "");
+  if (Number.isNaN(timestamp)) return false;
+  return Date.now() - timestamp >= staleAfterMs;
+}
+
 export function isAppBackgroundTaskVisible(
   task: AppBackgroundTask,
-  now = Date.now()
+  now = Date.now(),
 ): boolean {
   if (task.dismissedAt) {
     return false;
@@ -88,6 +127,7 @@ class AppBackgroundTaskManager {
   private listeners = new Set<Listener>();
   private visibilityTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private autoClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private runningStaleTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor() {
     this.hydrate();
@@ -106,6 +146,14 @@ class AppBackgroundTaskManager {
     if (timer) {
       clearTimeout(timer);
       this.autoClearTimers.delete(taskId);
+    }
+  }
+
+  private clearRunningStaleTimer(taskId: string): void {
+    const timer = this.runningStaleTimers.get(taskId);
+    if (timer) {
+      clearTimeout(timer);
+      this.runningStaleTimers.delete(taskId);
     }
   }
 
@@ -154,48 +202,114 @@ class AppBackgroundTaskManager {
     this.autoClearTimers.set(task.taskId, timer);
   }
 
+  private scheduleRunningStale(task: AppBackgroundTask): void {
+    this.clearRunningStaleTimer(task.taskId);
+    if (
+      task.status !== "running" ||
+      task.dismissedAt ||
+      task.runningStaleAfterMs <= 0
+    ) {
+      return;
+    }
+    const updatedAt = Date.parse(task.updatedAt || task.startedAt);
+    if (Number.isNaN(updatedAt)) {
+      return;
+    }
+    const delay = Math.max(
+      0,
+      updatedAt + task.runningStaleAfterMs - Date.now(),
+    );
+    const timer = setTimeout(() => {
+      this.runningStaleTimers.delete(task.taskId);
+      const current = this.tasks.get(task.taskId);
+      if (
+        !current ||
+        current.status !== "running" ||
+        current.dismissedAt ||
+        current.runningStaleAfterMs <= 0
+      ) {
+        return;
+      }
+      const currentUpdatedAt = Date.parse(current.updatedAt || current.startedAt);
+      if (
+        Number.isNaN(currentUpdatedAt) ||
+        Date.now() - currentUpdatedAt < current.runningStaleAfterMs
+      ) {
+        this.scheduleRunningStale(current);
+        return;
+      }
+      this.cancelTask(
+        current.taskId,
+        "This background update was interrupted. It will restart when needed.",
+        {
+          ...(current.metadata || {}),
+          staleCanceled: true,
+        },
+      );
+    }, delay);
+    this.runningStaleTimers.set(task.taskId, timer);
+  }
+
+
   private hydrate(): void {
     const raw = getSessionItem(APP_BACKGROUND_TASKS_KEY);
     if (!raw) return;
 
     try {
-      const parsed = JSON.parse(raw) as Partial<PersistedAppBackgroundTaskState>;
+      const parsed = JSON.parse(
+        raw,
+      ) as Partial<PersistedAppBackgroundTaskState>;
       if (parsed.version !== 1 || !Array.isArray(parsed.tasks)) return;
 
       for (const task of parsed.tasks) {
         if (!task || typeof task !== "object") continue;
         if (!task.taskId || !task.userId || !task.kind) continue;
+        const staleRunningTask = isHydratedRunningTaskStale(task);
+        const visibility = normalizeVisibility(task.visibility);
+        const runningStaleAfterMs = normalizeDelay(
+          task.runningStaleAfterMs,
+          defaultRunningStaleAfterMs({
+            kind: task.kind,
+            visibility,
+          }),
+        );
         this.tasks.set(task.taskId, {
           ...task,
-          status:
-            task.status === "completed" ||
-            task.status === "failed" ||
-            task.status === "canceled"
+          status: staleRunningTask
+            ? "canceled"
+            : task.status === "completed" ||
+                task.status === "failed" ||
+                task.status === "canceled"
               ? task.status
               : "running",
           routeHref: task.routeHref || null,
-          completedAt: task.completedAt || null,
+          completedAt: staleRunningTask ? nowIso() : task.completedAt || null,
           error: task.error || null,
           dismissedAt: task.dismissedAt || null,
           metadata:
-            task.metadata && typeof task.metadata === "object" && !Array.isArray(task.metadata)
+            task.metadata &&
+            typeof task.metadata === "object" &&
+            !Array.isArray(task.metadata)
               ? (task.metadata as AppBackgroundTaskMetadata)
               : null,
-          visibility: normalizeVisibility(task.visibility),
-          groupLabel: typeof task.groupLabel === "string" ? task.groupLabel : null,
+          visibility,
+          groupLabel:
+            typeof task.groupLabel === "string" ? task.groupLabel : null,
           visibleAfterMs: normalizeDelay(
             task.visibleAfterMs,
-            DEFAULT_PASSIVE_VISIBLE_AFTER_MS
+            DEFAULT_PASSIVE_VISIBLE_AFTER_MS,
           ),
           autoClearAfterMs: normalizeDelay(
             task.autoClearAfterMs,
-            DEFAULT_PASSIVE_AUTO_CLEAR_AFTER_MS
+            DEFAULT_PASSIVE_AUTO_CLEAR_AFTER_MS,
           ),
+          runningStaleAfterMs,
         });
       }
       for (const task of this.tasks.values()) {
         this.scheduleVisibilityEmit(task);
         this.scheduleAutoClear(task);
+        this.scheduleRunningStale(task);
       }
     } catch {
       // Ignore malformed cache
@@ -227,6 +341,7 @@ class AppBackgroundTaskManager {
     this.tasks.set(merged.taskId, merged);
     this.scheduleVisibilityEmit(merged);
     this.scheduleAutoClear(merged);
+    this.scheduleRunningStale(merged);
     this.persist();
     this.emit();
     return merged;
@@ -261,9 +376,11 @@ class AppBackgroundTaskManager {
     groupLabel?: string | null;
     visibleAfterMs?: number;
     autoClearAfterMs?: number;
+    runningStaleAfterMs?: number;
   }): string {
     const taskId = params.taskId || createTaskId(params.kind || "task");
     const startedAt = nowIso();
+    const visibility = normalizeVisibility(params.visibility);
     this.upsert({
       taskId,
       userId: params.userId,
@@ -278,18 +395,28 @@ class AppBackgroundTaskManager {
       error: null,
       dismissedAt: null,
       metadata:
-        params.metadata && typeof params.metadata === "object" && !Array.isArray(params.metadata)
+        params.metadata &&
+        typeof params.metadata === "object" &&
+        !Array.isArray(params.metadata)
           ? params.metadata
           : null,
-      visibility: normalizeVisibility(params.visibility),
-      groupLabel: typeof params.groupLabel === "string" ? params.groupLabel : null,
+      visibility,
+      groupLabel:
+        typeof params.groupLabel === "string" ? params.groupLabel : null,
       visibleAfterMs: normalizeDelay(
         params.visibleAfterMs,
-        DEFAULT_PASSIVE_VISIBLE_AFTER_MS
+        DEFAULT_PASSIVE_VISIBLE_AFTER_MS,
       ),
       autoClearAfterMs: normalizeDelay(
         params.autoClearAfterMs,
-        DEFAULT_PASSIVE_AUTO_CLEAR_AFTER_MS
+        DEFAULT_PASSIVE_AUTO_CLEAR_AFTER_MS,
+      ),
+      runningStaleAfterMs: normalizeDelay(
+        params.runningStaleAfterMs,
+        defaultRunningStaleAfterMs({
+          kind: params.kind,
+          visibility,
+        }),
       ),
     });
     return taskId;
@@ -298,7 +425,7 @@ class AppBackgroundTaskManager {
   completeTask(
     taskId: string,
     description?: string,
-    metadata?: AppBackgroundTaskMetadata | null
+    metadata?: AppBackgroundTaskMetadata | null,
   ): void {
     const existing = this.tasks.get(taskId);
     if (!existing) return;
@@ -319,7 +446,7 @@ class AppBackgroundTaskManager {
     taskId: string,
     error: string,
     description?: string,
-    metadata?: AppBackgroundTaskMetadata | null
+    metadata?: AppBackgroundTaskMetadata | null,
   ): void {
     const existing = this.tasks.get(taskId);
     if (!existing) return;
@@ -341,7 +468,7 @@ class AppBackgroundTaskManager {
   cancelTask(
     taskId: string,
     description?: string,
-    metadata?: AppBackgroundTaskMetadata | null
+    metadata?: AppBackgroundTaskMetadata | null,
   ): void {
     const existing = this.tasks.get(taskId);
     if (!existing) return;
@@ -367,7 +494,7 @@ class AppBackgroundTaskManager {
       metadata?: AppBackgroundTaskMetadata | null;
       visibility?: AppBackgroundTaskVisibility;
       groupLabel?: string | null;
-    }
+    },
   ): void {
     const existing = this.tasks.get(taskId);
     if (!existing) return;
@@ -378,7 +505,8 @@ class AppBackgroundTaskManager {
           ? updates.title
           : existing.title,
       description:
-        typeof updates.description === "string" && updates.description.trim().length > 0
+        typeof updates.description === "string" &&
+        updates.description.trim().length > 0
           ? updates.description
           : existing.description,
       routeHref:
@@ -388,7 +516,9 @@ class AppBackgroundTaskManager {
       metadata:
         updates.metadata === undefined
           ? existing.metadata
-          : updates.metadata && typeof updates.metadata === "object" && !Array.isArray(updates.metadata)
+          : updates.metadata &&
+              typeof updates.metadata === "object" &&
+              !Array.isArray(updates.metadata)
             ? updates.metadata
             : null,
       visibility:
@@ -409,6 +539,7 @@ class AppBackgroundTaskManager {
     if (!existing) return;
     this.clearVisibilityTimer(taskId);
     this.clearAutoClearTimer(taskId);
+    this.clearRunningStaleTimer(taskId);
     this.upsert({
       ...existing,
       dismissedAt: nowIso(),
@@ -418,9 +549,8 @@ class AppBackgroundTaskManager {
   hasRunningTask(userId: string, kind?: string): boolean {
     const normalizedUserId = String(userId || "").trim();
     if (!normalizedUserId) return false;
-    const normalizedKind = typeof kind === "string" && kind.trim().length > 0
-      ? kind.trim()
-      : null;
+    const normalizedKind =
+      typeof kind === "string" && kind.trim().length > 0 ? kind.trim() : null;
     for (const task of this.tasks.values()) {
       if (task.userId !== normalizedUserId) continue;
       if (task.status !== "running") continue;
