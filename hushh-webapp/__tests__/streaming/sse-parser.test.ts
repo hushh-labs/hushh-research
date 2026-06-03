@@ -56,6 +56,32 @@ describe("parseSSEBlocks", () => {
     expect(second.remainder).toBe("");
   });
 
+  it("buffers fragmented SSE payloads until a full event boundary is received", () => {
+  const firstChunk =
+    'event: chunk\n' +
+    'id: 21\n' +
+    'data: {"schema_version":"1.0","stream_id":"strm_frag","stream_kind":"portfolio_import","seq":21';
+
+  const firstResult = parseSSEBlocks(firstChunk);
+
+  expect(firstResult.events).toHaveLength(0);
+  expect(firstResult.remainder).toBe(firstChunk);
+
+  const secondChunk =
+    ',"event":"chunk","terminal":false,"payload":{"text":"hello world"}}\n\n';
+
+  const finalResult = parseSSEBlocks(firstResult.remainder + secondChunk);
+
+  expect(finalResult.remainder).toBe("");
+  expect(finalResult.events).toHaveLength(1);
+
+  const parsed = JSON.parse(finalResult.events[0].data);
+
+  expect(parsed.stream_id).toBe("strm_frag");
+  expect(parsed.seq).toBe(21);
+  expect(parsed.payload.text).toBe("hello world");
+});
+
   it("ignores blocks without event and data", () => {
     const result = parseSSEBlocks(": ping\n\n\n");
     expect(result.events).toHaveLength(0);
@@ -229,3 +255,4 @@ describe("parseSSEBlocks", () => {
     expect(parsed.payload.text).toBe("こんにちは 🌍");
   });
 });
+
