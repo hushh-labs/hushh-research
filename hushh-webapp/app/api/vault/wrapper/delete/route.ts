@@ -83,12 +83,12 @@ export async function POST(request: NextRequest) {
       }),
     });
 
-    if (!response.ok) {
-      const errorPayload = await response
-        .json()
-        .catch(async () => ({ error: await response.text().catch(() => "") }));
-      return NextResponse.json(errorPayload, { status: response.status });
-    }
+if (!response.ok) {
+  return NextResponse.json(
+    { error: "Backend error" },
+    { status: response.status }
+  );
+}
 
     const result = await response.json();
     return NextResponse.json({ success: !!result.success });
