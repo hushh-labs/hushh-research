@@ -36,18 +36,43 @@ class _FakeConsentDBService:
         self.events: list[dict] = []
         self.pending: dict[str, dict] = {}
         self.active: dict[tuple[str, str], dict] = {}  # (agent, scope) -> row
+        self.export_writes: list[dict] = []
 
     # Pending helpers ----------------------------------------------------------
+    @staticmethod
+    def _normalize_identifier(value: object) -> str:
+        normalized = str(value or "").strip()
+        if "@" in normalized:
+            normalized = normalized.lower()
+        return normalized
+
+    @classmethod
+    def _allowed_user_ids(cls, user_id: str, user_ids=None) -> set[str]:
+        values = [user_id, *(list(user_ids or []))]
+        return {
+            cls._normalize_identifier(value) for value in values if cls._normalize_identifier(value)
+        }
+
+    @classmethod
+    def _row_user_id(cls, row: dict, fallback_user_id: str) -> str:
+        return cls._normalize_identifier(row.get("user_id") or fallback_user_id)
+
     def _add_pending(self, request_id: str, row: dict) -> None:
         self.pending[request_id] = row
 
-    async def get_pending_requests(self, user_id: str):
+    async def get_pending_requests(self, user_id: str, *, user_ids=None):
         now_ms = int(time.time() * 1000)
+        allowed_user_ids = self._allowed_user_ids(user_id, user_ids)
         results = []
         for row in self.pending.values():
+            row_user_id = self._row_user_id(row, user_id)
+            if row_user_id not in allowed_user_ids:
+                continue
             results.append(
                 {
                     "id": row["request_id"],
+                    "userId": row_user_id,
+                    "subjectUserId": row_user_id,
                     "developer": row.get("agent_id", row.get("developer")),
                     "scope": row["scope"],
                     "scopeDescription": row.get("scope_description"),
@@ -58,27 +83,61 @@ class _FakeConsentDBService:
             )
         return results
 
-    async def get_pending_by_request_id(self, user_id: str, request_id: str):
+    async def get_pending_by_request_id(self, user_id: str, request_id: str, *, user_ids=None):
         row = self.pending.get(request_id)
         if not row:
             return None
+        row_user_id = self._row_user_id(row, user_id)
+        if row_user_id not in self._allowed_user_ids(user_id, user_ids):
+            return None
         return {
             "request_id": request_id,
+            "user_id": row_user_id,
             "developer": row.get("agent_id", row.get("developer")),
+            "agent_id": row.get("agent_id"),
+            "requester_label": row.get("requester_label"),
+            "requester_image_url": row.get("requester_image_url"),
+            "requester_website_url": row.get("requester_website_url"),
             "scope": row["scope"],
+            "scope_description": row.get("scope_description"),
+            "poll_timeout_at": row.get("poll_timeout_at"),
+            "issued_at": row.get("issued_at"),
+            "request_url": row.get("request_url"),
+            "reason": row.get("reason"),
             "metadata": row.get("metadata", {}),
+            "bundle_id": row.get("bundle_id"),
+            "bundle_label": row.get("bundle_label"),
+            "bundle_scope_count": row.get("bundle_scope_count"),
+            "is_scope_upgrade": row.get("is_scope_upgrade"),
+            "existing_granted_scopes": row.get("existing_granted_scopes"),
+            "additional_access_summary": row.get("additional_access_summary"),
         }
 
     async def mark_pending_request_opened(self, **_kwargs):
         return {"request_id": "req_1"}
 
     # Active helpers -----------------------------------------------------------
-    async def find_covering_active_token(self, *_args, **_kwargs):
+    async def find_covering_active_token(
+        self,
+        user_id,
+        *,
+        requested_scope,
+        agent_id=None,
+        user_ids=None,
+    ):
+        active_tokens = await self.get_active_tokens(user_id, agent_id=agent_id, user_ids=user_ids)
+        for token in active_tokens:
+            if token.get("scope") == requested_scope:
+                return token
         return None
 
-    async def get_active_tokens(self, user_id, agent_id=None, scope=None):
+    async def get_active_tokens(self, user_id, agent_id=None, scope=None, *, user_ids=None):
+        allowed_user_ids = self._allowed_user_ids(user_id, user_ids)
         results = []
         for key, row in self.active.items():
+            row_user_id = self._row_user_id(row, user_id)
+            if row_user_id not in allowed_user_ids:
+                continue
             if agent_id and key[0] != agent_id:
                 continue
             if scope and key[1] != scope:
@@ -92,14 +151,21 @@ class _FakeConsentDBService:
     async def get_superseded_active_tokens(self, *_args, **_kwargs):
         return []
 
-    async def store_consent_export(self, **_kwargs):
+    async def store_consent_export(self, **kwargs):
+        self.export_writes.append(kwargs)
         return True
 
     async def delete_consent_export(self, consent_token):
         return True
 
-    async def get_audit_log(self, user_id, page=1, limit=50):
-        return {"items": self.events, "total": len(self.events), "page": page, "limit": limit}
+    async def get_audit_log(self, user_id, page=1, limit=50, *, user_ids=None):
+        allowed_user_ids = self._allowed_user_ids(user_id, user_ids)
+        items = [
+            event
+            for event in self.events
+            if self._normalize_identifier(event.get("user_id") or user_id) in allowed_user_ids
+        ]
+        return {"items": items, "total": len(items), "page": page, "limit": limit}
 
     async def get_internal_activity_summary(self, user_id, limit=8):
         return {"active_sessions": 0, "recent_operations_24h": 0, "recent": []}
@@ -159,6 +225,35 @@ class _NoOpRIAIAMService:
 # ============================================================================
 # Tests
 # ============================================================================
+
+
+def test_vault_userid_query_params_reject_oversized_values_before_service(monkeypatch):
+    """Vault-gated userId query params are bounded before service dispatch."""
+
+    class _UnexpectedConsentDBService:
+        def __init__(self):
+            raise AssertionError("userId validation should run before service dispatch")
+
+    monkeypatch.setattr(consent, "ConsentDBService", _UnexpectedConsentDBService)
+
+    app = _build_app()
+    client = TestClient(app)
+    long_user_id = "u" * 129
+
+    responses = [
+        client.get("/api/consent/pending", params={"userId": long_user_id}),
+        client.get(
+            "/api/consent/pending/lookup",
+            params={"userId": long_user_id, "request_id": "req_123"},
+        ),
+        client.post(
+            "/api/consent/pending/deny",
+            params={"userId": long_user_id, "requestId": "req_123"},
+        ),
+        client.get("/api/consent/export-refresh/jobs", params={"userId": long_user_id}),
+    ]
+
+    assert [response.status_code for response in responses] == [422, 422, 422, 422]
 
 
 def test_full_handshake_lifecycle(monkeypatch):
@@ -247,6 +342,62 @@ def test_full_handshake_lifecycle(monkeypatch):
     assert len(revoked_events) == 1
 
 
+def test_pending_lookup_resolves_cross_linked_request_ids(monkeypatch):
+    """Product surfaces resolve canonical consent rows by cross-linked ids."""
+    fake_db = _FakeConsentDBService()
+    monkeypatch.setattr(consent, "ConsentDBService", lambda: fake_db)
+
+    issued_at = int(time.time() * 1000)
+    fake_db._add_pending(
+        "req_email_scope",
+        {
+            "request_id": "req_email_scope",
+            "agent_id": "developer:one-email",
+            "requester_label": "One",
+            "scope": "attr.travel.preferences.seat.*",
+            "scope_description": "Seat preferences",
+            "issued_at": issued_at,
+            "poll_timeout_at": issued_at + 60000,
+            "request_url": "/consent/pending?requestId=req_email_scope",
+            "reason": "Reply to an email request with approved seat preferences.",
+            "bundle_id": "bundle_email",
+            "bundle_label": "Email access request",
+            "bundle_scope_count": 1,
+            "metadata": {
+                "request_source": "one_email_kyc_v1",
+                "connector_public_key": "public-key",
+                "connector_key_id": "one-email-key",
+            },
+        },
+    )
+
+    app = _build_app()
+    client = TestClient(app)
+
+    resp = client.get(
+        "/api/consent/pending/lookup",
+        params=[
+            ("userId", "investor_1"),
+            ("request_id", "req_email_scope"),
+            ("request_id", "req_email_scope"),
+            ("request_id", "missing_scope"),
+        ],
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["missing_request_ids"] == ["missing_scope"]
+    assert len(payload["items"]) == 1
+    item = payload["items"][0]
+    assert item["request_id"] == "req_email_scope"
+    assert item["scope"] == "attr.travel.preferences.seat.*"
+    assert item["scope_description"] == "Seat preferences"
+    assert item["requester_label"] == "One"
+    assert item["bundle_id"] == "bundle_email"
+    assert item["metadata"]["request_source"] == "one_email_kyc_v1"
+    assert item["metadata"]["connector_public_key"] == "public-key"
+
+
 def test_deny_consent_records_event(monkeypatch):
     """Investor denies a pending consent request."""
     fake_db = _FakeConsentDBService()
@@ -279,6 +430,221 @@ def test_deny_consent_records_event(monkeypatch):
     denied = [e for e in fake_db.events if e["action"] == "CONSENT_DENIED"]
     assert len(denied) == 1
     assert denied[0]["request_id"] == "req_deny"
+
+
+def test_alias_keyed_pending_request_can_be_denied_by_account_owner(monkeypatch):
+    """The account owner can act on requests keyed by a verified email alias."""
+    fake_db = _FakeConsentDBService()
+    monkeypatch.setattr(consent, "ConsentDBService", lambda: fake_db)
+    monkeypatch.setattr(consent, "RIAIAMService", _NoOpRIAIAMService)
+
+    async def _owned_identifiers(_user_id: str):
+        return ["investor_1", "akshat@example.com", "relay@privaterelay.appleid.com"]
+
+    monkeypatch.setattr(consent, "_owned_consent_identifiers", _owned_identifiers)
+
+    fake_db._add_pending(
+        "req_alias_deny",
+        {
+            "request_id": "req_alias_deny",
+            "user_id": "relay@privaterelay.appleid.com",
+            "agent_id": "developer:app_alias",
+            "scope": "pkm.read",
+            "metadata": {
+                "requester_actor_type": "developer",
+                "developer_app_display_name": "External Agent",
+            },
+        },
+    )
+
+    app = _build_app()
+    client = TestClient(app)
+
+    resp = client.get("/api/consent/pending", params={"userId": "investor_1"})
+    assert resp.status_code == 200
+    assert [item["id"] for item in resp.json()["pending"]] == ["req_alias_deny"]
+
+    resp = client.post(
+        "/api/consent/pending/deny",
+        params={"userId": "investor_1", "requestId": "req_alias_deny"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "denied"
+
+    denied = [event for event in fake_db.events if event["action"] == "CONSENT_DENIED"]
+    assert len(denied) == 1
+    assert denied[0]["user_id"] == "relay@privaterelay.appleid.com"
+    assert denied[0]["request_id"] == "req_alias_deny"
+
+
+def test_alias_keyed_pending_request_reuses_account_active_token(monkeypatch):
+    """Existing UID-keyed grants cover matching requests keyed by a verified alias."""
+    fake_db = _FakeConsentDBService()
+    monkeypatch.setattr(consent, "ConsentDBService", lambda: fake_db)
+    monkeypatch.setattr(consent, "RIAIAMService", _NoOpRIAIAMService)
+
+    async def _owned_identifiers(_user_id: str):
+        return ["investor_1", "relay@privaterelay.appleid.com"]
+
+    monkeypatch.setattr(consent, "_owned_consent_identifiers", _owned_identifiers)
+
+    def _unexpected_issue_token(**_kwargs):
+        raise AssertionError("approval should reuse the account-owned active token")
+
+    monkeypatch.setattr(consent, "issue_token", _unexpected_issue_token)
+
+    fake_db.active[("ria:profile_alias", "pkm.read")] = {
+        "user_id": "investor_1",
+        "agent_id": "ria:profile_alias",
+        "scope": "pkm.read",
+        "token_id": "token_existing_uid",
+        "issued_at": int(time.time() * 1000),
+        "expires_at": int(time.time() * 1000) + 86400000,
+        "request_id": "req_original",
+    }
+    fake_db._add_pending(
+        "req_alias_approve",
+        {
+            "request_id": "req_alias_approve",
+            "user_id": "relay@privaterelay.appleid.com",
+            "agent_id": "ria:profile_alias",
+            "scope": "pkm.read",
+            "metadata": {
+                "requester_actor_type": "ria",
+                "requester_entity_id": "profile_alias",
+                "developer_app_display_name": "Advisor Alias",
+            },
+        },
+    )
+
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.post(
+        "/api/consent/pending/approve",
+        json={"userId": "investor_1", "requestId": "req_alias_approve"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["consent_token"] == "token_existing_uid"  # noqa: S105
+
+    granted = [event for event in fake_db.events if event["action"] == "CONSENT_GRANTED"]
+    assert [event["user_id"] for event in granted] == [
+        "relay@privaterelay.appleid.com",
+        "investor_1",
+    ]
+    assert {event["request_id"] for event in granted} == {"req_alias_approve"}
+
+
+def test_alias_keyed_developer_approval_stores_export_for_canonical_user(monkeypatch):
+    """Alias-keyed developer requests close by alias but store export under the vault owner."""
+    fake_db = _FakeConsentDBService()
+    issued: dict[str, object] = {}
+
+    monkeypatch.setattr(consent, "ConsentDBService", lambda: fake_db)
+    monkeypatch.setattr(consent, "RIAIAMService", _NoOpRIAIAMService)
+
+    async def _owned_identifiers(_user_id: str):
+        return ["investor_1", "relay@privaterelay.appleid.com"]
+
+    def _issue_token(**kwargs):
+        issued.update(kwargs)
+        return SimpleNamespace(
+            token="token_alias_export",  # noqa: S106
+            expires_at=int(time.time() * 1000) + 86400000,
+        )
+
+    monkeypatch.setattr(consent, "_owned_consent_identifiers", _owned_identifiers)
+    monkeypatch.setattr(consent, "issue_token", _issue_token)
+
+    fake_db._add_pending(
+        "req_alias_export",
+        {
+            "request_id": "req_alias_export",
+            "user_id": "relay@privaterelay.appleid.com",
+            "agent_id": "developer:app_alias",
+            "scope": "pkm.read",
+            "metadata": {
+                "requester_actor_type": "developer",
+                "developer_app_display_name": "External Agent",
+                "connector_public_key": "connector-public-key",
+                "connector_key_id": "connector-key-1",
+                "connector_wrapping_alg": "X25519-AES256-GCM",
+            },
+        },
+    )
+
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.post(
+        "/api/consent/pending/approve",
+        json={
+            "userId": "investor_1",
+            "requestId": "req_alias_export",
+            "encryptedData": "ciphertext",
+            "encryptedIv": "iv",
+            "encryptedTag": "tag",
+            "wrappedExportKey": "wrapped",
+            "wrappedKeyIv": "wrapped-iv",
+            "wrappedKeyTag": "wrapped-tag",
+            "senderPublicKey": "sender-public-key",
+            "wrappingAlg": "X25519-AES256-GCM",
+            "connectorKeyId": "connector-key-1",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert issued["user_id"] == "investor_1"
+    assert fake_db.export_writes[0]["user_id"] == "investor_1"
+
+    granted = [event for event in fake_db.events if event["action"] == "CONSENT_GRANTED"]
+    assert [event["user_id"] for event in granted] == [
+        "relay@privaterelay.appleid.com",
+        "investor_1",
+    ]
+    assert {event["request_id"] for event in granted} == {"req_alias_export"}
+
+
+def test_alias_keyed_active_consent_can_be_revoked_by_account_owner(monkeypatch):
+    """Revocation uses the same verified alias ownership filter as consent reads."""
+    fake_db = _FakeConsentDBService()
+    revoked_tokens: list[str] = []
+
+    import hushh_mcp.consent.token as token_module
+
+    monkeypatch.setattr(consent, "ConsentDBService", lambda: fake_db)
+    monkeypatch.setattr(token_module, "revoke_token", lambda token: revoked_tokens.append(token))
+    monkeypatch.setattr(consent, "RIAIAMService", _NoOpRIAIAMService)
+
+    async def _owned_identifiers(_user_id: str):
+        return ["investor_1", "relay@privaterelay.appleid.com"]
+
+    monkeypatch.setattr(consent, "_owned_consent_identifiers", _owned_identifiers)
+
+    fake_db.active[("developer:app_alias", "pkm.read")] = {
+        "user_id": "relay@privaterelay.appleid.com",
+        "agent_id": "developer:app_alias",
+        "scope": "pkm.read",
+        "token_id": "token_alias_active",
+        "issued_at": int(time.time() * 1000),
+        "expires_at": int(time.time() * 1000) + 86400000,
+        "request_id": "req_alias_approve",
+    }
+
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.post(
+        "/api/consent/revoke",
+        json={"userId": "investor_1", "scope": "pkm.read"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "revoked"
+    assert revoked_tokens == ["token_alias_active"]
+
+    revoked = [event for event in fake_db.events if event["action"] == "REVOKED"]
+    assert len(revoked) == 1
+    assert revoked[0]["user_id"] == "relay@privaterelay.appleid.com"
+    assert revoked[0]["request_id"] == "req_alias_approve"
 
 
 def test_cancel_consent_records_event(monkeypatch):

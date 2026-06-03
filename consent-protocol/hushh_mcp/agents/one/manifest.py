@@ -38,6 +38,13 @@ MANIFEST = {
             "color": "#6366F1",
             "icon": "id-card",
         },
+        {
+            "id": "location",
+            "name": "Location Agent",
+            "description": "Trusted-people live location workflow with recipient encryption, revocation, and audit.",
+            "color": "#0F766E",
+            "icon": "map-pin",
+        },
     ],
     "capabilities": {
         "relationship_layer": True,

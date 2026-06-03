@@ -277,7 +277,7 @@ export class UnlockWarmOrchestrator {
       userId: params.userId,
       kind: UNLOCK_WARM_TASK_KIND,
       title: "Getting your workspace ready",
-      description: "Kai is refreshing saved views in the background.",
+      description: "Refreshing saved views in the background.",
       visibility: "passive",
       groupLabel: "Background activity",
       visibleAfterMs: PASSIVE_TASK_VISIBLE_AFTER_MS,
@@ -531,7 +531,7 @@ export class UnlockWarmOrchestrator {
     });
     AppBackgroundTaskService.failTask(
       taskId,
-      error instanceof Error ? error.message : "Background activity failed.",
+      "We could not finish getting your workspace ready.",
       "Background activity needs attention.",
       {
         routePath: params.routePath || null,
