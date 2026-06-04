@@ -816,6 +816,53 @@ describe("RiaOnboardingPage", () => {
     });
   });
 
+  it("does not submit onboarding twice while the first request is pending", async () => {
+    mocks.draftService.load.mockResolvedValue({
+      currentStepId: "review",
+      onboardingType: "individual",
+      licenseNumber: "7265726",
+      licenseVerificationStatus: "found",
+      advisorName: "Ria Ashley Sen",
+      firmName: "Not Currently Registered",
+      regulator: "SEC",
+      regulatorStatus: "ACTIVE",
+      crdNumber: "7265726",
+      individualCrd: "7265726",
+      verifiedLicensePrefillKey: "sec:7265726",
+      servicesOffered: ["Portfolio Management"],
+      feeStructure: ["Fee-only"],
+      contactEmail: "ria-e2e@example.invalid",
+    });
+
+    let resolveSubmit: (value: unknown) => void = () => undefined;
+    const pendingSubmit = new Promise((resolve) => {
+      resolveSubmit = resolve;
+    });
+    mocks.riaService.submitOnboarding.mockReturnValue(pendingSubmit);
+
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-review")).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("continue-btn"));
+      fireEvent.click(screen.getByTestId("continue-btn"));
+    });
+
+    expect(mocks.riaService.submitOnboarding).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveSubmit({
+        requested_capabilities: ["advisory"],
+        verification_status: "submitted",
+        advisory_status: "submitted",
+      });
+      await pendingSubmit;
+    });
+  });
+
   it("redirects to RIA home if already verified when submit clicked", async () => {
     mocks.riaService.getOnboardingStatus.mockResolvedValue({
       exists: true,

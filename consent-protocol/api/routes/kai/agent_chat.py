@@ -37,39 +37,39 @@ class AgentChatRenameRequest(BaseModel):
 
 
 class AgentChatConversationModel(BaseModel):
-    id: str
-    title: str
-    status: str
-    model: Optional[str] = None
-    message_count: int = 0
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    last_message_at: Optional[str] = None
+    id: str = Field(..., max_length=256)
+    title: str = Field(..., max_length=256)
+    status: str = Field(..., max_length=64)
+    model: Optional[str] = Field(default=None, max_length=128)
+    message_count: int = Field(default=0, ge=0)
+    created_at: Optional[str] = Field(default=None, max_length=64)
+    updated_at: Optional[str] = Field(default=None, max_length=64)
+    last_message_at: Optional[str] = Field(default=None, max_length=64)
 
 
 class AgentChatMessageModel(BaseModel):
-    id: str
-    conversation_id: str
-    role: str
-    status: str
-    content: str
-    model: Optional[str] = None
-    created_at: Optional[str] = None
-    completed_at: Optional[str] = None
+    id: str = Field(..., max_length=256)
+    conversation_id: str = Field(..., max_length=256)
+    role: str = Field(..., max_length=64)
+    status: str = Field(..., max_length=64)
+    content: str = Field(..., max_length=8192)
+    model: Optional[str] = Field(default=None, max_length=128)
+    created_at: Optional[str] = Field(default=None, max_length=64)
+    completed_at: Optional[str] = Field(default=None, max_length=64)
 
 
 class AgentChatConversationsResponse(BaseModel):
-    user_id: str
+    user_id: str = Field(..., max_length=256)
     conversations: list[AgentChatConversationModel]
 
 
 class AgentChatHistoryResponse(BaseModel):
-    conversation_id: str
+    conversation_id: str = Field(..., max_length=256)
     messages: list[AgentChatMessageModel]
 
 
 class AgentChatDeleteResponse(BaseModel):
-    conversation_id: str
+    conversation_id: str = Field(..., max_length=256)
     deleted: bool
 
 
