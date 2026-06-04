@@ -207,7 +207,7 @@ runTest(
 console.log("\n[Suite 6] Malformed IPv6 strings → fallback \"0.0.0.0\"");
 
 runTest(
-  '"2001:db8:::1" (double :: twice) → "0.0.0.0"',
+  '"2001:db8:::1" (triple colon — empty group fails hex validation) → "0.0.0.0"',
   () => assert.strictEqual(anonymizeIP("2001:db8:::1"), "0.0.0.0")
 );
 
