@@ -27,6 +27,8 @@ import { DeviceResourceCacheService } from "./device-resource-cache-service";
 import {
   buildPersonalKnowledgeModelStructureArtifacts,
   type DomainManifest,
+  type PathDescriptor,
+  type StructureDecision,
 } from "@/lib/personal-knowledge-model/manifest";
 import {
   CURRENT_PKM_CONTRACT_VERSION,
@@ -120,6 +122,18 @@ export interface StoreDomainDataResult {
   dataVersion?: number;
   updatedAt?: string;
 }
+
+export const GEMINI_RUNTIME_CREDENTIAL_REF =
+  "pkm:runtime_secrets.llm.gemini_api_key";
+export const CLAUDE_RUNTIME_CREDENTIAL_REF =
+  "pkm:runtime_secrets.llm.claude_api_key";
+export const GROK_RUNTIME_CREDENTIAL_REF =
+  "pkm:runtime_secrets.llm.grok_api_key";
+export const OPENAI_RUNTIME_CREDENTIAL_REF =
+  "pkm:runtime_secrets.llm.openai_api_key";
+export const RUNTIME_CREDENTIAL_MODE_REF =
+  "pkm:runtime_secrets.llm.credential_mode";
+export type RuntimeCredentialMode = "byok" | "hushh_managed_vertex";
 
 export interface PkmUpgradeContext {
   runId: string;
@@ -1129,6 +1143,240 @@ export class PersonalKnowledgeModelService {
   private static getVaultOwnerToken(vaultOwnerToken?: string): string | undefined {
     // SECURITY: Only use explicitly passed token, no sessionStorage fallback
     return vaultOwnerToken;
+  }
+
+  private static parsePkmCredentialRef(
+    credentialRef: string
+  ): { domain: string; keys: string[] } | null {
+    const prefix = "pkm:";
+    const path = credentialRef.startsWith(prefix)
+      ? credentialRef.slice(prefix.length)
+      : credentialRef;
+    const [domain, ...keys] = path
+      .split(".")
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    if (!domain || keys.length === 0) {
+      return null;
+    }
+
+    return { domain, keys };
+  }
+
+  private static setValueAtNestedPath(
+    target: Record<string, unknown>,
+    keys: string[],
+    value: string
+  ): void {
+    let cursor = target;
+    for (const key of keys.slice(0, -1)) {
+      if (!this.isPlainObject(cursor[key])) {
+        cursor[key] = {};
+      }
+      cursor = cursor[key] as Record<string, unknown>;
+    }
+    const leafKey = keys[keys.length - 1];
+    if (leafKey) {
+      cursor[leafKey] = value;
+    }
+  }
+
+  private static deleteValueAtNestedPath(
+    target: Record<string, unknown>,
+    keys: string[]
+  ): boolean {
+    const trail: Array<{ object: Record<string, unknown>; key: string }> = [];
+    let cursor: Record<string, unknown> = target;
+    for (const key of keys.slice(0, -1)) {
+      if (!this.isPlainObject(cursor[key])) {
+        return false;
+      }
+      trail.push({ object: cursor, key });
+      cursor = cursor[key] as Record<string, unknown>;
+    }
+
+    const leafKey = keys[keys.length - 1];
+    if (!leafKey || !(leafKey in cursor)) {
+      return false;
+    }
+    delete cursor[leafKey];
+
+    for (const { object, key } of trail.reverse()) {
+      const value = object[key];
+      if (this.isPlainObject(value) && Object.keys(value).length === 0) {
+        delete object[key];
+      }
+    }
+    return true;
+  }
+
+  private static buildRuntimeSecretsArtifacts(params: {
+    domain: string;
+    domainData: Record<string, unknown>;
+    previousManifest?: DomainManifest | null;
+  }): {
+    summary: Record<string, unknown>;
+    structureDecision: StructureDecision;
+    manifest: DomainManifest;
+  } {
+    const nowIso = new Date().toISOString();
+    const domainContractVersion = currentDomainContractVersion(params.domain);
+    const providerDescriptors = [
+      {
+        provider: "gemini",
+        jsonPath: "llm.gemini_api_key",
+        summaryKey: "has_gemini_api_key",
+        consentLabel: "Gemini API key",
+      },
+      {
+        provider: "claude",
+        jsonPath: "llm.claude_api_key",
+        summaryKey: "has_claude_api_key",
+        consentLabel: "Claude API key",
+      },
+      {
+        provider: "grok",
+        jsonPath: "llm.grok_api_key",
+        summaryKey: "has_grok_api_key",
+        consentLabel: "Grok API key",
+      },
+      {
+        provider: "openai",
+        jsonPath: "llm.openai_api_key",
+        summaryKey: "has_openai_api_key",
+        consentLabel: "OpenAI API key",
+      },
+    ] as const;
+    const providerPresence = providerDescriptors.map((descriptor) => ({
+      ...descriptor,
+      configured: this.getValueAtPath(params.domainData, descriptor.jsonPath) !== undefined,
+    }));
+    const credentialMode = this.getValueAtPath(params.domainData, "llm.credential_mode");
+    const safeCredentialMode =
+      credentialMode === "byok" || credentialMode === "hushh_managed_vertex"
+        ? credentialMode
+        : "byok";
+    const configuredProviders = providerPresence
+      .filter((descriptor) => descriptor.configured)
+      .map((descriptor) => descriptor.provider);
+    const manifestVersion = Math.max(1, params.previousManifest?.manifest_version || 0) + 1;
+    const paths: PathDescriptor[] = [
+      {
+        json_path: "llm",
+        parent_path: null,
+        path_type: "object",
+        exposure_eligibility: false,
+        consent_label: "Runtime model credentials",
+        sensitivity_label: "restricted",
+        segment_id: "llm",
+        scope_handle: "runtime_secrets.llm",
+        source_agent: "runtime_secret_settings",
+      },
+      ...providerDescriptors.map(
+        (descriptor): PathDescriptor => ({
+          json_path: descriptor.jsonPath,
+          parent_path: "llm",
+          path_type: "leaf",
+          exposure_eligibility: false,
+          consent_label: descriptor.consentLabel,
+          sensitivity_label: "restricted",
+          segment_id: "llm",
+          scope_handle: "runtime_secrets.llm",
+          source_agent: "runtime_secret_settings",
+        }),
+      ),
+      {
+        json_path: "llm.credential_mode",
+        parent_path: "llm",
+        path_type: "leaf",
+        exposure_eligibility: false,
+        consent_label: "Runtime model credential mode",
+        sensitivity_label: "restricted",
+        segment_id: "llm",
+        scope_handle: "runtime_secrets.llm",
+        source_agent: "runtime_secret_settings",
+      },
+    ];
+    const summary = {
+      domain_intent: params.domain,
+      manifest_version: manifestVersion,
+      domain_contract_version: domainContractVersion,
+      readable_summary_version: CURRENT_READABLE_SUMMARY_VERSION,
+      pkm_contract_version: CURRENT_PKM_CONTRACT_VERSION,
+      readable_projection_version: CURRENT_READABLE_PROJECTION_VERSION,
+      consumer_visible: false,
+      internal_only: true,
+      storage_mode: "encrypted_domain",
+      configured_runtime_providers: configuredProviders,
+      configured_provider_count: configuredProviders.length,
+      ...Object.fromEntries(
+        providerPresence.map((descriptor) => [
+          descriptor.summaryKey,
+          descriptor.configured,
+        ]),
+      ),
+      credential_mode: safeCredentialMode,
+    };
+    const structureDecision: StructureDecision = {
+      action: params.previousManifest ? "extend_domain" : "create_domain",
+      target_domain: params.domain,
+      json_paths: paths.map((path) => path.json_path),
+      top_level_scope_paths: ["llm"],
+      externalizable_paths: [],
+      summary_projection: summary,
+      sensitivity_labels: {
+        llm: "restricted",
+        ...Object.fromEntries(
+          providerDescriptors.map((descriptor) => [descriptor.jsonPath, "restricted"]),
+        ),
+        "llm.credential_mode": "restricted",
+      },
+      confidence: 1,
+      source_agent: "runtime_secret_settings",
+      contract_version: 1,
+    };
+    const manifest: DomainManifest = {
+      domain: params.domain,
+      manifest_version: manifestVersion,
+      domain_contract_version: domainContractVersion,
+      readable_summary_version: CURRENT_READABLE_SUMMARY_VERSION,
+      pkm_contract_version: CURRENT_PKM_CONTRACT_VERSION,
+      readable_projection_version: CURRENT_READABLE_PROJECTION_VERSION,
+      upgraded_at: nowIso,
+      structure_decision: structureDecision,
+      summary_projection: summary,
+      top_level_scope_paths: ["llm"],
+      externalizable_paths: [],
+      segment_ids: ["llm"],
+      path_count: paths.length,
+      externalizable_path_count: 0,
+      last_structured_at: nowIso,
+      last_content_at: nowIso,
+      paths,
+      scope_registry: [
+        {
+          scope_handle: "runtime_secrets.llm",
+          scope_label: "Runtime model credentials",
+          segment_ids: ["llm"],
+          sensitivity_tier: "restricted",
+          scope_kind: "internal_secret",
+          exposure_enabled: false,
+          visibility_posture: "private",
+          default_projection_ready: false,
+          default_projection_updated_at: null,
+          summary_projection: {
+            top_level_scope_path: "llm",
+            consumer_visible: false,
+            internal_only: true,
+            visibility_reason: "User-owned BYOK credentials stay private.",
+            storage_mode: "encrypted_domain",
+          },
+        },
+      ],
+    };
+
+    return { summary, structureDecision, manifest };
   }
 
   private static metadataDeviceResourceKey(userId: string): string {
@@ -3081,6 +3329,136 @@ export class PersonalKnowledgeModelService {
   }): Promise<Record<string, unknown> | null> {
     const loaded = await this.loadDomainDataWithBlob(params);
     return loaded.data;
+  }
+
+  static async loadRuntimeSecret(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken: string;
+    credentialRef: string;
+  }): Promise<string | null> {
+    const parsed = this.parsePkmCredentialRef(params.credentialRef);
+    if (!parsed) {
+      return null;
+    }
+
+    const data = await this.loadDomainData({
+      userId: params.userId,
+      domain: parsed.domain,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+    });
+
+    let current: unknown = data;
+    for (const key of parsed.keys) {
+      if (!current || typeof current !== "object" || !(key in current)) {
+        return null;
+      }
+      current = (current as Record<string, unknown>)[key];
+    }
+
+    return typeof current === "string" && current.trim() ? current : null;
+  }
+
+  static async storeRuntimeSecret(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken: string;
+    credentialRef: string;
+    secret: string;
+  }): Promise<StoreDomainDataResult> {
+    const parsed = this.parsePkmCredentialRef(params.credentialRef);
+    const secret = params.secret.trim();
+    if (!parsed) {
+      throw new Error("Invalid PKM credential reference.");
+    }
+    if (!secret) {
+      throw new Error("Runtime secret is required.");
+    }
+
+    const existingData = await this.loadDomainData({
+      userId: params.userId,
+      domain: parsed.domain,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+    }).catch(() => null);
+    const domainData = this.isPlainObject(existingData)
+      ? this.cloneRecord(existingData)
+      : {};
+    this.setValueAtNestedPath(domainData, parsed.keys, secret);
+
+    return this.storeRuntimeSecretsDomain({
+      userId: params.userId,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+      domain: parsed.domain,
+      domainData,
+    });
+  }
+
+  static async removeRuntimeSecret(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken: string;
+    credentialRef: string;
+  }): Promise<StoreDomainDataResult> {
+    const parsed = this.parsePkmCredentialRef(params.credentialRef);
+    if (!parsed) {
+      throw new Error("Invalid PKM credential reference.");
+    }
+
+    const existingData = await this.loadDomainData({
+      userId: params.userId,
+      domain: parsed.domain,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+    }).catch(() => null);
+    const domainData = this.isPlainObject(existingData)
+      ? this.cloneRecord(existingData)
+      : {};
+    this.deleteValueAtNestedPath(domainData, parsed.keys);
+
+    return this.storeRuntimeSecretsDomain({
+      userId: params.userId,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+      domain: parsed.domain,
+      domainData,
+    });
+  }
+
+  private static async storeRuntimeSecretsDomain(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken: string;
+    domain: string;
+    domainData: Record<string, unknown>;
+  }): Promise<StoreDomainDataResult> {
+    const previousManifest = await this.getDomainManifest(
+      params.userId,
+      params.domain,
+      params.vaultOwnerToken
+    ).catch(() => null);
+    const encryptedBlob = await this.encryptDomainForStorage({
+      vaultKey: params.vaultKey,
+      domainData: params.domainData,
+    });
+    const artifacts = this.buildRuntimeSecretsArtifacts({
+      domain: params.domain,
+      domainData: params.domainData,
+      previousManifest,
+    });
+
+    return this.storeDomainData({
+      userId: params.userId,
+      domain: params.domain,
+      encryptedBlob,
+      summary: artifacts.summary,
+      structureDecision: artifacts.structureDecision,
+      manifest: artifacts.manifest,
+      domainData: params.domainData,
+      vaultOwnerToken: params.vaultOwnerToken,
+    });
   }
 
   static peekCachedDomainBlob(

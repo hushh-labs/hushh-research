@@ -1,9 +1,32 @@
-# PR Train Review SOP
+# PR Governance Subagent Train SOP
 
 Use this SOP when a reviewer handles more than one PR, chooses the next batch,
 revisits `changes_requested`, or scales throughput without weakening quality.
 
-## Async Train Default
+## Branch Intake Model
+
+This SOP uses the PR governance subagent train as the default maintainer
+workflow. Contributor experience can stay simple: contributors may open PRs
+against `main` if that is the familiar GitHub default. Before any maintainer
+review, approval, patch, harvest, queue, or merge action, normal PR intake must
+be retargeted to `integration/pr-train`.
+
+The canonical path is:
+
+```text
+contributor branch -> PR opened to main or integration/pr-train
+maintainer/automation retargets normal intake to integration/pr-train
+integration/pr-train is reviewed, tested, merged, and manually validated
+integration/pr-train -> main promotion PR
+exact green main SHA -> UAT/production deploy
+```
+
+`main` is the stable promotion lane, not the normal feature landing lane.
+Direct feature, contributor, or agent PRs into `main` stay blocked unless they
+are explicitly approved emergency hotfixes. Retarget first, then trust checks
+from the `integration/pr-train` base.
+
+## Async Train Default / Async Subagent Train Default
 
 This SOP is the canonical behavior source for multi-PR governance.
 Canonical order for every backlog, batch, repass, decision-wave, or scale pass:
@@ -12,12 +35,12 @@ Canonical order for every backlog, batch, repass, decision-wave, or scale pass:
 2. Confirm every requested author or surface scope before scanning. If the operator gives rough handles, resolve exact GitHub logins first and do not substitute similarly named users silently.
 3. Apply the Actionable Intake Filter before deep review: include unattended PRs, PRs with contributor activity after the latest maintainer `changes_requested` record, and PRs whose head SHA/check/mergeability changed; move unchanged PRs with current standardized maintainer records into `Dormant Current Holds`.
 4. Move failing, missing, stale, or auxiliary-failing checks into `Check Failure Holds` unless this is CI repair.
-5. Build the train graph from hard edges: exact files, lockfiles, generated contracts, schema/migrations, concrete shared route/runtime surfaces, dirty-file overlap, stacked/conflicting state, and queue/main dependencies. Treat broad sensitive-runtime labels as risk signals unless they share a concrete file, route, schema, generated contract, or explicit dependency edge.
-6. Identify all async trains from that graph, oldest PRs first, not only the next visible batch.
-7. Start one read-only evidence lane per independent train family; the writer-lane exception does not make evidence lanes writable.
+5. Build the train graph from hard edges: exact files, lockfiles, generated contracts, schema/migrations, concrete shared route/runtime surfaces, dirty-file overlap, stacked/conflicting state, and train/promotion dependencies. Treat broad sensitive-runtime labels as risk signals unless they share a concrete file, route, schema, generated contract, or explicit dependency edge.
+6. Identify all async subagent trains from that graph, oldest PRs first, not only the next visible batch.
+7. Start one read-only evidence lane per independent train family; when the subagent tool is available, that lane must be a real read-only subagent evidence lane. The writer-lane exception does not make evidence lanes writable.
 8. Ask one Pre-Wave Operator Question before any comment, close, patch, queue, merge, or deploy checkpoint unless the operator has already given explicit standing approval for this scoped async-train run.
 9. After a wave completes, treat PRs with current standardized maintainer records as handled until their head SHA, CI state, mergeability, or contributor response changes.
-10. Run independent trains in parallel through a five-worker train pool; sequence hard-edge PRs oldest-first inside a train and refill a freed worker with the next oldest non-touching train.
+10. Run independent trains in parallel through a five-worker subagent train pool; sequence hard-edge PRs oldest-first inside a train and refill a freed worker with the next oldest non-touching train.
 11. Treat PR Validation, Queue Validation, and Main Post-Merge Smoke as monitor lanes; while they run, prepare the next independent train or decision wave.
 12. Ingest every returned lane into queue, patch, comment/close, hold, dormant hold, or next-refill writes; do not call the set complete until every scoped PR is linked as acted, terminal, blocked, dormant-current, or remaining.
 
@@ -25,7 +48,7 @@ If this order conflicts with another PR-governance reference, this section wins.
 
 ## Surface-Scoped Async Train Guard
 
-Async trains are parallelism inside the operator-approved surface scope, not permission to act on unrelated green PRs. Build trains only from PRs touching the named scope or hard dependencies; put unrelated green-clean PRs in `out_of_scope_candidates` until a separate checkpoint approves writes. For Location, PKM, vault, consent, KYC, voice, finance, deploy, or branch governance, default to one surface train plus direct hard-edge dependencies.
+Async subagent trains are parallelism inside the operator-approved surface scope, not permission to act on unrelated green PRs. Build trains only from PRs touching the named scope or hard dependencies; put unrelated green-clean PRs in `out_of_scope_candidates` until a separate checkpoint approves writes. For Location, PKM, vault, consent, KYC, voice, finance, deploy, or branch governance, default to one surface train plus direct hard-edge dependencies.
 
 ## Live Report Reuse
 
@@ -72,9 +95,9 @@ Move a PR to `Dormant Current Holds` without deep re-review when all are true:
 
 ## Preflight
 
-Fetch main, inspect worktree, confirm no dirty local file overlaps a PR under review, and use only a fresh scoped live report. High-volume (`>20` PRs scanned, `>5` acted on, mixed trains, repasses, or throughput maximization) requires the delegation router and read-only lanes.
+Fetch `origin/integration/pr-train`, inspect worktree, confirm no dirty local file overlaps a PR under review, and use only a fresh scoped live report. For any normal PR that currently targets `main`, retarget to `integration/pr-train` before approval, queue, merge, maintainer patch, or harvest. High-volume (`>20` PRs scanned, `>5` acted on, mixed trains, repasses, or throughput maximization) requires the delegation router and read-only subagent lanes.
 
-Record the starting developer branch before any worktree, PR checkout, detached HEAD, or temporary review branch operation. If the parent session switches away, the train is not complete until it returns to that branch or reports the exact blocker. Fetch `origin/main` before any state-changing wave or branch switch so decisions are based on current main refs.
+Record the starting developer branch before any worktree, PR checkout, detached HEAD, or temporary review branch operation. If the parent session switches away, the train is not complete until it returns to that branch or reports the exact blocker. Fetch `origin/integration/pr-train` before any PR-train state-changing wave or branch switch so decisions are based on the current train ref. Fetch `origin/main` only for train-to-main promotion, hotfix, or deploy-authority checks.
 
 ## Branch And Worktree Hygiene
 
@@ -85,7 +108,7 @@ Record the starting developer branch before any worktree, PR checkout, detached 
 5. Never leave final governance changes only on a temporary branch. Move or replay accepted changes onto the operator-approved development branch before final handoff.
 6. Do not switch branches with dirty user work unless that work is first preserved with an explicit stash, commit, or operator-approved worktree handoff.
 7. Attempt temporary branch and worktree cleanup before final handoff. If cleanup fails, report the exact branch or worktree, current ref, why it remains, and the next cleanup command.
-8. A final handoff after branch operations must state the current branch, whether `origin/main` was fetched, what temporary branches/worktrees remain, and where the accepted changes live.
+8. A final handoff after branch operations must state the current branch, whether `origin/integration/pr-train` and any required `origin/main` promotion ref were fetched, what temporary branches/worktrees remain, and where the accepted changes live.
 9. Before final handoff, run a read-only worktree inventory:
    `git worktree list --porcelain`, `git worktree prune --dry-run`, and
    `git -C <worktree> status --short --branch` for non-primary worktrees.
@@ -141,13 +164,13 @@ Identify every train in the reviewed scope before any state change:
 
 Large OSS-style contribution queues often contain stacked work. Treat this as a sequencing input, not as automatic drift.
 
-1. Review every PR against current `main`, then check whether it has a proven predecessor in the open PR set.
+1. Review every normal PR against current `integration/pr-train`, then check whether it has a proven predecessor in the open PR set.
 2. Proven stack evidence includes explicit dependency language in the PR title/body, branch ancestry, imports/callers that point to files introduced by another open PR, or tests that only make sense after a named predecessor lands.
 3. Hints such as same author, similar title, nearby creation time, or same broad theme are not enough by themselves.
 4. If a follow-up PR depends on a predecessor, put both in one sequential train, set `must_wait_for`, and process the initializer first.
 5. Do not mark the follow-up as an unattached helper solely because the caller is in its predecessor PR.
 6. If the predecessor is outside the reviewed scope, stale, failing CI, conflicting, or unmerged, hold the dependent PR with `needs_predecessor_repass` rather than approving it.
-7. If no predecessor can be proven, apply the normal current-main reachability gate.
+7. If no predecessor can be proven, apply the normal current-train reachability gate.
 
 ## Write, Queue, And Reporting Detail
 

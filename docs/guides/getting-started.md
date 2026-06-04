@@ -48,9 +48,8 @@ git --version
 If `git status` reports `fatal: not a git repository`, you are in a folder without a `.git` directory. Clone the repo or move into the real checkout before running Git commands:
 
 ```powershell
-cd D:\
 git clone https://github.com/hushh-labs/hushh-research.git hushh-research
-cd D:\hushh-research
+cd hushh-research
 git status
 ```
 
