@@ -191,6 +191,40 @@ describe("PKM cache behavior", () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("short-caches missing domain data so empty PKM domains do not refetch immediately", async () => {
+    apiFetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          encrypted_blob: null,
+          storage_mode: "domain",
+          data_version: null,
+          updated_at: null,
+          manifest_revision: null,
+          segment_ids: [],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const first = await PersonalKnowledgeModelService.getDomainData(
+      "user-1",
+      "ria",
+      "vault-owner-token"
+    );
+    const second = await PersonalKnowledgeModelService.getDomainData(
+      "user-1",
+      "ria",
+      "vault-owner-token"
+    );
+
+    expect(first).toBeNull();
+    expect(second).toBeNull();
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      CacheService.getInstance().peek(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB("user-1", "ria"))?.data
+    ).toBeNull();
+  });
+
   it("supports targeted segment reads for manifest-backed paths", async () => {
     apiFetchMock.mockImplementation(async (url: string) => {
       if (url.includes("/api/pkm/domain-data/user-1/health")) {

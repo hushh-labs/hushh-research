@@ -219,7 +219,7 @@ export function RiaStatusPanel({
         {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {items.map((item) => (
           <div
             key={`${item.label}-${item.value}`}
@@ -273,4 +273,3 @@ export function RiaVerificationGate({ children }: { children: ReactNode }) {
 
   return <>{children}</>;
 }
-
