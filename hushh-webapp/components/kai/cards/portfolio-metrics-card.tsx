@@ -134,7 +134,7 @@ export function PortfolioMetricsCard({
     <Card variant="none" effect="glass" showRipple={false} className={className}>
       <CardHeader className="pb-1 pt-3 px-4">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
-          <Icon icon={BarChart3} size="md" className="text-primary" />
+          <Icon icon={BarChart3} size="md" className="text-primary" aria-hidden="true" />
           Metrics
         </CardTitle>
       </CardHeader>
@@ -143,7 +143,7 @@ export function PortfolioMetricsCard({
           {/* Diversification Score */}
           <div className="space-y-1">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Icon icon={Layers} size="md" />
+              <Icon icon={Layers} size="md" aria-hidden="true" />
               <span>Diversity</span>
             </div>
             <div className="flex items-baseline gap-1.5">
@@ -159,7 +159,7 @@ export function PortfolioMetricsCard({
           {/* Sector Count */}
           <div className="space-y-1">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Icon icon={Layers} size="md" />
+              <Icon icon={Layers} size="md" aria-hidden="true" />
               <span>Sectors</span>
             </div>
             <div className="flex items-baseline gap-1.5">
@@ -173,7 +173,7 @@ export function PortfolioMetricsCard({
           {avgYield !== null && (
             <div className="space-y-1">
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Icon icon={Percent} size="md" />
+                <Icon icon={Percent} size="md" aria-hidden="true" />
                 <span>Avg Yield</span>
               </div>
               <span className="text-lg font-bold text-emerald-500">
@@ -186,7 +186,7 @@ export function PortfolioMetricsCard({
           {weightedCostBasis !== null && (
             <div className="space-y-1">
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Icon icon={DollarSign} size="md" />
+                <Icon icon={DollarSign} size="md" aria-hidden="true" />
                 <span>Cost Basis</span>
               </div>
               <span className="text-lg font-bold">

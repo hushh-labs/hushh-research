@@ -14,7 +14,7 @@ import logging
 from typing import Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
@@ -31,7 +31,7 @@ router = APIRouter()
 
 class DecisionHistoryResponse(BaseModel):
     decisions: List[Dict]
-    total: int
+    total: int = Field(..., ge=0)
 
 
 # ============================================================================

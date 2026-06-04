@@ -611,6 +611,41 @@ def test_public_invite_lookup(monkeypatch):
     assert response.json()["ria"]["display_name"] == "RIA Alpha"
 
 
+def test_public_invite_lookup_omits_target_pii(monkeypatch):
+    async def _mock_get(self, invite_token: str):
+        assert invite_token == TEST_INVITE_VALUE
+        return {
+            "invite_token": invite_token,
+            "status": "sent",
+            "target_display_name": "Taylor Investor",
+            "target_email": "taylor.investor@example.com",
+            "target_phone": "+16505550123",
+            "accepted_by_user_id": "investor_user_123",
+            "accepted_request_id": "request_123",
+            "ria": {"display_name": "RIA Alpha"},
+        }
+
+    monkeypatch.setattr(RIAIAMService, "get_ria_invite", _mock_get)
+
+    client = TestClient(_build_app())
+    response = client.get(f"/api/invites/{TEST_INVITE_VALUE}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ria"]["display_name"] == "RIA Alpha"
+
+    serialized_payload = response.text
+    assert "target_display_name" not in payload
+    assert "target_email" not in payload
+    assert "target_phone" not in payload
+    assert "accepted_by_user_id" not in payload
+    assert "accepted_request_id" not in payload
+    assert "Taylor Investor" not in serialized_payload
+    assert "taylor.investor@example.com" not in serialized_payload
+    assert "+16505550123" not in serialized_payload
+    assert "investor_user_123" not in serialized_payload
+
+
 def test_accept_invite(monkeypatch):
     async def _mock_accept(self, invite_token: str, user_id: str):
         assert invite_token == TEST_INVITE_VALUE

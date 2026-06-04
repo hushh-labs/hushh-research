@@ -102,4 +102,33 @@ describe("/api/account/[...path] proxy", () => {
       "http://backend.test/api/account/email-aliases?view=all"
     );
   });
+    it("preserves forwarded account proxy query parameter ordering", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ success: true, aliases: [] })
+    );
+
+    const request = new NextRequest(
+      "http://localhost:3000/api/account/email-aliases?view=all&sort=desc&limit=10",
+      {
+        method: "GET",
+        headers: {
+          Authorization: "Bearer HCT:test",
+        },
+      }
+    );
+
+    await route.GET(request, {
+      params: Promise.resolve({
+        path: ["email-aliases"],
+      }),
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const forwardedUrl = fetchMock.mock.calls[0]?.[0];
+
+    expect(String(forwardedUrl)).toBe(
+      "http://backend.test/api/account/email-aliases?view=all&sort=desc&limit=10"
+    );
+  });
 });
