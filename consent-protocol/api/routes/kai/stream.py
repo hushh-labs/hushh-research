@@ -914,7 +914,7 @@ async def stream_agent_thinking(
     Stream thinking tokens for an agent analysis.
     Yields agent_token events that the frontend can display in real-time.
     """
-    logger.info(f"[Kai Stream] Starting stream_agent_thinking for {agent_name}")
+    logger.info("[Kai Stream] Starting stream_agent_thinking for %s", agent_name)
     token_count = 0
     stream_error_message: Optional[str] = None
     buffered_token_events: list[dict[str, Any]] = []
@@ -931,7 +931,10 @@ Think step by step in 2-3 sentences about what you'll analyze and why it matters
             if event.get("type") == "token":
                 token_count += 1
                 logger.info(
-                    f"[Kai Stream] Token #{token_count} for {agent_name}: {event.get('text', '')[:30]}..."
+                    "[Kai Stream] Token #%d for %s: %s...",
+                    token_count,
+                    agent_name,
+                    event.get("text", "")[:30],
                 )
                 buffered_token_events.append(
                     {
@@ -945,17 +948,21 @@ Think step by step in 2-3 sentences about what you'll analyze and why it matters
                 )
             elif event.get("type") == "error":
                 stream_error_message = str(event.get("message") or "unknown stream error")
-                logger.error(f"[Kai Stream] Gemini error for {agent_name}: {stream_error_message}")
+                logger.error(
+                    "[Kai Stream] Gemini error for %s: %s", agent_name, stream_error_message
+                )
             elif event.get("type") == "complete":
                 stream_completed = True
                 logger.info(
-                    f"[Kai Stream] Streaming complete for {agent_name}, total tokens: {token_count}"
+                    "[Kai Stream] Streaming complete for %s, total tokens: %d",
+                    agent_name,
+                    token_count,
                 )
 
             # Check if client disconnected after each token
             if await request.is_disconnected():
                 logger.info(
-                    f"[Kai Stream] Client disconnected during {agent_name} streaming, stopping..."
+                    "[Kai Stream] Client disconnected during %s streaming, stopping...", agent_name
                 )
                 return
 

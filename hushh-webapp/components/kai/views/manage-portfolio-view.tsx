@@ -642,33 +642,35 @@ export function ManagePortfolioView() {
                             </div>
                             <div className="flex items-center gap-3 ml-4 border-l border-primary/10 pl-4">
                               <div className="flex flex-col items-center gap-1">
-                                <Button
-                                  variant="none"
-                                  effect="glass"
-                                  size="icon-sm"
-                                  className={cn(
-                                    "h-10 w-10 text-muted-foreground hover:text-primary transition-all duration-300 rounded-xl",
-                                    holding.pending_delete && "pointer-events-none opacity-50"
-                                  )}
-                                  onClick={() => handleEditHolding(actualIndex)}
-                                  icon={{ icon: Pencil }}
-                                />
+                                  <Button
+                                    variant="none"
+                                    effect="glass"
+                                    size="icon-sm"
+                                    className={cn(
+                                      "h-10 w-10 text-muted-foreground hover:text-primary transition-all duration-300 rounded-xl",
+                                      holding.pending_delete && "pointer-events-none opacity-50"
+                                    )}
+                                    onClick={() => handleEditHolding(actualIndex)}
+                                    icon={{ icon: Pencil }}
+                                    aria-label={`Edit ${holding.symbol} holding`}
+                                  />
                                 <Kbd className="text-[8px] px-1 h-3.5">EDIT</Kbd>
                               </div>
                               <div className="flex flex-col items-center gap-1">
-                                <Button
-                                  variant="none"
-                                  effect="glass"
-                                  size="icon-sm"
-                                  className={cn(
-                                    "h-10 w-10 transition-all duration-300 rounded-xl",
-                                    holding.pending_delete
-                                      ? "text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50"
-                                      : "text-red-400 hover:text-red-500 hover:bg-red-50"
-                                  )}
-                                  onClick={() => handleDeleteHolding(actualIndex)}
-                                  icon={{ icon: holding.pending_delete ? Undo2 : Trash2 }}
-                                />
+                                  <Button
+                                    variant="none"
+                                    effect="glass"
+                                    size="icon-sm"
+                                    className={cn(
+                                      "h-10 w-10 transition-all duration-300 rounded-xl",
+                                      holding.pending_delete
+                                        ? "text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50"
+                                        : "text-red-400 hover:text-red-500 hover:bg-red-50"
+                                    )}
+                                    onClick={() => handleDeleteHolding(actualIndex)}
+                                    icon={{ icon: holding.pending_delete ? Undo2 : Trash2 }}
+                                    aria-label={holding.pending_delete ? `Undo delete ${holding.symbol}` : `Delete ${holding.symbol} holding`}
+                                  />
                                 <Kbd className="text-[8px] px-1 h-3.5">
                                   {holding.pending_delete ? "UNDO" : "DEL"}
                                 </Kbd>
