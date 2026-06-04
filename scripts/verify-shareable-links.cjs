@@ -1,24 +1,44 @@
 #!/usr/bin/env node
 
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
+const { CONFIG_RESOURCES, resolveWorkspaceAsset, workspaceRoot } = require("./workspace-setup");
 
-const repoRoot = path.resolve(__dirname, "..");
-const tmpRoot = path.join(repoRoot, "tmp");
+const repoRoot = workspaceRoot;
+const tmpRoot = CONFIG_RESOURCES.tmpDirectory;
 const ignoredDirs = new Set(["node_modules", ".git", ".next"]);
+const repoLocalLinkRoots = ["docs", "consent-protocol", "hushh-webapp", "packages", ".codex"];
 const repoishPrefixes = [
   "./",
   "../",
-  "docs/",
-  "consent-protocol/",
-  "hushh-webapp/",
-  "packages/",
-  ".codex/",
-  "/Users/",
+  ...repoLocalLinkRoots.map((root) => `${normalize(root)}/`),
+];
+const homeDir = normalize(os.homedir());
+const escapedHomeDir = homeDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const localAbsolutePathPatterns = [
+  /\b[A-Za-z]:[\\/][^\s)'"<>]+/,
+  /(^|[\s('"`])\/(?:home|Users|var|tmp|private|Volumes)\/[^\s)'"<>]+/,
+  ...(escapedHomeDir ? [new RegExp(`${escapedHomeDir}[^\\s)'"<>]*`)] : []),
 ];
 
 function normalize(p) {
   return p.replace(/\\/g, "/");
+}
+
+function hasFileUri(value) {
+  return /\bfile:\/\//i.test(value);
+}
+
+function looksAbsoluteLocalPath(value) {
+  const cleaned = normalize(value.trim());
+  if (!cleaned) return false;
+  if (homeDir && cleaned.startsWith(homeDir)) return true;
+  return path.posix.isAbsolute(cleaned) || path.win32.isAbsolute(value);
+}
+
+function containsAbsoluteLocalPath(value) {
+  return localAbsolutePathPatterns.some((pattern) => pattern.test(value));
 }
 
 function walkShareableFiles() {
@@ -28,7 +48,7 @@ function walkShareableFiles() {
   const visit = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (ignoredDirs.has(entry.name)) continue;
-      const full = path.join(dir, entry.name);
+      const full = resolveWorkspaceAsset(path.relative(repoRoot, path.join(dir, entry.name)));
       if (entry.isDirectory()) {
         visit(full);
         continue;
@@ -50,6 +70,7 @@ function tokenLooksRepoLocal(token) {
   if (!cleaned) return false;
   if (cleaned.startsWith("http://") || cleaned.startsWith("https://") || cleaned.startsWith("mailto:")) return false;
   if (cleaned.startsWith("#")) return false;
+  if (hasFileUri(cleaned) || looksAbsoluteLocalPath(cleaned)) return true;
   return repoishPrefixes.some((prefix) => cleaned.startsWith(prefix));
 }
 
@@ -60,10 +81,10 @@ function main() {
   for (const relFile of files) {
     const src = fs.readFileSync(path.join(repoRoot, relFile), "utf8");
 
-    if (src.includes("file://")) {
+    if (hasFileUri(src)) {
       failures.push(`${relFile}: contains file:// link`);
     }
-    if (src.includes("/Users/")) {
+    if (containsAbsoluteLocalPath(src)) {
       failures.push(`${relFile}: contains local absolute path`);
     }
 

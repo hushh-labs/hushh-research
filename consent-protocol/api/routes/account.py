@@ -530,6 +530,9 @@ async def delete_account(
     result = await service.delete_account(user_id, target=target)
 
     if not result["success"]:
+        # SECURITY: do not reflect the internal error string in the HTTP response.
+        # The service-layer error may include persona names, DB state, or persona IDs.
+        logger.error("account.delete_failed user=%s error=%s", user_id, result.get("error"))
         raise HTTPException(status_code=500, detail="Account deletion failed")
 
     if target == "both" and result.get("account_deleted") is True:
