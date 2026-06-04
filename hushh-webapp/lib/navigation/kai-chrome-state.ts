@@ -39,7 +39,6 @@ export function getKaiChromeState(
     path.startsWith(ROUTES.LOGIN) ||
     path.startsWith(ROUTES.LOGOUT) ||
     path.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
-    path.startsWith(ROUTES.MARKETPLACE) ||
     isRiaOnboardingRoute(path);
 
   return {
