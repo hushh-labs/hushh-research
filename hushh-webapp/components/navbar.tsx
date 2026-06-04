@@ -211,7 +211,7 @@ export const Navbar = () => {
     );
     if (
       reviewDirty &&
-      !window.confirm("You have unsaved portfolio changes. Leaving now will discard them.")
+      !confirm("You have unsaved portfolio changes. Leaving now will discard them.")
     ) {
       return;
     }
