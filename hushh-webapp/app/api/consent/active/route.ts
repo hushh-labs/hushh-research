@@ -21,6 +21,9 @@ const hotGet = createHotGetJsonCache({
   staleTtlMs: 5 * 60 * 1000,
 });
 
+/** Maximum window an active consent may span before this layer force-expires it. */
+const _CONSENT_POLICY_WINDOW_MS = 24 * 60 * 60 * 1_000; // 24 hours
+
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
@@ -79,6 +82,40 @@ export async function GET(request: NextRequest) {
       hotGet.setInflight(hotCacheKey, load);
     }
     const result = await load;
+
+    // ── Inline timeline verification (default-deny) ───────────────────────────
+    // Secondary enforcement: inspect every item in a 200 payload for stale
+    // timestamps before the response reaches the client.  Two signals trigger
+    // a force-expire:
+    //   1. expires_at is already in the past (consent expired server-side but
+    //      slipped through the backend filter).
+    //   2. issued_at predates the policy window ceiling (_CONSENT_POLICY_WINDOW_MS).
+    // Numbers are treated as Unix epoch seconds (standard Python/FastAPI output).
+    // All original cache and error-handling logic below is untouched.
+    if (result.status === 200) {
+      const items = (result.payload as Record<string, unknown>)?.items;
+      if (Array.isArray(items)) {
+        const now = Date.now();
+        const stale = (items as Array<Record<string, unknown>>).some(item => {
+          const toMs = (v: unknown): number | null => {
+            if (v == null) return null;
+            const n = typeof v === "number" ? v * 1_000 : Date.parse(String(v));
+            return Number.isFinite(n) ? n : null;
+          };
+          const expiresMs = toMs(item["expires_at"]);
+          if (expiresMs !== null && expiresMs <= now) return true;
+          const issuedMs  = toMs(item["issued_at"]);
+          return issuedMs !== null && now - issuedMs > _CONSENT_POLICY_WINDOW_MS;
+        });
+        if (stale) {
+          const body = { error: "Active consent session has expired. Re-authentication required." };
+          if (hotCacheKey) hotGet.write(hotCacheKey, { status: 401, payload: body });
+          return withRequestIdJson(requestId, body, { status: 401 });
+        }
+      }
+    }
+    // ── End timeline verification ─────────────────────────────────────────────
+
     if (hotCacheKey && result.status < 500) {
       hotGet.write(hotCacheKey, result);
     } else if (hotCacheKey && result.status >= 500) {
