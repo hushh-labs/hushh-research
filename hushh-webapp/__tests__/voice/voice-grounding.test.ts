@@ -668,7 +668,6 @@ describe("resolveGroundedVoicePlan", () => {
     };
 
     const plan = resolveGroundedVoicePlan({
-   
       transcript: "open profile",
       response,
       structuredContext: makeContext("/kai"),
@@ -681,5 +680,4 @@ describe("resolveGroundedVoicePlan", () => {
     expect(plan.resolutionSource).toBe("none");
     expect(plan.execution.steps).toHaveLength(0);
   });
- });
-
+});
