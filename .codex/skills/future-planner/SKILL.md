@@ -35,6 +35,7 @@ Non-owned surfaces:
 2. Creating or refining planning-only docs under `docs/future/`.
 3. Assessing future concepts against trust boundaries, PKM, consent, delegation, connector access, UX clarity, and operational complexity.
 4. Turning vague future ideas into explicit R&D notes with promotion criteria.
+5. Removing or rerouting future-roadmap docs once repo evidence proves the capability is implemented.
 
 ## Do Not Use
 
@@ -65,8 +66,9 @@ Non-owned surfaces:
    - connector permissions and on-demand consent
    - user-facing trust-state clarity
 7. Record what already exists, what is missing, what needs new primitives, and what should stay out of scope.
-7. Place the output in `docs/future/` unless the work is already approved for execution or belongs in `docs/vision/`.
-8. Add explicit status and promotion criteria to every future-state concept doc.
+8. If repo evidence proves a future item is now implemented or approved for execution, remove it from `docs/future/` or hand it to `docs-governance` for promotion into the current execution docs. Do not leave implemented capabilities framed as future promises.
+9. Place the output in `docs/future/` unless the work is already approved for execution or belongs in `docs/vision/`.
+10. Add explicit status and promotion criteria to every future-state concept doc.
 
 ## Handoff Rules
 

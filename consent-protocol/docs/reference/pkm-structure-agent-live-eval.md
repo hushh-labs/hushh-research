@@ -99,6 +99,28 @@ It must not cache prior model outputs across runs.
 
 The benchmark should recommend the current single-model minimal posture only if it stays inside the acceptance gates.
 
+## Reviewer Shadow Policy
+
+Daily structure-agent checks should include the env-wired reviewer fixture:
+
+```bash
+python3 scripts/eval_pkm_structure_agent.py --phase fresh_chain_60 --env-file .env
+```
+
+When `REVIEWER_UID` is present, it is the first shadow user. Legacy reviewer ids are fallback only.
+
+For protocol or prompt hardening that is expected to pass acceptance criteria, add `--enforce-gates`. The script fails nonzero when schema, domain, mutation, intent, fallback, fragmentation, finance-contamination, or unresolved-domain gates regress.
+
+Shadow replay is still read-only and must not send decrypted PKM values to the model. It reconstructs the domain/scope surface from manifests and scope registry metadata, then runs natural prompt chains against that shape. If the reviewer fixture is missing expected domains, repair or reseed that reviewer account rather than switching to another UID.
+
+Before a PKM protocol-version bump, also run:
+
+```bash
+python3 scripts/audit_active_pkm_shape_readonly.py --env-file .env
+```
+
+If reviewer secrets are not present in the local maintainer env, add `--gcp-secret-project hushh-pda-uat`; the script reads `REVIEWER_UID` and `REVIEWER_VAULT_PASSPHRASE` from Secret Manager into process memory only. That audit decrypts active reviewer `pkm_blobs` locally in memory and emits only redacted structure, counts, and presentation painpoints. It is the reviewer-backed evidence lane for noisy key-value structures, duplicate branches, oversized arrays, and consumer-presentation drift.
+
 ## KPI Definitions
 
 - `save_class_ok_rate`
@@ -110,11 +132,12 @@ The benchmark should recommend the current single-model minimal posture only if 
 - `finance_contamination_count`
 - `unresolved_domain_count`
 - `fragmentation_score`
+- `drift_flag_counts`
 - `average_latency_ms`
 - `p95_latency_ms`
 - `timeout_count`
 
-`fragmentation_score` is the ratio of unique actual durable domains to unique expected domains for the run. Lower is better.
+`fragmentation_score` is the ratio of unique actual durable domains to unique expected domains for the run. The target is close to `1.0`: too low means under-coverage, too high means domain fragmentation.
 
 ## Promotion Gates
 

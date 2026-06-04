@@ -16,10 +16,12 @@ export const ROUTES = {
   PROFILE_RECEIPTS: "/profile/receipts",
   PROFILE_GMAIL_OAUTH_RETURN: "/profile/gmail/oauth/return",
   CONSENTS: "/consents",
+  AGENT: "/agent",
   MARKETPLACE: "/marketplace",
   MARKETPLACE_CONNECTIONS: "/marketplace/connections",
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
   ONE_KYC: "/one/kyc",
+  ONE_LOCATION: "/one/location",
   RIA_HOME: "/ria",
   RIA_ONBOARDING: "/ria/onboarding",
   RIA_CLIENTS: "/ria/clients",
@@ -167,10 +169,23 @@ export function isPublicRoute(pathname: string): boolean {
     pathname === ROUTES.LOGIN ||
     pathname === ROUTES.PHONE_MANDATE ||
     pathname === ROUTES.LOGOUT ||
-    pathname === ROUTES.PROFILE
+    pathname === ROUTES.PROFILE ||
+    pathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
   );
 }
 
 export function isRiaRoute(pathname: string): boolean {
   return pathname === ROUTES.RIA_HOME || pathname.startsWith(`${ROUTES.RIA_HOME}/`);
+}
+
+export function isRiaOnboardingRoute(pathname: string): boolean {
+  return (
+    pathname === ROUTES.RIA_ONBOARDING ||
+    pathname.startsWith(`${ROUTES.RIA_ONBOARDING}/`)
+  );
+}
+
+export function isRiaActionBarRoute(pathname: string | null | undefined): boolean {
+  const path = pathname ?? "";
+  return isRiaRoute(path) && !isRiaOnboardingRoute(path);
 }

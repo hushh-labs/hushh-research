@@ -1,33 +1,25 @@
 ---
-name: 🐛 Bug Report
-about: Create a report to help us improve the Pre-Alpha
-title: "[BUG] "
+name: Bug Report
+about: Report a bug or unexpected behavior
+title: "[Bug]: "
 labels: bug
-assignees: ""
+assignees: ''
 ---
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+## Description
+Describe the issue clearly.
 
-**To Reproduce**
-Steps to reproduce the behavior:
+## Steps To Reproduce
+1.
+2.
+3.
 
-1. Go to '...'
-2. Click on '...'
-3. Scroll down to '...'
-4. See error
+## Expected Behavior
+Describe what should happen.
 
-**Expected behavior**
-A clear and concise description of what you expected to happen.
+## Environment
+- OS:
+- Node Version:
 
-**Device (please complete the following information):**
-
-- Device: [e.g. iPhone 15 Pro, Pixel 8]
-- OS: [e.g. iOS 17.2]
-- Hushh App Version: [e.g. 0.9.1]
-
-**Screenshots**
-If applicable, add screenshots to help explain your problem.
-
-**Additional context**
-Add any other context about the problem here.
+## Additional Context
+Add screenshots or logs if applicable.

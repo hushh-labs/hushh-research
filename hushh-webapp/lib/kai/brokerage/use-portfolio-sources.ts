@@ -15,6 +15,7 @@ import {
   hasPortfolioHoldings,
   type PlaidFundingStatusResponse,
   resolveAvailableSources,
+  resolvePreferredPortfolioSource,
   resolvePortfolioFreshness,
   type PlaidPortfolioStatusResponse,
   type PortfolioFreshness,
@@ -29,6 +30,7 @@ import {
   getStatementPortfolio,
   getStatementSnapshotOptions,
   isPlaidMirrorStale,
+  removeStatementSnapshot,
   setActivePlaidSource,
   setActiveStatementSnapshot,
   upsertPlaidSource,
@@ -78,6 +80,7 @@ export interface UsePortfolioSourcesResult {
   isPlaidRefreshing: boolean;
   changeActiveSource: (nextSource: PortfolioSource) => Promise<void>;
   changeActiveStatementSnapshot: (snapshotId: string) => Promise<void>;
+  deleteStatementSnapshot: (snapshotId: string) => Promise<void>;
   refreshPlaid: (itemId?: string) => Promise<PlaidRefreshActionResult>;
   cancelPlaidRefresh: (params?: {
     itemId?: string;
@@ -221,6 +224,56 @@ export function usePortfolioSources({
     };
   }, [userId, vaultKey, vaultOwnerToken]);
 
+  const applyFinancialSnapshot = useCallback(
+    (params: {
+      financial: Record<string, unknown> | null;
+      plaidStatus: PlaidPortfolioStatusResponse | null;
+      fundingStatus?: PlaidFundingStatusResponse | null;
+      preferredSource?: PortfolioSource | string | null;
+    }) => {
+      const loadedStatement = params.financial
+        ? getStatementPortfolio(params.financial)
+        : initialStatementPortfolio && hasPortfolioHoldings(initialStatementPortfolio)
+          ? initialStatementPortfolio
+          : null;
+      const loadedStatementSnapshots = params.financial
+        ? getStatementSnapshotOptions(params.financial)
+        : [];
+      const loadedActiveStatementSnapshotId = params.financial
+        ? getActiveStatementSnapshotId(params.financial)
+        : null;
+      const mirroredPlaidPortfolio = params.financial ? getPlaidPortfolio(params.financial) : null;
+      const loadedPlaidPortfolio =
+        mirroredPlaidPortfolio ??
+        (params.plaidStatus?.aggregate?.portfolio_data as PortfolioData | null | undefined) ??
+        null;
+      const nextAvailableSources = resolveAvailableSources({
+        statementPortfolio: loadedStatement,
+        plaidPortfolio: loadedPlaidPortfolio,
+      });
+      const nextActiveSource = pickPreferredSource({
+        preferred:
+          params.preferredSource ??
+          params.plaidStatus?.source_preference ??
+          getStoredActiveSource(params.financial),
+        availableSources: nextAvailableSources,
+      });
+
+      startTransition(() => {
+        setStatementPortfolio(loadedStatement);
+        setStatementSnapshots(loadedStatementSnapshots);
+        setActiveStatementSnapshotId(loadedActiveStatementSnapshotId);
+        setPlaidStatus(params.plaidStatus);
+        if ("fundingStatus" in params) {
+          setPlaidFundingStatus(params.fundingStatus ?? null);
+        }
+        setPlaidPortfolio(loadedPlaidPortfolio);
+        setActiveSource(nextActiveSource);
+      });
+    },
+    [initialStatementPortfolio]
+  );
+
   const refreshDerivedMarketCaches = useCallback(async () => {
     if (!userId) return;
     CacheSyncService.onPlaidSourceProjected(userId);
@@ -281,13 +334,18 @@ export function usePortfolioSources({
         let nextFinancial = financialContext.financial;
         let nextFullBlob = financialContext.fullBlob;
         const expectedDataVersion = financialContext.expectedDataVersion;
-        const storedActiveSource = loadedPlaidStatus?.source_preference || getStoredActiveSource(nextFinancial);
-        const hasSavedStatementSnapshot = Boolean(getActiveStatementSnapshotId(nextFinancial));
+        const storedActiveSource = getStoredActiveSource(nextFinancial);
+        const storedStatementPortfolio = getStatementPortfolio(nextFinancial);
+        const hasPlaidPortfolio =
+          hasPortfolioHoldings(getPlaidPortfolio(nextFinancial)) ||
+          hasPortfolioHoldings(loadedPlaidStatus?.aggregate?.portfolio_data);
         const desiredSource: PortfolioSource =
-          storedActiveSource === "plaid" ||
-          (!hasSavedStatementSnapshot && hasPortfolioHoldings(loadedPlaidStatus?.aggregate?.portfolio_data))
-            ? "plaid"
-            : "statement";
+          resolvePreferredPortfolioSource({
+            storedActiveSource,
+            backendPreferredSource: loadedPlaidStatus?.source_preference,
+            hasStatementPortfolio: hasPortfolioHoldings(storedStatementPortfolio),
+            hasPlaidPortfolio,
+          });
         const nowIso = new Date().toISOString();
 
         if (userId && vaultKey && vaultOwnerToken) {
@@ -364,39 +422,11 @@ export function usePortfolioSources({
             }
           : null;
 
-        const loadedStatement = nextFinancial
-          ? getStatementPortfolio(nextFinancial)
-          : initialStatementPortfolio && hasPortfolioHoldings(initialStatementPortfolio)
-            ? initialStatementPortfolio
-            : null;
-        const loadedStatementSnapshots = nextFinancial
-          ? getStatementSnapshotOptions(nextFinancial)
-          : [];
-        const loadedActiveStatementSnapshotId = nextFinancial
-          ? getActiveStatementSnapshotId(nextFinancial)
-          : null;
-        const mirroredPlaidPortfolio = nextFinancial ? getPlaidPortfolio(nextFinancial) : null;
-        const loadedPlaidPortfolio =
-          mirroredPlaidPortfolio ??
-          (nextPlaidStatus?.aggregate?.portfolio_data as PortfolioData | null | undefined) ??
-          null;
-        const nextAvailableSources = resolveAvailableSources({
-          statementPortfolio: loadedStatement,
-          plaidPortfolio: loadedPlaidPortfolio,
-        });
-        const nextActiveSource = pickPreferredSource({
-          preferred: desiredSource,
-          availableSources: nextAvailableSources,
-        });
-
-        startTransition(() => {
-          setStatementPortfolio(loadedStatement);
-          setStatementSnapshots(loadedStatementSnapshots);
-          setActiveStatementSnapshotId(loadedActiveStatementSnapshotId);
-          setPlaidStatus(nextPlaidStatus);
-          setPlaidFundingStatus(loadedFundingStatus);
-          setPlaidPortfolio(loadedPlaidPortfolio);
-          setActiveSource(nextActiveSource);
+        applyFinancialSnapshot({
+          financial: nextFinancial,
+          plaidStatus: nextPlaidStatus,
+          fundingStatus: loadedFundingStatus,
+          preferredSource: desiredSource,
         });
       } catch (loadError) {
         startTransition(() => {
@@ -420,7 +450,7 @@ export function usePortfolioSources({
       }
     }
   }, [
-    initialStatementPortfolio,
+    applyFinancialSnapshot,
     loadFinancialContext,
     refreshDerivedMarketCaches,
     userId,
@@ -509,6 +539,10 @@ export function usePortfolioSources({
             domainData: nextFinancial,
             summary: buildFinancialDomainSummary(nextFinancial),
             baseFullBlob: fullBlob,
+            mergeDecision: {
+              merge_mode: "replace_domain",
+              target_domain: "financial",
+            },
             expectedDataVersion,
             vaultOwnerToken,
           });
@@ -533,17 +567,83 @@ export function usePortfolioSources({
       if (!userId || !vaultOwnerToken || !vaultKey) {
         throw new Error("Unlock your Vault to switch statements.");
       }
+      startTransition(() => {
+        setActiveSource("statement");
+        setActiveStatementSnapshotId(snapshotId);
+      });
       const { fullBlob, financial, expectedDataVersion } = await loadFinancialContext();
       const nowIso = new Date().toISOString();
       const nextFinancial = setActiveStatementSnapshot(financial, snapshotId, nowIso);
       if (!nextFinancial) {
         throw new Error("That statement snapshot is no longer available.");
       }
+      applyFinancialSnapshot({
+        financial: nextFinancial,
+        plaidStatus,
+        preferredSource: "statement",
+      });
+      try {
+        await PlaidPortfolioService.setActiveSource({
+          userId,
+          activeSource: "statement",
+          vaultOwnerToken,
+        });
+        const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
+          userId,
+          vaultKey,
+          domain: "financial",
+          domainData: nextFinancial,
+          summary: buildFinancialDomainSummary(nextFinancial),
+          baseFullBlob: fullBlob,
+          mergeDecision: {
+            merge_mode: "replace_domain",
+            target_domain: "financial",
+          },
+          expectedDataVersion,
+          vaultOwnerToken,
+        });
+        const savedFinancial = toFinancialDomain(result.fullBlob.financial) ?? nextFinancial;
+        applyFinancialSnapshot({
+          financial: savedFinancial,
+          plaidStatus,
+          preferredSource: "statement",
+        });
+        void refreshDerivedMarketCaches();
+        void reload({ background: true });
+      } catch (error) {
+        void reload();
+        throw error;
+      }
+    },
+    [
+      applyFinancialSnapshot,
+      loadFinancialContext,
+      plaidStatus,
+      refreshDerivedMarketCaches,
+      reload,
+      userId,
+      vaultKey,
+      vaultOwnerToken,
+    ]
+  );
+
+  const deleteStatementSnapshot = useCallback(
+    async (snapshotId: string) => {
+      if (!userId || !vaultOwnerToken || !vaultKey) {
+        throw new Error("Unlock your Vault to delete this statement.");
+      }
+      const { fullBlob, financial, expectedDataVersion } = await loadFinancialContext();
+      const nowIso = new Date().toISOString();
+      const nextFinancial = removeStatementSnapshot(financial, snapshotId, nowIso);
+      if (!nextFinancial) {
+        throw new Error("That statement snapshot is no longer available.");
+      }
+      const nextActiveSource = getStoredActiveSource(nextFinancial);
       await PlaidPortfolioService.setActiveSource({
         userId,
-        activeSource: "statement",
+        activeSource: nextActiveSource,
         vaultOwnerToken,
-      });
+      }).catch(() => undefined);
       await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
         userId,
         vaultKey,
@@ -551,6 +651,10 @@ export function usePortfolioSources({
         domainData: nextFinancial,
         summary: buildFinancialDomainSummary(nextFinancial),
         baseFullBlob: fullBlob,
+        mergeDecision: {
+          merge_mode: "replace_domain",
+          target_domain: "financial",
+        },
         expectedDataVersion,
         vaultOwnerToken,
       });
@@ -768,6 +872,7 @@ export function usePortfolioSources({
     freshness,
     changeActiveSource,
     changeActiveStatementSnapshot,
+    deleteStatementSnapshot,
     refreshPlaid,
     cancelPlaidRefresh,
     reload,
