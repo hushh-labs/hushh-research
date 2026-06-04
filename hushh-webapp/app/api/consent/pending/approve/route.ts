@@ -13,6 +13,15 @@ import { getPythonApiUrl } from "@/app/api/_utils/backend";
 
 const BACKEND_URL = getPythonApiUrl();
 
+/** Exhaustive list of consent purposes this endpoint accepts. */
+const APPROVED_PURPOSES = [
+  "essential",
+  "analytics",
+  "marketing",
+  "personalization",
+  "research",
+] as const;
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -39,6 +48,28 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // ── Purpose guard (inline, default-deny) ─────────────────────────────────
+    // Reject before any backend call when purpose is absent, blank, or not in
+    // the approved operational tier list.  No helper import — validation lives
+    // entirely in this module so the check is always on the live request path.
+    const rawPurpose = (body as Record<string, unknown>).purpose;
+    if (
+      rawPurpose === undefined ||
+      rawPurpose === null ||
+      typeof rawPurpose !== "string" ||
+      rawPurpose.trim() === "" ||
+      !(APPROVED_PURPOSES as readonly string[]).includes(rawPurpose)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "purpose is required and must be one of the approved operational tiers",
+        },
+        { status: 400 }
+      );
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     if ("exportKey" in body) {
       return NextResponse.json(
