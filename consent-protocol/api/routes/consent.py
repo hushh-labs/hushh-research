@@ -299,7 +299,7 @@ class RelationshipDisconnectRequest(BaseModel):
 class RefreshExportUploadRequest(BaseModel):
     userId: str = Field(min_length=1, max_length=128)
     consentToken: str = Field(min_length=1, max_length=2048)
-    encryptedData: str = Field(min_length=1)
+    encryptedData: str = Field(min_length=1, max_length=10_000_000)
     encryptedIv: str = Field(min_length=1, max_length=256)
     encryptedTag: str = Field(min_length=1, max_length=256)
     wrappedExportKey: str = Field(min_length=1, max_length=8192)
