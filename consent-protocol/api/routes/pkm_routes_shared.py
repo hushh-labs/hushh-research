@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field, ValidationError
 
 from api.middleware import require_vault_owner_token
@@ -28,6 +28,24 @@ router = APIRouter(prefix="/api/pkm", tags=["pkm"])
 
 _COMPACT_SCOPE_SOURCE_KINDS = {"pkm_index", "pkm_manifests.top_level_scope_paths"}
 _INTERNAL_ONLY_PKM_DOMAINS = {"kyc_connector", "kyc_workflow"}
+
+_MAX_SEGMENT_IDS = 50
+
+
+def _validated_segment_ids(
+    segment_ids: Optional[List[str]] = Query(default=None),
+) -> Optional[List[str]]:
+    """Dependency: reject requests with more than _MAX_SEGMENT_IDS segment_ids.
+
+    Query(..., max_length=N) on List[str] bounds each string length, not the
+    list cardinality. This dependency enforces the item count limit explicitly.
+    """
+    if segment_ids is not None and len(segment_ids) > _MAX_SEGMENT_IDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"segment_ids may not exceed {_MAX_SEGMENT_IDS} items",
+        )
+    return segment_ids
 
 
 def _isoformat_or_none(value):
@@ -98,6 +116,12 @@ def _normalize_manifest_response_payload(manifest: dict) -> dict:
     )
     payload["structure_decision"] = _json_object_or_default(payload.get("structure_decision"), {})
     payload["summary_projection"] = _json_object_or_default(payload.get("summary_projection"), {})
+    payload["pkm_contract_version"] = payload.get("pkm_contract_version") or payload[
+        "summary_projection"
+    ].get("pkm_contract_version")
+    payload["readable_projection_version"] = payload.get("readable_projection_version") or payload[
+        "summary_projection"
+    ].get("readable_projection_version")
     payload["top_level_scope_paths"] = _string_list_or_default(payload.get("top_level_scope_paths"))
     payload["externalizable_paths"] = _string_list_or_default(payload.get("externalizable_paths"))
     payload["segment_ids"] = _string_list_or_default(payload.get("segment_ids"))
@@ -302,10 +326,13 @@ async def fetch_decisions(user_id: str, limit: int = 50) -> list[DecisionRecord]
 class EncryptedBlob(BaseModel):
     """Encrypted data blob."""
 
-    ciphertext: str = Field(..., description="AES-256-GCM encrypted data")
-    iv: str = Field(..., description="Initialization vector")
-    tag: str = Field(..., description="Authentication tag")
-    algorithm: str = Field(default="aes-256-gcm", description="Encryption algorithm")
+    # AES-256-GCM base64url ciphertext: 1 B minimum, 10 MB practical ceiling.
+    ciphertext: str = Field(..., min_length=1, max_length=10_000_000, description="AES-256-GCM encrypted data")
+    # IV is typically 12 bytes -> 16 base64 chars; allow up to 512 for future algs.
+    iv: str = Field(..., min_length=1, max_length=512, description="Initialization vector")
+    # GCM tag is 16 bytes -> 24 base64 chars; allow up to 512.
+    tag: str = Field(..., min_length=1, max_length=512, description="Authentication tag")
+    algorithm: str = Field(default="aes-256-gcm", max_length=64, description="Encryption algorithm")
     segments: dict[str, "EncryptedBlob"] = Field(
         default_factory=dict,
         description="Optional segmented PKM ciphertext payloads keyed by segment id",
@@ -392,6 +419,7 @@ class StoreDomainRequest(BaseModel):
     )
     write_projections: List[WriteProjectionPayload] = Field(
         default_factory=list,
+        max_length=100,
         description="Optional non-sensitive derived projections for read models and history surfaces",
     )
 
@@ -573,7 +601,7 @@ class DomainDataResponse(BaseModel):
 async def get_domain_data(
     user_id: str,
     domain: str,
-    segment_ids: Optional[List[str]] = Query(default=None),
+    segment_ids: Optional[List[str]] = Depends(_validated_segment_ids),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -625,7 +653,9 @@ class DomainManifestResponse(BaseModel):
     domain: str
     manifest_version: int = 1
     domain_contract_version: int = 1
+    pkm_contract_version: Optional[str] = None
     readable_summary_version: int = 0
+    readable_projection_version: Optional[str] = None
     upgraded_at: Optional[str] = None
     structure_decision: dict = Field(default_factory=dict)
     summary_projection: dict = Field(default_factory=dict)
@@ -692,14 +722,15 @@ async def get_domain_manifest(
 class ScopeExposureChangePayload(BaseModel):
     scope_handle: Optional[str] = Field(default=None)
     top_level_scope_path: Optional[str] = Field(default=None)
-    exposure_enabled: bool
+    exposure_enabled: Optional[bool] = Field(default=None)
+    visibility_posture: Optional[str] = Field(default=None)
 
 
 class ScopeExposureRequest(BaseModel):
     user_id: str = Field(..., description="User's ID")
     expected_manifest_version: Optional[int] = Field(default=None, ge=1)
     revoke_matching_active_grants: bool = Field(default=True)
-    changes: List[ScopeExposureChangePayload] = Field(default_factory=list)
+    changes: List[ScopeExposureChangePayload] = Field(default_factory=list, max_length=200)
 
 
 class ScopeExposureResponse(BaseModel):
@@ -708,6 +739,28 @@ class ScopeExposureResponse(BaseModel):
     manifest_version: Optional[int] = None
     revoked_grant_count: int = 0
     revoked_grant_ids: List[str] = Field(default_factory=list)
+    manifest: dict = Field(default_factory=dict)
+
+
+class DefaultAvailableProjectionRequest(BaseModel):
+    user_id: str = Field(..., description="User's ID")
+    scope: str
+    scope_handle: Optional[str] = None
+    top_level_scope_path: str
+    projection_payload: dict = Field(default_factory=dict)
+    projection_version: int = Field(default=1, ge=1)
+    manifest_version: Optional[int] = Field(default=None, ge=1)
+    content_revision: Optional[int] = Field(default=None, ge=1)
+    source_content_revision: Optional[int] = Field(default=None, ge=1)
+    source_manifest_revision: Optional[int] = Field(default=None, ge=1)
+    metadata: dict = Field(default_factory=dict)
+
+
+class DefaultAvailableProjectionResponse(BaseModel):
+    success: bool
+    message: Optional[str] = None
+    projection_hash: Optional[str] = None
+    projection_updated_at: Optional[str] = None
     manifest: dict = Field(default_factory=dict)
 
 
@@ -768,6 +821,49 @@ async def update_scope_exposure(
         revoked_grant_ids=list(result.get("revoked_grant_ids") or []),
         manifest=dict(result.get("manifest") or {}),
     )
+
+
+@router.post(
+    "/domains/{domain}/default-available-projection",
+    response_model=DefaultAvailableProjectionResponse,
+)
+async def publish_default_available_projection(
+    domain: str,
+    request: DefaultAvailableProjectionRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+    if not request.projection_payload:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A safe projection payload is required.",
+        )
+
+    pkm_service = get_pkm_service()
+    result = await pkm_service.store_default_available_projection(
+        user_id=request.user_id,
+        domain=canonical_top_level_domain(domain),
+        scope=request.scope,
+        scope_handle=request.scope_handle,
+        top_level_scope_path=request.top_level_scope_path,
+        projection_payload=request.projection_payload,
+        projection_version=request.projection_version,
+        manifest_version=request.manifest_version,
+        content_revision=request.content_revision,
+        source_content_revision=request.source_content_revision,
+        source_manifest_revision=request.source_manifest_revision,
+        metadata=request.metadata,
+    )
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("message") or "Default-available projection could not be saved.",
+        )
+    return DefaultAvailableProjectionResponse(**result)
 
 
 class DeleteDomainResponse(BaseModel):
@@ -896,9 +992,11 @@ class DomainMetadata(BaseModel):
         default=None, description="Short label describing where the readable summary came from"
     )
     domain_contract_version: int = Field(default=1, description="Current domain contract version")
+    pkm_contract_version: Optional[str] = Field(default=None)
     readable_summary_version: int = Field(
         default=0, description="Current readable summary contract version"
     )
+    readable_projection_version: Optional[str] = Field(default=None)
     upgraded_at: Optional[str] = Field(
         default=None, description="ISO timestamp of the last successful PKM upgrade for this domain"
     )
@@ -921,6 +1019,10 @@ class PersonalKnowledgeModelMetadataResponse(BaseModel):
         description="Effective PKM model version after reconciling manifest truth",
     )
     target_model_version: int = Field(default=1, description="Latest PKM model version supported")
+    current_pkm_contract_version: Optional[str] = None
+    target_pkm_contract_version: Optional[str] = None
+    current_readable_projection_version: Optional[str] = None
+    target_readable_projection_version: Optional[str] = None
     upgrade_status: str = Field(default="current")
     upgradable_domains: List[dict] = Field(default_factory=list)
     last_upgraded_at: Optional[str] = None
@@ -1031,8 +1133,12 @@ async def get_metadata(
                         domain_contract_version=int(
                             (manifest or {}).get("domain_contract_version") or 1
                         ),
+                        pkm_contract_version=(manifest or {}).get("pkm_contract_version"),
                         readable_summary_version=int(
                             (manifest or {}).get("readable_summary_version") or 0
+                        ),
+                        readable_projection_version=(manifest or {}).get(
+                            "readable_projection_version"
                         ),
                         upgraded_at=_isoformat_or_none((manifest or {}).get("upgraded_at")),
                     )
@@ -1046,6 +1152,18 @@ async def get_metadata(
                 stored_model_version=upgrade_status_payload.get("stored_model_version") or 1,
                 effective_model_version=upgrade_status_payload.get("effective_model_version") or 1,
                 target_model_version=upgrade_status_payload.get("target_model_version") or 1,
+                current_pkm_contract_version=upgrade_status_payload.get(
+                    "current_pkm_contract_version"
+                ),
+                target_pkm_contract_version=upgrade_status_payload.get(
+                    "target_pkm_contract_version"
+                ),
+                current_readable_projection_version=upgrade_status_payload.get(
+                    "current_readable_projection_version"
+                ),
+                target_readable_projection_version=upgrade_status_payload.get(
+                    "target_readable_projection_version"
+                ),
                 upgrade_status=upgrade_status_payload.get("upgrade_status") or "current",
                 upgradable_domains=upgrade_status_payload.get("upgradable_domains") or [],
                 last_upgraded_at=_isoformat_or_none(upgrade_status_payload.get("last_upgraded_at")),
@@ -1072,7 +1190,11 @@ async def get_metadata(
                     readable_updated_at=domain.readable_updated_at,
                     readable_source_label=domain.readable_source_label,
                     domain_contract_version=domain.domain_contract_version,
+                    pkm_contract_version=(domain.summary or {}).get("pkm_contract_version"),
                     readable_summary_version=domain.readable_summary_version,
+                    readable_projection_version=(domain.summary or {}).get(
+                        "readable_projection_version"
+                    ),
                     upgraded_at=_isoformat_or_none(domain.upgraded_at),
                 )
             )
@@ -1095,6 +1217,14 @@ async def get_metadata(
             stored_model_version=upgrade_status_payload.get("stored_model_version") or 1,
             effective_model_version=upgrade_status_payload.get("effective_model_version") or 1,
             target_model_version=upgrade_status_payload.get("target_model_version") or 1,
+            current_pkm_contract_version=upgrade_status_payload.get("current_pkm_contract_version"),
+            target_pkm_contract_version=upgrade_status_payload.get("target_pkm_contract_version"),
+            current_readable_projection_version=upgrade_status_payload.get(
+                "current_readable_projection_version"
+            ),
+            target_readable_projection_version=upgrade_status_payload.get(
+                "target_readable_projection_version"
+            ),
             upgrade_status=upgrade_status_payload.get("upgrade_status") or "current",
             upgradable_domains=upgrade_status_payload.get("upgradable_domains") or [],
             last_upgraded_at=_isoformat_or_none(upgrade_status_payload.get("last_upgraded_at")),
@@ -1118,6 +1248,12 @@ class PkmUpgradeDomainStateResponse(BaseModel):
     target_domain_contract_version: int
     current_readable_summary_version: int
     target_readable_summary_version: int
+    current_pkm_contract_version: Optional[str] = None
+    target_pkm_contract_version: Optional[str] = None
+    current_readable_projection_version: Optional[str] = None
+    target_readable_projection_version: Optional[str] = None
+    capabilities_applied: List[str] = Field(default_factory=list)
+    blocked_reasons: List[str] = Field(default_factory=list)
     upgraded_at: Optional[str] = None
     needs_upgrade: bool = False
 
@@ -1177,6 +1313,10 @@ class PkmUpgradeStatusResponse(BaseModel):
     stored_model_version: int
     effective_model_version: int
     target_model_version: int
+    current_pkm_contract_version: Optional[str] = None
+    target_pkm_contract_version: Optional[str] = None
+    current_readable_projection_version: Optional[str] = None
+    target_readable_projection_version: Optional[str] = None
     upgrade_status: str
     upgradable_domains: List[PkmUpgradeDomainStateResponse] = Field(default_factory=list)
     last_upgraded_at: Optional[str] = None
@@ -1246,6 +1386,10 @@ def _build_upgrade_status_response(payload: dict) -> PkmUpgradeStatusResponse:
             payload.get("effective_model_version") or payload.get("model_version") or 1
         ),
         target_model_version=int(payload.get("target_model_version") or 1),
+        current_pkm_contract_version=payload.get("current_pkm_contract_version"),
+        target_pkm_contract_version=payload.get("target_pkm_contract_version"),
+        current_readable_projection_version=payload.get("current_readable_projection_version"),
+        target_readable_projection_version=payload.get("target_readable_projection_version"),
         upgrade_status=str(payload.get("upgrade_status") or "current"),
         upgradable_domains=[
             PkmUpgradeDomainStateResponse(
@@ -1312,8 +1456,8 @@ async def start_or_resume_upgrade(
 
 @router.post("/upgrade/runs/{run_id}/status", response_model=PkmUpgradeStatusResponse)
 async def update_upgrade_run_status(
-    run_id: str,
     request: UpdateUpgradeRunRequest,
+    run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != request.user_id:
@@ -1337,9 +1481,9 @@ async def update_upgrade_run_status(
 
 @router.post("/upgrade/runs/{run_id}/steps/{domain}", response_model=PkmUpgradeStatusResponse)
 async def update_upgrade_step(
-    run_id: str,
-    domain: str,
     request: UpdateUpgradeStepRequest,
+    run_id: str = Path(..., min_length=1, max_length=128),
+    domain: str = Path(..., min_length=1, max_length=200),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != request.user_id:
@@ -1365,8 +1509,8 @@ async def update_upgrade_step(
 
 @router.post("/upgrade/runs/{run_id}/complete", response_model=PkmUpgradeStatusResponse)
 async def complete_upgrade_run(
-    run_id: str,
     request: StartOrResumeUpgradeRequest,
+    run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != request.user_id:
@@ -1378,7 +1522,10 @@ async def complete_upgrade_run(
     try:
         payload = await get_pkm_upgrade_service().complete_run(run_id)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        logger.warning("pkm.complete_upgrade_run.conflict run_id=%s: %s", run_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Upgrade run cannot be completed"
+        ) from exc
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade run not found")
     return _build_upgrade_status_response(payload)
@@ -1386,8 +1533,8 @@ async def complete_upgrade_run(
 
 @router.post("/upgrade/runs/{run_id}/fail", response_model=PkmUpgradeStatusResponse)
 async def fail_upgrade_run(
-    run_id: str,
     request: UpdateUpgradeRunRequest,
+    run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != request.user_id:

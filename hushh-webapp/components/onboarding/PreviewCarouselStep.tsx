@@ -176,12 +176,12 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
     <main
       ref={mountRef}
       className={cn(
-        "min-h-[100dvh] w-full bg-transparent flex flex-col"
+        "min-h-[100dvh] w-full bg-transparent flex flex-col overflow-x-hidden"
       )}
     >
-      <div className="w-full min-h-[100dvh] px-4 pt-6 pb-[var(--app-screen-footer-pad)]">
+      <div className="w-full min-h-[100dvh] px-4 pt-[calc(16px+var(--app-safe-area-top-effective,0px))] pb-[var(--app-screen-footer-pad)]">
         <div className="relative mx-auto flex h-full w-full flex-col">
-          <div className="absolute right-0 top-0 z-10">
+          <div className="z-10 flex justify-end" style={{ paddingRight: "4rem" }}>
             <Button
               variant="blue-gradient"
               effect="fade"
@@ -199,7 +199,7 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
             className={cn(
               "w-full mx-auto text-center flex flex-col justify-end gap-3",
               // Keep copy + spacing responsive without clipping on larger screens.
-              "min-h-[clamp(168px,22vh,248px)] pt-8",
+              "min-h-[clamp(148px,20vh,220px)] pt-5",
               "sm:max-w-lg"
             )}
           >
@@ -223,6 +223,7 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
                 {slides.map((slide, idx) => (
                   <CarouselItem
                     key={idx}
+                    aria-current={idx === selectedIndex ? "step" : undefined}
                     className="basis-full pl-0 flex items-center justify-center"
                   >
                     <div className="flex w-full min-h-[clamp(24rem,50vh,31rem)] items-center justify-center px-4 sm:px-6 md:px-8 py-3">

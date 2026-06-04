@@ -5,6 +5,7 @@ REPO="${GITHUB_REPO:-hushh-labs/hushh-research}"
 BRANCH="${GITHUB_BRANCH:-main}"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 POLICY_FILE="${GITHUB_CI_GOVERNANCE_FILE:-$REPO_ROOT/config/ci-governance.json}"
+POLICY_KEY="${GITHUB_POLICY_KEY:-}"
 REQUIRED_CHECKS="${GITHUB_REQUIRED_CHECKS:-${GITHUB_REQUIRED_CHECK:-}}"
 MIN_APPROVALS="${GITHUB_MIN_APPROVALS:-}"
 REQUIRE_STRICT="${GITHUB_REQUIRE_STRICT:-}"
@@ -21,44 +22,62 @@ if ! gh auth status >/dev/null 2>&1; then
   exit 1
 fi
 
-PROTECTION_JSON="$(gh api "repos/${REPO}/branches/${BRANCH}/protection")"
-RULESETS_JSON="$(gh api "repos/${REPO}/rules/branches/${BRANCH}" || echo '[]')"
-RULESET_LIST_JSON="$(gh api "repos/${REPO}/rulesets?includes_parents=true" || echo '[]')"
-export PROTECTION_JSON RULESETS_JSON RULESET_LIST_JSON POLICY_FILE
+ENCODED_BRANCH="$(BRANCH_TO_ENCODE="$BRANCH" python3 - <<'PY'
+import os
+import urllib.parse
 
-python3 - "$REQUIRED_CHECKS" "$MIN_APPROVALS" "$REQUIRE_STRICT" "$REQUIRE_MERGE_QUEUE" "$REQUIRE_CONVERSATION_RESOLUTION" "$REPO" <<'PY'
+print(urllib.parse.quote(os.environ["BRANCH_TO_ENCODE"], safe=""))
+PY
+)"
+
+PROTECTION_JSON="$(gh api "repos/${REPO}/branches/${ENCODED_BRANCH}/protection")"
+RULESETS_JSON="$(gh api "repos/${REPO}/rules/branches/${ENCODED_BRANCH}" || echo '[]')"
+RULESET_LIST_JSON="$(gh api "repos/${REPO}/rulesets?includes_parents=true" || echo '[]')"
+export PROTECTION_JSON RULESETS_JSON RULESET_LIST_JSON POLICY_FILE BRANCH POLICY_KEY
+
+python3 - "$REQUIRED_CHECKS" "$MIN_APPROVALS" "$REQUIRE_STRICT" "$REQUIRE_MERGE_QUEUE" "$REQUIRE_CONVERSATION_RESOLUTION" "$REPO" "$BRANCH" "$POLICY_KEY" <<'PY'
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 
-required_checks_arg, expected_approvals_arg, require_strict_arg, require_merge_queue_arg, require_conversation_resolution_arg, repo = sys.argv[1:]
+required_checks_arg, expected_approvals_arg, require_strict_arg, require_merge_queue_arg, require_conversation_resolution_arg, repo, branch, policy_key_arg = sys.argv[1:]
 policy = json.loads(Path(os.environ["POLICY_FILE"]).read_text(encoding="utf-8"))
+branch_flow = policy.get("branch_flow") or {}
+policy_key = policy_key_arg or ("pr_train" if branch == branch_flow.get("train_branch") else "main")
+if policy_key not in policy:
+    print(f"ERROR: policy key '{policy_key}' is missing from {os.environ['POLICY_FILE']}")
+    sys.exit(1)
+branch_policy = policy[policy_key]
 required_checks = [
     item.strip()
-    for item in (required_checks_arg or policy["main"]["required_status_check"]).split(",")
+    for item in (required_checks_arg or branch_policy["required_status_check"]).split(",")
     if item.strip()
 ]
-expected_approvals = int(expected_approvals_arg or policy["main"]["required_approving_reviews"])
+expected_approvals = int(expected_approvals_arg or branch_policy["required_approving_reviews"])
 require_strict = (
     require_strict_arg.lower() == "true"
     if require_strict_arg
-    else bool(policy["main"].get("require_strict_status_checks", False))
+    else bool(branch_policy.get("require_strict_status_checks", False))
 )
 require_merge_queue = (
     require_merge_queue_arg.lower() == "true"
     if require_merge_queue_arg
-    else bool(policy["main"]["merge_queue_required"])
+    else bool(branch_policy["merge_queue_required"])
 )
+require_last_push_approval = bool(branch_policy.get("require_last_push_approval", False))
 require_conversation_resolution = (
     require_conversation_resolution_arg.lower() == "true"
     if require_conversation_resolution_arg
-    else bool(policy["main"].get("require_conversation_resolution", False))
+    else bool(branch_policy.get("require_conversation_resolution", False))
 )
-expected_bypass = sorted(policy["main"]["review_bypass_users"])
-expected_queue_bypass = sorted(policy["main"]["merge_queue_bypass_users"])
-expected_queue_bypass_team_slug = str(policy["main"].get("merge_queue_bypass_team_slug") or "").strip()
+expected_bypass = sorted(branch_policy["review_bypass_users"])
+expected_bypass_team_slug = str(branch_policy.get("review_bypass_team_slug") or "").strip()
+expected_queue_bypass = sorted(branch_policy["merge_queue_bypass_users"])
+expected_queue_bypass_team_name = str(branch_policy.get("merge_queue_bypass_team_name") or "").strip()
+expected_queue_bypass_team_slug = str(branch_policy.get("merge_queue_bypass_team_slug") or "").strip()
+expected_queue_ruleset_name = str(branch_policy.get("merge_queue_ruleset_name") or "").strip()
 data = json.loads(os.environ["PROTECTION_JSON"])
 rulesets = json.loads(os.environ["RULESETS_JSON"])
 ruleset_list = json.loads(os.environ["RULESET_LIST_JSON"])
@@ -75,6 +94,9 @@ strict_checks = data.get("required_status_checks", {}).get("strict", False)
 
 approvals = (
     data.get("required_pull_request_reviews", {}).get("required_approving_review_count", 0)
+)
+last_push_approval = (
+    data.get("required_pull_request_reviews", {}).get("require_last_push_approval", False)
 )
 force_pushes = data.get("allow_force_pushes", {}).get("enabled", False)
 deletions = data.get("allow_deletions", {}).get("enabled", False)
@@ -93,8 +115,18 @@ bypass_users = sorted(
     )
     if user.get("login")
 )
+bypass_team_slugs = sorted(
+    team.get("slug", "").strip()
+    for team in (
+        data.get("required_pull_request_reviews", {})
+        .get("bypass_pull_request_allowances", {})
+        .get("teams", [])
+    )
+    if team.get("slug")
+)
 
 merge_queue_bypass = []
+merge_queue_bypass_team_names = []
 merge_queue_bypass_team_slugs = []
 for ruleset in ruleset_list:
     if ruleset.get("target") != "branch" or ruleset.get("enforcement") != "active":
@@ -110,7 +142,7 @@ for ruleset in ruleset_list:
             text=True,
         ).stdout
     )
-    if detail.get("name") != "main merge queue":
+    if expected_queue_ruleset_name and detail.get("name") != expected_queue_ruleset_name:
         continue
     for actor in detail.get("bypass_actors") or []:
         actor_name = ""
@@ -127,8 +159,12 @@ for ruleset in ruleset_list:
                     ).stdout
                 )
                 team_slug = str(team_detail.get("slug") or "").strip()
+                team_name = str(team_detail.get("name") or "").strip()
                 if team_slug:
                     merge_queue_bypass_team_slugs.append(team_slug)
+                if team_name:
+                    merge_queue_bypass_team_names.append(team_name)
+                if team_slug:
                     memberships = json.loads(
                         subprocess.run(
                             ["gh", "api", f"organizations/140115870/team/{actor_id}/members"],
@@ -148,6 +184,7 @@ for ruleset in ruleset_list:
             if actor_name:
                 merge_queue_bypass.append(actor_name)
 merge_queue_bypass = sorted(set(merge_queue_bypass))
+merge_queue_bypass_team_names = sorted(set(merge_queue_bypass_team_names))
 merge_queue_bypass_team_slugs = sorted(set(merge_queue_bypass_team_slugs))
 
 errors = []
@@ -156,6 +193,8 @@ for required_check in required_checks:
         errors.append(f"required status check missing: {required_check}")
 if approvals != expected_approvals:
     errors.append(f"required approvals drifted: expected {expected_approvals}, got {approvals}")
+if require_last_push_approval and not last_push_approval:
+    errors.append("latest-push approval requirement is not enabled")
 if require_strict and not strict_checks:
     errors.append("required status checks are not strict/up-to-date")
 if require_conversation_resolution and not conversation_resolution:
@@ -168,6 +207,10 @@ if require_merge_queue and not merge_queue_enabled:
     errors.append("merge queue rule is not enabled on the branch")
 if bypass_users != expected_bypass:
     errors.append(f"review bypass users drifted: expected {expected_bypass}, got {bypass_users}")
+if expected_bypass_team_slug and bypass_team_slugs != [expected_bypass_team_slug]:
+    errors.append(
+        f"review bypass team drifted: expected {[expected_bypass_team_slug]}, got {bypass_team_slugs}"
+    )
 if merge_queue_bypass != expected_queue_bypass:
     errors.append(
         f"merge queue bypass actors drifted: expected {expected_queue_bypass}, got {merge_queue_bypass}"
@@ -176,13 +219,20 @@ if expected_queue_bypass_team_slug and merge_queue_bypass_team_slugs != [expecte
     errors.append(
         f"merge queue bypass team drifted: expected {[expected_queue_bypass_team_slug]}, got {merge_queue_bypass_team_slugs}"
     )
+if expected_queue_bypass_team_name and merge_queue_bypass_team_names != [expected_queue_bypass_team_name]:
+    errors.append(
+        f"merge queue bypass team name drifted: expected {[expected_queue_bypass_team_name]}, got {merge_queue_bypass_team_names}"
+    )
 
-print(f"Branch protection summary: checks={checks}, approvals={approvals}, "
-      f"strict={strict_checks}, enforce_admins={admins_enforced}, allow_force_pushes={force_pushes}, "
+print(f"Branch protection summary ({branch}): checks={checks}, approvals={approvals}, "
+      f"latest_push_approval={last_push_approval}, strict={strict_checks}, "
+      f"enforce_admins={admins_enforced}, allow_force_pushes={force_pushes}, "
       f"allow_deletions={deletions}, conversation_resolution={conversation_resolution}, "
       f"merge_queue_enabled={merge_queue_enabled}, "
-      f"review_bypass_users={bypass_users}, merge_queue_bypass={merge_queue_bypass}, "
-      f"merge_queue_bypass_teams={merge_queue_bypass_team_slugs}")
+      f"review_bypass_users={bypass_users}, review_bypass_team_slugs={bypass_team_slugs}, "
+      f"merge_queue_bypass={merge_queue_bypass}, "
+      f"merge_queue_bypass_team_names={merge_queue_bypass_team_names}, "
+      f"merge_queue_bypass_team_slugs={merge_queue_bypass_team_slugs}")
 
 if errors:
     for error in errors:
@@ -203,4 +253,4 @@ else:
     print(f"Rulesets: {names}")
 PY
 
-echo "✅ Live branch protection matches the documented minimum contract."
+echo "✅ Live branch protection for '${BRANCH}' matches the documented minimum contract."

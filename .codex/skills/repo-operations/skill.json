@@ -26,7 +26,8 @@
     "release-readiness",
     "mobile-parity-check",
     "docs-sync",
-    "github-contribution-governance"
+    "github-contribution-governance",
+    "uat-scoped-deploy"
   ],
   "required_reads": [
     "docs/reference/operations/README.md",
@@ -72,6 +73,7 @@
     "oss-license-governance",
     "contributor-onboarding",
     "subtree-upstream-governance",
+    "uat-scoped-deploy",
     "backend",
     "security-audit"
   ],
@@ -83,7 +85,8 @@
     "analytics-observability-governance",
     "oss-license-governance",
     "contributor-onboarding",
-    "subtree-upstream-governance"
+    "subtree-upstream-governance",
+    "uat-scoped-deploy"
   ],
   "risk_tags": [
     "ci-drift",

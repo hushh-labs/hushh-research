@@ -35,6 +35,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { Button } from "@/lib/morphy-ux/button";
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
 
 interface FundingTradeViewProps {
   userId: string;
@@ -249,7 +250,7 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
           returnPath: ROUTES.KAI_FUNDING_TRADE,
           startedAt: new Date().toISOString(),
         });
-        window.location.assign(connect.authorization_url);
+        openExternalUrl(connect.authorization_url);
       } catch (oauthError) {
         toast.error("Could not start Alpaca login.", {
           description: oauthError instanceof Error ? oauthError.message : "Please try again.",

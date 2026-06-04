@@ -10,6 +10,22 @@ import httpx
 logger = logging.getLogger(__name__)
 
 DEFAULT_RIA_INTELLIGENCE_API_BASE_URL = "https://hushh-ria-intelligence-api-yxfa6ba3aq-uc.a.run.app"
+DEFAULT_RIA_INTELLIGENCE_TIMEOUT_SECONDS = 65.0
+
+
+def _positive_float_env(name: str, default: float) -> float:
+    raw_value = str(os.getenv(name) or "").strip()
+    if not raw_value:
+        return default
+    try:
+        value = float(raw_value)
+    except ValueError:
+        logger.warning("Invalid %s=%r; using default %.1fs", name, raw_value, default)
+        return default
+    if value <= 0:
+        logger.warning("Invalid %s=%r; using default %.1fs", name, raw_value, default)
+        return default
+    return value
 
 
 def normalize_crd_number(value: str | int | None) -> str:
@@ -62,8 +78,13 @@ class CrdScrapeProxyService:
             if api_key is not None
             else os.getenv("RIA_INTELLIGENCE_CRD_SCRAPER_API_KEY", "")
         ).strip()
-        self._timeout_seconds = timeout_seconds or float(
-            os.getenv("RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS", "20")
+        self._timeout_seconds = (
+            timeout_seconds
+            if timeout_seconds is not None
+            else _positive_float_env(
+                "RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS",
+                DEFAULT_RIA_INTELLIGENCE_TIMEOUT_SECONDS,
+            )
         )
         self._transport = transport
 

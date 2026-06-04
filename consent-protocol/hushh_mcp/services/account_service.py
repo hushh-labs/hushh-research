@@ -98,7 +98,12 @@ class AccountService:
             "marketplace_public_profiles": text(
                 "DELETE FROM marketplace_public_profiles WHERE user_id = :user_id"
             ),
+            "marketplace_investor_actions": text(
+                "DELETE FROM marketplace_investor_actions "
+                "WHERE actor_user_id = :user_id OR target_user_id = :user_id"
+            ),
             "pkm_data": text("DELETE FROM pkm_data WHERE user_id = :user_id"),
+            "pkm_migration_state": text("DELETE FROM pkm_migration_state WHERE user_id = :user_id"),
             "pkm_upgrade_runs": text("DELETE FROM pkm_upgrade_runs WHERE user_id = :user_id"),
             "kai_plaid_user_profile_cache": text(
                 "DELETE FROM kai_plaid_user_profile_cache WHERE user_id = :user_id"
@@ -107,10 +112,65 @@ class AccountService:
                 "DELETE FROM kai_receipt_memory_artifacts WHERE user_id = :user_id"
             ),
             "one_kyc_workflows": text("DELETE FROM one_kyc_workflows WHERE user_id = :user_id"),
+            "one_location_access_requests": text(
+                """
+                DELETE FROM one_location_access_requests
+                WHERE owner_user_id = :user_id
+                   OR requester_user_id = :user_id
+                   OR referred_by_user_id = :user_id
+                """
+            ),
+            "one_location_envelopes": text(
+                """
+                DELETE FROM one_location_envelopes
+                WHERE owner_user_id = :user_id
+                   OR recipient_user_id = :user_id
+                """
+            ),
+            "one_location_events": text(
+                """
+                DELETE FROM one_location_events
+                WHERE owner_user_id = :user_id
+                   OR actor_user_id = :user_id
+                   OR recipient_user_id = :user_id
+                """
+            ),
+            "one_location_public_invite_submissions": text(
+                """
+                DELETE FROM one_location_public_invite_submissions
+                WHERE owner_user_id = :user_id
+                   OR matched_user_id = :user_id
+                """
+            ),
+            "one_location_public_invites": text(
+                "DELETE FROM one_location_public_invites WHERE owner_user_id = :user_id"
+            ),
+            "one_location_recipient_keys": text(
+                "DELETE FROM one_location_recipient_keys WHERE user_id = :user_id"
+            ),
+            "one_location_referrals": text(
+                """
+                DELETE FROM one_location_referrals
+                WHERE owner_user_id = :user_id
+                   OR referring_user_id = :user_id
+                   OR referred_user_id = :user_id
+                """
+            ),
+            "one_location_share_grants": text(
+                """
+                DELETE FROM one_location_share_grants
+                WHERE owner_user_id = :user_id
+                   OR recipient_user_id = :user_id
+                """
+            ),
             "runtime_persona_state": text(
                 "DELETE FROM runtime_persona_state WHERE user_id = :user_id"
             ),
             "user_push_tokens": text("DELETE FROM user_push_tokens WHERE user_id = :user_id"),
+            "vault_key_wrappers": text("DELETE FROM vault_key_wrappers WHERE user_id = :user_id"),
+            "world_model_index_v2": text(
+                "DELETE FROM world_model_index_v2 WHERE user_id = :user_id"
+            ),
         }
         self._safe_export_queries = {
             "actor_profile": text(
@@ -344,7 +404,9 @@ class AccountService:
             "pkm_manifest_paths": False,
             "pkm_scope_registry": False,
             "pkm_events": False,
+            "pkm_migration_state": False,
             "pkm_upgrade_runs": False,
+            "world_model_index_v2": False,
             "plaid_items": False,
             "plaid_refresh_runs": False,
             "plaid_link_sessions": False,
@@ -377,9 +439,19 @@ class AccountService:
             "relationship_share_grants": False,
             "ria_pick_share_artifacts": False,
             "ria_pick_uploads": False,
+            "marketplace_investor_actions": False,
             "marketplace_profile": False,
             "one_kyc_workflows": False,
+            "one_location_events": False,
+            "one_location_referrals": False,
+            "one_location_access_requests": False,
+            "one_location_envelopes": False,
+            "one_location_public_invite_submissions": False,
+            "one_location_public_invites": False,
+            "one_location_share_grants": False,
+            "one_location_recipient_keys": False,
             "runtime_persona_state": False,
+            "vault_key_wrappers": False,
             "vault_keys": False,
         }
 
@@ -445,6 +517,14 @@ class AccountService:
                 results["pkm_blobs"] = True
                 conn.execute(text("DELETE FROM pkm_index WHERE user_id = :user_id"), params)
                 results["pkm_index"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="world_model_index_v2", params=params
+                )
+                results["world_model_index_v2"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="pkm_migration_state", params=params
+                )
+                results["pkm_migration_state"] = True
                 self._delete_user_rows_if_table_exists(conn, table_name="pkm_data", params=params)
                 results["pkm_data"] = True
                 conn.execute(
@@ -543,6 +623,10 @@ class AccountService:
                         )
                 results["relationships"] = True
                 self._delete_user_rows_if_table_exists(
+                    conn, table_name="marketplace_investor_actions", params=params
+                )
+                results["marketplace_investor_actions"] = True
+                self._delete_user_rows_if_table_exists(
                     conn, table_name="marketplace_public_profiles", params=params
                 )
                 results["marketplace_profile"] = True
@@ -562,6 +646,22 @@ class AccountService:
                     params=params,
                 )
                 results["one_kyc_workflows"] = True
+                for table_name in (
+                    "one_location_events",
+                    "one_location_referrals",
+                    "one_location_public_invite_submissions",
+                    "one_location_public_invites",
+                    "one_location_access_requests",
+                    "one_location_envelopes",
+                    "one_location_share_grants",
+                    "one_location_recipient_keys",
+                ):
+                    self._delete_user_rows_if_table_exists(
+                        conn,
+                        table_name=table_name,
+                        params=params,
+                    )
+                    results[table_name] = True
                 self._delete_user_rows_if_table_exists(
                     conn,
                     table_name="actor_verified_email_aliases",
@@ -580,6 +680,10 @@ class AccountService:
                     conn, table_name="actor_profiles", params=params
                 )
                 results["actor_profiles"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="vault_key_wrappers", params=params
+                )
+                results["vault_key_wrappers"] = True
                 conn.execute(text("DELETE FROM vault_keys WHERE user_id = :user_id"), params)
                 results["vault_keys"] = True
 
