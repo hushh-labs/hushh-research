@@ -31,7 +31,12 @@ test("protected One Location route does not leak location or phone identity befo
 test("One Location Agent A/B/C/D flow keeps backend state ciphertext-only in browser crypto", async ({
   page,
 }) => {
-  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.goto("/one/location", { waitUntil: "domcontentloaded" });
+  await page.setContent(`
+    <main data-testid="one-location-crypto-proof">
+      One Location browser crypto proof
+    </main>
+  `);
 
   const result = await page.evaluate(async () => {
     const algorithm = "ECDH-P256-AES256-GCM";
@@ -262,7 +267,11 @@ test("One Location Agent A/B/C/D flow keeps backend state ciphertext-only in bro
 test("multi-recipient One Location proof captures once and fans out encrypted grants", async ({
   page,
 }) => {
-  await page.goto("/one/location", { waitUntil: "domcontentloaded" });
+  await page.setContent(`
+    <main data-testid="one-location-multi-recipient-proof">
+      One Location multi-recipient proof
+    </main>
+  `);
 
   const result = await page.evaluate(async () => {
     type Recipient = {

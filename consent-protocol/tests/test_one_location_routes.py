@@ -123,10 +123,7 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
     activity_payload = activity_response.json()
     assert activity_payload["summary"]["sharedWithCount"] >= 1
     assert activity_payload["summary"]["viewsCount"] >= 1
-    assert any(
-        event["title"] == "Shared with User B"
-        for event in activity_payload["events"]
-    )
+    assert any(event["title"] == "Shared with User B" for event in activity_payload["events"])
     assert "0002" not in json.dumps(activity_payload, default=str)
     assert "ciphertext" not in json.dumps(activity_payload, default=str)
 
@@ -465,6 +462,7 @@ def test_one_location_retention_auth_can_be_disabled_in_local_test_mode(
 
     assert response.status_code == 200
     assert response.json()["retention_hours"] == 12
+
 
 def test_one_location_route_preserves_db_error_mapping_without_db_client_import() -> None:
     source = inspect.getsource(one_location)

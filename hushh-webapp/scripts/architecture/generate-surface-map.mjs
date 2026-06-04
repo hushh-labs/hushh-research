@@ -25,9 +25,9 @@ function routeValuesFromRoutesTs(source) {
 }
 
 function routeValuesFromAppPages() {
-  return walkFiles(path.join(appRoot, "app"), (filePath) => filePath.endsWith("/page.tsx"))
+  return walkFiles(path.join(appRoot, "app"), (filePath) => path.basename(filePath) === "page.tsx")
     .map((filePath) => {
-      const relative = path.relative(path.join(appRoot, "app"), filePath);
+      const relative = path.relative(path.join(appRoot, "app"), filePath).split(path.sep).join("/");
       const route = relative.replace(/(?:^|\/)page\.tsx$/, "");
       return route ? `/${route}` : "/";
     })
@@ -61,9 +61,9 @@ function routeToVoiceContractFile(route) {
 }
 
 function apiTemplateFromRouteFile(filePath) {
-  const relative = path.relative(path.join(appRoot, "app/api"), filePath);
+  const relative = path.relative(path.join(appRoot, "app/api"), filePath).split(path.sep).join("/");
   const withoutRoute = relative.replace(/\/route\.ts$/, "");
-  const parts = withoutRoute.split(path.sep).map((part) => {
+  const parts = withoutRoute.split("/").map((part) => {
     const catchAll = part.match(/^\[\.\.\.(.+)\]$/);
     if (catchAll) return `{${catchAll[1]}*}`;
     const dynamic = part.match(/^\[(.+)\]$/);
@@ -185,11 +185,11 @@ function buildSurfaceMap() {
   const inventory = readJson(path.join(appRoot, "native-route-inventory.json"));
   const inventoryByRoute = new Map((inventory.routes || []).map((route) => [route.route, route]));
   const apiRoutes = walkFiles(path.join(appRoot, "app/api"), (filePath) =>
-    filePath.endsWith("/route.ts")
+    path.basename(filePath) === "route.ts"
   )
     .map((filePath) => ({
       template: apiTemplateFromRouteFile(filePath),
-      file: path.relative(appRoot, filePath),
+      file: path.relative(appRoot, filePath).split(path.sep).join("/"),
     }))
     .sort((left, right) => left.template.localeCompare(right.template));
 

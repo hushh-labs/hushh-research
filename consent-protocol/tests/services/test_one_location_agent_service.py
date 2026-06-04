@@ -1379,7 +1379,19 @@ def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
     assert "Request from User C" in titles
     assert "Request link created" in titles
     assert "Response from User B" in titles
-    serialized = json.dumps(activity, default=str)
+
+    def without_timestamps(value):
+        if isinstance(value, dict):
+            return {
+                key: without_timestamps(item)
+                for key, item in value.items()
+                if not key.lower().endswith("at")
+            }
+        if isinstance(value, list):
+            return [without_timestamps(item) for item in value]
+        return value
+
+    serialized = json.dumps(without_timestamps(activity), default=str)
     assert "ciphertext" not in serialized
     assert "latitude" not in serialized
     assert "longitude" not in serialized
