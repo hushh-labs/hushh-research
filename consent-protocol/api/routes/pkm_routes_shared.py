@@ -29,6 +29,24 @@ router = APIRouter(prefix="/api/pkm", tags=["pkm"])
 _COMPACT_SCOPE_SOURCE_KINDS = {"pkm_index", "pkm_manifests.top_level_scope_paths"}
 _INTERNAL_ONLY_PKM_DOMAINS = {"kyc_connector", "kyc_workflow"}
 
+_MAX_SEGMENT_IDS = 50
+
+
+def _validated_segment_ids(
+    segment_ids: Optional[List[str]] = Query(default=None),
+) -> Optional[List[str]]:
+    """Dependency: reject requests with more than _MAX_SEGMENT_IDS segment_ids.
+
+    Query(..., max_length=N) on List[str] bounds each string length, not the
+    list cardinality. This dependency enforces the item count limit explicitly.
+    """
+    if segment_ids is not None and len(segment_ids) > _MAX_SEGMENT_IDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"segment_ids may not exceed {_MAX_SEGMENT_IDS} items",
+        )
+    return segment_ids
+
 
 def _isoformat_or_none(value):
     if value is None:
@@ -401,6 +419,7 @@ class StoreDomainRequest(BaseModel):
     )
     write_projections: List[WriteProjectionPayload] = Field(
         default_factory=list,
+        max_length=100,
         description="Optional non-sensitive derived projections for read models and history surfaces",
     )
 
@@ -582,7 +601,7 @@ class DomainDataResponse(BaseModel):
 async def get_domain_data(
     user_id: str,
     domain: str,
-    segment_ids: Optional[List[str]] = Query(default=None),
+    segment_ids: Optional[List[str]] = Depends(_validated_segment_ids),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -711,7 +730,7 @@ class ScopeExposureRequest(BaseModel):
     user_id: str = Field(..., description="User's ID")
     expected_manifest_version: Optional[int] = Field(default=None, ge=1)
     revoke_matching_active_grants: bool = Field(default=True)
-    changes: List[ScopeExposureChangePayload] = Field(default_factory=list)
+    changes: List[ScopeExposureChangePayload] = Field(default_factory=list, max_length=200)
 
 
 class ScopeExposureResponse(BaseModel):
