@@ -65,10 +65,16 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*$py.class
 .Python
 env/
+ENV/
 venv/
 .venv/
+virtualenv/
+.virtualenv/
+.tox/
+.nox/
 !scripts/env/
 !scripts/env/*.sh
 Pipfile.lock
@@ -77,6 +83,7 @@ Pipfile.lock
 .pytest_cache/
 .coverage
 .coverage.*
+htmlcov/
 
 # System
 Thumbs.db

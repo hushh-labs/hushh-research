@@ -20,24 +20,25 @@ This repo now runs on a dedicated PR-train branch, a protected promotion branch,
 
 | Lane | Purpose | Default policy |
 |---|---|---|
-| `integration/pr-train` | Normal PR intake and async train landing | Every feature/fix/docs PR targets `integration/pr-train` |
+| `integration/pr-train` | Normal PR intake and async train landing | Effective landing base for every normal feature/fix/docs PR |
 | `main` | Promotion branch for deployable history | Only `integration/pr-train` may open normal promotion PRs into `main` |
 | UAT | Hosted validation environment | Manual deploy of an exact green `main` SHA |
 | Production | Live user traffic | Manual deploy of an approved green `main` SHA |
 
 ## Working Rules
 
-1. Start all development branches from the current `integration/pr-train` unless an isolated `main` hotfix is explicitly required.
-2. Merge all normal feature/fix/docs work into `integration/pr-train`.
-3. Promote `integration/pr-train` into `main` through a PR after the train is green and ancestry-clean.
-4. Do not open direct feature, contributor, or agent PRs into `main`; CI blocks them unless the head branch is `integration/pr-train`.
-5. Continue follow-up fixes on the active development branch by default; do not create extra temporary branches for routine polish, validation follow-up, or same-lane fixes.
-6. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
-7. After an isolated hotfix lands, return local work to the normal development branch or `integration/pr-train` and delete the temporary branch after rollout validation.
-8. Do not use `deploy_uat` or `deploy` as release branches; they are retired from the deployment path.
-9. UAT deploys only from a successful `Main Post-Merge Smoke` run on `main` and uses an explicitly chosen exact green commit SHA.
-10. Production deploys only from a manually chosen SHA that is reachable from `origin/main` and already green in CI.
-11. Do not open release PRs into environment branches; the deployment source of truth is `main`.
+1. Start all maintainer/developer branches from the current `integration/pr-train` unless an isolated `main` hotfix is explicitly required.
+2. Contributor PRs may still be opened to `main` for a familiar GitHub intake experience; maintainers or automation retarget normal intake to `integration/pr-train` before review, approval, queue, merge, maintainer patch, or harvest.
+3. Merge all normal feature/fix/docs work into `integration/pr-train`.
+4. Promote `integration/pr-train` into `main` through a PR after the train is green and ancestry-clean.
+5. Do not merge direct feature, contributor, or agent PRs into `main`; CI blocks them unless the head branch is `integration/pr-train`.
+6. Continue follow-up fixes on the active development branch by default; do not create extra temporary branches for routine polish, validation follow-up, or same-lane fixes.
+7. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
+8. After an isolated hotfix lands, return local work to the normal development branch or `integration/pr-train` and delete the temporary branch after rollout validation.
+9. Do not use `deploy_uat` or `deploy` as release branches; they are retired from the deployment path.
+10. UAT deploys only from a successful `Main Post-Merge Smoke` run on `main` and uses an explicitly chosen exact green commit SHA.
+11. Production deploys only from a manually chosen SHA that is reachable from `origin/main` and already green in CI.
+12. Do not open release PRs into environment branches; the deployment source of truth is `main`.
 
 ## Codex Branch Preservation Gate
 
