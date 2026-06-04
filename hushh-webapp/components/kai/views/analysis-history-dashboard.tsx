@@ -1140,6 +1140,7 @@ export function AnalysisHistoryDashboard({
                       className="h-9 w-9 shrink-0 border border-transparent text-red-600 hover:border-red-500/30 hover:bg-red-500/10 dark:text-red-400"
                       onClick={() => setPendingDelete({ kind: "entry", entry })}
                       title="Delete this version"
+                      aria-label="Delete this version"
                     >
                       <Icon icon={Trash2} size="sm" />
                     </Button>

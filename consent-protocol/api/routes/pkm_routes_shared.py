@@ -308,10 +308,13 @@ async def fetch_decisions(user_id: str, limit: int = 50) -> list[DecisionRecord]
 class EncryptedBlob(BaseModel):
     """Encrypted data blob."""
 
-    ciphertext: str = Field(..., description="AES-256-GCM encrypted data")
-    iv: str = Field(..., description="Initialization vector")
-    tag: str = Field(..., description="Authentication tag")
-    algorithm: str = Field(default="aes-256-gcm", description="Encryption algorithm")
+    # AES-256-GCM base64url ciphertext: 1 B minimum, 10 MB practical ceiling.
+    ciphertext: str = Field(..., min_length=1, max_length=10_000_000, description="AES-256-GCM encrypted data")
+    # IV is typically 12 bytes -> 16 base64 chars; allow up to 512 for future algs.
+    iv: str = Field(..., min_length=1, max_length=512, description="Initialization vector")
+    # GCM tag is 16 bytes -> 24 base64 chars; allow up to 512.
+    tag: str = Field(..., min_length=1, max_length=512, description="Authentication tag")
+    algorithm: str = Field(default="aes-256-gcm", max_length=64, description="Encryption algorithm")
     segments: dict[str, "EncryptedBlob"] = Field(
         default_factory=dict,
         description="Optional segmented PKM ciphertext payloads keyed by segment id",
