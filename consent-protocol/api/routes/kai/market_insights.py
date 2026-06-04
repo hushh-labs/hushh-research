@@ -2567,10 +2567,11 @@ async def get_market_insights_baseline(
 @router.get("/market/insights/{user_id}")
 async def get_market_insights(
     user_id: str,
-    symbols: str | None = Query(default=None, description="CSV list of symbols, max 8"),
+    symbols: str | None = Query(default=None, max_length=512, description="CSV list of symbols, max 8"),
     days_back: int = Query(default=7, ge=1, le=14),
     pick_source: str | None = Query(
         default=None,
+        max_length=256,
         description="Active market picks source. Only the default source is live today.",
     ),
     token_data: dict = Depends(require_vault_owner_token),
@@ -2625,8 +2626,8 @@ async def get_market_insights(
 @router.get("/stock-preview/{user_id}")
 async def get_stock_preview(
     user_id: str,
-    symbol: str = Query(..., min_length=1, description="Ticker symbol"),
-    pick_source: str | None = Query(default=None),
+    symbol: str = Query(..., min_length=1, max_length=20, description="Ticker symbol"),
+    pick_source: str | None = Query(default=None, max_length=256),
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
     if token_data["user_id"] != user_id:
