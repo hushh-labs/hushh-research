@@ -151,3 +151,112 @@ async def test_require_consent_scope_cache_is_scope_specific(monkeypatch):
         ("consent-token", "attr.financial.*"),
         ("consent-token", "attr.health.*"),
     ]
+
+
+# ── URL tracking-parameter sanitizer proof ───────────────────────────────────
+
+
+def _make_request(path: str, params: list[tuple[str, str]]) -> SimpleNamespace:
+    """Minimal request stand-in: real url string + query_params.multi_items()."""
+    qs = "&".join(f"{k}={v}" for k, v in params)
+    url = f"https://api.example.com{path}" + (f"?{qs}" if qs else "")
+    return SimpleNamespace(
+        state=SimpleNamespace(),
+        url=url,
+        query_params=SimpleNamespace(multi_items=lambda: list(params)),
+    )
+
+
+def test_sanitize_strips_fbclid_and_gclid_preserves_rest():
+    request = _make_request(
+        "/api/consent/pending/approve",
+        [("fbclid", "abc123"), ("gclid", "xyz789"), ("purpose", "analytics")],
+    )
+
+    middleware._sanitize_request_url(request)
+
+    assert "fbclid" not in request.state.sanitized_url
+    assert "gclid"  not in request.state.sanitized_url
+    assert "purpose=analytics" in request.state.sanitized_url
+
+
+def test_sanitize_strips_all_utm_variants():
+    request = _make_request(
+        "/api/consent/revoke",
+        [
+            ("utm_source", "google"),
+            ("utm_medium", "cpc"),
+            ("utm_campaign", "summer"),
+            ("utm_term", "consent"),
+            ("utm_content", "banner"),
+            ("userId", "u-123"),
+        ],
+    )
+
+    middleware._sanitize_request_url(request)
+
+    sanitized = request.state.sanitized_url
+    assert "utm_source"   not in sanitized
+    assert "utm_medium"   not in sanitized
+    assert "utm_campaign" not in sanitized
+    assert "utm_term"     not in sanitized
+    assert "utm_content"  not in sanitized
+    assert "userId=u-123" in sanitized
+
+
+def test_sanitize_url_with_no_tracking_params_is_unchanged():
+    request = _make_request(
+        "/api/consent/session-token",
+        [("userId", "u-123"), ("scope", "read")],
+    )
+
+    middleware._sanitize_request_url(request)
+
+    assert request.state.sanitized_url == (
+        "https://api.example.com/api/consent/session-token?userId=u-123&scope=read"
+    )
+
+
+def test_sanitize_url_with_only_tracking_params_drops_query_string():
+    request = _make_request(
+        "/api/consent/active",
+        [("fbclid", "abc"), ("gclid", "xyz")],
+    )
+
+    middleware._sanitize_request_url(request)
+
+    assert request.state.sanitized_url == "https://api.example.com/api/consent/active"
+    assert "?" not in request.state.sanitized_url
+
+
+def test_sanitize_none_request_is_noop():
+    # Must not raise; no state to mutate.
+    middleware._sanitize_request_url(None)
+
+
+@pytest.mark.asyncio
+async def test_require_vault_owner_token_sanitizes_url_before_processing(monkeypatch):
+    """sanitized_url must be stamped on state before token validation runs."""
+
+    async def _fake_validate(token: str, scope):
+        return (
+            True,
+            None,
+            SimpleNamespace(user_id="user-123", agent_id="kai", scope=scope, scope_str=None),
+        )
+
+    monkeypatch.setattr(middleware, "validate_token_with_db", _fake_validate)
+
+    request = _make_request(
+        "/api/consent/pending/approve",
+        [("fbclid", "click-id"), ("requestId", "req-1")],
+    )
+
+    await middleware.require_vault_owner_token(
+        request=request,
+        authorization="Bearer test-token",
+    )
+
+    assert hasattr(request.state, "sanitized_url")
+    assert "fbclid"       not in request.state.sanitized_url
+    assert "requestId=req-1" in request.state.sanitized_url
