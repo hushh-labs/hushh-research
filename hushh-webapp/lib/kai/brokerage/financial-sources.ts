@@ -194,6 +194,7 @@ export function isPlaidMirrorStale(
   if (!plaidStatus || !plaidStatus.configured) return false;
   const plaidSource = getPlaidSource(financial);
   const storedSignature = cleanText(plaidSource.signature);
+  if ((plaidStatus.aggregate?.item_count || 0) <= 0 && !storedSignature) return false;
   return storedSignature !== buildPlaidMirrorSignature(plaidStatus);
 }
 
@@ -312,6 +313,118 @@ export function setActiveStatementSnapshot(
   const normalized = normalizeStoredPortfolio(canonical) as PortfolioData;
   nextFinancial.portfolio = normalized;
   nextFinancial.analytics = getPortfolioAnalytics(snapshot) ?? getPortfolioAnalytics(canonical) ?? asRecord(financial?.analytics) ?? null;
+  nextFinancial.updated_at = updatedAt;
+  return nextFinancial;
+}
+
+export function removeStatementSnapshot(
+  financial: AnyObj | null | undefined,
+  snapshotId: string,
+  updatedAt: string
+): AnyObj | null {
+  const targetSnapshotId = cleanText(snapshotId);
+  if (!targetSnapshotId) return null;
+
+  const snapshots = getStatementSnapshots(financial);
+  const remainingSnapshots = snapshots.filter((entry) => cleanText(entry.id) !== targetSnapshotId);
+  if (remainingSnapshots.length === snapshots.length) return null;
+
+  const nextFinancial = { ...(financial ?? {}) };
+  const nextSources = { ...getSources(financial) };
+  const nextDocuments = {
+    ...(asRecord(financial?.documents) ?? {}),
+    schema_version: 1,
+    statements: remainingSnapshots,
+    documents_count: remainingSnapshots.length,
+    last_updated: updatedAt,
+  };
+  nextFinancial.documents = nextDocuments;
+
+  if (remainingSnapshots.length > 0) {
+    const currentActiveId = getActiveStatementSnapshotId(financial);
+    const nextActiveId =
+      currentActiveId && currentActiveId !== targetSnapshotId
+        ? currentActiveId
+        : cleanText(remainingSnapshots[0]?.id);
+    if (!nextActiveId) return null;
+    const activeSnapshot =
+      remainingSnapshots.find((entry) => cleanText(entry.id) === nextActiveId) ??
+      remainingSnapshots[0];
+    if (!activeSnapshot) return null;
+    const canonical = asRecord(activeSnapshot?.canonical_v2) ?? activeSnapshot;
+    const normalized = normalizeStoredPortfolio(canonical) as PortfolioData;
+    nextFinancial.sources = {
+      ...nextSources,
+      active_source: "statement",
+      statement: buildStatementSource(financial, remainingSnapshots, nextActiveId, updatedAt),
+    };
+    nextFinancial.portfolio = normalized;
+    nextFinancial.analytics =
+      getPortfolioAnalytics(activeSnapshot) ??
+      getPortfolioAnalytics(canonical) ??
+      asRecord(financial?.analytics) ??
+      null;
+    nextFinancial.updated_at = updatedAt;
+    return nextFinancial;
+  }
+
+  const plaidSource = getPlaidSource(financial);
+  const plaidAggregate = asRecord(plaidSource.aggregate);
+  const plaidPortfolio = asRecord(plaidAggregate?.portfolio_data);
+  nextFinancial.sources = {
+    ...nextSources,
+    active_source: plaidPortfolio ? "plaid" : "statement",
+    statement: {
+      ...getStatementSource(financial),
+      source_type: "statement",
+      source_label: "Statement",
+      is_editable: true,
+      active_snapshot_id: null,
+      snapshot_count: 0,
+      snapshots: [],
+      updated_at: updatedAt,
+    },
+  };
+
+  if (plaidPortfolio) {
+    const normalized = normalizeStoredPortfolio(plaidPortfolio) as PortfolioData;
+    nextFinancial.portfolio = normalized;
+    nextFinancial.analytics = getPortfolioAnalytics(plaidPortfolio);
+  } else {
+    delete nextFinancial.portfolio;
+    delete nextFinancial.analytics;
+  }
+
+  nextFinancial.updated_at = updatedAt;
+  return nextFinancial;
+}
+
+export function removePlaidSource(
+  financial: AnyObj | null | undefined,
+  updatedAt: string,
+  options?: { clearActivePortfolio?: boolean }
+): AnyObj {
+  const nextFinancial = { ...(financial ?? {}) };
+  const nextSources = { ...getSources(financial) };
+  delete nextSources.plaid;
+  nextSources.active_source = "statement";
+  nextFinancial.sources = nextSources;
+
+  const activeStatement = getActiveStatementSnapshot(financial);
+  if (activeStatement) {
+    const canonical = asRecord(activeStatement.canonical_v2) ?? activeStatement;
+    const normalized = normalizeStoredPortfolio(canonical) as PortfolioData;
+    nextFinancial.portfolio = normalized;
+    nextFinancial.analytics =
+      getPortfolioAnalytics(activeStatement) ??
+      getPortfolioAnalytics(canonical) ??
+      asRecord(financial?.analytics) ??
+      null;
+  } else if (options?.clearActivePortfolio === true || getActiveSource(financial) === "plaid") {
+    delete nextFinancial.portfolio;
+    delete nextFinancial.analytics;
+  }
+
   nextFinancial.updated_at = updatedAt;
   return nextFinancial;
 }

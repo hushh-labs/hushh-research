@@ -23,6 +23,7 @@ export type PkmSectionPreviewEntity = {
   subtitle?: string;
   fields: PkmSectionPreviewField[];
   sections?: PkmSectionPreviewEntitySection[];
+  deletable?: boolean;
 };
 
 export type PkmSectionPreviewGroup =
@@ -299,7 +300,8 @@ function buildEntitySections(record: Record<string, unknown>): PkmSectionPreview
 
 function buildEntityItem(
   key: string,
-  value: Record<string, unknown>
+  value: Record<string, unknown>,
+  options?: { deletable?: boolean }
 ): PkmSectionPreviewEntity {
   const title = extractEntityTitle(value, humanizeKey(key));
   const fields = objectToFields(value).filter((field) => field.value !== title);
@@ -309,6 +311,7 @@ function buildEntityItem(
     subtitle: extractEntitySubtitle(value),
     fields,
     sections: buildEntitySections(value),
+    deletable: options?.deletable === true,
   };
 }
 
@@ -326,7 +329,9 @@ function maybeBuildEntitiesGroup(
   if (isPlainObject(value) && isPlainObject(value.entities)) {
     const entities = Object.entries(value.entities)
       .filter(([, entity]) => isPlainObject(entity))
-      .map(([entityKey, entity]) => buildEntityItem(entityKey, entity as Record<string, unknown>));
+      .map(([entityKey, entity]) =>
+        buildEntityItem(entityKey, entity as Record<string, unknown>, { deletable: true })
+      );
     if (entities.length > 0) {
       return {
         kind: "entities",
@@ -523,42 +528,49 @@ function buildGenericPreview(
     });
   }
 
-  for (const [key, value] of Object.entries(record)) {
-    if (HIDDEN_CONSUMER_KEYS.has(key) || !value) {
-      continue;
-    }
-    if (Array.isArray(value)) {
-      if (value.every((item) => !isPlainObject(item))) {
-        const items = arrayToStrings(value);
-        if (items.length > 0) {
-          groups.push({
-            kind: items.length <= 5 && items.every((item) => item.length <= 28) ? "chips" : "list",
-            title: humanizeKey(key),
-            items,
-          });
+  const rootEntitiesGroup = isPlainObject(record.entities)
+    ? maybeBuildEntitiesGroup(undefined, record)
+    : null;
+  if (rootEntitiesGroup) {
+    groups.push(rootEntitiesGroup);
+  } else {
+    for (const [key, value] of Object.entries(record)) {
+      if (HIDDEN_CONSUMER_KEYS.has(key) || !value) {
+        continue;
+      }
+      if (Array.isArray(value)) {
+        if (value.every((item) => !isPlainObject(item))) {
+          const items = arrayToStrings(value);
+          if (items.length > 0) {
+            groups.push({
+              kind: items.length <= 5 && items.every((item) => item.length <= 28) ? "chips" : "list",
+              title: humanizeKey(key),
+              items,
+            });
+          }
+          continue;
+        }
+        const entitiesGroup = maybeBuildEntitiesGroup(humanizeKey(key), value);
+        if (entitiesGroup) {
+          groups.push(entitiesGroup);
         }
         continue;
       }
-      const entitiesGroup = maybeBuildEntitiesGroup(humanizeKey(key), value);
-      if (entitiesGroup) {
-        groups.push(entitiesGroup);
-      }
-      continue;
-    }
 
-    if (isPlainObject(value)) {
-      const entitiesGroup = maybeBuildEntitiesGroup(humanizeKey(key), value);
-      if (entitiesGroup) {
-        groups.push(entitiesGroup);
-        continue;
-      }
-      const nestedFields = objectToFields(value);
-      if (nestedFields.length > 0) {
-        groups.push({
-          kind: "fields",
-          title: humanizeKey(key),
-          fields: nestedFields,
-        });
+      if (isPlainObject(value)) {
+        const entitiesGroup = maybeBuildEntitiesGroup(humanizeKey(key), value);
+        if (entitiesGroup) {
+          groups.push(entitiesGroup);
+          continue;
+        }
+        const nestedFields = objectToFields(value);
+        if (nestedFields.length > 0) {
+          groups.push({
+            kind: "fields",
+            title: humanizeKey(key),
+            fields: nestedFields,
+          });
+        }
       }
     }
   }

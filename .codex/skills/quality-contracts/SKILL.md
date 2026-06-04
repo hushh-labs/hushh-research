@@ -53,10 +53,11 @@ Non-owned surfaces:
 2. Select the smallest authoritative checks across frontend, backend, route, data, and browser surfaces.
 3. Keep frontend and backend contract tests aligned with the same user-visible or policy-visible rule.
 4. Use Playwright only when a real browser is required; follow `browser-verification-contract.md` for protected routes.
-5. Treat CI pipeline ownership as `repo-operations` unless the primary question is what should be verified.
-6. For new tables or data-contract changes, include the repo data-model audit.
-7. When changing required test sets or gate policy, rerun selected checks once after the edit and once from the canonical repo entrypoint.
-8. Treat helper-only drift as advisory unless it weakens runtime, deploy, or test authority.
+5. For signed-in, vault, PKM, Email Helper, consent, or app-review proof, resolve the reviewer from runtime env (`REVIEWER_UID`; deprecated aliases only as migration fallbacks) and assert the browser session, vault owner, workflow owner, and PKM data owner are the same user. Do not validate against copied recipients, counterparty labels, admin fixtures, or a hardcoded UID/email.
+6. Treat CI pipeline ownership as `repo-operations` unless the primary question is what should be verified.
+7. For new tables or data-contract changes, include the repo data-model audit.
+8. When changing required test sets or gate policy, rerun selected checks once after the edit and once from the canonical repo entrypoint.
+9. Treat helper-only drift as advisory unless it weakens runtime, deploy, or test authority.
 
 ## Handoff Rules
 

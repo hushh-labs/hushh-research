@@ -4,12 +4,16 @@ Kai Decision Endpoints — reads decision projections from PKM mutation events.
 
 Legacy summary parsing is retained only as a fallback for older records.
 Write operations remain client-side via POST /api/pkm/store-domain.
+
+Canonical attach points
+-----------------------
+api.routes.kai.decisions.get_decision_history -> GET /kai/decisions/{user_id}
 """
 
 import logging
 from typing import Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel
 
 from api.middleware import require_vault_owner_token
@@ -37,9 +41,9 @@ class DecisionHistoryResponse(BaseModel):
 
 @router.get("/decisions/{user_id}", response_model=DecisionHistoryResponse)
 async def get_decision_history(
-    user_id: str,
-    limit: int = Query(default=50, le=100),
-    offset: int = Query(default=0, ge=0),
+    user_id: str = Path(..., min_length=1, max_length=128),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=10_000),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
