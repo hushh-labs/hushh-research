@@ -25,6 +25,7 @@ import {
   Loader2,
   LogOut,
   Mail,
+  MapPin,
   Monitor,
   Phone,
   RefreshCw,
@@ -32,6 +33,7 @@ import {
   ShieldCheck,
   Trash2,
   User,
+  Volume2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -67,6 +69,7 @@ import {
   type ProfileStackEntry,
 } from "@/components/profile/profile-stack-navigator";
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
+import { RuntimeSecretSettingsCard } from "@/components/profile/runtime-secret-settings-card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   AlertDialog,
@@ -89,6 +92,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { useAuth } from "@/hooks/use-auth";
@@ -104,6 +114,11 @@ import {
   resolveGmailStatusSummary,
   sanitizeGmailUserMessage,
 } from "@/lib/profile/mail-flow";
+import {
+  getProfileRiaRefreshLicenseNumber,
+  resolveProfileRiaRegulatoryRow,
+} from "@/lib/profile/profile-ria-regulatory-row";
+import { resolveProfileVaultSettingsRow } from "@/lib/profile/profile-vault-settings-row";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Button } from "@/lib/morphy-ux/morphy";
@@ -117,7 +132,10 @@ import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
-import { RiaService } from "@/lib/services/ria-service";
+import {
+  RiaService,
+  type RiaOnboardingStatus,
+} from "@/lib/services/ria-service";
 import {
   ConsentCenterService,
   type ConsentCenterResponse,
@@ -137,8 +155,10 @@ import {
 } from "@/lib/profile/pkm-profile-presentation";
 import {
   buildPkmSectionPreviewPresentation,
+  type PkmSectionPreviewEntity,
   type PkmSectionPreviewPresentation,
 } from "@/lib/profile/pkm-section-preview";
+import { loadProfilePkmMetadataForVaultState } from "@/lib/profile/profile-pkm-metadata-policy";
 import { maskPhoneNumber } from "@/lib/services/phone-mandate-service";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
@@ -157,6 +177,7 @@ import {
   PersonalKnowledgeModelService,
   type PersonalKnowledgeModelMetadata,
   PkmScopeExposureError,
+  type PkmVisibilityPosture,
   type PkmUpgradeDomainState,
 } from "@/lib/services/personal-knowledge-model-service";
 import {
@@ -166,6 +187,13 @@ import {
 import { useVault } from "@/lib/vault/vault-context";
 import { resolveVaultAvailabilityState } from "@/lib/vault/vault-access-policy";
 import { useConsentActions } from "@/lib/consent";
+import {
+  AGENT_GEMINI_TTS_VOICES,
+  DEFAULT_AGENT_GEMINI_TTS_VOICE,
+  readAgentVoiceSettings,
+  writeAgentVoiceSettings,
+  type AgentGeminiTtsVoice,
+} from "@/lib/agent/agent-voice-settings";
 
 type ProfilePanel =
   | "account"
@@ -210,7 +238,7 @@ function cloneManifest(manifest: DomainManifest | null): DomainManifest | null {
 function applyManifestExposureChange(
   manifest: DomainManifest | null | undefined,
   target: { scopeHandle?: string | null; topLevelScopePath: string },
-  exposureEnabled: boolean,
+  visibilityPosture: PkmVisibilityPosture,
 ): DomainManifest | null | undefined {
   if (!manifest) return manifest;
   const nextManifest = cloneManifest(manifest);
@@ -234,7 +262,16 @@ function applyManifestExposureChange(
       updated = true;
       return {
         ...entry,
-        exposure_enabled: exposureEnabled,
+        exposure_enabled: visibilityPosture !== "private",
+        visibility_posture: visibilityPosture,
+        default_projection_ready:
+          visibilityPosture === "default_available"
+            ? entry.default_projection_ready === true
+            : false,
+        default_projection_updated_at:
+          visibilityPosture === "default_available"
+            ? entry.default_projection_updated_at || null
+            : null,
       };
     });
   }
@@ -246,6 +283,55 @@ function applyManifestExposureChange(
   }
 
   return updated ? nextManifest : manifest;
+}
+
+function defaultAvailableScopeForPermission(domainKey: string, topLevelScopePath: string): string {
+  return `attr.${domainKey}.${topLevelScopePath}.*`;
+}
+
+function buildDefaultAvailableProjectionPayload(params: {
+  domainKey: string;
+  domainTitle: string;
+  permission: {
+    label: string;
+    description?: string | null;
+    topLevelScopePath: string;
+  };
+  presentation: PkmSectionPreviewPresentation;
+}): Record<string, unknown> {
+  return {
+    projection_kind: "pkm_default_available_section_v1",
+    domain: params.domainKey,
+    domain_title: params.domainTitle,
+    section: params.permission.topLevelScopePath,
+    label: params.permission.label,
+    description: params.permission.description || null,
+    presentation: params.presentation,
+  };
+}
+
+function buildPkmEntityDeletionCandidate(
+  topLevelScopePath: string,
+  entityKey: string,
+): Record<string, unknown> {
+  const segments = topLevelScopePath.split(".").map((segment) => segment.trim()).filter(Boolean);
+  const root: Record<string, unknown> = {};
+  let current = root;
+
+  for (const segment of segments) {
+    const next: Record<string, unknown> = {};
+    current[segment] = next;
+    current = next;
+  }
+
+  current.entities = {
+    [entityKey]: {
+      entity_id: entityKey,
+      status: "deleted",
+    },
+  };
+
+  return root;
 }
 
 const SUPPORT_KIND_COPY: Record<
@@ -541,6 +627,9 @@ function ProfilePageContent() {
   const { registerSteps, completeStep, reset } = useStepProgress();
 
   const [showVaultUnlock, setShowVaultUnlock] = useState(false);
+  const [agentTtsVoice, setAgentTtsVoice] = useState<AgentGeminiTtsVoice>(() =>
+    readAgentVoiceSettings().ttsVoice
+  );
   const [vaultUnlockReason, setVaultUnlockReason] = useState<
     "profile_data" | "delete_account"
   >("profile_data");
@@ -554,6 +643,7 @@ function ProfilePageContent() {
     mode: "push" | "replace";
   } | null>(null);
   const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const [showVaultCreation, setShowVaultCreation] = useState(false);
   const [pkmMetadata, setPkmMetadata] =
     useState<PersonalKnowledgeModelMetadata | null>(null);
   const [loadingPkmMetadata, setLoadingPkmMetadata] = useState(true);
@@ -573,19 +663,25 @@ function ProfilePageContent() {
   const [domainPreview, setDomainPreview] = useState<{
     open: boolean;
     permissionKey: string | null;
+    domainKey: string | null;
+    topLevelScopePath: string | null;
     title: string;
     description: string;
     presentation: PkmSectionPreviewPresentation | null;
     loading: boolean;
     error: string | null;
+    deletingEntityKey: string | null;
   }>({
     open: false,
     permissionKey: null,
+    domainKey: null,
+    topLevelScopePath: null,
     title: "",
     description: "",
     presentation: null,
     loading: false,
     error: null,
+    deletingEntityKey: null,
   });
   const [consentCenter, setConsentCenter] =
     useState<ConsentCenterResponse | null>(null);
@@ -620,6 +716,21 @@ function ProfilePageContent() {
   const [marketplaceOptIn, setMarketplaceOptIn] = useState(false);
   const [loadingMarketplaceOptIn, setLoadingMarketplaceOptIn] = useState(true);
   const [savingMarketplaceOptIn, setSavingMarketplaceOptIn] = useState(false);
+  const [riaOnboardingStatus, setRiaOnboardingStatus] =
+    useState<RiaOnboardingStatus | null>(null);
+  const [loadingRiaOnboardingStatus, setLoadingRiaOnboardingStatus] =
+    useState(false);
+  const [riaOnboardingStatusError, setRiaOnboardingStatusError] = useState<
+    string | null
+  >(null);
+  const [showRegulatoryRefresh, setShowRegulatoryRefresh] = useState(false);
+  const [regulatoryLicenseNumber, setRegulatoryLicenseNumber] = useState("");
+  const [regulatoryRegulator, setRegulatoryRegulator] = useState("SEC");
+  const [refreshingRegulatoryProfile, setRefreshingRegulatoryProfile] =
+    useState(false);
+  const [regulatoryRefreshMessage, setRegulatoryRefreshMessage] = useState<
+    string | null
+  >(null);
   const [supportKind, setSupportKind] =
     useState<SupportMessageKind>("support_request");
   const [supportSubject, setSupportSubject] = useState("");
@@ -774,7 +885,7 @@ function ProfilePageContent() {
         status: "updating" as const,
         label: "Unlock required",
         description:
-          "This domain stays readable while locked. Unlock the vault to manage section-level sharing controls.",
+          "These details stay readable while locked. Unlock the vault to manage section-level sharing controls.",
         canManagePermissions: false,
       };
     }
@@ -816,11 +927,14 @@ function ProfilePageContent() {
       return {
         open: false,
         permissionKey: null,
+        domainKey: null,
+        topLevelScopePath: null,
         title: "",
         description: "",
         presentation: null,
         loading: false,
         error: null,
+        deletingEntityKey: null,
       };
     });
   }, [selectedDomain?.key]);
@@ -957,19 +1071,63 @@ function ProfilePageContent() {
     setLoadingMarketplaceOptIn(false);
   }, [personaState, user]);
 
+  const refreshRiaOnboardingStatus = useCallback(
+    async (force = false) => {
+      if (!user?.uid || !user.getIdToken || !hasRiaPersona) {
+        setRiaOnboardingStatus(null);
+        setRiaOnboardingStatusError(null);
+        setLoadingRiaOnboardingStatus(false);
+        return null;
+      }
+
+      setLoadingRiaOnboardingStatus(true);
+      setRiaOnboardingStatusError(null);
+      try {
+        const idToken = await user.getIdToken();
+        const nextStatus = await RiaService.getOnboardingStatus(idToken, {
+          userId: user.uid,
+          force,
+        });
+        setRiaOnboardingStatus(nextStatus);
+        return nextStatus;
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Couldn't load RIA regulatory status.";
+        setRiaOnboardingStatusError(message);
+        return null;
+      } finally {
+        setLoadingRiaOnboardingStatus(false);
+      }
+    },
+    [hasRiaPersona, user],
+  );
+
+  useEffect(() => {
+    if (authLoading) return;
+    void refreshRiaOnboardingStatus(false);
+  }, [authLoading, refreshRiaOnboardingStatus]);
+
   const refreshPkmMetadata = useCallback(
     async (force = false) => {
-      if (!user?.uid) return;
-      const metadata = await PersonalKnowledgeModelService.getMetadata(
-        user.uid,
+      if (!user?.uid || hasVault === null) return;
+      const metadata = await loadProfilePkmMetadataForVaultState({
+        userId: user.uid,
+        hasVault,
         force,
-        vaultOwnerToken ?? undefined,
-      );
+        vaultOwnerToken,
+      });
       setPkmMetadata(metadata);
       setPkmError(null);
+      if (!hasVault) {
+        setDomainManifests({});
+        setDomainManifestErrors({});
+        setLoadingDomainManifests({});
+      }
       return metadata;
     },
-    [user?.uid, vaultOwnerToken],
+    [hasVault, user?.uid, vaultOwnerToken],
   );
 
   const refreshDomainManifest = useCallback(
@@ -995,11 +1153,8 @@ function ProfilePageContent() {
           [domainKey]: null,
         }));
         return manifest;
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Couldn't load sharing controls for this domain.";
+      } catch (_error) {
+        const message = "Couldn't load sharing controls for these details.";
         setDomainManifestErrors((current) => ({
           ...current,
           [domainKey]: message,
@@ -1130,11 +1285,12 @@ function ProfilePageContent() {
 
         const idToken = await user.getIdToken();
         const [metadata, center] = await Promise.all([
-          PersonalKnowledgeModelService.getMetadata(
-            user.uid,
-            false,
-            vaultOwnerToken ?? undefined,
-          ),
+          loadProfilePkmMetadataForVaultState({
+            userId: user.uid,
+            hasVault,
+            force: false,
+            vaultOwnerToken,
+          }),
           ConsentCenterService.getCenter({
             idToken,
             userId: user.uid,
@@ -1148,6 +1304,11 @@ function ProfilePageContent() {
         setConsentCenter(center);
         setPkmError(null);
         setConsentCenterError(null);
+        if (!hasVault) {
+          setDomainManifests({});
+          setDomainManifestErrors({});
+          setLoadingDomainManifests({});
+        }
         completeStep();
       } catch (error) {
         console.error("Failed to load profile manager data:", error);
@@ -1359,7 +1520,7 @@ function ProfilePageContent() {
     panel: Extract<ProfilePanel, "my-data" | "access" | "gmail" | "security">,
   ) {
     if (vaultAccess.needsVaultCreation) {
-      router.push(ROUTES.KAI_IMPORT);
+      setShowVaultCreation(true);
       return;
     }
     if (hasVault && vaultAccess.needsUnlock) {
@@ -1813,13 +1974,36 @@ function ProfilePageContent() {
       : vaultAccess.needsUnlock
         ? "Locked"
         : readableMethod(displayedUnlockMethod);
+  const vaultSettingsRow = resolveProfileVaultSettingsRow(vaultAccess);
+  const shouldShowRiaRegulatoryRow =
+    hasRiaPersona || Boolean(riaOnboardingStatus?.exists);
+  const riaRegulatoryRow = resolveProfileRiaRegulatoryRow({
+    loading: loadingRiaOnboardingStatus,
+    status: riaOnboardingStatus,
+    error: riaOnboardingStatusError,
+  });
+  const currentRiaLicenseNumber =
+    getProfileRiaRefreshLicenseNumber(riaOnboardingStatus);
+  const currentRiaRegulatorMetadata =
+    riaOnboardingStatus?.latest_verification_event?.reference_metadata
+      ?.provider;
+  const currentRiaRegulator =
+    riaOnboardingStatus?.regulator ||
+    (typeof currentRiaRegulatorMetadata === "string"
+      ? currentRiaRegulatorMetadata
+      : null) ||
+    "SEC";
+  const currentRiaFirm =
+    riaOnboardingStatus?.advisory_firm_legal_name ||
+    riaOnboardingStatus?.display_name ||
+    "Official regulator record";
   const profileVoiceSurfaceMetadata = useMemo(() => {
     const controls = [
       {
         id: "profile_my_data",
-        label: "Personal Knowledge Model",
+        label: "Personal Data",
         purpose:
-          "opens your saved domains, source summaries, and sharing controls.",
+          "opens your saved details and sharing controls.",
         actionId: "route.profile_my_data",
         role: "card",
         voiceAliases: ["personal knowledge model", "my data", "pkm"],
@@ -1832,6 +2016,39 @@ function ProfilePageContent() {
         role: "card",
         voiceAliases: ["access", "sharing", "consent access"],
       },
+      {
+        id: "profile_vault",
+        label: vaultSettingsRow.title,
+        purpose: vaultSettingsRow.voicePurpose,
+        actionId: "route.profile_security",
+        role: "card",
+        voiceAliases: [
+          "vault",
+          "create your vault",
+          "unlock vault",
+          "manage vault",
+          "vault security",
+        ],
+      },
+      ...(shouldShowRiaRegulatoryRow
+        ? [
+            {
+              id: "profile_ria_regulatory",
+              label: "Regulatory profile",
+              purpose:
+                "updates official RIA license, CRD, firm, certification, and business location data.",
+              actionId: "ria.profile.refresh_license",
+              role: "card",
+              voiceAliases: [
+                "update my RIA license",
+                "refresh regulatory profile",
+                "sync CRD data",
+                "update license data",
+                "regulatory profile",
+              ],
+            },
+          ]
+        : []),
       {
         id: "profile_account",
         label: "Account",
@@ -1894,7 +2111,7 @@ function ProfilePageContent() {
           activePanel === "account"
             ? "Account"
             : activePanel === "my-data"
-              ? "Personal Knowledge Model"
+              ? "Personal Data"
               : activePanel === "access"
                 ? "Access & sharing"
                 : activePanel === "preferences"
@@ -1908,7 +2125,9 @@ function ProfilePageContent() {
         ]
       : [
           "Account",
-          "Personal Knowledge Model",
+          "Vault",
+          ...(shouldShowRiaRegulatoryRow ? ["Regulatory profile"] : []),
+          "Personal Data",
           "Access & sharing",
           "Preferences",
           "Security",
@@ -1941,7 +2160,11 @@ function ProfilePageContent() {
                 ]
               : [
                   "Open Account",
-                  "Open Personal Knowledge Model",
+                  vaultSettingsRow.title,
+                  ...(shouldShowRiaRegulatoryRow
+                    ? ["Update license data"]
+                    : []),
+                  "Open Personal Data",
                   "Open Access & sharing",
                   "Open Gmail receipts",
                   "Open Support",
@@ -1954,7 +2177,7 @@ function ProfilePageContent() {
           ? activePanel === "account"
             ? "Account"
             : activePanel === "my-data"
-              ? "Personal Knowledge Model"
+              ? "Personal Data"
               : activePanel === "access"
                 ? "Access & sharing"
                 : activePanel === "preferences"
@@ -1975,8 +2198,8 @@ function ProfilePageContent() {
           },
           {
             id: "my-data",
-            title: "Personal Knowledge Model",
-            purpose: "Saved domains, source summaries, and sharing controls.",
+            title: "Personal Data",
+            purpose: "Saved details and sharing controls.",
           },
           {
             id: "access",
@@ -2038,13 +2261,15 @@ function ProfilePageContent() {
         ? "passphrase_dialog"
         : showVaultUnlock
           ? "vault_unlock"
-          : supportComposeKind
-            ? "support_compose"
-            : activeDetail
-              ? `${activePanel}_${activeDetail}`
-              : activePanel
-                ? `${activePanel}_panel`
-                : null,
+          : showRegulatoryRefresh
+            ? "ria_license_refresh"
+            : supportComposeKind
+              ? "support_compose"
+              : activeDetail
+                ? `${activePanel}_${activeDetail}`
+                : activePanel
+                  ? `${activePanel}_panel`
+                  : null,
       availableActions,
       activeControlId: activeVoiceControlId,
       lastInteractedControlId: lastVoiceControlId,
@@ -2053,6 +2278,7 @@ function ProfilePageContent() {
         ...(sendingSupportMessage ? ["support_message"] : []),
         ...(switchingVaultMethod ? ["vault_method_update"] : []),
         ...(savingMarketplaceOptIn ? ["marketplace_visibility_update"] : []),
+        ...(refreshingRegulatoryProfile ? ["ria_license_refresh"] : []),
       ],
       screenMetadata: {
         profile_panel: activePanel,
@@ -2068,6 +2294,9 @@ function ProfilePageContent() {
         google_email: gmail.status?.google_email || null,
         pkm_agent_lab_available: canShowPkmAgentLab,
         marketplace_opt_in: marketplaceOptIn,
+        ria_regulatory_profile_visible: shouldShowRiaRegulatoryRow,
+        ria_license_number: currentRiaLicenseNumber || null,
+        ria_regulator: currentRiaRegulator,
         security_summary: securitySummaryText,
         phone_verified: Boolean(phoneNumber),
         email_verified: emailVerified,
@@ -2078,6 +2307,8 @@ function ProfilePageContent() {
     activePanel,
     activeVoiceControlId,
     canShowPkmAgentLab,
+    currentRiaLicenseNumber,
+    currentRiaRegulator,
     gmailActionsBusy,
     gmailLastSyncText,
     gmailPresentation.isConnected,
@@ -2092,13 +2323,18 @@ function ProfilePageContent() {
     phoneNumber,
     profileSummary.totalAttributes,
     profileSummary.totalDomains,
+    refreshingRegulatoryProfile,
     savingMarketplaceOptIn,
     securitySummaryText,
     sendingSupportMessage,
+    shouldShowRiaRegulatoryRow,
+    showRegulatoryRefresh,
     showVaultUnlock,
     supportComposeKind,
     switchingVaultMethod,
     emailVerified,
+    vaultSettingsRow.title,
+    vaultSettingsRow.voicePurpose,
     vaultAccess.needsVaultCreation,
   ]);
   usePublishVoiceSurfaceMetadata(profileVoiceSurfaceMetadata);
@@ -2161,29 +2397,6 @@ function ProfilePageContent() {
     return null;
   }
 
-  const openKaiPreferences = () => {
-    if (vaultAccess.needsVaultCreation) {
-      router.push(ROUTES.KAI_IMPORT);
-      return;
-    }
-    if (!vaultAccess.canMutateSecureData) {
-      setPendingProfileTarget({
-        panel: "preferences",
-        detail: "kai-preferences",
-        mode: "push",
-      });
-      requestVaultUnlock("profile_data");
-      return;
-    }
-    updateProfileView(
-      {
-        panel: "preferences",
-        detail: "kai-preferences",
-      },
-      "push",
-    );
-  };
-
   const popProfileStack = () => {
     if (activeDetail) {
       updateProfileView({ panel: activePanel, detail: null }, "replace");
@@ -2199,6 +2412,92 @@ function ProfilePageContent() {
   const openPreferencesPanel = () =>
     updateProfileView({ panel: "preferences", detail: null }, "push");
   const openSecurityPanel = () => openVaultBackedPanel("security");
+  const openVaultSettingsRow = () => {
+    if (vaultSettingsRow.action === "wait") return;
+    if (vaultSettingsRow.action === "create") {
+      setShowVaultCreation(true);
+      return;
+    }
+    openSecurityPanel();
+  };
+
+  const openRegulatoryProfileRow = async () => {
+    if (riaRegulatoryRow.action === "wait") return;
+    if (riaRegulatoryRow.action === "onboarding") {
+      router.push(ROUTES.RIA_ONBOARDING);
+      return;
+    }
+
+    const latestStatus =
+      riaOnboardingStatus ?? (await refreshRiaOnboardingStatus(true));
+    if (!latestStatus?.exists) {
+      router.push(ROUTES.RIA_ONBOARDING);
+      return;
+    }
+
+    setRegulatoryLicenseNumber(getProfileRiaRefreshLicenseNumber(latestStatus));
+    setRegulatoryRegulator(latestStatus.regulator || "SEC");
+    setRegulatoryRefreshMessage(null);
+    setShowRegulatoryRefresh(true);
+  };
+
+  const submitRegulatoryProfileRefresh = async () => {
+    if (!user?.uid || !user.getIdToken) return;
+    const nextLicenseNumber = regulatoryLicenseNumber.trim();
+    if (!nextLicenseNumber) {
+      setRegulatoryRefreshMessage("Enter a license or CRD number first.");
+      return;
+    }
+
+    setRefreshingRegulatoryProfile(true);
+    setRegulatoryRefreshMessage(null);
+    try {
+      const idToken = await user.getIdToken();
+      const result = await RiaService.refreshLicenseProfile(idToken, {
+        license_number: nextLicenseNumber,
+        regulator: regulatoryRegulator.trim() || undefined,
+        force_live_verification: true,
+      });
+
+      if (!result.updated) {
+        const message =
+          result.message ||
+          "The regulator did not return a verified profile. No fields were changed.";
+        setRegulatoryRefreshMessage(message);
+        toast.error("Official RIA data was not updated.", {
+          description: message,
+        });
+        return;
+      }
+
+      CacheSyncService.onPersonaStateChanged(user.uid, {
+        preservePersonaState: true,
+      });
+      const nextStatus = await refreshRiaOnboardingStatus(true);
+      if (nextStatus) {
+        setRegulatoryLicenseNumber(
+          getProfileRiaRefreshLicenseNumber(nextStatus),
+        );
+        setRegulatoryRegulator(
+          nextStatus.regulator || regulatoryRegulator || "SEC",
+        );
+      }
+      await refreshPersonaState({ force: true });
+      toast.success("Official RIA data updated.");
+      setShowRegulatoryRefresh(false);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Couldn't update official RIA data.";
+      setRegulatoryRefreshMessage(message);
+      toast.error("Couldn't update official RIA data.", {
+        description: message,
+      });
+    } finally {
+      setRefreshingRegulatoryProfile(false);
+    }
+  };
 
   const handlePreviewDomainPermission = async (
     domainKey: string,
@@ -2217,13 +2516,16 @@ function ProfilePageContent() {
     setDomainPreview({
       open: true,
       permissionKey: permission.key,
+      domainKey,
+      topLevelScopePath: permission.topLevelScopePath,
       title: permission.label,
       description:
         permission.description ||
-        `Saved values from your ${selectedDomain?.title?.toLowerCase() || domainKey} domain.`,
+        `Saved values from ${selectedDomain?.title?.toLowerCase() || domainKey}.`,
       presentation: null,
       loading: true,
       error: null,
+      deletingEntityKey: null,
     });
 
     try {
@@ -2238,10 +2540,12 @@ function ProfilePageContent() {
         ...current,
         open: true,
         permissionKey: permission.key,
+        domainKey,
+        topLevelScopePath: permission.topLevelScopePath,
         title: permission.label,
         description:
           permission.description ||
-          `Saved values from your ${selectedDomain?.title?.toLowerCase() || domainKey} domain.`,
+          `Saved values from ${selectedDomain?.title?.toLowerCase() || domainKey}.`,
         presentation: buildPkmSectionPreviewPresentation({
           domain: domainKey,
           domainTitle: selectedDomain?.title || domainKey,
@@ -2252,6 +2556,7 @@ function ProfilePageContent() {
         }),
         loading: false,
         error: null,
+        deletingEntityKey: null,
       }));
     } catch (error) {
       const message =
@@ -2262,14 +2567,90 @@ function ProfilePageContent() {
         ...current,
         open: true,
         permissionKey: permission.key,
+        domainKey,
+        topLevelScopePath: permission.topLevelScopePath,
         title: permission.label,
         description:
           permission.description ||
-          `Saved values from your ${selectedDomain?.title?.toLowerCase() || domainKey} domain.`,
+          `Saved values from ${selectedDomain?.title?.toLowerCase() || domainKey}.`,
         presentation: null,
         loading: false,
         error: message,
+        deletingEntityKey: null,
       }));
+    }
+  };
+
+  const handleDeletePkmPreviewEntity = async (entity: PkmSectionPreviewEntity) => {
+    const domainKey = domainPreview.domainKey || selectedDomain?.key || null;
+    const topLevelScopePath = domainPreview.topLevelScopePath;
+    if (!user?.uid || !vaultKey || !vaultOwnerToken || !domainKey || !topLevelScopePath) {
+      requestVaultUnlock("profile_data");
+      return;
+    }
+
+    setDomainPreview((current) => ({
+      ...current,
+      error: null,
+      deletingEntityKey: entity.key,
+    }));
+
+    try {
+      await PersonalKnowledgeModelService.storePreparedDomain({
+        userId: user.uid,
+        vaultKey,
+        domain: domainKey,
+        domainData: buildPkmEntityDeletionCandidate(topLevelScopePath, entity.key),
+        summary: {},
+        mergeDecision: {
+          merge_mode: "delete_entity",
+          target_domain: domainKey,
+          target_entity_id: entity.key,
+          target_entity_path: `${topLevelScopePath}.entities.${entity.key}`,
+          match_confidence: 1,
+          match_reason: "User removed this saved PKM entry from the profile interface.",
+        },
+        vaultOwnerToken,
+      });
+
+      const permission = selectedDomainPermissions.find(
+        (candidate) => candidate.key === domainPreview.permissionKey,
+      );
+      const data = await PersonalKnowledgeModelService.loadDomainData({
+        userId: user.uid,
+        domain: domainKey,
+        vaultKey,
+        vaultOwnerToken,
+        segmentIds: [topLevelScopePath],
+      });
+
+      setDomainPreview((current) => ({
+        ...current,
+        presentation: buildPkmSectionPreviewPresentation({
+          domain: domainKey,
+          domainTitle: selectedDomain?.title || domainKey,
+          permissionLabel: permission?.label || current.title || topLevelScopePath,
+          permissionDescription: permission?.description || current.description || null,
+          topLevelScopePath,
+          value: data,
+        }),
+        loading: false,
+        error: null,
+        deletingEntityKey: null,
+      }));
+
+      void refreshPkmMetadata(true);
+      void refreshDomainManifest(domainKey, true);
+      toast.success("Saved entry removed.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Couldn't remove this saved entry.";
+      setDomainPreview((current) => ({
+        ...current,
+        error: message,
+        deletingEntityKey: null,
+      }));
+      toast.error(message);
     }
   };
 
@@ -2280,10 +2661,17 @@ function ProfilePageContent() {
       scopeHandle: string | null;
       topLevelScopePath: string;
       exposureEnabled: boolean;
+      visibilityPosture: PkmVisibilityPosture;
+      label: string;
+      description?: string | null;
     },
-    nextValue: boolean,
+    nextPosture: PkmVisibilityPosture,
   ) => {
     if (!user?.uid || !vaultOwnerToken) {
+      requestVaultUnlock("profile_data");
+      return;
+    }
+    if (nextPosture === "default_available" && !vaultKey) {
       requestVaultUnlock("profile_data");
       return;
     }
@@ -2291,7 +2679,7 @@ function ProfilePageContent() {
     const permissionKey = permission.key;
     const previousManifest = cloneManifest(domainManifests[domainKey] ?? null);
     if (!previousManifest) {
-      toast.error("This domain is still preparing sharing controls.");
+      toast.error("These details are still preparing sharing controls.");
       return;
     }
 
@@ -2301,7 +2689,7 @@ function ProfilePageContent() {
         scopeHandle: permission.scopeHandle,
         topLevelScopePath: permission.topLevelScopePath,
       },
-      nextValue,
+      nextPosture,
     );
 
     setPendingPermissionToggles((current) => ({
@@ -2315,6 +2703,31 @@ function ProfilePageContent() {
     setDomainManifestErrors((current) => ({ ...current, [domainKey]: null }));
 
     try {
+      let projectionPayload: Record<string, unknown> | null = null;
+      if (nextPosture === "default_available" && vaultKey) {
+        const sectionData = await PersonalKnowledgeModelService.loadDomainData({
+          userId: user.uid,
+          domain: domainKey,
+          vaultKey,
+          vaultOwnerToken,
+          segmentIds: [permission.topLevelScopePath],
+        });
+        const presentation = buildPkmSectionPreviewPresentation({
+          domain: domainKey,
+          domainTitle: selectedDomain?.title || domainKey,
+          permissionLabel: permission.label,
+          permissionDescription: permission.description || null,
+          topLevelScopePath: permission.topLevelScopePath,
+          value: sectionData,
+        });
+        projectionPayload = buildDefaultAvailableProjectionPayload({
+          domainKey,
+          domainTitle: selectedDomain?.title || domainKey,
+          permission,
+          presentation,
+        });
+      }
+
       const result = await PersonalKnowledgeModelService.updateScopeExposure({
         userId: user.uid,
         domain: domainKey,
@@ -2324,20 +2737,42 @@ function ProfilePageContent() {
           {
             scopeHandle: permission.scopeHandle || undefined,
             topLevelScopePath: permission.topLevelScopePath,
-            exposureEnabled: nextValue,
+            exposureEnabled: nextPosture !== "private",
+            visibilityPosture: nextPosture,
           },
         ],
       });
 
+      let updatedManifest = result.manifest ?? optimisticManifest ?? previousManifest;
+      if (nextPosture === "default_available" && projectionPayload) {
+        const projectionResult =
+          await PersonalKnowledgeModelService.publishDefaultAvailableProjection({
+            userId: user.uid,
+            domain: domainKey,
+            scope: defaultAvailableScopeForPermission(domainKey, permission.topLevelScopePath),
+            scopeHandle: permission.scopeHandle || undefined,
+            topLevelScopePath: permission.topLevelScopePath,
+            projectionPayload,
+            manifestVersion: result.manifestVersion ?? previousManifest.manifest_version,
+            vaultOwnerToken,
+            metadata: {
+              source: "profile_visibility_posture",
+            },
+          });
+        updatedManifest = projectionResult.manifest ?? updatedManifest;
+      }
+
       setDomainManifests((current) => ({
         ...current,
-        [domainKey]: result.manifest ?? optimisticManifest ?? previousManifest,
+        [domainKey]: updatedManifest,
       }));
       await Promise.all([refreshConsentCenter(true), refreshPkmMetadata(true)]);
       toast.success(
-        nextValue
-          ? "Sharing section is available for future approvals."
-          : "Sharing section is now hidden.",
+        nextPosture === "private"
+          ? "This section is private."
+          : nextPosture === "default_available"
+            ? "This section is available by default."
+            : "One will ask before sharing this section.",
       );
     } catch (error) {
       const message =
@@ -2401,40 +2836,51 @@ function ProfilePageContent() {
   ];
 
   const myDataContent = (
-    <PkmDataManagerPanel
-      signedIn={Boolean(user)}
-      loading={profileManagerLoading}
-      metadataReady={pkmMetadataReady}
-      metadataError={pkmError}
-      sharingReady={consentCenterReady}
-      sharingError={consentCenterError}
-      needsVaultCreation={vaultAccess.needsVaultCreation}
-      needsUnlock={vaultAccess.needsUnlock}
-      summary={profileSummary}
-      domains={domainPresentations}
-      manifestsByDomain={domainManifests}
-      loadingManifestsByDomain={loadingDomainManifests}
-      manifestErrorsByDomain={domainManifestErrors}
-      upgradeStatesByDomain={upgradeStatesByDomain}
-      onOpenSharing={() =>
-        updateProfileView({ panel: "access", detail: null }, "push")
-      }
-      onOpenImport={() => router.push(ROUTES.KAI_IMPORT)}
-      onRefresh={() => {
-        void refreshPkmMetadata(true);
-        void refreshConsentCenter(true);
-        void refreshVisibleDomainManifests(true);
-      }}
-      onOpenDomain={(domain) =>
-        updateProfileView(
-          {
-            panel: "my-data",
-            detail: `domain:${domain.key}`,
-          },
-          "push",
-        )
-      }
-    />
+    <div className="space-y-4 sm:space-y-5">
+      <RuntimeSecretSettingsCard
+        userId={user?.uid}
+        vaultKey={vaultKey}
+        vaultOwnerToken={vaultOwnerToken}
+        needsVaultCreation={vaultAccess.needsVaultCreation}
+        needsUnlock={vaultAccess.needsUnlock}
+        onRequestVaultUnlock={() => requestVaultUnlock("profile_data")}
+        onRequestVaultCreation={() => setShowVaultCreation(true)}
+      />
+      <PkmDataManagerPanel
+        signedIn={Boolean(user)}
+        loading={profileManagerLoading}
+        metadataReady={pkmMetadataReady}
+        metadataError={pkmError}
+        sharingReady={consentCenterReady}
+        sharingError={consentCenterError}
+        needsVaultCreation={vaultAccess.needsVaultCreation}
+        needsUnlock={vaultAccess.needsUnlock}
+        summary={profileSummary}
+        domains={domainPresentations}
+        manifestsByDomain={domainManifests}
+        loadingManifestsByDomain={loadingDomainManifests}
+        manifestErrorsByDomain={domainManifestErrors}
+        upgradeStatesByDomain={upgradeStatesByDomain}
+        onOpenSharing={() =>
+          updateProfileView({ panel: "access", detail: null }, "push")
+        }
+        onOpenImport={() => router.push(ROUTES.KAI_IMPORT)}
+        onRefresh={() => {
+          void refreshPkmMetadata(true);
+          void refreshConsentCenter(true);
+          void refreshVisibleDomainManifests(true);
+        }}
+        onOpenDomain={(domain) =>
+          updateProfileView(
+            {
+              panel: "my-data",
+              detail: `domain:${domain.key}`,
+            },
+            "push",
+          )
+        }
+      />
+    </div>
   );
 
   const accessContent = (
@@ -2461,6 +2907,15 @@ function ProfilePageContent() {
       />
 
       <SettingsGroup>
+        <SettingsRow
+          icon={MapPin}
+          title="Location sharing"
+          description="Share, request, and revoke encrypted live-location access."
+          trailing={<Badge variant="secondary">One</Badge>}
+          chevron
+          stackTrailingOnMobile
+          onClick={() => router.push(ROUTES.ONE_LOCATION)}
+        />
         <SettingsRow
           icon={ExternalLink}
           title="Consent center"
@@ -2564,11 +3019,6 @@ function ProfilePageContent() {
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         <Badge variant="secondary">Appearance</Badge>
-        <Badge variant="secondary">
-          {canEditKaiPreferences
-            ? "Secure preferences ready"
-            : "Unlock required"}
-        </Badge>
         <Badge variant="secondary">Device controls soon</Badge>
       </div>
       <SettingsGroup>
@@ -2580,21 +3030,36 @@ function ProfilePageContent() {
           stackTrailingOnMobile
         />
         <SettingsRow
-          icon={RefreshCw}
-          title="Kai preferences"
-          description={
-            vaultAccess.canMutateSecureData
-              ? "Risk profile and horizon."
-              : "Unlock to edit secure Kai preferences."
-          }
+          icon={Volume2}
+          title="Agent voice"
+          description="Choose the Gemini TTS voice Agent uses for spoken replies on this device."
           trailing={
-            canEditKaiPreferences ? (
-              <Badge variant="secondary">Ready</Badge>
-            ) : null
+            <Select
+              value={agentTtsVoice}
+              onValueChange={(value) => {
+                const next = writeAgentVoiceSettings({
+                  ttsVoice: value as AgentGeminiTtsVoice,
+                }).ttsVoice;
+                setAgentTtsVoice(next);
+                toast.success(`Agent voice set to ${next}.`);
+              }}
+            >
+              <SelectTrigger
+                className="w-full min-w-[11rem] sm:w-[228px]"
+                aria-label="Agent TTS voice"
+              >
+                <SelectValue placeholder={DEFAULT_AGENT_GEMINI_TTS_VOICE} />
+              </SelectTrigger>
+              <SelectContent>
+                {AGENT_GEMINI_TTS_VOICES.map((voice) => (
+                  <SelectItem key={voice} value={voice}>
+                    {voice}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           }
-          chevron
           stackTrailingOnMobile
-          onClick={openKaiPreferences}
         />
         <SettingsRow
           icon={Cloud}
@@ -2730,13 +3195,11 @@ function ProfilePageContent() {
       <SettingsGroup title="Vault">
         {vaultAccess.needsVaultCreation ? (
           <SettingsRow
-            icon={Folder}
+            icon={KeyRound}
             title="Create your vault"
-            description="Start from import to enable passphrase or passkey unlock for this account."
+            description="Set up a passphrase to secure your personal data."
             chevron
-            onClick={() => {
-              router.push(ROUTES.KAI_IMPORT);
-            }}
+            onClick={() => setShowVaultCreation(true)}
           />
         ) : null}
 
@@ -3125,8 +3588,8 @@ function ProfilePageContent() {
   } else if (!routeBlockedByVault && activePanel === "my-data") {
     profileStackEntries.push({
       key: "panel:my-data",
-      title: "Personal Knowledge Model",
-      description: "Browse domains, counts, and sharing controls.",
+      title: "Personal Data",
+      description: "Browse saved details and sharing controls.",
       content: myDataContent,
     });
     if (selectedDomain) {
@@ -3143,7 +3606,7 @@ function ProfilePageContent() {
                 status: "missing_manifest",
                 label: "Updating structure",
                 description:
-                  "Sharing controls will appear here once this domain manifest is ready.",
+                  "Sharing controls will appear here once these details are ready.",
                 canManagePermissions: false,
               }
             }
@@ -3162,6 +3625,7 @@ function ProfilePageContent() {
             previewPresentation={domainPreview.presentation}
             previewLoading={domainPreview.loading}
             previewError={domainPreview.error}
+            previewDeletingEntityKey={domainPreview.deletingEntityKey}
             onPreviewOpenChange={(open) =>
               setDomainPreview((current) => ({
                 ...current,
@@ -3171,11 +3635,14 @@ function ProfilePageContent() {
             onPreviewPermission={(permission) =>
               void handlePreviewDomainPermission(selectedDomain.key, permission)
             }
-            onTogglePermission={(permission, nextValue) =>
+            onDeletePreviewEntity={(entity) =>
+              void handleDeletePkmPreviewEntity(entity)
+            }
+            onTogglePermission={(permission, nextPosture) =>
               void handleToggleDomainPermission(
                 selectedDomain.key,
                 permission,
-                nextValue,
+                nextPosture,
               )
             }
           />
@@ -3421,21 +3888,20 @@ function ProfilePageContent() {
             <SettingsGroup title="Data">
               <SettingsRow
                 icon={Folder}
-                title="Personal Knowledge Model"
+                title="Personal Data"
                 description={
                   vaultAccess.needsVaultCreation
                     ? "Create your vault first."
                     : !pkmMetadataReady && !pkmMetadataFailed
-                      ? "Checking saved domains."
+                      ? "Checking saved details."
                       : pkmMetadataFailed
                         ? "Saved data is unavailable."
                         : vaultAccess.needsUnlock
-                          ? "Unlock to review domains and sharing."
-                          : "Domains, counts, and sharing."
+                          ? "Unlock to review saved details and sharing."
+                          : "Saved details and sharing."
                 }
                 trailing={<Badge variant="secondary">{myDataRootBadge}</Badge>}
-                chevron={!vaultAccess.needsVaultCreation}
-                disabled={vaultAccess.needsVaultCreation}
+                chevron
                 stackTrailingOnMobile
                 onClick={openMyDataPanel}
               />
@@ -3454,8 +3920,7 @@ function ProfilePageContent() {
                           : "Who can read what."
                 }
                 trailing={<Badge variant="secondary">{accessRootBadge}</Badge>}
-                chevron={!vaultAccess.needsVaultCreation}
-                disabled={vaultAccess.needsVaultCreation}
+                chevron
                 stackTrailingOnMobile
                 onClick={openAccessPanel}
               />
@@ -3470,8 +3935,7 @@ function ProfilePageContent() {
                       : "Connection, sync, and receipts."
                 }
                 trailing={<Badge variant="secondary">{gmailStatusLabel}</Badge>}
-                chevron={!vaultAccess.needsVaultCreation}
-                disabled={vaultAccess.needsVaultCreation}
+                chevron
                 stackTrailingOnMobile
                 onClick={openGmailPanel}
               />
@@ -3486,14 +3950,49 @@ function ProfilePageContent() {
                       : "Requests and approval drafts."
                 }
                 trailing={<Badge variant="secondary">Preview</Badge>}
-                chevron={!vaultAccess.needsVaultCreation}
-                disabled={vaultAccess.needsVaultCreation}
+                chevron
                 stackTrailingOnMobile
-                onClick={() => router.push(ROUTES.ONE_KYC)}
+                onClick={() => {
+                  if (vaultAccess.needsVaultCreation) {
+                    setShowVaultCreation(true);
+                    return;
+                  }
+                  router.push(ROUTES.ONE_KYC);
+                }}
               />
             </SettingsGroup>
 
             <SettingsGroup title="Settings">
+              <SettingsRow
+                icon={KeyRound}
+                title={vaultSettingsRow.title}
+                description={vaultSettingsRow.description}
+                chevron={vaultSettingsRow.chevron}
+                disabled={vaultSettingsRow.disabled}
+                voiceControlId="profile_vault"
+                voiceActionId="route.profile_security"
+                voiceLabel={vaultSettingsRow.voiceLabel}
+                voicePurpose={vaultSettingsRow.voicePurpose}
+                onClick={openVaultSettingsRow}
+              />
+              {shouldShowRiaRegulatoryRow ? (
+                <SettingsRow
+                  icon={ClipboardCheck}
+                  title={riaRegulatoryRow.title}
+                  description={riaRegulatoryRow.description}
+                  trailing={
+                    <Badge variant="secondary">{riaRegulatoryRow.badge}</Badge>
+                  }
+                  chevron
+                  stackTrailingOnMobile
+                  disabled={riaRegulatoryRow.disabled}
+                  voiceControlId="profile_ria_regulatory"
+                  voiceActionId="ria.profile.refresh_license"
+                  voiceLabel="Regulatory profile"
+                  voicePurpose="Update official RIA license and CRD data from the regulator."
+                  onClick={() => void openRegulatoryProfileRow()}
+                />
+              ) : null}
               <SettingsRow
                 icon={Phone}
                 title="Account"
@@ -3616,6 +4115,111 @@ function ProfilePageContent() {
           }}
         />
       )}
+
+      {hasVault === false && (
+        <VaultUnlockDialog
+          user={user}
+          open={showVaultCreation}
+          onOpenChange={setShowVaultCreation}
+          title="Create your vault"
+          description="Set up a passphrase to secure your personal data."
+          onSuccess={() => {
+            setShowVaultCreation(false);
+            setHasVault(true);
+            VaultService.setVaultCheckCache(user.uid, true);
+            toast.success("Vault created and unlocked.");
+          }}
+        />
+      )}
+
+      <Dialog
+        open={showRegulatoryRefresh}
+        onOpenChange={setShowRegulatoryRefresh}
+      >
+        <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-lg">
+          <DialogTitle>Update license data</DialogTitle>
+          <DialogDescription>
+            Refresh official regulator fields. Your bio, services, fees, email,
+            phone, and custom profile copy stay unchanged.
+          </DialogDescription>
+          <div className="space-y-4 pt-2">
+            <div className="rounded-2xl border bg-muted/30 px-4 py-3 text-sm">
+              <p className="font-medium text-foreground">{currentRiaFirm}</p>
+              <p className="mt-1 text-muted-foreground">
+                Current CRD {currentRiaLicenseNumber || "not stored"} -{" "}
+                {currentRiaRegulator}
+              </p>
+            </div>
+
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                License / CRD
+              </span>
+              <Input
+                value={regulatoryLicenseNumber}
+                onChange={(event) =>
+                  setRegulatoryLicenseNumber(event.target.value)
+                }
+                inputMode="numeric"
+                placeholder="Enter license or CRD number"
+                disabled={refreshingRegulatoryProfile}
+              />
+            </label>
+
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Regulator
+              </span>
+              <Input
+                value={regulatoryRegulator}
+                onChange={(event) => setRegulatoryRegulator(event.target.value)}
+                placeholder="SEC"
+                disabled={refreshingRegulatoryProfile}
+              />
+            </label>
+
+            {regulatoryRefreshMessage ? (
+              <p className="rounded-2xl bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                {regulatoryRefreshMessage}
+              </p>
+            ) : null}
+
+            <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:items-center sm:justify-end">
+              <Button
+                variant="none"
+                effect="fade"
+                size="default"
+                className="w-full sm:w-auto"
+                onClick={() => setShowRegulatoryRefresh(false)}
+                disabled={refreshingRegulatoryProfile}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="default"
+                className="w-full sm:w-auto"
+                disabled={
+                  refreshingRegulatoryProfile || !regulatoryLicenseNumber.trim()
+                }
+                onClick={() => void submitRegulatoryProfileRefresh()}
+              >
+                {refreshingRegulatoryProfile ? (
+                  <>
+                    <Icon
+                      icon={Loader2}
+                      size="sm"
+                      className="mr-2 animate-spin"
+                    />
+                    Updating...
+                  </>
+                ) : (
+                  "Update official data"
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={passphraseDialogOpen}

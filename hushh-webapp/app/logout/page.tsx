@@ -10,10 +10,10 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { signOut } from "firebase/auth";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { auth } from "@/lib/firebase/config";
+import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import {
   clearLocalStorage,
@@ -81,7 +81,7 @@ export default function LogoutPage() {
 
         // Sign out from Firebase
         const currentUid = auth.currentUser?.uid ?? null;
-        await signOut(auth);
+        await AuthService.signOut();
         CacheSyncService.onAuthSignedOut(currentUid);
 
         // Step 1: Logout complete

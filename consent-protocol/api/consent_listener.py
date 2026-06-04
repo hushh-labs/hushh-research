@@ -11,6 +11,7 @@ Also runs:
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import re
@@ -44,6 +45,9 @@ _listener_active = False
 _notify_received_count = 0
 _last_notify_user_id: str | None = None
 _last_notify_action: str | None = None
+# Strong references to in-flight notify tasks so the GC cannot reclaim them
+# before _handle_notify completes.  Each task removes itself on completion.
+_background_notify_tasks: set[asyncio.Task[None]] = set()
 _UUID_LIKE_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
     re.IGNORECASE,
@@ -139,7 +143,13 @@ def _notify_callback(connection, pid, channel, payload: str):
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            loop.call_soon_threadsafe(lambda: asyncio.ensure_future(_handle_notify(payload)))
+
+            def _schedule(p: str = payload) -> None:
+                task = asyncio.create_task(_handle_notify(p))
+                _background_notify_tasks.add(task)
+                task.add_done_callback(_background_notify_tasks.discard)
+
+            loop.call_soon_threadsafe(_schedule)
     except Exception as e:
         logger.exception("Consent notify callback error: %s", e)
 
@@ -642,6 +652,10 @@ async def run_consent_listener():
         logger.error("Consent listener: DB pool not available (%s), skipping LISTEN", e)
         timeout_task.cancel()
         notification_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await timeout_task
+        with contextlib.suppress(asyncio.CancelledError):
+            await notification_task
         return
     conn = None
     try:
