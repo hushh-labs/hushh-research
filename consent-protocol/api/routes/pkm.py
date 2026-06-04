@@ -5,17 +5,7 @@ Personal Knowledge Model API routes.
 Canonical API surface for PKM.
 """
 
-from fastapi import (
-    APIRouter,
-    BackgroundTasks,
-    Body,
-    Depends,
-    Header,
-    HTTPException,
-    Path,
-    Query,
-    status,
-)
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPException, Path, status
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
@@ -35,6 +25,7 @@ from api.routes.pkm_routes_shared import (
     UpdateUpgradeRunRequest,
     UpdateUpgradeStepRequest,
     UserScopesResponse,
+    _validated_segment_ids,
 )
 from api.routes.pkm_routes_shared import (
     complete_upgrade_run as _complete_upgrade_run,
@@ -179,7 +170,7 @@ async def get_encrypted_data(
 async def get_domain_data(
     user_id: str = Path(..., max_length=128),
     domain: str = Path(..., max_length=64),
-    segment_ids: list[str] | None = Query(default=None),
+    segment_ids: list[str] | None = Depends(_validated_segment_ids),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _get_domain_data(user_id, domain, segment_ids, token_data)
