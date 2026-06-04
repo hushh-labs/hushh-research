@@ -22,6 +22,31 @@ logger = logging.getLogger(__name__)
 _CONSENT_SCOPE_CACHE_ATTR = "_hushh_validated_consent_scopes"
 _NO_REQUEST = cast(Request, None)
 
+# Canonical GPC header name (ASGI lowercases all header names on ingress).
+_SEC_GPC_HEADER = "sec-gpc"
+
+
+def _apply_gpc_flag(request: "Request | None") -> None:
+    """Inspect the Sec-GPC request header and, when the user has signalled a
+    Global Privacy Control opt-out (value ``'1'``), stamp the request state
+    with privacy-safe defaults **before** any downstream handler executes.
+
+    Attributes written on ``request.state`` when GPC opt-out is active:
+        gpc_opt_out       = True  — canonical opt-out signal for route handlers
+        tracking_allowed  = False — suppresses optional cross-site tracking
+        analytics_allowed = False — suppresses optional behavioural analytics
+
+    When the header is absent, set to ``'0'``, or the request is ``None``,
+    this function is a no-op — existing state is never modified.
+    No new imports required; all logic is inline.
+    """
+    if request is None:
+        return
+    if request.headers.get(_SEC_GPC_HEADER, "") == "1":
+        request.state.gpc_opt_out = True
+        request.state.tracking_allowed = False
+        request.state.analytics_allowed = False
+
 
 def _auth_error(detail: str) -> HTTPException:
     """Helper to ensure consistent 401 Unauthorized responses across all routes."""
@@ -204,6 +229,9 @@ async def require_vault_owner_token(
         HTTPException 401 if token is missing or invalid
         HTTPException 403 if token scope is insufficient
     """
+    # GPC opt-out — must run before token validation or any downstream logic.
+    _apply_gpc_flag(request)
+
     header_value = (
         hushh_consent if isinstance(hushh_consent, str) and hushh_consent.strip() else authorization
     )
@@ -238,6 +266,9 @@ def require_consent_scope(required_scope: str | ConsentScope):
             None, description="Bearer token for scoped consent authentication"
         ),
     ) -> dict:
+        # GPC opt-out — must run before token validation or any downstream logic.
+        _apply_gpc_flag(request)
+
         token = _extract_token(authorization, allow_raw=False)
         valid, reason, token_obj = await _validate_token_with_scope_cache(
             token, required_scope, request
