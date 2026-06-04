@@ -949,8 +949,13 @@ async def analyze_fundamental_streaming(
     valid, reason, token = validate_token(consent_token, ConsentScope("agent.kai.analyze"))
 
     if not valid:
-        logger.warning("[Fundamental Streaming] Consent validation failed for %s: %s", ticker, reason)
-        yield {"type": "error", "message": "Consent token is invalid or insufficient for this operation."}
+        logger.warning(
+            "[Fundamental Streaming] Consent validation failed for %s: %s", ticker, reason
+        )
+        yield {
+            "type": "error",
+            "message": "Consent token is invalid or insufficient for this operation.",
+        }
         return
 
     if not _require_gemini_ready():

@@ -80,6 +80,4 @@ def test_no_f_string_loggers_in_module() -> None:
             if isinstance(arg, ast.JoinedStr):
                 f_string_loggers.append(node.lineno)
 
-    assert f_string_loggers == [], (
-        f"G004: f-string logger calls found at lines {f_string_loggers}"
-    )
+    assert f_string_loggers == [], f"G004: f-string logger calls found at lines {f_string_loggers}"

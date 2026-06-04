@@ -321,9 +321,7 @@ class TestDomainInferrerCanonicalServiceProof:
         import hushh_mcp.services.domain_inferrer as mod
 
         src = inspect.getsource(mod)
-        assert "from api.routes" not in src, (
-            "DomainInferrer must not import from api.routes"
-        )
+        assert "from api.routes" not in src, "DomainInferrer must not import from api.routes"
         assert "import fastapi" not in src.lower(), (
             "DomainInferrer must remain a pure utility without FastAPI dependency"
         )

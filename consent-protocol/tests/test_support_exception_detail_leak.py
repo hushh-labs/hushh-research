@@ -49,9 +49,7 @@ class TestSupportNotConfiguredDoesNotLeak:
             "api.routes.kai.support.get_support_email_service",
             _bad_service,
         )
-        client = _build_client(
-            {require_firebase_auth: _auth_override("user123")}
-        )
+        client = _build_client({require_firebase_auth: _auth_override("user123")})
         resp = client.post("/support/message", json=_VALID_PAYLOAD)
         assert resp.status_code == 503
         body = resp.json()
@@ -71,9 +69,7 @@ class TestSupportNotConfiguredDoesNotLeak:
             "api.routes.kai.support.get_support_email_service",
             _bad_service,
         )
-        client = _build_client(
-            {require_firebase_auth: _auth_override("user123")}
-        )
+        client = _build_client({require_firebase_auth: _auth_override("user123")})
         resp = client.post("/support/message", json=_VALID_PAYLOAD)
         body = resp.json()
         msg = body["detail"]["message"]
@@ -92,9 +88,7 @@ class TestSupportGenericExceptionDoesNotLeak:
             "api.routes.kai.support.get_support_email_service",
             _bad_service,
         )
-        client = _build_client(
-            {require_firebase_auth: _auth_override("user123")}
-        )
+        client = _build_client({require_firebase_auth: _auth_override("user123")})
         resp = client.post("/support/message", json=_VALID_PAYLOAD)
         assert resp.status_code == 500
         body = resp.json()
@@ -113,9 +107,7 @@ class TestSupportGenericExceptionDoesNotLeak:
             "api.routes.kai.support.get_support_email_service",
             _bad_service,
         )
-        client = _build_client(
-            {require_firebase_auth: _auth_override("user123")}
-        )
+        client = _build_client({require_firebase_auth: _auth_override("user123")})
         resp = client.post("/support/message", json=_VALID_PAYLOAD)
         assert resp.status_code == 500
         body = resp.json()
@@ -131,9 +123,7 @@ class TestSupportGenericExceptionDoesNotLeak:
             "api.routes.kai.support.get_support_email_service",
             _bad_service,
         )
-        client = _build_client(
-            {require_firebase_auth: _auth_override("user123")}
-        )
+        client = _build_client({require_firebase_auth: _auth_override("user123")})
         resp = client.post("/support/message", json=_VALID_PAYLOAD)
         body = resp.json()
         assert body["detail"]["code"] == "SUPPORT_MESSAGE_FAILED"

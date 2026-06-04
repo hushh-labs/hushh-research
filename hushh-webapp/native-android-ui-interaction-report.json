@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-28T08:40:07.817Z",
+  "generated_at": "2026-05-29T02:51:54.540Z",
   "device": "emulator-5554",
   "flow_count": 13,
   "passed_flows": 13,
@@ -22,7 +22,7 @@
   ],
   "report": {
     "ok": true,
-    "startedAt": "2026-05-28T08:38:53.270Z",
+    "startedAt": "2026-05-29T02:51:09.333Z",
     "flows": [
       {
         "id": "shell-investor-kai-analysis",
@@ -140,6 +140,11 @@
             "step": 2,
             "type": "wait_beacon",
             "ok": true
+          },
+          {
+            "step": 3,
+            "type": "assert_visible_testid",
+            "ok": true
           }
         ],
         "failedStep": null
@@ -164,6 +169,11 @@
           {
             "step": 2,
             "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "assert_visible_testid",
             "ok": true
           }
         ],
@@ -193,6 +203,11 @@
           },
           {
             "step": 3,
+            "type": "assert_visible_testid",
+            "ok": true
+          },
+          {
+            "step": 4,
             "type": "assert_visible_testid",
             "ok": true
           }
@@ -441,13 +456,13 @@
             "type": "click_button",
             "ok": true,
             "skipped": true,
-            "reason": "step timeout (click_button) visible=Home|Clients|Picks|Connect|Profile|Connections|Contacts|View profile"
+            "reason": "step timeout (click_button) visible=Home|Clients|Picks|Connect|Profile|Connections|Contacts|View profile bridge=enabled=1,navigate=1,switch=1,active=ria,primary=ria,persona_switch=ok:ria,bootstrap=vault_unlocked"
           }
         ],
         "failedStep": null
       }
     ],
-    "completedAt": "2026-05-28T08:40:05.073Z"
+    "completedAt": "2026-05-29T02:51:51.957Z"
   },
   "error": null,
   "last_status": {
@@ -481,16 +496,16 @@
     "portfolio_last_event": "",
     "portfolio_last_seq": "",
     "portfolio_stream_error": "",
-    "trigger": "1",
+    "trigger": "0",
     "domtest": "true",
     "domauto": "true",
     "reviewer": "0",
     "bootstrap": "vault_unlocked",
-    "bootstrap_uid": "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+    "bootstrap_uid": "<redacted>",
     "bootstrap_error": "",
-    "jserr": "Uncaught Error: Minified React error #418, visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.",
+    "jserr": "<redacted>",
     "jsrej": "",
-    "body": "Home Clients Picks Connect Profile  CONNECT  Search people Find investors, RIAs, and contacts already on Hushh. Connections Contacts D dasd VERIFIED  Registered",
+    "body": "<redacted>",
     "visible404": "0",
     "ui_complete": "1",
     "ui_ok": "1",
