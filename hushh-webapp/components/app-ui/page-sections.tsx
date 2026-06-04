@@ -145,6 +145,7 @@ export function PageHeader({
   leading,
   accent = "default",
   className,
+  testId = "page-header",
 }: {
   eyebrow?: string;
   title: ReactNode;
@@ -156,6 +157,7 @@ export function PageHeader({
   leading?: ReactNode;
   accent?: SectionAccent;
   className?: string;
+  testId?: string;
 }) {
   const styles = ACCENT_STYLES[accent];
   return (
@@ -163,6 +165,7 @@ export function PageHeader({
       className={cn("space-y-[var(--page-header-stack-gap)]", className)}
       data-slot="page-header"
       data-page-primary="true"
+      data-testid={testId}
     >
       <div className="flex items-stretch gap-3 sm:gap-4">
         {icon || leading ? (
@@ -200,7 +203,7 @@ export function PageHeader({
               </h1>
               {description && !descriptionFullWidth ? (
                 <div
-                  className="max-w-2xl line-clamp-2 text-sm leading-6 text-muted-foreground sm:line-clamp-none"
+                  className="max-w-2xl line-clamp-1 text-sm leading-6 text-muted-foreground"
                   data-slot="page-header-description"
                 >
                   {description}
@@ -223,7 +226,7 @@ export function PageHeader({
       </div>
       {description && descriptionFullWidth ? (
         <div
-          className="text-sm leading-6 text-muted-foreground"
+          className="line-clamp-1 text-sm leading-6 text-muted-foreground"
           data-slot="page-header-description"
         >
           {description}
@@ -243,6 +246,7 @@ export function SectionHeader({
   leading,
   accent = "default",
   className,
+  testId = "section-header",
 }: {
   eyebrow?: string;
   title: ReactNode;
@@ -252,10 +256,11 @@ export function SectionHeader({
   leading?: ReactNode;
   accent?: SectionAccent;
   className?: string;
+  testId?: string;
 }) {
   const styles = ACCENT_STYLES[accent];
   return (
-    <div className={cn("space-y-[var(--section-header-stack-gap)]", className)}>
+    <div className={cn("space-y-[var(--section-header-stack-gap)]", className)} data-testid={testId}>
       <div className="flex items-stretch gap-3">
         {icon || leading ? (
           <HeaderLeading
@@ -288,7 +293,7 @@ export function SectionHeader({
               </div>
               {description ? (
                 <div
-                  className="line-clamp-2 text-sm leading-6 text-muted-foreground sm:line-clamp-none"
+                  className="line-clamp-1 text-sm leading-6 text-muted-foreground"
                   data-slot="section-header-description"
                 >
                   {description}

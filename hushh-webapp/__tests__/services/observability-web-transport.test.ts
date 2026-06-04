@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   resolveAnalyticsMeasurementId,
   resolveGtmContainerId,
+  shouldLoadWebAnalyticsScripts,
 } from "@/lib/observability/env";
 import { webGtmAdapter } from "@/lib/observability/adapters/web-gtm";
 
@@ -27,6 +28,16 @@ describe("web observability transport", () => {
 
     expect(resolveGtmContainerId()).toBe("");
     expect(resolveAnalyticsMeasurementId()).toBe("");
+  });
+
+  it("does not load remote analytics scripts during next dev by default", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID", "G-H1KGXGZTCF");
+
+    expect(shouldLoadWebAnalyticsScripts()).toBe(false);
+
+    vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_LOAD_IN_DEV", "1");
+    expect(shouldLoadWebAnalyticsScripts()).toBe(true);
   });
 
   it("uses direct gtag delivery when GTM is not configured", async () => {

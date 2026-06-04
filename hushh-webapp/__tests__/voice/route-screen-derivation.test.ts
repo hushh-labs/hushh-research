@@ -43,6 +43,17 @@ describe("deriveVoiceRouteScreen", () => {
     });
   });
 
+  it("maps marketplace routes to generated action gateway screens", () => {
+    expect(deriveVoiceRouteScreen("/marketplace")).toEqual({
+      screen: "marketplace",
+      subview: null,
+    });
+    expect(deriveVoiceRouteScreen("/marketplace/ria", "riaId=ria_123")).toEqual({
+      screen: "marketplace_ria_profile",
+      subview: "profile",
+    });
+  });
+
   it("preserves receipts, gmail, support, and investments screen specificity", () => {
     expect(deriveVoiceRouteScreen("/profile/receipts")).toEqual({
       screen: "profile_receipts",

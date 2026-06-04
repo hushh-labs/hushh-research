@@ -241,7 +241,7 @@ export interface UseConsentReturn {
  * const granted = await requestConsent({
  *   agentId: 'agent_food_dining',
  *   agentName: 'Food & Dining',
- *   scope: 'vault.write.food',
+ *   scope: 'attr.food.*',
  *   scopeDescription: 'Save your preferences'
  * });
  */

@@ -7,7 +7,7 @@ import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { cn } from "@/lib/utils";
 
 const shellActionSurfaceVariants = cva(
-  "group/shell-action relative isolate inline-flex overflow-hidden rounded-full border border-[color:var(--app-shell-surface-border)] bg-[color:var(--app-shell-surface-bg)] bg-[image:var(--app-shell-surface-fill)] bg-[length:100%_100%] bg-no-repeat text-[color:var(--app-shell-surface-foreground)] shadow-[var(--app-shell-surface-shadow)] backdrop-blur-[var(--app-shell-surface-blur)] transition-[background-color,transform,box-shadow,border-color] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/55 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:pointer-events-none disabled:opacity-60",
+  "group/shell-action relative isolate inline-flex overflow-hidden rounded-full border border-[color:var(--app-shell-surface-border)] bg-[color:var(--app-shell-surface-bg)] bg-[image:var(--app-shell-surface-fill)] bg-[length:100%_100%] bg-no-repeat text-[color:var(--app-shell-surface-foreground)] shadow-[var(--app-shell-surface-shadow)] backdrop-blur-[var(--app-shell-surface-blur)] transition-[background-color,transform,box-shadow,border-color] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60",
   {
     variants: {
       variant: {

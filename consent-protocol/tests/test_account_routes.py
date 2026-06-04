@@ -52,6 +52,8 @@ def test_claim_account_phone_requires_firebase_auth():
 
 
 def test_claim_account_phone_persists_verified_phone(monkeypatch):
+    cleanup_calls = []
+
     async def _mock_verify(raw_claim: str):
         assert raw_claim == "phone-claim-sample"
         return "+16505550101", "phone-session-uid"
@@ -66,10 +68,17 @@ def test_claim_account_phone_persists_verified_phone(monkeypatch):
             "source": "firebase_phone_claim",
         }
 
+    async def _mock_cleanup(
+        *, uid: str | None, phone_number: str | None, protected_uid: str | None = None
+    ):
+        cleanup_calls.append((uid, phone_number, protected_uid))
+        return "deleted"
+
     app = _build_app()
     app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
     monkeypatch.setattr(account, "_verify_phone_claim_id_token", _mock_verify)
     monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", _mock_claim)
+    monkeypatch.setattr(account, "_delete_safe_phone_only_firebase_user", _mock_cleanup)
 
     client = TestClient(app)
     response = client.post(
@@ -81,6 +90,8 @@ def test_claim_account_phone_persists_verified_phone(monkeypatch):
     assert payload["success"] is True
     assert payload["phone_verified"] is True
     assert payload["identity"]["phone_number"] == "+16505550101"
+    assert payload["phone_session_cleanup"] == "deleted"
+    assert cleanup_calls == [("phone-session-uid", "+16505550101", "firebase_uid_123")]
 
 
 def test_claim_account_phone_rejects_invalid_phone_token(monkeypatch):
@@ -148,6 +159,125 @@ def test_claim_account_phone_maps_persistence_failure(monkeypatch):
     assert response.json()["detail"]["code"] == "PHONE_CLAIM_PERSISTENCE_UNAVAILABLE"
 
 
+def test_start_uat_test_phone_verification_requires_firebase_auth(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/account/phone/uat-test/start", json={"phone_number": "+16505550101"}
+    )
+
+    assert response.status_code == 401
+
+
+def test_start_uat_test_phone_verification_returns_challenge_for_allowlisted_number(
+    monkeypatch,
+):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101,+918080469407")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET", "challenge-secret")
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/account/phone/uat-test/start", json={"phone_number": "+1 (650) 555-0101"}
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["eligible"] is True
+    assert payload["verification_id"].startswith("uat-test-phone:")
+
+
+def test_start_uat_test_phone_verification_declines_when_not_uat(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/account/phone/uat-test/start", json={"phone_number": "+16505550101"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["eligible"] is False
+
+
+def test_confirm_uat_test_phone_verification_persists_verified_phone(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET", "challenge-secret")
+
+    async def _mock_claim(self, *, user_id: str, phone_number: str, source: str):
+        assert user_id == "firebase_uid_123"
+        assert phone_number == "+16505550101"
+        assert source == "uat_test_phone_claim"
+        return {
+            "user_id": user_id,
+            "phone_number": phone_number,
+            "phone_verified": True,
+            "source": source,
+        }
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+    monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", _mock_claim)
+
+    client = TestClient(app)
+    start_response = client.post(
+        "/api/account/phone/uat-test/start", json={"phone_number": "+16505550101"}
+    )
+    verification_id = start_response.json()["verification_id"]
+    response = client.post(
+        "/api/account/phone/uat-test/confirm",
+        json={
+            "phone_number": "+16505550101",
+            "verification_code": "000000",
+            "verification_id": verification_id,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["phone_verified"] is True
+    assert payload["identity"]["source"] == "uat_test_phone_claim"
+
+
+def test_confirm_uat_test_phone_verification_rejects_wrong_code(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CODE", "000000")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET", "challenge-secret")
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
+
+    client = TestClient(app)
+    start_response = client.post(
+        "/api/account/phone/uat-test/start", json={"phone_number": "+16505550101"}
+    )
+    response = client.post(
+        "/api/account/phone/uat-test/confirm",
+        json={
+            "phone_number": "+16505550101",
+            "verification_code": "123456",
+            "verification_id": start_response.json()["verification_id"],
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "UAT_PHONE_TEST_INVALID_CODE"
+
+
 def test_list_email_aliases_requires_vault_owner_token():
     client = TestClient(_build_app())
     response = client.get("/api/account/email-aliases")
@@ -211,6 +341,7 @@ def test_delete_account_requires_vault_owner_token():
 
 def test_delete_account_defaults_target_to_both(monkeypatch):
     deleted_auth_users = []
+    orphan_cleanup_calls = []
 
     async def _mock_delete(self, user_id: str, target: str = "both"):
         assert user_id == "user_123"
@@ -221,10 +352,31 @@ def test_delete_account_defaults_target_to_both(monkeypatch):
         deleted_auth_users.append(user_id)
         return "deleted"
 
+    async def _mock_get_many(self, user_ids):
+        assert user_ids == ["user_123"]
+        return {
+            "user_123": {
+                "phone_number": "+16505550101",
+                "phone_verified": True,
+            }
+        }
+
+    async def _mock_delete_phone_orphan(
+        *, phone_number: str | None, protected_uid: str | None = None
+    ):
+        orphan_cleanup_calls.append((phone_number, protected_uid))
+        return "deleted"
+
     app = _build_app()
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "user_123"}
     monkeypatch.setattr(AccountService, "delete_account", _mock_delete)
+    monkeypatch.setattr(ActorIdentityService, "get_many", _mock_get_many)
     monkeypatch.setattr(account, "_delete_firebase_auth_user", _mock_delete_firebase_user)
+    monkeypatch.setattr(
+        account,
+        "_delete_safe_phone_only_firebase_user_by_phone",
+        _mock_delete_phone_orphan,
+    )
 
     client = TestClient(app)
     response = client.delete("/api/account/delete")
@@ -234,7 +386,9 @@ def test_delete_account_defaults_target_to_both(monkeypatch):
     assert payload["success"] is True
     assert payload["account_deleted"] is True
     assert payload["details"]["firebase_auth_user"] == "deleted"
+    assert payload["details"]["firebase_phone_orphan_user"] == "deleted"
     assert deleted_auth_users == ["user_123"]
+    assert orphan_cleanup_calls == [("+16505550101", "user_123")]
 
 
 def test_delete_account_forwards_requested_target(monkeypatch):
@@ -274,15 +428,20 @@ def test_delete_account_maps_service_failure_to_500(monkeypatch):
         assert target == "both"
         return {"success": False, "error": "boom"}
 
+    async def _mock_get_many(self, user_ids):
+        assert user_ids == ["user_123"]
+        return {}
+
     app = _build_app()
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "user_123"}
     monkeypatch.setattr(AccountService, "delete_account", _mock_delete)
+    monkeypatch.setattr(ActorIdentityService, "get_many", _mock_get_many)
 
     client = TestClient(app)
     response = client.delete("/api/account/delete")
 
     assert response.status_code == 500
-    assert response.json()["detail"] == "Deletion failed: boom"
+    assert response.json()["detail"] == "Account deletion failed"
 
 
 def test_export_account_data_requires_vault_owner_token():

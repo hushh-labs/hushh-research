@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   ArrowLeft,
   ArrowRight,
@@ -56,6 +57,7 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { useVault } from "@/lib/vault/vault-context";
 import { Button } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
 
 interface InvestmentsMasterViewProps {
   userId: string;
@@ -506,7 +508,7 @@ export function InvestmentsMasterView({
           returnPath: ROUTES.KAI_INVESTMENTS,
           startedAt: new Date().toISOString(),
         });
-        window.location.assign(connect.authorization_url);
+        openExternalUrl(connect.authorization_url);
       } catch (oauthError) {
         toast.error("Could not start Alpaca login.", {
           description:
@@ -815,9 +817,11 @@ export function InvestmentsMasterView({
           accent="emerald"
           actions={
             <>
-              <Button variant="none" effect="fade" onClick={() => router.push(ROUTES.KAI_PORTFOLIO)}>
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back to portfolio
+              <Button variant="none" effect="fade" asChild>
+                <Link href={ROUTES.KAI_PORTFOLIO}>
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Back to portfolio
+                </Link>
               </Button>
               <Button variant="none" effect="fade" onClick={() => handleRefresh()}>
                 <RefreshCw
@@ -830,9 +834,11 @@ export function InvestmentsMasterView({
                   Cancel refresh
                 </Button>
               ) : null}
-              <Button variant="none" effect="fade" onClick={() => router.push(ROUTES.KAI_FUNDING_TRADE)}>
-                <BadgeDollarSign className="mr-2 h-4 w-4" />
-                Fund + Trade
+              <Button variant="none" effect="fade" asChild>
+                <Link href={ROUTES.KAI_FUNDING_TRADE}>
+                  <BadgeDollarSign className="mr-2 h-4 w-4" />
+                  Fund + Trade
+                </Link>
               </Button>
               <Button variant="blue-gradient" effect="fill" onClick={handleOptimize}>
                 <ArrowRight className="mr-2 h-4 w-4" />
