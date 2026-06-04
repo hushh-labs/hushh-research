@@ -164,6 +164,17 @@ describe("sanitizeErrorMessage — error category classification", () => {
       sanitizeErrorMessage(err("unknown"), undefined).isClientError
     ).toBe(false);
   });
+    it("omits debug information outside development mode", () => {
+    const originalEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+
+    const error = new Error("Hidden production detail");
+    const response = formatErrorResponse(error, 500);
+
+    expect(response.debug).toBeUndefined();
+
+    process.env.NODE_ENV = originalEnv;
+  });
 });
 
 // ---------------------------------------------------------------------------
