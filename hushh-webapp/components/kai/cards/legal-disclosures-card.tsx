@@ -225,7 +225,7 @@ export function LegalDisclosuresCard({
 
       <CardContent className="space-y-3">
         {visibleDisclosures.map((disclosure, index) => (
-          <DisclosureItem key={index} text={disclosure} index={index} />
+          <DisclosureItem key={disclosure} text={disclosure} index={index} />
         ))}
 
         {hiddenCount > 0 && !showAll && (
