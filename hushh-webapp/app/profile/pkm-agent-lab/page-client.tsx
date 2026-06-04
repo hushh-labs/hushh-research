@@ -815,6 +815,7 @@ export default function PkmAgentLabPageClient() {
           user_id: user.uid,
           message,
           current_domains: domains.map((domain) => domain.key),
+          current_manifests: Object.values(manifests).filter(Boolean),
         }),
       });
 
@@ -836,6 +837,7 @@ export default function PkmAgentLabPageClient() {
   }, [
     domains,
     handleVaultAccessRequired,
+    manifests,
     message,
     user,
     vaultCapability.canReadSecureData,

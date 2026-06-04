@@ -52,6 +52,7 @@ vi.mock("@/lib/motion/api-progress-tracker", () => ({
 
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
+import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -109,6 +110,24 @@ describe("ApiService.apiFetch", () => {
   });
 
   // 3 – 401 response triggers Firebase token refresh + retry
+  it("normalizes future-dated request timestamp headers before fetch", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_716_500_000_000);
+
+    await ApiService.apiFetch("/api/ping", {
+      method: "GET",
+      headers: {
+        [REQUEST_TIMESTAMP_HEADER]: String(1_716_500_000_000 + 60_001),
+      },
+    });
+
+    const [, fetchOptions] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const headers = fetchOptions.headers as Record<string, string>;
+    expect(headers[REQUEST_TIMESTAMP_HEADER]).toBe("1716500000000");
+
+    nowSpy.mockRestore();
+  });
+
   it("retries with a fresh Firebase token on 401 and adds X-Hushh-Auth-Refresh-Retry header", async () => {
     const freshToken = "fresh-firebase-token-xyz";
     (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValueOnce(freshToken);
@@ -208,5 +227,73 @@ describe("ApiService.apiFetch", () => {
       "Bearer firebase-id-token"
     );
     expect(payload.meta?.market_mode).toBe("baseline");
+  });
+
+  it("starts UAT phone test verification through the account proxy", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        success: true,
+        eligible: true,
+        verification_id: "uat-test-phone:abc123",
+      })
+    );
+
+    const payload = await ApiService.startUatPhoneTestVerification(
+      "+16505550101",
+      "firebase-id-token"
+    );
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [calledUrl, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).toBe("/api/account/phone/uat-test/start");
+    expect((options.headers as Record<string, string>).Authorization).toBe(
+      "Bearer firebase-id-token"
+    );
+    expect(JSON.parse(String(options.body))).toEqual({
+      phone_number: "+16505550101",
+    });
+    expect(payload).toEqual({
+      success: true,
+      eligible: true,
+      verification_id: "uat-test-phone:abc123",
+      reason: undefined,
+    });
+  });
+
+  it("confirms UAT phone test verification without a Firebase phone token", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        success: true,
+        user_id: "user_123",
+        phone_verified: true,
+        identity: {
+          user_id: "user_123",
+          phone_number: "+16505550101",
+          phone_verified: true,
+          source: "uat_test_phone_claim",
+        },
+      })
+    );
+
+    const payload = await ApiService.confirmUatPhoneTestVerification(
+      "+16505550101",
+      "000000",
+      "uat-test-phone:abc123",
+      "firebase-id-token"
+    );
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [calledUrl, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).toBe("/api/account/phone/uat-test/confirm");
+    expect((options.headers as Record<string, string>).Authorization).toBe(
+      "Bearer firebase-id-token"
+    );
+    expect(JSON.parse(String(options.body))).toEqual({
+      phone_number: "+16505550101",
+      verification_code: "000000",
+      verification_id: "uat-test-phone:abc123",
+    });
+    expect(payload.phone_verified).toBe(true);
+    expect(payload.identity?.source).toBe("uat_test_phone_claim");
   });
 });

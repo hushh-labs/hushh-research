@@ -1,0 +1,60 @@
+{
+  "id": "uat-scoped-deploy",
+  "title": "UAT Scoped Deploy",
+  "goal": "Run and verify the smallest safe UAT deploy scope while collecting Cloud Build, Cloud Run, and live behavior evidence.",
+  "owner_skill": "repo-operations",
+  "default_spoke": "uat-scoped-deploy",
+  "task_type": "uat-scoped-deploy",
+  "affected_surfaces": [
+    ".github/workflows/deploy-uat.yml",
+    "deploy"
+  ],
+  "required_reads": [
+    ".github/workflows/deploy-uat.yml",
+    "deploy/README.md",
+    "deploy/frontend.cloudbuild.yaml",
+    "deploy/backend.cloudbuild.yaml",
+    ".codex/skills/uat-scoped-deploy/references/deploy-proof.md"
+  ],
+  "required_commands": [
+    "gh run list --workflow deploy-uat.yml --limit 5 --json databaseId,status,conclusion,headSha,event,url",
+    "python3 .codex/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py --project hushh-pda-uat --service hushh-webapp --service consent-protocol --format text",
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+  ],
+  "verification_bundle": {
+    "id": "uat-scoped-deploy",
+    "commands": [
+      "gh run list --workflow deploy-uat.yml --limit 5 --json databaseId,status,conclusion,headSha,event,url",
+      "python3 .codex/skills/uat-scoped-deploy/scripts/cloud_run_service_evidence.py --project hushh-pda-uat --service hushh-webapp --service consent-protocol --format text",
+      "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+    ],
+    "tests": [
+      "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+    ]
+  },
+  "deliverables": [
+    "UAT run URL, SHA, requested scope, resolved scope, and conclusion",
+    "Skipped-lane proof for untouched backend or frontend deploy lanes",
+    "Cloud Run project, service, region, revision, image, timeout, traffic, and labels",
+    "Relevant live behavior proof with request IDs or logs"
+  ],
+  "impact_fields": [
+    "Requested scope",
+    "Resolved scope",
+    "Executed deploy lanes",
+    "Skipped deploy lanes",
+    "Cloud Build durations",
+    "Cloud Run service tuples",
+    "Runtime contract evidence",
+    "Live behavior proof"
+  ],
+  "handoff_chain": [
+    "repo-operations"
+  ],
+  "common_failures": [
+    "Using scope=all for frontend-only or backend-only changes",
+    "Describing Cloud Run services with an assumed region",
+    "Treating queued or in-progress deploys as complete",
+    "Reporting deploy success without revision, label, traffic, or log evidence"
+  ]
+}

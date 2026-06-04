@@ -129,6 +129,7 @@ export function PhoneMandateGuard({
       hasVault,
       exemptVaultUsers,
       hostname,
+      pathname,
     });
 
   useEffect(() => {
