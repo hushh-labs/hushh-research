@@ -159,6 +159,7 @@ export function RoundTabsCard({
               size="icon-sm"
               showRipple={false}
               onClick={onToggleCollapse}
+              aria-label={isCollapsed ? "Expand round details" : "Collapse round details"}
             >
               {isCollapsed ? <Icon icon={ChevronDown} size="sm" /> : <Icon icon={ChevronUp} size="sm" />}
             </MorphyButton>

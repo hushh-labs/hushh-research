@@ -24,4 +24,14 @@ describe("RIA action bar route contract", () => {
       expect(getKaiChromeState(pathname).hideCommandBar).toBe(true);
     }
   });
+
+  it("keeps the shared command surface visible on signed-in marketplace routes", () => {
+    for (const pathname of [
+      ROUTES.MARKETPLACE,
+      ROUTES.MARKETPLACE_RIA_PROFILE,
+      `${ROUTES.MARKETPLACE_RIA_PROFILE}?riaId=ria_123`,
+    ]) {
+      expect(getKaiChromeState(pathname).hideCommandBar).toBe(false);
+    }
+  });
 });
