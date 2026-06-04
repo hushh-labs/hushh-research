@@ -433,11 +433,11 @@ export function SettingsDetailPanel({
           <DialogTitle className="text-base font-semibold tracking-tight">
             {title}
           </DialogTitle>
-          {description ? (
-            <DialogDescription className="text-sm leading-6">
-              {description}
-            </DialogDescription>
-          ) : null}
+          <DialogDescription
+            className={cn("text-sm leading-6", !description && "sr-only")}
+          >
+            {description ?? "Settings"}
+          </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-4 pb-8 pt-4 sm:px-5 sm:pt-5">
           {children}
