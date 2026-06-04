@@ -130,12 +130,12 @@ class VaultDBService:
 
         # Check user ID matches
         if token_obj.user_id != user_id:
-            logger.warning(f"User ID mismatch for {operation}: {token_obj.user_id} != {user_id}")
+            logger.warning("vault.consent_check.user_id_mismatch operation=%s", operation)
             raise ConsentValidationError(
                 "Token user ID does not match requested user ID", reason="user_mismatch"
             )
 
-        logger.debug(f"✅ Consent validated for {operation} (user={user_id}, scope={token_scope})")
+        logger.debug("vault.consent_check.ok operation=%s scope=%s", operation, token_scope)
 
     async def _log_audit(
         self, user_id: str, action: str, domain: str, details: Optional[Dict[str, Any]] = None
@@ -224,7 +224,7 @@ class VaultDBService:
                 encoding="base64",
             )
 
-        logger.info(f"✅ Retrieved {len(result)} fields from {domain} for {user_id}")
+        logger.info("vault.read.ok domain=%s field_count=%d", domain, len(result))
 
         # Log audit
         await self._log_audit(
@@ -290,7 +290,7 @@ class VaultDBService:
 
         supabase.table(table).upsert(data, on_conflict="user_id,field_name").execute()
 
-        logger.info(f"✅ Stored {field_name} in {domain} for {user_id}")
+        logger.info("vault.write.ok domain=%s field=%s", domain, field_name)
 
         # Log audit
         await self._log_audit(
@@ -356,7 +356,7 @@ class VaultDBService:
 
         stored_count = len(data)
 
-        logger.info(f"✅ Stored {stored_count} fields in {domain} for {user_id}")
+        logger.info("vault.write_batch.ok domain=%s field_count=%d", domain, stored_count)
 
         # Log audit
         await self._log_audit(
@@ -431,7 +431,7 @@ class VaultDBService:
             # Supabase returns deleted data, count it
             deleted_count = len(response.data) if response.data else 0
 
-        logger.info(f"✅ Deleted {deleted_count} fields from {domain} for {user_id}")
+        logger.info("vault.delete.ok domain=%s field_count=%d", domain, deleted_count)
 
         # Log audit
         await self._log_audit(
@@ -573,5 +573,5 @@ class VaultDBService:
                 "encoding": "base64",
             }
 
-        logger.warning(f"⚠️ DEPRECATED: Unauthenticated access to {domain} for {user_id}")
+        logger.warning("vault.DEPRECATED: unauthenticated access domain=%s (user=[redacted])", domain)
         return preferences

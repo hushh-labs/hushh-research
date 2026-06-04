@@ -2068,8 +2068,9 @@ export function PortfolioReviewView({
           <AccordionContent>
             <div className="grid grid-cols-2 gap-4 pt-2">
               <div>
-                <Label className="text-xs">Account Holder</Label>
+                <Label htmlFor="account-holder" className="text-xs">Account Holder</Label>
                 <Input
+                  id="account-holder"
                   value={accountInfo.holder_name || ""}
                   onChange={(e) =>
                     setAccountInfo((prev) => ({
@@ -2083,8 +2084,9 @@ export function PortfolioReviewView({
                 />
               </div>
               <div>
-                <Label className="text-xs">Account Number</Label>
+                <Label htmlFor="account-number" className="text-xs">Account Number</Label>
                 <Input
+                  id="account-number"
                   value={accountInfo.account_number || ""}
                   onChange={(e) =>
                     setAccountInfo((prev) => ({
@@ -2098,8 +2100,9 @@ export function PortfolioReviewView({
                 />
               </div>
               <div>
-                <Label className="text-xs">Brokerage</Label>
+                <Label htmlFor="account-brokerage" className="text-xs">Brokerage</Label>
                 <Input
+                  id="account-brokerage"
                   value={accountInfo.brokerage || ""}
                   onChange={(e) =>
                     setAccountInfo((prev) => ({
@@ -2113,8 +2116,9 @@ export function PortfolioReviewView({
                 />
               </div>
               <div>
-                <Label className="text-xs">Account Type</Label>
+                <Label htmlFor="account-type" className="text-xs">Account Type</Label>
                 <Input
+                  id="account-type"
                   value={accountInfo.account_type || ""}
                   onChange={(e) =>
                     setAccountInfo((prev) => ({
