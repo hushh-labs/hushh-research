@@ -126,7 +126,7 @@ function DisclosureItem({ text, index: _index }: DisclosureItemProps) {
         )}
       >
         <CollapsibleTrigger asChild>
-          <button className="w-full p-3 flex items-start gap-3 text-left">
+          <button type="button" className="w-full p-3 flex items-start gap-3 text-left">
             <div
               className={cn(
                 "p-1.5 rounded-lg shrink-0 mt-0.5",

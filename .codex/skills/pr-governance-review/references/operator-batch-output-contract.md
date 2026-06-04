@@ -1,4 +1,4 @@
-# Operator Batch Output Contract
+# PR Governance Subagent Train Output Contract
 
 Use this when answering "next batch", "plan this batch", or any high-volume PR
 wave question. `pr-train-review-sop.md` defines behavior; this contract defines
@@ -9,7 +9,7 @@ the operator-facing dossier.
 Train recommendations must be deterministic and reviewable without opening the
 live report. Use these sections:
 
-1. `Batch`: one sentence naming the product/runtime purpose.
+1. `Batch`: one sentence naming the product/runtime purpose and confirming this is a PR governance subagent train.
 2. `Research Basis`: concise current truth, recommended path, and risk if accepted blindly.
 3. `Delegation Evidence`: router decision, taskforce lanes, async train-to-subagent map, each lane status (`spawned`, `emulated`, or `unavailable`), skipped/unavailable rationale, parent-local critical-path task, and parent-only authority.
 4. `Scan Scope`: mode, active limit, candidate limit, open inventory count, reviewed PRs, failed PRs, and completeness.
@@ -18,7 +18,7 @@ live report. Use these sections:
 7. `Actionable Intake Filter`: unattended PRs, repass PRs, material-state-change PRs, check-failure holds, and dormant-current holds.
 8. `Check Failure Holds`: PRs excluded because current required/auxiliary checks are not clean.
 9. `Input`: every actionable PR with a direct Markdown link and current lane; dormant-current holds are listed separately and do not consume lane capacity.
-10. `Train Simulation`: branch evidence, delta summary, behavior claim, canonical fit, simulated patch, action outcome, comment simulation, and verification timeline.
+10. `Train Simulation`: branch evidence, retarget plan for PRs opened to `main`, delta summary, behavior claim, canonical fit, simulated patch, action outcome, comment simulation, and verification timeline.
 11. `Output`: concise landing decision, async train placement, next refill train, and next operator-visible artifact.
 12. `Expected Actions`: each actionable PR mapped to `review_only`, `hold`, `request_changes`, `close`, `maintainer_harvest`, `maintainer_patch_then_merge`, `merge_now`, or `post_merge_monitor`; dormant-current PRs are reported as `dormant_current_hold`.
 13. `Comment Plan`: each actionable PR mapped to `none_before_merge_then_post_merge_closeout`, `edit_existing_maintainer_comment`, `new_changes_requested_comment`, `new_closed_superseded_comment`, or `no_comment_review_only`.
@@ -27,9 +27,10 @@ live report. Use these sections:
     internal impact credit, or no credit for each source PR.
 15. `Per-PR Assessment`: direct link, lane, risk, head SHA prefix, changed surface, batch reason, Blind-merge risk, planned action, comment action, and Smallest proof.
 16. `Execution`: queue cohort, collision sequence, patch train, decision wave, dormant-current split, and hold split.
-17. `All Async Trains`: every actionable train in the reviewed scope with exact PR links,
-    assigned evidence lane/subagent, non-touching parallel trains, hard-edge
-    sequence, oldest-first execution order, and worker refill order.
+17. `All Async Trains` / `All PR Governance Subagent Trains`: every actionable
+    train in the reviewed scope with exact PR links, assigned evidence
+    lane/subagent, non-touching parallel trains, hard-edge sequence,
+    oldest-first execution order, and worker refill order.
 18. `Worker Refill Queue`: active workers `1-5`, queued trains `6..n`, next refill candidate, and which lanes are allowed to continue while a decision wave waits.
 19. `Question Before Wave`: required before any comment, close, patch, queue,
     or merge checkpoint; include current truth, the complete train set already
@@ -123,6 +124,10 @@ code blocks.
     as `emulated`, and still maintain the five-lane refill queue. Silent
     sequential parent-only evidence collection is invalid for approved async
     trains.
+24. Normal PRs opened to `main` must be listed with `retarget_to_integration_pr_train`
+    before any approval, queue, merge, maintainer patch, or harvest action.
+    Promotion PRs from `integration/pr-train` to `main` are the only normal
+    main-lane merge vehicle.
 
 ## Research And Review Standard
 
