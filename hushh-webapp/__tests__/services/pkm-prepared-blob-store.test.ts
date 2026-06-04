@@ -26,6 +26,10 @@ vi.mock("@/lib/firebase/config", () => ({
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { ApiService } from "@/lib/services/api-service";
 
+function stringify(value: unknown): string {
+  return JSON.stringify(value);
+}
+
 describe("PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -526,5 +530,232 @@ describe("PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob", () =
     });
 
     expect(result.fullBlob.financial).toEqual(existingFinancial);
+  });
+});
+
+describe("PersonalKnowledgeModelService runtime secrets", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    encryptDataMock.mockResolvedValue({
+      ciphertext: "ciphertext-1",
+      iv: "iv-1",
+      tag: "tag-1",
+    });
+  });
+
+  it("stores a Gemini runtime key in the encrypted runtime_secrets domain without metadata leakage", async () => {
+    const rawKey = "gemini-user-key-123";
+    vi.spyOn(PersonalKnowledgeModelService, "loadDomainData").mockResolvedValue({
+      llm: { other_provider_key: "keep-me", credential_mode: "hushh_managed_vertex" },
+    });
+    vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
+    const storeSpy = vi
+      .spyOn(PersonalKnowledgeModelService, "storeDomainData")
+      .mockResolvedValue({ success: true });
+
+    await PersonalKnowledgeModelService.storeRuntimeSecret({
+      userId: "user-1",
+      vaultKey: "vault-key-1",
+      vaultOwnerToken: "vault-owner-token",
+      credentialRef: "pkm:runtime_secrets.llm.gemini_api_key",
+      secret: ` ${rawKey} `,
+    });
+
+    expect(encryptDataMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plaintext: JSON.stringify({
+          llm: {
+            other_provider_key: "keep-me",
+            credential_mode: "hushh_managed_vertex",
+            gemini_api_key: rawKey,
+          },
+        }),
+      }),
+    );
+    expect(storeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user-1",
+        domain: "runtime_secrets",
+        domainData: {
+          llm: {
+            other_provider_key: "keep-me",
+            credential_mode: "hushh_managed_vertex",
+            gemini_api_key: rawKey,
+          },
+        },
+        summary: expect.objectContaining({
+          consumer_visible: false,
+          internal_only: true,
+          configured_runtime_providers: ["gemini"],
+          has_gemini_api_key: true,
+          credential_mode: "hushh_managed_vertex",
+        }),
+      }),
+    );
+
+    const storedPayload = storeSpy.mock.calls[0]?.[0];
+    expect(stringify(storedPayload?.summary)).not.toContain(rawKey);
+    expect(stringify(storedPayload?.manifest)).not.toContain(rawKey);
+    expect(stringify(storedPayload?.structureDecision)).not.toContain(rawKey);
+    expect(storedPayload?.manifest?.externalizable_paths).toEqual([]);
+    expect(storedPayload?.manifest?.paths).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          json_path: "llm.gemini_api_key",
+          exposure_eligibility: false,
+          sensitivity_label: "restricted",
+        }),
+        expect.objectContaining({
+          json_path: "llm.credential_mode",
+          exposure_eligibility: false,
+          sensitivity_label: "restricted",
+        }),
+      ]),
+    );
+  });
+
+  it("removes the Gemini runtime key while preserving sibling runtime secrets", async () => {
+    vi.spyOn(PersonalKnowledgeModelService, "loadDomainData").mockResolvedValue({
+      llm: {
+        gemini_api_key: "remove-me",
+        other_provider_key: "keep-me",
+      },
+    });
+    vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
+    const storeSpy = vi
+      .spyOn(PersonalKnowledgeModelService, "storeDomainData")
+      .mockResolvedValue({ success: true });
+
+    await PersonalKnowledgeModelService.removeRuntimeSecret({
+      userId: "user-1",
+      vaultKey: "vault-key-1",
+      vaultOwnerToken: "vault-owner-token",
+      credentialRef: "pkm:runtime_secrets.llm.gemini_api_key",
+    });
+
+    expect(storeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        domain: "runtime_secrets",
+        domainData: {
+          llm: {
+            other_provider_key: "keep-me",
+          },
+        },
+        summary: expect.objectContaining({
+          has_gemini_api_key: false,
+          configured_runtime_providers: [],
+          credential_mode: "byok",
+        }),
+      }),
+    );
+  });
+
+  it("returns null when a runtime secret path is missing", async () => {
+    vi.spyOn(PersonalKnowledgeModelService, "loadDomainData").mockResolvedValue({
+      llm: {},
+    });
+
+    await expect(
+      PersonalKnowledgeModelService.loadRuntimeSecret({
+        userId: "user-1",
+        vaultKey: "vault-key-1",
+        vaultOwnerToken: "vault-owner-token",
+        credentialRef: "pkm:runtime_secrets.llm.gemini_api_key",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("rejects invalid runtime credential refs before storage", async () => {
+    const storeSpy = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData");
+
+    await expect(
+      PersonalKnowledgeModelService.storeRuntimeSecret({
+        userId: "user-1",
+        vaultKey: "vault-key-1",
+        vaultOwnerToken: "vault-owner-token",
+        credentialRef: "pkm:runtime_secrets",
+        secret: "gemini-user-key-123",
+      }),
+    ).rejects.toThrow("Invalid PKM credential reference.");
+    expect(storeSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects empty runtime secrets before encryption", async () => {
+    const storeSpy = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData");
+
+    await expect(
+      PersonalKnowledgeModelService.storeRuntimeSecret({
+        userId: "user-1",
+        vaultKey: "vault-key-1",
+        vaultOwnerToken: "vault-owner-token",
+        credentialRef: "pkm:runtime_secrets.llm.gemini_api_key",
+        secret: "   ",
+      }),
+    ).rejects.toThrow("Runtime secret is required.");
+    expect(encryptDataMock).not.toHaveBeenCalled();
+    expect(storeSpy).not.toHaveBeenCalled();
+  });
+
+  it("stores non-Gemini runtime keys without exposing raw key material in metadata", async () => {
+    const rawKey = "openai-user-key-123";
+    vi.spyOn(PersonalKnowledgeModelService, "loadDomainData").mockResolvedValue({
+      llm: { gemini_api_key: "keep-gemini" },
+    });
+    vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
+    const storeSpy = vi
+      .spyOn(PersonalKnowledgeModelService, "storeDomainData")
+      .mockResolvedValue({ success: true });
+
+    await PersonalKnowledgeModelService.storeRuntimeSecret({
+      userId: "user-1",
+      vaultKey: "vault-key-1",
+      vaultOwnerToken: "vault-owner-token",
+      credentialRef: "pkm:runtime_secrets.llm.openai_api_key",
+      secret: rawKey,
+    });
+
+    expect(storeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        domain: "runtime_secrets",
+        domainData: {
+          llm: {
+            gemini_api_key: "keep-gemini",
+            openai_api_key: rawKey,
+          },
+        },
+        summary: expect.objectContaining({
+          configured_runtime_providers: ["gemini", "openai"],
+          configured_provider_count: 2,
+          has_gemini_api_key: true,
+          has_openai_api_key: true,
+          has_claude_api_key: false,
+          has_grok_api_key: false,
+        }),
+      }),
+    );
+
+    const storedPayload = storeSpy.mock.calls[0]?.[0];
+    expect(stringify(storedPayload?.summary)).not.toContain(rawKey);
+    expect(stringify(storedPayload?.manifest)).not.toContain(rawKey);
+    expect(stringify(storedPayload?.structureDecision)).not.toContain(rawKey);
+    expect(storedPayload?.manifest?.paths).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          json_path: "llm.claude_api_key",
+          exposure_eligibility: false,
+          sensitivity_label: "restricted",
+        }),
+        expect.objectContaining({
+          json_path: "llm.grok_api_key",
+          exposure_eligibility: false,
+          sensitivity_label: "restricted",
+        }),
+        expect.objectContaining({
+          json_path: "llm.openai_api_key",
+          exposure_eligibility: false,
+          sensitivity_label: "restricted",
+        }),
+      ]),
+    );
   });
 });
