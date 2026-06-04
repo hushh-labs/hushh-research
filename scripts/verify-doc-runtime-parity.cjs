@@ -1,10 +1,21 @@
 #!/usr/bin/env node
 
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { execSync } = require("node:child_process");
 
 const repoRoot = path.resolve(__dirname, "..");
+const homeDir = os.homedir().replace(/\\/g, "/");
+const escapedHomeDir = homeDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const LOCAL_ABSOLUTE_PATH_PATTERN = new RegExp(
+  [
+    String.raw`\b[A-Za-z]:[\\/][^\s)'"<>]+`,
+    String.raw`(^|[\s('"` + "`" + String.raw`])/(?:home|Users|var|tmp|private|Volumes)/[^\s)'"<>]+`,
+    ...(escapedHomeDir ? [`${escapedHomeDir}[^\\s)'"<>]*`] : []),
+  ].join("|"),
+  "g",
+);
 
 const LEGACY_ROUTE_TOKENS = [
   "/agent-nav",
@@ -202,7 +213,7 @@ const FORBIDDEN_PUBLIC_DOC_PATTERNS = [
   { pattern: /\bnpm run native:ios\b/g, message: "root npm native:ios is not part of the public contributor contract" },
   { pattern: /\bnpm run native:android\b/g, message: "root npm native:android is not part of the public contributor contract" },
   { pattern: /\.\/bin\/hushh codex maintenance\b/g, message: "codex maintenance is retired and must not appear in canonical public docs" },
-  { pattern: /\/Users\//g, message: "personal absolute paths are not allowed in canonical public docs" },
+  { pattern: LOCAL_ABSOLUTE_PATH_PATTERN, message: "personal absolute paths are not allowed in canonical public docs" },
 ];
 
 const REQUIRED_DENSITY_MARKERS = [
