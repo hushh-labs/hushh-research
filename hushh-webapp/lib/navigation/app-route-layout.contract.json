@@ -13,6 +13,14 @@
     }
   },
   {
+    "route": "/agent",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/agent/agent-screen.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]
+    }
+  },
+  {
     "route": "/login",
     "mode": "hidden",
     "exemptionReason": "Auth-only route intentionally bypasses the signed-in app shell."
@@ -24,6 +32,19 @@
       "file": "app/one/kyc/page.tsx",
       "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]
     }
+  },
+  {
+    "route": "/one/location",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/location/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]
+    }
+  },
+  {
+    "route": "/one/location/request/[token]",
+    "mode": "hidden",
+    "exemptionReason": "Public one-location invite route is a standalone external-request form outside the signed-in app shell."
   },
   {
     "route": "/register-phone",
@@ -176,6 +197,22 @@
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/profile/gmail/oauth/return",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/gmail/oauth/return/page-client.tsx",
+      "includes": ["AppPageShell", "AppPageContentRegion", "HushhLoader"]
+    }
+  },
+  {
+    "route": "/profile/receipts",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/receipts/page.tsx",
       "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
     }
   },

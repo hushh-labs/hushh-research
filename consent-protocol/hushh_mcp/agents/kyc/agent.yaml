@@ -10,10 +10,21 @@ system_instruction: |
   and write only structured facts or workflow artifacts back to PKM. In strict
   client-side zero-knowledge mode, decrypted PKM plaintext stays in the client;
   KYC owns the drafting rules and validation contract, not backend plaintext
-  draft generation.
+  draft generation. The approved_disclosure_formatter contract is executed by
+  the vault-unlocked client against approved scoped exports and must produce
+  both plain text and Gmail-safe HTML from the same structured render model.
 required_scopes:
   - agent.kyc.process
 optional_scopes:
   - agent.kyc.draft
   - agent.kyc.writeback
   - pkm.write
+capabilities:
+  approved_disclosure_formatter:
+    contract_id: agent_kyc.approved_disclosure_formatter.v1
+    contract_version: 1.0.0
+    input_schema: ApprovedDisclosureRenderInput
+    output_schema: ApprovedDisclosureRenderModel
+    client_executor: hushh-webapp/lib/services/one-kyc-approved-disclosure-renderer.ts
+    strict_client_zk: true
+    backend_plaintext_allowed: false

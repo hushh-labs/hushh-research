@@ -236,7 +236,7 @@ export function AgentHistorySidebar({
                       </Button>
                     </form>
                   ) : (
-                    <div className="flex items-center">
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center">
                       <button
                         type="button"
                         className={cn(
@@ -260,13 +260,14 @@ export function AgentHistorySidebar({
                               size="icon-xs"
                               className="mr-1 opacity-70 transition-opacity group-hover:opacity-100"
                               disabled={disabled || pending}
+                              onPointerDown={(event) => event.stopPropagation()}
                               onClick={(event) => event.stopPropagation()}
                               aria-label={`Open actions for ${title}`}
                             >
                               <MoreHorizontal className="h-3.5 w-3.5" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" sideOffset={6}>
+                          <DropdownMenuContent align="end" sideOffset={6} className="z-[520]">
                             <DropdownMenuItem onSelect={() => startRename(conversation)}>
                               <Pencil className="h-4 w-4" />
                               Rename chat

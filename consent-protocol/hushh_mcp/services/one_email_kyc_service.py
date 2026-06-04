@@ -816,6 +816,9 @@ def _scope_candidate(
     wildcard: bool | None = None,
     source_kind: str | None = None,
     matched_terms: list[str] | None = None,
+    visibility_posture: str | None = None,
+    default_projection_ready: bool | None = None,
+    default_projection_updated_at: str | None = None,
 ) -> dict[str, Any]:
     candidate = {
         "scope": scope,
@@ -834,6 +837,12 @@ def _scope_candidate(
         candidate["source_kind"] = source_kind
     if matched_terms:
         candidate["matched_terms"] = matched_terms
+    if visibility_posture:
+        candidate["visibility_posture"] = visibility_posture
+    if default_projection_ready is not None:
+        candidate["default_projection_ready"] = bool(default_projection_ready)
+    if default_projection_updated_at:
+        candidate["default_projection_updated_at"] = default_projection_updated_at
     return candidate
 
 
@@ -981,6 +990,30 @@ def _workflow_recommended_candidate_scopes(workflow: dict[str, Any]) -> list[str
             recommended.append(scope)
 
     return [_validate_one_email_data_scope(scope) for scope in _dedupe(recommended or fallback)]
+
+
+def _workflow_default_available_scopes(
+    workflow: dict[str, Any],
+    selected_scopes: list[str],
+) -> list[dict[str, Any]]:
+    metadata = workflow.get("metadata", {})
+    raw = metadata.get("candidate_scopes") if isinstance(metadata, dict) else None
+    selected = {_validate_one_email_data_scope(scope) for scope in selected_scopes}
+    if not isinstance(raw, list) or not selected:
+        return []
+    ready: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        scope = _clean_text(item.get("scope"))
+        if not scope or scope not in selected:
+            continue
+        if (
+            _clean_text(item.get("visibility_posture")).lower() == "default_available"
+            and item.get("default_projection_ready") is True
+        ):
+            ready.append(item)
+    return ready
 
 
 def _scope_requires_more_data(instructions: str) -> bool:
@@ -1707,6 +1740,13 @@ class OneEmailKycService:
                         wildcard=bool(entry.get("wildcard")),
                         source_kind=_clean_text(entry.get("source_kind")) or None,
                         matched_terms=matched_terms[:5],
+                        visibility_posture=_clean_text(entry.get("visibility_posture"))
+                        or "consent_required",
+                        default_projection_ready=entry.get("default_projection_ready") is True,
+                        default_projection_updated_at=_clean_text(
+                            entry.get("default_projection_updated_at")
+                        )
+                        or None,
                     ),
                 )
             )
@@ -2406,6 +2446,45 @@ class OneEmailKycService:
         consent_requests: list[dict[str, Any]] = []
         statuses: list[dict[str, Any]] = []
         exports: list[dict[str, Any]] = []
+        default_available = _workflow_default_available_scopes(workflow, selected_scopes)
+        if default_available and len(default_available) == len(selected_scopes):
+            metadata = _redact_sensitive_workflow_metadata(workflow.get("metadata", {}))
+            scopes = [_validate_one_email_data_scope(scope) for scope in selected_scopes]
+            return self._update_workflow(
+                workflow["workflow_id"],
+                status="waiting_on_user",
+                requested_scope=scopes[0],
+                consent_request_id=None,
+                draft_status="ready",
+                draft_subject=self._reply_subject(workflow.get("subject")),
+                draft_body=None,
+                last_error_code=None,
+                last_error_message=None,
+                metadata={
+                    **metadata,
+                    "consent_request_url": None,
+                    "consent_bundle_id": None,
+                    "consent_bundle_label": None,
+                    "consent_requests": [],
+                    "consent_statuses": [
+                        {
+                            "scope": item.get("scope"),
+                            "action": "DEFAULT_AVAILABLE",
+                            "visibility_posture": "default_available",
+                        }
+                        for item in default_available
+                    ],
+                    "consent_exports": [],
+                    "consent_export": None,
+                    "default_available_scopes": scopes,
+                    "client_draft_required": True,
+                    "draft_revision": int(metadata.get("draft_revision") or 0) + 1,
+                    "scope_selection_required": False,
+                    "selected_scopes": scopes,
+                    "requested_scopes": scopes,
+                    "reused_default_available_projection": True,
+                },
+            )
         for scope in [_validate_one_email_data_scope(scope) for scope in selected_scopes]:
             grant = await self._active_consent_grant_for_scope(user_id=user_id, scope=scope)
             if not grant:

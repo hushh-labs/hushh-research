@@ -1,4 +1,8 @@
-import { ROUTES, isKaiOnboardingRoute } from "@/lib/navigation/routes";
+import {
+  ROUTES,
+  isKaiOnboardingRoute,
+  isRiaOnboardingRoute,
+} from "@/lib/navigation/routes";
 import { isOnboardingFlowActiveCookieEnabled } from "@/lib/services/onboarding-route-cookie";
 
 export interface KaiChromeState {
@@ -35,8 +39,7 @@ export function getKaiChromeState(
     path.startsWith(ROUTES.LOGIN) ||
     path.startsWith(ROUTES.LOGOUT) ||
     path.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
-    path.startsWith(ROUTES.MARKETPLACE) ||
-    path.startsWith(ROUTES.RIA_HOME);
+    isRiaOnboardingRoute(path);
 
   return {
     isOnboardingRoute,

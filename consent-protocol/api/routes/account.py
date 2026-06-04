@@ -239,6 +239,100 @@ async def _delete_firebase_auth_user(user_id: str) -> str:
         return "failed"
 
 
+def _firebase_user_provider_ids(user_record: Any) -> set[str]:
+    provider_data = getattr(user_record, "provider_data", None) or []
+    provider_ids: set[str] = set()
+    for provider in provider_data:
+        provider_id = str(getattr(provider, "provider_id", "") or "").strip()
+        if provider_id:
+            provider_ids.add(provider_id)
+    return provider_ids
+
+
+def _is_safe_phone_only_firebase_user(user_record: Any, expected_phone: str) -> bool:
+    phone_number = str(getattr(user_record, "phone_number", "") or "").strip()
+    if phone_number != str(expected_phone or "").strip():
+        return False
+
+    email = str(getattr(user_record, "email", "") or "").strip()
+    if email:
+        return False
+
+    provider_ids = _firebase_user_provider_ids(user_record)
+    return not provider_ids or provider_ids.issubset({"phone"})
+
+
+async def _delete_safe_phone_only_firebase_user(
+    *,
+    uid: str | None,
+    phone_number: str | None,
+    protected_uid: str | None = None,
+) -> str:
+    normalized_uid = str(uid or "").strip()
+    normalized_phone = str(phone_number or "").strip()
+    normalized_protected_uid = str(protected_uid or "").strip()
+    if not normalized_uid or not normalized_phone:
+        return "skipped"
+    if normalized_protected_uid and normalized_uid == normalized_protected_uid:
+        return "protected_primary_uid"
+
+    try:
+        from firebase_admin import auth as firebase_auth
+
+        firebase_app = get_firebase_auth_app()
+        user_record = await run_in_threadpool(
+            lambda: firebase_auth.get_user(normalized_uid, app=firebase_app)
+        )
+        if not _is_safe_phone_only_firebase_user(user_record, normalized_phone):
+            return "not_phone_only"
+        await run_in_threadpool(lambda: firebase_auth.delete_user(normalized_uid, app=firebase_app))
+        return "deleted"
+    except Exception as exc:
+        if exc.__class__.__name__ == "UserNotFoundError":
+            return "not_found"
+        logger.warning(
+            "Safe phone-only Firebase user cleanup failed uid=%s error=%s",
+            normalized_uid,
+            type(exc).__name__,
+        )
+        return "failed"
+
+
+async def _delete_safe_phone_only_firebase_user_by_phone(
+    *,
+    phone_number: str | None,
+    protected_uid: str | None = None,
+) -> str:
+    normalized_phone = str(phone_number or "").strip()
+    normalized_protected_uid = str(protected_uid or "").strip()
+    if not normalized_phone:
+        return "skipped"
+
+    try:
+        from firebase_admin import auth as firebase_auth
+
+        firebase_app = get_firebase_auth_app()
+        user_record = await run_in_threadpool(
+            lambda: firebase_auth.get_user_by_phone_number(normalized_phone, app=firebase_app)
+        )
+        uid = str(getattr(user_record, "uid", "") or "").strip()
+        if normalized_protected_uid and uid == normalized_protected_uid:
+            return "protected_primary_uid"
+        if not _is_safe_phone_only_firebase_user(user_record, normalized_phone):
+            return "not_phone_only"
+        await run_in_threadpool(lambda: firebase_auth.delete_user(uid, app=firebase_app))
+        return "deleted"
+    except Exception as exc:
+        if exc.__class__.__name__ == "UserNotFoundError":
+            return "not_found"
+        logger.warning(
+            "Safe phone-only Firebase user cleanup by phone failed phone_present=%s error=%s",
+            bool(normalized_phone),
+            type(exc).__name__,
+        )
+        return "failed"
+
+
 @router.get("/email-aliases")
 async def list_email_aliases(token_data: dict = Depends(require_vault_owner_token)):
     """List account-owned verified email aliases."""
@@ -307,11 +401,17 @@ async def claim_account_phone(
         firebase_uid,
         bool(phone_session_uid),
     )
+    phone_session_cleanup = await _delete_safe_phone_only_firebase_user(
+        uid=phone_session_uid,
+        phone_number=phone_number,
+        protected_uid=firebase_uid,
+    )
     return {
         "success": True,
         "user_id": firebase_uid,
         "identity": identity,
         "phone_verified": identity.get("phone_verified") is True,
+        "phone_session_cleanup": phone_session_cleanup,
     }
 
 
@@ -413,18 +513,36 @@ async def delete_account(
     user_id = token_data["user_id"]
     target = payload.target if payload else "both"
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
+    verified_phone_number: str | None = None
+    if target == "both":
+        try:
+            identity = (await ActorIdentityService().get_many([user_id])).get(user_id)
+            if identity and identity.get("phone_verified") is True:
+                verified_phone_number = str(identity.get("phone_number") or "").strip() or None
+        except Exception as exc:
+            logger.warning(
+                "Could not prefetch verified phone before account deletion user=%s error=%s",
+                user_id,
+                type(exc).__name__,
+            )
 
     service = AccountService()
     result = await service.delete_account(user_id, target=target)
 
     if not result["success"]:
-        raise HTTPException(status_code=500, detail=f"Deletion failed: {result.get('error')}")
+        raise HTTPException(status_code=500, detail="Account deletion failed")
 
     if target == "both" and result.get("account_deleted") is True:
         details = result.get("details")
         if not isinstance(details, dict):
             details = {}
         details["firebase_auth_user"] = await _delete_firebase_auth_user(user_id)
+        details[
+            "firebase_phone_orphan_user"
+        ] = await _delete_safe_phone_only_firebase_user_by_phone(
+            phone_number=verified_phone_number,
+            protected_uid=user_id,
+        )
         result["details"] = details
 
     return result

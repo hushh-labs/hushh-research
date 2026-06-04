@@ -77,6 +77,7 @@ Client surfaces
 | GET | `/api/v1/user-scopes/{user_id}` | Discover dynamic user scopes for one user (requires `?token=<developer-token>`) |
 | GET | `/api/v1/consent-status` | Check app-scoped consent status by scope or request id |
 | POST | `/api/v1/request-consent` | Create or reuse consent for one discovered scope (requires `?token=<developer-token>`) |
+| POST | `/api/v1/default-available-export` | Read a user-published safe projection for a `default_available` scope; records audit metadata and never returns raw PKM |
 | POST | `/api/v1/scoped-export` | Fetch encrypted consent export metadata and ciphertext for an approved developer grant |
 
 ### Developer Portal (Firebase Sign-In / Self-Serve)
@@ -120,6 +121,8 @@ confirms scopes and builds the final draft from approved encrypted exports. When
 the user approves a reply, the client may submit both plain text and sanitized
 HTML; Gmail send uses multipart/alternative while preserving the plain-text
 fallback and original-thread reply headers. The
+`agent_kyc.approved_disclosure_formatter.v1` contract owns the render model;
+the vault-unlocked browser executes it against decrypted scoped exports. The
 maintained architecture reference is [One Email KYC](./one-email-kyc.md).
 
 Inbound user resolution uses exact verified sender evidence. The resolver binds
@@ -149,6 +152,39 @@ resolve intake.
 | POST | `/api/one/kyc/workflows/{workflow_id}/reject-draft` | VAULT_OWNER Bearer | Reject and block the workflow |
 | POST | `/api/one/kyc/workflows/{workflow_id}/redraft` | VAULT_OWNER Bearer | Record typed or voice-originated redraft instruction metadata; draft revision is client-local |
 | POST | `/api/one/kyc/retention/purge` | `X-Hushh-Maintenance-Token` | Redact terminal workflow drafts after the retention window |
+
+### One Location Agent
+
+One Location Agent is One-owned live-location sharing for trusted people. The
+route family is authenticated and ciphertext-only for all live-location reads.
+Public bearer links that reveal location, server-readable latitude/longitude,
+reverse geocoding, map thumbnails, and movement trails do not belong in this
+contract. Scope-2 public links are request-only: they collect visitor metadata
+and route the workflow back to owner approval; they never reveal live location.
+The maintained architecture reference is
+[One Location Agent](./one-location-agent.md).
+
+The older KAI location route family is transitional prototype history and is
+not the product owner for live location.
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| GET | `/api/one/location/state` | VAULT_OWNER Bearer | List verified recipient directory, owner grants, received grants, pending requests, and referrals for the authenticated user |
+| GET | `/api/one/location/recipients` | VAULT_OWNER Bearer | List phone-verified users excluding self, with masked labels and active public key metadata only |
+| POST | `/api/one/location/recipient-keys` | VAULT_OWNER Bearer | Register the authenticated user's recipient public key; private key remains device-local |
+| POST | `/api/one/location/public-invites` | VAULT_OWNER Bearer | Create a duration-bounded public request link; the raw token is returned once and only its hash is stored |
+| GET | `/api/one/location/public-invites/{public_token}` | Public | Resolve request-link metadata only: safe owner label, status, duration, and expiry |
+| POST | `/api/one/location/public-invites/{public_token}/submit` | Public | Submit visitor name, phone, and optional message as metadata-only request intent; creates an owner approval request only for matched verified/keyed Hussh users; response stays submission-only |
+| DELETE | `/api/one/location/public-invites/{invite_id}` | VAULT_OWNER Bearer | Revoke an active public request link |
+| POST | `/api/one/location/grants` | VAULT_OWNER Bearer | Create a duration-bounded owner-approved grant for one verified recipient identity/key |
+| POST | `/api/one/location/grants/{grant_id}/envelopes` | VAULT_OWNER Bearer | Store the owner-device encrypted latest-location envelope; backend receives ciphertext and metadata only |
+| GET | `/api/one/location/grants/{grant_id}/envelope` | VAULT_OWNER Bearer | Return ciphertext only to the exact approved recipient while grant is active |
+| DELETE | `/api/one/location/grants/{grant_id}` | VAULT_OWNER Bearer | Revoke an active owner grant immediately |
+| POST | `/api/one/location/requests` | VAULT_OWNER Bearer | Create metadata-only request for owner approval |
+| POST | `/api/one/location/requests/{request_id}/approve` | VAULT_OWNER Bearer | Owner approves request and creates a fresh recipient grant |
+| POST | `/api/one/location/requests/{request_id}/deny` | VAULT_OWNER Bearer | Owner denies pending request |
+| POST | `/api/one/location/grants/{grant_id}/refer` | VAULT_OWNER Bearer | Recipient refers another verified user into a request flow; no access is forwarded |
+| POST | `/api/one/location/retention/purge?older_than_hours=12` | `X-Hushh-Maintenance-Token` backed by dedicated `ONE_LOCATION_RETENTION_TOKEN` | Delete terminal expired/revoked location grants, ciphertext envelopes, terminal requests, referrals, public request-link submissions, and related events after the retention window |
 
 ### VAULT_OWNER (Consent-Gated)
 
@@ -189,7 +225,8 @@ RIA relationship bundle note:
 | GET | `/api/pkm/domain-data/{user_id}/{domain}` | Get encrypted PKM domain data |
 | DELETE | `/api/pkm/domain-data/{user_id}/{domain}` | Delete a PKM domain |
 | GET | `/api/pkm/metadata/{user_id}` | Get PKM metadata for UI |
-| POST | `/api/pkm/domains/{domain}/scope-exposure` | Enable/disable top-level PKM section exposure and revoke overlapping active grants |
+| POST | `/api/pkm/domains/{domain}/scope-exposure` | Set a top-level PKM section posture: private, ask-first consent, or default-available projection |
+| POST | `/api/pkm/domains/{domain}/default-available-projection` | Vault-owner publishes a client-generated safe projection for one default-available section |
 | GET | `/api/pkm/upgrade/status/{user_id}` | Get generic PKM upgrade status + resumable run metadata |
 | POST | `/api/pkm/upgrade/start-or-resume` | Start or resume a client-side PKM upgrade run |
 | POST | `/api/pkm/upgrade/runs/{run_id}/status` | Update run-level PKM upgrade status |
@@ -285,11 +322,11 @@ Frontend reads/writes these fields through the centralized onboarding/profile fl
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | POST | `/api/account/identity/refresh` | Refresh backend identity shadow from Firebase Auth |
-| POST | `/api/account/phone/claim` | Persist a secondary Firebase phone-session token as the signed-in actor's verified app-level phone claim |
+| POST | `/api/account/phone/claim` | Persist a secondary Firebase phone-session token as the signed-in actor's verified app-level phone claim, then delete the safe phone-only secondary Firebase user when it differs from the signed-in UID |
 | GET | `/api/account/email-aliases` | List vault-owner account email aliases |
 | POST | `/api/account/email-aliases/verification/start` | Start explicit email alias verification; dev/UAT review mode may echo the code |
 | POST | `/api/account/email-aliases/verification/confirm` | Confirm an email alias before it can match One Email KYC intake |
-| DELETE | `/api/account/delete` | Delete user account and all data |
+| DELETE | `/api/account/delete` | Delete user account and all data; full-account deletion also removes the primary Firebase Auth UID and any safe phone-only orphan UID for the verified phone |
 
 Reserved future surface:
 
@@ -458,21 +495,29 @@ External developers (MCP agents, third-party apps) use the `/api/v1` endpoints:
 ```
 1. GET /api/v1/user-scopes/{user_id}
    Query: ?token=<developer-token>
-   → Returns: { user_id, available_domains, scopes }
+   → Returns: { user_id, available_domains, scopes, scope_entries }
 
-2. POST /api/v1/request-consent
+2. If the selected scope entry is `visibility_posture=default_available`
+   and `default_projection_ready=true`, POST /api/v1/default-available-export
+   Query: ?token=<developer-token>
+   Body: { user_id, scope }
+   → Returns: { projection_payload, projection_hash, projection_version }
+   → No consent request is created; an audit event is recorded.
+
+3. POST /api/v1/request-consent
    Query: ?token=<developer-token>
    Body: { user_id, scope, reason, approval_timeout_minutes, connector_public_key, connector_key_id, connector_wrapping_alg }
    → Returns: { request_id, status: "pending" } or an immediate reuse payload with
-     { requested_scope, granted_scope, coverage_kind, covered_by_existing_grant }
+     { requested_scope, granted_scope, coverage_kind, covered_by_existing_grant }.
+   → If the scope is already default-available, returns { status: "already_available", coverage_kind: "default_available_projection" }.
 
-3. User receives FCM notification → approves in app
+4. User receives FCM notification → approves in app
 
-4. POST /api/validate-token
+5. POST /api/validate-token
    Body: { token: "<consent-token>" }
    → Returns: { valid, user_id, scope, expires_at }
 
-5. POST /api/v1/scoped-export?token=<developer-token>
+6. POST /api/v1/scoped-export?token=<developer-token>
    Body: { consent_token, expected_scope, connector_id, connector_public_key, connector_key_id }
    → Returns: { encrypted_data, iv, tag, wrapped_key_bundle, export_revision, export_refresh_status }
    → Connector unwraps and decrypts locally, then narrows to the approved workflow payload before any partner handoff
@@ -480,10 +525,11 @@ External developers (MCP agents, third-party apps) use the `/api/v1` endpoints:
 
 For MCP hosts, the recommended consumption surface is:
 
-`discover_user_domains` → `request_consent` → `check_consent_status` → `get_encrypted_scoped_export(expected_scope=original_scope)`
+`discover_user_domains` → `read_default_available_projection_when_ready` → `request_consent` → `check_consent_status` → `get_encrypted_scoped_export(expected_scope=original_scope)`
 
 Coverage rules:
 
+- `default_available` + ready projection → read safe projection through `/api/v1/default-available-export`; no consent request
 - broader active grant → narrower ask: reuse immediately
 - narrower active grant → broader ask: requires fresh approval
 - exact duplicate pending request → reuse the existing request_id

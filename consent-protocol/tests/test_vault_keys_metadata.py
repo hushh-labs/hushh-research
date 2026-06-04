@@ -25,6 +25,17 @@ class _FakeSQLConnection:
         sql = " ".join(str(statement).strip().split()).lower()
         db = self._supabase.db
 
+        if "select vault_status, vault_key_hash from vault_keys" in sql:
+            rows = [
+                {
+                    "vault_status": row.get("vault_status"),
+                    "vault_key_hash": row.get("vault_key_hash"),
+                }
+                for row in db["vault_keys"]
+                if row.get("user_id") == params["user_id"]
+            ]
+            return _FakeSQLResult(rows=rows, rowcount=len(rows))
+
         if "select vault_key_hash, primary_method, primary_wrapper_id from vault_keys" in sql:
             rows = [
                 {
@@ -112,6 +123,30 @@ class _FakeSQLConnection:
                     }
                 )
             return _FakeSQLResult(rows=[{"user_id": incoming["user_id"]}], rowcount=1)
+
+        if "insert into actor_profiles" in sql:
+            user_id = params["user_id"]
+            has_vault = any(row.get("user_id") == user_id for row in db["vault_keys"])
+            if not has_vault:
+                return _FakeSQLResult(rows=[], rowcount=0)
+
+            existing = next(
+                (row for row in db["actor_profiles"] if row.get("user_id") == user_id),
+                None,
+            )
+            if existing:
+                return _FakeSQLResult(rows=[], rowcount=0)
+
+            db["actor_profiles"].append(
+                {
+                    "user_id": user_id,
+                    "personas": ["investor"],
+                    "last_active_persona": "investor",
+                    "investor_marketplace_opt_in": False,
+                }
+            )
+            rows = [{"user_id": user_id}] if "returning user_id" in sql else []
+            return _FakeSQLResult(rows=rows, rowcount=1)
 
         if "delete from vault_key_wrappers" in sql:
             user_id = params["user_id"]
@@ -303,6 +338,7 @@ class _FakeSupabase:
         self.db = {
             "vault_keys": [],
             "vault_key_wrappers": [],
+            "actor_profiles": [],
         }
         self.fail_wrapper_methods: set[str] = set()
         self.engine = _FakeEngine(self)
@@ -400,7 +436,89 @@ async def test_setup_vault_state_persists_passphrase_required_wrapper_set():
     assert len(fake.db["vault_keys"]) == 1
     assert fake.db["vault_keys"][0]["primary_method"] == "passphrase"
     assert fake.db["vault_keys"][0]["vault_key_hash"] == "vault-hash"
+    assert fake.db["actor_profiles"] == [
+        {
+            "user_id": "user-1",
+            "personas": ["investor"],
+            "last_active_persona": "investor",
+            "investor_marketplace_opt_in": False,
+        }
+    ]
     assert len(fake.db["vault_key_wrappers"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_setup_vault_state_refuses_active_vault_key_hash_replacement():
+    fake = _FakeSupabase()
+    fake.db["vault_keys"].append(
+        {
+            "user_id": "user-1",
+            "vault_status": "active",
+            "vault_key_hash": "existing-hash",
+            "primary_method": "passphrase",
+            "primary_wrapper_id": "default",
+            "recovery_encrypted_vault_key": "existing-recovery-enc",
+            "recovery_salt": "existing-recovery-salt",
+            "recovery_iv": "existing-recovery-iv",
+        }
+    )
+    fake.db["vault_key_wrappers"].append(
+        {
+            "user_id": "user-1",
+            "method": "passphrase",
+            "wrapper_id": "default",
+            "encrypted_vault_key": "existing-enc-pass",
+            "salt": "existing-salt-pass",
+            "iv": "existing-iv-pass",
+        }
+    )
+
+    service = VaultKeysService()
+    service._supabase = fake
+
+    with pytest.raises(ValueError, match="Active vault already exists"):
+        await service.setup_vault_state(
+            user_id="user-1",
+            vault_key_hash="new-hash",
+            primary_method="passphrase",
+            recovery_encrypted_vault_key="new-recovery-enc",
+            recovery_salt="new-recovery-salt",
+            recovery_iv="new-recovery-iv",
+            primary_wrapper_id="default",
+            wrappers=[
+                {
+                    "method": "passphrase",
+                    "wrapperId": "default",
+                    "encryptedVaultKey": "new-enc-pass",
+                    "salt": "new-salt-pass",
+                    "iv": "new-iv-pass",
+                }
+            ],
+        )
+
+    assert fake.db["vault_keys"][0]["vault_key_hash"] == "existing-hash"
+    assert fake.db["vault_keys"][0]["recovery_encrypted_vault_key"] == "existing-recovery-enc"
+    assert fake.db["vault_key_wrappers"] == [
+        {
+            "user_id": "user-1",
+            "method": "passphrase",
+            "wrapper_id": "default",
+            "encrypted_vault_key": "existing-enc-pass",
+            "salt": "existing-salt-pass",
+            "iv": "existing-iv-pass",
+        }
+    ]
+
+
+def test_ensure_actor_profile_repairs_existing_vault_user():
+    fake = _FakeSupabase()
+    fake.db["vault_keys"].append({"user_id": "user-1"})
+    service = VaultKeysService()
+    service._supabase = fake
+
+    assert service.ensure_actor_profile("user-1") is True
+    assert service.ensure_actor_profile("user-1") is True
+    assert [row["user_id"] for row in fake.db["actor_profiles"]] == ["user-1"]
 
 
 @pytest.mark.asyncio

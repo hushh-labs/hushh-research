@@ -76,7 +76,7 @@
           const res = await HushhConsent.issueToken({
             userId: "verifier",
             agentId: "agent_test",
-            scope: "vault.read.all",
+            scope: "pkm.read",
           });
           if (!res.token.startsWith("HCT:"))
             throw new Error("Invalid token prefix");
@@ -87,11 +87,11 @@
           const tokenRes = await HushhConsent.issueToken({
             userId: "verifier",
             agentId: "agent_test",
-            scope: "vault.read.all",
+            scope: "pkm.read",
           });
           const validRes = await HushhConsent.validateToken({
             token: tokenRes.token,
-            expectedScope: "vault.read.all",
+            expectedScope: "pkm.read",
           });
           if (!validRes.valid) throw new Error(validRes.reason);
           return validRes;

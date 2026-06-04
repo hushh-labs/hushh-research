@@ -27,6 +27,7 @@ import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { KaiHistoryService, type AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
+import { showDebateAlreadyRunningToast } from "@/lib/kai/debate-run-notifications";
 import { trackEvent } from "@/lib/observability/client";
 import { trackInvestorActivationCompleted } from "@/lib/observability/growth";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
@@ -169,6 +170,7 @@ function KaiAnalysisPageContent() {
 
   const localIntentReady =
     hasFreshAnalysisIntent &&
+    analysisParams?.launchConfirmed === true &&
     Boolean(analysisParams?.userId) &&
     analysisParams?.userId !== "__pending__";
   const canStartNewRun =
@@ -471,17 +473,20 @@ function KaiAnalysisPageContent() {
     () => String(searchParams.get("ticker") || "").trim().toUpperCase(),
     [searchParams]
   );
-  const hasWorkspaceRouteIntent =
-    searchParams.get("focus") === "active" || searchParams.has("run_id");
+  const hasActiveRouteIntent = searchParams.get("focus") === "active";
+  const hasRunRouteIntent = searchParams.has("run_id");
   const previewPickSourceFromQuery = useMemo(
     () => String(searchParams.get("pick_source") || "").trim(),
     [searchParams]
   );
+  const hasConfirmedAnalysisIntent = analysisParams?.launchConfirmed === true;
   const shouldShowPreview =
     Boolean(previewTickerRaw) &&
-    !hasWorkspaceRouteIntent &&
+    !hasRunRouteIntent &&
+    (!hasActiveRouteIntent || !hasConfirmedAnalysisIntent) &&
     !showHistoryWhileActive &&
     !debateId &&
+    !activeRunTask &&
     !hasFocusedRun &&
     !liveEntry &&
     !resolvedEntry;
@@ -507,6 +512,23 @@ function KaiAnalysisPageContent() {
     if (showWorkspace) return "";
     return rawTicker;
   }, [searchParams, showWorkspace]);
+
+  useEffect(() => {
+    if (!shouldShowPreview || !hasActiveRouteIntent || !previewTickerRaw) return;
+    router.replace(
+      buildKaiAnalysisPreviewRoute({
+        ticker: previewTickerRaw,
+        pickSource: previewPickSourceFromQuery || previewPickSource,
+      })
+    );
+  }, [
+    hasActiveRouteIntent,
+    previewPickSource,
+    previewPickSourceFromQuery,
+    previewTickerRaw,
+    router,
+    shouldShowPreview,
+  ]);
   const analysisVoiceSurfaceMetadata = useMemo(() => {
     const workspaceTabLabel =
       workspaceTab === "debate"
@@ -757,7 +779,7 @@ function KaiAnalysisPageContent() {
     const currentPreviewTicker = previewTickerRaw;
     if (!currentPreviewTicker || !userId || showWorkspace || !vaultOwnerToken) return;
     if (activeRunTask?.runId) {
-      toast.info("A debate is already running.", {
+      showDebateAlreadyRunningToast(toast, {
         description: "Open the active debate before starting a new one.",
       });
       router.replace(`${ROUTES.KAI_ANALYSIS}?focus=active`);
@@ -784,6 +806,7 @@ function KaiAnalysisPageContent() {
           ticker: currentPreviewTicker,
           userId,
           riskProfile: context.user_risk_profile || "balanced",
+          launchConfirmed: true,
           userContext: context,
           pickSource: previewPickSource,
           pickSourceLabel: resolvedPickSourceLabel,

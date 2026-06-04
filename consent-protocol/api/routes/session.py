@@ -3,6 +3,7 @@
 Session token and user management endpoints.
 """
 
+import hmac
 import logging
 import os
 from typing import Any, Optional
@@ -16,6 +17,7 @@ from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.user_identifier_service import resolve_lookup_identifier
+from hushh_mcp.services.vault_keys_service import VaultKeysService
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,16 @@ async def issue_session_token(
             scope=scope_to_grant,
             expires_in_ms=24 * 60 * 60 * 1000,  # 24 hours
         )
+
+        try:
+            VaultKeysService().ensure_actor_profile(request.userId)
+            await ActorIdentityService().sync_from_firebase(request.userId, force=False)
+        except Exception as identity_error:
+            logger.debug(
+                "session_token.identity_shadow_sync_skipped user=%s error=%s",
+                request.userId,
+                identity_error,
+            )
 
         logger.info("session_token.issued")
 
@@ -228,7 +240,7 @@ async def lookup_user(
     required_token = str(os.getenv("HUSHH_DEVELOPER_TOKEN", "")).strip()
     if not required_token:
         raise HTTPException(status_code=503, detail="Lookup endpoint not configured")
-    if not x_mcp_developer_token or x_mcp_developer_token != required_token:
+    if not x_mcp_developer_token or not hmac.compare_digest(x_mcp_developer_token, required_token):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     try:

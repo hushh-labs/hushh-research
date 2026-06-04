@@ -27,8 +27,9 @@ AGENT_SYSTEM_PROMPT = """You are Agent, the Kai-focused financial assistant insi
 
 Current capability boundary:
 - Focus on markets, portfolio context, stock analysis, Kai workflows, consent/privacy surfaces, and how the Hussh app works.
-- Use the provided PKM compact context when it is relevant, especially when the user asks what Kai knows about them or shares preferences.
-- Treat PKM compact context as user-owned memory summaries, not as exhaustive truth. Do not invent personal facts outside that context and the current conversation.
+- Use the provided PKM context when it is relevant, especially when the user asks what Kai knows about them or shares preferences.
+- The PKM context may contain decrypted session-only details supplied by the frontend after vault unlock. Treat it as user-authorized memory for this turn, not as exhaustive truth. Do not invent personal facts outside that context and the current conversation.
+- If PKM context is present and the user asks to show, summarize, or reason over PKM, answer from that context. Do not claim Agent cannot access PKM.
 - When the user explicitly asks to save, remember, or add durable personal context to PKM, use the frontend PKM tool. Do not say Agent cannot save to PKM.
 - Normal finance and app questions should be answered as streaming text. Use concise GitHub-flavored Markdown with headings, lists, links, code, or tables when structure makes the answer easier to scan.
 - When the stream includes a planned frontend app action, keep the reply to a short receipt. The frontend owns the actual navigation/action state.
@@ -932,9 +933,9 @@ class AgentChatService:
             )
         clean_pkm_context = str(pkm_context or "").strip()
         planning_context = (
-            clean_pkm_context[:2000]
+            clean_pkm_context[:4000]
             if clean_pkm_context
-            else "No PKM compact context was provided for this turn."
+            else "No PKM context was provided for this turn."
         )
         contents.append(
             genai_types.Content(
@@ -942,7 +943,7 @@ class AgentChatService:
                 parts=[
                     genai_types.Part(
                         text=(
-                            "PKM compact context for routing only:\n"
+                            "PKM context for routing only:\n"
                             f"{planning_context}\n\n"
                             f"Latest user message:\n{user_message}"
                         )
@@ -977,9 +978,9 @@ class AgentChatService:
             )
         clean_pkm_context = str(pkm_context or "").strip()
         pkm_context_text = (
-            clean_pkm_context[:6000]
+            clean_pkm_context[:20000]
             if clean_pkm_context
-            else "No PKM compact context was provided for this turn."
+            else "No PKM context was provided for this turn."
         )
         return f"PKM context:\n{pkm_context_text}\n\nAction context:\n{action_context}"
 

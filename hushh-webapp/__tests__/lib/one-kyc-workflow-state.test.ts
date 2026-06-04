@@ -135,4 +135,28 @@ describe("one KYC workflow state helpers", () => {
     expect(hasApprovedKycWorkflowAccess(granted)).toBe(true);
     expect(needsKycWorkflowAccessApproval(granted)).toBe(false);
   });
+
+  it("treats selected default-available projections as access-ready", () => {
+    const ready = workflow({
+      status: "needs_scope",
+      draft_status: "not_ready",
+      requested_scope: "attr.financial.portfolio.*",
+      requested_scopes: ["attr.financial.portfolio.*"],
+      metadata: {
+        selected_scopes: ["attr.financial.portfolio.*"],
+        candidate_scopes: [
+          {
+            scope: "attr.financial.portfolio.*",
+            domain: "financial",
+            label: "Portfolio",
+            visibility_posture: "default_available",
+            default_projection_ready: true,
+          },
+        ],
+      },
+    });
+
+    expect(hasApprovedKycWorkflowAccess(ready)).toBe(true);
+    expect(needsKycWorkflowAccessApproval(ready)).toBe(false);
+  });
 });

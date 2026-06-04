@@ -111,6 +111,10 @@ UAT and production now use the same frontend runtime contract shape:
 - one active measurement ID: `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID`
 - one active GTM ID: `NEXT_PUBLIC_GTM_ID`
 
+### Partner gateway connectivity
+
+Private partner gateway handoff files are not stored in this public repo. Keep live VPN, private DNS, endpoint, and peer material in approved secret-managed operational systems only.
+
 ---
 
 ## 📋 Prerequisites
