@@ -25,11 +25,25 @@ def _iam_schema_not_ready_response() -> JSONResponse:
     )
 
 
+def _public_invite_payload(invite: dict) -> dict:
+    """Return the unauthenticated invite payload without target PII."""
+    redacted = dict(invite)
+    for key in (
+        "target_display_name",
+        "target_email",
+        "target_phone",
+        "accepted_by_user_id",
+        "accepted_request_id",
+    ):
+        redacted.pop(key, None)
+    return redacted
+
+
 @router.get("/{invite_token}")
 async def get_invite(invite_token: str = Path(..., max_length=512)):
     service = RIAIAMService()
     try:
-        return await service.get_ria_invite(invite_token)
+        return _public_invite_payload(await service.get_ria_invite(invite_token))
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
