@@ -720,6 +720,7 @@ function OneKycWorkspace() {
 
     async function prepareClientDraft() {
       if (!auth.userId || !vaultKey || !vaultOwnerToken || !selected) return;
+      const userId = auth.userId;
       if (
         selected.status !== "waiting_on_user" ||
         selected.draft_status !== "ready"
@@ -731,12 +732,12 @@ function OneKycWorkspace() {
       try {
         setBusy((current) => current || "draft");
         const connector = await OneKycClientZkService.ensureConnector({
-          userId: auth.userId,
+          userId,
           vaultKey,
           vaultOwnerToken,
         });
         const exportResponse = await OneKycService.getWorkflowConsentExports({
-          userId: auth.userId,
+          userId,
           vaultOwnerToken,
           workflowId: selected.workflow_id,
         });
@@ -749,9 +750,54 @@ function OneKycWorkspace() {
             }),
           })),
         );
+        const exportedScopes = new Set(
+          exportPayloads
+            .map((item) => item.scope)
+            .filter((scope): scope is string => Boolean(scope)),
+        );
+        const selectedScopes = new Set(
+          selectedScopesForWorkflow(selected, selectedScopesByWorkflow),
+        );
+        const defaultAvailablePayloads = await Promise.all(
+          scopeCandidates(selected)
+            .filter(
+              (candidate) =>
+                selectedScopes.has(candidate.scope) &&
+                !exportedScopes.has(candidate.scope) &&
+                candidate.visibility_posture === "default_available" &&
+                candidate.default_projection_ready === true,
+            )
+            .map(async (candidate) => {
+              const parsed = parseAttrScope(candidate.scope);
+              const domain = candidate.domain || parsed?.domain;
+              if (!domain) {
+                throw new Error("One could not resolve the selected data section.");
+              }
+              const topLevelScopePath =
+                candidate.path || parsed?.topLevelScopePath || undefined;
+              const payload = await PersonalKnowledgeModelService.loadDomainData({
+                userId,
+                domain,
+                vaultKey,
+                vaultOwnerToken,
+                segmentIds: topLevelScopePath ? [topLevelScopePath] : undefined,
+              });
+              if (!payload) {
+                throw new Error("One could not load the selected saved data.");
+              }
+              return {
+                scope: candidate.scope,
+                payload,
+              };
+            }),
+        );
+        const draftPayloads: Array<{ scope?: string | null; payload: Record<string, unknown> }> = [
+          ...exportPayloads,
+          ...defaultAvailablePayloads,
+        ];
         const draft = await OneKycClientZkService.buildDraft({
           workflow: selected,
-          exportPayloads,
+          exportPayloads: draftPayloads,
         });
         if (!cancelled) {
           setLocalDrafts((current) => ({
@@ -760,7 +806,7 @@ function OneKycWorkspace() {
           }));
           setLocalExportPayloads((current) => ({
             ...current,
-            [selected.workflow_id]: exportPayloads,
+            [selected.workflow_id]: draftPayloads,
           }));
           setDraftRecoveryAttempts((current) =>
             removeKycWorkflowLocalState(current, selected.workflow_id),
@@ -814,6 +860,7 @@ function OneKycWorkspace() {
     localDrafts,
     refreshWorkflowState,
     selected,
+    selectedScopesByWorkflow,
     vaultKey,
     vaultOwnerToken,
   ]);

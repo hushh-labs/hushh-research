@@ -31,7 +31,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { Button } from "@/lib/morphy-ux/morphy";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import {
@@ -47,6 +46,7 @@ import type {
   PkmSectionPreviewPresentation,
 } from "@/lib/profile/pkm-section-preview";
 import type { PkmUpgradeDomainState } from "@/lib/services/personal-knowledge-model-service";
+import type { PkmVisibilityPosture } from "@/lib/services/personal-knowledge-model-service";
 import { cn } from "@/lib/utils";
 
 const listShellClassName = cn(
@@ -231,7 +231,7 @@ export function PkmDataManagerPanel({
           </SurfaceCardDescription>
         </SurfaceCardHeader>
         <SurfaceCardContent>
-          <Button onClick={onOpenImport}>Create vault</Button>
+          <Button type="button" onClick={onOpenImport}>Create vault</Button>
         </SurfaceCardContent>
       </SurfaceCard>
     );
@@ -274,8 +274,8 @@ export function PkmDataManagerPanel({
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          {!needsUnlock ? <Button onClick={onOpenSharing}>Manage sharing</Button> : null}
-          <Button variant="none" effect="fade" onClick={onRefresh}>
+          {!needsUnlock ? <Button type="button" onClick={onOpenSharing}>Manage sharing</Button> : null}
+          <Button type="button" variant="none" effect="fade" onClick={onRefresh}>
             <RefreshCw className="mr-2 h-4 w-4" />
             Refresh
           </Button>
@@ -436,7 +436,10 @@ export function PkmDomainDetailPanel({
   onPreviewOpenChange: (open: boolean) => void;
   onPreviewPermission: (permission: PkmDomainPermissionPresentation) => void;
   onDeletePreviewEntity?: (entity: PkmSectionPreviewEntity) => void;
-  onTogglePermission: (permission: PkmDomainPermissionPresentation, nextValue: boolean) => void;
+  onTogglePermission: (
+    permission: PkmDomainPermissionPresentation,
+    nextPosture: PkmVisibilityPosture
+  ) => void;
 }) {
   const updatedLabel = formatDomainRowTimestamp(domain.updatedAt);
   return (
@@ -525,6 +528,11 @@ export function PkmDomainDetailPanel({
             permissions.map((permission) => {
               const pending = pendingPermissionKeys?.includes(permission.key) ?? false;
               const disabled = pending || Boolean(permission.disabledReason);
+              const postureOptions: Array<{ value: PkmVisibilityPosture; label: string }> = [
+                { value: "private", label: "Private" },
+                { value: "consent_required", label: "Ask first" },
+                { value: "default_available", label: "Available by default" },
+              ];
               return (
                 <div
                   key={permission.key}
@@ -534,9 +542,10 @@ export function PkmDomainDetailPanel({
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-semibold text-foreground">{permission.label}</p>
-                        <Badge variant="outline">{permission.sensitivityTier}</Badge>
+                        <Badge variant="outline">{permission.stateLabel}</Badge>
                       </div>
                       <p className="text-sm leading-6 text-muted-foreground">{permission.description}</p>
+                      <p className="text-xs text-muted-foreground">{permission.stateDescription}</p>
                       <p className="text-xs text-muted-foreground">{permission.counterpartSummary}</p>
                       {permission.requesterLabels.length > 0 ? (
                         <div className="flex flex-wrap gap-2 pt-1">
@@ -553,6 +562,7 @@ export function PkmDomainDetailPanel({
                     </div>
                     <div className="flex shrink-0 items-center gap-2 pt-0.5">
                       <Button
+                        type="button"
                         variant="none"
                         effect="fade"
                         size="sm"
@@ -564,13 +574,26 @@ export function PkmDomainDetailPanel({
                       {pending ? (
                         <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
                       ) : null}
-                      <Switch
-                        checked={permission.exposureEnabled}
-                        onCheckedChange={(nextValue) => onTogglePermission(permission, nextValue)}
-                        disabled={disabled}
-                        aria-label={`Toggle ${permission.label} sharing`}
-                      />
                     </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {postureOptions.map((option) => {
+                      const active = permission.visibilityPosture === option.value;
+                      return (
+                        <Button
+                          key={option.value}
+                          type="button"
+                          variant={active ? "blue-gradient" : "none"}
+                          effect={active ? "fill" : "fade"}
+                          size="sm"
+                          disabled={disabled || active}
+                          onClick={() => onTogglePermission(permission, option.value)}
+                          aria-pressed={active}
+                        >
+                          {option.label}
+                        </Button>
+                      );
+                    })}
                   </div>
                 </div>
               );
@@ -772,7 +795,7 @@ export function PkmAccessConnectionDetailPanel({
               <p className="text-xs leading-5 text-muted-foreground">{grant.readableAccessLabel}</p>
               <p className="text-[11px] text-muted-foreground">Expires {formatTimestamp(grant.expiresAt)}</p>
             </div>
-            <Button variant="none" effect="fade" size="sm" onClick={() => void onRevokeAccess(grant.scope)}>
+            <Button type="button" variant="none" effect="fade" size="sm" onClick={() => void onRevokeAccess(grant.scope)}>
               Revoke
             </Button>
           </div>

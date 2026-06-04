@@ -25,6 +25,7 @@ import {
   Loader2,
   LogOut,
   Mail,
+  MapPin,
   Monitor,
   Phone,
   RefreshCw,
@@ -32,6 +33,7 @@ import {
   ShieldCheck,
   Trash2,
   User,
+  Volume2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -67,6 +69,7 @@ import {
   type ProfileStackEntry,
 } from "@/components/profile/profile-stack-navigator";
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
+import { RuntimeSecretSettingsCard } from "@/components/profile/runtime-secret-settings-card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   AlertDialog,
@@ -89,6 +92,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { useAuth } from "@/hooks/use-auth";
@@ -167,6 +177,7 @@ import {
   PersonalKnowledgeModelService,
   type PersonalKnowledgeModelMetadata,
   PkmScopeExposureError,
+  type PkmVisibilityPosture,
   type PkmUpgradeDomainState,
 } from "@/lib/services/personal-knowledge-model-service";
 import {
@@ -176,6 +187,13 @@ import {
 import { useVault } from "@/lib/vault/vault-context";
 import { resolveVaultAvailabilityState } from "@/lib/vault/vault-access-policy";
 import { useConsentActions } from "@/lib/consent";
+import {
+  AGENT_GEMINI_TTS_VOICES,
+  DEFAULT_AGENT_GEMINI_TTS_VOICE,
+  readAgentVoiceSettings,
+  writeAgentVoiceSettings,
+  type AgentGeminiTtsVoice,
+} from "@/lib/agent/agent-voice-settings";
 
 type ProfilePanel =
   | "account"
@@ -220,7 +238,7 @@ function cloneManifest(manifest: DomainManifest | null): DomainManifest | null {
 function applyManifestExposureChange(
   manifest: DomainManifest | null | undefined,
   target: { scopeHandle?: string | null; topLevelScopePath: string },
-  exposureEnabled: boolean,
+  visibilityPosture: PkmVisibilityPosture,
 ): DomainManifest | null | undefined {
   if (!manifest) return manifest;
   const nextManifest = cloneManifest(manifest);
@@ -244,7 +262,16 @@ function applyManifestExposureChange(
       updated = true;
       return {
         ...entry,
-        exposure_enabled: exposureEnabled,
+        exposure_enabled: visibilityPosture !== "private",
+        visibility_posture: visibilityPosture,
+        default_projection_ready:
+          visibilityPosture === "default_available"
+            ? entry.default_projection_ready === true
+            : false,
+        default_projection_updated_at:
+          visibilityPosture === "default_available"
+            ? entry.default_projection_updated_at || null
+            : null,
       };
     });
   }
@@ -256,6 +283,31 @@ function applyManifestExposureChange(
   }
 
   return updated ? nextManifest : manifest;
+}
+
+function defaultAvailableScopeForPermission(domainKey: string, topLevelScopePath: string): string {
+  return `attr.${domainKey}.${topLevelScopePath}.*`;
+}
+
+function buildDefaultAvailableProjectionPayload(params: {
+  domainKey: string;
+  domainTitle: string;
+  permission: {
+    label: string;
+    description?: string | null;
+    topLevelScopePath: string;
+  };
+  presentation: PkmSectionPreviewPresentation;
+}): Record<string, unknown> {
+  return {
+    projection_kind: "pkm_default_available_section_v1",
+    domain: params.domainKey,
+    domain_title: params.domainTitle,
+    section: params.permission.topLevelScopePath,
+    label: params.permission.label,
+    description: params.permission.description || null,
+    presentation: params.presentation,
+  };
 }
 
 function buildPkmEntityDeletionCandidate(
@@ -575,6 +627,9 @@ function ProfilePageContent() {
   const { registerSteps, completeStep, reset } = useStepProgress();
 
   const [showVaultUnlock, setShowVaultUnlock] = useState(false);
+  const [agentTtsVoice, setAgentTtsVoice] = useState<AgentGeminiTtsVoice>(() =>
+    readAgentVoiceSettings().ttsVoice
+  );
   const [vaultUnlockReason, setVaultUnlockReason] = useState<
     "profile_data" | "delete_account"
   >("profile_data");
@@ -2606,10 +2661,17 @@ function ProfilePageContent() {
       scopeHandle: string | null;
       topLevelScopePath: string;
       exposureEnabled: boolean;
+      visibilityPosture: PkmVisibilityPosture;
+      label: string;
+      description?: string | null;
     },
-    nextValue: boolean,
+    nextPosture: PkmVisibilityPosture,
   ) => {
     if (!user?.uid || !vaultOwnerToken) {
+      requestVaultUnlock("profile_data");
+      return;
+    }
+    if (nextPosture === "default_available" && !vaultKey) {
       requestVaultUnlock("profile_data");
       return;
     }
@@ -2627,7 +2689,7 @@ function ProfilePageContent() {
         scopeHandle: permission.scopeHandle,
         topLevelScopePath: permission.topLevelScopePath,
       },
-      nextValue,
+      nextPosture,
     );
 
     setPendingPermissionToggles((current) => ({
@@ -2641,6 +2703,31 @@ function ProfilePageContent() {
     setDomainManifestErrors((current) => ({ ...current, [domainKey]: null }));
 
     try {
+      let projectionPayload: Record<string, unknown> | null = null;
+      if (nextPosture === "default_available" && vaultKey) {
+        const sectionData = await PersonalKnowledgeModelService.loadDomainData({
+          userId: user.uid,
+          domain: domainKey,
+          vaultKey,
+          vaultOwnerToken,
+          segmentIds: [permission.topLevelScopePath],
+        });
+        const presentation = buildPkmSectionPreviewPresentation({
+          domain: domainKey,
+          domainTitle: selectedDomain?.title || domainKey,
+          permissionLabel: permission.label,
+          permissionDescription: permission.description || null,
+          topLevelScopePath: permission.topLevelScopePath,
+          value: sectionData,
+        });
+        projectionPayload = buildDefaultAvailableProjectionPayload({
+          domainKey,
+          domainTitle: selectedDomain?.title || domainKey,
+          permission,
+          presentation,
+        });
+      }
+
       const result = await PersonalKnowledgeModelService.updateScopeExposure({
         userId: user.uid,
         domain: domainKey,
@@ -2650,20 +2737,42 @@ function ProfilePageContent() {
           {
             scopeHandle: permission.scopeHandle || undefined,
             topLevelScopePath: permission.topLevelScopePath,
-            exposureEnabled: nextValue,
+            exposureEnabled: nextPosture !== "private",
+            visibilityPosture: nextPosture,
           },
         ],
       });
 
+      let updatedManifest = result.manifest ?? optimisticManifest ?? previousManifest;
+      if (nextPosture === "default_available" && projectionPayload) {
+        const projectionResult =
+          await PersonalKnowledgeModelService.publishDefaultAvailableProjection({
+            userId: user.uid,
+            domain: domainKey,
+            scope: defaultAvailableScopeForPermission(domainKey, permission.topLevelScopePath),
+            scopeHandle: permission.scopeHandle || undefined,
+            topLevelScopePath: permission.topLevelScopePath,
+            projectionPayload,
+            manifestVersion: result.manifestVersion ?? previousManifest.manifest_version,
+            vaultOwnerToken,
+            metadata: {
+              source: "profile_visibility_posture",
+            },
+          });
+        updatedManifest = projectionResult.manifest ?? updatedManifest;
+      }
+
       setDomainManifests((current) => ({
         ...current,
-        [domainKey]: result.manifest ?? optimisticManifest ?? previousManifest,
+        [domainKey]: updatedManifest,
       }));
       await Promise.all([refreshConsentCenter(true), refreshPkmMetadata(true)]);
       toast.success(
-        nextValue
-          ? "Sharing section is available for future approvals."
-          : "Sharing section is now hidden.",
+        nextPosture === "private"
+          ? "This section is private."
+          : nextPosture === "default_available"
+            ? "This section is available by default."
+            : "One will ask before sharing this section.",
       );
     } catch (error) {
       const message =
@@ -2727,40 +2836,51 @@ function ProfilePageContent() {
   ];
 
   const myDataContent = (
-    <PkmDataManagerPanel
-      signedIn={Boolean(user)}
-      loading={profileManagerLoading}
-      metadataReady={pkmMetadataReady}
-      metadataError={pkmError}
-      sharingReady={consentCenterReady}
-      sharingError={consentCenterError}
-      needsVaultCreation={vaultAccess.needsVaultCreation}
-      needsUnlock={vaultAccess.needsUnlock}
-      summary={profileSummary}
-      domains={domainPresentations}
-      manifestsByDomain={domainManifests}
-      loadingManifestsByDomain={loadingDomainManifests}
-      manifestErrorsByDomain={domainManifestErrors}
-      upgradeStatesByDomain={upgradeStatesByDomain}
-      onOpenSharing={() =>
-        updateProfileView({ panel: "access", detail: null }, "push")
-      }
-      onOpenImport={() => router.push(ROUTES.KAI_IMPORT)}
-      onRefresh={() => {
-        void refreshPkmMetadata(true);
-        void refreshConsentCenter(true);
-        void refreshVisibleDomainManifests(true);
-      }}
-      onOpenDomain={(domain) =>
-        updateProfileView(
-          {
-            panel: "my-data",
-            detail: `domain:${domain.key}`,
-          },
-          "push",
-        )
-      }
-    />
+    <div className="space-y-4 sm:space-y-5">
+      <RuntimeSecretSettingsCard
+        userId={user?.uid}
+        vaultKey={vaultKey}
+        vaultOwnerToken={vaultOwnerToken}
+        needsVaultCreation={vaultAccess.needsVaultCreation}
+        needsUnlock={vaultAccess.needsUnlock}
+        onRequestVaultUnlock={() => requestVaultUnlock("profile_data")}
+        onRequestVaultCreation={() => setShowVaultCreation(true)}
+      />
+      <PkmDataManagerPanel
+        signedIn={Boolean(user)}
+        loading={profileManagerLoading}
+        metadataReady={pkmMetadataReady}
+        metadataError={pkmError}
+        sharingReady={consentCenterReady}
+        sharingError={consentCenterError}
+        needsVaultCreation={vaultAccess.needsVaultCreation}
+        needsUnlock={vaultAccess.needsUnlock}
+        summary={profileSummary}
+        domains={domainPresentations}
+        manifestsByDomain={domainManifests}
+        loadingManifestsByDomain={loadingDomainManifests}
+        manifestErrorsByDomain={domainManifestErrors}
+        upgradeStatesByDomain={upgradeStatesByDomain}
+        onOpenSharing={() =>
+          updateProfileView({ panel: "access", detail: null }, "push")
+        }
+        onOpenImport={() => router.push(ROUTES.KAI_IMPORT)}
+        onRefresh={() => {
+          void refreshPkmMetadata(true);
+          void refreshConsentCenter(true);
+          void refreshVisibleDomainManifests(true);
+        }}
+        onOpenDomain={(domain) =>
+          updateProfileView(
+            {
+              panel: "my-data",
+              detail: `domain:${domain.key}`,
+            },
+            "push",
+          )
+        }
+      />
+    </div>
   );
 
   const accessContent = (
@@ -2787,6 +2907,15 @@ function ProfilePageContent() {
       />
 
       <SettingsGroup>
+        <SettingsRow
+          icon={MapPin}
+          title="Location sharing"
+          description="Share, request, and revoke encrypted live-location access."
+          trailing={<Badge variant="secondary">One</Badge>}
+          chevron
+          stackTrailingOnMobile
+          onClick={() => router.push(ROUTES.ONE_LOCATION)}
+        />
         <SettingsRow
           icon={ExternalLink}
           title="Consent center"
@@ -2898,6 +3027,38 @@ function ProfilePageContent() {
           title="Appearance"
           description="Light, dark, or system."
           trailing={<ThemeToggle className="w-full min-w-0 sm:w-[228px]" />}
+          stackTrailingOnMobile
+        />
+        <SettingsRow
+          icon={Volume2}
+          title="Agent voice"
+          description="Choose the Gemini TTS voice Agent uses for spoken replies on this device."
+          trailing={
+            <Select
+              value={agentTtsVoice}
+              onValueChange={(value) => {
+                const next = writeAgentVoiceSettings({
+                  ttsVoice: value as AgentGeminiTtsVoice,
+                }).ttsVoice;
+                setAgentTtsVoice(next);
+                toast.success(`Agent voice set to ${next}.`);
+              }}
+            >
+              <SelectTrigger
+                className="w-full min-w-[11rem] sm:w-[228px]"
+                aria-label="Agent TTS voice"
+              >
+                <SelectValue placeholder={DEFAULT_AGENT_GEMINI_TTS_VOICE} />
+              </SelectTrigger>
+              <SelectContent>
+                {AGENT_GEMINI_TTS_VOICES.map((voice) => (
+                  <SelectItem key={voice} value={voice}>
+                    {voice}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          }
           stackTrailingOnMobile
         />
         <SettingsRow
@@ -3477,11 +3638,11 @@ function ProfilePageContent() {
             onDeletePreviewEntity={(entity) =>
               void handleDeletePkmPreviewEntity(entity)
             }
-            onTogglePermission={(permission, nextValue) =>
+            onTogglePermission={(permission, nextPosture) =>
               void handleToggleDomainPermission(
                 selectedDomain.key,
                 permission,
-                nextValue,
+                nextPosture,
               )
             }
           />

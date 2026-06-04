@@ -22,6 +22,12 @@ export interface OneKycScopeCandidate {
   reason?: string;
   recommended?: boolean;
   sensitivity?: string;
+  path?: string | null;
+  wildcard?: boolean;
+  source_kind?: string | null;
+  visibility_posture?: "private" | "consent_required" | "default_available";
+  default_projection_ready?: boolean;
+  default_projection_updated_at?: string | null;
 }
 
 export interface OneKycConsentRequest {

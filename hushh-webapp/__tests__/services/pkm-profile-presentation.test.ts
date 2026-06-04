@@ -77,12 +77,60 @@ describe("pkm profile presentation", () => {
         key: "financial:portfolio",
         label: "Portfolio",
         exposureEnabled: true,
+        visibilityPosture: "consent_required",
+        defaultProjectionReady: false,
+        stateLabel: "Ask first",
         requesterLabels: ["Planner Pro"],
         includesBroadAccess: true,
       }),
     ]);
     expect(permissions[0]?.counterpartSummary).toContain("broad or direct access");
     expect(permissions).toHaveLength(1);
+  });
+
+  it("presents default-available posture as a plain-language sharing state", () => {
+    const permissions = buildPkmDomainPermissionPresentation({
+      domain,
+      manifest: {
+        domain: "financial",
+        manifest_version: 4,
+        domain_contract_version: 2,
+        readable_summary_version: 1,
+        summary_projection: {},
+        top_level_scope_paths: ["portfolio"],
+        externalizable_paths: [],
+        paths: [],
+        scope_registry: [
+          {
+            scope_handle: "financial.portfolio",
+            scope_label: "Portfolio",
+            segment_ids: ["portfolio"],
+            sensitivity_tier: "confidential",
+            exposure_enabled: true,
+            visibility_posture: "default_available",
+            default_projection_ready: true,
+            default_projection_updated_at: "2026-05-21T10:00:00Z",
+            summary_projection: {
+              top_level_scope_path: "portfolio",
+            },
+          },
+        ],
+      },
+      activeGrants: [],
+      upgradeState: null,
+    });
+
+    expect(permissions).toEqual([
+      expect.objectContaining({
+        label: "Portfolio",
+        exposureEnabled: true,
+        visibilityPosture: "default_available",
+        defaultProjectionReady: true,
+        defaultProjectionUpdatedAt: "2026-05-21T10:00:00Z",
+        stateLabel: "Available by default",
+      }),
+    ]);
+    expect(permissions[0]?.stateDescription).not.toMatch(/scope|manifest|registry|PKM/i);
   });
 
   it("keeps upgrade compatibility separate from manifest concurrency", () => {

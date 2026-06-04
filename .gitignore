@@ -65,10 +65,16 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*$py.class
 .Python
 env/
+ENV/
 venv/
 .venv/
+virtualenv/
+.virtualenv/
+.tox/
+.nox/
 !scripts/env/
 !scripts/env/*.sh
 Pipfile.lock
@@ -77,6 +83,7 @@ Pipfile.lock
 .pytest_cache/
 .coverage
 .coverage.*
+htmlcov/
 
 # System
 Thumbs.db
@@ -91,6 +98,7 @@ tmp/
 /test-results/
 hushh-webapp/test-results/
 hushh-webapp/npm-audit-report.json
+hushh-webapp/native-ios-screenshots/
 **/build.log
 
 # Local debug/runtime artifacts
@@ -129,6 +137,13 @@ Personal_Tasks/
 *.key
 *credentials*.json
 *secret*.json
+
+# Private partner gateway handoff material
+deploy/mulesoft/
+docs/reference/operations/mulesoft-managed-omni-private-space.md
+**/vpn-guides/
+**/*vpn*guide*
+**/*private-space*handoff*
 
 # Local validation scripts
 test_kai_endpoints.py

@@ -16,6 +16,8 @@ flowchart TD
   root --> n14
   n10["Kai Voice Runtime Architecture"]
   root --> n10
+  n15["Agent Chained Voice Architecture"]
+  root --> n15
   n11["Kai Voice Migration Audit"]
   root --> n11
   n2["Kai Brokerage Connectivity Architecture"]
@@ -60,6 +62,7 @@ Brand and compatibility rule: [../operations/brand-and-compatibility-contract.md
 - [kai-voice-action-coverage-audit.md](./kai-voice-action-coverage-audit.md): current audit of what Kai voice can actually trigger and where screen/button/action coverage is incomplete.
 - [kai-change-impact-matrix.md](./kai-change-impact-matrix.md): blast-radius guide for Kai changes.
 - [kai-voice-runtime-architecture.md](./kai-voice-runtime-architecture.md): canonical current runtime architecture for Kai voice, including English-only STT/realtime/TTS policy, planner, compose, execution, settlement, and how the generated action gateway is consumed at runtime.
+- [agent-chained-voice-architecture.md](./agent-chained-voice-architecture.md): Agent popup voice chain using Gemini STT/TTS around the existing text Agent, including transient audio boundaries, app-wide voice state, settings, and kill switches.
 - [kai-brokerage-connectivity-architecture.md](./kai-brokerage-connectivity-architecture.md): brokerage and import architecture.
 - [kai-accuracy-contract.md](./kai-accuracy-contract.md): accuracy and output expectations.
 - [kai-route-audit-matrix.md](./kai-route-audit-matrix.md): route-level audit map.

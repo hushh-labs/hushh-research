@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Kai</string>
+	<string>One</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Kai</string>
+	<string>One</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -43,7 +43,11 @@
 		<true/>
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Kai uses the microphone only when you start a voice command.</string>
+	<string>One uses the microphone only when you start a voice command.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>One uses foreground location only when you choose to share an encrypted live-location update.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>One uses contacts only when you choose to find people already on Hushh.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

@@ -1088,6 +1088,7 @@ export class AuthService {
 
     const message = String((error as { message?: unknown })?.message ?? "").toLowerCase();
     if (message.includes("credential-already-in-use")) return "credential-already-in-use";
+    if (message.includes("phone-number-already-exists")) return "phone-number-already-exists";
     if (message.includes("provider-already-linked")) return "provider-already-linked";
     if (message.includes("requires-recent-login")) return "requires-recent-login";
     if (message.includes("invalid-app-credential")) return "invalid-app-credential";
@@ -1116,10 +1117,10 @@ export class AuthService {
       );
     }
 
-    if (code === "credential-already-in-use") {
+    if (code === "credential-already-in-use" || code === "phone-number-already-exists") {
       return this.createPhoneVerificationError(
         code,
-        "This phone number is already associated with another account."
+        "This phone number is already associated with another active account. If the account was just deleted, wait a moment and try again."
       );
     }
 
