@@ -10,7 +10,8 @@ vi.mock("@/lib/services/api-service", () => ({
   },
 }));
 
-import { ApiError, apiJson } from "@/lib/services/api-client";
+import { ApiError, apiJson, MAX_RESPONSE_BYTES } from "@/lib/services/api-client";
+import { ApiService } from "@/lib/services/api-service";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -143,5 +144,99 @@ describe("apiJson", () => {
       message: "Request failed: 502",
       status: 502,
     } satisfies Partial<ApiError>);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// apiJson — response size boundary enforcement (CWE-400)
+// ---------------------------------------------------------------------------
+
+describe("apiJson — MAX_RESPONSE_BYTES Content-Length guard", () => {
+  beforeEach(() => {
+    vi.clearAllMocks(); 
+  });
+  it("allows responses when Content-Length header is absent", async () => {
+      const response = jsonResponse({ ok: true });
+      vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(response);
+      await expect(apiJson("/api/test")).resolves.toEqual({ ok: true });
+  }); 
+
+  function responseWithContentLength(
+    body: unknown,
+    status: number,
+    contentLength: number | null
+  ): Response {
+    const serialised = JSON.stringify(body);
+
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+    };
+
+    if (contentLength !== null) {
+      headers["content-length"] = String(contentLength);
+    }
+
+    return new Response(serialised, { status, headers });
+  }
+
+  it("throws ApiError when Content-Length exceeds MAX_RESPONSE_BYTES", async () => {
+    const oversizeBytes = MAX_RESPONSE_BYTES + 1;
+
+    mockApiFetch.mockResolvedValueOnce(
+      responseWithContentLength({ data: "truncated" }, 200, oversizeBytes)
+    );
+
+    await expect(apiJson("/api/data")).rejects.toMatchObject({
+      name: "ApiError",
+      message: expect.stringContaining(String(oversizeBytes)),
+    } satisfies Partial<ApiError>);
+  });
+
+  it("throws ApiError with the correct response status when size limit exceeded", async () => {
+    mockApiFetch.mockResolvedValueOnce(
+      responseWithContentLength({ data: "x" }, 200, MAX_RESPONSE_BYTES + 1024)
+    );
+
+    await expect(apiJson("/api/data")).rejects.toMatchObject({
+      status: 200,
+    } satisfies Partial<ApiError>);
+  });
+
+  it("allows response exactly at MAX_RESPONSE_BYTES boundary", async () => {
+    mockApiFetch.mockResolvedValueOnce(
+      responseWithContentLength({ ok: true }, 200, MAX_RESPONSE_BYTES)
+    );
+
+    await expect(apiJson("/api/data")).resolves.toEqual({ ok: true });
+  });
+
+  it("allows response well within MAX_RESPONSE_BYTES", async () => {
+    mockApiFetch.mockResolvedValueOnce(
+      responseWithContentLength({ result: "small" }, 200, 512)
+    );
+
+    await expect(apiJson("/api/data")).resolves.toEqual({ result: "small" });
+  });
+
+  it("skips size check when Content-Length header is absent", async () => {
+    mockApiFetch.mockResolvedValueOnce(
+      responseWithContentLength({ result: "no-length" }, 200, null)
+    );
+
+    await expect(apiJson("/api/data")).resolves.toEqual({ result: "no-length" });
+  });
+
+  it("skips size check when Content-Length is not a valid number", async () => {
+    const res = new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "content-length": "not-a-number",
+      },
+    });
+
+    mockApiFetch.mockResolvedValueOnce(res);
+
+    await expect(apiJson("/api/data")).resolves.toEqual({ ok: true });
   });
 });
