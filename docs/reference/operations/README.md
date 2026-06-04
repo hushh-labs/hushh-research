@@ -116,7 +116,6 @@ Use `github-contribution-governance` when contribution graph visibility, verifie
 - [observability-event-matrix.md](./observability-event-matrix.md): event taxonomy, emitter map, and dashboard contract.
 - [production-db-backup-and-recovery.md](./production-db-backup-and-recovery.md): production DB recovery guide.
 - [hussh-code-persona.md](./hussh-code-persona.md): durable Hussh engineering and Codex product non-deviation contract.
-- [mulesoft-managed-omni-private-space.md](./mulesoft-managed-omni-private-space.md): current MuleSoft Managed Omni Gateway private-space handoff, live GCP foundation, CIDR/DNS/VPN posture, and acceptance criteria.
 - [coding-agent-mcp.md](./coding-agent-mcp.md): MCP host operations for local engineering environments.
 - [subtree-maintainers.md](./subtree-maintainers.md): maintainer-only subtree sync and upstream coordination.
 - [`../../../consent-protocol/scripts/README.md`](../../../consent-protocol/scripts/README.md): maintainer-only backend script map and when to use it.

@@ -94,13 +94,7 @@ They must not become:
 
 For the current MuleSoft setup discussion, use Managed Omni Gateway in CloudHub 2.0 Private Spaces rather than a self-managed gateway inside Hussh GCP.
 
-Partner intake values live in [MuleSoft Managed Omni Gateway Private Space Handoff](../../reference/operations/mulesoft-managed-omni-private-space.md). The approved starting posture is:
-
-- Private Space region: `US East (Ohio)` for Non-Prod and Prod private connectivity paths, aligned to GCP `us-east5`.
-- Non-Prod Private Space CIDR: `10.81.0.0/22`.
-- Prod Private Space CIDR: `10.91.0.0/22`.
-- Internal DNS server IPs: pending until Hussh provisions Cloud DNS inbound forwarding.
-- VPN: separate Non-Prod and Prod HA VPN connections with Cloud Router/BGP.
+Live partner gateway handoff values are not stored in this public repo. Keep private CIDRs, VPN endpoints, DNS resolver IPs, tunnel values, and peer material in approved secret-managed operational systems only.
 
 This handoff is network readiness, not consent authority. MuleSoft may route approved partner requests to Hussh; Hussh still validates app, actor, user, scope, expiry, revocation, and audit state before returning a consent status or encrypted scoped export.
 
