@@ -175,6 +175,15 @@ describe("sanitizeErrorMessage — error category classification", () => {
 
     process.env.NODE_ENV = originalEnv;
   });
+      it("does not extract error codes with surrounding whitespace", () => {
+    const error = new Error(
+      "   VAULT_REQUIRED: Please unlock your vault first   "
+    );
+
+    const code = extractErrorCode(error);
+
+    expect(code).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
