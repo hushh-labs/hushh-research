@@ -190,6 +190,12 @@ export const Navbar = () => {
     ? "profile"
     : normalizedPathname.startsWith(ROUTES.CONSENTS)
     ? "profile"
+    : normalizedPathname === ROUTES.ONE_KYC
+    ? "profile"
+    : normalizedPathname.startsWith(ROUTES.AGENT)
+    ? activePersona === "ria"
+      ? activeRiaRouteTabFromPath(normalizedPathname)
+      : activeKaiRouteTabFromPath(normalizedPathname)
     : activePersona === "ria"
     ? activeRiaRouteTabFromPath(normalizedPathname)
     : activeKaiRouteTabFromPath(normalizedPathname);
@@ -218,7 +224,7 @@ export const Navbar = () => {
         router.push(ROUTES.KAI_DASHBOARD);
         return;
       case "analysis":
-        router.push(`${ROUTES.KAI_ANALYSIS}?tab=history`);
+        router.push(ROUTES.KAI_ANALYSIS);
         return;
       case "connect":
         router.push(ROUTES.MARKETPLACE);

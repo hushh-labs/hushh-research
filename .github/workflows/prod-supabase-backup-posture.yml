@@ -17,6 +17,7 @@ env:
 jobs:
   backup-posture:
     name: Daily Logical Backup Posture Check
+    if: github.repository == 'hushh-labs/hushh-research'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 

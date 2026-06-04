@@ -27,6 +27,17 @@ def client() -> TestClient:
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def active_fixture_vault_owner_grants(monkeypatch):
+    """Route-matrix tokens are issued locally; model their DB grant as active."""
+    from hushh_mcp.services.consent_db import ConsentDBService
+
+    async def _active(self, user_id: str, scope: str, agent_id: str | None = None) -> bool:
+        return True
+
+    monkeypatch.setattr(ConsentDBService, "is_token_active", _active)
+
+
 def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
@@ -435,6 +446,24 @@ class TestKaiChatKeyEndpoints:
         )
         assert response.status_code not in {401, 403}
 
+    def test_chat_user_id_is_bounded(self, client, vault_owner_token_for_user):
+        token = vault_owner_token_for_user("user_a")
+        response = client.post(
+            "/api/kai/chat",
+            json={"user_id": "u" * 129, "message": "hello"},
+            headers=_auth(token),
+        )
+        assert response.status_code == 422
+
+    def test_chat_conversation_id_is_bounded(self, client, vault_owner_token_for_user):
+        token = vault_owner_token_for_user("user_a")
+        response = client.post(
+            "/api/kai/chat",
+            json={"user_id": "user_a", "message": "hello", "conversation_id": "c" * 129},
+            headers=_auth(token),
+        )
+        assert response.status_code == 422
+
     def test_chat_history_missing_token_returns_401(self, client):
         response = client.get("/api/kai/chat/history/conv_123")
         assert response.status_code == 401
@@ -449,6 +478,27 @@ class TestKaiChatKeyEndpoints:
         token = vault_owner_token_for_user("user_a")
         response = client.get("/api/kai/chat/history/conv_123", headers=_auth(token))
         assert response.status_code not in {401, 403}
+
+    def test_chat_history_limit_is_bounded(
+        self, client, vault_owner_token_for_user, stub_kai_chat_service
+    ):
+        token = vault_owner_token_for_user("user_a")
+        response = client.get(
+            "/api/kai/chat/history/conv_123",
+            params={"limit": 501},
+            headers=_auth(token),
+        )
+        assert response.status_code == 422
+
+    def test_chat_history_conversation_id_is_bounded(
+        self, client, vault_owner_token_for_user, stub_kai_chat_service
+    ):
+        token = vault_owner_token_for_user("user_a")
+        response = client.get(
+            f"/api/kai/chat/history/{'c' * 129}",
+            headers=_auth(token),
+        )
+        assert response.status_code == 422
 
     def test_chat_history_user_mismatch_returns_403(
         self, client, vault_owner_token_for_user, stub_kai_chat_service
@@ -483,6 +533,24 @@ class TestKaiChatKeyEndpoints:
         token = vault_owner_token_for_user("user_a")
         response = client.get("/api/kai/chat/conversations/user_a", headers=_auth(token))
         assert response.status_code not in {401, 403}
+
+    def test_chat_conversations_pagination_is_bounded(
+        self, client, vault_owner_token_for_user, stub_kai_chat_service
+    ):
+        token = vault_owner_token_for_user("user_a")
+        too_large = client.get(
+            "/api/kai/chat/conversations/user_a",
+            params={"limit": 201},
+            headers=_auth(token),
+        )
+        negative_offset = client.get(
+            "/api/kai/chat/conversations/user_a",
+            params={"offset": -1},
+            headers=_auth(token),
+        )
+
+        assert too_large.status_code == 422
+        assert negative_offset.status_code == 422
 
     def test_chat_initial_state_missing_token_returns_401(self, client):
         response = client.get("/api/kai/chat/initial-state/user_a")

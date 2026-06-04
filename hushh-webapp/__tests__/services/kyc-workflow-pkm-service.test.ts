@@ -65,6 +65,34 @@ describe("KycWorkflowPkmService", () => {
     expect(result.artifact).not.toHaveProperty("email.address");
   });
 
+  it("stores sent reply snapshots inside the workflow artifact only", () => {
+    const result = KycWorkflowPkmService.readWorkflowArtifact({
+      sent_replies: {
+        wf_1: {
+          workflow_id: "wf_1",
+          subject: "Re: portfolio",
+          body: "I am replying on behalf of Kushal Trivedi.\n\nBest,\nhussh One",
+          html_body: "<p>I am replying on behalf of Kushal Trivedi.</p>",
+          to: ["recipient@example.com"],
+          cc: ["cc@example.com"],
+          sent_at: "2026-05-18T00:00:00.000Z",
+          draft_hash: "draft-hash",
+          schema_version: 1,
+        },
+      },
+    });
+
+    expect(result.found).toBe(true);
+    expect(result.artifact?.sent_replies?.wf_1).toMatchObject({
+      workflow_id: "wf_1",
+      subject: "Re: portfolio",
+      to: ["recipient@example.com"],
+      cc: ["cc@example.com"],
+      schema_version: 1,
+    });
+    expect(result.artifact?.sent_replies?.wf_1.body).toContain("hussh One");
+  });
+
   it("hashes the approved artifact and preserves existing workflow checks during PKM merge", async () => {
     const artifact = buildKycWorkflowArtifact(
       {
