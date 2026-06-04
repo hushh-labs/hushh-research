@@ -57,6 +57,27 @@ describe("DataTable", () => {
     expect(screen.queryByText(/showing/i)).toBeNull();
   });
 
+  it("preserves whitespace-only search filter behavior", () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={makeRows(3)}
+        enableSearch
+        searchPlaceholder="Search rows"
+        initialPageSize={8}
+        pageSizeOptions={[8, 16, 24]}
+      />
+    );
+
+    const search = screen.getByPlaceholderText("Search rows");
+
+    fireEvent.change(search, { target: { value: "   " } });
+
+    expect(screen.getByText("Row 1")).toBeTruthy();
+    expect(screen.getByText("Row 2")).toBeTruthy();
+    expect(screen.getByText("Row 3")).toBeTruthy();
+    expect(screen.queryByText("No results.")).toBeNull();
+  });
   it("preserves accessible search input behavior", () => {
     render(
       <DataTable
@@ -66,7 +87,9 @@ describe("DataTable", () => {
       />
     );
 
-    const searchInput = screen.getByRole("textbox", { name: "Search table" });
+    const searchInput = screen.getByRole("textbox", {
+      name: "Search table",
+    });
 
     expect(searchInput).toBeTruthy();
     expect(searchInput.getAttribute("placeholder")).toBe("Search records");
