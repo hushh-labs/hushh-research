@@ -68,7 +68,7 @@ export function buildMarketplaceConnectionsRoute(entries?: {
   tab?: "pending" | "active" | "previous" | null;
   selected?: string | null;
 }) {
-  return withQuery(ROUTES.CONSENTS, {
+  return withQuery(ROUTES.MARKETPLACE_CONNECTIONS, {
     tab: entries?.tab,
     selected: entries?.selected,
   });

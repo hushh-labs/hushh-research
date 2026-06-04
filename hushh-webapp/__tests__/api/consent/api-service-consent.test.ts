@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// Move mocks to the top-level scope to ensure they apply before imports
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
     isNativePlatform: () => false,
@@ -26,14 +27,18 @@ vi.mock("@/lib/services/auth-service", () => ({
   },
 }));
 
+// Import ApiService once at the top to avoid re-importing issues inside tests
+import { ApiService } from "../../../lib/services/api-service";
+
 describe("ApiService consent token plumbing", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // Re-mock global fetch to clear spy state before each test
+    vi.stubGlobal("fetch", vi.fn());
   });
 
   it("fails fast for protected consent methods when token is missing", async () => {
-    const { ApiService } = await import("../../../lib/services/api-service");
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const fetchSpy = vi.mocked(globalThis.fetch);
 
     const pendingRes = await ApiService.getPendingConsents("user_123", "");
     const historyRes = await ApiService.getConsentHistory("user_123", "", 1, 50);
@@ -56,8 +61,7 @@ describe("ApiService consent token plumbing", () => {
   });
 
   it("sends Authorization header when token is provided", async () => {
-    const { ApiService } = await import("../../../lib/services/api-service");
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    const fetchSpy = vi.mocked(globalThis.fetch).mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -81,9 +85,7 @@ describe("ApiService consent token plumbing", () => {
     expect(calls.length).toBeGreaterThanOrEqual(4);
 
     for (const [, options] of calls) {
-      const headers = (options as RequestInit).headers as
-        | Record<string, string>
-        | undefined;
+      const headers = (options as RequestInit).headers as Record<string, string>;
       expect(headers?.Authorization).toBe("Bearer vault_token_abc");
     }
   });

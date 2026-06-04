@@ -45,12 +45,12 @@ export function useDebouncedValue<T>(value: T, delayMs: number): T {
         ? delayMs
         : 0;
 
-    const timer = window.setTimeout(() => {
+    const timer = setTimeout(() => {
       setDebounced(value);
     }, clampedDelay);
 
     return () => {
-      window.clearTimeout(timer);
+      clearTimeout(timer);
     };
   }, [value, delayMs]);
 
