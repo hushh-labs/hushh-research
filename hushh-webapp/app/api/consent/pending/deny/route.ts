@@ -12,6 +12,18 @@ import { getPythonApiUrl } from "@/app/api/_utils/backend";
 
 const BACKEND_URL = getPythonApiUrl();
 
+/**
+ * Exhaustive list of structured denial categories accepted by this endpoint.
+ * Any denial reason not in this list is rejected before reaching the backend.
+ */
+const APPROVED_DENIAL_REASONS = [
+  "user-declined",
+  "scope-too-broad",
+  "policy-violation",
+  "expired-request",
+  "duplicate-request",
+] as const;
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -23,6 +35,28 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // ── Denial-reason guard (inline, default-deny) ────────────────────────────
+    // `reason` is required — a denial without a structured reason is
+    // indistinguishable from a silent drop and cannot be audited downstream.
+    // Must be an exact match in APPROVED_DENIAL_REASONS; no helper import.
+    const rawReason = (body as Record<string, unknown>).reason;
+    if (
+      rawReason === undefined ||
+      rawReason === null ||
+      typeof rawReason !== "string" ||
+      rawReason.trim() === "" ||
+      !(APPROVED_DENIAL_REASONS as readonly string[]).includes(rawReason)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "reason is required and must be one of the approved denial categories",
+        },
+        { status: 400 }
+      );
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     // Forward Authorization header (VAULT_OWNER token)
     const authHeader = request.headers.get("Authorization");
