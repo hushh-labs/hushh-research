@@ -78,9 +78,9 @@ function readVoiceActionIds(contractFile) {
   const payload = readJson(path.join(appRoot, contractFile));
   return Array.isArray(payload.actions)
     ? payload.actions
-        .map((action) => action?.action_id)
-        .filter((actionId) => typeof actionId === "string" && actionId.trim())
-        .sort()
+      .map((action) => action?.action_id)
+      .filter((actionId) => typeof actionId === "string" && actionId.trim())
+      .sort()
     : [];
 }
 
@@ -195,7 +195,7 @@ function buildSurfaceMap() {
 
   return {
     schema_version: "hushh.frontend_native_surface_map.v1",
-    generated_at: "2026-05-21",
+    generated_at: new Date().toISOString().slice(0, 10),
     purpose:
       "Scaffolded contract mapping app routes to Next.js API, backend, native parity, plugin, and voice/action surfaces.",
     sources: {
@@ -218,11 +218,11 @@ function buildSurfaceMap() {
         physical_page_exists: Boolean(pageFile),
         route_contract: routeContractEntry
           ? {
-              mode: routeContractEntry.mode,
-              exemption_reason: routeContractEntry.exemptionReason || null,
-              shell_verification_file: routeContractEntry.shellVerification?.file || null,
-              shell_verification_includes: routeContractEntry.shellVerification?.includes || [],
-            }
+            mode: routeContractEntry.mode,
+            exemption_reason: routeContractEntry.exemptionReason || null,
+            shell_verification_file: routeContractEntry.shellVerification?.file || null,
+            shell_verification_includes: routeContractEntry.shellVerification?.includes || [],
+          }
           : null,
         native: inventoryByRoute.get(route) || null,
         shell: shellForPage(pageFile),
