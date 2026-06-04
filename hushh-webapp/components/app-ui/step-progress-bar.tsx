@@ -63,11 +63,6 @@ export function StepProgressBar() {
 
   return (
     <div
-      role="progressbar"
-      aria-label="Page loading progress"
-      aria-valuenow={displayProgress}
-      aria-valuemin={0}
-      aria-valuemax={100}
       aria-live="polite"
       className={cn(
         "fixed left-0 right-0 top-0 flex justify-center pointer-events-none transform-gpu",
@@ -80,6 +75,7 @@ export function StepProgressBar() {
       }}
     >
       <Progress
+        aria-label="Page loading progress"
         value={displayProgress}
         className="h-1 w-full rounded-none bg-transparent"
       />
