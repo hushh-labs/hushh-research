@@ -7,6 +7,7 @@ vi.mock("@/lib/services/api-service", () => ({
 }));
 
 import {
+  getAgentVoiceEndSilenceThresholdMs,
   getAgentVoiceStartErrorMessage,
   shouldConfirmAgentVoiceTranscript,
   transcribeAgentVoice,
@@ -99,5 +100,10 @@ describe("agent voice client", () => {
     expect(
       getAgentVoiceStartErrorMessage(new DOMException("busy", "NotReadableError"))
     ).toContain("already in use");
+  });
+
+  it("uses a shorter end-of-speech window after established speech", () => {
+    expect(getAgentVoiceEndSilenceThresholdMs(250)).toBe(1200);
+    expect(getAgentVoiceEndSilenceThresholdMs(900)).toBe(850);
   });
 });
