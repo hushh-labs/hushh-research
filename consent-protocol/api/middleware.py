@@ -263,7 +263,11 @@ async def require_vault_owner_token(
     )
 
     if not valid or not token_obj:
-        logger.warning("Token validation failed: %s", reason)
+        # Log only the sanitized path so tracking params never appear in log output.
+        _sanitized_path = (
+            getattr(request.state, "sanitized_url", None) if request is not None else None
+        )
+        logger.warning("Token validation failed: %s path=%s", reason, _sanitized_path)
         raise _auth_error("Token validation failed.")
 
     return _token_data_dict(token, token_obj)
@@ -291,7 +295,16 @@ def require_consent_scope(required_scope: str | ConsentScope):
         )
 
         if not valid or not token_obj:
-            logger.warning("Scoped token validation failed for %s: %s", required_scope, reason)
+            # Log only the sanitized path so tracking params never appear in log output.
+            _sanitized_path = (
+                getattr(request.state, "sanitized_url", None) if request is not None else None
+            )
+            logger.warning(
+                "Scoped token validation failed for %s: %s path=%s",
+                required_scope,
+                reason,
+                _sanitized_path,
+            )
             raise _auth_error("Token validation failed.")
 
         return _token_data_dict(token, token_obj)

@@ -260,3 +260,78 @@ async def test_require_vault_owner_token_sanitizes_url_before_processing(monkeyp
     assert hasattr(request.state, "sanitized_url")
     assert "fbclid"       not in request.state.sanitized_url
     assert "requestId=req-1" in request.state.sanitized_url
+
+
+# ── Consumption proof: sanitized_url is what the middleware actually emits ────
+# The two tests below prove that the sanitized path — not the raw URL — is
+# what the middleware forwards to downstream log consumers when a request is
+# rejected.  This closes the "no consumer for sanitized_url" gap identified
+# in the code review.
+
+
+@pytest.mark.asyncio
+async def test_vault_owner_token_rejection_logs_sanitized_path_not_tracking_params(
+    monkeypatch, caplog
+):
+    """When require_vault_owner_token rejects a request, the warning log must
+    contain the sanitized path (without tracking params), never the raw URL."""
+    import logging
+
+    async def _fake_validate(token, scope):
+        return (False, "Token expired", None)
+
+    monkeypatch.setattr(middleware, "validate_token_with_db", _fake_validate)
+
+    request = _make_request(
+        "/api/consent/pending/approve",
+        [("fbclid", "adclick-sentinel"), ("requestId", "req-proof-1")],
+    )
+
+    with pytest.raises(HTTPException):
+        with caplog.at_level(logging.WARNING, logger="api.middleware"):
+            await middleware.require_vault_owner_token(
+                request=request,
+                authorization="Bearer expired-token",
+            )
+
+    combined = " ".join(caplog.messages)
+    # Tracking param value must never surface in any log output.
+    assert "fbclid" not in combined, "tracking param key leaked into log"
+    assert "adclick-sentinel" not in combined, "tracking param value leaked into log"
+    # The clean application param IS present — sanitized_url was consumed.
+    assert "requestId=req-proof-1" in combined
+
+
+@pytest.mark.asyncio
+async def test_scoped_token_rejection_logs_sanitized_path_not_tracking_params(
+    monkeypatch, caplog
+):
+    """When require_consent_scope rejects a request, the warning log must
+    contain the sanitized path (without tracking params), never the raw URL."""
+    import logging
+
+    async def _fake_validate(token, scope):
+        return (False, "Token expired", None)
+
+    monkeypatch.setattr(middleware, "validate_token_with_db", _fake_validate)
+
+    request = _make_request(
+        "/api/kai/analyze",
+        [("utm_source", "email-campaign"), ("tab", "active")],
+    )
+
+    scoped_dep = middleware.require_consent_scope("attr.financial.*")
+
+    with pytest.raises(HTTPException):
+        with caplog.at_level(logging.WARNING, logger="api.middleware"):
+            await scoped_dep(
+                request=request,
+                authorization="Bearer Bearer expired-token",
+            )
+
+    combined = " ".join(caplog.messages)
+    # UTM tracking param must never surface in log output.
+    assert "utm_source" not in combined, "tracking param key leaked into log"
+    assert "email-campaign" not in combined, "tracking param value leaked into log"
+    # The clean application param IS present — sanitized path was consumed.
+    assert "tab=active" in combined
