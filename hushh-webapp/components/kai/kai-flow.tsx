@@ -515,14 +515,6 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
     parse_fallback: normalized.parse_fallback === true,
   };
 
-  console.log("[KaiFlow] Final normalized data:", {
-    holdingsCount: result.holdings?.length || 0,
-    hasAccountInfo: !!result.account_info,
-    hasAccountSummary: !!result.account_summary,
-    totalValue: result.total_value,
-    cashBalance: result.cash_balance,
-  });
-
   return result;
 }
 
@@ -2537,9 +2529,7 @@ export function KaiFlow({
         const parsedPortfolioData: ReviewPortfolioData = parsedPortfolio;
         trackImportTerminalTelemetry("success");
 
-        console.log("[KaiFlow] Portfolio parsed via streaming:", {
-          holdings: parsedPortfolioData.holdings?.length || 0,
-        });
+
 
         // Store parsed portfolio and transition to review state
         setFlowData((prev) => ({
@@ -2618,7 +2608,7 @@ export function KaiFlow({
             setState("importing");
             return;
           }
-          console.log("[KaiFlow] Import cancelled by user");
+
           persistBackgroundSnapshot("canceled");
           clearImportBackgroundSnapshot(userId);
           importResumeAppliedRef.current = false;
@@ -2875,7 +2865,7 @@ export function KaiFlow({
     // Update cache context so other pages (Manage, etc.) can access the data
     setPortfolioData(userId, portfolioData);
     CacheSyncService.onPortfolioUpserted(userId, portfolioData);
-    console.log("[KaiFlow] Portfolio data saved to cache");
+
 
     setFlowData({
       hasFinancialData: true,

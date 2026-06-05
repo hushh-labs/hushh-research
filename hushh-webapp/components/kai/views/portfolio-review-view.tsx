@@ -1996,9 +1996,9 @@ export function PortfolioReviewView({
                       )}
                     >
                       {totalUnrealizedGainLoss >= 0 ? (
-                        <Icon icon={TrendingUp} size={12} className="mr-1.5" />
+                        <Icon icon={TrendingUp} size={12} className="mr-1.5" aria-hidden="true" />
                       ) : (
-                        <Icon icon={TrendingDown} size={12} className="mr-1.5" />
+                        <Icon icon={TrendingDown} size={12} className="mr-1.5" aria-hidden="true" />
                       )}
                       <span title={formatCurrency(totalUnrealizedGainLoss)}>
                         {formatCurrencyCompact(totalUnrealizedGainLoss)} unrealized
@@ -2061,7 +2061,7 @@ export function PortfolioReviewView({
 
 
             <div className="flex items-center gap-2">
-              <Icon icon={Building2} size="sm" />
+              <Icon icon={Building2} size="sm" aria-hidden="true" />
               Account Information
             </div>
           </AccordionTrigger>
@@ -2145,7 +2145,7 @@ export function PortfolioReviewView({
 
 
               <div className="flex items-center gap-2">
-                <Icon icon={PieChart} size="sm" />
+                <Icon icon={PieChart} size="sm" aria-hidden="true" />
                 Asset Allocation
               </div>
             </AccordionTrigger>
@@ -2234,7 +2234,7 @@ export function PortfolioReviewView({
 
 
               <div className="flex items-center gap-2">
-                <Icon icon={Wallet} size="sm" />
+                <Icon icon={Wallet} size="sm" aria-hidden="true" />
                 Income Summary
               </div>
             </AccordionTrigger>
@@ -2290,7 +2290,7 @@ export function PortfolioReviewView({
                   size="sm"
                   onClick={handleAddHolding}
                 >
-                  <Icon icon={Plus} size="sm" className="mr-1" />
+                  <Icon icon={Plus} size="sm" className="mr-1" aria-hidden="true" />
                   Add Holding
                 </MorphyButton>
               </div>
@@ -2414,7 +2414,7 @@ export function PortfolioReviewView({
                   {isBusySaving ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
-                    <Icon icon={Save} size="sm" className="mr-2" />
+                    <Icon icon={Save} size="sm" className="mr-2" aria-hidden="true" />
                   )}
                   {isBusySaving
                     ? hasVault === false
