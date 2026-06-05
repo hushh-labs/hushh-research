@@ -155,6 +155,13 @@ def test_portfolio_statement_import_stream_route_stays_available():
     assert "_IMPORT_RUN_MANAGER.stream_run_events(" in portfolio_source
 
 
+def test_portfolio_statement_import_compat_stream_does_not_use_multipart_request_disconnect():
+    portfolio_source = (_ROOT / "api/routes/kai/portfolio.py").read_text(encoding="utf-8")
+
+    assert "class _AlwaysConnectedImportStreamRequest" in portfolio_source
+    assert "request=_AlwaysConnectedImportStreamRequest()" in portfolio_source
+
+
 def test_portfolio_import_defaults_to_gemini_35_flash_with_env_override():
     constants_source = (_ROOT / "hushh_mcp/constants.py").read_text(encoding="utf-8")
     portfolio_source = (_ROOT / "api/routes/kai/portfolio.py").read_text(encoding="utf-8")

@@ -1031,11 +1031,12 @@ export default function ProfileReceiptsPage() {
                   </Badge>
                 </div>
 
-                <label className="space-y-2">
+                <label htmlFor="receipt-summary-draft" className="space-y-2">
                   <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
                     Shopping summary
                   </span>
                   <textarea
+                    id="receipt-summary-draft"
                     value={receiptSummaryDraft}
                     onChange={(event) => setReceiptSummaryDraft(event.target.value)}
                     rows={5}

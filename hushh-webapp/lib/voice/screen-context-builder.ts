@@ -11,6 +11,44 @@ import { getKaiActionsForControlId } from "@/lib/voice/kai-action-gateway";
 import { listInvestorKaiActionsForSurface } from "@/lib/voice/investor-kai-action-registry";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
+export const STRUCTURED_CONTEXT_ARRAY_CAP = 10;
+export const ARRAY_DIMENSION_CAP_ERROR =
+  "CONSTRAINT_VIOLATION_DIMENSION_OVERFLOW";
+export const INVALID_ARRAY_TYPE_ERROR = "INVALID_ARRAY_TYPE";
+
+export type ArrayDimensionCapResult<T> = {
+  isValidAllocation: boolean;
+  items: T[];
+  errorLabel: string | null;
+};
+
+export function enforceArrayDimensionCap<T>(
+  incomingDataList: readonly T[] | null | undefined,
+  maximumDimensionCap = STRUCTURED_CONTEXT_ARRAY_CAP
+): ArrayDimensionCapResult<T> {
+  if (!Array.isArray(incomingDataList)) {
+    return {
+      isValidAllocation: false,
+      items: [],
+      errorLabel: INVALID_ARRAY_TYPE_ERROR,
+    };
+  }
+
+  if (incomingDataList.length > maximumDimensionCap) {
+    return {
+      isValidAllocation: false,
+      items: incomingDataList.slice(0, maximumDimensionCap),
+      errorLabel: ARRAY_DIMENSION_CAP_ERROR,
+    };
+  }
+
+  return {
+    isValidAllocation: true,
+    items: [...incomingDataList],
+    errorLabel: null,
+  };
+}
+
 export type StructuredScreenContext = {
   route: {
     pathname: string;
@@ -129,7 +167,7 @@ function collectVisibleModules(): string[] {
       if (clean) values.add(clean.slice(0, 64));
     });
   });
-  return Array.from(values).slice(0, 16);
+  return enforceArrayDimensionCap(Array.from(values)).items;
 }
 
 function readUrlSearchParam(name: string): string | null {
@@ -147,7 +185,7 @@ function uniqueStrings(values: unknown[]): string[] {
     if (!clean) return;
     out.add(clean);
   });
-  return Array.from(out);
+  return enforceArrayDimensionCap(Array.from(out)).items;
 }
 
 function readObject(value: unknown): Record<string, unknown> {
@@ -158,66 +196,80 @@ function readObject(value: unknown): Record<string, unknown> {
 
 function mapSections(sections: VoiceSurfaceSectionDefinition[] | undefined) {
   return Array.isArray(sections)
-    ? sections.map((section) => ({
-        id: section.id,
-        title: section.title,
-        purpose: section.purpose || null,
-        summary: section.summary || null,
-      }))
+    ? enforceArrayDimensionCap(
+        sections.map((section) => ({
+          id: section.id,
+          title: section.title,
+          purpose: section.purpose || null,
+          summary: section.summary || null,
+        }))
+      ).items
     : [];
 }
 
 function mapActions(actions: VoiceSurfaceActionDefinition[] | undefined) {
   return Array.isArray(actions)
-    ? actions.map((action) => ({
-        id: action.id,
-        action_id: action.actionId || null,
-        label: action.label,
-        purpose: action.purpose || null,
-        description: action.description || null,
-        voice_aliases: Array.isArray(action.voiceAliases) ? [...action.voiceAliases] : undefined,
-      }))
+    ? enforceArrayDimensionCap(
+        actions.map((action) => ({
+          id: action.id,
+          action_id: action.actionId || null,
+          label: action.label,
+          purpose: action.purpose || null,
+          description: action.description || null,
+          voice_aliases: Array.isArray(action.voiceAliases)
+            ? enforceArrayDimensionCap(action.voiceAliases).items
+            : undefined,
+        }))
+      ).items
     : [];
 }
 
 function mapControls(controls: VoiceSurfaceControlDefinition[] | undefined) {
   return Array.isArray(controls)
-    ? controls.map((control) => ({
-        id: control.id,
-        label: control.label,
-        type: control.type || null,
-        state: control.state || null,
-        purpose: control.purpose || null,
-        description: control.description || null,
-        action_id:
-          control.actionId ||
-          getKaiActionsForControlId(control.id)[0]?.action_id ||
-          null,
-        role: control.role || null,
-        voice_aliases: Array.isArray(control.voiceAliases) ? [...control.voiceAliases] : undefined,
-      }))
+    ? enforceArrayDimensionCap(
+        controls.map((control) => ({
+          id: control.id,
+          label: control.label,
+          type: control.type || null,
+          state: control.state || null,
+          purpose: control.purpose || null,
+          description: control.description || null,
+          action_id:
+            control.actionId ||
+            getKaiActionsForControlId(control.id)[0]?.action_id ||
+            null,
+          role: control.role || null,
+          voice_aliases: Array.isArray(control.voiceAliases)
+            ? enforceArrayDimensionCap(control.voiceAliases).items
+            : undefined,
+        }))
+      ).items
     : [];
 }
 
 function mapConcepts(concepts: Array<VoiceSurfaceConceptDefinition | string> | undefined) {
   return Array.isArray(concepts)
-    ? concepts.map((concept) =>
-        typeof concept === "string"
-          ? {
-              id: null,
-              label: concept,
-              description: null,
-              explanation: null,
-              aliases: undefined,
-            }
-          : {
-              id: concept.id || null,
-              label: concept.label,
-              description: concept.description || null,
-              explanation: concept.explanation || null,
-              aliases: Array.isArray(concept.aliases) ? [...concept.aliases] : undefined,
-            }
-      )
+    ? enforceArrayDimensionCap(
+        concepts.map((concept) =>
+          typeof concept === "string"
+            ? {
+                id: null,
+                label: concept,
+                description: null,
+                explanation: null,
+                aliases: undefined,
+              }
+            : {
+                id: concept.id || null,
+                label: concept.label,
+                description: concept.description || null,
+                explanation: concept.explanation || null,
+                aliases: Array.isArray(concept.aliases)
+                  ? enforceArrayDimensionCap(concept.aliases).items
+                  : undefined,
+              }
+        )
+      ).items
     : [];
 }
 
@@ -259,7 +311,7 @@ export function buildStructuredScreenContext(args: {
   const visibleModules = uniqueStrings([
     ...explicitVisibleModules,
     ...collectVisibleModules(),
-  ]).slice(0, 16);
+  ]);
   const activeFilters = uniqueStrings([
     ...(publishedSurface?.activeFilters || []),
     ...(Array.isArray(rawContext.active_filters) ? rawContext.active_filters : []),
