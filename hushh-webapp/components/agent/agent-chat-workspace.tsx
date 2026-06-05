@@ -141,7 +141,7 @@ const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   updatedAt: null,
 };
 const AGENT_STREAM_RENDER_FRAME_MS = 32;
-const VOICE_PKM_CONTEXT_DEADLINE_MS = 1_800;
+const VOICE_PKM_CONTEXT_DEADLINE_MS = 650;
 const VOICE_AGENT_FIRST_EVENT_TIMEOUT_MS = 25_000;
 const VOICE_AGENT_IDLE_TIMEOUT_MS = 45_000;
 
@@ -513,6 +513,7 @@ export function AgentChatWorkspace({
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
+  const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
   const [historyActionPendingId, setHistoryActionPendingId] = useState<string | null>(null);
   const [isVoiceConnecting, setIsVoiceConnecting] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -1203,6 +1204,7 @@ export function AgentChatWorkspace({
     const executedToolCalls = new Set<string>();
     let toolStatusMessageId: string | null = null;
     let pkmStatusItemId: string | null = null;
+    let voiceTtsFailureReported = false;
     let assistantHasToken = false;
     let turnPkmContext = EMPTY_PKM_CONTEXT;
     let pkmAddToolHandled = false;
@@ -1225,6 +1227,20 @@ export function AgentChatWorkspace({
           voiceClientRef.current?.setCapturePaused(false);
           if (voiceClientRef.current?.isActive) {
             setAgentVoiceStatus(voiceClientRef.current.isMuted ? "muted" : "listening");
+          }
+        },
+        onError: (failure) => {
+          console.warn("[Agent voice] TTS failure", failure);
+          if (failure.stage === "fallback") {
+            if (!voiceTtsFailureReported) {
+              voiceTtsFailureReported = true;
+              addErrorMessage("Agent voice playback failed. The text response is still available.");
+            }
+            return;
+          }
+          if (!voiceTtsFailureReported) {
+            voiceTtsFailureReported = true;
+            toast.error("Agent voice audio failed. Falling back to browser speech.");
           }
         },
       });
@@ -2064,19 +2080,53 @@ export function AgentChatWorkspace({
         onLevel: (level) => {
           setGlobalVoiceLevel(level);
         },
-        onUtterance: async ({ audio }) => {
+        onUtterance: async ({ audio, durationMs, nativeTranscript }) => {
           const voiceSessionEpoch = voiceSessionEpochRef.current;
           const sttAbortController = new AbortController();
           voiceSttAbortControllerRef.current?.abort();
           voiceSttAbortControllerRef.current = sttAbortController;
+          const sttStartedAt = performance.now();
           setAgentVoiceStatus("transcribing");
           try {
-            const result = await transcribeAgentVoice({
-              userId: user.uid,
-              vaultOwnerToken: token,
-              audio,
-              signal: sttAbortController.signal,
-              timeoutMs: AGENT_VOICE_STT_TIMEOUT_MS,
+            const nativeCandidate = nativeTranscript?.transcript.trim()
+              ? nativeTranscript
+              : null;
+            let transcriptionSource:
+              | "browser_native"
+              | "backend_gemini"
+              | "browser_native_uncertain"
+              | "empty" = "empty";
+            let result = nativeCandidate && !nativeCandidate.uncertain ? nativeCandidate : null;
+
+            if (result) {
+              transcriptionSource = "browser_native";
+            } else if (audio.size > 0) {
+              result = await transcribeAgentVoice({
+                userId: user.uid,
+                vaultOwnerToken: token,
+                audio,
+                signal: sttAbortController.signal,
+                timeoutMs: AGENT_VOICE_STT_TIMEOUT_MS,
+              });
+              transcriptionSource = "backend_gemini";
+            } else if (nativeCandidate) {
+              result = nativeCandidate;
+              transcriptionSource = "browser_native_uncertain";
+            } else {
+              result = {
+                transcript: "",
+                uncertain: true,
+                reason: "No speech was captured.",
+              };
+            }
+            console.info("[Agent voice] STT timing", {
+              source: transcriptionSource,
+              audio_bytes: audio.size,
+              captured_ms: Math.round(durationMs),
+              stt_ms: Math.round(performance.now() - sttStartedAt),
+              native_transcript_chars: nativeCandidate?.transcript.length ?? 0,
+              transcript_chars: result.transcript.length,
+              uncertain: result.uncertain,
             });
             if (
               sttAbortController.signal.aborted ||
@@ -2096,7 +2146,30 @@ export function AgentChatWorkspace({
                 ) {
                   return;
                 }
-                await runAgentTurn(transcript, { source: "voice" });
+                voiceClientRef.current.setCapturePaused(true);
+                setAgentVoiceStatus("thinking");
+                void runAgentTurn(transcript, { source: "voice" })
+                  .catch((error) => {
+                    const message =
+                      error instanceof Error && error.message
+                        ? error.message
+                        : "Agent voice turn failed.";
+                    addErrorMessage(message);
+                    setAgentVoiceStatus("error", message);
+                  })
+                  .finally(() => {
+                    if (
+                      voiceSessionEpoch !== voiceSessionEpochRef.current ||
+                      !voiceClientRef.current?.isActive ||
+                      voiceTtsSpeakingRef.current
+                    ) {
+                      return;
+                    }
+                    voiceClientRef.current.setCapturePaused(false);
+                    setAgentVoiceStatus(
+                      voiceClientRef.current.isMuted ? "muted" : "listening"
+                    );
+                  });
               },
               requestReview: (transcript, reason) => {
                 if (
@@ -2187,7 +2260,11 @@ export function AgentChatWorkspace({
       onMinimize();
     }
   };
-  const renderHistorySidebar = (sidebarClassName?: string, onClose?: () => void) => (
+  const renderHistorySidebar = (
+    sidebarClassName?: string,
+    onClose?: () => void,
+    collapsed = false
+  ) => (
     <AgentHistorySidebar
       conversations={conversations}
       activeConversationId={conversationId}
@@ -2195,7 +2272,9 @@ export function AgentChatWorkspace({
       disabled={!hasChatAccess || historyInteractionDisabled}
       actionPendingId={historyActionPendingId}
       className={sidebarClassName}
+      collapsed={collapsed}
       onClose={onClose}
+      onToggleCollapsed={() => setIsHistoryCollapsed((current) => !current)}
       onCreateNew={handleSidebarCreateNewChat}
       onSelectConversation={handleSidebarSelectConversation}
       onRenameConversation={handleRenameConversation}
@@ -2217,40 +2296,34 @@ export function AgentChatWorkspace({
       <div
         className={cn(
           "relative flex min-h-0 flex-1",
-          isPopover ? "flex-col gap-3 overflow-hidden p-3 sm:p-4 lg:flex-row" : "overflow-hidden"
+          isPopover ? "overflow-hidden p-2 sm:p-3" : "overflow-hidden"
         )}
       >
-        {isPopover ? (
-          renderHistorySidebar("max-lg:h-44 max-lg:w-full max-lg:border-b max-lg:border-r-0 lg:h-full lg:w-64")
-        ) : (
-          <>
-            <div className="hidden h-full lg:flex">
-              {renderHistorySidebar("h-full w-[18rem]")}
-            </div>
-            <div
-              className={cn(
-                "fixed inset-0 z-[520] bg-black/55 backdrop-blur-sm transition-opacity duration-200 lg:hidden",
-                isHistoryDrawerOpen ? "opacity-100" : "pointer-events-none opacity-0"
-              )}
-              aria-hidden="true"
-              onClick={() => setIsHistoryDrawerOpen(false)}
-            />
-            <div
-              className={cn(
-                "fixed inset-y-0 left-0 z-[530] w-[min(88vw,320px)] transform transition-transform duration-200 ease-out lg:hidden",
-                isHistoryDrawerOpen ? "translate-x-0" : "-translate-x-full"
-              )}
-              role="dialog"
-              aria-modal="true"
-              aria-hidden={!isHistoryDrawerOpen}
-              aria-label="Agent chat history"
-            >
-              {renderHistorySidebar("h-full w-full shadow-2xl shadow-black/40", () =>
-                setIsHistoryDrawerOpen(false)
-              )}
-            </div>
-          </>
-        )}
+        <div className="hidden h-full lg:flex">
+          {renderHistorySidebar("h-full", undefined, isHistoryCollapsed)}
+        </div>
+        <div
+          className={cn(
+            "fixed inset-0 z-[520] bg-black/55 backdrop-blur-sm transition-opacity duration-200 lg:hidden",
+            isHistoryDrawerOpen ? "opacity-100" : "pointer-events-none opacity-0"
+          )}
+          aria-hidden="true"
+          onClick={() => setIsHistoryDrawerOpen(false)}
+        />
+        <div
+          className={cn(
+            "fixed inset-y-0 left-0 z-[530] w-[min(88vw,320px)] transform transition-transform duration-200 ease-out lg:hidden",
+            isHistoryDrawerOpen ? "translate-x-0" : "-translate-x-full"
+          )}
+          role="dialog"
+          aria-modal="true"
+          aria-hidden={!isHistoryDrawerOpen}
+          aria-label="Agent chat history"
+        >
+          {renderHistorySidebar("h-full w-full shadow-2xl shadow-black/40", () =>
+            setIsHistoryDrawerOpen(false)
+          )}
+        </div>
 
         <section
           className={cn(

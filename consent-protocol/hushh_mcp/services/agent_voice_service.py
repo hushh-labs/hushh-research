@@ -117,7 +117,7 @@ class AgentVoiceService:
 
         config = genai_types.GenerateContentConfig(
             temperature=0.0,
-            max_output_tokens=256,
+            max_output_tokens=128,
             response_mime_type="application/json",
             response_schema=_TRANSCRIPTION_SCHEMA,
             automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
