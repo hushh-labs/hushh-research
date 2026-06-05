@@ -5,6 +5,8 @@ import {
   Check,
   MessageSquare,
   MoreHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Plus,
   Trash2,
@@ -39,7 +41,9 @@ type AgentHistorySidebarProps = {
   disabled?: boolean;
   actionPendingId?: string | null;
   className?: string;
+  collapsed?: boolean;
   onClose?: () => void;
+  onToggleCollapsed?: () => void;
   onCreateNew: () => void;
   onSelectConversation: (conversationId: string) => void;
   onRenameConversation: (conversationId: string, title: string) => Promise<void> | void;
@@ -62,7 +66,9 @@ export function AgentHistorySidebar({
   disabled = false,
   actionPendingId,
   className,
+  collapsed = false,
   onClose,
+  onToggleCollapsed,
   onCreateNew,
   onSelectConversation,
   onRenameConversation,
@@ -111,24 +117,69 @@ export function AgentHistorySidebar({
     <>
       <aside
         className={cn(
-          "flex min-h-0 w-72 shrink-0 flex-col overflow-hidden border-r border-white/10 bg-[#101216] text-zinc-200",
+          "flex min-h-0 shrink-0 flex-col overflow-hidden border-r border-white/10 bg-[#101216] text-zinc-200 transition-[width] duration-200 ease-out",
+          collapsed ? "w-16" : "w-72",
           className
         )}
         aria-label="Agent chat history"
+        data-collapsed={collapsed ? "true" : "false"}
       >
         <div className="flex items-center gap-2 border-b border-white/10 p-3">
-          <Button
-            type="button"
-            variant="ghost"
-            className="h-11 min-w-0 flex-1 justify-start gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm font-medium text-zinc-100 shadow-sm transition-colors hover:bg-white/[0.08] focus-visible:ring-2 focus-visible:ring-primary/60"
-            onClick={onCreateNew}
-            disabled={disabled}
-            aria-label="Create new Agent chat"
-            title="Create new chat"
-          >
-            <Plus className="h-4 w-4" />
-            <span className="truncate">New chat</span>
-          </Button>
+          {collapsed ? (
+            <div className="flex w-full flex-col items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-10 w-10 rounded-lg border border-white/10 bg-white/[0.04] text-zinc-100 hover:bg-white/[0.08] focus-visible:ring-2 focus-visible:ring-primary/60"
+                onClick={onToggleCollapsed}
+                aria-label="Expand chat history"
+                title="Expand chat history"
+              >
+                <PanelLeftOpen className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-10 w-10 rounded-lg text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-100 focus-visible:ring-2 focus-visible:ring-primary/60"
+                onClick={onCreateNew}
+                disabled={disabled}
+                aria-label="Create new Agent chat"
+                title="New chat"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-11 min-w-0 flex-1 justify-start gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm font-medium text-zinc-100 shadow-sm transition-colors hover:bg-white/[0.08] focus-visible:ring-2 focus-visible:ring-primary/60"
+                onClick={onCreateNew}
+                disabled={disabled}
+                aria-label="Create new Agent chat"
+                title="Create new chat"
+              >
+                <Plus className="h-4 w-4" />
+                <span className="truncate">New chat</span>
+              </Button>
+              {onToggleCollapsed ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="hidden h-10 w-10 rounded-lg text-zinc-400 hover:bg-white/[0.07] hover:text-zinc-100 focus-visible:ring-2 focus-visible:ring-primary/60 lg:inline-flex"
+                  onClick={onToggleCollapsed}
+                  aria-label="Collapse chat history"
+                  title="Collapse chat history"
+                >
+                  <PanelLeftClose className="h-4 w-4" />
+                </Button>
+              ) : null}
+            </>
+          )}
           {onClose ? (
             <Button
               type="button"
@@ -145,14 +196,18 @@ export function AgentHistorySidebar({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
-          <div className="px-2 pb-2 pt-1 text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-500">
-            Chats
-          </div>
+          {collapsed ? (
+            <div className="h-4" aria-hidden="true" />
+          ) : (
+            <div className="px-2 pb-2 pt-1 text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-500">
+              Chats
+            </div>
+          )}
           {loading ? (
             <div className="h-10 w-full rounded-lg bg-white/[0.05]" />
           ) : null}
 
-          {!loading && conversations.length === 0 ? (
+          {!collapsed && !loading && conversations.length === 0 ? (
             <div className="grid min-h-24 place-items-center rounded-lg border border-dashed border-white/10 px-3 text-center text-xs text-zinc-500">
               No chats yet
             </div>
@@ -213,7 +268,8 @@ export function AgentHistorySidebar({
                       <button
                         type="button"
                         className={cn(
-                          "flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/60"
+                          "flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/60",
+                          collapsed ? "justify-center px-0" : "px-2"
                         )}
                         onClick={() => onSelectConversation(conversation.id)}
                         disabled={disabled || pending}
@@ -221,37 +277,39 @@ export function AgentHistorySidebar({
                         title={title}
                       >
                         <MessageSquare className="h-4 w-4 shrink-0 opacity-75" />
-                        <span className="truncate">{title}</span>
+                        {collapsed ? null : <span className="truncate">{title}</span>}
                       </button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-xs"
-                            className="mr-1 text-zinc-500 opacity-0 transition-opacity hover:bg-white/[0.07] hover:text-zinc-100 group-hover:opacity-100 focus-visible:opacity-100"
-                            disabled={disabled || pending}
-                            onPointerDown={(event) => event.stopPropagation()}
-                            onClick={(event) => event.stopPropagation()}
-                            aria-label={`Open actions for ${title}`}
-                          >
-                            <MoreHorizontal className="h-3.5 w-3.5" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" sideOffset={6} className="z-[520]">
-                          <DropdownMenuItem onSelect={() => startRename(conversation)}>
-                            <Pencil className="h-4 w-4" />
-                            Rename chat
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onSelect={() => setDeleteTarget(conversation)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Delete chat
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      {collapsed ? null : (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              className="mr-1 text-zinc-500 opacity-0 transition-opacity hover:bg-white/[0.07] hover:text-zinc-100 group-hover:opacity-100 focus-visible:opacity-100"
+                              disabled={disabled || pending}
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onClick={(event) => event.stopPropagation()}
+                              aria-label={`Open actions for ${title}`}
+                            >
+                              <MoreHorizontal className="h-3.5 w-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" sideOffset={6} className="z-[520]">
+                            <DropdownMenuItem onSelect={() => startRename(conversation)}>
+                              <Pencil className="h-4 w-4" />
+                              Rename chat
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onSelect={() => setDeleteTarget(conversation)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              Delete chat
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
                     </div>
                   )}
                 </div>

@@ -16,9 +16,17 @@ export type AgentTtsQueueOptions = {
   voice?: string;
   synthesize?: (input: AgentTtsRequest) => Promise<Response>;
   playAudio?: (audio: Blob, signal: AbortSignal) => Promise<void>;
+  fallbackSpeak?: (text: string, signal: AbortSignal) => Promise<void>;
   onStateChange?: (state: "idle" | "speaking") => void;
+  onError?: (failure: AgentTtsFailure) => void;
   requestTimeoutMs?: number;
   maxAttempts?: number;
+};
+
+export type AgentTtsFailure = {
+  stage: "synthesize" | "playback" | "fallback";
+  message: string;
+  status?: number;
 };
 
 export type SpeechChunks = {
@@ -26,9 +34,9 @@ export type SpeechChunks = {
   remainder: string;
 };
 
-const MAX_TTS_CHUNK_CHARS = 280;
-const MIN_TTS_CHUNK_CHARS = 18;
-const EARLY_TTS_CHUNK_CHARS = 140;
+const MAX_TTS_CHUNK_CHARS = 220;
+const MIN_TTS_CHUNK_CHARS = 12;
+const EARLY_TTS_CHUNK_CHARS = 90;
 const DEFAULT_TTS_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_TTS_MAX_ATTEMPTS = 2;
 
@@ -105,10 +113,16 @@ async function defaultSynthesize(input: AgentTtsRequest): Promise<Response> {
   return ApiService.synthesizeAgentVoice(input);
 }
 
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 async function defaultPlayAudio(audio: Blob, signal: AbortSignal): Promise<void> {
   if (signal.aborted) throw new DOMException("Aborted", "AbortError");
   const url = URL.createObjectURL(audio);
   const element = new Audio(url);
+  element.preload = "auto";
+  element.setAttribute("playsinline", "true");
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -141,13 +155,61 @@ async function defaultPlayAudio(audio: Blob, signal: AbortSignal): Promise<void>
   }
 }
 
+async function defaultFallbackSpeak(text: string, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+  if (
+    typeof window === "undefined" ||
+    !window.speechSynthesis ||
+    typeof SpeechSynthesisUtterance === "undefined"
+  ) {
+    throw new Error("Browser speech synthesis is not available.");
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    let settled = false;
+
+    const cleanup = () => {
+      utterance.onend = null;
+      utterance.onerror = null;
+      signal.removeEventListener("abort", handleAbort);
+    };
+    const settle = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback();
+    };
+    const handleAbort = () => {
+      window.speechSynthesis.cancel();
+      settle(() => reject(new DOMException("Aborted", "AbortError")));
+    };
+
+    utterance.onend = () => settle(resolve);
+    utterance.onerror = (event) =>
+      settle(() =>
+        reject(
+          new Error(
+            event.error
+              ? `Browser speech synthesis failed: ${event.error}.`
+              : "Browser speech synthesis failed."
+          )
+        )
+      );
+    signal.addEventListener("abort", handleAbort, { once: true });
+    window.speechSynthesis.speak(utterance);
+  });
+}
+
 export class AgentTtsQueue {
   private readonly userId: string;
   private readonly vaultOwnerToken: string;
   private readonly voice?: string;
   private readonly synthesize: (input: AgentTtsRequest) => Promise<Response>;
   private readonly playAudio: (audio: Blob, signal: AbortSignal) => Promise<void>;
+  private readonly fallbackSpeak: (text: string, signal: AbortSignal) => Promise<void>;
   private readonly onStateChange?: (state: "idle" | "speaking") => void;
+  private readonly onError?: (failure: AgentTtsFailure) => void;
   private readonly requestTimeoutMs: number;
   private readonly maxAttempts: number;
   private queue: string[] = [];
@@ -163,7 +225,9 @@ export class AgentTtsQueue {
     this.voice = options.voice;
     this.synthesize = options.synthesize || defaultSynthesize;
     this.playAudio = options.playAudio || defaultPlayAudio;
+    this.fallbackSpeak = options.fallbackSpeak || defaultFallbackSpeak;
     this.onStateChange = options.onStateChange;
+    this.onError = options.onError;
     this.requestTimeoutMs = Math.max(
       1_000,
       options.requestTimeoutMs || DEFAULT_TTS_REQUEST_TIMEOUT_MS
@@ -238,18 +302,14 @@ export class AgentTtsQueue {
         const controller = new AbortController();
         this.abortController = controller;
         this.onStateChange?.("speaking");
-        const response = await this.synthesizeWithRetry(text, controller.signal);
-        if (!response.ok) {
-          continue;
-        }
-        const audio = await response.blob();
-        if (audio.size > 0) {
-          await this.playAudio(audio, controller.signal);
-        }
+        await this.speakChunk(text, controller.signal);
       }
     } catch (error) {
       if (!(error instanceof DOMException && error.name === "AbortError")) {
-        // Speech is best-effort; chat state is the source of truth.
+        this.onError?.({
+          stage: "playback",
+          message: errorMessage(error, "Agent voice playback failed."),
+        });
       }
     } finally {
       this.abortController = null;
@@ -259,6 +319,67 @@ export class AgentTtsQueue {
       } else {
         this.onStateChange?.("idle");
       }
+    }
+  }
+
+  private async speakChunk(text: string, signal: AbortSignal): Promise<void> {
+    try {
+      const response = await this.synthesizeWithRetry(text, signal);
+      if (!response.ok) {
+        this.onError?.({
+          stage: "synthesize",
+          message: `Agent voice TTS returned HTTP ${response.status}.`,
+          status: response.status,
+        });
+        await this.speakWithFallback(text, signal);
+        return;
+      }
+
+      const audio = await response.blob();
+      if (audio.size <= 0) {
+        this.onError?.({
+          stage: "synthesize",
+          message: "Agent voice TTS returned empty audio.",
+        });
+        await this.speakWithFallback(text, signal);
+        return;
+      }
+
+      try {
+        await this.playAudio(audio, signal);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          throw error;
+        }
+        this.onError?.({
+          stage: "playback",
+          message: errorMessage(error, "Agent voice audio playback failed."),
+        });
+        await this.speakWithFallback(text, signal);
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw error;
+      }
+      this.onError?.({
+        stage: "synthesize",
+        message: errorMessage(error, "Agent voice TTS failed."),
+      });
+      await this.speakWithFallback(text, signal);
+    }
+  }
+
+  private async speakWithFallback(text: string, signal: AbortSignal): Promise<void> {
+    try {
+      await this.fallbackSpeak(text, signal);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw error;
+      }
+      this.onError?.({
+        stage: "fallback",
+        message: errorMessage(error, "Agent voice fallback speech failed."),
+      });
     }
   }
 
