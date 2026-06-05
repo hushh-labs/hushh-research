@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -22,6 +22,16 @@ class MarketplaceInvestorActionRequest(BaseModel):
     public_profile_id: str | int | None = None
     target_user_id: str | None = Field(default=None, max_length=256)
     metadata: dict | None = None
+
+
+class MarketplaceContactLookup(BaseModel):
+    hash: str = Field(..., min_length=64, max_length=64, pattern=r"^[a-fA-F0-9]{64}$")
+    last4: str = Field(..., min_length=2, max_length=4, pattern=r"^\d{2,4}$")
+
+
+class MarketplaceContactMatchRequest(BaseModel):
+    phone_lookups: list[MarketplaceContactLookup] = Field(default_factory=list, max_length=1000)
+    limit: int = Field(default=50, ge=1, le=100)
 
 
 def _iam_schema_not_ready_response(message: str | None = None) -> JSONResponse:
@@ -145,8 +155,27 @@ async def record_marketplace_investor_action(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+@router.post("/contacts/match")
+async def match_marketplace_contacts(
+    payload: MarketplaceContactMatchRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    service = RIAIAMService()
+    try:
+        items = await service.match_marketplace_contacts(
+            firebase_uid,
+            phone_lookups=[item.dict() for item in payload.phone_lookups],
+            limit=payload.limit,
+        )
+        return {"items": items}
+    except IAMSchemaNotReadyError as exc:
+        return _iam_schema_not_ready_response(str(exc))
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
 @router.get("/ria/{ria_id}")
-async def get_marketplace_ria(ria_id: str):
+async def get_marketplace_ria(ria_id: str = Path(..., min_length=1, max_length=128)):
     service = RIAIAMService()
     try:
         profile = await service.get_marketplace_ria_profile(ria_id)
