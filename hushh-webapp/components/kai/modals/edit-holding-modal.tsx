@@ -545,6 +545,7 @@ export function EditHoldingModal({
                 placeholder="0"
                 min="0.0001"
                 step="0.0001"
+                inputMode="decimal"
                 className={cn(
                   "w-full px-4 py-3 h-12 rounded-xl border bg-background outline-none transition-colors",
                   errors.quantity
@@ -569,6 +570,7 @@ export function EditHoldingModal({
                 placeholder="0.00"
                 min="0.01"
                 step="0.01"
+                inputMode="decimal"
                 className={cn(
                   "w-full px-4 py-3 h-12 rounded-xl border bg-background outline-none transition-colors",
                   errors.price
@@ -615,6 +617,7 @@ export function EditHoldingModal({
               placeholder="0.00"
               min="0"
               step="0.01"
+              inputMode="decimal"
               className="w-full px-4 py-3 h-12 rounded-xl border border-border bg-background outline-none focus:border-primary transition-colors"
             />
             {errors.cost_basis && (
