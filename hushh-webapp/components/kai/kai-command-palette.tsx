@@ -367,7 +367,7 @@ export function KaiCommandPalette({
       searchKaiActions({
         query,
         appRuntimeState,
-        limit: 10,
+        limit: 24,
       }),
     [appRuntimeState, query]
   );

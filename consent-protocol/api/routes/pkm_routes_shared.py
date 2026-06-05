@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field, ValidationError
 
 from api.middleware import require_vault_owner_token
@@ -28,6 +28,24 @@ router = APIRouter(prefix="/api/pkm", tags=["pkm"])
 
 _COMPACT_SCOPE_SOURCE_KINDS = {"pkm_index", "pkm_manifests.top_level_scope_paths"}
 _INTERNAL_ONLY_PKM_DOMAINS = {"kyc_connector", "kyc_workflow"}
+
+_MAX_SEGMENT_IDS = 50
+
+
+def _validated_segment_ids(
+    segment_ids: Optional[List[str]] = Query(default=None),
+) -> Optional[List[str]]:
+    """Dependency: reject requests with more than _MAX_SEGMENT_IDS segment_ids.
+
+    Query(..., max_length=N) on List[str] bounds each string length, not the
+    list cardinality. This dependency enforces the item count limit explicitly.
+    """
+    if segment_ids is not None and len(segment_ids) > _MAX_SEGMENT_IDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"segment_ids may not exceed {_MAX_SEGMENT_IDS} items",
+        )
+    return segment_ids
 
 
 def _isoformat_or_none(value):
@@ -308,10 +326,13 @@ async def fetch_decisions(user_id: str, limit: int = 50) -> list[DecisionRecord]
 class EncryptedBlob(BaseModel):
     """Encrypted data blob."""
 
-    ciphertext: str = Field(..., description="AES-256-GCM encrypted data")
-    iv: str = Field(..., description="Initialization vector")
-    tag: str = Field(..., description="Authentication tag")
-    algorithm: str = Field(default="aes-256-gcm", description="Encryption algorithm")
+    # AES-256-GCM base64url ciphertext: 1 B minimum, 10 MB practical ceiling.
+    ciphertext: str = Field(..., min_length=1, max_length=10_000_000, description="AES-256-GCM encrypted data")
+    # IV is typically 12 bytes -> 16 base64 chars; allow up to 512 for future algs.
+    iv: str = Field(..., min_length=1, max_length=512, description="Initialization vector")
+    # GCM tag is 16 bytes -> 24 base64 chars; allow up to 512.
+    tag: str = Field(..., min_length=1, max_length=512, description="Authentication tag")
+    algorithm: str = Field(default="aes-256-gcm", max_length=64, description="Encryption algorithm")
     segments: dict[str, "EncryptedBlob"] = Field(
         default_factory=dict,
         description="Optional segmented PKM ciphertext payloads keyed by segment id",
@@ -398,6 +419,7 @@ class StoreDomainRequest(BaseModel):
     )
     write_projections: List[WriteProjectionPayload] = Field(
         default_factory=list,
+        max_length=100,
         description="Optional non-sensitive derived projections for read models and history surfaces",
     )
 
@@ -579,7 +601,7 @@ class DomainDataResponse(BaseModel):
 async def get_domain_data(
     user_id: str,
     domain: str,
-    segment_ids: Optional[List[str]] = Query(default=None),
+    segment_ids: Optional[List[str]] = Depends(_validated_segment_ids),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -708,7 +730,7 @@ class ScopeExposureRequest(BaseModel):
     user_id: str = Field(..., description="User's ID")
     expected_manifest_version: Optional[int] = Field(default=None, ge=1)
     revoke_matching_active_grants: bool = Field(default=True)
-    changes: List[ScopeExposureChangePayload] = Field(default_factory=list)
+    changes: List[ScopeExposureChangePayload] = Field(default_factory=list, max_length=200)
 
 
 class ScopeExposureResponse(BaseModel):
@@ -1434,8 +1456,8 @@ async def start_or_resume_upgrade(
 
 @router.post("/upgrade/runs/{run_id}/status", response_model=PkmUpgradeStatusResponse)
 async def update_upgrade_run_status(
-    run_id: str,
     request: UpdateUpgradeRunRequest,
+    run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != request.user_id:
@@ -1459,9 +1481,9 @@ async def update_upgrade_run_status(
 
 @router.post("/upgrade/runs/{run_id}/steps/{domain}", response_model=PkmUpgradeStatusResponse)
 async def update_upgrade_step(
-    run_id: str,
-    domain: str,
     request: UpdateUpgradeStepRequest,
+    run_id: str = Path(..., min_length=1, max_length=128),
+    domain: str = Path(..., min_length=1, max_length=200),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != request.user_id:
@@ -1487,8 +1509,8 @@ async def update_upgrade_step(
 
 @router.post("/upgrade/runs/{run_id}/complete", response_model=PkmUpgradeStatusResponse)
 async def complete_upgrade_run(
-    run_id: str,
     request: StartOrResumeUpgradeRequest,
+    run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != request.user_id:
@@ -1500,7 +1522,10 @@ async def complete_upgrade_run(
     try:
         payload = await get_pkm_upgrade_service().complete_run(run_id)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        logger.warning("pkm.complete_upgrade_run.conflict run_id=%s: %s", run_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Upgrade run cannot be completed"
+        ) from exc
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade run not found")
     return _build_upgrade_status_response(payload)
@@ -1508,8 +1533,8 @@ async def complete_upgrade_run(
 
 @router.post("/upgrade/runs/{run_id}/fail", response_model=PkmUpgradeStatusResponse)
 async def fail_upgrade_run(
-    run_id: str,
     request: UpdateUpgradeRunRequest,
+    run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != request.user_id:
