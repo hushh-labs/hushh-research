@@ -359,14 +359,12 @@ describe("normalizeConsentResponse — empty array boundary conditions", () => {
   it("does not deny a payload with an empty permissions array (guard accepts valid arrays)", () => {
     // The guard only checks Array.isArray — an empty array is structurally
     // valid and must pass through, not trigger the DENY_STATE path.
-    const result = normalizeConsentResponse({ permissions: [] });
-    // If the guard had incorrectly fired, it would return DENY_STATE regardless.
-    // Since we only have an empty permissions and no grant, the final result is
-    // also DENY, but for the correct reason (no grant signal) — NOT the guard.
-    // We verify this by combining the empty array with a valid grant signal and
-    // checking that the result is isGranted: true (guard did not fire).
-    const withGrant = normalizeConsentResponse({ permissions: [], active: true });
-    expect(withGrant.isGranted).toBe(true);
+    // Proof: add a grant signal alongside the empty array and confirm it is
+    // honoured (isGranted: true).  If the guard had fired it would return
+    // DENY_STATE and isGranted would be false regardless of the flag.
+    expect(
+      normalizeConsentResponse({ permissions: [], active: true }).isGranted
+    ).toBe(true);
   });
 
   it("does not deny a payload with an empty scopes array (guard accepts valid arrays)", () => {
