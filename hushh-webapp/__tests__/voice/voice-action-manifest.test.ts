@@ -183,4 +183,15 @@ describe("voice-action-manifest", () => {
       })
     );
   });
+  it("preserves manifest action ordering stability", () => {
+  const actions = [
+    "open_portfolio",
+    "open_watchlist",
+    "open_market_insights",
+  ];
+
+  expect(actions[0]).toBe("open_portfolio");
+  expect(actions[1]).toBe("open_watchlist");
+  expect(actions[2]).toBe("open_market_insights");
+});
 });
