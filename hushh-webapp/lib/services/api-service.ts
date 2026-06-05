@@ -2531,6 +2531,8 @@ export class ApiService {
     conversationId?: string;
     vaultOwnerToken: string;
     pkmContext?: string;
+    runtimeCredential?: string | null;
+    runtimeCredentialMode?: string | null;
     signal?: AbortSignal;
   }): Promise<Response> {
     return ApiService.apiFetchStream("/api/kai/agent/chat/stream", {
@@ -2543,6 +2545,8 @@ export class ApiService {
         message: data.message,
         conversation_id: data.conversationId,
         pkm_context: data.pkmContext,
+        runtime_credential: data.runtimeCredential || undefined,
+        runtime_credential_mode: data.runtimeCredentialMode || undefined,
       }),
       signal: data.signal,
     });

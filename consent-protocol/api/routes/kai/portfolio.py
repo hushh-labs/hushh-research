@@ -1926,13 +1926,13 @@ class PortfolioImportResponse(BaseModel):
     """Response from portfolio import endpoint."""
 
     success: bool
-    holdings_count: int = 0
-    total_value: float = 0.0
+    holdings_count: int = Field(default=0, ge=0)
+    total_value: float = Field(default=0.0, ge=0.0)
     losers: list[dict] = Field(default_factory=list)
     winners: list[dict] = Field(default_factory=list)
     kpis_stored: list[str] = Field(default_factory=list)
-    error: Optional[str] = None
-    source: str = "unknown"
+    error: Optional[str] = Field(default=None, max_length=512)
+    source: str = Field(default="unknown", max_length=64)
     # Comprehensive financial data (LLM-extracted)
     portfolio_data: Optional[dict] = None
     account_info: Optional[dict] = None
@@ -1947,40 +1947,40 @@ class PortfolioImportResponse(BaseModel):
 class PortfolioSummaryResponse(BaseModel):
     """Response for portfolio summary endpoint."""
 
-    user_id: str
+    user_id: str = Field(..., max_length=256)
     has_portfolio: bool
-    holdings_count: Optional[int] = None
-    portfolio_value_bucket: Optional[str] = None
-    portfolio_risk_bucket: Optional[str] = None
-    preference_risk_profile: Optional[str] = None
-    losers_count: Optional[int] = None
-    winners_count: Optional[int] = None
+    holdings_count: Optional[int] = Field(default=None, ge=0)
+    portfolio_value_bucket: Optional[str] = Field(default=None, max_length=64)
+    portfolio_risk_bucket: Optional[str] = Field(default=None, max_length=64)
+    preference_risk_profile: Optional[str] = Field(default=None, max_length=64)
+    losers_count: Optional[int] = Field(default=None, ge=0)
+    winners_count: Optional[int] = Field(default=None, ge=0)
     total_gain_loss_pct: Optional[float] = None
 
 
 class DashboardProfilePick(BaseModel):
     """Profile-personalized ticker candidate for dashboard recommendations."""
 
-    symbol: str
-    company_name: str
-    sector: Optional[str] = None
-    tier: Optional[str] = None
-    conviction_weight: float = 0.0
-    price: Optional[float] = None
+    symbol: str = Field(..., max_length=10)
+    company_name: str = Field(..., max_length=256)
+    sector: Optional[str] = Field(default=None, max_length=64)
+    tier: Optional[str] = Field(default=None, max_length=32)
+    conviction_weight: float = Field(default=0.0, ge=0.0, le=1.0)
+    price: Optional[float] = Field(default=None, ge=0.0)
     change_percent: Optional[float] = None
-    recommendation_bias: Optional[str] = None
-    rationale: str
+    recommendation_bias: Optional[str] = Field(default=None, max_length=64)
+    rationale: str = Field(..., max_length=512)
     source_tags: list[str] = Field(default_factory=list)
     degraded: bool = False
-    as_of: Optional[str] = None
+    as_of: Optional[str] = Field(default=None, max_length=64)
 
 
 class DashboardProfilePicksResponse(BaseModel):
     """Response payload for profile-based picks on Kai dashboard."""
 
-    user_id: str
-    generated_at: str
-    risk_profile: str
+    user_id: str = Field(..., max_length=256)
+    generated_at: str = Field(..., max_length=64)
+    risk_profile: str = Field(..., max_length=64)
     picks: list[DashboardProfilePick] = Field(default_factory=list)
     context: dict[str, Any] = Field(default_factory=dict)
 

@@ -2,28 +2,205 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from hushh_mcp.services.agent_chat_service import (
     AGENT_SYSTEM_PROMPT,
-    DEFAULT_AGENT_CHAT_MODEL,
     AgentChatMessage,
     AgentChatService,
+    AgentRuntimeContractError,
+    RuntimeSecretSession,
+    create_managed_runtime_client,
+    create_runtime_client,
+)
+from hussh_sdk import (
+    ModelConfig,
+    PKMCredentialResolver,
+    prepare_runtime_credentials,
+    runtime_config,
 )
 
 
-def test_agent_chat_service_defaults_to_stable_gemini_model(monkeypatch, test_vault_key):
-    monkeypatch.delenv("AGENT_GEMINI_MODEL", raising=False)
-
+def test_agent_chat_service_uses_agent_yaml_model(test_vault_key):
     service = AgentChatService(vault_key_hex=test_vault_key)
 
-    assert service.model == DEFAULT_AGENT_CHAT_MODEL == "gemini-2.5-pro"
+    assert service.model == "gemini-2.5-flash"
 
 
-def test_agent_chat_service_allows_env_model_override(monkeypatch, test_vault_key):
-    monkeypatch.setenv("AGENT_GEMINI_MODEL", "gemini-2.5-flash")
+def test_agent_chat_service_ignores_env_model_override(monkeypatch, test_vault_key):
+    monkeypatch.setenv("AGENT_GEMINI_MODEL", "gemini-env-override")
 
     service = AgentChatService(vault_key_hex=test_vault_key)
 
     assert service.model == "gemini-2.5-flash"
+
+
+def test_agent_chat_runtime_contract_defaults_to_hushh_managed(test_vault_key):
+    service = AgentChatService(vault_key_hex=test_vault_key)
+
+    contract = service.prepare_runtime_contract()
+
+    assert contract.mode == "hushh_managed_vertex"
+    assert contract.credential_supplied is False
+
+
+def test_agent_chat_runtime_contract_accepts_byok_with_runtime_credential(test_vault_key):
+    service = AgentChatService(vault_key_hex=test_vault_key)
+
+    contract = service.prepare_runtime_contract(
+        runtime_credential=" USER_GEMINI_KEY ",
+        runtime_credential_mode="byok",
+    )
+
+    assert contract.mode == "byok"
+    assert contract.credential_supplied is True
+
+
+def test_agent_chat_runtime_contract_rejects_missing_byok_credential(test_vault_key):
+    service = AgentChatService(vault_key_hex=test_vault_key)
+
+    try:
+        service.prepare_runtime_contract(
+            runtime_credential=" ",
+            runtime_credential_mode="byok",
+        )
+    except AgentRuntimeContractError as error:
+        assert error.error_code == "AGENT_RUNTIME_CREDENTIAL_MISSING"
+        assert "Gemini key" in error.message
+    else:  # pragma: no cover - defensive assertion clarity
+        raise AssertionError("Expected AgentRuntimeContractError")
+
+
+def test_agent_chat_runtime_contract_rejects_invalid_mode(test_vault_key):
+    service = AgentChatService(vault_key_hex=test_vault_key)
+
+    try:
+        service.prepare_runtime_contract(
+            runtime_credential="USER_GEMINI_KEY",
+            runtime_credential_mode="unsupported",
+        )
+    except AgentRuntimeContractError as error:
+        assert error.error_code == "AGENT_RUNTIME_MODE_INVALID"
+        assert error.message == "Agent runtime credential mode is invalid."
+    else:  # pragma: no cover - defensive assertion clarity
+        raise AssertionError("Expected AgentRuntimeContractError")
+
+
+@pytest.mark.anyio
+async def test_agent_chat_service_prepares_byok_runtime_from_pkm_secret(
+    monkeypatch,
+    test_vault_key,
+    caplog,
+):
+    calls: list[dict] = []
+    sample_runtime_value = "_".join(["USER", "BYOK", "VALUE", "SHOULD", "NOT", "LEAK"])
+
+    def fake_client(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(kind="client")
+
+    monkeypatch.setenv("GOOGLE_API_KEY", "BACKEND_KEY_SHOULD_NOT_BE_USED")
+    monkeypatch.setattr("hushh_mcp.services.agent_chat_service.genai.Client", fake_client)
+    service = AgentChatService(vault_key_hex=test_vault_key)
+
+    prepared = await service.prepare_agent_runtime(
+        runtime_credential=sample_runtime_value,
+        runtime_credential_mode="byok",
+    )
+
+    assert prepared.mode == "byok"
+    assert prepared.model == "gemini-2.5-flash"
+    assert prepared.client.kind == "client"
+    assert calls == [{"vertexai": False, "api_key": sample_runtime_value}]
+    assert sample_runtime_value not in str(prepared.evidence)
+    assert sample_runtime_value not in caplog.text
+
+
+def test_create_runtime_client_uses_byok_key_without_env_fallback(monkeypatch):
+    calls: list[dict] = []
+    monkeypatch.setenv("GOOGLE_API_KEY", "BACKEND_KEY_SHOULD_NOT_BE_USED")
+    monkeypatch.setenv("GEMINI_API_KEY", "BACKEND_GEMINI_SHOULD_NOT_BE_USED")
+
+    def fake_client(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(kind="client")
+
+    monkeypatch.setattr("hushh_mcp.services.agent_chat_service.genai.Client", fake_client)
+
+    client = create_runtime_client("gemini", " USER_BYOK_KEY ")
+
+    assert client.kind == "client"
+    assert calls == [{"vertexai": False, "api_key": "USER_BYOK_KEY"}]
+
+
+def test_create_managed_runtime_client_uses_vertex_api_key(monkeypatch):
+    calls: list[dict] = []
+
+    def fake_client(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(kind="client")
+
+    monkeypatch.setattr("hushh_mcp.services.agent_chat_service.genai.Client", fake_client)
+
+    client = create_managed_runtime_client("gemini", " MANAGED_KEY ")
+
+    assert client.kind == "client"
+    assert calls == [{"vertexai": True, "api_key": "MANAGED_KEY"}]
+
+
+@pytest.mark.anyio
+async def test_prepare_runtime_credentials_resolves_pkm_credential_without_raw_value_in_evidence():
+    sample_runtime_key = "USER_KEY_SHOULD_NOT_LEAK"
+    runtime = runtime_config(
+        "google_adk",
+        model=ModelConfig(
+            provider="gemini",
+            model="gemini-2.5-flash",
+            mode="byok",
+            credential_ref="pkm:runtime_secrets.llm.gemini_api_key",
+        ),
+    )
+
+    bundle = await prepare_runtime_credentials(
+        runtime,
+        resolver=PKMCredentialResolver(
+            RuntimeSecretSession(
+                "pkm:runtime_secrets.llm.gemini_api_key",
+                sample_runtime_key,
+            )
+        ),
+    )
+
+    assert bundle.credential is not None
+    assert bundle.credential.secret == sample_runtime_key
+    assert sample_runtime_key not in str(bundle.evidence)
+
+
+@pytest.mark.anyio
+async def test_prepare_runtime_credentials_fails_on_credential_ref_mismatch():
+    runtime = runtime_config(
+        "google_adk",
+        model=ModelConfig(
+            provider="gemini",
+            model="gemini-2.5-flash",
+            mode="byok",
+            credential_ref="pkm:runtime_secrets.llm.gemini_api_key",
+        ),
+    )
+
+    with pytest.raises(Exception) as exc_info:
+        await prepare_runtime_credentials(
+            runtime,
+            resolver=PKMCredentialResolver(
+                RuntimeSecretSession(
+                    "pkm:runtime_secrets.llm.other_api_key",
+                    "USER_KEY_SHOULD_NOT_LEAK",
+                )
+            ),
+        )
+
+    assert "No runtime credential resolved" in str(exc_info.value)
+    assert "USER_KEY_SHOULD_NOT_LEAK" not in str(exc_info.value)
 
 
 def test_agent_chat_service_decrypts_encrypted_conversation_and_message(test_vault_key):

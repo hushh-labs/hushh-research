@@ -47,11 +47,11 @@ router = APIRouter()
 
 class PortfolioLoser(BaseModel):
     symbol: str = Field(..., description="Ticker symbol", max_length=20)
-    name: Optional[str] = Field(None, max_length=256)
+    name: Optional[str] = Field(default=None, max_length=256)
     gain_loss_pct: Optional[float] = Field(
         None, description="Unrealized P/L percent (negative for losers)"
     )
-    gain_loss: Optional[float] = Field(None, description="Unrealized P/L amount")
+    gain_loss: Optional[float] = Field(default=None, description="Unrealized P/L amount")
     market_value: Optional[float] = None
 
 
@@ -59,10 +59,10 @@ class PortfolioHolding(BaseModel):
     """Full-position snapshot for Optimize Portfolio (not only losers)."""
 
     symbol: str = Field(..., description="Ticker symbol", max_length=20)
-    name: Optional[str] = Field(None, max_length=256)
-    gain_loss_pct: Optional[float] = Field(None, description="Unrealized P/L percent")
-    gain_loss: Optional[float] = Field(None, description="Unrealized P/L amount")
-    market_value: Optional[float] = Field(None, description="Current market value of the position")
+    name: Optional[str] = Field(default=None, max_length=256)
+    gain_loss_pct: Optional[float] = Field(default=None, description="Unrealized P/L percent")
+    gain_loss: Optional[float] = Field(default=None, description="Unrealized P/L amount")
+    market_value: Optional[float] = Field(default=None, description="Current market value of the position")
     sector: Optional[str] = Field(
         None, description="Sector or industry label if available", max_length=128
     )
@@ -100,11 +100,11 @@ class AnalyzeLosersRequest(BaseModel):
 
 
 class AnalyzeLosersResponse(BaseModel):
-    criteria_context: str
+    criteria_context: str = Field(..., max_length=512)
     summary: dict
     losers: list[dict]
-    portfolio_level_takeaways: list[str]
-    analytics: Optional[dict] = Field(None, description="Radar and sector distribution metrics")
+    portfolio_level_takeaways: list[str] = Field(default_factory=list)
+    analytics: Optional[dict] = Field(default=None, description="Radar and sector distribution metrics")
 
 
 def _convert_decimals(obj: Any) -> Any:

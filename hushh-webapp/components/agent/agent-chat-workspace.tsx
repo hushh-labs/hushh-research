@@ -75,6 +75,12 @@ import {
   type AgentChatMessage as StoredAgentChatMessage,
   type AgentChatToolEvent,
 } from "@/lib/services/agent-chat-client";
+import {
+  GEMINI_RUNTIME_CREDENTIAL_REF,
+  PersonalKnowledgeModelService,
+  RUNTIME_CREDENTIAL_MODE_REF,
+  type RuntimeCredentialMode,
+} from "@/lib/services/personal-knowledge-model-service";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
@@ -227,7 +233,7 @@ function AgentMarkdown({ text }: { text: string }) {
             <a
               href={href || "#"}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="font-medium text-primary underline-offset-4 hover:underline"
             >
               {children}
@@ -1777,6 +1783,61 @@ export function AgentChatWorkspace({
         });
       }
 
+      let runtimeCredentialMode: RuntimeCredentialMode = "hushh_managed_vertex";
+      let runtimeCredential: string | null = null;
+      if (vaultKey && token) {
+        try {
+          const savedMode = await PersonalKnowledgeModelService.loadRuntimeSecret({
+            userId,
+            vaultKey,
+            vaultOwnerToken: token,
+            credentialRef: RUNTIME_CREDENTIAL_MODE_REF,
+          });
+          runtimeCredentialMode = savedMode === "byok" ? "byok" : "hushh_managed_vertex";
+          if (runtimeCredentialMode === "byok") {
+            try {
+              runtimeCredential = await PersonalKnowledgeModelService.loadRuntimeSecret({
+                userId,
+                vaultKey,
+                vaultOwnerToken: token,
+                credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
+              });
+            } catch (error) {
+              runtimeCredential = null;
+              appendDebugEvent(debugTurnId, "runtime_credential_load_failed", {
+                mode: runtimeCredentialMode,
+                provider: "gemini",
+                credential_ref: GEMINI_RUNTIME_CREDENTIAL_REF,
+                message:
+                  error instanceof Error && error.message
+                    ? error.message
+                    : "Failed to load the Gemini runtime key.",
+              });
+            }
+          }
+          appendDebugEvent(debugTurnId, "runtime_credentials_prepared", {
+            mode: runtimeCredentialMode,
+            provider: "gemini",
+            credential_ref: GEMINI_RUNTIME_CREDENTIAL_REF,
+            credential_resolved: Boolean(runtimeCredential),
+          });
+        } catch (error) {
+          runtimeCredentialMode = "hushh_managed_vertex";
+          runtimeCredential = null;
+          appendDebugEvent(debugTurnId, "runtime_credential_mode_load_failed", {
+            message:
+              error instanceof Error && error.message
+                ? error.message
+                : "Failed to load runtime credential settings.",
+          });
+        }
+      } else {
+        appendDebugEvent(debugTurnId, "runtime_credentials_skipped", {
+          reason: "vault_locked_or_unavailable",
+          mode: runtimeCredentialMode,
+        });
+      }
+
       armVoiceStreamWatchdog(
         VOICE_AGENT_FIRST_EVENT_TIMEOUT_MS,
         "Agent voice response timed out before it started. Please try again."
@@ -1787,6 +1848,8 @@ export function AgentChatWorkspace({
         conversationId,
         vaultOwnerToken: token,
         pkmContext: agentPkmContext.text || undefined,
+        runtimeCredential,
+        runtimeCredentialMode,
         signal: streamAbortController.signal,
         handlers: {
           onStart: ({ conversationId: nextConversationId }) => {

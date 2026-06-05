@@ -823,14 +823,14 @@ export function InvestmentsMasterView({
                   Back to portfolio
                 </Link>
               </Button>
-              <Button variant="none" effect="fade" onClick={() => handleRefresh()}>
+              <Button type="button" variant="none" effect="fade" onClick={() => handleRefresh()}>
                 <RefreshCw
                   className={cn("mr-2 h-4 w-4", (isPlaidRefreshing || isLinkingPlaid) && "animate-spin")}
                 />
                 Refresh
               </Button>
               {isPlaidRefreshing ? (
-                <Button variant="none" effect="fade" onClick={() => handleCancelRefresh()}>
+                <Button type="button" variant="none" effect="fade" onClick={() => handleCancelRefresh()}>
                   Cancel refresh
                 </Button>
               ) : null}
@@ -840,7 +840,7 @@ export function InvestmentsMasterView({
                   Fund + Trade
                 </Link>
               </Button>
-              <Button variant="blue-gradient" effect="fill" onClick={handleOptimize}>
+              <Button type="button" variant="blue-gradient" effect="fill" onClick={handleOptimize}>
                 <ArrowRight className="mr-2 h-4 w-4" />
                 Optimize current source
               </Button>
@@ -1003,6 +1003,7 @@ export function InvestmentsMasterView({
                   </div>
                   {position.debateEligible && position.displaySymbol ? (
                     <Button
+                      type="button"
                       variant="none"
                       effect="fade"
                       size="sm"
@@ -1043,7 +1044,7 @@ export function InvestmentsMasterView({
             title="Open optimization workspace"
             description={`Continue with the current ${sourceLabel.toLowerCase()} source in Optimize.`}
             trailing={
-              <Button variant="none" effect="fade" size="sm" onClick={handleOptimize}>
+              <Button type="button" variant="none" effect="fade" size="sm" onClick={handleOptimize}>
                 Open Optimize
               </Button>
             }
