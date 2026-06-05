@@ -46,7 +46,9 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json(data);
   } catch (error) {
-    console.warn("[API] Notifications register unavailable:", error);
+    if (process.env.NODE_ENV !== "production") {
+  console.warn("[API] Notifications register unavailable:", error);
+}
     return NextResponse.json(
       {
         registered: false,
