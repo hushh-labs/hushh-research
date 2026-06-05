@@ -53,7 +53,7 @@ export const Navbar = () => {
 
   const busyOperations = useKaiSession((s) => s.busyOperations);
 
-  React.useLayoutEffect(() => {
+  React.useEffect(() => {
     const el = pillRef.current;
     if (!el) return;
 

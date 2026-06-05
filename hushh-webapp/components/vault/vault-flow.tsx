@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Button, Card, CardContent } from "@/lib/morphy-ux/morphy";
 import {
@@ -256,7 +256,7 @@ export function VaultFlow({
     checkStatus();
   }, [nativeTestConfig.vaultPassphrase, shouldPreferPassphraseUnlock, user.uid]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (step !== "unlock") {
       return;
     }

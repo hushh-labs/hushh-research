@@ -4,7 +4,6 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1147,7 +1146,7 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
     stopMeterRef.current = stop;
   }, [stop]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const root = document.documentElement;
     const update = () => {
       const barHeight = barRef.current?.getBoundingClientRect().height ?? 40;
