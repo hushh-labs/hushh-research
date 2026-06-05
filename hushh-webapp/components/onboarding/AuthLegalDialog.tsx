@@ -51,7 +51,7 @@ export function AuthLegalDialog({ docType, onOpenChange }: AuthLegalDialogProps)
                 <a
                   href={content.url}
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                 >
                   Open in browser

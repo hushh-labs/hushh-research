@@ -13,6 +13,26 @@ import { getPythonApiUrl } from "@/app/api/_utils/backend";
 
 const BACKEND_URL = getPythonApiUrl();
 
+/**
+ * Security and privacy headers stamped on every response from this route.
+ * Applied regardless of success or failure status so client-side policies
+ * are enforced even when the consent approval is rejected.
+ */
+const CONSENT_SECURITY_HEADERS: ReadonlyArray<[string, string]> = [
+  ["X-Frame-Options",        "DENY"],
+  ["X-Content-Type-Options", "nosniff"],
+  ["Cache-Control",          "no-store, no-cache, must-revalidate"],
+  ["Pragma",                 "no-cache"],
+  ["Referrer-Policy",        "strict-origin-when-cross-origin"],
+];
+
+function withSecurityHeaders(response: NextResponse): NextResponse {
+  for (const [name, value] of CONSENT_SECURITY_HEADERS) {
+    response.headers.set(name, value);
+  }
+  return response;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -34,26 +54,26 @@ export async function POST(request: NextRequest) {
     } = body;
 
     if (!userId || !requestId) {
-      return NextResponse.json(
+      return withSecurityHeaders(NextResponse.json(
         { error: "userId and requestId are required" },
         { status: 400 }
-      );
+      ));
     }
 
     if ("exportKey" in body) {
-      return NextResponse.json(
+      return withSecurityHeaders(NextResponse.json(
         { error: "Plaintext exportKey is not accepted in strict zero-knowledge mode" },
         { status: 400 }
-      );
+      ));
     }
 
     // Forward Authorization header (VAULT_OWNER token)
     const authHeader = request.headers.get("Authorization");
     if (!authHeader) {
-      return NextResponse.json(
+      return withSecurityHeaders(NextResponse.json(
         { error: "Authorization header required" },
         { status: 401 }
-      );
+      ));
     }
 
     console.log(`[API] Approving consent request: ${requestId}`);
@@ -103,21 +123,21 @@ export async function POST(request: NextRequest) {
           message = errorText;
         }
       }
-      return NextResponse.json(
+      return withSecurityHeaders(NextResponse.json(
         { error: message },
         { status: response.status }
-      );
+      ));
     }
 
     const data = await response.json();
     console.log(`[API] Consent approved with token`);
 
-    return NextResponse.json(data);
+    return withSecurityHeaders(NextResponse.json(data));
   } catch (error) {
     console.error("[API] Approve consent error:", error);
-    return NextResponse.json(
+    return withSecurityHeaders(NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
-    );
+    ));
   }
 }

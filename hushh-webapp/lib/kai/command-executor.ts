@@ -1,5 +1,6 @@
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
+import { showDebateAlreadyRunningToast } from "@/lib/kai/debate-run-notifications";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type { KaiCommandAction, KaiCommandParams } from "@/lib/kai/kai-command-types";
 import {
@@ -236,7 +237,8 @@ export function executeKaiCommand(input: ExecuteKaiCommandInput): ExecuteKaiComm
     }
 
     if (busyOperations["stock_analysis_active"]) {
-      toast.error("A debate is already running.", {
+      showDebateAlreadyRunningToast(toast, {
+        level: "error",
         description: "Open analysis to continue with the active run.",
       });
       router.push(getActiveAnalysisTarget(symbol));

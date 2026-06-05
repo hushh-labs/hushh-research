@@ -5,12 +5,20 @@ These routes preserve older `/api/world-model/*` callers by delegating to the
 canonical PKM implementation under `/api/pkm/*`.
 
 DEPRECATED: Migrate to /api/pkm/* endpoints. These routes will be removed.
+
+Canonical attach points
+-----------------------
+api.routes.world_model.get_user_world_model_domains -> GET /api/world-model/domains/{user_id}
+api.routes.world_model.get_world_model_metadata     -> GET /api/world-model/metadata/{user_id}
+api.routes.world_model.get_world_model_scopes       -> GET /api/world-model/scopes/{user_id}
+api.routes.world_model.get_world_model_data         -> GET /api/world-model/data/{user_id}
+api.routes.world_model.get_world_model_domain_data  -> GET /api/world-model/domain-data/{user_id}/{domain}
 """
 
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, Path, Query, Request, Response
 from pydantic import BaseModel
 
 from api.middleware import require_vault_owner_token
@@ -97,7 +105,7 @@ async def get_world_model_domains(
 
 @router.get("/domains/{user_id}", response_model=UserWorldModelDomainsResponse)
 async def get_user_world_model_domains(
-    user_id: str,
+    user_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     metadata = await _get_metadata(user_id, token_data)
@@ -115,7 +123,7 @@ async def get_user_world_model_domains(
 
 @router.get("/metadata/{user_id}", response_model=PersonalKnowledgeModelMetadataResponse)
 async def get_world_model_metadata(
-    user_id: str,
+    user_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _get_metadata(user_id, token_data)
@@ -123,7 +131,7 @@ async def get_world_model_metadata(
 
 @router.get("/scopes/{user_id}", response_model=UserScopesResponse)
 async def get_world_model_scopes(
-    user_id: str,
+    user_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _get_user_scopes(user_id, token_data)
@@ -139,7 +147,7 @@ async def store_world_model_domain(
 
 @router.get("/data/{user_id}", response_model=dict)
 async def get_world_model_data(
-    user_id: str,
+    user_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _get_encrypted_data(user_id, token_data)
@@ -147,8 +155,8 @@ async def get_world_model_data(
 
 @router.get("/domain-data/{user_id}/{domain}", response_model=DomainDataResponse)
 async def get_world_model_domain_data(
-    user_id: str,
-    domain: str,
+    user_id: str = Path(..., min_length=1, max_length=128),
+    domain: str = Path(..., min_length=1, max_length=200),
     segment_ids: list[str] | None = Query(default=None),
     token_data: dict = Depends(require_vault_owner_token),
 ):

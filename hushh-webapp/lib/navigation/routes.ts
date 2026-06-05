@@ -68,7 +68,7 @@ export function buildMarketplaceConnectionsRoute(entries?: {
   tab?: "pending" | "active" | "previous" | null;
   selected?: string | null;
 }) {
-  return withQuery(ROUTES.CONSENTS, {
+  return withQuery(ROUTES.MARKETPLACE_CONNECTIONS, {
     tab: entries?.tab,
     selected: entries?.selected,
   });
@@ -176,4 +176,16 @@ export function isPublicRoute(pathname: string): boolean {
 
 export function isRiaRoute(pathname: string): boolean {
   return pathname === ROUTES.RIA_HOME || pathname.startsWith(`${ROUTES.RIA_HOME}/`);
+}
+
+export function isRiaOnboardingRoute(pathname: string): boolean {
+  return (
+    pathname === ROUTES.RIA_ONBOARDING ||
+    pathname.startsWith(`${ROUTES.RIA_ONBOARDING}/`)
+  );
+}
+
+export function isRiaActionBarRoute(pathname: string | null | undefined): boolean {
+  const path = pathname ?? "";
+  return isRiaRoute(path) && !isRiaOnboardingRoute(path);
 }
