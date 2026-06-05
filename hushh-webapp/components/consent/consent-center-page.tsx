@@ -1160,6 +1160,7 @@ export function ConsentCenterPage() {
                     placeholder={searchPlaceholder}
                     className="pl-9"
                     data-voice-control-id="consent_search"
+                    aria-label="Search consents"
                   />
                 </div>
                 {visibleSnapshot ? (
