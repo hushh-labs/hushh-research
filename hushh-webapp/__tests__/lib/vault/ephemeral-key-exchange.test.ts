@@ -131,12 +131,14 @@ describe("wrapExportKeyForConnector — X25519 ephemeral key exchange", () => {
     ).rejects.toThrow();
   });
 
-  it("rejects an export key hex that is too short for AES-256 (4 bytes instead of 32)", async () => {
-    const validPubKey = await freshX25519PublicKeyBase64();
+  it("rejects a connector public key whose base64 encoding contains illegal characters", async () => {
+    // exportKeyHex is encrypted as plaintext, so its length never causes a crypto
+    // error. The connector public key is decoded first via atob — illegal base64
+    // characters throw before any WebCrypto operation runs.
     await expect(
       wrapExportKeyForConnector({
-        exportKeyHex: "deadbeef",
-        connectorPublicKey: validPubKey,
+        exportKeyHex: fixedKeyHex(),
+        connectorPublicKey: "!!!invalid-base64-payload!!!",
       })
     ).rejects.toThrow();
   });
