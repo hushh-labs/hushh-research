@@ -207,7 +207,7 @@ export function shouldTriggerVoiceBargeIn(partialTranscript: string): boolean {
 }
 
 type TimerRefLike = {
-  current: number | null;
+  current: ReturnType<typeof setTimeout> | null;
 };
 
 type VoiceUiStateRefLike = {
@@ -218,7 +218,7 @@ const CLIENT_VAD_SPEECH_STOP_COMMIT_DELAY_MS = 180;
 
 export function clearClientVadFallbackTimer(timerRef: TimerRefLike): void {
   if (timerRef.current === null) return;
-  window.clearTimeout(timerRef.current);
+  clearTimeout(timerRef.current);
   timerRef.current = null;
 }
 
@@ -236,7 +236,7 @@ export function scheduleClientVadFallbackCommit(input: {
   getCurrentTurnId: () => string | null;
 }): void {
   clearClientVadFallbackTimer(input.timerRef);
-  input.timerRef.current = window.setTimeout(() => {
+  input.timerRef.current = setTimeout(() => {
     input.timerRef.current = null;
     if (
       input.sessionMutedRef.current ||
@@ -268,7 +268,7 @@ export function scheduleClientVadSpeechStopCommit(input: {
   getCurrentTurnId: () => string | null;
 }): void {
   clearClientVadFallbackTimer(input.timerRef);
-  input.timerRef.current = window.setTimeout(() => {
+  input.timerRef.current = setTimeout(() => {
     input.timerRef.current = null;
     if (
       input.sessionMutedRef.current ||
@@ -367,7 +367,7 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
   const orchestratorRef = useRef<VoiceTurnOrchestrator | null>(null);
   const currentVoiceTurnIdRef = useRef<string | null>(null);
   const voiceUiStateRef = useRef<VoiceUiState>("idle");
-  const partialFallbackTimerRef = useRef<number | null>(null);
+  const partialFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastFinalTranscriptRef = useRef<{ text: string; atMs: number } | null>(
     null,
   );
@@ -1585,17 +1585,17 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
 
   useEffect(() => {
     if (voiceUiState !== "error_terminal") return;
-    const timer = window.setTimeout(() => {
+    const timer = setTimeout(() => {
       setVoiceErrorMessage(null);
       transitionVoiceState("idle", "error_recovered");
     }, 1600);
-    return () => window.clearTimeout(timer);
+    return () => clearTimeout(timer);
   }, [transitionVoiceState, voiceUiState]);
 
   useEffect(() => {
     if (voiceUiState !== "sheet_listening") return;
     if (!realtimeSessionReady) return;
-    const timer = window.setInterval(() => {
+    const timer = setInterval(() => {
       if (!shouldShowAmbientListeningStatus(transcriptPreviewRef.current)) {
         return;
       }
@@ -1604,7 +1604,7 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
       setTranscriptPreview(activity);
     }, 280);
     return () => {
-      window.clearInterval(timer);
+      clearInterval(timer);
     };
   }, [realtimeSessionReady, smoothedLevel, voiceUiState]);
 
