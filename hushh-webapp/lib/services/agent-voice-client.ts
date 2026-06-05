@@ -12,6 +12,7 @@ export type AgentVoiceUtterance = {
   audio: Blob;
   mimeType: string;
   durationMs: number;
+  nativeTranscript?: AgentVoiceTranscriptionResult | null;
 };
 
 export type AgentVoiceTranscriptionResult = {
@@ -27,10 +28,13 @@ type AgentVoiceClientHandlers = {
   onError?: (message: string) => void;
 };
 
-const SILENCE_THRESHOLD_MS = 1500;
+const END_OF_SPEECH_SILENCE_MS = 850;
+const SHORT_UTTERANCE_SILENCE_MS = 1200;
+const SHORT_UTTERANCE_MS = 700;
 const RMS_SPEECH_THRESHOLD = 0.035;
 const METER_INTERVAL_MS = 80;
 const RECORDER_TIMESLICE_MS = 250;
+const NATIVE_STT_FINAL_GRACE_MS = 280;
 export const AGENT_VOICE_STT_TIMEOUT_MS = 25_000;
 
 const PREFERRED_AUDIO_MIME_TYPES = [
@@ -42,6 +46,44 @@ const PREFERRED_AUDIO_MIME_TYPES = [
 
 type WindowWithWebkitAudio = Window & {
   webkitAudioContext?: typeof AudioContext;
+};
+
+type BrowserSpeechRecognitionAlternative = {
+  transcript?: string;
+};
+
+type BrowserSpeechRecognitionResult = {
+  isFinal?: boolean;
+  length: number;
+  [index: number]: BrowserSpeechRecognitionAlternative | undefined;
+};
+
+type BrowserSpeechRecognitionEvent = {
+  resultIndex?: number;
+  results: {
+    length: number;
+    [index: number]: BrowserSpeechRecognitionResult | undefined;
+  };
+};
+
+type BrowserSpeechRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  maxAlternatives: number;
+  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+
+type WindowWithSpeechRecognition = Window & {
+  SpeechRecognition?: BrowserSpeechRecognitionConstructor;
+  webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
 };
 
 function createTimeoutSignal(
@@ -91,6 +133,21 @@ function getSupportedAudioMimeType(): string {
 function getAudioContextCtor(): typeof AudioContext | null {
   if (typeof window === "undefined") return null;
   return window.AudioContext || (window as WindowWithWebkitAudio).webkitAudioContext || null;
+}
+
+function getSpeechRecognitionCtor(): BrowserSpeechRecognitionConstructor | null {
+  if (typeof window === "undefined") return null;
+  return (
+    (window as WindowWithSpeechRecognition).SpeechRecognition ||
+    (window as WindowWithSpeechRecognition).webkitSpeechRecognition ||
+    null
+  );
+}
+
+export function getAgentVoiceEndSilenceThresholdMs(speechDurationMs: number): number {
+  return speechDurationMs < SHORT_UTTERANCE_MS
+    ? SHORT_UTTERANCE_SILENCE_MS
+    : END_OF_SPEECH_SILENCE_MS;
 }
 
 export function getAgentVoiceStartErrorMessage(error: unknown): string {
@@ -181,10 +238,15 @@ export class AgentVoiceClient {
   private muted = false;
   private hasSpeech = false;
   private recordingStartedAt = 0;
+  private firstSpeechAt = 0;
   private lastSpeechAt = 0;
   private processingUtterance = false;
   private capturePaused = false;
   private mimeType = "";
+  private nativeRecognition: BrowserSpeechRecognition | null = null;
+  private nativeFinalTranscript = "";
+  private nativeInterimTranscript = "";
+  private nativeStopWaiters: Array<() => void> = [];
 
   get isActive(): boolean {
     return this.active;
@@ -233,6 +295,7 @@ export class AgentVoiceClient {
     this.capturePaused = false;
     this.stopMeter();
     this.stopRecorder(false);
+    this.stopNativeRecognition(true);
     this.stream?.getTracks().forEach((track) => track.stop());
     this.stream = null;
     this.disconnectAudioGraph();
@@ -247,6 +310,7 @@ export class AgentVoiceClient {
 
     if (muted) {
       this.stopRecorder(false);
+      this.stopNativeRecognition(true);
       this.handlers.onLevel?.(0);
       this.handlers.onStatus?.("muted");
       return;
@@ -271,6 +335,7 @@ export class AgentVoiceClient {
 
     if (paused) {
       this.stopRecorder(false);
+      this.stopNativeRecognition(true);
       this.hasSpeech = false;
       this.handlers.onLevel?.(0);
       return;
@@ -347,12 +412,19 @@ export class AgentVoiceClient {
 
     const now = performance.now();
     if (rms >= RMS_SPEECH_THRESHOLD) {
+      if (!this.hasSpeech) {
+        this.firstSpeechAt = now;
+      }
       this.hasSpeech = true;
       this.lastSpeechAt = now;
       return;
     }
 
-    if (this.hasSpeech && now - this.lastSpeechAt >= SILENCE_THRESHOLD_MS) {
+    if (
+      this.hasSpeech &&
+      now - this.lastSpeechAt >=
+        getAgentVoiceEndSilenceThresholdMs(this.lastSpeechAt - this.firstSpeechAt)
+    ) {
       this.finishUtterance();
     }
   }
@@ -362,13 +434,17 @@ export class AgentVoiceClient {
     this.chunks = [];
     this.hasSpeech = false;
     this.recordingStartedAt = performance.now();
+    this.firstSpeechAt = 0;
     this.lastSpeechAt = this.recordingStartedAt;
+    this.resetNativeTranscript();
+    this.startNativeRecognition();
 
     const options = this.mimeType ? { mimeType: this.mimeType } : undefined;
     try {
       this.recorder = new MediaRecorder(this.stream, options);
     } catch (error) {
       this.processingUtterance = false;
+      this.stopNativeRecognition(true);
       this.handlers.onError?.(getAgentVoiceStartErrorMessage(error));
       return;
     }
@@ -388,7 +464,10 @@ export class AgentVoiceClient {
   private stopRecorder(submit: boolean): void {
     const recorder = this.recorder;
     if (!recorder) return;
-    if (!submit) this.chunks = [];
+    if (!submit) {
+      this.chunks = [];
+      this.stopNativeRecognition(true);
+    }
     if (recorder.state !== "inactive") {
       recorder.stop();
     }
@@ -407,16 +486,18 @@ export class AgentVoiceClient {
     const chunks = this.chunks;
     this.chunks = [];
     const durationMs = Math.max(0, performance.now() - this.recordingStartedAt);
+    const nativeTranscript = await this.waitForNativeTranscript(NATIVE_STT_FINAL_GRACE_MS);
     const audio = new Blob(chunks, {
       type: this.mimeType || chunks[0]?.type || "audio/webm",
     });
 
     try {
-      if (audio.size > 0) {
+      if (audio.size > 0 || nativeTranscript?.transcript) {
         await this.handlers.onUtterance?.({
           audio,
           mimeType: audio.type || "audio/webm",
           durationMs,
+          nativeTranscript,
         });
       }
     } catch (error) {
@@ -430,5 +511,133 @@ export class AgentVoiceClient {
         this.startRecorder();
       }
     }
+  }
+
+  private resetNativeTranscript(): void {
+    this.nativeFinalTranscript = "";
+    this.nativeInterimTranscript = "";
+  }
+
+  private startNativeRecognition(): void {
+    if (this.nativeRecognition || this.muted || this.capturePaused || this.processingUtterance) {
+      return;
+    }
+    const Recognition = getSpeechRecognitionCtor();
+    if (!Recognition) return;
+
+    try {
+      const recognition = new Recognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+      recognition.maxAlternatives = 1;
+      recognition.onresult = (event) => {
+        let finalTranscript = this.nativeFinalTranscript;
+        let interimTranscript = "";
+        const startIndex = Math.max(0, event.resultIndex ?? 0);
+        for (let index = startIndex; index < event.results.length; index += 1) {
+          const result = event.results[index];
+          const transcript = result?.[0]?.transcript?.trim();
+          if (!transcript) continue;
+          if (result?.isFinal) {
+            finalTranscript = `${finalTranscript} ${transcript}`.trim();
+          } else {
+            interimTranscript = `${interimTranscript} ${transcript}`.trim();
+          }
+        }
+        this.nativeFinalTranscript = finalTranscript;
+        this.nativeInterimTranscript = interimTranscript || this.nativeInterimTranscript;
+      };
+      recognition.onerror = () => {
+        if (this.nativeRecognition === recognition) {
+          this.nativeRecognition = null;
+        }
+        this.resetNativeTranscript();
+        this.resolveNativeStopWaiters();
+      };
+      recognition.onend = () => {
+        if (this.nativeRecognition === recognition) {
+          this.nativeRecognition = null;
+        }
+        this.resolveNativeStopWaiters();
+        if (this.active && !this.muted && !this.capturePaused && !this.processingUtterance) {
+          window.setTimeout(() => this.startNativeRecognition(), 120);
+        }
+      };
+      this.nativeRecognition = recognition;
+      recognition.start();
+    } catch {
+      this.nativeRecognition = null;
+    }
+  }
+
+  private stopNativeRecognition(abort: boolean): void {
+    const recognition = this.nativeRecognition;
+    if (!recognition) return;
+    try {
+      if (abort) {
+        recognition.abort();
+        this.resetNativeTranscript();
+      } else {
+        recognition.stop();
+      }
+    } catch {
+      this.nativeRecognition = null;
+      this.resolveNativeStopWaiters();
+    }
+  }
+
+  private async waitForNativeTranscript(
+    timeoutMs: number
+  ): Promise<AgentVoiceTranscriptionResult | null> {
+    const recognition = this.nativeRecognition;
+    if (!recognition) return this.getNativeTranscriptResult();
+
+    let timeoutId: number | null = null;
+    let settled = false;
+    const stopped = new Promise<void>((resolve) => {
+      const resolveOnce = () => {
+        if (settled) return;
+        settled = true;
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId);
+        }
+        this.nativeStopWaiters = this.nativeStopWaiters.filter(
+          (waiter) => waiter !== resolveOnce
+        );
+        resolve();
+      };
+      this.nativeStopWaiters.push(resolveOnce);
+      timeoutId = window.setTimeout(resolveOnce, timeoutMs);
+    });
+    this.stopNativeRecognition(false);
+    await stopped;
+    return this.getNativeTranscriptResult();
+  }
+
+  private resolveNativeStopWaiters(): void {
+    const waiters = this.nativeStopWaiters.splice(0);
+    for (const resolve of waiters) {
+      resolve();
+    }
+  }
+
+  private getNativeTranscriptResult(): AgentVoiceTranscriptionResult | null {
+    const finalTranscript = this.nativeFinalTranscript.trim();
+    if (finalTranscript) {
+      return {
+        transcript: finalTranscript,
+        uncertain: false,
+        reason: null,
+      };
+    }
+
+    const interimTranscript = this.nativeInterimTranscript.trim();
+    if (!interimTranscript) return null;
+    return {
+      transcript: interimTranscript,
+      uncertain: true,
+      reason: "Browser speech recognition did not finalize the transcript.",
+    };
   }
 }
