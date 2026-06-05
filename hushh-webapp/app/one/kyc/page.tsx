@@ -2227,6 +2227,8 @@ function OneKycWorkspace() {
                   onChange={(event) => setAliasEmail(event.target.value)}
                   placeholder="name@example.com"
                   autoComplete="email"
+                  autoCapitalize="none"
+                  spellCheck={false}
                 />
                 {aliasChallenge ? (
                   <Input
@@ -2234,6 +2236,7 @@ function OneKycWorkspace() {
                     onChange={(event) => setAliasCode(event.target.value)}
                     placeholder="Verification code"
                     inputMode="numeric"
+                    autoComplete="one-time-code"
                   />
                 ) : null}
                 {aliasChallenge?.reviewCode ? (
