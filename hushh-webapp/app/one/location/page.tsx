@@ -21,9 +21,11 @@ import {
   Loader2,
   LocateFixed,
   MapPin,
+  Navigation,
   Pencil,
   Plus,
   RefreshCw,
+  Route,
   Search,
   Send,
   ShieldCheck,
@@ -719,40 +721,145 @@ function isLocationPointStale(point: PlainLocationPoint): boolean {
   return Date.now() - capturedAt > LIVE_LOCATION_STALE_THRESHOLD_MS;
 }
 
+function formatLocationCoordinate(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(6) : "0.000000";
+}
+
+function locationCoordinateQuery(point: PlainLocationPoint): string {
+  return [
+    formatLocationCoordinate(point.latitude),
+    formatLocationCoordinate(point.longitude),
+  ].join(",");
+}
+
+function googleMapsLocationEmbedUrl(point: PlainLocationPoint): string {
+  const query = encodeURIComponent(locationCoordinateQuery(point));
+  return `https://www.google.com/maps?q=${query}&z=16&output=embed`;
+}
+
+function googleMapsDirectionsUrl(point: PlainLocationPoint): string {
+  const destination = encodeURIComponent(locationCoordinateQuery(point));
+  return `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`;
+}
+
+function googleMapsStartNavigationUrl(point: PlainLocationPoint): string {
+  return `${googleMapsDirectionsUrl(point)}&dir_action=navigate`;
+}
+
+function locationAccuracyLabel(point: PlainLocationPoint): string | null {
+  const accuracyM = point.accuracyM;
+  if (typeof accuracyM !== "number" || !Number.isFinite(accuracyM) || accuracyM <= 0) {
+    return null;
+  }
+  if (accuracyM >= 1000) {
+    const kilometers = accuracyM / 1000;
+    return `Accuracy +/- ${kilometers >= 10 ? Math.round(kilometers) : kilometers.toFixed(1)} km`;
+  }
+  return `Accuracy +/- ${Math.round(accuracyM)} m`;
+}
+
+function locationSourceLabel(sourcePlatform: PlainLocationPoint["sourcePlatform"]): string {
+  switch (sourcePlatform) {
+    case "ios":
+      return "iOS";
+    case "android":
+      return "Android";
+    case "native":
+      return "Native";
+    case "web":
+      return "Web";
+    default:
+      return "Location";
+  }
+}
+
 function LocalMapPreview({ point }: { point: PlainLocationPoint }) {
   const captured = formatDateTime(point.capturedAt);
   const isStale = isLocationPointStale(point);
+  const accuracy = locationAccuracyLabel(point);
+  const embedUrl = googleMapsLocationEmbedUrl(point);
+  const directionsUrl = googleMapsDirectionsUrl(point);
+  const startUrl = googleMapsStartNavigationUrl(point);
+  const statusLabel = isStale ? "Last known location" : "Live location";
   return (
     <div className="overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)]">
-      <div className="relative h-44 bg-[linear-gradient(to_right,rgba(15,23,42,0.08)_1px,transparent_1px),linear-gradient(to_bottom,rgba(15,23,42,0.08)_1px,transparent_1px)] bg-[length:28px_28px] dark:bg-[linear-gradient(to_right,rgba(255,255,255,0.10)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.10)_1px,transparent_1px)]">
-        <div className="absolute left-1/2 top-1/2 flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 shadow-[var(--shadow-xs)] dark:text-emerald-200">
-          <MapPin className="h-6 w-6" aria-hidden="true" />
+      <div className="relative h-56 overflow-hidden bg-[#e5e5ea] dark:bg-[#111113]">
+        <iframe
+          title="Live location map preview"
+          src={embedUrl}
+          loading="lazy"
+          referrerPolicy="no-referrer-when-downgrade"
+          allowFullScreen
+          className="h-full w-full border-0"
+        />
+        <div className="pointer-events-none absolute left-3 top-3">
+          <span
+            className={cn(
+              "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12px] font-semibold shadow-[0_10px_28px_rgba(0,0,0,0.18)] backdrop-blur-xl",
+              isStale
+                ? "border-amber-400/40 bg-amber-950/70 text-amber-50"
+                : "border-emerald-300/40 bg-emerald-950/70 text-emerald-50",
+            )}
+          >
+            <span
+              className={cn(
+                "h-2 w-2 rounded-full",
+                isStale ? "bg-amber-300" : "animate-pulse bg-emerald-300",
+              )}
+              aria-hidden="true"
+            />
+            {statusLabel}
+          </span>
         </div>
       </div>
-      <div className="grid gap-2 p-3 text-sm sm:grid-cols-3">
-        <div>
-          <div className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-            Lat
-          </div>
-          <div className="font-mono text-foreground">
-            {point.latitude.toFixed(6)}
-          </div>
+
+      <div className="space-y-3 p-3">
+        <div className="min-w-0">
+          <p className="text-[15px] font-semibold text-foreground">
+            {statusLabel}
+          </p>
+          <p className="mt-1 text-[12px] font-medium text-muted-foreground">
+            Updated {captured}
+            {accuracy ? ` - ${accuracy}` : ""} -{" "}
+            {locationSourceLabel(point.sourcePlatform)}
+          </p>
         </div>
-        <div>
-          <div className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-            Lng
-          </div>
-          <div className="font-mono text-foreground">
-            {point.longitude.toFixed(6)}
-          </div>
-        </div>
-        <div>
-          <div className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-            Freshness
-          </div>
-          <div className="text-foreground">{captured}</div>
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="h-10 rounded-full border-[#0a84ff]/30 bg-[#0a84ff]/10 text-[#0066cc] hover:bg-[#0a84ff]/15 dark:text-[#76b7ff]"
+          >
+            <a
+              href={directionsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open Google Maps directions to shared live location"
+            >
+              <Route className="h-4 w-4" aria-hidden="true" />
+              Directions
+            </a>
+          </Button>
+          <Button
+            asChild
+            size="sm"
+            className="h-10 rounded-full bg-[#1c1c1e] text-white hover:bg-black dark:bg-white dark:text-[#1c1c1e] dark:hover:bg-white/90"
+          >
+            <a
+              href={startUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Start Google Maps navigation to shared live location"
+            >
+              <Navigation className="h-4 w-4" aria-hidden="true" />
+              Start
+            </a>
+          </Button>
         </div>
       </div>
+
       {isStale ? (
         <div
           role="status"

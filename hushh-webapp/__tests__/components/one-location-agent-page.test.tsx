@@ -547,6 +547,31 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByText("Location update may be stale. Ask them to refresh sharing."),
     ).toBeTruthy();
+
+    const mapPreview = screen.getByTitle("Live location map preview");
+    expect(mapPreview.getAttribute("src")).toContain(
+      "https://www.google.com/maps?q=28.613900%2C77.209000",
+    );
+    expect(screen.queryAllByText("Last known location").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Accuracy \+\/- 18 m/)).toBeTruthy();
+    expect(screen.queryByText("Lat")).toBeNull();
+    expect(screen.queryByText("Lng")).toBeNull();
+
+    const directionsLink = screen.getByRole("link", {
+      name: "Open Google Maps directions to shared live location",
+    });
+    expect(directionsLink.getAttribute("target")).toBe("_blank");
+    expect(directionsLink.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(directionsLink.getAttribute("href")).toContain(
+      "https://www.google.com/maps/dir/?api=1&destination=28.613900%2C77.209000&travelmode=driving",
+    );
+
+    const startLink = screen.getByRole("link", {
+      name: "Start Google Maps navigation to shared live location",
+    });
+    expect(startLink.getAttribute("target")).toBe("_blank");
+    expect(startLink.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(startLink.getAttribute("href")).toContain("dir_action=navigate");
   });
 
   it("tracks public request-link creation without location or identity payloads", async () => {
