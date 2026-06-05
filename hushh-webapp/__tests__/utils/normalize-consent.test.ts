@@ -271,8 +271,6 @@ describe("normalizeConsentResponse — malformed payload defaults to strict deny
 // strings survive in the output.
 
 describe("normalizeConsentResponse — mixed-primitive deduplication", () => {
-  const DENY: NormalizedConsentState = { isGranted: false, permissions: [] };
-
   // ── Type isolation: numbers must not survive the string filter ────────────
 
   it("ejects numeric values that share a character representation with a valid permission string", () => {
