@@ -17,7 +17,6 @@ from hushh_mcp.operons.location.policy import (
     normalize_duration_hours,
     normalize_source_platform,
 )
-
 from mcp_modules.log_redaction import redact_log_value
 
 logger = logging.getLogger(__name__)

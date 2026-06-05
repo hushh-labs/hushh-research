@@ -5,9 +5,8 @@ notification and identity lookup log paths.
 """
 
 import logging
-from unittest.mock import MagicMock, patch
 
-import pytest
+from mcp_modules.log_redaction import REDACTED, redact_log_value
 
 
 class TestOneLocationLogRedaction:
@@ -15,7 +14,6 @@ class TestOneLocationLogRedaction:
 
     def test_notification_send_failed_redacts_user_id(self, caplog):
         """notification_send_failed must not log raw user_id."""
-        from mcp_modules.log_redaction import redact_log_value
         user_id = "firebase-uid-abc123"
         redacted = redact_log_value(user_id)
         with caplog.at_level(logging.WARNING):
@@ -31,7 +29,6 @@ class TestOneLocationLogRedaction:
 
     def test_identity_lookup_failed_redacts_user_id(self, caplog):
         """identity_lookup_failed must not log raw user_id."""
-        from mcp_modules.log_redaction import redact_log_value
         user_id = "uid-secret-xyz"
         redacted = redact_log_value(user_id)
         with caplog.at_level(logging.DEBUG):
@@ -46,13 +43,11 @@ class TestOneLocationLogRedaction:
 
     def test_redact_log_value_masks_user_id_string(self):
         """redact_log_value must redact a plain user_id string."""
-        from mcp_modules.log_redaction import redact_log_value, REDACTED
         result = redact_log_value("some-firebase-uid")
         assert result == REDACTED
 
     def test_redact_log_value_masks_user_id_in_dict(self):
         """redact_log_value must redact user_id key in a dict."""
-        from mcp_modules.log_redaction import redact_log_value, REDACTED
         payload = {"user_id": "uid-abc", "type": "push"}
         result = redact_log_value(payload)
         assert result["user_id"] == REDACTED
