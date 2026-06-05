@@ -28,11 +28,21 @@
 				<string>com.googleusercontent.apps.1006304528804-5f4ni5h8nschgv9gcoa9i07bhqtjeb91</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.hushh.app.messages</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>hushh</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>GIDClientID</key>
 	<string>1006304528804-5f4ni5h8nschgv9gcoa9i07bhqtjeb91.apps.googleusercontent.com</string>
+	<key>HusshIMessageKeychainAccessGroup</key>
+	<string>WVDK9JW99C.com.hushh.app.imessage</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
