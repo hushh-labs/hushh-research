@@ -7,13 +7,13 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Bot,
-  BriefcaseBusiness,
-  ChevronDown,
+  Menu,
   Mic,
   Send,
   UserRound,
@@ -75,12 +75,6 @@ import {
   type AgentChatMessage as StoredAgentChatMessage,
   type AgentChatToolEvent,
 } from "@/lib/services/agent-chat-client";
-import {
-  GEMINI_RUNTIME_CREDENTIAL_REF,
-  PersonalKnowledgeModelService,
-  RUNTIME_CREDENTIAL_MODE_REF,
-  type RuntimeCredentialMode,
-} from "@/lib/services/personal-knowledge-model-service";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
@@ -131,6 +125,7 @@ export type AgentChatWorkspaceVariant = "page" | "popover";
 type AgentChatWorkspaceProps = {
   variant?: AgentChatWorkspaceVariant;
   className?: string;
+  windowControls?: ReactNode;
   onMinimize?: () => void;
   onNavigationActionComplete?: (result: AgentActionRuntimeResult) => void;
 };
@@ -233,7 +228,7 @@ function AgentMarkdown({ text }: { text: string }) {
             <a
               href={href || "#"}
               target="_blank"
-              rel="noopener noreferrer"
+              rel="noreferrer"
               className="font-medium text-primary underline-offset-4 hover:underline"
             >
               {children}
@@ -381,24 +376,30 @@ function AgentBubble({ message }: { message: AgentMessage }) {
   return (
     <div
       className={cn(
-        "flex gap-3 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none",
+        "flex w-full gap-3 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none",
         isUser ? "justify-end" : "justify-start"
       )}
     >
       {!isUser ? (
-        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
-          <Bot className="h-4 w-4" />
+        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-white/10 bg-white/[0.04] text-zinc-300 sm:grid">
+          <Bot className="h-3.5 w-3.5" />
         </div>
       ) : null}
-      <div className={cn("max-w-[78%]", isUser && "order-first")}>
+      <div
+        className={cn(
+          "min-w-0 max-w-[90%] sm:max-w-[min(82%,48rem)]",
+          isUser && "order-first sm:max-w-[min(76%,42rem)]"
+        )}
+      >
         <div
           aria-live={!isUser && isStreaming ? "polite" : undefined}
           className={cn(
-            "rounded-lg px-4 py-3 text-sm leading-6 shadow-sm",
+            "text-sm leading-6",
             isUser
-              ? "bg-primary text-primary-foreground"
-              : "border border-border/70 bg-background text-foreground",
-            isError && "border-destructive/40 bg-destructive/10 text-destructive"
+              ? "rounded-2xl bg-primary px-4 py-2.5 text-primary-foreground shadow-sm shadow-primary/10"
+              : "px-0 py-1 text-zinc-200",
+            isError &&
+              "rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-destructive"
           )}
         >
           {isUser ? (
@@ -417,13 +418,13 @@ function AgentBubble({ message }: { message: AgentMessage }) {
             />
           ) : null}
         </div>
-        <p className={cn("mt-1 text-xs text-muted-foreground", isUser && "text-right")}>
+        <p className={cn("mt-1 text-[11px] text-zinc-500", isUser && "text-right")}>
           {message.timestamp}
         </p>
       </div>
       {isUser ? (
-        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-border/70 bg-background text-muted-foreground">
-          <UserRound className="h-4 w-4" />
+        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-white/10 bg-white/[0.04] text-zinc-400 sm:grid">
+          <UserRound className="h-3.5 w-3.5" />
         </div>
       ) : null}
     </div>
@@ -479,6 +480,7 @@ function shouldMinimizeForNavigationResult(result: AgentActionRuntimeResult): bo
 export function AgentChatWorkspace({
   variant = "page",
   className,
+  windowControls,
   onMinimize,
   onNavigationActionComplete,
 }: AgentChatWorkspaceProps) {
@@ -510,7 +512,7 @@ export function AgentChatWorkspace({
   const [messages, setMessages] = useState<AgentMessage[]>(() => [createGreetingMessage()]);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [isHistorySidebarCollapsed, setIsHistorySidebarCollapsed] = useState(false);
+  const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
   const [historyActionPendingId, setHistoryActionPendingId] = useState<string | null>(null);
   const [isVoiceConnecting, setIsVoiceConnecting] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -531,6 +533,7 @@ export function AgentChatWorkspace({
   const voiceClientRef = useRef<AgentVoiceClient | null>(null);
   const voiceTtsQueueRef = useRef<AgentTtsQueue | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const historyLoadKeyRef = useRef<string | null>(null);
   const streamAbortControllerRef = useRef<AbortController | null>(null);
   const voiceSttAbortControllerRef = useRef<AbortController | null>(null);
@@ -743,6 +746,24 @@ export function AgentChatWorkspace({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, pkmReviews]);
+
+  useEffect(() => {
+    const textarea = composerTextareaRef.current;
+    if (!textarea || voiceActive) return;
+    textarea.style.height = "0px";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+  }, [input, voiceActive]);
+
+  useEffect(() => {
+    if (!isHistoryDrawerOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsHistoryDrawerOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isHistoryDrawerOpen]);
 
   useEffect(() => {
     return () => {
@@ -986,6 +1007,19 @@ export function AgentChatWorkspace({
       historyInteractionDisabled,
       restoreConversationMessages,
     ]
+  );
+
+  const handleSidebarCreateNewChat = useCallback(() => {
+    setIsHistoryDrawerOpen(false);
+    handleCreateNewChat();
+  }, [handleCreateNewChat]);
+
+  const handleSidebarSelectConversation = useCallback(
+    (nextConversationId: string) => {
+      setIsHistoryDrawerOpen(false);
+      void handleSelectConversation(nextConversationId);
+    },
+    [handleSelectConversation]
   );
 
   const handleRenameConversation = useCallback(
@@ -1783,61 +1817,6 @@ export function AgentChatWorkspace({
         });
       }
 
-      let runtimeCredentialMode: RuntimeCredentialMode = "hushh_managed_vertex";
-      let runtimeCredential: string | null = null;
-      if (vaultKey && token) {
-        try {
-          const savedMode = await PersonalKnowledgeModelService.loadRuntimeSecret({
-            userId,
-            vaultKey,
-            vaultOwnerToken: token,
-            credentialRef: RUNTIME_CREDENTIAL_MODE_REF,
-          });
-          runtimeCredentialMode = savedMode === "byok" ? "byok" : "hushh_managed_vertex";
-          if (runtimeCredentialMode === "byok") {
-            try {
-              runtimeCredential = await PersonalKnowledgeModelService.loadRuntimeSecret({
-                userId,
-                vaultKey,
-                vaultOwnerToken: token,
-                credentialRef: GEMINI_RUNTIME_CREDENTIAL_REF,
-              });
-            } catch (error) {
-              runtimeCredential = null;
-              appendDebugEvent(debugTurnId, "runtime_credential_load_failed", {
-                mode: runtimeCredentialMode,
-                provider: "gemini",
-                credential_ref: GEMINI_RUNTIME_CREDENTIAL_REF,
-                message:
-                  error instanceof Error && error.message
-                    ? error.message
-                    : "Failed to load the Gemini runtime key.",
-              });
-            }
-          }
-          appendDebugEvent(debugTurnId, "runtime_credentials_prepared", {
-            mode: runtimeCredentialMode,
-            provider: "gemini",
-            credential_ref: GEMINI_RUNTIME_CREDENTIAL_REF,
-            credential_resolved: Boolean(runtimeCredential),
-          });
-        } catch (error) {
-          runtimeCredentialMode = "hushh_managed_vertex";
-          runtimeCredential = null;
-          appendDebugEvent(debugTurnId, "runtime_credential_mode_load_failed", {
-            message:
-              error instanceof Error && error.message
-                ? error.message
-                : "Failed to load runtime credential settings.",
-          });
-        }
-      } else {
-        appendDebugEvent(debugTurnId, "runtime_credentials_skipped", {
-          reason: "vault_locked_or_unavailable",
-          mode: runtimeCredentialMode,
-        });
-      }
-
       armVoiceStreamWatchdog(
         VOICE_AGENT_FIRST_EVENT_TIMEOUT_MS,
         "Agent voice response timed out before it started. Please try again."
@@ -1848,8 +1827,6 @@ export function AgentChatWorkspace({
         conversationId,
         vaultOwnerToken: token,
         pkmContext: agentPkmContext.text || undefined,
-        runtimeCredential,
-        runtimeCredentialMode,
         signal: streamAbortController.signal,
         handlers: {
           onStart: ({ conversationId: nextConversationId }) => {
@@ -2210,138 +2187,161 @@ export function AgentChatWorkspace({
       onMinimize();
     }
   };
+  const renderHistorySidebar = (sidebarClassName?: string, onClose?: () => void) => (
+    <AgentHistorySidebar
+      conversations={conversations}
+      activeConversationId={conversationId}
+      loading={isLoadingHistory && conversations.length === 0}
+      disabled={!hasChatAccess || historyInteractionDisabled}
+      actionPendingId={historyActionPendingId}
+      className={sidebarClassName}
+      onClose={onClose}
+      onCreateNew={handleSidebarCreateNewChat}
+      onSelectConversation={handleSidebarSelectConversation}
+      onRenameConversation={handleRenameConversation}
+      onDeleteConversation={handleDeleteConversation}
+    />
+  );
 
   return (
     <div
       className={cn(
-        "agent-chat-workspace flex min-h-0 w-full flex-col",
-        isPopover ? "h-full overflow-hidden" : "gap-5",
+        "agent-chat-workspace flex min-h-0 w-full flex-col text-zinc-100",
+        isPopover
+          ? "h-full overflow-hidden bg-[#0d0f13]"
+          : "h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-bottom-fixed-ui,0px)-var(--app-safe-area-bottom-effective,0px))] min-h-[420px] overflow-hidden bg-[#0b0d10]",
         className
       )}
       data-agent-chat-workspace={variant}
     >
       <div
         className={cn(
-          "flex shrink-0 touch-pan-y items-center justify-between gap-4 border-b border-primary/35",
-          isPopover ? "px-4 py-3 sm:px-5" : "pb-5"
-        )}
-        onPointerDown={handleHeaderPointerDown}
-        onPointerUp={handleHeaderPointerEnd}
-        onPointerCancel={() => {
-          swipeStartYRef.current = null;
-        }}
-      >
-        <div className="flex min-w-0 items-center gap-4">
-          <div
-            className={cn(
-              "grid shrink-0 place-items-center rounded-full border border-primary/30 bg-primary/10 text-primary",
-              isPopover ? "h-12 w-12" : "h-24 w-16"
-            )}
-            aria-hidden
-          >
-            <BriefcaseBusiness className={isPopover ? "h-5 w-5" : "h-6 w-6"} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-primary">
-              Kai
-            </p>
-            <h1
-              className={cn(
-                "font-semibold leading-none text-foreground",
-                isPopover ? "mt-1 text-2xl sm:text-3xl" : "mt-3 text-4xl sm:text-5xl"
-              )}
-            >
-              Agent
-            </h1>
-            <p
-              className={cn(
-                "mt-2 max-w-2xl text-muted-foreground",
-                isPopover ? "text-sm" : "text-base"
-              )}
-            >
-              A Kai-focused chat surface for markets, portfolio, analysis, and consent workflows.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="hidden rounded-md border border-border/70 bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground sm:inline-flex">
-            {statusText}
-          </span>
-          {onMinimize ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-9 w-9"
-              onClick={onMinimize}
-              aria-label="Minimize Agent"
-              title="Minimize Agent"
-            >
-              <ChevronDown className="h-4 w-4" />
-            </Button>
-          ) : null}
-        </div>
-      </div>
-
-      <div
-        className={cn(
-          "flex min-h-0 flex-1 flex-col gap-3 lg:flex-row",
-          isPopover ? "overflow-hidden p-3 sm:p-4" : ""
+          "relative flex min-h-0 flex-1",
+          isPopover ? "flex-col gap-3 overflow-hidden p-3 sm:p-4 lg:flex-row" : "overflow-hidden"
         )}
       >
-        <AgentHistorySidebar
-          conversations={conversations}
-          activeConversationId={conversationId}
-          collapsed={isHistorySidebarCollapsed}
-          loading={isLoadingHistory && conversations.length === 0}
-          disabled={!hasChatAccess || historyInteractionDisabled}
-          actionPendingId={historyActionPendingId}
-          className={isPopover ? "max-lg:max-h-48 lg:h-full" : undefined}
-          onToggleCollapsed={() => setIsHistorySidebarCollapsed((current) => !current)}
-          onCreateNew={handleCreateNewChat}
-          onSelectConversation={handleSelectConversation}
-          onRenameConversation={handleRenameConversation}
-          onDeleteConversation={handleDeleteConversation}
-        />
+        {isPopover ? (
+          renderHistorySidebar("max-lg:h-44 max-lg:w-full max-lg:border-b max-lg:border-r-0 lg:h-full lg:w-64")
+        ) : (
+          <>
+            <div className="hidden h-full lg:flex">
+              {renderHistorySidebar("h-full w-[18rem]")}
+            </div>
+            <div
+              className={cn(
+                "fixed inset-0 z-[520] bg-black/55 backdrop-blur-sm transition-opacity duration-200 lg:hidden",
+                isHistoryDrawerOpen ? "opacity-100" : "pointer-events-none opacity-0"
+              )}
+              aria-hidden="true"
+              onClick={() => setIsHistoryDrawerOpen(false)}
+            />
+            <div
+              className={cn(
+                "fixed inset-y-0 left-0 z-[530] w-[min(88vw,320px)] transform transition-transform duration-200 ease-out lg:hidden",
+                isHistoryDrawerOpen ? "translate-x-0" : "-translate-x-full"
+              )}
+              role="dialog"
+              aria-modal="true"
+              aria-hidden={!isHistoryDrawerOpen}
+              aria-label="Agent chat history"
+            >
+              {renderHistorySidebar("h-full w-full shadow-2xl shadow-black/40", () =>
+                setIsHistoryDrawerOpen(false)
+              )}
+            </div>
+          </>
+        )}
 
-        <section className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/70 bg-card shadow-sm">
+        <section
+          className={cn(
+            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[#15171c]",
+            isPopover && "rounded-lg border border-white/10 shadow-sm"
+          )}
+        >
           <div
             className={cn(
-              "min-h-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-5",
-              !isPopover && "max-h-[min(68vh,680px)]"
+              "flex h-14 shrink-0 touch-pan-y items-center justify-between gap-3 border-b border-white/10 bg-[#15171c]/95 px-3 backdrop-blur sm:h-16 sm:px-5",
+              !isPopover && "lg:px-6"
             )}
+            onPointerDown={handleHeaderPointerDown}
+            onPointerUp={handleHeaderPointerEnd}
+            onPointerCancel={() => {
+              swipeStartYRef.current = null;
+            }}
           >
-            {accessMessage ? (
-              <div className="rounded-lg border border-border/70 bg-background px-4 py-5 text-sm text-muted-foreground">
-                {accessMessage}
+            <div className="flex min-w-0 items-center gap-3">
+              {!isPopover ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-lg text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50 focus-visible:ring-2 focus-visible:ring-primary/60 lg:hidden"
+                  onClick={() => setIsHistoryDrawerOpen(true)}
+                  aria-label="Open chat history"
+                  title="Open chat history"
+                >
+                  <Menu className="h-4 w-4" />
+                </Button>
+              ) : null}
+              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-white/10 bg-white/[0.04] text-primary">
+                <Bot className="h-4 w-4" />
               </div>
-            ) : null}
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold leading-5 text-zinc-100 sm:text-base">
+                  Agent
+                </div>
+                <p className="hidden truncate text-xs text-zinc-500 sm:block">
+                  Kai workspace
+                </p>
+              </div>
+            </div>
 
-            {messages.map((message) => (
-              <AgentBubble key={message.id} message={message} />
-            ))}
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="hidden rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs font-medium text-zinc-400 sm:inline-flex">
+                {statusText}
+              </span>
+              {windowControls ? <div className="ml-1">{windowControls}</div> : null}
+            </div>
+          </div>
 
-            {pkmActivity.map((item) => (
-              <AgentPkmActivityLine key={item.id} item={item} />
-            ))}
+          <div
+            className={cn(
+              "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
+              isPopover ? "pb-4" : "pb-6 lg:px-8"
+            )}
+          >
+            <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-6">
+              {accessMessage ? (
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm text-zinc-400">
+                  {accessMessage}
+                </div>
+              ) : null}
 
-            {pkmReviews.map((review) => (
-              <AgentPkmReviewPanel
-                key={review.id}
-                cards={review.cards}
-                saving={review.saving}
-                onSave={() => void handleSavePkmReview(review.id)}
-                onDismiss={() => handleDismissPkmReview(review.id)}
-              />
-            ))}
-            <div ref={messagesEndRef} />
+              {messages.map((message) => (
+                <AgentBubble key={message.id} message={message} />
+              ))}
+
+              {pkmActivity.map((item) => (
+                <AgentPkmActivityLine key={item.id} item={item} />
+              ))}
+
+              {pkmReviews.map((review) => (
+                <AgentPkmReviewPanel
+                  key={review.id}
+                  cards={review.cards}
+                  saving={review.saving}
+                  onSave={() => void handleSavePkmReview(review.id)}
+                  onDismiss={() => handleDismissPkmReview(review.id)}
+                />
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
           </div>
 
           {voiceTranscriptReview ? (
-            <div className="absolute inset-0 z-20 grid place-items-end bg-background/30 p-4 backdrop-blur-[1px] sm:place-items-center">
+            <div className="absolute inset-0 z-20 grid place-items-end bg-black/40 p-4 backdrop-blur-[2px] sm:place-items-center">
               <div
-                className="w-full max-w-sm rounded-md border border-primary/30 bg-background p-4 shadow-xl"
+                className="w-full max-w-sm rounded-xl border border-white/10 bg-[#15171c] p-4 shadow-xl"
                 role="dialog"
                 aria-modal="true"
                 aria-label="Confirm voice transcript"
@@ -2383,46 +2383,71 @@ export function AgentChatWorkspace({
 
           <form
             onSubmit={handleSubmit}
-            className="flex shrink-0 items-center gap-2 border-t border-border/70 bg-background/80 p-3"
-          >
-            {voiceActive ? (
-              <AgentVoiceWaveInput
-                status={voiceState}
-                level={voiceLevel}
-                muted={voiceMuted}
-                disabled={!hasChatAccess || isVoiceConnecting}
-                onToggleMute={handleToggleVoice}
-                onCancel={() => {
-                  void handleCancelVoice();
-                }}
-              />
-            ) : (
-              <>
-                <input
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  disabled={!hasChatAccess || isLoadingHistory || isVoiceConnecting}
-                  placeholder="Ask Agent about markets, portfolio, analysis..."
-                  className="h-11 min-w-0 flex-1 rounded-md border border-border/70 bg-background px-4 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/60"
-                />
-                {agentVoiceEnabled ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    disabled={!canToggleVoice}
-                    onClick={handleToggleVoice}
-                    aria-label="Start voice mode"
-                    title="Start voice mode"
-                  >
-                    <Mic className="h-4 w-4" />
-                  </Button>
-                ) : null}
-                <Button type="submit" size="icon" disabled={!canSend} aria-label="Send message">
-                  <Send className="h-4 w-4" />
-                </Button>
-              </>
+            className={cn(
+              "shrink-0 border-t border-white/10 bg-[#15171c]/95 px-3 py-3 backdrop-blur sm:px-5",
+              !isPopover && "pb-[calc(0.75rem+var(--app-safe-area-bottom-effective,0px))]"
             )}
+          >
+            <div className="mx-auto w-full max-w-3xl">
+              {voiceActive ? (
+                <div className="rounded-2xl border border-white/10 bg-[#0f1116] p-2 shadow-lg shadow-black/15">
+                  <AgentVoiceWaveInput
+                    status={voiceState}
+                    level={voiceLevel}
+                    muted={voiceMuted}
+                    disabled={!hasChatAccess || isVoiceConnecting}
+                    onToggleMute={handleToggleVoice}
+                    onCancel={() => {
+                      void handleCancelVoice();
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-white/12 bg-[#0f1116] px-3 py-2 shadow-lg shadow-black/15 transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20">
+                  <textarea
+                    ref={composerTextareaRef}
+                    value={input}
+                    onChange={(event) => setInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+                        return;
+                      }
+                      event.preventDefault();
+                      if (canSend) {
+                        event.currentTarget.form?.requestSubmit();
+                      }
+                    }}
+                    disabled={!hasChatAccess || isLoadingHistory || isVoiceConnecting}
+                    placeholder="Message Agent..."
+                    rows={1}
+                    className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  />
+                  {agentVoiceEnabled ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 shrink-0 rounded-xl text-zinc-400 hover:bg-white/[0.07] hover:text-zinc-100 focus-visible:ring-2 focus-visible:ring-primary/60"
+                      disabled={!canToggleVoice}
+                      onClick={handleToggleVoice}
+                      aria-label="Start voice mode"
+                      title="Start voice mode"
+                    >
+                      <Mic className="h-4 w-4" />
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="submit"
+                    size="icon"
+                    className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 disabled:bg-white/[0.08] disabled:text-zinc-500 disabled:shadow-none"
+                    disabled={!canSend}
+                    aria-label="Send message"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+            </div>
           </form>
         </section>
       </div>
