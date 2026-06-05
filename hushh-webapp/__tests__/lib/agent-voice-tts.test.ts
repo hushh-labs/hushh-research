@@ -89,6 +89,35 @@ describe("agent voice TTS", () => {
     await vi.waitFor(() => expect(playAudio).toHaveBeenCalledTimes(1));
   });
 
+  it("uses browser speech fallback when backend TTS does not return audio", async () => {
+    const synthesize = vi.fn().mockResolvedValue(new Response("unavailable", { status: 503 }));
+    const playAudio = vi.fn().mockResolvedValue(undefined);
+    const fallbackSpeak = vi.fn().mockResolvedValue(undefined);
+    const onError = vi.fn();
+    const queue = new AgentTtsQueue({
+      userId: "user-1",
+      vaultOwnerToken: "vault-token",
+      synthesize,
+      playAudio,
+      fallbackSpeak,
+      onError,
+      maxAttempts: 1,
+    });
+
+    queue.speakNow("Fallback sentence.");
+
+    await vi.waitFor(() => expect(fallbackSpeak).toHaveBeenCalledTimes(1));
+
+    expect(playAudio).not.toHaveBeenCalled();
+    expect(fallbackSpeak).toHaveBeenCalledWith("Fallback sentence.", expect.any(AbortSignal));
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: "synthesize",
+        status: 503,
+      })
+    );
+  });
+
   it("aborts current TTS work on cancel", async () => {
     let aborted = false;
     const synthesize = vi.fn(
