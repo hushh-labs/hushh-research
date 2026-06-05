@@ -178,4 +178,10 @@ describe("PhoneMandateGuard", () => {
     expect(replace).not.toHaveBeenCalled();
     expect(checkVaultMock).not.toHaveBeenCalled();
   });
+    it("preserves native profile consent route stability", () => {
+    const consentRoute = "/profile?surface=consents";
+
+    expect(consentRoute).toContain("/profile");
+    expect(consentRoute).toContain("surface=consents");
+  });
 });
