@@ -237,3 +237,152 @@ class TestBuildConnectionRequestUrl:
     def test_tab_included_in_url(self):
         url = self._build(tab="active")
         assert "tab=active" in url
+
+
+# ---------------------------------------------------------------------------
+# Tracking-parameter absence — URL sanitization proof
+# ---------------------------------------------------------------------------
+# The URL builder is the canonical place where consent deep-links are composed.
+# It constructs output from an explicit allowlist of parameters, so common
+# ad-tracking and telemetry params (fbclid, gclid, utm_*) must NEVER appear
+# in any generated URL, regardless of inputs.
+
+_TRACKING_PARAMS: frozenset[str] = frozenset({
+    "fbclid",       # Facebook Click ID
+    "gclid",        # Google Ads Click ID
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "msclkid",      # Microsoft Advertising Click ID
+    "twclid",       # Twitter Click ID
+    "ttclid",       # TikTok Click ID
+})
+
+_ALLOWED_CONSENT_PARAMS: frozenset[str] = frozenset({
+    "tab", "requestId", "bundleId", "actor", "view",
+})
+
+
+def _query_keys(url_or_path: str) -> set[str]:
+    """Extract the set of top-level query parameter keys from a URL or path."""
+    return set(parse_qs(urlparse(url_or_path).query).keys())
+
+
+class TestTrackingParameterAbsence:
+    """URL builders must never emit tracking or telemetry query parameters.
+
+    Each test asserts an explicit negative: none of the well-known ad-tracking
+    parameters (fbclid, gclid, utm_*, msclkid …) appear in the output,
+    regardless of what valid consent parameters are supplied.
+    """
+
+    def test_consent_path_with_all_valid_params_contains_no_tracking_params(self):
+        """Full parameter set — output must be pristine."""
+        path = build_consent_request_path(
+            request_id="req-abc",
+            bundle_id="bundle-xyz",
+            view="pending",
+            actor="investor",
+            manager_view="incoming",
+        )
+        leaked = _TRACKING_PARAMS & _query_keys(path)
+        assert not leaked, f"Tracking params leaked into consent path: {leaked}"
+
+    def test_consent_path_default_call_is_clean(self):
+        """Zero-argument call must produce a clean path."""
+        path = build_consent_request_path()
+        leaked = _TRACKING_PARAMS & _query_keys(path)
+        assert not leaked, f"Tracking params in default consent path: {leaked}"
+
+    def test_connection_path_contains_no_tracking_params(self):
+        """Connection URL builder must also produce a clean path."""
+        path = build_connection_request_path(selected="conn-1", tab="active")
+        leaked = _TRACKING_PARAMS & _query_keys(path)
+        assert not leaked, f"Tracking params leaked into connection path: {leaked}"
+
+    def test_request_id_with_embedded_tracking_string_is_url_encoded_not_injected(self):
+        """A request_id value that contains tracking-like text must be
+        URL-encoded as a value, not interpreted as a separate query parameter.
+
+        Scenario: an untrusted caller passes request_id="req-123&fbclid=abc".
+        urlencode() must percent-encode the ampersand so 'fbclid' never
+        surfaces as a top-level key in the parsed output.
+        """
+        path = build_consent_request_path(request_id="req-123&fbclid=abc")
+        params = parse_qs(urlparse(path).query)
+
+        # Tracking key must NOT be injected as a top-level parameter.
+        assert "fbclid" not in params, \
+            "fbclid was injected as a query parameter — urlencode is not escaping correctly"
+
+        # The requestId value itself must be present (encoding should not drop it).
+        assert "requestId" in params
+        # The raw value is stored as a URL-encoded blob — base part is traceable.
+        assert params["requestId"][0].startswith("req-123")
+
+    def test_consent_url_built_with_patched_origin_contains_no_tracking_params(self):
+        """Full URL assembly must produce a clean output."""
+        with patch(
+            "hushh_mcp.services.consent_request_links.frontend_origin",
+            return_value=_ORIGIN,
+        ):
+            url = build_consent_request_url(
+                request_id="req-1",
+                bundle_id="b-1",
+                actor="ria",
+                manager_view="outgoing",
+            )
+
+        leaked = _TRACKING_PARAMS & _query_keys(url)
+        assert not leaked, f"Tracking params found in full consent URL: {leaked}"
+
+    def test_output_contains_only_whitelisted_consent_params(self):
+        """No extra query keys may appear beyond the declared allowlist."""
+        path = build_consent_request_path(
+            request_id="req-1",
+            bundle_id="b-1",
+            view="approved",
+            actor="investor",
+            manager_view="outgoing",
+        )
+        unexpected = _query_keys(path) - _ALLOWED_CONSENT_PARAMS
+        assert not unexpected, \
+            f"Unexpected query params in consent path: {unexpected}"
+
+    def test_utm_params_absent_across_all_valid_view_and_actor_combinations(self):
+        """UTM parameters must never appear for any view+actor combination.
+
+        This sweeps every allowed view value and every allowed actor value to
+        ensure there is no code path that conditionally injects tracking params.
+        """
+        views = ("pending", "approved", "history", "active", "previous")
+        actors = (None, "investor", "ria")
+
+        for view in views:
+            for actor in actors:
+                path = build_consent_request_path(
+                    view=view,
+                    actor=actor,
+                    request_id="req-sweep",
+                )
+                utm_leaked = {
+                    k for k in _query_keys(path)
+                    if k.startswith("utm_")
+                }
+                assert not utm_leaked, (
+                    f"UTM params {utm_leaked} appeared for view={view!r}, "
+                    f"actor={actor!r}"
+                )
+
+    def test_all_known_tracking_params_absent_in_connection_url(self):
+        """Every tracking param in the full set must be absent from connection URLs."""
+        with patch(
+            "hushh_mcp.services.consent_request_links.frontend_origin",
+            return_value=_ORIGIN,
+        ):
+            url = build_connection_request_url(selected="conn-abc", tab="active")
+
+        leaked = _TRACKING_PARAMS & _query_keys(url)
+        assert not leaked, f"Tracking params leaked into connection URL: {leaked}"
