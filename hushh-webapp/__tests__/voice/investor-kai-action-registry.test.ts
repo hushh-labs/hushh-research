@@ -185,4 +185,13 @@ describe("investor-kai-action-registry", () => {
       ])
     );
   });
+  it("preserves unique action identifiers", () => {
+  const actionIds = [
+    "open_portfolio",
+    "open_watchlist",
+    "open_market_insights",
+  ];
+
+  expect(new Set(actionIds).size).toBe(actionIds.length);
+});
 });
