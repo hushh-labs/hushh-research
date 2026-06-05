@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { BriefcaseBusiness, Loader2, UserRound } from "lucide-react";
 import { toast } from "sonner";
@@ -20,6 +20,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import type { Persona } from "@/lib/services/ria-service";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
+import { useNativeTestConfig } from "@/lib/testing/native-test";
 import { useVault } from "@/lib/vault/vault-context";
 
 function routeForPersona(params: {
@@ -48,6 +49,7 @@ export function PersonaBootstrapRedirect() {
   } = usePersonaState();
   const pathname = usePathname();
   const router = useRouter();
+  const nativeTestConfig = useNativeTestConfig();
   const lastKaiPath = useKaiSession((state) => state.lastKaiPath);
   const lastRiaPath = useKaiSession((state) => state.lastRiaPath);
   const [resolving, setResolving] = useState<"route" | "persona" | null>(null);
@@ -122,7 +124,22 @@ export function PersonaBootstrapRedirect() {
     }
   }, [mismatch, pathname, riaCapability, riaEntryRoute, router, switchPersona]);
 
+  const shouldAutoResolveNativeMismatch =
+    nativeTestConfig.enabled && nativeTestConfig.autoReviewerLogin;
+
+  useEffect(() => {
+    if (!mismatch || !shouldAutoResolveNativeMismatch || resolving !== null) {
+      return;
+    }
+
+    void handleStayOnScopedRoute();
+  }, [handleStayOnScopedRoute, mismatch, resolving, shouldAutoResolveNativeMismatch]);
+
   if (!mismatch) {
+    return null;
+  }
+
+  if (shouldAutoResolveNativeMismatch) {
     return null;
   }
 

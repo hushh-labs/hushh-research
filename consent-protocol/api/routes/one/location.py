@@ -1,20 +1,20 @@
-"""One Location Agent routes.
+"""One Location Agent routes with bounded path parameters (CWE-400).
 
 Live-location reads are authenticated and ciphertext-only. Public invite routes
 are request-only and never return coordinates, ciphertext, or grants.
+Path parameters (public_token, invite_id, grant_id) are bounded to 128 chars max.
 """
 
 from __future__ import annotations
 
 import hmac
 import os
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
-from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
     OneLocationAgentService,
@@ -23,6 +23,10 @@ from hushh_mcp.services.one_location_agent_service import (
 )
 
 router = APIRouter(prefix="/api/one", tags=["One Location Agent"])
+
+_PublicToken = Annotated[str, Path(min_length=1, max_length=128)]
+_InviteId = Annotated[str, Path(min_length=1, max_length=128)]
+_GrantId = Annotated[str, Path(min_length=1, max_length=128)]
 
 
 class _CamelModel(BaseModel):
@@ -91,8 +95,9 @@ def _request_fingerprint_hash(request: Request) -> str | None:
 def _handle_error(exc: Exception) -> HTTPException:
     if isinstance(exc, OneLocationAgentError):
         return HTTPException(status_code=exc.status_code, detail=location_error_detail(exc))
-    if isinstance(exc, DatabaseExecutionError):
-        return HTTPException(status_code=exc.status_code, detail=database_error_detail(exc))
+    if exc.__class__.__name__ == "DatabaseExecutionError":
+        status_code = getattr(exc, "status_code", status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return HTTPException(status_code=status_code, detail=database_error_detail(exc))  # type: ignore[arg-type]
     return HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail={"code": "ONE_LOCATION_API_FAILED", "message": "Location request failed."},
@@ -180,7 +185,7 @@ async def create_public_location_invite(
 
 
 @router.get("/location/public-invites/{public_token}")
-async def resolve_public_location_invite(public_token: str):
+async def resolve_public_location_invite(public_token: _PublicToken):
     try:
         return _service().resolve_public_invite(public_token=public_token)
     except Exception as exc:
@@ -189,7 +194,7 @@ async def resolve_public_location_invite(public_token: str):
 
 @router.post("/location/public-invites/{public_token}/submit")
 async def submit_public_location_invite(
-    public_token: str,
+    public_token: _PublicToken,
     payload: SubmitPublicInviteRequest,
     request: Request,
 ):
@@ -207,7 +212,7 @@ async def submit_public_location_invite(
 
 @router.delete("/location/public-invites/{invite_id}")
 async def revoke_public_location_invite(
-    invite_id: str,
+    invite_id: _InviteId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
@@ -260,7 +265,7 @@ async def create_location_grant(
 
 @router.post("/location/grants/{grant_id}/envelopes")
 async def store_location_envelope(
-    grant_id: str,
+    grant_id: _GrantId,
     payload: StoreEnvelopeRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -278,7 +283,7 @@ async def store_location_envelope(
 
 @router.get("/location/grants/{grant_id}/envelope")
 async def view_latest_location_envelope(
-    grant_id: str,
+    grant_id: _GrantId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
@@ -292,7 +297,7 @@ async def view_latest_location_envelope(
 
 @router.delete("/location/grants/{grant_id}")
 async def revoke_location_grant(
-    grant_id: str,
+    grant_id: _GrantId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:

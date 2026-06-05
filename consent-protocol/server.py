@@ -430,6 +430,27 @@ async def startup_pkm_scope_validator_warmup() -> None:
 
 
 @app.on_event("startup")
+async def startup_consent_token_verifier_prewarm() -> None:
+    """Prewarm consent-token verifier work before the first scoped request."""
+    started_at = time.perf_counter()
+    try:
+        from hushh_mcp.consent.token import prewarm_consent_token_verifier
+
+        prewarm_consent_token_verifier()
+    except Exception as exc:
+        logger.warning(
+            "startup.consent_token_verifier_prewarm_failed reason=%s",
+            exc,
+        )
+        return
+
+    logger.info(
+        "startup.consent_token_verifier_prewarmed duration_ms=%.2f",
+        (time.perf_counter() - started_at) * 1000,
+    )
+
+
+@app.on_event("startup")
 async def startup_regulated_runtime_guards():
     """Emit explicit startup security warnings for risky production flags."""
     from hushh_mcp.services.ria_verification import (

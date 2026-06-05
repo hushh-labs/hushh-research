@@ -47,6 +47,19 @@ describe("CacheService", () => {
     expect(cache.get("market-home")).toBeNull();
     expect(cache.getStats().size).toBe(0);
   });
+  it("preserves cache clear idempotency", () => {
+    const cache = CacheService.getInstance();
+
+    cache.set("market-home", { ok: true }, 1_000);
+
+    cache.clear();
+    cache.clear();
+
+    expect(cache.get("market-home")).toBeNull();
+    expect(cache.peek("market-home")).toBeNull();
+    expect(cache.getStats().size).toBe(0);
+  });
+
   it("preserves stale snapshot metadata across repeated stale reads", () => {
     const cache = CacheService.getInstance();
 
