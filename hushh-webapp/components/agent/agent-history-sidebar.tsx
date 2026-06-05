@@ -37,12 +37,13 @@ import { cn } from "@/lib/utils";
 type AgentHistorySidebarProps = {
   conversations: AgentChatConversation[];
   activeConversationId: string | null;
-  collapsed: boolean;
   loading?: boolean;
   disabled?: boolean;
   actionPendingId?: string | null;
   className?: string;
-  onToggleCollapsed: () => void;
+  collapsed?: boolean;
+  onClose?: () => void;
+  onToggleCollapsed?: () => void;
   onCreateNew: () => void;
   onSelectConversation: (conversationId: string) => void;
   onRenameConversation: (conversationId: string, title: string) => Promise<void> | void;
@@ -61,11 +62,12 @@ function conversationLabel(conversation: AgentChatConversation): string {
 export function AgentHistorySidebar({
   conversations,
   activeConversationId,
-  collapsed,
   loading = false,
   disabled = false,
   actionPendingId,
   className,
+  collapsed = false,
+  onClose,
   onToggleCollapsed,
   onCreateNew,
   onSelectConversation,
@@ -115,77 +117,103 @@ export function AgentHistorySidebar({
     <>
       <aside
         className={cn(
-          "flex shrink-0 flex-col overflow-hidden rounded-lg border border-border/70 bg-card shadow-sm transition-[width] duration-200 ease-out",
-          collapsed ? "w-full lg:w-14" : "w-full lg:w-72",
+          "flex min-h-0 shrink-0 flex-col overflow-hidden border-r border-white/10 bg-[#101216] text-zinc-200 transition-[width] duration-200 ease-out",
+          collapsed ? "w-16" : "w-72",
           className
         )}
         aria-label="Agent chat history"
+        data-collapsed={collapsed ? "true" : "false"}
       >
-        <div
-          className={cn(
-            "flex items-center gap-2 border-b border-border/70 p-2",
-            collapsed && "lg:flex-col"
+        <div className="flex items-center gap-2 border-b border-white/10 p-3">
+          {collapsed ? (
+            <div className="flex w-full flex-col items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-10 w-10 rounded-lg border border-white/10 bg-white/[0.04] text-zinc-100 hover:bg-white/[0.08] focus-visible:ring-2 focus-visible:ring-primary/60"
+                onClick={onToggleCollapsed}
+                aria-label="Expand chat history"
+                title="Expand chat history"
+              >
+                <PanelLeftOpen className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-10 w-10 rounded-lg text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-100 focus-visible:ring-2 focus-visible:ring-primary/60"
+                onClick={onCreateNew}
+                disabled={disabled}
+                aria-label="Create new Agent chat"
+                title="New chat"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-11 min-w-0 flex-1 justify-start gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm font-medium text-zinc-100 shadow-sm transition-colors hover:bg-white/[0.08] focus-visible:ring-2 focus-visible:ring-primary/60"
+                onClick={onCreateNew}
+                disabled={disabled}
+                aria-label="Create new Agent chat"
+                title="Create new chat"
+              >
+                <Plus className="h-4 w-4" />
+                <span className="truncate">New chat</span>
+              </Button>
+              {onToggleCollapsed ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="hidden h-10 w-10 rounded-lg text-zinc-400 hover:bg-white/[0.07] hover:text-zinc-100 focus-visible:ring-2 focus-visible:ring-primary/60 lg:inline-flex"
+                  onClick={onToggleCollapsed}
+                  aria-label="Collapse chat history"
+                  title="Collapse chat history"
+                >
+                  <PanelLeftClose className="h-4 w-4" />
+                </Button>
+              ) : null}
+            </>
           )}
-        >
-          <Button
-            type="button"
-            variant="secondary"
-            className={cn(
-              "min-w-0",
-              collapsed ? "h-9 w-9 px-0" : "flex-1 justify-start px-3"
-            )}
-            onClick={onCreateNew}
-            disabled={disabled}
-            aria-label="Create new Agent chat"
-            title="Create new chat"
-          >
-            <Plus className="h-4 w-4" />
-            {!collapsed ? <span className="truncate">Create New Chat</span> : null}
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9"
-            onClick={onToggleCollapsed}
-            aria-label={collapsed ? "Expand chat history" : "Collapse chat history"}
-            title={collapsed ? "Expand chat history" : "Collapse chat history"}
-          >
-            {collapsed ? (
-              <PanelLeftOpen className="h-4 w-4" />
-            ) : (
-              <PanelLeftClose className="h-4 w-4" />
-            )}
-          </Button>
+          {onClose ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-10 w-10 rounded-lg text-zinc-400 hover:bg-white/[0.07] hover:text-zinc-100 lg:hidden"
+              onClick={onClose}
+              aria-label="Close chat history"
+              title="Close chat history"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          ) : null}
         </div>
 
-        <div
-          className={cn(
-            "min-h-0 flex-1 overflow-y-auto p-2",
-            collapsed && "max-lg:flex max-lg:gap-1 max-lg:overflow-x-auto"
+        <div className="min-h-0 flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
+          {collapsed ? (
+            <div className="h-4" aria-hidden="true" />
+          ) : (
+            <div className="px-2 pb-2 pt-1 text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-500">
+              Chats
+            </div>
           )}
-        >
           {loading ? (
-            <div
-              className={cn(
-                "rounded-md bg-muted/40",
-                collapsed ? "h-9 w-9 shrink-0" : "h-10 w-full"
-              )}
-            />
+            <div className="h-10 w-full rounded-lg bg-white/[0.05]" />
           ) : null}
 
-          {!loading && conversations.length === 0 ? (
-            <div
-              className={cn(
-                "grid place-items-center rounded-md border border-dashed border-border/70 text-center text-xs text-muted-foreground",
-                collapsed ? "h-9 w-9 shrink-0" : "min-h-24 px-3"
-              )}
-            >
-              {collapsed ? <MessageSquare className="h-4 w-4" /> : "No chats yet"}
+          {!collapsed && !loading && conversations.length === 0 ? (
+            <div className="grid min-h-24 place-items-center rounded-lg border border-dashed border-white/10 px-3 text-center text-xs text-zinc-500">
+              No chats yet
             </div>
           ) : null}
 
-          <div className={cn("space-y-1", collapsed && "max-lg:flex max-lg:space-y-0")}>
+          <div className="space-y-1">
             {conversations.map((conversation) => {
               const title = conversationLabel(conversation);
               const active = conversation.id === activeConversationId;
@@ -196,20 +224,20 @@ export function AgentHistorySidebar({
                 <div
                   key={conversation.id}
                   className={cn(
-                    "group rounded-md transition-colors",
-                    active && "bg-primary/10 text-primary",
-                    !active && "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                    "group rounded-lg transition-colors",
+                    active && "bg-primary/15 text-zinc-50 ring-1 ring-primary/20",
+                    !active && "text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
                   )}
                 >
-                  {isRenaming && !collapsed ? (
+                  {isRenaming ? (
                     <form
                       onSubmit={submitRename}
-                      className="flex items-center gap-1 rounded-md bg-background p-1"
+                      className="flex items-center gap-1 rounded-lg bg-[#151820] p-1"
                     >
                       <Input
                         value={renameValue}
                         onChange={(event) => setRenameValue(event.target.value)}
-                        className="h-8 min-w-0 flex-1 text-sm"
+                        className="h-8 min-w-0 flex-1 border-white/10 bg-black/20 text-sm text-zinc-100"
                         maxLength={160}
                         autoFocus
                         disabled={pending}
@@ -240,25 +268,25 @@ export function AgentHistorySidebar({
                       <button
                         type="button"
                         className={cn(
-                          "flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50",
-                          collapsed && "w-9 flex-none justify-center px-0"
+                          "flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/60",
+                          collapsed ? "justify-center px-0" : "px-2"
                         )}
                         onClick={() => onSelectConversation(conversation.id)}
                         disabled={disabled || pending}
                         aria-current={active ? "page" : undefined}
                         title={title}
                       >
-                        <MessageSquare className="h-4 w-4 shrink-0" />
-                        {!collapsed ? <span className="truncate">{title}</span> : null}
+                        <MessageSquare className="h-4 w-4 shrink-0 opacity-75" />
+                        {collapsed ? null : <span className="truncate">{title}</span>}
                       </button>
-                      {!collapsed ? (
+                      {collapsed ? null : (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
                               type="button"
                               variant="ghost"
                               size="icon-xs"
-                              className="mr-1 opacity-70 transition-opacity group-hover:opacity-100"
+                              className="mr-1 text-zinc-500 opacity-0 transition-opacity hover:bg-white/[0.07] hover:text-zinc-100 group-hover:opacity-100 focus-visible:opacity-100"
                               disabled={disabled || pending}
                               onPointerDown={(event) => event.stopPropagation()}
                               onClick={(event) => event.stopPropagation()}
@@ -281,7 +309,7 @@ export function AgentHistorySidebar({
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      ) : null}
+                      )}
                     </div>
                   )}
                 </div>

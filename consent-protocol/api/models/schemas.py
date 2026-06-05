@@ -20,8 +20,8 @@ from pydantic import BaseModel, Field
 class ChatRequest(BaseModel):
     """Request model for agent chat endpoints."""
 
-    userId: str
-    message: str
+    userId: str = Field(..., min_length=1, max_length=128)
+    message: str = Field(..., min_length=1, max_length=8192)
     sessionState: Optional[Dict[str, Any]] = None
 
 
@@ -49,7 +49,7 @@ class ChatResponse(BaseModel):
 class ValidateTokenRequest(BaseModel):
     """Request to validate a consent token."""
 
-    token: str
+    token: str = Field(..., min_length=1, max_length=2048)
 
 
 # ============================================================================
@@ -60,11 +60,11 @@ class ValidateTokenRequest(BaseModel):
 class ConsentRequest(BaseModel):
     """Request consent from a user for data access."""
 
-    user_id: str
-    developer_token: str  # Developer's API key
-    scope: str  # e.g. "attr.food.*", "pkm.read"
-    reason: Optional[str] = None
-    expiry_hours: int = 24  # How long consent lasts
+    user_id: str = Field(..., min_length=1, max_length=128)
+    developer_token: str = Field(..., min_length=1, max_length=512)
+    scope: str = Field(..., min_length=1, max_length=256)
+    reason: Optional[str] = Field(default=None, max_length=1024)
+    expiry_hours: int = Field(default=24, ge=1, le=720)  # 1 hour to 30 days
 
 
 class ConsentResponse(BaseModel):
@@ -80,8 +80,8 @@ class ConsentResponse(BaseModel):
 class DataAccessRequest(BaseModel):
     """Request to access user data with consent token."""
 
-    user_id: str
-    consent_token: str  # Token from user consent
+    user_id: str = Field(..., min_length=1, max_length=128)
+    consent_token: str = Field(..., min_length=1, max_length=2048)
 
 
 class DataAccessResponse(BaseModel):
@@ -100,7 +100,7 @@ class DataAccessResponse(BaseModel):
 class SessionTokenRequest(BaseModel):
     """Request to issue a session token."""
 
-    userId: str
+    userId: str = Field(..., min_length=1, max_length=128)
     scope: str = Field(
         default="session",
         min_length=1,
@@ -120,12 +120,12 @@ class SessionTokenResponse(BaseModel):
 class LogoutRequest(BaseModel):
     """Request to logout and destroy session tokens."""
 
-    userId: str
+    userId: str = Field(..., min_length=1, max_length=128)
 
 
 class HistoryRequest(BaseModel):
     """Request for consent history with pagination."""
 
-    userId: str
-    page: int = 1
-    limit: int = 20
+    userId: str = Field(..., min_length=1, max_length=128)
+    page: int = Field(default=1, ge=1, le=10_000)
+    limit: int = Field(default=20, ge=1, le=200)
