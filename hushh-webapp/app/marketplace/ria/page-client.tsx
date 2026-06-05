@@ -57,6 +57,7 @@ export default function MarketplaceRiaProfilePageClient() {
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const trackedProfileViewRef = useRef(false);
+  const actionInFlightRef = useRef(false);
   const firmNames = Array.isArray(profile?.firms)
     ? profile.firms
         .map((firm) => String(firm?.legal_name || "").trim())
@@ -107,6 +108,8 @@ export default function MarketplaceRiaProfilePageClient() {
 
   async function requestAdvisory() {
     if (!user || !profile) return;
+    if (actionInFlightRef.current) return;
+    actionInFlightRef.current = true;
     try {
       setActionLoading(true);
       const idToken = await user.getIdToken();
@@ -131,6 +134,7 @@ export default function MarketplaceRiaProfilePageClient() {
         requestError instanceof Error ? requestError.message : "Failed to send advisory request"
       );
     } finally {
+      actionInFlightRef.current = false;
       setActionLoading(false);
     }
   }
