@@ -209,7 +209,7 @@ export function KaiCommandPalette({
         cancelled = true;
       };
     }
-    const timer = window.setTimeout(() => {
+    const timer = setTimeout(() => {
       void (async () => {
         try {
           const rows = await searchTickerUniverseRemote(q, 20);
@@ -230,7 +230,7 @@ export function KaiCommandPalette({
 
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      clearTimeout(timer);
     };
   }, [open, query]);
 
