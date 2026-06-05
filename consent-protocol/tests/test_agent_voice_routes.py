@@ -47,7 +47,6 @@ class _ErroringAgentVoiceService:
 
     stt_error: str = "Internal SDK error: PERMISSION_DENIED at /api/v1/endpoint"
     tts_runtime_error: str = "Internal TTS error: connection refused"
-    tts_value_error: str = "Internal validation detail"
 
     async def transcribe_audio(self, *, audio_bytes: bytes, mime_type: str):
         raise RuntimeError(self.stt_error)
@@ -178,9 +177,6 @@ def test_agent_voice_routes_respect_kill_switch(monkeypatch) -> None:
     assert tts_response.status_code == 503
 
 
-# --- CWE-209 regression: internal error messages must not reach the response body ---
-
-
 def test_stt_runtime_error_is_opaque(monkeypatch) -> None:
     """RuntimeError from the STT service must not expose its message to the caller."""
     internal_msg = "PERMISSION_DENIED: Request had insufficient authentication scopes."
@@ -195,8 +191,7 @@ def test_stt_runtime_error_is_opaque(monkeypatch) -> None:
     )
 
     assert response.status_code == 503
-    body = response.text
-    assert internal_msg not in body, "Internal RuntimeError message leaked into response body"
+    assert internal_msg not in response.text
 
 
 def test_tts_runtime_error_is_opaque(monkeypatch) -> None:
@@ -212,8 +207,7 @@ def test_tts_runtime_error_is_opaque(monkeypatch) -> None:
     )
 
     assert response.status_code == 503
-    body = response.text
-    assert internal_msg not in body, "Internal RuntimeError message leaked into response body"
+    assert internal_msg not in response.text
 
 
 def test_tts_value_error_is_opaque(monkeypatch) -> None:
@@ -229,11 +223,7 @@ def test_tts_value_error_is_opaque(monkeypatch) -> None:
     )
 
     assert response.status_code == 422
-    body = response.text
-    assert internal_msg not in body, "Internal ValueError message leaked into response body"
-
-
-# --- CWE-400 regression: oversized inputs must be rejected with 422 ---
+    assert internal_msg not in response.text
 
 
 def test_stt_rejects_oversized_user_id(monkeypatch) -> None:

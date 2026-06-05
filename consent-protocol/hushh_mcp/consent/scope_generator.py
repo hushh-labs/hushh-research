@@ -362,8 +362,8 @@ class DynamicScopeGenerator:
                 .eq("user_id", user_id)
                 .execute()
             )
-        except Exception as e:
-            logger.error("Error getting scope entries for %s: %s", user_id, e)
+        except Exception:
+            logger.error("scope_generator.get_scope_entries_failed")
             return []
 
         def _source_rank(kind: str) -> int:
@@ -777,7 +777,7 @@ class DynamicScopeGenerator:
         try:
             scope_catalog = await self._get_user_scope_catalog(user_id)
             if not scope_catalog:
-                logger.debug(f"No PKM index for user {user_id}")
+                logger.debug("scope_generator.no_pkm_index (user=[redacted])")
                 return False
 
             domain_catalog = scope_catalog.get(domain)
@@ -839,7 +839,7 @@ class DynamicScopeGenerator:
                     scopes.add(scope)
             return sorted(scopes)
         except Exception as e:
-            logger.error(f"Error getting available scopes for {user_id}: {e}")
+            logger.error("scope_generator.get_scopes_failed (user=[redacted]): %s", e)
             return []
 
     async def get_available_wildcards(

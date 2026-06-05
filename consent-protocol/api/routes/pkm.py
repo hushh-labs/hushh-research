@@ -5,17 +5,7 @@ Personal Knowledge Model API routes.
 Canonical API surface for PKM.
 """
 
-from fastapi import (
-    APIRouter,
-    BackgroundTasks,
-    Body,
-    Depends,
-    Header,
-    HTTPException,
-    Path,
-    Query,
-    status,
-)
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPException, Path, status
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
@@ -35,6 +25,7 @@ from api.routes.pkm_routes_shared import (
     UpdateUpgradeRunRequest,
     UpdateUpgradeStepRequest,
     UserScopesResponse,
+    _validated_segment_ids,
 )
 from api.routes.pkm_routes_shared import (
     complete_upgrade_run as _complete_upgrade_run,
@@ -179,7 +170,7 @@ async def get_encrypted_data(
 async def get_domain_data(
     user_id: str = Path(..., max_length=128),
     domain: str = Path(..., max_length=64),
-    segment_ids: list[str] | None = Query(default=None),
+    segment_ids: list[str] | None = Depends(_validated_segment_ids),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _get_domain_data(user_id, domain, segment_ids, token_data)
@@ -237,39 +228,39 @@ async def start_or_resume_upgrade(
 
 @router.post("/upgrade/runs/{run_id}/status", response_model=PkmUpgradeStatusResponse)
 async def update_upgrade_run_status(
-    run_id: str,
     request: UpdateUpgradeRunRequest,
+    run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await _update_upgrade_run_status(run_id, request, token_data)
+    return await _update_upgrade_run_status(request, run_id, token_data)
 
 
 @router.post("/upgrade/runs/{run_id}/steps/{domain}", response_model=PkmUpgradeStatusResponse)
 async def update_upgrade_step(
-    run_id: str,
-    domain: str,
     request: UpdateUpgradeStepRequest,
+    run_id: str = Path(..., min_length=1, max_length=128),
+    domain: str = Path(..., min_length=1, max_length=200),
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await _update_upgrade_step(run_id, domain, request, token_data)
+    return await _update_upgrade_step(request, run_id, domain, token_data)
 
 
 @router.post("/upgrade/runs/{run_id}/complete", response_model=PkmUpgradeStatusResponse)
 async def complete_upgrade_run(
-    run_id: str,
     request: StartOrResumeUpgradeRequest,
+    run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await _complete_upgrade_run(run_id, request, token_data)
+    return await _complete_upgrade_run(request, run_id, token_data)
 
 
 @router.post("/upgrade/runs/{run_id}/fail", response_model=PkmUpgradeStatusResponse)
 async def fail_upgrade_run(
-    run_id: str,
     request: UpdateUpgradeRunRequest,
+    run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    return await _fail_upgrade_run(run_id, request, token_data)
+    return await _fail_upgrade_run(request, run_id, token_data)
 
 
 @router.get("/domain-registry", response_model=DomainRegistryResponse)

@@ -74,6 +74,7 @@ export function MarketOverviewGrid({
 
         const card = (
           <SurfaceCard
+            key={metric.id || metric.label}
             accent="none"
             className={cn(
               "h-full",

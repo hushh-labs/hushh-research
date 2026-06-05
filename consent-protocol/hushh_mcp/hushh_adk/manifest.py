@@ -9,7 +9,7 @@ This serves as the robust Source of Truth for:
 """
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError
@@ -34,12 +34,19 @@ class AgentOutputConfig(BaseModel):
     type: str
 
 
+class AgentModelConfig(BaseModel):
+    provider: str = "gemini"
+    name: str = GEMINI_MODEL
+    mode: str = "hushh_managed_vertex"
+    credential_ref: Optional[str] = None
+
+
 class AgentManifest(BaseModel):
     id: str
     name: str
     version: str = "1.0.0"
     description: str
-    model: str = GEMINI_MODEL  # Standardized default model
+    model: Union[str, AgentModelConfig] = GEMINI_MODEL  # Standardized default model
     system_instruction: str
 
     required_scopes: List[str] = Field(default_factory=list)
@@ -68,6 +75,12 @@ class AgentManifest(BaseModel):
                 seen.add(tool.required_scope)
                 out.append(tool.required_scope)
         return out
+
+    def model_config_for_runtime(self) -> AgentModelConfig:
+        """Return a structured runtime model config for string or object manifests."""
+        if isinstance(self.model, AgentModelConfig):
+            return self.model
+        return AgentModelConfig(name=self.model)
 
 
 class ManifestLoader:
