@@ -114,6 +114,17 @@ describe("sanitizeErrorMessage — sensitive pattern leakage prevention", () => 
     const result = sanitizeErrorMessage(err(rawMessage), 500);
     expect(result.message).not.toMatch(/Object\.<|_internal_|\.js:\d+/i);
   });
+      it("masks uppercase localhost references", () => {
+      const internalError = new Error(
+        "Failed to connect to HTTP://LOCALHOST:8000/api/internal"
+      );
+
+      const result = sanitizeErrorMessage(internalError, 500);
+
+      expect(result.message).not.toContain("LOCALHOST");
+      expect(result.message).not.toContain("localhost");
+      expect(result.message).toBe("An error occurred on our end. Please try again in a moment.");
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -152,6 +163,26 @@ describe("sanitizeErrorMessage — error category classification", () => {
     expect(
       sanitizeErrorMessage(err("unknown"), undefined).isClientError
     ).toBe(false);
+  });
+    it("omits debug information outside development mode", () => {
+    const originalEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+
+    const error = new Error("Hidden production detail");
+    const response = formatErrorResponse(error, 500);
+
+    expect(response.debug).toBeUndefined();
+
+    process.env.NODE_ENV = originalEnv;
+  });
+      it("does not extract error codes with surrounding whitespace", () => {
+    const error = new Error(
+      "   VAULT_REQUIRED: Please unlock your vault first   "
+    );
+
+    const code = extractErrorCode(error);
+
+    expect(code).toBeNull();
   });
 });
 

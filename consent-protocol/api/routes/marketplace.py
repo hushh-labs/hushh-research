@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -175,7 +175,7 @@ async def match_marketplace_contacts(
 
 
 @router.get("/ria/{ria_id}")
-async def get_marketplace_ria(ria_id: str):
+async def get_marketplace_ria(ria_id: str = Path(..., min_length=1, max_length=128)):
     service = RIAIAMService()
     try:
         profile = await service.get_marketplace_ria_profile(ria_id)
