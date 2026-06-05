@@ -128,4 +128,7 @@ describe("observability route map", () => {
       normalizeApiPathToTemplate("/api/custom/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9/details")
     ).toBe("/api/custom/{id}/details");
   });
+      it("preserves fail-closed handling for uppercase route variants", () => {
+    expect(resolveRouteId("/KAI/PORTFOLIO")).toBe("unknown");
+  });
 });

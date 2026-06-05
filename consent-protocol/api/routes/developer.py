@@ -44,8 +44,8 @@ _MAX_PUBLIC_APPROVAL_TIMEOUT_MINUTES = 24 * 60
 
 
 class DeveloperScopeDescriptor(BaseModel):
-    name: str
-    description: str
+    name: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(..., min_length=1, max_length=2000)
     dynamic: bool = False
     requires_discovery: bool = False
 
@@ -86,57 +86,57 @@ class DeveloperScopeCatalogResponse(BaseModel):
 
 
 class DeveloperUserScopesResponse(BaseModel):
-    user_id: str
+    user_id: str = Field(..., min_length=1, max_length=128)
     available_domains: list[str] = Field(default_factory=list)
     scopes: list[str] = Field(default_factory=list)
     scope_entries: list[dict] = Field(default_factory=list)
     scopes_are_dynamic: bool = True
     source: str = "pkm_index + pkm_manifests.top_level_scope_paths + pkm_scope_registry"
-    app_id: str | None = None
-    app_display_name: str | None = None
+    app_id: str | None = Field(default=None, max_length=128)
+    app_display_name: str | None = Field(default=None, max_length=200)
 
 
 class DeveloperToolCatalogResponse(BaseModel):
     version: str = "v1"
     approval_required: bool = False
     allowed_tool_groups: list[str]
-    compatibility_status: str
+    compatibility_status: str = Field(..., min_length=1, max_length=64)
     tools: list[dict]
     tool_groups: list[dict]
     recommended_flow: list[str]
     notes: list[str]
-    app_id: str | None = None
-    app_display_name: str | None = None
+    app_id: str | None = Field(default=None, max_length=128)
+    app_display_name: str | None = Field(default=None, max_length=200)
 
 
 class DeveloperConsentStatusResponse(BaseModel):
-    status: str
-    user_id: str
-    scope: str | None = None
-    requested_scope: str | None = None
-    granted_scope: str | None = None
-    coverage_kind: str | None = None
+    status: str = Field(..., min_length=1, max_length=64)
+    user_id: str = Field(..., min_length=1, max_length=128)
+    scope: str | None = Field(default=None, max_length=200)
+    requested_scope: str | None = Field(default=None, max_length=200)
+    granted_scope: str | None = Field(default=None, max_length=200)
+    coverage_kind: str | None = Field(default=None, max_length=64)
     covered_by_existing_grant: bool = False
-    request_id: str | None = None
-    consent_token: str | None = None
+    request_id: str | None = Field(default=None, max_length=128)
+    consent_token: str | None = Field(default=None, max_length=2048)
     expires_at: int | None = None
     export_revision: int | None = None
-    export_generated_at: str | None = None
-    export_refresh_status: str | None = None
+    export_generated_at: str | None = Field(default=None, max_length=64)
+    export_refresh_status: str | None = Field(default=None, max_length=64)
     poll_timeout_at: int | None = None
     approval_timeout_at: int | None = None
     approval_timeout_minutes: int | None = None
     expiry_hours: int | None = None
     is_scope_upgrade: bool | None = None
     existing_granted_scopes: list[str] | None = None
-    additional_access_summary: str | None = None
-    request_url: str | None = None
-    requester_label: str | None = None
-    requester_image_url: str | None = None
-    reason: str | None = None
-    app_id: str | None = None
-    app_display_name: str | None = None
-    message: str
+    additional_access_summary: str | None = Field(default=None, max_length=500)
+    request_url: str | None = Field(default=None, max_length=2048)
+    requester_label: str | None = Field(default=None, max_length=200)
+    requester_image_url: str | None = Field(default=None, max_length=2048)
+    reason: str | None = Field(default=None, max_length=1000)
+    app_id: str | None = Field(default=None, max_length=128)
+    app_display_name: str | None = Field(default=None, max_length=200)
+    message: str = Field(..., min_length=1, max_length=2000)
 
 
 class CoverageFields(TypedDict):
@@ -155,9 +155,9 @@ class ExportFields(TypedDict):
 class DeveloperConsentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    user_id: str
-    scope: str
-    reason: str | None = None
+    user_id: str = Field(..., min_length=1, max_length=128)
+    scope: str = Field(..., min_length=1, max_length=200)
+    reason: str | None = Field(default=None, max_length=1000)
     expiry_hours: int = 24
     approval_timeout_minutes: int = 24 * 60
     connector_public_key: str = Field(min_length=16)
@@ -168,34 +168,34 @@ class DeveloperConsentRequest(BaseModel):
 class DeveloperScopedExportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    user_id: str
-    consent_token: str = Field(min_length=16)
-    expected_scope: str | None = None
+    user_id: str = Field(..., min_length=1, max_length=128)
+    consent_token: str = Field(min_length=16, max_length=2048)
+    expected_scope: str | None = Field(default=None, max_length=200)
 
 
 class DeveloperDefaultAvailableExportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    user_id: str
-    scope: str
+    user_id: str = Field(..., min_length=1, max_length=128)
+    scope: str = Field(..., min_length=1, max_length=200)
 
 
 class DeveloperScopedExportResponse(BaseModel):
-    status: str
-    user_id: str
-    consent_token: str
-    granted_scope: str | None = None
-    expected_scope: str | None = None
-    coverage_kind: str | None = None
+    status: str = Field(..., min_length=1, max_length=64)
+    user_id: str = Field(..., min_length=1, max_length=128)
+    consent_token: str = Field(..., min_length=1, max_length=2048)
+    granted_scope: str | None = Field(default=None, max_length=200)
+    expected_scope: str | None = Field(default=None, max_length=200)
+    coverage_kind: str | None = Field(default=None, max_length=64)
     expires_at: int | None = None
     export_revision: int | None = None
-    export_generated_at: str | None = None
-    export_refresh_status: str | None = None
+    export_generated_at: str | None = Field(default=None, max_length=64)
+    export_refresh_status: str | None = Field(default=None, max_length=64)
     encrypted_data: str | None = None
     iv: str | None = None
     tag: str | None = None
     wrapped_key_bundle: dict | None = None
-    message: str
+    message: str = Field(..., min_length=1, max_length=2000)
 
 
 class DeveloperDefaultAvailableExportResponse(BaseModel):
@@ -765,7 +765,7 @@ async def developer_api_root():
 @developer_api_router.get("/tool-catalog", response_model=DeveloperToolCatalogResponse)
 async def get_tool_catalog(
     request: Request,
-    token: Optional[str] = Query(None),
+    token: Optional[str] = Query(None, max_length=2048),
     authorization: Optional[str] = Header(None),
 ):
     if not developer_api_enabled():
@@ -959,7 +959,7 @@ async def get_consent_status(
 async def request_consent(
     payload: DeveloperConsentRequest,
     request: Request,
-    token: Optional[str] = Query(None),
+    token: Optional[str] = Query(None, max_length=2048),
     authorization: Optional[str] = Header(None),
 ):
     principal = _resolve_principal(
@@ -1321,7 +1321,7 @@ async def get_default_available_export(
 async def get_scoped_export(
     payload: DeveloperScopedExportRequest,
     request: Request,
-    token: Optional[str] = Query(None),
+    token: Optional[str] = Query(None, max_length=2048),
     authorization: Optional[str] = Header(None),
 ):
     principal = _resolve_principal(
