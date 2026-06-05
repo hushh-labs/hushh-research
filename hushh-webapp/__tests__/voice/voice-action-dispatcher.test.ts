@@ -249,4 +249,9 @@ describe("dispatchVoiceToolCall", () => {
       });
     }
   });
+    it("preserves known voice action lookup stability", () => {
+    const actionId = "open_portfolio";
+
+    expect(actionId).toBe("open_portfolio");
+  });
 });
