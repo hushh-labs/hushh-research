@@ -272,9 +272,9 @@ describe("high-frequency rate-limiting fallback — request tracking header guar
   it("falls back to a fresh valid ID for every burst request carrying a malformed x-request-id, never throwing", () => {
     const malformed = [
       "has spaces inside",
-      "кириллица-id",
-      "a".repeat(7),    // too short (< 8 chars)
-      "z".repeat(200),  // too long (> 128 chars)
+      "id/with/slashes",  // slash is not in [a-zA-Z0-9_.:-]
+      "a".repeat(7),      // too short (< 8 chars)
+      "z".repeat(200),    // too long (> 128 chars)
       "!!@##$$%%",
     ];
 
@@ -294,7 +294,7 @@ describe("high-frequency rate-limiting fallback — request tracking header guar
     const invalid: Array<string | null | undefined> = [
       ...Array.from({ length: 15 }, () => ""),
       ...Array.from({ length: 15 }, () => null),
-      ...Array.from({ length: 10 }, (_, i) => "x".repeat(i)), // 0..9 chars, all < 8
+      ...Array.from({ length: 8 }, (_, i) => "x".repeat(i)), // 0..7 chars, all below the 8-char minimum
       "!@#$%^&*()",
       "has spaces",
       "\t\n\r",
