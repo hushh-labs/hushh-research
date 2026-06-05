@@ -7,8 +7,8 @@ import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
 export function AgentScreen() {
   return (
     <AppPageShell
-      width="expanded"
-      className="px-[var(--page-inline-gutter-standard)] py-[var(--page-block-padding)]"
+      width="wide"
+      className="!max-w-none !px-0 !py-0"
       nativeTest={{
         routeId: "/agent",
         marker: "native-route-agent",

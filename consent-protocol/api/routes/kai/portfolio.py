@@ -12,6 +12,10 @@ Authentication:
 - All endpoints require VAULT_OWNER token (consent-first architecture)
 - Token contains user_id, proving both identity and consent
 - Firebase is only used for bootstrap (issuing VAULT_OWNER token)
+
+Canonical attach points
+-----------------------
+api.routes.kai.portfolio.import_portfolio -> POST /kai/portfolio/import
 """
 
 import asyncio
@@ -26,7 +30,17 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -1912,13 +1926,13 @@ class PortfolioImportResponse(BaseModel):
     """Response from portfolio import endpoint."""
 
     success: bool
-    holdings_count: int = 0
-    total_value: float = 0.0
+    holdings_count: int = Field(default=0, ge=0)
+    total_value: float = Field(default=0.0, ge=0.0)
     losers: list[dict] = Field(default_factory=list)
     winners: list[dict] = Field(default_factory=list)
     kpis_stored: list[str] = Field(default_factory=list)
-    error: Optional[str] = None
-    source: str = "unknown"
+    error: Optional[str] = Field(default=None, max_length=512)
+    source: str = Field(default="unknown", max_length=64)
     # Comprehensive financial data (LLM-extracted)
     portfolio_data: Optional[dict] = None
     account_info: Optional[dict] = None
@@ -1933,40 +1947,40 @@ class PortfolioImportResponse(BaseModel):
 class PortfolioSummaryResponse(BaseModel):
     """Response for portfolio summary endpoint."""
 
-    user_id: str
+    user_id: str = Field(..., max_length=256)
     has_portfolio: bool
-    holdings_count: Optional[int] = None
-    portfolio_value_bucket: Optional[str] = None
-    portfolio_risk_bucket: Optional[str] = None
-    preference_risk_profile: Optional[str] = None
-    losers_count: Optional[int] = None
-    winners_count: Optional[int] = None
+    holdings_count: Optional[int] = Field(default=None, ge=0)
+    portfolio_value_bucket: Optional[str] = Field(default=None, max_length=64)
+    portfolio_risk_bucket: Optional[str] = Field(default=None, max_length=64)
+    preference_risk_profile: Optional[str] = Field(default=None, max_length=64)
+    losers_count: Optional[int] = Field(default=None, ge=0)
+    winners_count: Optional[int] = Field(default=None, ge=0)
     total_gain_loss_pct: Optional[float] = None
 
 
 class DashboardProfilePick(BaseModel):
     """Profile-personalized ticker candidate for dashboard recommendations."""
 
-    symbol: str
-    company_name: str
-    sector: Optional[str] = None
-    tier: Optional[str] = None
-    conviction_weight: float = 0.0
-    price: Optional[float] = None
+    symbol: str = Field(..., max_length=10)
+    company_name: str = Field(..., max_length=256)
+    sector: Optional[str] = Field(default=None, max_length=64)
+    tier: Optional[str] = Field(default=None, max_length=32)
+    conviction_weight: float = Field(default=0.0, ge=0.0, le=1.0)
+    price: Optional[float] = Field(default=None, ge=0.0)
     change_percent: Optional[float] = None
-    recommendation_bias: Optional[str] = None
-    rationale: str
+    recommendation_bias: Optional[str] = Field(default=None, max_length=64)
+    rationale: str = Field(..., max_length=512)
     source_tags: list[str] = Field(default_factory=list)
     degraded: bool = False
-    as_of: Optional[str] = None
+    as_of: Optional[str] = Field(default=None, max_length=64)
 
 
 class DashboardProfilePicksResponse(BaseModel):
     """Response payload for profile-based picks on Kai dashboard."""
 
-    user_id: str
-    generated_at: str
-    risk_profile: str
+    user_id: str = Field(..., max_length=256)
+    generated_at: str = Field(..., max_length=64)
+    risk_profile: str = Field(..., max_length=64)
     picks: list[DashboardProfilePick] = Field(default_factory=list)
     context: dict[str, Any] = Field(default_factory=dict)
 
@@ -2050,7 +2064,7 @@ def _build_pick_rationale(*, tier: str, sector: str, dominant_sector: Optional[s
 @router.post("/portfolio/import", response_model=PortfolioImportResponse)
 async def import_portfolio(
     file: UploadFile,
-    user_id: str = Form(..., description="User's ID"),
+    user_id: str = Form(..., max_length=128, description="User's ID"),
     token_data: dict = Depends(require_vault_owner_token),
 ) -> PortfolioImportResponse:
     """
@@ -2090,7 +2104,11 @@ async def import_portfolio(
     """
     # Verify user_id matches token (consent-first: token contains user_id)
     if token_data["user_id"] != user_id:
-        logger.warning(f"User ID mismatch: token={token_data['user_id']}, request={user_id}")
+        logger.warning(
+            "portfolio.upload.user_id_mismatch token_uid=%s req_uid=%s",
+            token_data["user_id"],
+            user_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="User ID does not match token"
         )
@@ -2148,7 +2166,7 @@ async def import_portfolio(
 
 @router.get("/portfolio/summary/{user_id}", response_model=PortfolioSummaryResponse)
 async def get_portfolio_summary(
-    user_id: str,
+    user_id: str = Path(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ) -> PortfolioSummaryResponse:
     """
@@ -2203,9 +2221,10 @@ async def get_portfolio_summary(
 
 @router.get("/dashboard/profile-picks/{user_id}", response_model=DashboardProfilePicksResponse)
 async def get_dashboard_profile_picks(
-    user_id: str,
+    user_id: str = Path(..., max_length=128),
     symbols: Optional[str] = Query(
         default=None,
+        max_length=2048,
         description="Optional comma-separated ticker symbols from current holdings context.",
     ),
     limit: int = Query(default=4, ge=1, le=_MAX_PROFILE_PICKS),
@@ -3175,10 +3194,17 @@ def _portfolio_import_stream_factory(
     )
 
 
+class _AlwaysConnectedImportStreamRequest:
+    """Disconnect shim for initial upload streams proxied through Next.js."""
+
+    async def is_disconnected(self) -> bool:
+        return False
+
+
 @router.post("/portfolio/import/run/start")
 async def start_portfolio_import_run(
     file: UploadFile,
-    user_id: str = Form(..., description="User's ID"),
+    user_id: str = Form(..., max_length=128, description="User's ID"),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data["user_id"] != user_id:
@@ -3226,7 +3252,7 @@ async def start_portfolio_import_run(
 
 @router.get("/portfolio/import/run/active")
 async def get_active_portfolio_import_run(
-    user_id: str,
+    user_id: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data["user_id"] != user_id:
@@ -3240,8 +3266,8 @@ async def get_active_portfolio_import_run(
 @router.get("/portfolio/import/run/{run_id}/stream")
 async def stream_portfolio_import_run(
     request: Request,
-    run_id: str,
-    user_id: str,
+    run_id: str = Path(..., max_length=128),
+    user_id: str = Query(..., max_length=128),
     cursor: Optional[int] = 0,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -3284,8 +3310,8 @@ async def stream_portfolio_import_run(
 
 @router.post("/portfolio/import/run/{run_id}/cancel")
 async def cancel_portfolio_import_run(
-    run_id: str,
-    user_id: str,
+    run_id: str = Path(..., max_length=128),
+    user_id: str = Query(..., max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data["user_id"] != user_id:
@@ -3309,7 +3335,7 @@ async def cancel_portfolio_import_run(
 async def import_portfolio_stream(
     request: Request,
     file: UploadFile,
-    user_id: str = Form(..., description="User's ID"),
+    user_id: str = Form(..., max_length=128, description="User's ID"),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """Backward-compatible import stream endpoint.
@@ -3353,6 +3379,6 @@ async def import_portfolio_stream(
         _IMPORT_RUN_MANAGER.stream_run_events(
             run=run,
             start_cursor=0,
-            request=request,
+            request=_AlwaysConnectedImportStreamRequest(),
         )
     )
