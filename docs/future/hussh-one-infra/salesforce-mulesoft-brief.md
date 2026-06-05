@@ -90,6 +90,14 @@ They must not become:
 - the PCHP replacement
 - a broad plaintext data lake for user memory
 
+## Managed Omni Gateway Private Space Handoff
+
+For the current MuleSoft setup discussion, use Managed Omni Gateway in CloudHub 2.0 Private Spaces rather than a self-managed gateway inside Hussh GCP.
+
+Live partner gateway handoff values are not stored in this public repo. Keep private CIDRs, VPN endpoints, DNS resolver IPs, tunnel values, and peer material in approved secret-managed operational systems only.
+
+This handoff is network readiness, not consent authority. MuleSoft may route approved partner requests to Hussh; Hussh still validates app, actor, user, scope, expiry, revocation, and audit state before returning a consent status or encrypted scoped export.
+
 ## Enterprise Glossary
 
 | Term | Meaning in this planning lane |

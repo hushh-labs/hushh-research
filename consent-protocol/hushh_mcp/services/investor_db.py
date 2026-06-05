@@ -335,5 +335,5 @@ class InvestorDBService:
             raise Exception("Failed to upsert investor profile")
 
         except Exception as e:
-            logger.error(f"Error upserting investor: {e}")
+            logger.error("investor_db.upsert_investor.error: %s", e)
             raise

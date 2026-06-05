@@ -41,9 +41,9 @@ class GrantConsentRequest(BaseModel):
 
 
 class GrantConsentResponse(BaseModel):
-    consent_id: str
+    consent_id: str = Field(..., max_length=256)
     tokens: Dict[str, str]
-    expires_at: str
+    expires_at: str = Field(..., max_length=64)
 
 
 # ============================================================================

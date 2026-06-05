@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Kai</string>
-    <string name="title_activity_main">Kai</string>
+    <string name="app_name">One</string>
+    <string name="title_activity_main">One</string>
     <string name="package_name">com.hushh.app</string>
     <string name="custom_url_scheme">com.hushh.app</string>
 </resources>
