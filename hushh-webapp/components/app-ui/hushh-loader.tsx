@@ -53,9 +53,11 @@ export function HushhLoader({
     <div
       role="status"
       aria-live="polite"
+      aria-busy="true"
+      aria-atomic="true"
       className={cn(loaderVariants({ variant }), className)}
     >
-      <p className={cn("text-sm", variant === "inline" && "text-xs")}>{label}</p>
+      <p className={cn("text-sm motion-safe:animate-pulse", variant === "inline" && "text-xs")}>{label}</p>
     </div>
   );
 }

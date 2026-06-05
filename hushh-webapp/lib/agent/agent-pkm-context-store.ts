@@ -316,6 +316,23 @@ export class AgentPkmContextStore {
     workingSets.delete(userId);
   }
 
+  static peek(params: {
+    userId: string;
+    message?: string;
+    maxChars?: number;
+  }): AgentPkmWorkingContext | null {
+    const cached = workingSets.get(params.userId);
+    if (!cached || Date.now() - cached.loadedAt >= SESSION_TTL_MS) {
+      return null;
+    }
+
+    return buildContextText({
+      workingSet: cached,
+      message: params.message || "",
+      maxChars: params.maxChars || DEFAULT_MAX_CONTEXT_CHARS,
+    });
+  }
+
   static async load(params: {
     userId: string;
     vaultKey: string;
