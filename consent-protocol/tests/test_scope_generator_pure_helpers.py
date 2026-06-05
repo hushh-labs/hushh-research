@@ -403,3 +403,185 @@ class TestMatchesWildcard:
     )
     def test_cross_domain_wildcard_never_matches(self, scope, wildcard):
         assert GEN.matches_wildcard(scope, wildcard) is False
+
+
+# ===========================================================================
+# Namespace collision isolation
+#
+# The DynamicScopeGenerator is the central namespace registration layer.
+# These tests verify that:
+#   A. Reserved internal-only domains are permanently locked out of any
+#      consumer-visible registration path.
+#   B. Namespace-prefix collisions (truncated names, substrings, case variants,
+#      suffix-extended names) never grant access across domain boundaries.
+#   C. Cross-domain wildcard collisions are blocked at the registration layer —
+#      a wildcard registered for domain X cannot overwrite domain Y.
+#   D. Unknown / unregistered namespace prefixes fail closed by raising a
+#      specific ValueError rather than silently falling back to a default scope.
+#
+# All tests are hermetic (no DB, no network).
+# ===========================================================================
+
+
+class TestNamespaceCollisionIsolation:
+    """Verify the namespace registration layer blocks dynamic collisions."""
+
+    # ── A: Internal-only domain lockdown ─────────────────────────────────────
+
+    def test_kyc_connector_is_flagged_as_internal_only(self):
+        """
+        'kyc_connector' is a reserved internal runtime domain.
+        Registering it as a consumer-visible namespace must be blocked at
+        the _is_internal_only_domain gate before any scope is emitted.
+        """
+        assert DynamicScopeGenerator._is_internal_only_domain("kyc_connector") is True
+
+    def test_kyc_workflow_is_flagged_as_internal_only(self):
+        """
+        'kyc_workflow' is a reserved internal runtime domain.
+        Any attempt to surface it as a consumer scope must be blocked.
+        """
+        assert DynamicScopeGenerator._is_internal_only_domain("kyc_workflow") is True
+
+    def test_internal_domain_lockdown_is_case_insensitive(self):
+        """
+        Case variants of reserved internal names must also be blocked —
+        no casing trick should bypass the internal-domain registry.
+        """
+        assert DynamicScopeGenerator._is_internal_only_domain("KYC_CONNECTOR") is True
+        assert DynamicScopeGenerator._is_internal_only_domain("Kyc_Workflow") is True
+        assert DynamicScopeGenerator._is_internal_only_domain("KYC_WORKFLOW") is True
+
+    def test_consumer_facing_domains_are_not_flagged_as_internal(self):
+        """
+        Standard consumer domains must pass through the internal-domain check
+        freely — they should not be blocked by mistake.
+        """
+        consumer_domains = [
+            "financial", "health", "food", "shopping",
+            "social", "travel", "professional",
+        ]
+        for domain in consumer_domains:
+            assert DynamicScopeGenerator._is_internal_only_domain(domain) is False, (
+                f"{domain!r} is a valid consumer domain and must not be blocked"
+            )
+
+    # ── B: Namespace-prefix collision resistance ──────────────────────────────
+
+    def test_truncated_domain_prefix_does_not_collide_with_full_domain(self):
+        """
+        'attr.fin.*' must NOT cover 'attr.financial.holdings'.
+        A shortened namespace prefix must never bleed into a longer domain.
+        """
+        assert GEN.matches_wildcard("attr.financial.holdings", "attr.fin.*") is False
+
+    def test_substring_domain_does_not_match_longer_domain(self):
+        """
+        'attr.food.*' must NOT cover 'attr.fooddelivery.orders'.
+        Substring containment is not a valid namespace relationship.
+        """
+        assert GEN.matches_wildcard("attr.fooddelivery.orders", "attr.food.*") is False
+
+    def test_suffix_extended_domain_does_not_collide_with_base_domain(self):
+        """
+        'attr.financial_extended.*' must NOT match 'attr.financial.*'.
+        Adding a suffix to a domain name creates a wholly separate namespace.
+        """
+        assert GEN.matches_wildcard(
+            "attr.financial_extended.holdings", "attr.financial.*"
+        ) is False
+
+    def test_case_variants_of_same_domain_normalise_to_one_namespace(self):
+        """
+        'FINANCIAL', 'Financial', and 'financial' all normalise to the same key.
+        They are a single namespace — not three colliding ones.
+        """
+        keys = [
+            DynamicScopeGenerator._normalize_domain_key(v)
+            for v in ("FINANCIAL", "Financial", "financial")
+        ]
+        assert keys == ["financial", "financial", "financial"]
+
+    def test_duplicate_domain_registrations_deduplicate_to_single_namespace(self):
+        """
+        Registering the same domain in different cases must produce exactly one
+        namespace entry — no silent shadowing or collision side effect.
+        """
+        result = DynamicScopeGenerator._normalize_domains(
+            ["financial", "FINANCIAL", "Financial", "financial"]
+        )
+        assert result == ["financial"], (
+            f"Expected single deduplicated namespace entry, got {result!r}"
+        )
+
+    # ── C: Cross-domain wildcard collision blocked ────────────────────────────
+
+    def test_wildcard_for_one_domain_cannot_overwrite_another_domain(self):
+        """
+        Forcefully attempt to use 'attr.financial.*' to cover 'attr.food.*'.
+        The namespace layer must block this cross-domain wildcard collision.
+        """
+        assert GEN.matches_wildcard("attr.food.*", "attr.financial.*") is False
+
+    @pytest.mark.parametrize(
+        "conflicting_scope, registered_wildcard",
+        [
+            ("attr.food.preferences",    "attr.financial.*"),
+            ("attr.financial.holdings",  "attr.food.*"),
+            ("attr.shopping.receipts",   "attr.health.*"),
+            ("attr.travel.itinerary",    "attr.shopping.*"),
+            ("attr.professional.career", "attr.social.*"),
+            ("attr.social.contacts",     "attr.travel.*"),
+        ],
+    )
+    def test_cross_domain_collision_blocked_for_every_domain_pair(
+        self, conflicting_scope: str, registered_wildcard: str
+    ):
+        """
+        Each domain wildcard is fully isolated — no registered wildcard may
+        overwrite a conflicting scope from a different domain namespace.
+        """
+        assert GEN.matches_wildcard(conflicting_scope, registered_wildcard) is False, (
+            f"Wildcard {registered_wildcard!r} must not cover "
+            f"conflicting scope {conflicting_scope!r}"
+        )
+
+    def test_sibling_subintent_wildcard_does_not_overwrite_peer_subintent(self):
+        """
+        'attr.financial.profile.*' must NOT cover 'attr.financial.holdings'.
+        A subintent namespace must not bleed into its sibling subintent path.
+        """
+        assert GEN.matches_wildcard(
+            "attr.financial.holdings", "attr.financial.profile.*"
+        ) is False
+
+    def test_narrow_subintent_wildcard_cannot_escalate_to_broader_domain(self):
+        """
+        'attr.financial.profile.*' must NOT cover 'attr.financial.*'.
+        A narrower namespace cannot register itself as broader (anti-escalation).
+        """
+        assert GEN.matches_wildcard("attr.financial.*", "attr.financial.profile.*") is False
+
+    # ── D: Unknown namespace prefix fails closed with ValueError ─────────────
+
+    def test_unknown_capability_namespace_collision_raises_value_error(self):
+        """
+        Resolving a scope with the reserved 'cap.*' prefix that does not
+        match any registered capability must raise ValueError immediately —
+        the registry fails closed rather than silently returning a default.
+        """
+        from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
+
+        with pytest.raises(ValueError, match="Unknown capability scope"):
+            resolve_scope_to_enum("cap.phantom.inject")
+
+    def test_overlapping_agent_namespace_collision_raises_value_error(self):
+        """
+        A scope with the reserved 'agent.*' prefix that is not in the
+        canonical agent scope registry must raise ValueError — the namespace
+        layer blocks the overwrite rather than guessing a fallback mapping.
+        """
+        from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
+
+        with pytest.raises(ValueError, match="Unknown agent scope"):
+            resolve_scope_to_enum("agent.phantom.execute")
