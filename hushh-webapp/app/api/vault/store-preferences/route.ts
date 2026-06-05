@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
 
     for (const [key, value] of Object.entries(preferences)) {
       // Skip if value is null/undefined
-      if (!value) continue;
+      if (value == null) continue;
 
       const encrypted = value as {
         ciphertext: string;
