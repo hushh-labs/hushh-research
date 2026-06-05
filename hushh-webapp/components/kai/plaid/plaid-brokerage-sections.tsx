@@ -725,9 +725,10 @@ export function PlaidFundingTransfersSection({
           {isFundingPanelOpen ? (
             <div className="rounded-[20px] border border-border/60 bg-background/60 p-4">
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label htmlFor="funding-account" className="space-y-1 text-xs text-muted-foreground">
                   Funding account
                   <select
+                    id="funding-account"
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={selectedFundingAccountId}
                     onChange={(event) => {
@@ -750,9 +751,10 @@ export function PlaidFundingTransfersSection({
                 </label>
 
                 {brokerageAccountOptions.length > 0 ? (
-                  <label className="space-y-1 text-xs text-muted-foreground">
+                  <label htmlFor="brokerage-account" className="space-y-1 text-xs text-muted-foreground">
                     Alpaca brokerage destination
                     <select
+                      id="brokerage-account"
                       className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                       value={selectedBrokerageAccountId}
                       onChange={(event) => setSelectedBrokerageAccountId(event.target.value)}
@@ -784,9 +786,10 @@ export function PlaidFundingTransfersSection({
                   </div>
                 )}
 
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label htmlFor="transfer-direction" className="space-y-1 text-xs text-muted-foreground">
                   Transfer direction
                   <select
+                    id="transfer-direction"
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={transferDirection}
                     onChange={(event) =>
@@ -798,9 +801,10 @@ export function PlaidFundingTransfersSection({
                   </select>
                 </label>
 
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label htmlFor="transfer-amount" className="space-y-1 text-xs text-muted-foreground">
                   Amount (USD)
                   <input
+                    id="transfer-amount"
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={amountInput}
                     onChange={(event) => setAmountInput(event.target.value)}
@@ -822,9 +826,10 @@ export function PlaidFundingTransfersSection({
                   </div>
                 </label>
 
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label htmlFor="legal-name" className="space-y-1 text-xs text-muted-foreground">
                   Legal name
                   <input
+                    id="legal-name"
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={legalNameInput}
                     onChange={(event) => setLegalNameInput(event.target.value)}
@@ -983,27 +988,30 @@ export function PlaidFundingTransfersSection({
             Search transfer records and create a manual escalation with notes for operations.
           </p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <label className="space-y-1 text-xs text-muted-foreground">
+            <label htmlFor="support-transfer-id" className="space-y-1 text-xs text-muted-foreground">
               Transfer ID
               <input
+                id="support-transfer-id"
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                 value={supportTransferId}
                 onChange={(event) => setSupportTransferId(event.target.value)}
                 placeholder="Optional transfer ID"
               />
             </label>
-            <label className="space-y-1 text-xs text-muted-foreground">
+            <label htmlFor="support-relationship-id" className="space-y-1 text-xs text-muted-foreground">
               Relationship ID
               <input
+                id="support-relationship-id"
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                 value={supportRelationshipId}
                 onChange={(event) => setSupportRelationshipId(event.target.value)}
                 placeholder="Optional relationship ID"
               />
             </label>
-            <label className="space-y-1 text-xs text-muted-foreground">
+            <label htmlFor="support-severity" className="space-y-1 text-xs text-muted-foreground">
               Escalation severity
               <select
+                id="support-severity"
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                 value={supportSeverity}
                 onChange={(event) =>
@@ -1018,9 +1026,10 @@ export function PlaidFundingTransfersSection({
                 <option value="urgent">Urgent</option>
               </select>
             </label>
-            <label className="space-y-1 text-xs text-muted-foreground">
+            <label htmlFor="support-notes" className="space-y-1 text-xs text-muted-foreground">
               Escalation notes
               <input
+                id="support-notes"
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                 value={supportNotes}
                 onChange={(event) => setSupportNotes(event.target.value)}
