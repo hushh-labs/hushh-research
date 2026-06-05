@@ -7,12 +7,23 @@ import { Dialog as DialogPrimitive } from "radix-ui"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple"
+import { useRestoreFocusOnClose } from "@/lib/a11y/restore-focus-on-close"
 
 function Dialog({
   modal = false,
+  onOpenChange,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="dialog" modal={modal} {...props} />
+  const handleOpenChange = useRestoreFocusOnClose(onOpenChange)
+
+  return (
+    <DialogPrimitive.Root
+      data-slot="dialog"
+      modal={modal}
+      onOpenChange={handleOpenChange}
+      {...props}
+    />
+  )
 }
 
 function DialogTrigger({
