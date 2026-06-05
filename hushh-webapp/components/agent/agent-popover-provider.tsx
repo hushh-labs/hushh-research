@@ -51,17 +51,17 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
   const [hasOpened, setHasOpened] = useState(false);
   const [motionState, setMotionState] =
     useState<AgentPopoverMotionState>("idle");
-  const animationFrameRef = useRef<number | null>(null);
-  const motionTimerRef = useRef<number | null>(null);
+  const animationFrameRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null);
+  const motionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearMotionHandles = useCallback(() => {
     if (animationFrameRef.current !== null) {
-      window.cancelAnimationFrame(animationFrameRef.current);
+      cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
 
     if (motionTimerRef.current !== null) {
-      window.clearTimeout(motionTimerRef.current);
+      clearTimeout(motionTimerRef.current);
       motionTimerRef.current = null;
     }
   }, []);
@@ -75,10 +75,10 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
     setHasOpened(true);
     setMotionState("opening");
 
-    animationFrameRef.current = window.requestAnimationFrame(() => {
+    animationFrameRef.current = requestAnimationFrame(() => {
       animationFrameRef.current = null;
       setExpanded(true);
-      motionTimerRef.current = window.setTimeout(() => {
+      motionTimerRef.current = setTimeout(() => {
         motionTimerRef.current = null;
         setMotionState("idle");
       }, AGENT_POPOVER_TRANSITION_MS);
@@ -91,7 +91,7 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
     clearMotionHandles();
     setMotionState("closing");
     setExpanded(false);
-    motionTimerRef.current = window.setTimeout(() => {
+    motionTimerRef.current = setTimeout(() => {
       motionTimerRef.current = null;
       setMotionState("idle");
     }, AGENT_POPOVER_TRANSITION_MS);
@@ -128,7 +128,7 @@ function AgentPopoverSurface() {
   const surfaceVisible = expanded || motionState !== "idle";
 
   const handleNavigationActionComplete = useCallback(() => {
-    window.setTimeout(() => {
+    setTimeout(() => {
       minimizeAgent();
     }, 120);
   }, [minimizeAgent]);
