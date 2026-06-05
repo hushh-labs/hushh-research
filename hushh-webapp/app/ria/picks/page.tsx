@@ -791,8 +791,14 @@ function TopPicksEditor({
                   <p className="text-sm font-semibold text-foreground">Top pick {displayIndex}</p>
                   <p className="text-xs text-muted-foreground">Compact mobile editor</p>
                 </div>
-                <Button variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
-                  <Trash2 className="h-4 w-4" />
+                <Button
+                  variant="none"
+                  effect="fade"
+                  size="sm"
+                  aria-label={`Remove top pick ${row.ticker || displayIndex}`}
+                  onClick={() => onRemoveRow(row.id)}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
                 </Button>
               </div>
               <MobileEditorField label="Ticker">
@@ -901,8 +907,14 @@ function TopPicksEditor({
                   </TableCell>
                   <TableCell className="px-3 py-2.5 align-top">
                     <div className="flex justify-end">
-                      <Button variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
-                        <Trash2 className="h-4 w-4" />
+                      <Button
+                        variant="none"
+                        effect="fade"
+                        size="sm"
+                        aria-label={`Remove top pick ${row.ticker || "row"}`}
+                        onClick={() => onRemoveRow(row.id)}
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
                       </Button>
                     </div>
                   </TableCell>
@@ -1024,8 +1036,14 @@ function AvoidEditor({
                   <p className="text-sm font-semibold text-foreground">Avoid row {displayIndex}</p>
                   <p className="text-xs text-muted-foreground">Compact mobile editor</p>
                 </div>
-                <Button variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
-                  <Trash2 className="h-4 w-4" />
+                <Button
+                  variant="none"
+                  effect="fade"
+                  size="sm"
+                  aria-label={`Remove avoid row ${row.ticker || displayIndex}`}
+                  onClick={() => onRemoveRow(row.id)}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
                 </Button>
               </div>
               <MobileEditorField label="Ticker">
@@ -1157,8 +1175,14 @@ function AvoidEditor({
                   </TableCell>
                   <TableCell className="px-3 py-2.5 align-top">
                     <div className="flex justify-end">
-                      <Button variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
-                        <Trash2 className="h-4 w-4" />
+                      <Button
+                        variant="none"
+                        effect="fade"
+                        size="sm"
+                        aria-label={`Remove avoid row ${row.ticker || "row"}`}
+                        onClick={() => onRemoveRow(row.id)}
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
                       </Button>
                     </div>
                   </TableCell>

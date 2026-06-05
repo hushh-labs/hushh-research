@@ -428,6 +428,7 @@ function LiquidGlassSearchBar({
         <button
           ref={orbRef}
           type="button"
+          aria-label="Clear search"
           className={`absolute top-1/2 ${CONTROL_RESET_CLASS} cursor-pointer transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]`}
           style={{
             width: dimensions.orbSize,
@@ -471,7 +472,7 @@ function LiquidGlassSearchBar({
             />
 
             <div className="absolute inset-0 z-20 flex items-center justify-center text-black/60 dark:text-white/70">
-              <X size={dimensions.iconSize} />
+              <X size={dimensions.iconSize} aria-hidden="true" />
             </div>
           </div>
         </button>
