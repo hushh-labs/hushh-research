@@ -128,4 +128,12 @@ describe("observability route map", () => {
       normalizeApiPathToTemplate("/api/custom/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9/details")
     ).toBe("/api/custom/{id}/details");
   });
+  it("preserves query stripping when normalizing API route templates", () => {
+    expect(normalizeApiPathToTemplate("/api/consent/center?actor=ria&view=outgoing")).toBe(
+      "/api/consent/center"
+    );
+    expect(normalizeApiPathToTemplate("/api/kai/agent/chat/stream?cursor=123")).toBe(
+      "/api/kai/agent/chat/stream"
+    );
+  });
 });
