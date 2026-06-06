@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import time
+from collections import OrderedDict
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -361,6 +362,10 @@ _PREVIEW_CACHE_TTL_SECONDS = max(
     60,
     int(os.getenv("PKM_AGENT_LAB_PREVIEW_CACHE_TTL_SECONDS", "300") or "300"),
 )
+_PREVIEW_CACHE_MAX_SIZE = max(
+    1,
+    int(os.getenv("PKM_AGENT_LAB_PREVIEW_CACHE_MAX_SIZE", "256") or "256"),
+)
 _AGENT_CONTRACT_TIMEOUT_SECONDS = max(
     1.5,
     float(os.getenv("PKM_AGENT_LAB_AGENT_TIMEOUT_SECONDS", "4") or "4"),
@@ -369,7 +374,7 @@ _PREVIEW_TOTAL_BUDGET_SECONDS = max(
     4.0,
     float(os.getenv("PKM_AGENT_LAB_PREVIEW_BUDGET_SECONDS", "12") or "12"),
 )
-_PREVIEW_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_PREVIEW_CACHE: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
 _PREVIEW_INFLIGHT: dict[str, asyncio.Task[dict[str, Any]]] = {}
 _SOFT_ONTOLOGY_KEYS = tuple(
     entry.domain_key
@@ -657,6 +662,8 @@ class PKMAgentLabService:
         if expires_at <= time.time():
             _PREVIEW_CACHE.pop(cache_key, None)
             return None
+        # Mark as recently used so LRU eviction keeps hot entries alive.
+        _PREVIEW_CACHE.move_to_end(cache_key)
         return deepcopy(payload)
 
     @classmethod
@@ -665,6 +672,12 @@ class PKMAgentLabService:
             time.time() + _PREVIEW_CACHE_TTL_SECONDS,
             deepcopy(payload),
         )
+        _PREVIEW_CACHE.move_to_end(cache_key)
+        # Evict the least-recently-used entry when the cache exceeds its size
+        # bound. Without this guard a long-running instance accumulates one
+        # entry per unique (user_id, message, domains) tuple indefinitely.
+        while len(_PREVIEW_CACHE) > _PREVIEW_CACHE_MAX_SIZE:
+            _PREVIEW_CACHE.popitem(last=False)
 
     @staticmethod
     def _normalize_segment(value: str) -> str:
