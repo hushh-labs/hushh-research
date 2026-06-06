@@ -13,6 +13,7 @@ from api.utils.fcm_messages import build_push_message
 from api.utils.firebase_admin import ensure_firebase_admin
 from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.operons.location.policy import (
+from mcp_modules.log_redaction import redact_log_value
     LOCATION_CAPABILITY_SCOPES,
     normalize_duration_hours,
     normalize_source_platform,
@@ -439,7 +440,7 @@ class OneLocationAgentService:
                 logger.warning(
                     "one.location.notification_blocked_plaintext_keys type=%s user=%s",
                     notification_type,
-                    user_id,
+                    redact_log_value(user_id),
                 )
                 return
             seen: set[str] = set()
@@ -471,7 +472,7 @@ class OneLocationAgentService:
             logger.warning(
                 "one.location.notification_skipped type=%s user=%s error=%s",
                 notification_type,
-                user_id,
+                redact_log_value(user_id),
                 exc,
             )
 
