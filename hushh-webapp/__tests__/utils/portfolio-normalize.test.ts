@@ -73,4 +73,54 @@ describe("portfolio normalize helpers", () => {
 
     expect(consolidated).toHaveLength(0);
   });
+
+  it("treats mixed-case symbol variants as the same key and merges without data loss", () => {
+    // Three holdings with identical symbols written in different cases.
+    // normalizeHoldingSymbol uppercases each before mergeHoldingsBySymbol groups by Map key,
+    // so all three must collapse to exactly one canonical entry ("TSYM").
+    const consolidated = consolidateHoldingsBySymbol([
+      {
+        symbol: "tsym",
+        name: "Test Asset Lower",
+        quantity: 4,
+        market_value: 400,
+        cost_basis: 320,
+        unrealized_gain_loss: 80,
+      },
+      {
+        symbol: "TSYM",
+        name: "Test Asset Upper",
+        quantity: 6,
+        market_value: 600,
+        cost_basis: 480,
+        unrealized_gain_loss: 120,
+      },
+      {
+        symbol: "Tsym",
+        name: "Test Asset Mixed",
+        quantity: 2,
+        market_value: 200,
+        cost_basis: 160,
+        unrealized_gain_loss: 40,
+      },
+    ]);
+
+    // No duplicates and no dropped entries — all three folded into one.
+    expect(consolidated).toHaveLength(1);
+
+    const row = consolidated[0];
+    expect(row.symbol).toBe("TSYM");
+
+    // Numeric fields must be summed across all three inputs.
+    expect(row.quantity).toBe(12);
+    expect(row.market_value).toBe(1200);
+    expect(row.cost_basis).toBe(960);
+    expect(row.unrealized_gain_loss).toBe(240);
+
+    // lots_count is the internal merge counter — must equal 3 to confirm no silent drops.
+    expect(row.lots_count).toBe(3);
+
+    // Derived ratio must still be computed correctly on the consolidated values.
+    expect(row.unrealized_gain_loss_pct).toBeCloseTo((240 / 960) * 100, 8);
+  });
  });
