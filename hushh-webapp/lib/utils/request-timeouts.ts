@@ -9,8 +9,8 @@ function parsePositiveInteger(value: string | undefined): number | null {
 function resolveRuntimeEnvironment(): string {
   const candidates = [
     process.env.NEXT_PUBLIC_APP_ENV,
-    process.env.ENVIRONMENT,
     process.env.APP_RUNTIME_PROFILE,
+    process.env.ENVIRONMENT,
     process.env.NODE_ENV,
   ];
 
@@ -29,6 +29,7 @@ function isDevelopmentRuntime(): boolean {
   return (
     environment === "development" ||
     environment === "dev" ||
+    environment === "local" ||
     environment === "local-uatdb"
   );
 }

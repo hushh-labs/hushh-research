@@ -1,7 +1,7 @@
 # Developer API
 
 > **Status:** UAT public beta  
-> **Audience:** External developers, MCP hosts, and internal teams building against Kai consent flows
+> **Audience:** External developers, MCP hosts, and internal teams building against first-party consent flows
 
 
 ## Visual Context
@@ -22,7 +22,7 @@ The Hussh developer contract is versioned under `/api/v1` and built around one s
 
 1. Discover the user's scopes at runtime.
 2. Request consent for one discovered scope.
-3. Wait for the user's approval in Kai.
+3. Wait for the user's approval in the first-party app.
 4. Read the encrypted export with `POST /api/v1/scoped-export` or `get_encrypted_scoped_export(...)`.
 
 Do not hardcode domain keys. Dynamic scopes are derived from the indexed PKM and domain registry.
@@ -46,8 +46,8 @@ Founder-language framing:
 
 Developer access is self-serve from `/developers` in the app:
 
-- Sign in with the same Google or Apple auth flow used in Kai.
-- Enable developer access once per Kai account.
+- Sign in with the same Google or Apple auth flow used by the first-party app.
+- Enable developer access once per user account.
 - Receive one active developer token, revealed only when first issued or rotated.
 - Update the app identity users see during consent review.
 
@@ -139,9 +139,9 @@ GET /api/v1/consent-status?user_id=user_123&scope=attr.financial.*
 ?token=<developer-token>
 ```
 
-### 4. Wait for approval in Kai
+### 4. Wait for first-party approval
 
-The user approves in the Kai app. In founder language this is the user-facing PCHP moment. Approval is separate from developer auth and remains app-scoped plus scope-scoped.
+The user approves in the first-party app surface. In founder language this is the user-facing PCHP moment. Approval is separate from developer auth and remains app-scoped plus scope-scoped.
 
 ### 5. Fetch encrypted export
 
@@ -184,6 +184,9 @@ The response contains ciphertext only:
 ```
 
 Hussh does not return plaintext user data to developer callers. The external connector unwraps the export key locally, decrypts the payload locally, and narrows the export locally when `granted_scope` is broader than `expected_scope`. That is the current implementation shape behind the founder-language `Cryptographic Primitives` claim.
+
+For the layer-by-layer PKM storage, consent, MCP, connector, and partner handoff
+map, use [Personal Knowledge Model: PKM to MCP encrypted export flow](./personal-knowledge-model.md#pkm-to-mcp-encrypted-export-flow).
 
 ## Partner Storage Boundary
 

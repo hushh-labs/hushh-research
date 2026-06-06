@@ -94,6 +94,14 @@ CANONICAL_DOMAIN_REGISTRY: tuple[DomainContractEntry, ...] = (
         status="active_core",
     ),
     DomainContractEntry(
+        domain_key="runtime_secrets",
+        display_name="Runtime Secrets",
+        icon_name="key-round",
+        color_hex="#475569",
+        description="Encrypted user-owned runtime credentials for BYOK model execution",
+        status="active_core",
+    ),
+    DomainContractEntry(
         domain_key="entertainment",
         display_name="Entertainment",
         icon_name="tv",

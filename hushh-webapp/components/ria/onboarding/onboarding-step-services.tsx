@@ -32,7 +32,17 @@ function Divider() {
   return <div className="ml-4 h-px bg-border/50 sm:ml-5" />;
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function SectionLabel({ children, htmlFor }: { children: React.ReactNode; htmlFor?: string }) {
+  if (htmlFor) {
+    return (
+      <label
+        htmlFor={htmlFor}
+        className="block text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground"
+      >
+        {children}
+      </label>
+    );
+  }
   return (
     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
       {children}
@@ -208,8 +218,9 @@ export function OnboardingStepServices({
       </GroupShell>
 
       <div className="space-y-3">
-        <SectionLabel>Short Bio</SectionLabel>
+        <SectionLabel htmlFor="ria-bio">Short Bio</SectionLabel>
         <textarea
+          id="ria-bio"
           rows={4}
           value={bio}
           onChange={(event) => onBioChange(event.target.value)}

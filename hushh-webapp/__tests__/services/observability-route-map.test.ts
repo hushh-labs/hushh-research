@@ -136,4 +136,9 @@ describe("observability route map", () => {
       "/api/kai/agent/chat/stream"
     );
   });
-});
+
+  it("preserves fail-closed handling for uppercase route variants", () => {
+    expect(resolveRouteId("/KAI/PORTFOLIO")).toBe("unknown");
+  });
+  });
+

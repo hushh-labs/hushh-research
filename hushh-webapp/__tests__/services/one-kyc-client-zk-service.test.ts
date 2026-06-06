@@ -811,3 +811,192 @@ describe("OneKycClientZkService", () => {
     ).rejects.toThrow("Unsupported KYC export wrapping algorithm");
   });
 });
+
+// ── ZK preflight — structurally invalid payload rejection ──────────────────────
+
+describe("ZK preflight — non-compliant and structurally empty payload rejection", () => {
+
+  // ── Algorithm check takes priority ───────────────────────────────────────
+
+  it("algorithm check fires before connector-key check when both are wrong", async () => {
+    // Ensures the preflight order is deterministic: algorithm is checked first.
+    await expect(
+      OneKycClientZkService.decryptScopedExport({
+        connector,
+        exportPackage: {
+          encrypted_data: "",
+          iv: "",
+          tag: "",
+          wrapped_key_bundle: {
+            wrapped_export_key: "",
+            wrapped_key_iv: "",
+            wrapped_key_tag: "",
+            sender_public_key: "",
+            wrapping_alg: "RSA-OAEP",            // wrong algorithm
+            connector_key_id: "one-kyc-other",    // also wrong connector
+          },
+        },
+      })
+    ).rejects.toThrow("Unsupported KYC export wrapping algorithm");
+    // NOT "different client connector" — algorithm gate fires first.
+  });
+
+  // ── Structurally empty crypto payload ─────────────────────────────────────
+
+  it("rejects a package with empty crypto fields — preflight passes but crypto fails", async () => {
+    // wrapping_alg matches and connector_key_id matches, so both preflight guards clear.
+    // The subsequent WebCrypto operations receive empty-string fields and must throw.
+    await expect(
+      OneKycClientZkService.decryptScopedExport({
+        connector,
+        exportPackage: {
+          encrypted_data: "",
+          iv: "",
+          tag: "",
+          wrapped_key_bundle: {
+            wrapped_export_key: "",
+            wrapped_key_iv: "",
+            wrapped_key_tag: "",
+            sender_public_key: "",
+            wrapping_alg: KYC_CONNECTOR_WRAPPING_ALG,
+            connector_key_id: connector.connector_key_id,
+          },
+        },
+      })
+    ).rejects.toThrow(); // WebCrypto rejects empty key material
+  });
+
+  it("rejects a package whose connector_key_id is present but empty — passthrough checked next", async () => {
+    // connector_key_id: "" is falsy — the connector check is skipped.
+    // wrapping_alg: "EC-DH" is truthy and wrong → algorithm check fires.
+    await expect(
+      OneKycClientZkService.decryptScopedExport({
+        connector,
+        exportPackage: {
+          encrypted_data: "",
+          iv: "",
+          tag: "",
+          wrapped_key_bundle: {
+            wrapped_export_key: "",
+            wrapped_key_iv: "",
+            wrapped_key_tag: "",
+            sender_public_key: "",
+            wrapping_alg: "EC-DH",
+            connector_key_id: "",
+          },
+        },
+      })
+    ).rejects.toThrow("Unsupported KYC export wrapping algorithm");
+  });
+
+  // ── buildDraft — empty and null-valued export payloads ────────────────────
+
+  it("reports all required fields as missing when export payload is an empty object", async () => {
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow: baseWorkflow,
+      exportPayload: {},
+    });
+
+    expect(draft.approvedValues).toEqual({});
+    expect(draft.missingFields).toEqual(["full_name", "date_of_birth", "address"]);
+    expect(draft.body).not.toContain("full name:");
+    expect(draft.body).not.toContain("date of birth:");
+    expect(draft.body).not.toContain("address:");
+  });
+
+  it("treats null field values as absent — no invented values, no crash", async () => {
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow: baseWorkflow,
+      exportPayload: {
+        identity: {
+          full_name: null,
+          date_of_birth: null,
+          address: null,
+        },
+      },
+    });
+
+    expect(draft.missingFields).toContain("full_name");
+    expect(draft.missingFields).toContain("date_of_birth");
+    expect(draft.missingFields).toContain("address");
+    expect(draft.approvedValues).toEqual({});
+    // Null values must never surface as literal "null" in the output.
+    expect(draft.body).not.toMatch(/\bnull\b/);
+  });
+
+  it("produces a coherent empty draft when neither exportPayload nor exportPayloads is supplied", async () => {
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow: baseWorkflow,
+    });
+
+    // No payload → no scope-payload pair → no field extraction at all.
+    expect(draft.approvedValues).toEqual({});
+    expect(draft.missingFields).toEqual([]);
+    expect(typeof draft.body).toBe("string");
+    expect(draft.draftHash).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("returns all required fields as missing when export payload contains only internal keys", async () => {
+    // Internal keys (e.g. schema_version, updated_at) are stripped by the
+    // INTERNAL_APPROVED_VALUE_KEYS filter — they must never fill required fields.
+    const draft = await OneKycClientZkService.buildDraft({
+      workflow: baseWorkflow,
+      exportPayload: {
+        identity: {
+          schema_version: 1,
+          updated_at: "2026-01-01T00:00:00.000Z",
+          analyze_eligible: true,
+          metadata: { source: "import" },
+        },
+      },
+    });
+
+    expect(draft.missingFields).toContain("full_name");
+    expect(draft.missingFields).toContain("date_of_birth");
+    expect(draft.missingFields).toContain("address");
+    // Internal PKM keys must not surface as approved values.
+    expect(Object.keys(draft.approvedValues)).not.toContain("schema_version");
+    expect(Object.keys(draft.approvedValues)).not.toContain("updated_at");
+    expect(Object.keys(draft.approvedValues)).not.toContain("analyze_eligible");
+  });
+
+  // ── effectiveOneKycRequiredFields — null and empty input edge cases ────────
+
+  it("returns identity defaults when all scope entries are null or undefined", () => {
+    const fields = effectiveOneKycRequiredFields({
+      requiredFields: [],
+      scopes: [null, undefined, null],
+      fallbackScope: null,
+    });
+    // All null → filtered to [] → uses fallback identity defaults.
+    expect(fields).toEqual(["identity_profile"]);
+  });
+
+  it("filters null entries from a mixed scope list and processes the valid scope", () => {
+    const fields = effectiveOneKycRequiredFields({
+      requiredFields: [],
+      scopes: [null, "attr.identity.*", undefined],
+    });
+    expect(fields).toContain("identity_profile");
+  });
+
+  it("does not throw when requiredFields is null", () => {
+    expect(() =>
+      effectiveOneKycRequiredFields({
+        requiredFields: null,
+        scopes: ["attr.identity.*"],
+      })
+    ).not.toThrow();
+  });
+
+  it("does not throw when scopes is null", () => {
+    expect(() =>
+      effectiveOneKycRequiredFields({
+        requiredFields: ["full_name"],
+        scopes: null,
+        fallbackScope: "attr.identity.*",
+      })
+    ).not.toThrow();
+  });
+});
+// ── End ZK preflight invalid-payload coverage ──────────────────────────────────

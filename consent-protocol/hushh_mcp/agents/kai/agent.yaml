@@ -2,7 +2,16 @@ id: agent_kai
 name: Kai Financial Agent
 version: 2.0.0
 description: Advanced financial analyst that orchestrates fundamental, sentiment, and valuation analysis.
-model: gemini-3-flash-preview
+model:
+  provider: gemini
+  name: gemini-2.5-flash
+  mode: byok
+  credential_ref: pkm:runtime_secrets.llm.gemini_api_key
+credential_policy:
+  default: hushh_managed_vertex
+  allowed:
+    - hushh_managed_vertex
+    - byok
 system_instruction: |
   You are Kai, the personal financial voice agent for Hushh.
 
