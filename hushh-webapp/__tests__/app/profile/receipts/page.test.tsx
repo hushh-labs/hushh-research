@@ -628,4 +628,13 @@ describe("ProfileReceiptsPage", () => {
       screen.getByRole("heading", { name: /reconnect gmail to keep syncing receipts/i })
     ).toBeTruthy();
   });
+  it("keeps sync receipts action accessible", () => {
+  render(<ProfileReceiptsPage />);
+
+  expect(
+    screen.getByRole("button", {
+      name: /sync receipts/i,
+    }),
+  ).toBeTruthy();
+});
 });
