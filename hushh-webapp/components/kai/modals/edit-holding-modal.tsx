@@ -412,11 +412,12 @@ export function EditHoldingModal({
         <div className="px-4 py-2 space-y-4 max-h-[60vh] overflow-y-auto">
           {/* Symbol */}
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label htmlFor="holding-symbol" className="block text-sm font-medium mb-1">
               Symbol <span className="text-red-500">*</span>
             </label>
             <div ref={symbolInputWrapRef} className="relative">
               <input
+                id="holding-symbol"
                 type="text"
                 value={formData.symbol}
                 onChange={(e) => handleChange("symbol", e.target.value.toUpperCase())}
@@ -472,11 +473,12 @@ export function EditHoldingModal({
 
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label htmlFor="holding-name" className="block text-sm font-medium mb-1">
               Company Name <span className="text-red-500">*</span>
             </label>
             <div ref={nameInputWrapRef} className="relative">
               <input
+                id="holding-name"
                 type="text"
                 value={formData.name}
                 onChange={(e) => handleChange("name", e.target.value)}
@@ -532,10 +534,11 @@ export function EditHoldingModal({
           {/* Quantity & Price Row */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label htmlFor="holding-quantity" className="block text-sm font-medium mb-1">
                 Quantity <span className="text-red-500">*</span>
               </label>
 	              <input
+                id="holding-quantity"
                 type="number"
                 value={formData.quantity || ""}
                 onChange={(e) => handleChange("quantity", parseFloat(e.target.value) || 0)}
@@ -555,10 +558,11 @@ export function EditHoldingModal({
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label htmlFor="holding-price" className="block text-sm font-medium mb-1">
                 Price <span className="text-red-500">*</span>
               </label>
 	              <input
+                id="holding-price"
                 type="number"
                 value={formData.price || ""}
                 onChange={(e) => handleChange("price", parseFloat(e.target.value) || 0)}
@@ -580,10 +584,11 @@ export function EditHoldingModal({
 
           {/* Market Value (calculated, read-only) */}
           <div>
-            <label className="block text-sm text-muted-foreground font-medium mb-1">
+            <label htmlFor="holding-market-value" className="block text-sm text-muted-foreground font-medium mb-1">
               Market Value (Auto-calculated)
             </label>
             <input
+              id="holding-market-value"
               type="text"
               value={`$${formData.market_value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
               readOnly
@@ -599,10 +604,11 @@ export function EditHoldingModal({
 
           {/* Cost Basis */}
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label htmlFor="holding-cost-basis" className="block text-sm font-medium mb-1">
               Cost Basis (Total)
             </label>
             <input
+              id="holding-cost-basis"
               type="number"
               value={formData.cost_basis || ""}
               onChange={(e) => handleChange("cost_basis", parseFloat(e.target.value) || 0)}
@@ -618,11 +624,12 @@ export function EditHoldingModal({
 
           {/* Acquisition Date */}
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label htmlFor="holding-acquisition-date" className="block text-sm font-medium mb-1">
               Acquisition Date
             </label>
             <div className="relative">
               <input
+                id="holding-acquisition-date"
                 type="text"
                 value={formatAcquisitionDate(formData.acquisition_date)}
                 placeholder="MM/DD/YYYY"

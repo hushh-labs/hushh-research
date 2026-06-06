@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   ArrowRight,
   BadgeDollarSign,
@@ -2834,11 +2835,13 @@ export function DashboardMasterView({
             <MorphyButton
               variant="none"
               effect="fade"
-              onClick={() => router.push(ROUTES.KAI_INVESTMENTS)}
               data-voice-control-id="view_investments"
+              asChild
             >
-              <Building2 className="mr-2 h-4 w-4" />
-              View Investments
+              <Link href={ROUTES.KAI_INVESTMENTS}>
+                <Building2 className="mr-2 h-4 w-4" />
+                View Investments
+              </Link>
             </MorphyButton>
             {plaidConfigured !== false ? (
               <MorphyButton
@@ -2859,10 +2862,12 @@ export function DashboardMasterView({
             <MorphyButton
               variant="none"
               effect="fade"
-              onClick={() => router.push(ROUTES.KAI_FUNDING_TRADE)}
+              asChild
             >
-              <BadgeDollarSign className="mr-2 h-4 w-4" />
-              Fund + Trade
+              <Link href={ROUTES.KAI_FUNDING_TRADE}>
+                <BadgeDollarSign className="mr-2 h-4 w-4" />
+                Fund + Trade
+              </Link>
             </MorphyButton>
           </div>
         </SurfaceCardContent>

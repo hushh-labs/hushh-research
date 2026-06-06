@@ -61,4 +61,16 @@ describe("portfolio normalize helpers", () => {
     expect(normalized.holdings[0].market_value).toBe(800);
     expect(normalized.holdings[0].quantity).toBe(3);
   });
-});
+       it("drops empty symbol holdings during consolidation", () => {
+    const consolidated = consolidateHoldingsBySymbol([
+      {
+        symbol: "",
+        name: "Unknown Holding",
+        quantity: 10,
+        market_value: 100,
+      },
+    ]);
+
+    expect(consolidated).toHaveLength(0);
+  });
+ });

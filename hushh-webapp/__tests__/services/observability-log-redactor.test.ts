@@ -41,3 +41,146 @@ describe("observability log redactor", () => {
     expect(result.sanitized).not.toHaveProperty("user_email");
   });
 });
+
+// ── Parameter truncation mechanics ────────────────────────────────────────────
+//
+// redactObservabilityLog contains an implicit truncation mechanism:
+// LONG_SECRET_PATTERN = /\b[A-Za-z0-9_-]{32,}\b/g
+//
+// Any unbroken alphanumeric run of 32+ characters — regardless of how long
+// that run is — is replaced with the constant 16-character placeholder
+// "[REDACTED_SECRET]".  This means a 100 KB secret blob is compressed to 16
+// chars in one pass, bounding the log-entry size for oversized inputs.
+//
+// The same bounding applies to BEARER tokens and VAULT keys embedded in large
+// dumps.  Plain text that contains no matching patterns passes through at its
+// original size, but the function must not throw or time-out on any input.
+//
+// Tests are limited to 100 KB payloads so CI stays well within regex timeout
+// budgets while still proving the no-crash and size-reduction contracts.
+
+describe("observability log redactor — parameter truncation mechanics", () => {
+  // ── No-crash guarantee on massive plain-text ──────────────────────────────
+
+  it("processes a 100 KB plain-text string without throwing (no-crash contract)", () => {
+    // Space-separated words — no pattern matches, no secrets to redact.
+    const massivePlainText = "word ".repeat(20_000); // 100 KB
+
+    expect(() => redactObservabilityLog(massivePlainText)).not.toThrow();
+
+    const output = redactObservabilityLog(massivePlainText);
+    expect(typeof output).toBe("string");
+    // Plain text with no sensitive tokens passes through at the same length.
+    expect(output.length).toBe(massivePlainText.length);
+  });
+
+  // ── LONG_SECRET_PATTERN: massive secret → fixed-size placeholder ──────────
+
+  it("compresses a 100 KB alphanumeric blob to a fixed-size placeholder (implicit truncation)", () => {
+    // LONG_SECRET_PATTERN matches any 32+ char alphanumeric run.
+    // A 100 000-char alphanumeric string is a single match → [REDACTED_SECRET].
+    const massiveSecret = "a".repeat(100_000);
+
+    const output = redactObservabilityLog(massiveSecret);
+
+    expect(output).toBe("[REDACTED_SECRET]");
+    // 16 chars instead of 100 000 — a 99.98% size reduction.
+    expect(output.length).toBeLessThan(massiveSecret.length);
+  });
+
+  it("compresses a 500-character Bearer token to a fixed-size placeholder", () => {
+    const longBearerToken = "Bearer " + "k".repeat(500);
+
+    const output = redactObservabilityLog(longBearerToken);
+
+    expect(output).toBe("Bearer [REDACTED_TOKEN]");
+    expect(output.length).toBeLessThan(longBearerToken.length);
+  });
+
+  it("compresses a 200-character vault key to a fixed-size placeholder", () => {
+    const longVaultKey = "vault_" + "x".repeat(200);
+
+    const output = redactObservabilityLog(longVaultKey);
+
+    expect(output).toBe("[REDACTED_VAULT_KEY]");
+    expect(output.length).toBeLessThan(longVaultKey.length);
+  });
+
+  // ── Simulated exception dump ───────────────────────────────────────────────
+
+  it("processes a simulated 100 KB unhandled-exception dump without crashing and redacts all embedded secrets", () => {
+    // Realistic shape: email, vault key, bearer token, then a massive stack trace.
+    const stackLine = "    at Object.processRequest (/app/dist/server.js:123:45)\n";
+    const exceptionDump = [
+      "Error: Unhandled exception in request handler",
+      "user: crash@example.com",
+      `session_vault: vault_${"x".repeat(64)}`,
+      `Authorization: Bearer ${"z".repeat(256)}`,
+      stackLine.repeat(1_500), // ~90 KB of stack frames
+    ].join("\n");
+
+    expect(() => redactObservabilityLog(exceptionDump)).not.toThrow();
+
+    const output = redactObservabilityLog(exceptionDump);
+
+    expect(typeof output).toBe("string");
+    // All embedded secrets must be scrubbed.
+    expect(output).not.toContain("crash@example.com");
+    expect(output).not.toContain("vault_" + "x".repeat(64));
+    expect(output).not.toContain("Bearer " + "z".repeat(256));
+    // Non-sensitive lines pass through intact.
+    expect(output).toContain("Unhandled exception in request handler");
+    expect(output).toContain("at Object.processRequest");
+  });
+
+  // ── Bulk-secret payload: total size reduction ─────────────────────────────
+
+  it("reduces the total size of a payload containing 100 embedded long secrets", () => {
+    // Each 64-char secret is replaced by [REDACTED_SECRET] (16 chars).
+    // 100 secrets × 48-char reduction = ~4 800-char reduction.
+    const payloadLines = Array.from({ length: 100 }, (_, i) =>
+      `key_${i}: ${"s".repeat(64)}`
+    );
+    const payload = payloadLines.join("\n");
+
+    const output = redactObservabilityLog(payload);
+
+    expect(output.length).toBeLessThan(payload.length);
+    // No raw 64-char secret block should survive in the output.
+    expect(output).not.toMatch(/s{64}/);
+    expect(output).toContain("[REDACTED_SECRET]");
+  });
+
+  // ── Edge cases ────────────────────────────────────────────────────────────
+
+  it("returns empty string for empty string input without throwing", () => {
+    expect(() => redactObservabilityLog("")).not.toThrow();
+    expect(redactObservabilityLog("")).toBe("");
+  });
+
+  it("returns whitespace-only strings unchanged (no matching patterns)", () => {
+    expect(redactObservabilityLog("   \t\n  ")).toBe("   \t\n  ");
+  });
+
+  it("handles a 10 000-char whitespace string without throwing", () => {
+    const massiveWhitespace = " ".repeat(10_000);
+    expect(() => redactObservabilityLog(massiveWhitespace)).not.toThrow();
+    expect(redactObservabilityLog(massiveWhitespace)).toBe(massiveWhitespace);
+  });
+
+  // ── redactObservabilityLogValue: non-string oversized payloads ────────────
+
+  it("passes a large object through without modification or crash", () => {
+    const bigObject = Object.fromEntries(
+      Array.from({ length: 1_000 }, (_, i) => [`key_${i}`, `value_${i}`])
+    );
+    expect(redactObservabilityLogValue(bigObject)).toBe(bigObject);
+  });
+
+  it("passes a large array through without modification or crash", () => {
+    const bigArray = new Array(5_000).fill({ secret: "s".repeat(64) });
+    // Non-string values are returned as-is — the function never iterates
+    // into object/array structures, so no throw and no mutation.
+    expect(redactObservabilityLogValue(bigArray)).toBe(bigArray);
+  });
+});

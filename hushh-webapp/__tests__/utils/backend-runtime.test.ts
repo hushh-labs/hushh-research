@@ -70,7 +70,39 @@ describe("backend runtime resolution", () => {
     const helper = await loadHelper();
     expect(helper.getDeveloperApiUrl()).toBe("https://consent-protocol-uat.example.com");
   });
-    it("preserves localhost canonicalization stability for uppercase loopback hosts", async () => {
+
+  describe("URL whitespace sanitization", () => {
+    it("strips leading and trailing spaces from a backend URL env var without throwing", async () => {
+      process.env.K_SERVICE = "hushh-webapp";
+      process.env.PYTHON_API_URL = "  https://api.example.com  ";
+      const helper = await loadHelper();
+      expect(helper.getPythonApiUrl()).toBe("https://api.example.com");
+    });
+
+    it("strips surrounding tab characters from a backend URL env var without throwing", async () => {
+      process.env.K_SERVICE = "hushh-webapp";
+      process.env.PYTHON_API_URL = "\thttps://api.example.com\t";
+      const helper = await loadHelper();
+      expect(helper.getPythonApiUrl()).toBe("https://api.example.com");
+    });
+
+    it("strips a trailing newline from a backend URL env var without throwing", async () => {
+      process.env.K_SERVICE = "hushh-webapp";
+      process.env.PYTHON_API_URL = "https://api.example.com\n";
+      const helper = await loadHelper();
+      expect(helper.getPythonApiUrl()).toBe("https://api.example.com");
+    });
+
+    it("skips a whitespace-only env var and falls through to the next key", async () => {
+      process.env.K_SERVICE = "hushh-webapp";
+      process.env.PYTHON_API_URL = "   ";
+      process.env.BACKEND_URL = "https://api.example.com";
+      const helper = await loadHelper();
+      expect(helper.getPythonApiUrl()).toBe("https://api.example.com");
+    });
+  });
+
+  it("preserves localhost canonicalization stability for uppercase loopback hosts", async () => {
     process.env.BACKEND_URL = "http://LOCALHOST:8000";
     process.env.NEXT_PUBLIC_BACKEND_URL = "http://LOCALHOST:8000";
 

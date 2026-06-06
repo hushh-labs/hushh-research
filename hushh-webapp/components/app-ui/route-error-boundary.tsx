@@ -53,7 +53,10 @@ export class RouteErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex min-h-[60vh] flex-col items-center justify-center px-6">
+        <div
+          role="alert"
+          className="flex min-h-[60vh] flex-col items-center justify-center px-6"
+        >
           <Card
             preset="default"
             effect="glass"

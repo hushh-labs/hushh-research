@@ -37,6 +37,7 @@ function main() {
   });
   runStep("iOS simulator route audit", "npm", ["run", "ios:test"]);
   runStep("Android emulator route audit", "npm", ["run", "android:test"]);
+  runStep("Android emulator UI interaction audit", "npm", ["run", "android:ui:test"]);
   runStep("native parity report freshness", "npm", [
     "run",
     "verify:capacitor:reports",

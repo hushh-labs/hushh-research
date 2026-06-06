@@ -4,9 +4,11 @@ from __future__ import annotations
 import argparse
 import functools
 import json
+import os
 import re
 import subprocess
 import sys
+import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -19,11 +21,15 @@ from zoneinfo import ZoneInfo
 
 DEFAULT_REPO = "hushh-labs/hushh-research"
 DEFAULT_PRIMARY_DAYS = 14
-PR_FETCH_LIMIT = 1000
+PR_FETCH_LIMIT = int(os.environ.get("PR_IMPACT_FETCH_LIMIT", "1000"))
 GRAPH_WIDTH = 24
 REPORT_TZ = ZoneInfo("America/Los_Angeles")
 REPO_ROOT = Path(__file__).resolve().parents[4]
-DISCUSSION_FETCH_WORKERS = 8
+DISCUSSION_FETCH_WORKERS = int(os.environ.get("PR_IMPACT_DISCUSSION_WORKERS", "8"))
+GH_RETRY_ATTEMPTS = int(os.environ.get("PR_IMPACT_GH_RETRY_ATTEMPTS", "3"))
+GH_RETRY_BASE_DELAY_SECONDS = float(os.environ.get("PR_IMPACT_GH_RETRY_BASE_DELAY_SECONDS", "1.25"))
+GH_COMMAND_TIMEOUT_SECONDS = float(os.environ.get("PR_IMPACT_GH_COMMAND_TIMEOUT_SECONDS", "30"))
+FETCH_DISCUSSIONS = os.environ.get("PR_IMPACT_FETCH_DISCUSSIONS", "1") != "0"
 GH_FIELDS = (
     "number,title,author,mergedAt,closedAt,createdAt,updatedAt,additions,"
     "deletions,changedFiles,labels,url,headRefName,baseRefName,isDraft,"
@@ -414,19 +420,56 @@ VECTOR_WEIGHTS = {
     "ops/governance": 5,
 }
 
+TRANSIENT_GH_ERRORS = (
+    "HTTP 502",
+    "HTTP 503",
+    "HTTP 504",
+    "Bad Gateway",
+    "Gateway Timeout",
+    "Service Unavailable",
+    "unexpected end of JSON input",
+    "timed out",
+)
+
+
+def _is_transient_gh_error(message: str) -> bool:
+    return any(fragment in message for fragment in TRANSIENT_GH_ERRORS)
+
 
 def _run_gh(args: list[str]) -> Any:
-    proc = subprocess.run(
-        ["gh", *args],
-        cwd=REPO_ROOT,
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip() or proc.stdout.strip())
-    return json.loads(proc.stdout or "[]")
+    last_error = ""
+    attempts = max(1, GH_RETRY_ATTEMPTS)
+    for attempt in range(1, attempts + 1):
+        try:
+            proc = subprocess.run(
+                ["gh", *args],
+                cwd=REPO_ROOT,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=GH_COMMAND_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            last_error = f"gh {' '.join(args[:4])} timed out after {GH_COMMAND_TIMEOUT_SECONDS:g}s"
+            if attempt < attempts:
+                time.sleep(GH_RETRY_BASE_DELAY_SECONDS * attempt)
+                continue
+            break
+        stdout = proc.stdout.strip()
+        stderr = proc.stderr.strip()
+        if proc.returncode == 0:
+            try:
+                return json.loads(stdout or "[]")
+            except json.JSONDecodeError as exc:
+                last_error = f"invalid JSON from gh {' '.join(args[:3])}: {exc}"
+        else:
+            last_error = stderr or stdout
+        if attempt < attempts and _is_transient_gh_error(last_error):
+            time.sleep(GH_RETRY_BASE_DELAY_SECONDS * attempt)
+            continue
+        break
+    raise RuntimeError(last_error)
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -549,6 +592,17 @@ def _discussion_for_pr(repo: str, number: int) -> dict[str, list[dict[str, Any]]
 
 
 def _enrich_discussions(repo: str, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not FETCH_DISCUSSIONS:
+        return [
+            {
+                **pr,
+                "comments": [],
+                "reviews": [],
+                "latestReviews": [],
+            }
+            for pr in records
+        ]
+
     discussions: dict[int, dict[str, list[dict[str, Any]]]] = {}
     with ThreadPoolExecutor(max_workers=DISCUSSION_FETCH_WORKERS) as executor:
         futures = {
@@ -928,7 +982,7 @@ def _operator_events(pr: dict[str, Any], vectors: list[str], lifecycle: str) -> 
     complexity_bonus = _operator_complexity_bonus(vectors)
     events: dict[tuple[str, str], dict[str, Any]] = {}
 
-    def add(actor: str, event_type: str, score: int, reason: str) -> None:
+    def add(actor: str, event_type: str, score: int, reason: str, *, url: str = "") -> None:
         if not actor or actor not in maintainers or actor.startswith("app/"):
             return
         key = (actor, event_type)
@@ -941,6 +995,7 @@ def _operator_events(pr: dict[str, Any], vectors: list[str], lifecycle: str) -> 
             "type": event_type,
             "score": capped_score,
             "reason": reason,
+            "url": url,
         }
 
     for comment in pr.get("comments") or []:
@@ -956,6 +1011,7 @@ def _operator_events(pr: dict[str, Any], vectors: list[str], lifecycle: str) -> 
                 "maintainer_patch",
                 OPERATOR_EVENT_WEIGHTS["maintainer_patch"] + complexity_bonus,
                 "Maintainer normalized or patched the PR into a canonical landing path.",
+                url=str(comment.get("html_url") or comment.get("url") or ""),
             )
         if "maintainer harvest" in text or ("harvest" in text and "accepted value" in text):
             add(
@@ -963,6 +1019,7 @@ def _operator_events(pr: dict[str, Any], vectors: list[str], lifecycle: str) -> 
                 "maintainer_harvest",
                 OPERATOR_EVENT_WEIGHTS["maintainer_harvest"] + complexity_bonus,
                 "Maintainer harvested useful contributor value without treating the unsafe head as merge-ready.",
+                url=str(comment.get("html_url") or comment.get("url") or ""),
             )
         if lifecycle in {"closed_duplicate", "closed_drift"} and (
             "duplicate" in text or "superseded" in text or "drift" in text or "closed" in text
@@ -972,6 +1029,7 @@ def _operator_events(pr: dict[str, Any], vectors: list[str], lifecycle: str) -> 
                 "governance_closure",
                 OPERATOR_EVENT_WEIGHTS["governance_closure"] + complexity_bonus,
                 "Maintainer resolved duplicate, superseded, or drifted work to keep the product surface coherent.",
+                url=str(comment.get("html_url") or comment.get("url") or ""),
             )
         if "changes requested" in text or "## changes requested" in text:
             add(
@@ -979,6 +1037,7 @@ def _operator_events(pr: dict[str, Any], vectors: list[str], lifecycle: str) -> 
                 "changes_requested",
                 OPERATOR_EVENT_WEIGHTS["changes_requested"] + complexity_bonus,
                 "Maintainer requested bounded correction before merge.",
+                url=str(comment.get("html_url") or comment.get("url") or ""),
             )
         elif len(text) > 120:
             add(
@@ -986,6 +1045,7 @@ def _operator_events(pr: dict[str, Any], vectors: list[str], lifecycle: str) -> 
                 "review_comment",
                 OPERATOR_EVENT_WEIGHTS["review_comment"] + min(complexity_bonus, 4),
                 "Maintainer provided review or triage context on a resolved PR.",
+                url=str(comment.get("html_url") or comment.get("url") or ""),
             )
 
     for review in [*(pr.get("reviews") or []), *(pr.get("latestReviews") or [])]:
@@ -1000,6 +1060,7 @@ def _operator_events(pr: dict[str, Any], vectors: list[str], lifecycle: str) -> 
                 "changes_requested",
                 OPERATOR_EVENT_WEIGHTS["changes_requested"] + complexity_bonus,
                 "Maintainer used review authority to block unsafe or incomplete work.",
+                url=str(review.get("html_url") or review.get("url") or ""),
             )
         elif state == "APPROVED":
             add(
@@ -1007,6 +1068,7 @@ def _operator_events(pr: dict[str, Any], vectors: list[str], lifecycle: str) -> 
                 "review_comment",
                 OPERATOR_EVENT_WEIGHTS["review_comment"] + min(complexity_bonus, 4),
                 "Maintainer approved or reviewed a resolved PR.",
+                url=str(review.get("html_url") or review.get("url") or ""),
             )
         elif state == "COMMENTED" or text:
             add(
@@ -1014,6 +1076,7 @@ def _operator_events(pr: dict[str, Any], vectors: list[str], lifecycle: str) -> 
                 "review_comment",
                 OPERATOR_EVENT_WEIGHTS["review_comment"] + min(complexity_bonus, 4),
                 "Maintainer provided review or triage context on a resolved PR.",
+                url=str(review.get("html_url") or review.get("url") or ""),
             )
         if "### maintainer patch" in text or "approved with maintainer patch" in text:
             add(
@@ -1021,6 +1084,7 @@ def _operator_events(pr: dict[str, Any], vectors: list[str], lifecycle: str) -> 
                 "maintainer_patch",
                 OPERATOR_EVENT_WEIGHTS["maintainer_patch"] + complexity_bonus,
                 "Maintainer normalized or patched the PR into a canonical landing path.",
+                url=str(review.get("html_url") or review.get("url") or ""),
             )
 
     merged_by = _actor_login(pr.get("mergedBy"))
@@ -1264,16 +1328,29 @@ def _all_time_window(records: list[dict[str, Any]]) -> Window:
     return Window("all resolved PR history", since, date.today())
 
 
-def _github_insights(repo: str, overall_records: list[dict[str, Any]]) -> dict[str, Any]:
-    total_prs = _search_count(repo, "")
-    open_prs = _search_count(repo, "is:open")
-    closed_prs = _search_count(repo, "is:closed")
-    merged_prs = _search_count(repo, "is:merged")
-    first_pr = _first_pr_summary(repo)
+def _github_insights(
+    repo: str,
+    overall_records: list[dict[str, Any]],
+    *,
+    skip_audit: bool = False,
+    partial_reason: str | None = None,
+) -> dict[str, Any]:
+    total_prs = open_prs = closed_prs = merged_prs = 0
+    first_pr = None
+    if not skip_audit:
+        total_prs = _search_count(repo, "")
+        open_prs = _search_count(repo, "is:open")
+        closed_prs = _search_count(repo, "is:closed")
+        merged_prs = _search_count(repo, "is:merged")
+        first_pr = _first_pr_summary(repo)
     first_resolved = _first_resolved_record(overall_records)
     included = len(overall_records)
     expected_closed_unmerged = max(closed_prs - merged_prs, 0)
     coverage_status = "complete" if included == closed_prs else "needs review"
+    if partial_reason:
+        coverage_status = f"partial: {partial_reason}"
+    elif skip_audit:
+        coverage_status = "skipped"
     return {
         "total_prs": total_prs,
         "open_prs": open_prs,
@@ -1285,6 +1362,8 @@ def _github_insights(repo: str, overall_records: list[dict[str, Any]]) -> dict[s
         "first_pr": first_pr,
         "first_resolved_pr": first_resolved,
         "fetch_limit": PR_FETCH_LIMIT,
+        "audit_skipped": skip_audit,
+        "partial_reason": partial_reason,
     }
 
 
@@ -1871,7 +1950,11 @@ def _github_audit_lines(insights: dict[str, Any], overall_window: Window) -> lis
     closed = int(insights.get("closed_prs", 0))
     merged = int(insights.get("merged_prs", 0))
     status = "Complete against GitHub closed-PR count"
-    if closed > insights.get("fetch_limit", PR_FETCH_LIMIT):
+    if insights.get("partial_reason"):
+        status = f"Partial: {insights['partial_reason']}"
+    elif insights.get("audit_skipped"):
+        status = "Skipped by operator flag"
+    elif closed > insights.get("fetch_limit", PR_FETCH_LIMIT):
         status = "Partial: GitHub result count exceeds current fetch limit"
     elif included != closed:
         status = f"Needs review: included {included} of {closed} closed PRs"
@@ -1931,6 +2014,30 @@ def _harvest_attribution_lines(records: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
+def _maintainer_support_evidence_lines(records: list[dict[str, Any]], limit: int = 20) -> list[str]:
+    rows: list[tuple[int, int, dict[str, Any], dict[str, Any]]] = []
+    for item in records:
+        for event in item.get("operator_events") or []:
+            if not event.get("url"):
+                continue
+            rows.append((int(event.get("score") or 0), int(item["number"]), item, event))
+    if not rows:
+        return ["- No maintainer support records with direct URLs detected in this window."]
+
+    lines = [
+        "Direct maintainer support links make PR-train assistance auditable without treating comments as GitHub commit credit.",
+        "",
+        "| PR | Maintainer | Event | Score | Public Record |",
+        "| --- | --- | --- | ---: | --- |",
+    ]
+    for score, _number, item, event in sorted(rows, key=lambda row: (row[0], row[1]), reverse=True)[:limit]:
+        lines.append(
+            f"| {_link(item)} | `{_cell(event.get('actor', ''))}` | `{_cell(event.get('type', ''))}` | "
+            f"{score} | [record]({_cell(event.get('url', ''))}) |"
+        )
+    return lines
+
+
 def _corrections(records: list[dict[str, Any]], limit: int = 10) -> list[str]:
     corrections = [
         item
@@ -1966,6 +2073,7 @@ def _report_text(
         "",
         "Status: rolling operational record",
         f"Last refreshed: {refreshed}",
+        "- Refresh rule: refresh after merge, close, requested-changes, maintainer patch, harvest, or revert waves.",
         f"Repo: https://github.com/{repo}",
         f"Two-week window: {_window_display(window)}",
         f"Overall window: {_window_display(overall_window)}",
@@ -1976,6 +2084,7 @@ def _report_text(
         "- [How This Is Counted](#how-this-is-counted)",
         "- [GitHub Coverage Audit](#github-coverage-audit)",
         "- [Harvest Attribution](#harvest-attribution)",
+        "- [Maintainer Support Evidence](#maintainer-support-evidence)",
         "- [KPI Board](#kpi-board)",
         "- [Visual Insights](#visual-insights)",
         "- [Weekly And Two-Week Scoreboard](#weekly-and-two-week-scoreboard)",
@@ -2014,6 +2123,10 @@ def _report_text(
         "## Harvest Attribution",
         "",
         *_harvest_attribution_lines(records),
+        "",
+        "## Maintainer Support Evidence",
+        "",
+        *_maintainer_support_evidence_lines(records),
         "",
         "## KPI Board",
         "",
@@ -2159,15 +2272,26 @@ def _cached_records(repo: str, windows: list[Window]) -> dict[tuple[date, date],
 
 
 def main() -> int:
+    global DISCUSSION_FETCH_WORKERS, FETCH_DISCUSSIONS, PR_FETCH_LIMIT
+
     parser = argparse.ArgumentParser(description="Build the Hussh contributor impact dashboard.")
     parser.add_argument("--repo", default=DEFAULT_REPO)
     parser.add_argument("--days", type=int, default=None, help=f"Two-week rolling window in days. Default: {DEFAULT_PRIMARY_DAYS}.")
     parser.add_argument("--month", nargs="?", const="current", help="Use a calendar month window, optionally YYYY-MM.")
     parser.add_argument("--since", help="Explicit two-week/dashboard window start date, YYYY-MM-DD.")
     parser.add_argument("--until", help="Explicit two-week/dashboard window end date, YYYY-MM-DD. Defaults to today when --since is used.")
+    parser.add_argument("--fetch-limit", type=int, default=PR_FETCH_LIMIT, help="Maximum PRs to fetch per merged/closed query.")
+    parser.add_argument("--discussion-workers", type=int, default=DISCUSSION_FETCH_WORKERS, help="Concurrent REST workers for review/comment enrichment.")
+    parser.add_argument("--skip-discussions", action="store_true", help="Skip REST comment/review enrichment for fast dashboard refreshes.")
+    parser.add_argument("--skip-all-time", action="store_true", help="Skip expensive all-time PR history and use the two-week window for overall sections.")
+    parser.add_argument("--skip-github-audit", action="store_true", help="Skip GitHub repository-wide search/audit counts.")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON.")
     parser.add_argument("--text", action="store_true", help="Output markdown text. Default unless --json is set.")
     args = parser.parse_args()
+
+    PR_FETCH_LIMIT = max(1, int(args.fetch_limit))
+    DISCUSSION_FETCH_WORKERS = max(1, int(args.discussion_workers))
+    FETCH_DISCUSSIONS = not args.skip_discussions
 
     if sum(bool(value) for value in (args.days, args.month is not None, args.since)) > 1:
         parser.error("use only one of --days, --month, or --since/--until")
@@ -2178,13 +2302,24 @@ def main() -> int:
     today = date.today()
     weekly = Window("last 7 days", today - timedelta(days=7), today)
     two_week = Window("last 14 days", today - timedelta(days=14), today)
-    overall_records = _records_for_all_time(args.repo)
-    overall = _all_time_window(overall_records)
-    github_insights = _github_insights(args.repo, overall_records)
     cache = _cached_records(args.repo, [primary, weekly, two_week])
     records = cache[(primary.since, primary.until)]
     weekly_records = cache[(weekly.since, weekly.until)]
     two_week_records = cache[(two_week.since, two_week.until)]
+    partial_reason = None
+    if args.skip_all_time:
+        overall_records = two_week_records
+        overall = Window("last 14 days (all-time fetch skipped)", two_week.since, two_week.until)
+        partial_reason = "all-time history fetch skipped"
+    else:
+        overall_records = _records_for_all_time(args.repo)
+        overall = _all_time_window(overall_records)
+    github_insights = _github_insights(
+        args.repo,
+        overall_records,
+        skip_audit=args.skip_github_audit,
+        partial_reason=partial_reason,
+    )
 
     if args.json:
         print(json.dumps(_json_payload(args.repo, primary, records, weekly, weekly_records, two_week, two_week_records, overall, overall_records, github_insights), indent=2))

@@ -49,13 +49,37 @@ def parse_json_strict_v2(
     if not candidate:
         raise ImportStrictParseError("IMPORT_JSON_INVALID", "Empty model response.")
 
+    repair_actions: list[str] = []
+    repair_applied = False
     try:
         parsed = _to_object(json.loads(candidate))
     except json.JSONDecodeError as exc:
-        raise ImportStrictParseError(
-            "IMPORT_JSON_INVALID",
-            f"Model returned invalid JSON: {exc.msg}",
-        ) from exc
+        if exc.msg != "Extra data":
+            raise ImportStrictParseError(
+                "IMPORT_JSON_INVALID",
+                f"Model returned invalid JSON: {exc.msg}",
+            ) from exc
+
+        try:
+            parsed_value, parsed_end = json.JSONDecoder().raw_decode(candidate)
+            parsed = _to_object(parsed_value)
+        except json.JSONDecodeError as repair_exc:
+            raise ImportStrictParseError(
+                "IMPORT_JSON_INVALID",
+                f"Model returned invalid JSON: {repair_exc.msg}",
+            ) from repair_exc
+        except ImportStrictParseError as repair_exc:
+            raise repair_exc from exc
+
+        trailing = candidate[parsed_end:].strip()
+        if trailing:
+            repair_applied = True
+            repair_actions.extend(
+                [
+                    "accepted_first_json_object",
+                    "discarded_trailing_content",
+                ]
+            )
 
     if required_keys:
         missing = sorted(k for k in required_keys if k not in parsed)
@@ -72,11 +96,11 @@ def parse_json_strict_v2(
             )
 
     diagnostics = {
-        "mode": "strict_json_only",
+        "mode": "strict_json_with_extra_data_repair" if repair_applied else "strict_json_only",
         "raw_length": len(candidate),
-        "repair_attempted": False,
-        "repair_applied": False,
-        "repair_actions": [],
+        "repair_attempted": repair_applied,
+        "repair_applied": repair_applied,
+        "repair_actions": repair_actions,
     }
     return parsed, diagnostics
 
