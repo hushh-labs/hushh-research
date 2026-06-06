@@ -221,15 +221,15 @@ export function SectorAllocationChart({
   title = "Sector Allocation",
   subtitle,
 }: SectorAllocationChartProps) {
-  const [windowWidth, setWindowWidth] = useState<number>(
-    typeof window !== "undefined" ? window.innerWidth : 1024
-  );
+  const [windowWidth, setWindowWidth] = useState<number>(1024);
   const [sectorHoldingPages, setSectorHoldingPages] = useState<Record<string, number>>({});
   const [openSectors, setOpenSectors] = useState<Record<string, boolean>>({});
   const holdingsPageSize = windowWidth < 640 ? 4 : 8;
 
   useEffect(() => {
     if (!responsive) return;
+
+    setWindowWidth(window.innerWidth);
 
     const handleResize = () => {
       setWindowWidth(window.innerWidth);

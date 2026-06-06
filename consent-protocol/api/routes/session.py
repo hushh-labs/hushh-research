@@ -3,6 +3,7 @@
 Session token and user management endpoints.
 """
 
+import hmac
 import logging
 import os
 from typing import Any, Optional
@@ -239,7 +240,7 @@ async def lookup_user(
     required_token = str(os.getenv("HUSHH_DEVELOPER_TOKEN", "")).strip()
     if not required_token:
         raise HTTPException(status_code=503, detail="Lookup endpoint not configured")
-    if not x_mcp_developer_token or x_mcp_developer_token != required_token:
+    if not x_mcp_developer_token or not hmac.compare_digest(x_mcp_developer_token, required_token):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     try:
