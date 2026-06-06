@@ -711,6 +711,7 @@ export function VaultFlow({
                 <Input
                   id="passphrase"
                   type="password"
+                  autoComplete="new-password"
                   placeholder="Enter your passphrase"
                   value={passphrase}
                   onChange={(e) => setPassphrase(e.target.value)}
@@ -723,6 +724,7 @@ export function VaultFlow({
                 <Input
                   id="confirm"
                   type="password"
+                  autoComplete="new-password"
                   placeholder="Confirm your passphrase"
                   value={confirmPassphrase}
                   onChange={(e) => setConfirmPassphrase(e.target.value)}
@@ -794,6 +796,7 @@ export function VaultFlow({
                   <Input
                     id="unlock-passphrase"
                     type="password"
+                    autoComplete="current-password"
                     placeholder="Enter vault key"
                     value={passphrase}
                     onChange={(e) => setPassphrase(e.target.value)}

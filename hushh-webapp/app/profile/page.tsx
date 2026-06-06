@@ -4234,12 +4234,14 @@ function ProfilePageContent() {
           <div className="space-y-3 pt-2">
             <Input
               type="password"
+              autoComplete="new-password"
               placeholder="New passphrase (min 8 characters)"
               value={newPassphrase}
               onChange={(event) => setNewPassphrase(event.target.value)}
             />
             <Input
               type="password"
+              autoComplete="new-password"
               placeholder="Confirm passphrase"
               value={confirmPassphrase}
               onChange={(event) => setConfirmPassphrase(event.target.value)}
