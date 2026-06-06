@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 import Security
 
 /// Publishes the authenticated Hussh session for the iMessage extension.
@@ -19,6 +20,7 @@ final class HusshIMessageSessionStore {
     private let vaultOwnerTokenAccount = "hussh.vault-owner-token"
     private let vaultOwnerTokenExpiresAtAccount = "hussh.vault-owner-token-expires-at"
     private let vaultStateAccount = "hussh.vault-state"
+    private let vaultKeyAccount = "hussh.vault-key"
     private let accessTokenAccount = "hussh.access-token"
     private let expiresAtAccount = "hussh.access-token-expires-at"
     private let tokenKindAccount = "hussh.token-kind"
@@ -41,11 +43,20 @@ final class HusshIMessageSessionStore {
         try saveOptional(firebaseIDTokenExpiresAt.map(String.init), account: firebaseIDTokenExpiresAtAccount)
     }
 
-    func publishVault(userID: String, vaultOwnerToken: String, expiresAt: Int64, vaultState: String = "unlocked") throws {
+    func publishVault(
+        userID: String,
+        vaultOwnerToken: String,
+        expiresAt: Int64,
+        vaultState: String = "unlocked",
+        vaultKey: String? = nil
+    ) throws {
         try save(userID, account: userIDAccount)
         try save(vaultOwnerToken, account: vaultOwnerTokenAccount)
         try save(String(expiresAt), account: vaultOwnerTokenExpiresAtAccount)
         try save(vaultState, account: vaultStateAccount)
+        if let vaultKey, !vaultKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            try saveProtected(vaultKey, account: vaultKeyAccount)
+        }
         try clearLegacyGenericSession()
     }
 
@@ -59,6 +70,7 @@ final class HusshIMessageSessionStore {
         try delete(account: vaultOwnerTokenAccount)
         try delete(account: vaultOwnerTokenExpiresAtAccount)
         try delete(account: vaultStateAccount)
+        try delete(account: vaultKeyAccount)
         try clearLegacyGenericSession()
     }
 
@@ -91,9 +103,21 @@ final class HusshIMessageSessionStore {
         }
     }
 
-    func publishVaultSilently(userID: String, vaultOwnerToken: String, expiresAt: Int64, vaultState: String = "unlocked") {
+    func publishVaultSilently(
+        userID: String,
+        vaultOwnerToken: String,
+        expiresAt: Int64,
+        vaultState: String = "unlocked",
+        vaultKey: String? = nil
+    ) {
         do {
-            try publishVault(userID: userID, vaultOwnerToken: vaultOwnerToken, expiresAt: expiresAt, vaultState: vaultState)
+            try publishVault(
+                userID: userID,
+                vaultOwnerToken: vaultOwnerToken,
+                expiresAt: expiresAt,
+                vaultState: vaultState,
+                vaultKey: vaultKey
+            )
             print("✅ [HusshIMessageSessionStore] Published shared iMessage vault session")
         } catch {
             print("⚠️ [HusshIMessageSessionStore] Could not publish shared iMessage vault session: \(error)")
@@ -149,6 +173,37 @@ final class HusshIMessageSessionStore {
         }
     }
 
+    private func saveProtected(_ value: String, account: String) throws {
+        guard let data = value.data(using: .utf8) else {
+            throw SessionStoreError.invalidValue(account)
+        }
+
+        var attributes = query(account: account)
+        SecItemDelete(attributes as CFDictionary)
+
+        var accessControlError: Unmanaged<CFError>?
+        guard let accessControl = SecAccessControlCreateWithFlags(
+            nil,
+            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            [.userPresence],
+            &accessControlError
+        ) else {
+            throw SessionStoreError.accessControl(accessControlError?.takeRetainedValue())
+        }
+
+        attributes[kSecValueData as String] = data
+        attributes[kSecAttrAccessControl as String] = accessControl
+
+        let context = LAContext()
+        context.localizedReason = "Unlock Hussh One to share your approved private context in Messages."
+        attributes[kSecUseAuthenticationContext as String] = context
+
+        let status = SecItemAdd(attributes as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            throw SessionStoreError.keychainStatus(status)
+        }
+    }
+
     private func saveOptional(_ value: String?, account: String) throws {
         let cleaned = value?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let cleaned, !cleaned.isEmpty {
@@ -167,6 +222,7 @@ final class HusshIMessageSessionStore {
 
     private enum SessionStoreError: Error {
         case invalidValue(String)
+        case accessControl(CFError?)
         case keychainStatus(OSStatus)
     }
 }

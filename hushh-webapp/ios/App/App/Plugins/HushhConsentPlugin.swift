@@ -322,6 +322,7 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
         let displayName = call.getString("displayName")
         let email = call.getString("email")
         let avatarURL = call.getString("avatarURL") ?? call.getString("photoUrl")
+        let vaultKey = call.getString("vaultKey")
 
         do {
             if let firebaseIDToken, !firebaseIDToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -337,7 +338,8 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
             try HusshIMessageSessionStore.shared.publishVault(
                 userID: userId,
                 vaultOwnerToken: vaultOwnerToken,
-                expiresAt: expiresAt
+                expiresAt: expiresAt,
+                vaultKey: vaultKey
             )
             call.resolve(["published": true])
         } catch {

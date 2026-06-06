@@ -346,6 +346,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
           await HushhConsent.publishIMessageSession({
             userId: user.uid,
             vaultOwnerToken: token,
+            vaultKey: key,
             expiresAt,
             firebaseIDToken: firebaseIDToken ?? undefined,
             displayName: user.displayName,

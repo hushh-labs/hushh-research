@@ -182,6 +182,7 @@ export interface HushhConsentPlugin {
     userId: string;
     vaultOwnerToken?: string;
     accessToken?: string; // Legacy alias for vaultOwnerToken.
+    vaultKey?: string;
     expiresAt: number;
     firebaseIDToken?: string;
     idToken?: string; // Legacy alias for firebaseIDToken.

@@ -24,6 +24,8 @@ export type PkmSectionPreviewEntity = {
   fields: PkmSectionPreviewField[];
   sections?: PkmSectionPreviewEntitySection[];
   deletable?: boolean;
+  editable?: boolean;
+  editPayload?: Record<string, unknown>;
 };
 
 export type PkmSectionPreviewGroup =
@@ -507,6 +509,67 @@ function buildReceiptsPreview(
   };
 }
 
+function buildContextPreview(
+  title: string,
+  description: string | undefined,
+  record: Record<string, unknown>
+): PkmSectionPreviewPresentation {
+  const entries = Array.isArray(record.entries)
+    ? record.entries.filter(isPlainObject)
+    : [];
+  const entities = entries.map((entry, index) => {
+    const key =
+      typeof entry.id === "string" && entry.id.trim()
+        ? entry.id.trim()
+        : `context-${index + 1}`;
+    const category =
+      typeof entry.category === "string" && entry.category.trim()
+        ? humanizeKey(entry.category)
+        : "General";
+    const updatedAt =
+      typeof entry.updated_at === "string" && entry.updated_at.trim()
+        ? formatTimestamp(entry.updated_at) || entry.updated_at
+        : null;
+    const text =
+      typeof entry.text === "string" && entry.text.trim()
+        ? entry.text.trim()
+        : "Saved context";
+
+    return {
+      key,
+      title: category,
+      subtitle: updatedAt ? `Saved ${updatedAt}` : undefined,
+      fields: [{ label: "Context", value: text }],
+      deletable: true,
+      editable: true,
+      editPayload: {
+        category:
+          typeof entry.category === "string" && entry.category.trim()
+            ? entry.category.trim()
+            : "general",
+        text,
+      },
+    } satisfies PkmSectionPreviewEntity;
+  });
+
+  return {
+    title,
+    description,
+    summary: maybeSummary(record),
+    stats: [{ label: "Entries", value: String(entities.length) }],
+    groups:
+      entities.length > 0
+        ? [
+            {
+              kind: "entities",
+              title: "Saved context",
+              items: entities,
+            },
+          ]
+        : [],
+  };
+}
+
 function buildGenericPreview(
   title: string,
   description: string | undefined,
@@ -629,6 +692,9 @@ export function buildPkmSectionPreviewPresentation(params: {
   }
   if (previewKey === "shopping.receipts_memory") {
     return buildReceiptsPreview(title, description, value);
+  }
+  if (params.topLevelScopePath === "context" && Array.isArray(value.entries)) {
+    return buildContextPreview(title, description, value);
   }
 
   return buildGenericPreview(title, description, value);
