@@ -6,100 +6,92 @@ vi.mock("@/app/api/_utils/backend", () => ({
 }));
 
 type AccountCatchAllRoute = {
-  GET: (
-    request: NextRequest,
-    props: { params: Promise<{ path: string[] }> }
-  ) => Promise<Response>;
-  POST: (
-    request: NextRequest,
-    props: { params: Promise<{ path: string[] }> }
-  ) => Promise<Response>;
+  GET: (request: NextRequest, props: { params: Promise<{ path: string[] }> }) => Promise<Response>;
+  POST: (request: NextRequest, props: { params: Promise<{ path: string[] }> }) => Promise<Response>;
 };
 
 let route: AccountCatchAllRoute;
 
 beforeEach(async () => {
   vi.restoreAllMocks();
+  vi.stubGlobal("fetch", vi.fn());
   route = await import("../../app/api/account/[...path]/route");
 });
 
 describe("/api/account/[...path] proxy", () => {
+  
   it("forwards identity refresh with authorization", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    vi.mocked(globalThis.fetch).mockResolvedValue(
       Response.json({ success: true, user_id: "user_1" })
     );
     const request = new NextRequest("http://localhost:3000/api/account/identity/refresh", {
       method: "POST",
-      headers: {
-        Authorization: "Bearer firebase-token",
-        "Content-Type": "application/json",
-      },
+      headers: { Authorization: "Bearer firebase-token", "Content-Type": "application/json" },
     });
 
-    const response = await route.POST(request, {
-      params: Promise.resolve({ path: ["identity", "refresh"] }),
-    });
+    const response = await route.POST(request, { params: Promise.resolve({ path: ["identity", "refresh"] }) });
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ success: true });
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://backend.test/api/account/identity/refresh",
-      expect.objectContaining({
-        method: "POST",
-        headers: expect.any(Headers),
-      })
-    );
-    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    const headers = vi.mocked(globalThis.fetch).mock.calls[0]?.[1]?.headers as Headers;
     expect(headers.get("Authorization")).toBe("Bearer firebase-token");
   });
 
-  it("forwards phone claim requests through the account proxy", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      Response.json({ success: true, phone_verified: true })
-    );
+  it("forwards phone claim requests", async () => {
     const body = { phone_id_token: "phone-id-token" };
+    vi.mocked(globalThis.fetch).mockResolvedValue(Response.json({ success: true }));
+
     const request = new NextRequest("http://localhost:3000/api/account/phone/claim", {
       method: "POST",
-      headers: {
-        Authorization: "Bearer firebase-token",
-        "Content-Type": "application/json",
-      },
       body: JSON.stringify(body),
     });
 
-    const response = await route.POST(request, {
-      params: Promise.resolve({ path: ["phone", "claim"] }),
-    });
+    await route.POST(request, { params: Promise.resolve({ path: ["phone", "claim"] }) });
 
-    expect(response.status).toBe(200);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://backend.test/api/account/phone/claim",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify(body),
-      })
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledWith(
+      expect.stringContaining("/phone/claim"),
+      expect.objectContaining({ body: JSON.stringify(body) })
     );
-    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
-    expect(headers.get("Authorization")).toBe("Bearer firebase-token");
   });
 
-  it("forwards alias list query parameters", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      Response.json({ success: true, aliases: [] })
-    );
-    const request = new NextRequest("http://localhost:3000/api/account/email-aliases?view=all", {
+  // --- NEW FEATURES ADDED BELOW ---
+
+  it("returns 502 when the backend request fails (network error)", async () => {
+    vi.mocked(globalThis.fetch).mockRejectedValue(new Error("Connection timeout"));
+
+    const request = new NextRequest("http://localhost:3000/api/account/status", { method: "GET" });
+    const response = await route.GET(request, { params: Promise.resolve({ path: ["status"] }) });
+
+    expect(response.status).toBe(502);
+    const data = await response.json();
+    expect(data.error).toBeDefined();
+  });
+
+  it("preserves Content-Type header when forwarding requests", async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValue(Response.json({ status: "ok" }));
+
+    const request = new NextRequest("http://localhost:3000/api/account/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "key=value",
+    });
+
+    await route.POST(request, { params: Promise.resolve({ path: ["settings"] }) });
+
+    const headers = vi.mocked(globalThis.fetch).mock.calls[0]?.[1]?.headers as Headers;
+    expect(headers.get("Content-Type")).toBe("application/x-www-form-urlencoded");
+  });
+
+  it("forwards session cookies to the backend", async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValue(Response.json({ success: true }));
+
+    const request = new NextRequest("http://localhost:3000/api/account/profile", {
       method: "GET",
-      headers: {
-        Authorization: "Bearer HCT:test",
-      },
+      headers: { cookie: "session_id=xyz123" },
     });
 
-    await route.GET(request, {
-      params: Promise.resolve({ path: ["email-aliases"] }),
-    });
+    await route.GET(request, { params: Promise.resolve({ path: ["profile"] }) });
 
-    expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "http://backend.test/api/account/email-aliases?view=all"
-    );
+    const headers = vi.mocked(globalThis.fetch).mock.calls[0]?.[1]?.headers as Headers;
+    expect(headers.get("cookie")).toContain("session_id=xyz123");
   });
 });

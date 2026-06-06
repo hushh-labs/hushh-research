@@ -30,6 +30,7 @@ export async function GET(
   const backendUrl = getPythonApiUrl();
   const sseUrl = `${backendUrl}/api/consent/events/${userId}`;
   const authorization = request.headers.get("authorization");
+  const accept = request.headers.get("accept");
 
   try {
     const backendResponse = await fetch(sseUrl, {
@@ -38,6 +39,7 @@ export async function GET(
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
         ...(authorization ? { Authorization: authorization } : {}),
+        ...(accept ? { Accept: accept } : {}),
       },
     });
 
@@ -72,6 +74,7 @@ export async function GET(
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
         "Content-Type": "text/event-stream",
+        "Content-Encoding": "none",
         "X-Accel-Buffering": "no",
       },
     });

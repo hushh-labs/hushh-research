@@ -46,7 +46,9 @@ describe("GET /api/consent/events/[userId]", () => {
       })
     );
 
-    const req = createMockGET("/api/consent/events/user_123", {});
+    const req = createMockGET("/api/consent/events/user_123", {}, {
+      Accept: "text/event-stream",
+    });
     const res = await eventsRoute.GET(req, {
       params: Promise.resolve({ userId: "user_123" }),
     });
@@ -64,6 +66,7 @@ describe("GET /api/consent/events/[userId]", () => {
         headers: expect.objectContaining({
           "Cache-Control": "no-cache",
           Connection: "keep-alive",
+          Accept: "text/event-stream",
         }),
       })
     );
