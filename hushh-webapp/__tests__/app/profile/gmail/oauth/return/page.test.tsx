@@ -91,12 +91,13 @@ describe("ProfileGmailOAuthReturnPage", () => {
     mocks.gmailReceiptsService.completeConnect.mockRejectedValue(
       new Error("OAuth state expired")
     );
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "code-123";
+      if (key === "state") return "state-123";
+      return null;
+    });
 
-    render(
-      await ProfileGmailOAuthReturnPage({
-        searchParams: Promise.resolve({ code: "code-123", state: "state-123" }),
-      })
-    );
+    render(<ProfileGmailOAuthReturnPage />);
 
     await waitFor(() => {
       expect(mocks.gmailReceiptsService.getStatus).toHaveBeenCalledWith({
@@ -119,11 +120,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
       return null;
     });
 
-    render(
-      await ProfileGmailOAuthReturnPage({
-        searchParams: Promise.resolve({}),
-      })
-    );
+    render(<ProfileGmailOAuthReturnPage />);
 
     await waitFor(() => {
       expect(mocks.gmailReceiptsService.completeConnect).toHaveBeenCalledWith({

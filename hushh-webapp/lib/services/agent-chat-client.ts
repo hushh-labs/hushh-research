@@ -63,6 +63,22 @@ function readRecord(record: Record<string, unknown>, key: string): Record<string
   return asRecord(record[key]) || {};
 }
 
+function formatAgentChatErrorMessage(message: string, code?: string): string {
+  if (code === "AGENT_RUNTIME_CREDENTIAL_MISSING") {
+    return "Kai needs your Gemini key. Add it in Profile > Runtime keys, or switch Kai to Hushh managed Gemini.";
+  }
+  if (code === "AGENT_RUNTIME_CREDENTIAL_INVALID") {
+    return "Your saved Gemini key could not be used. Update it in Profile > Runtime keys, or switch Kai to Hushh managed Gemini.";
+  }
+  if (code === "AGENT_RUNTIME_MANAGED_CREDENTIALS_UNAVAILABLE") {
+    return "Hushh managed Gemini is not available in this environment.";
+  }
+  if (code === "AGENT_RUNTIME_MODEL_UNAVAILABLE") {
+    return "Kai's configured Gemini model is not available for this runtime.";
+  }
+  return message || "Agent chat failed. Please try again.";
+}
+
 function normalizeToolEvent(payload: Record<string, unknown>): AgentChatToolEvent {
   return {
     callId: readString(payload, "call_id"),
@@ -80,8 +96,16 @@ function normalizeToolEvent(payload: Record<string, unknown>): AgentChatToolEven
 async function readError(response: Response): Promise<string> {
   const payload = (await response.json().catch(() => null)) as unknown;
   const record = asRecord(payload);
-  const detail = record ? readString(record, "detail") || readString(record, "message") : "";
-  return detail || `Agent chat request failed (${response.status})`;
+  const detailRecord = record ? asRecord(record.detail) : null;
+  const code = detailRecord ? readString(detailRecord, "code") : record ? readString(record, "code") : "";
+  const detail = detailRecord
+    ? readString(detailRecord, "message")
+    : record
+      ? readString(record, "detail") || readString(record, "message")
+      : "";
+  return detail
+    ? formatAgentChatErrorMessage(detail, code || undefined)
+    : `Agent chat request failed (${response.status})`;
 }
 
 export async function streamAgentChat(input: {
@@ -90,6 +114,8 @@ export async function streamAgentChat(input: {
   conversationId?: string | null;
   vaultOwnerToken: string;
   pkmContext?: string;
+  runtimeCredential?: string | null;
+  runtimeCredentialMode?: string | null;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
 }): Promise<{ conversationId: string | null; model: string | null; text: string }> {
@@ -99,6 +125,8 @@ export async function streamAgentChat(input: {
     conversationId: input.conversationId || undefined,
     vaultOwnerToken: input.vaultOwnerToken,
     pkmContext: input.pkmContext,
+    runtimeCredential: input.runtimeCredential,
+    runtimeCredentialMode: input.runtimeCredentialMode,
     signal: input.signal,
   });
 
@@ -158,7 +186,10 @@ export async function streamAgentChat(input: {
       return;
     }
     if (event === "error") {
-      streamError = readString(payload, "message") || "Agent chat failed.";
+      streamError = formatAgentChatErrorMessage(
+        readString(payload, "message"),
+        readString(payload, "code") || undefined
+      );
       input.handlers?.onError?.(streamError);
     }
   };
