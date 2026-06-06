@@ -28,6 +28,8 @@ npm run lint
 npm run test:ci
 
 NEXT_PUBLIC_BACKEND_URL="${NEXT_PUBLIC_BACKEND_URL:-https://api.example.com}" \
+BACKEND_URL="${BACKEND_URL:-https://api.example.com}" \
+PYTHON_API_URL="${PYTHON_API_URL:-https://api.example.com}" \
 NEXT_PUBLIC_DEVELOPER_API_URL="${NEXT_PUBLIC_DEVELOPER_API_URL:-https://api.example.com}" \
 NEXT_PUBLIC_APP_ENV="${NEXT_PUBLIC_APP_ENV:-development}" \
 NEXT_PUBLIC_FIREBASE_API_KEY="${NEXT_PUBLIC_FIREBASE_API_KEY:-test-api-key}" \
