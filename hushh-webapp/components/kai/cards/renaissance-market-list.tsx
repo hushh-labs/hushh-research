@@ -397,6 +397,10 @@ export function RiaPicksList({
                     <div className="relative">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
+                        type="search"
+                        spellCheck={false}
+                        autoCorrect="off"
+                        autoCapitalize="off"
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
                         placeholder="Search symbol, company, sector, or thesis"
@@ -540,6 +544,10 @@ export function RiaPicksList({
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
+                      type="search"
+                      spellCheck={false}
+                      autoCorrect="off"
+                      autoCapitalize="off"
                       value={query}
                       onChange={(event) => setQuery(event.target.value)}
                       placeholder="Search symbol, company, sector, or thesis"
