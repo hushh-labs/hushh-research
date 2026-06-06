@@ -1318,6 +1318,7 @@ export function OneLocationAgentPageContent() {
                     onChange={(event) => setRequestMessage(event.target.value)}
                     placeholder="Optional reason"
                     rows={3}
+                    autoCapitalize="sentences"
                   />
                   <ActionButton
                     busy={busy}

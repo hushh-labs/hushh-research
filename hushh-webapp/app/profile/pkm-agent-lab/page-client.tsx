@@ -1269,6 +1269,7 @@ export default function PkmAgentLabPageClient() {
                       onChange={(event) => setMessage(event.target.value)}
                       rows={5}
                       placeholder="Tell Kai one new memory, preference, or intent."
+                      autoCapitalize="sentences"
                     />
                     <div className="flex flex-wrap gap-2">
                       <Button
