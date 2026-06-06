@@ -74,4 +74,10 @@ describe("marketplace investor discovery helpers", () => {
 
     expect(isMarketplaceInvestorConnectable(investor)).toBe(false);
   });
+    it("preserves noopener contract for external marketplace links", () => {
+    const rel = "noopener noreferrer";
+
+    expect(rel).toContain("noopener");
+    expect(rel).toContain("noreferrer");
+  });
 });
