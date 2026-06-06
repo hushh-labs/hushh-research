@@ -186,6 +186,7 @@ export default function PublicLocationRequestPageClient() {
                 placeholder="Optional message"
                 rows={4}
                 maxLength={500}
+                autoCapitalize="sentences"
               />
               <Button onClick={() => void handleSubmit()} disabled={submitting}>
                 {submitting ? (

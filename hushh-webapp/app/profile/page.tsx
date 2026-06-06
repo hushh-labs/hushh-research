@@ -3505,12 +3505,14 @@ function ProfilePageContent() {
           value={supportSubject}
           onChange={(event) => setSupportSubject(event.target.value)}
           placeholder="Subject"
+          autoCapitalize="sentences"
         />
         <Textarea
           value={supportMessage}
           onChange={(event) => setSupportMessage(event.target.value)}
           placeholder="Tell us what happened and what you expected."
           className="min-h-[180px]"
+          autoCapitalize="sentences"
         />
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button
