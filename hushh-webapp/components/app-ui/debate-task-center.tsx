@@ -423,7 +423,6 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
           renderTrigger({ activeCount, badgeCount })
         ) : (
           <button
-            type="button"
             className={cn(DEFAULT_TRIGGER_CLASSNAME, triggerClassName)}
             aria-label="Notifications"
           >

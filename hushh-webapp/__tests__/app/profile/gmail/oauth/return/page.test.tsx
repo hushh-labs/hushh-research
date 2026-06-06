@@ -132,4 +132,18 @@ describe("ProfileGmailOAuthReturnPage", () => {
       });
     });
   });
+     it("preserves Gmail OAuth return status announcement", async () => {
+    render(
+      await ProfileGmailOAuthReturnPage({
+        searchParams: Promise.resolve({ code: "code-123", state: "state-123" }),
+      })
+    );
+
+    expect(
+  screen.getByRole("heading", {
+    name: /gmail connection needs attention/i,
+  }),
+).toBeTruthy();
+  });
+  
 });
