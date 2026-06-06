@@ -40,6 +40,11 @@ Block direct buy/sell instructions, return promises, or personalized trading-act
 
 A changed component must be reachable from a current route, shell, service caller, or live component before it can be described as a user-visible improvement. Browser route tests that claim continuity must use sequential UI navigation and same-session probes, not only direct `page.goto(...)`.
 
+Frontend test-only PRs must import and exercise production code. A test that
+defines its own mock component/helper inside the test file is not proof of the
+app contract and must be requested-changes unless it is explicitly scoped as
+test utility/devex hygiene with a canonical attach point.
+
 ### Use-Case Reachability
 
 Do not merge standalone logic just because it is readable or green. A PR must either improve a reachable app/backend/package path, strengthen a canonical proof surface for that path, or clearly scope itself as test/devex hygiene. If the claimed use case is not present in the app/backend/runtime, request changes or close instead of trying to invent a connection.

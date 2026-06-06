@@ -176,7 +176,7 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
     <main
       ref={mountRef}
       className={cn(
-        "min-h-[100dvh] w-full bg-transparent flex flex-col"
+        "min-h-[100dvh] w-full bg-transparent flex flex-col overflow-x-hidden"
       )}
     >
       <div className="w-full min-h-[100dvh] px-4 pt-[calc(16px+var(--app-safe-area-top-effective,0px))] pb-[var(--app-screen-footer-pad)]">
@@ -223,6 +223,7 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
                 {slides.map((slide, idx) => (
                   <CarouselItem
                     key={idx}
+                    aria-current={idx === selectedIndex ? "step" : undefined}
                     className="basis-full pl-0 flex items-center justify-center"
                   >
                     <div className="flex w-full min-h-[clamp(24rem,50vh,31rem)] items-center justify-center px-4 sm:px-6 md:px-8 py-3">
