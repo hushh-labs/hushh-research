@@ -18,6 +18,34 @@ or additions/deletions. A replay commit may become the latest blame for replayed
 lines, but it must be documented as a transparent non-rewrite replay, not as
 retroactive mutation of the original merge.
 
+## 2026-06-06: Damria One Location Stack Harvest
+
+Maintainer landing commit:
+`047b16289e89efee9c77bc0ba08df0f27c35dd18`
+
+Landing status:
+
+- The commit is merged to `integration/pr-train` via merge commit `4d82df446b244364371d83facf955d9596a22139`.
+- Native GitHub contributor credit remains pending until this co-authored landing commit reaches `main`.
+- Source PRs are closed as superseded.
+
+Attribution status:
+
+- The landing commit contains valid co-author trailers for `DamriaNeelesh`.
+- Internal impact credit remains attached to the source PRs.
+
+| Source PR | Contributor | Accepted Value |
+| --- | --- | --- |
+| [PR #1769](https://github.com/hushh-labs/hushh-research/pull/1769) | `DamriaNeelesh` | Revamp one location sharing UI. |
+| [PR #1770](https://github.com/hushh-labs/hushh-research/pull/1770) | `DamriaNeelesh` | Add KAI Circle recommendation metadata. |
+| [PR #1771](https://github.com/hushh-labs/hushh-research/pull/1771) | `DamriaNeelesh` | Add multi-recipient one location sharing. |
+| [PR #1772](https://github.com/hushh-labs/hushh-research/pull/1772) | `DamriaNeelesh` | Add One Location section states and analytics. |
+| [PR #1834](https://github.com/hushh-labs/hushh-research/pull/1834) | `DamriaNeelesh` | Add One Location contact sync invites. |
+| [PR #1841](https://github.com/hushh-labs/hushh-research/pull/1841) | `DamriaNeelesh` | Add One Location activity dashboard. |
+| [PR #1887](https://github.com/hushh-labs/hushh-research/pull/1887) | `DamriaNeelesh` | Add One Location stale retry telemetry. |
+| [PR #1891](https://github.com/hushh-labs/hushh-research/pull/1891) | `DamriaNeelesh` | Add KAI Circle ranking for One Location recipients. |
+| [PR #2098](https://github.com/hushh-labs/hushh-research/pull/2098) | `DamriaNeelesh` | Add Google Maps live location preview. |
+
 ## 2026-05-30: Author-Scoped PR Governance Harvest
 
 Maintainer landing commit:
