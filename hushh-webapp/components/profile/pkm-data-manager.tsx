@@ -231,7 +231,7 @@ export function PkmDataManagerPanel({
           </SurfaceCardDescription>
         </SurfaceCardHeader>
         <SurfaceCardContent>
-          <Button onClick={onOpenImport}>Create vault</Button>
+          <Button type="button" onClick={onOpenImport}>Create vault</Button>
         </SurfaceCardContent>
       </SurfaceCard>
     );
@@ -274,8 +274,8 @@ export function PkmDataManagerPanel({
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          {!needsUnlock ? <Button onClick={onOpenSharing}>Manage sharing</Button> : null}
-          <Button variant="none" effect="fade" onClick={onRefresh}>
+          {!needsUnlock ? <Button type="button" onClick={onOpenSharing}>Manage sharing</Button> : null}
+          <Button type="button" variant="none" effect="fade" onClick={onRefresh}>
             <RefreshCw className="mr-2 h-4 w-4" />
             Refresh
           </Button>
@@ -562,6 +562,7 @@ export function PkmDomainDetailPanel({
                     </div>
                     <div className="flex shrink-0 items-center gap-2 pt-0.5">
                       <Button
+                        type="button"
                         variant="none"
                         effect="fade"
                         size="sm"
@@ -794,7 +795,7 @@ export function PkmAccessConnectionDetailPanel({
               <p className="text-xs leading-5 text-muted-foreground">{grant.readableAccessLabel}</p>
               <p className="text-[11px] text-muted-foreground">Expires {formatTimestamp(grant.expiresAt)}</p>
             </div>
-            <Button variant="none" effect="fade" size="sm" onClick={() => void onRevokeAccess(grant.scope)}>
+            <Button type="button" variant="none" effect="fade" size="sm" onClick={() => void onRevokeAccess(grant.scope)}>
               Revoke
             </Button>
           </div>

@@ -57,15 +57,12 @@ export default function LogoutPage() {
       ];
 
       try {
-        console.log("🔐 Logging out and clearing all vault data...");
-
         // CRITICAL: Clear ALL vault-related data from localStorage
         clearLocalStorageKeys(storageKeysToClear);
 
         // Clear session cookie via API (httpOnly cookie)
         try {
           await ApiService.deleteSession();
-          console.log("🍪 Session cookie cleared");
         } catch (e) {
           console.warn("⚠️ Failed to clear session cookie:", e);
         }
@@ -87,7 +84,6 @@ export default function LogoutPage() {
         // Step 1: Logout complete
         completeStep();
 
-        console.log("✅ Logged out successfully");
         router.push(ROUTES.HOME);
       } catch (error) {
         console.error("Logout failed:", error);

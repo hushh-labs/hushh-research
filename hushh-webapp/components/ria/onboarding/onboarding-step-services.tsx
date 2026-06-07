@@ -32,7 +32,17 @@ function Divider() {
   return <div className="ml-4 h-px bg-border/50 sm:ml-5" />;
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function SectionLabel({ children, htmlFor }: { children: React.ReactNode; htmlFor?: string }) {
+  if (htmlFor) {
+    return (
+      <label
+        htmlFor={htmlFor}
+        className="block text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground"
+      >
+        {children}
+      </label>
+    );
+  }
   return (
     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
       {children}
@@ -47,6 +57,7 @@ function TextRow({
   placeholder,
   inputMode,
   prefix,
+  autoComplete,
 }: {
   label: string;
   value: string;
@@ -54,6 +65,7 @@ function TextRow({
   placeholder?: string;
   inputMode?: "numeric" | "text";
   prefix?: string;
+  autoComplete?: string;
 }) {
   return (
     <label className="flex min-h-[54px] items-center gap-4 px-4 py-2 sm:px-5">
@@ -65,6 +77,7 @@ function TextRow({
         <input
           type="text"
           inputMode={inputMode}
+          autoComplete={autoComplete}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
@@ -208,8 +221,9 @@ export function OnboardingStepServices({
       </GroupShell>
 
       <div className="space-y-3">
-        <SectionLabel>Short Bio</SectionLabel>
+        <SectionLabel htmlFor="ria-bio">Short Bio</SectionLabel>
         <textarea
+          id="ria-bio"
           rows={4}
           value={bio}
           onChange={(event) => onBioChange(event.target.value)}
@@ -233,6 +247,7 @@ export function OnboardingStepServices({
             value={fullStreetAddress}
             onChange={onFullStreetAddressChange}
             placeholder="Building, floor, street"
+            autoComplete="street-address"
           />
           <Divider />
           <TextRow
@@ -240,6 +255,7 @@ export function OnboardingStepServices({
             value={areaLocality}
             onChange={onAreaLocalityChange}
             placeholder="Area or state"
+            autoComplete="address-level1"
           />
           <Divider />
           <TextRow
@@ -247,6 +263,7 @@ export function OnboardingStepServices({
             value={city}
             onChange={onCityChange}
             placeholder="City"
+            autoComplete="address-level2"
           />
           <Divider />
           <TextRow
@@ -255,6 +272,7 @@ export function OnboardingStepServices({
             onChange={onPinZipChange}
             placeholder="PIN / ZIP"
             inputMode="numeric"
+            autoComplete="postal-code"
           />
         </GroupShell>
 

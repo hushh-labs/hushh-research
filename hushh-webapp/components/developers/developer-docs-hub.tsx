@@ -740,6 +740,7 @@ function AccessWorkspace({
                     <InputGroup>
                       <InputGroupInput
                         id="developer-website-url"
+                        type="url"
                         value={profileDraft.website_url}
                         onChange={(event) => onProfileDraftChange("website_url", event.target.value)}
                         placeholder="https://example.com"
@@ -754,6 +755,7 @@ function AccessWorkspace({
                     <InputGroup>
                       <InputGroupInput
                         id="developer-brand-image-url"
+                        type="url"
                         value={profileDraft.brand_image_url}
                         onChange={(event) =>
                           onProfileDraftChange("brand_image_url", event.target.value)
@@ -768,6 +770,7 @@ function AccessWorkspace({
                     <InputGroup>
                       <InputGroupInput
                         id="developer-support-url"
+                        type="url"
                         value={profileDraft.support_url}
                         onChange={(event) => onProfileDraftChange("support_url", event.target.value)}
                         placeholder="https://example.com/support"
@@ -782,6 +785,7 @@ function AccessWorkspace({
                     <InputGroup>
                       <InputGroupInput
                         id="developer-policy-url"
+                        type="url"
                         value={profileDraft.policy_url}
                         onChange={(event) => onProfileDraftChange("policy_url", event.target.value)}
                         placeholder="https://example.com/privacy"
@@ -1525,7 +1529,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                   <SurfaceCardContent className="space-y-4">
                     <div className="flex flex-wrap gap-2">
                       <MorphyButton asChild variant="none" effect="glass" size="sm">
-                        <Link href={MCP_PUBLIC_LINKS.npmPackageUrl} target="_blank" rel="noreferrer">
+                        <Link href={MCP_PUBLIC_LINKS.npmPackageUrl} target="_blank" rel="noopener noreferrer">
                           npm package
                         </Link>
                       </MorphyButton>
@@ -1533,7 +1537,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                         <Link
                           href={MCP_PUBLIC_LINKS.apiReferenceUrl}
                           target="_blank"
-                          rel="noreferrer"
+                          rel="noopener noreferrer"
                         >
                           API reference
                         </Link>
@@ -1542,7 +1546,7 @@ export function DeveloperDocsHub({ initialOrigin = null }: { initialOrigin?: str
                         <Link
                           href={MCP_PUBLIC_LINKS.technicalCompanionUrl}
                           target="_blank"
-                          rel="noreferrer"
+                          rel="noopener noreferrer"
                         >
                           Technical companion
                         </Link>

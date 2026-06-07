@@ -767,6 +767,31 @@ export const HushhLocation = registerPlugin<HushhLocationPlugin>("HushhLocation"
   web: () => import("./plugins/location-web").then((m) => new m.HushhLocationWeb()),
 });
 
+// ==================== HushhContactsPlugin ====================
+// Contact-book permission and read-only contact lookup for Connect matching.
+
+export type HushhContactsPermissionState = {
+  state: "granted" | "denied" | "prompt" | "restricted" | "unavailable";
+};
+
+export type HushhContactRecord = {
+  id?: string | null;
+  displayName?: string | null;
+  phoneNumbers: string[];
+};
+
+export interface HushhContactsPlugin {
+  getPermissionState(): Promise<HushhContactsPermissionState>;
+  readContacts(options?: { limit?: number }): Promise<{
+    contacts: HushhContactRecord[];
+    sourcePlatform: "web" | "ios" | "android" | "native";
+  }>;
+}
+
+export const HushhContacts = registerPlugin<HushhContactsPlugin>("HushhContacts", {
+  web: () => import("./plugins/contacts-web").then((m) => new m.HushhContactsWeb()),
+});
+
 // ==================== HushhPersonalKnowledgeModelPlugin ====================
 // PKM operations for dynamic domain/attribute management
 
