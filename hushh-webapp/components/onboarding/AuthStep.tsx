@@ -407,8 +407,8 @@ export function AuthStep({
           description: "Please try again.",
         });
       }
-    } catch (err: any) {
-      debugError("[AuthStep] Google login failed", err);
+    } catch (err: unknown) {
+  debugError("[AuthStep] Google login failed", err);
       trackEvent("auth_failed", {
         action: "google",
         result: "error",
