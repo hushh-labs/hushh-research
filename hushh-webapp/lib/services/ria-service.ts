@@ -119,6 +119,15 @@ export interface MarketplaceInvestorDeckResponse {
   deck_complete: boolean;
 }
 
+export interface MarketplaceContactMatch {
+  user_id: string;
+  kind: "ria" | "investor";
+  display_name: string;
+  headline?: string | null;
+  phone_last4?: string | null;
+  profile: MarketplaceRia | MarketplaceInvestor;
+}
+
 export interface RiaOnboardingStatus {
   exists: boolean;
   ria_profile_id?: string;
@@ -1320,6 +1329,22 @@ export class RiaService {
       body: payload,
     });
     return toJsonOrThrow<MarketplaceInvestorActionRecord>(response);
+  }
+
+  static async matchMarketplaceContacts(
+    idToken: string,
+    payload: {
+      phone_lookups: Array<{ hash: string; last4: string }>;
+      limit?: number;
+    },
+  ): Promise<MarketplaceContactMatch[]> {
+    const response = await authFetch("/api/marketplace/contacts/match", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    const parsed = await toJsonOrThrow<{ items: MarketplaceContactMatch[] }>(response);
+    return parsed.items || [];
   }
 
   static async getRiaPublicProfile(riaId: string): Promise<MarketplaceRia> {

@@ -27,6 +27,7 @@ import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { KaiHistoryService, type AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
+import { showDebateAlreadyRunningToast } from "@/lib/kai/debate-run-notifications";
 import { trackEvent } from "@/lib/observability/client";
 import { trackInvestorActivationCompleted } from "@/lib/observability/growth";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
@@ -778,7 +779,7 @@ function KaiAnalysisPageContent() {
     const currentPreviewTicker = previewTickerRaw;
     if (!currentPreviewTicker || !userId || showWorkspace || !vaultOwnerToken) return;
     if (activeRunTask?.runId) {
-      toast.info("A debate is already running.", {
+      showDebateAlreadyRunningToast(toast, {
         description: "Open the active debate before starting a new one.",
       });
       router.replace(`${ROUTES.KAI_ANALYSIS}?focus=active`);

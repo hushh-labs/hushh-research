@@ -36,6 +36,8 @@ flowchart TD
   root --> n14
   n15["Hussh Code Persona"]
   root --> n15
+  n16["MuleSoft Managed Omni Gateway Private Space"]
+  root --> n16
 ```
 
 Use this as the entrypoint for CI, docs governance, delivery, and environment operations.

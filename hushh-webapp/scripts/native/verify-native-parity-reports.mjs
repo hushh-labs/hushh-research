@@ -111,6 +111,9 @@ function validateReport({ platform, reportPath, requiredRoutes }) {
     if ((observed.found || "") !== "1") {
       fail(failures, platform, `${route.route} has ok=true but found=${observed.found || ""}`);
     }
+    if (result.visible404 === true || (observed.visible404 || "") === "1") {
+      fail(failures, platform, `${route.route} has ok=true but visible 404/not-found copy was detected`);
+    }
     if ((observed.marker || "") !== route.expectedMarker) {
       fail(
         failures,
