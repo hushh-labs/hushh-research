@@ -52,6 +52,34 @@ describe("ImportProgressView", () => {
     expect(screen.queryByText("Qty: 30")).toBeNull();
     expect(screen.queryByText("$300")).toBeNull();
   });
+
+  it("hides implausible interim quantity and value values", () => {
+    render(
+      <ImportProgressView
+        stage="extracting"
+        isStreaming
+        progressPct={55}
+        statusMessage="Confirming live holdings"
+        liveHoldings={[
+          {
+            symbol: "AAPL",
+            name: "Apple Inc.",
+            quantity: 9_999_999_999_999,
+            market_value: 900_000_000_000_000,
+          },
+        ]}
+        holdingsExtracted={1}
+      />
+    );
+
+    expect(screen.getByText("AAPL")).toBeTruthy();
+    expect(screen.getByText("Qty: —")).toBeTruthy();
+    expect(
+      screen.getByText((_, node) => node?.textContent?.replace(/\s+/g, " ").trim() === "Value: —")
+    ).toBeTruthy();
+    expect(screen.queryByText(/9,999,999,999,999/)).toBeNull();
+    expect(screen.queryByText(/\$900,000,000,000,000/)).toBeNull();
+  });
 });
 
 describe("replaceLiveHoldingPreviewRows", () => {

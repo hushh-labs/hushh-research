@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -9,6 +10,13 @@ from fastapi.testclient import TestClient
 
 from api.routes.one import location as one_location
 from tests.services.test_one_location_agent_service import FourUserMemoryService, encrypted_envelope
+
+
+class DatabaseExecutionError(Exception):
+    code = "DATABASE_UNAVAILABLE"
+    details = "Database temporarily unavailable."
+    hint = "Retry later."
+    status_code = 503
 
 
 def _client(
@@ -110,6 +118,15 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
     revoke_b = client.delete(f"/api/one/location/grants/{grant_b['id']}")
     assert revoke_b.status_code == 200
 
+    activity_response = client.get("/api/one/location/activity?range=30d")
+    assert activity_response.status_code == 200
+    activity_payload = activity_response.json()
+    assert activity_payload["summary"]["sharedWithCount"] >= 1
+    assert activity_payload["summary"]["viewsCount"] >= 1
+    assert any(event["title"] == "Shared with User B" for event in activity_payload["events"])
+    assert "0002" not in json.dumps(activity_payload, default=str)
+    assert "ciphertext" not in json.dumps(activity_payload, default=str)
+
     current_user["user_id"] = user_b
     view_b_after_revoke = client.get(f"/api/one/location/grants/{grant_b['id']}/envelope")
     assert view_b_after_revoke.status_code == 410
@@ -125,6 +142,7 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
                 store_d.json(),
                 view_d_after.json(),
                 revoke_b.json(),
+                activity_payload,
             ],
             "notifications": service.notifications,
         },
@@ -444,3 +462,17 @@ def test_one_location_retention_auth_can_be_disabled_in_local_test_mode(
 
     assert response.status_code == 200
     assert response.json()["retention_hours"] == 12
+
+
+def test_one_location_route_preserves_db_error_mapping_without_db_client_import() -> None:
+    source = inspect.getsource(one_location)
+    assert "from db.db_client import" not in source
+
+    response = one_location._handle_error(DatabaseExecutionError())
+
+    assert response.status_code == 503
+    assert response.detail == {
+        "code": "DATABASE_UNAVAILABLE",
+        "message": "Database temporarily unavailable.",
+        "hint": "Retry later.",
+    }

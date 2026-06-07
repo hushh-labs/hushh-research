@@ -83,7 +83,14 @@ export type ObservabilityEventName =
   | "cache_resource_resolved"
   | "route_refresh_completed"
   | "warmup_completed"
-  | "startup_readiness_warmup_completed";
+  | "startup_readiness_warmup_completed"
+  | "one_location_foreground_retry"
+  | "one_location_share_confirmed"
+  | "one_location_contact_signal_synced"
+  | "one_location_request_sent"
+  | "one_location_public_link_created"
+  | "one_location_recommendation_selected"
+  | "one_location_share_review_opened";
 
 export type StatusBucket =
   | "2xx"
@@ -210,6 +217,13 @@ const EVENT_CATEGORY_BY_NAME: Record<
   route_refresh_completed: "system",
   warmup_completed: "system",
   startup_readiness_warmup_completed: "system",
+  one_location_foreground_retry: "feature",
+  one_location_share_confirmed: "feature",
+  one_location_contact_signal_synced: "feature",
+  one_location_request_sent: "feature",
+  one_location_public_link_created: "feature",
+  one_location_recommendation_selected: "feature",
+  one_location_share_review_opened: "feature",
 };
 
 export function resolveObservabilityEventCategory(
@@ -456,6 +470,68 @@ export interface EventPayloadMap {
     dashboard_picks_warmed: boolean;
     consents_warmed: boolean;
     vault_status_warmed: boolean;
+  };
+  one_location_foreground_retry: {
+    route_id: RouteId;
+    operation: string;
+    trigger: string;
+    result: EventResult;
+    attempt_count: number;
+    retry_count: number;
+    backoff_bucket: string;
+    duration_ms_bucket: DurationBucket;
+    error_class: string;
+  };
+  one_location_share_confirmed: {
+    route_id: RouteId;
+    result: EventResult;
+    selected_count: number;
+    success_count: number;
+    failure_count: number;
+    duration_bucket: string;
+    review_required: boolean;
+  };
+  one_location_contact_signal_synced: {
+    route_id: RouteId;
+    result: EventResult;
+    source_platform: string;
+    contact_count_bucket: string;
+    matched_count: number;
+    invite_candidate_count: number;
+  };
+  one_location_request_sent: {
+    route_id: RouteId;
+    result: EventResult;
+    selected_count: number;
+    success_count: number;
+    failure_count: number;
+    has_note: boolean;
+  };
+  one_location_public_link_created: {
+    route_id: RouteId;
+    result: EventResult;
+    duration_bucket: string;
+    copied_to_clipboard: boolean;
+    active_invite_count: number;
+  };
+  one_location_recommendation_selected: {
+    route_id: RouteId;
+    action: string;
+    result: EventResult;
+    selection_surface: string;
+    recommendation_category: string;
+    recommendation_tier: string;
+    selected_count: number;
+    can_receive_location: boolean;
+  };
+  one_location_share_review_opened: {
+    route_id: RouteId;
+    result: EventResult;
+    selected_count: number;
+    duration_bucket: string;
+    has_permission_warning: boolean;
+    has_professional_signal: boolean;
+    has_setup_warning: boolean;
   };
 }
 

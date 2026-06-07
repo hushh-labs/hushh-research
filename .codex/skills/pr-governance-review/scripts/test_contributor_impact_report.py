@@ -95,6 +95,7 @@ def test_maintainer_patch_dual_credits_source_and_operator() -> None:
                 comments=[
                     {
                         "author": {"login": "kushaltrivedi5"},
+                        "html_url": "https://github.com/hushh-labs/hushh-research/pull/2001#issuecomment-1",
                         "body": "### Maintainer Patch\nAccepted value was normalized into the canonical consent path.",
                     }
                 ],
@@ -112,6 +113,12 @@ def test_maintainer_patch_dual_credits_source_and_operator() -> None:
     )
     _assert(item["balanced_impact_score"] < item["composite_impact_score"], "balanced score must discount raw operator activity")
     _assert(item["balanced_operator_impact_score"] > 0, "balanced maintainer support must remain visible")
+    _assert(
+        item["operator_events"][0]["url"].endswith("#issuecomment-1"),
+        "operator event must retain source maintainer record URL",
+    )
+    evidence = "\n".join(report._maintainer_support_evidence_lines(records))
+    _assert("[record](https://github.com/hushh-labs/hushh-research/pull/2001#issuecomment-1)" in evidence, "support evidence must render maintainer record link")
 
     source = report._leaderboard(records, mode="source")
     operator = report._leaderboard(records, mode="operator")

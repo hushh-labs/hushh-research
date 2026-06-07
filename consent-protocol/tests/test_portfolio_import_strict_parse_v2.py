@@ -32,6 +32,20 @@ def test_parse_json_strict_v2_accepts_exact_required_shape() -> None:
     assert diagnostics["mode"] == "strict_json_only"
 
 
+def test_parse_json_strict_v2_accepts_first_object_when_model_appends_extra_data() -> None:
+    parsed, diagnostics = parse_json_strict_v2(
+        '{"a": 1, "b": []}\n{"a": 2, "b": []}',
+        required_keys={"a", "b"},
+    )
+    assert parsed == {"a": 1, "b": []}
+    assert diagnostics["mode"] == "strict_json_with_extra_data_repair"
+    assert diagnostics["repair_applied"] is True
+    assert diagnostics["repair_actions"] == [
+        "accepted_first_json_object",
+        "discarded_trailing_content",
+    ]
+
+
 def test_run_stream_pass_v2_emits_thinking_without_polluting_json_response() -> None:
     async def run_case() -> tuple[list[dict[str, object]], dict[str, object], object]:
         events: list[dict[str, object]] = []
