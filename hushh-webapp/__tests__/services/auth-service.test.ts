@@ -398,6 +398,70 @@ describe("AuthService.restoreNativeSession", () => {
     });
   });
 
+  it("normalizes duplicate live-account phone errors during web phone verification", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const verifyPhoneNumber = vi.fn().mockRejectedValue({
+      code: "auth/phone-number-already-exists",
+      message: "Firebase: Error (auth/phone-number-already-exists).",
+    });
+    mockPhoneAuthProvider.mockImplementation(function () {
+      return {
+        verifyPhoneNumber,
+      };
+    });
+    mockAuth.currentUser = {
+      uid: "web-user",
+      phoneNumber: null,
+    } as any;
+
+    await expect(
+      AuthService.startPhoneLinkVerification("+16505550101", {
+        recaptchaVerifier: {} as any,
+      })
+    ).rejects.toMatchObject({
+      code: "phone-number-already-exists",
+      message:
+        "This phone number is already associated with another active account. If the account was just deleted, wait a moment and try again.",
+    });
+  });
+
+  it("uses native Firebase phone linking without minting a web phone claim token", async () => {
+    const listeners: Record<string, (event: any) => void | Promise<void>> = {};
+    mockCapacitor.isNativePlatform.mockReturnValue(true);
+    mockAuth.currentUser = {
+      uid: "native-user",
+      phoneNumber: null,
+    } as any;
+    vi.mocked(FirebaseAuthentication.addListener).mockImplementation(
+      async (eventName: string, callback: (event: any) => void | Promise<void>) => {
+        listeners[eventName] = callback;
+        return { remove: vi.fn() } as any;
+      }
+    );
+
+    const startPromise = AuthService.startPhoneLinkVerification("+16505550101", {
+      resendCode: true,
+      timeout: 30,
+    });
+
+    for (let i = 0; i < 10 && !listeners.phoneCodeSent; i += 1) {
+      await Promise.resolve();
+    }
+    expect(listeners.phoneCodeSent).toBeTypeOf("function");
+    await listeners.phoneCodeSent({ verificationId: "native-verification-id" });
+
+    await expect(startPromise).resolves.toEqual({
+      autoVerified: false,
+      verificationId: "native-verification-id",
+    });
+    expect(FirebaseAuthentication.linkWithPhoneNumber).toHaveBeenCalledWith({
+      phoneNumber: "+16505550101",
+      resendCode: true,
+      timeout: 30,
+    });
+    expect(signInWithCredential).not.toHaveBeenCalled();
+  });
+
   it("links the web user phone number during link confirmation", async () => {
     mockCapacitor.isNativePlatform.mockReturnValue(false);
     const reload = vi.fn().mockResolvedValue(undefined);

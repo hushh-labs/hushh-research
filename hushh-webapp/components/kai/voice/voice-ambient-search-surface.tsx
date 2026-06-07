@@ -3,6 +3,7 @@
 import type { MouseEvent, ReactNode } from "react";
 import {
   AlertCircle,
+  Bot,
   Bug,
   Check,
   Loader2,
@@ -44,6 +45,8 @@ type VoiceAmbientSearchSurfaceProps = {
   micDisabledReason?: string | null;
   showDebug?: boolean;
   debugActive?: boolean;
+  showAgent?: boolean;
+  agentDisabled?: boolean;
   showSubmit?: boolean;
   submitEnabled?: boolean;
   ttsPlaying?: boolean;
@@ -51,6 +54,7 @@ type VoiceAmbientSearchSurfaceProps = {
   onOpenSearch: () => void;
   onMicToggle: (event: MouseEvent<HTMLButtonElement>) => void;
   onDebugToggle?: (event: MouseEvent<HTMLButtonElement>) => void;
+  onAgentOpen?: (event: MouseEvent<HTMLButtonElement>) => void;
   onMuteToggle?: () => void;
   onSubmit?: () => void;
   onEnd?: () => void;
@@ -134,6 +138,7 @@ function IconButton({
       type="button"
       aria-label={label}
       data-no-route-swipe
+      title={label}
       disabled={disabled}
       className={cn(
         "grid h-7 w-7 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted/75 hover:text-foreground",
@@ -161,6 +166,8 @@ export function VoiceAmbientSearchSurface({
   micDisabledReason,
   showDebug = false,
   debugActive = false,
+  showAgent = false,
+  agentDisabled = false,
   showSubmit = false,
   submitEnabled = true,
   ttsPlaying = false,
@@ -168,6 +175,7 @@ export function VoiceAmbientSearchSurface({
   onOpenSearch,
   onMicToggle,
   onDebugToggle,
+  onAgentOpen,
   onMuteToggle,
   onSubmit,
   onEnd,
@@ -192,6 +200,15 @@ export function VoiceAmbientSearchSurface({
     mode === "listening" ||
     mode === "speaking" ||
     mode === "processing";
+  const searchControlPaddingClass = showInlineWaveform
+    ? "pr-44 sm:pr-48"
+    : showDebug && showAgent && showMic
+      ? "pr-28 sm:pr-32"
+      : showAgent && showMic
+        ? "pr-24 sm:pr-28"
+        : showAgent || showMic || showDebug
+          ? "pr-14"
+          : "pr-3";
   const canOpenSearch = !active && !disabled;
   const confirmText = String(
     transcriptPreview || stageText || "Confirm this voice action.",
@@ -238,7 +255,8 @@ export function VoiceAmbientSearchSurface({
               : "Open Kai command search"
           }
           className={cn(
-            "flex h-10 w-full items-center justify-start overflow-hidden rounded-full px-3 pr-36 text-[12px] sm:pr-40",
+            "flex h-10 w-full items-center justify-start overflow-hidden rounded-full px-3 text-[12px]",
+            searchControlPaddingClass,
             getVariantStyles("none", "fade"),
             active
               ? "text-foreground shadow-lg shadow-black/5"
@@ -281,6 +299,16 @@ export function VoiceAmbientSearchSurface({
               onClick={onDebugToggle}
             >
               <Bug className="h-3.5 w-3.5" />
+            </IconButton>
+          ) : null}
+
+          {showAgent ? (
+            <IconButton
+              label="Open Agent"
+              disabled={agentDisabled}
+              onClick={onAgentOpen}
+            >
+              <Bot className="h-3.5 w-3.5" />
             </IconButton>
           ) : null}
 
