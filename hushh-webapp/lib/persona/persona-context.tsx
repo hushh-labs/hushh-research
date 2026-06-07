@@ -53,6 +53,21 @@ function readCachedPersona(userId: string) {
   };
 }
 
+function buildFallbackPersonaState(userId: string): PersonaState {
+  return {
+    user_id: userId,
+    personas: ["investor"],
+    last_active_persona: "investor",
+    active_persona: "investor",
+    primary_nav_persona: "investor",
+    ria_setup_available: false,
+    ria_switch_available: false,
+    investor_marketplace_opt_in: false,
+    iam_schema_ready: false,
+    mode: "compat_investor",
+  };
+}
+
 function shouldLoadRiaOnboardingStatus(
   pathname: string,
   personaState: PersonaState | null
@@ -79,6 +94,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
   const [refreshing, setRefreshing] = useState(false);
   const [personaTransitionTarget, setPersonaTransitionTarget] = useState<Persona | null>(null);
   const pathnameRef = useRef(pathname);
+  const personaMutationSeqRef = useRef(0);
 
   useEffect(() => {
     pathnameRef.current = pathname;
@@ -110,12 +126,16 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
       }
 
       setRefreshing(true);
+      const refreshSeq = personaMutationSeqRef.current;
       try {
         const idToken = await user.getIdToken();
         const nextPersona = await RiaService.getPersonaState(idToken, {
           userId,
           force,
         });
+        if (refreshSeq !== personaMutationSeqRef.current) {
+          return;
+        }
         setPersonaState(nextPersona);
         cache.set(CACHE_KEYS.PERSONA_STATE(userId), nextPersona, CACHE_TTL.SESSION);
 
@@ -142,6 +162,11 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
         } else {
           cache.invalidate(CACHE_KEYS.RIA_ONBOARDING_STATUS(userId));
         }
+      } catch (error) {
+        console.warn("[PersonaProvider] Persona refresh unavailable; using cached/fallback state.", error);
+        const fallback = cached.personaState || buildFallbackPersonaState(userId);
+        setPersonaState(fallback);
+        setRiaOnboardingStatus(cached.riaOnboardingStatus ?? null);
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -173,6 +198,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
   const switchPersona = useCallback(
     async (target: Persona) => {
       if (!user || !isAuthenticated) return null;
+      personaMutationSeqRef.current += 1;
       setPersonaTransitionTarget(target);
       try {
         const idToken = await user.getIdToken();
@@ -180,15 +206,16 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
         const cache = CacheService.getInstance();
         CacheSyncService.onPersonaStateChanged(user.uid, { preservePersonaState: true });
         cache.set(CACHE_KEYS.PERSONA_STATE(user.uid), next, CACHE_TTL.SESSION);
+        personaMutationSeqRef.current += 1;
         setPersonaState(next);
-        void refresh({ force: true });
         return next;
       } catch (error) {
+        personaMutationSeqRef.current += 1;
         setPersonaTransitionTarget(null);
         throw error;
       }
     },
-    [isAuthenticated, refresh, user]
+    [isAuthenticated, user]
   );
 
   const riaCapability: RiaCapability = useMemo(() => {
@@ -286,6 +313,45 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
       switchPersona,
     ]
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const bridge = window.__HUSHH_NATIVE_TEST__;
+    if (!bridge?.enabled) return;
+
+    bridge.activePersona = activePersona;
+    bridge.primaryNavPersona = primaryNavPersona;
+    if (personaTransitionTarget) {
+      bridge.personaSwitchStatus = `switching:${personaTransitionTarget}`;
+    } else if (bridge.personaSwitchStatus?.startsWith("switching:")) {
+      bridge.personaSwitchStatus = `ok:${activePersona}`;
+    } else {
+      bridge.personaSwitchStatus = bridge.personaSwitchStatus || "";
+    }
+    bridge.switchPersona = async (target) => {
+      bridge.personaSwitchStatus = `switching:${target}`;
+      bridge.personaSwitchError = "";
+      try {
+        const next = await switchPersona(target);
+        bridge.activePersona = next?.active_persona || target;
+        bridge.primaryNavPersona = next?.primary_nav_persona || bridge.activePersona || target;
+        bridge.personaSwitchStatus = `ok:${target}`;
+        return next;
+      } catch (error) {
+        bridge.personaSwitchStatus = `error:${target}`;
+        bridge.personaSwitchError =
+          error instanceof Error ? error.message : "native persona switch failed";
+        throw error;
+      }
+    };
+
+    return () => {
+      const currentBridge = window.__HUSHH_NATIVE_TEST__;
+      if (currentBridge && currentBridge.switchPersona === bridge.switchPersona) {
+        currentBridge.switchPersona = null;
+      }
+    };
+  }, [activePersona, personaTransitionTarget, primaryNavPersona, switchPersona]);
 
   return <PersonaContext.Provider value={value}>{children}</PersonaContext.Provider>;
 }

@@ -408,7 +408,10 @@ function LiquidGlassSearchBar({
 
             <input
               ref={inputRef}
-              type="text"
+              type="search"
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="off"
               value={value}
               onChange={(event) => onValueChange(event.target.value)}
               placeholder={placeholder}

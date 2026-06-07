@@ -320,8 +320,8 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
     AppBackgroundTaskService.cancelTask(task.taskId, "Plaid refresh canceled.");
   };
 
-  const renderAppTask = (task: AppBackgroundTask) => (
-    <div key={task.taskId} className="px-3 py-3">
+  const renderAppTask = (task: AppBackgroundTask, listRole?: string) => (
+    <div key={task.taskId} role={listRole} className="px-3 py-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -423,6 +423,7 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
           renderTrigger({ activeCount, badgeCount })
         ) : (
           <button
+            type="button"
             className={cn(DEFAULT_TRIGGER_CLASSNAME, triggerClassName)}
             aria-label="Notifications"
           >
@@ -446,14 +447,14 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
 
         <div className={TOP_SHELL_DROPDOWN_BODY_CLASSNAME}>
           {notifications.length === 0 && passiveAppTasks.length === 0 ? (
-            <div className="px-2 py-6 text-sm text-muted-foreground">
+            <div role="status" className="px-2 py-6 text-sm text-muted-foreground">
               No notifications yet.
             </div>
           ) : (
-            <div className="divide-y divide-border/45">
+            <div role="list" aria-label="Notifications" className="divide-y divide-border/45">
               {notifications.map((item) =>
                 item.kind === "debate" ? (
-                  <div key={item.id} className="px-3 py-3">
+                  <div key={item.id} role="listitem" className="px-3 py-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
@@ -540,7 +541,7 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
                     </div>
                   </div>
                 ) : (
-                  renderAppTask(item.task)
+                  renderAppTask(item.task, "listitem")
                 )
               )}
               {passiveAppTasks.length > 0 ? (
