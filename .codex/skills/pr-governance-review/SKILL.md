@@ -55,17 +55,21 @@ Non-owned surfaces:
 
 ## Workflow
 
-### Default PR-Train Mode
+### Default PR-Train Mode / PR Governance Subagent Train Mode
 
-Use the async PR-train method as the default for multi-PR work.
+Use the async PR-train method as the default for multi-PR work, now formalized
+as the PR governance subagent train method. Contributors may open PRs against
+`main`; before review, approval, maintainer patching, harvest, queue, or merge,
+normal intake must be retargeted to `integration/pr-train`. `main` receives
+only `integration/pr-train` promotion PRs except explicit emergency hotfixes.
 
 1. Lock the current PR head SHA, current `CI Status Gate`, mergeability, draft state, and review state before judging.
-2. Run the delegation router at intake; use read-only evidence lanes for non-trivial, high-risk, or multi-PR work.
+2. Run the delegation router at intake; use real read-only subagent evidence lanes for non-trivial, high-risk, or multi-PR work.
 3. Run the PR checklist or hybrid live report and treat `contract_set`, `duplicate_group`, `public_comment_policy`, `lane`, and `live_report_action` as decision records.
-4. Use the async PR-train method as the default for more than one PR: first lock the operator-approved surface scope, identify only trains inside that scope or its hard dependencies, run scoped non-touching trains in parallel through evidence lanes, sequence touching PRs oldest-first inside each train, queue independent green PRs together, run disjoint patch trains, and run decision waves asynchronously. Unrelated green-clean PRs stay in `out_of_scope_candidates` until a separate operator checkpoint approves a broader sweep.
+4. Use the async PR governance subagent train method as the default for more than one PR: first lock the operator-approved surface scope, identify only trains inside that scope or its hard dependencies, run scoped non-touching trains in parallel through subagent evidence lanes, sequence touching PRs oldest-first inside each train, queue independent green PRs together, run disjoint patch trains, and run decision waves asynchronously. Unrelated green-clean PRs stay in `out_of_scope_candidates` until a separate operator checkpoint approves a broader sweep.
 5. Exclude PRs with failing/missing/stale required checks or failing auxiliary checks from executable trains unless the task is CI repair.
 6. Apply blocker gates before merge: north-star drift, duplicate architecture, trust-boundary regression, caller/proxy/backend mismatch, unreachable helpers, stacked diff, proof gaps, and local dirty-file overlap.
-7. Prefer `patch_then_merge` or maintainer harvest over contributor round trips when an attachment plan names accepted value, canonical attach point, write set, dropped/deferred pieces, proof, and co-author attribution when code/tests are materially reused.
+7. Prefer direct contributor PR merge, then `maintainer_patch_then_merge`, then maintainer harvest. Harvest is allowed only when the source PR should not be the merge vehicle and the plan names accepted value, canonical attach point, write set, dropped/deferred pieces, proof, source PR close-or-hold state, and co-author attribution when code/tests are materially reused.
 8. Use `comment-and-report-contract.md` for every GitHub write; edit existing maintainer records first and post one post-merge closeout after smoke.
 9. Keep branch switching, commits, GitHub writes, approvals, merges, deploys, report refreshes, and final decisions in the parent session.
 

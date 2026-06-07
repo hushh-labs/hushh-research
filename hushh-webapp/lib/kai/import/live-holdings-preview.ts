@@ -11,14 +11,18 @@ export interface LiveHoldingPreview {
   is_liability_position?: boolean;
 }
 
+const MAX_LIVE_PREVIEW_ABS_MARKET_VALUE = 1_000_000_000;
+const MAX_LIVE_PREVIEW_ABS_QUANTITY = 1_000_000_000;
+
 function cleanText(value: unknown): string | undefined {
   if (value === null || value === undefined) return undefined;
   const text = String(value).trim();
   return text.length > 0 ? text : undefined;
 }
 
-function cleanFiniteNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+function cleanBoundedFiniteNumber(value: unknown, maxAbs: number): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.abs(value) <= maxAbs ? value : null;
 }
 
 function normalizePreviewSymbol(value: unknown): string {
@@ -64,8 +68,11 @@ function normalizeLiveHoldingPreview(row: LiveHoldingPreview): LiveHoldingPrevie
   return {
     symbol,
     name: cleanText(row.name),
-    market_value: cleanFiniteNumber(row.market_value),
-    quantity: cleanFiniteNumber(row.quantity),
+    market_value: cleanBoundedFiniteNumber(
+      row.market_value,
+      MAX_LIVE_PREVIEW_ABS_MARKET_VALUE
+    ),
+    quantity: cleanBoundedFiniteNumber(row.quantity, MAX_LIVE_PREVIEW_ABS_QUANTITY),
     asset_type: cleanText(row.asset_type),
     position_side: positionSide,
     is_short_position: positionSide === "short",

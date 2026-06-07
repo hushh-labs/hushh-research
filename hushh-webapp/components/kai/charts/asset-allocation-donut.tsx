@@ -92,13 +92,24 @@ export function AssetAllocationDonut({
   // Calculate total and percentages
   const { chartData, total } = useMemo(() => {
     const totalValue = data.reduce((sum, item) => sum + item.value, 0);
+
+    const getStableColor = (name: string) => {
+      const defaultColor = DEFAULT_COLORS[name.toLowerCase()];
+      if (defaultColor) return defaultColor;
+      let hash = 0;
+      for (let i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      return CHART_COLORS[Math.abs(hash) % CHART_COLORS.length];
+    };
+
     const processedData = data
       .filter(item => item.value > 0)
-      .map((item, index) => ({
+      .map((item) => ({
         ...item,
         percent: totalValue > 0 ? (item.value / totalValue) * 100 : 0,
-        // Use provided color, fallback to asset type color, then to indexed color
-        color: item.color || DEFAULT_COLORS[item.name.toLowerCase()] || CHART_COLORS[index % CHART_COLORS.length],
+        // Use provided color, fallback to asset type color, then to stable hashed color
+        color: item.color || getStableColor(item.name),
       }));
     return { chartData: processedData, total: totalValue };
   }, [data]);
@@ -202,9 +213,9 @@ export function AssetAllocationDonut({
       {/* Legend - always visible values for mobile/non-hover contexts */}
       {showLegend && (
         <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2 sm:flex sm:flex-wrap sm:justify-center sm:gap-4">
-          {chartData.map((item, index) => (
+          {chartData.map((item) => (
             <div
-              key={index}
+              key={item.name}
               className="flex min-w-0 items-center gap-2 text-xs sm:text-sm"
             >
               <div

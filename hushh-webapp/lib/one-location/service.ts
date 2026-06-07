@@ -2,6 +2,8 @@ import { HushhLocation } from "@/lib/capacitor";
 import { ApiError, apiJson } from "@/lib/services/api-client";
 import type {
   OneLocationAccessRequest,
+  OneLocationActivityRange,
+  OneLocationActivityResponse,
   OneLocationEncryptedEnvelope,
   OneLocationGrant,
   OneLocationPublicInvite,
@@ -95,6 +97,19 @@ export class OneLocationService {
     return apiJsonWithRetry<OneLocationState>("/api/one/location/state", {
       headers: jsonAuthHeaders(vaultOwnerToken),
     });
+  }
+
+  static async getActivity(params: {
+    vaultOwnerToken: string;
+    range: OneLocationActivityRange;
+  }): Promise<OneLocationActivityResponse> {
+    const searchParams = new URLSearchParams({ range: params.range });
+    return apiJsonWithRetry<OneLocationActivityResponse>(
+      `/api/one/location/activity?${searchParams.toString()}`,
+      {
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+      },
+    );
   }
 
   static async createPublicInvite(params: {
