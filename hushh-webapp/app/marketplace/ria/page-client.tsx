@@ -308,7 +308,7 @@ export default function MarketplaceRiaProfilePageClient() {
                 <a
                   href={profile.disclosures_url}
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   data-voice-control-id="marketplace_ria_public_disclosure"
                   className="inline-flex min-h-11 items-center justify-center rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground"
                 >
