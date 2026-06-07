@@ -171,12 +171,14 @@ export default function PublicLocationRequestPageClient() {
                 value={visitorDisplayName}
                 onChange={(event) => setVisitorDisplayName(event.target.value)}
                 placeholder="Your name"
+                autoComplete="name"
                 maxLength={120}
               />
               <Input
                 value={phoneNumber}
                 onChange={(event) => setPhoneNumber(event.target.value)}
                 placeholder="Phone number"
+                autoComplete="tel"
                 inputMode="tel"
                 maxLength={32}
               />
