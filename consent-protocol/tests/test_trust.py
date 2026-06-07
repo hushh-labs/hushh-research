@@ -41,3 +41,21 @@ def test_signature_tampering():
 
     assert verify_trust_link(tampered) is False
     assert is_trusted_for_scope(tampered, SCOPE_VALID) is False
+
+
+def test_trust_link_field_tampering():
+    link = create_trust_link(
+        DELEGATOR,
+        DELEGATEE,
+        SCOPE_VALID,
+        USER_ID,
+    )
+
+    tampered_scope = link.model_copy(update={"scope": SCOPE_INVALID})
+    assert verify_trust_link(tampered_scope) is False
+
+    tampered_agent = link.model_copy(update={"to_agent": "agent_hacker"})
+    assert verify_trust_link(tampered_agent) is False
+
+    tampered_user = link.model_copy(update={"signed_by_user": "other_user"})
+    assert verify_trust_link(tampered_user) is False
