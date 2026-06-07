@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from pathlib import Path
+import tempfile
 
 import pr_review_checklist as checklist
 
@@ -69,6 +71,39 @@ def _assert(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def test_live_report_metadata_links_maintainer_records() -> None:
+    line = checklist._report_freshness_line("2026-05-31T11:24:56Z")
+    _assert("2026-05-31T23:24:56Z" in line, "freshness line must expose 12-hour reuse window")
+
+    record = checklist._maintainer_record_link(
+        {
+            "maintainer_record_url": "https://github.com/hushh-labs/hushh-research/pull/1#issuecomment-1",
+            "maintainer_record_at": "2026-05-31T11:24:56Z",
+        }
+    )
+    _assert("[record](" in record, "maintainer record link must render as markdown")
+    _assert("2026-05-31T11:24:56Z" in record, "maintainer record link must preserve timestamp")
+
+
+def test_subagent_status_metadata_marks_unavailable() -> None:
+    batch = {
+        "train_to_subagent_map": [
+            {
+                "id": "train-1",
+                "train_type": "queue_cohort",
+                "subagent_lane": "ci/deploy/release",
+                "agent": "repo_operator",
+                "prs": [1],
+            }
+        ]
+    }
+    checklist._apply_subagent_status_metadata(batch, "tool unavailable")
+    entry = batch["train_to_subagent_map"][0]
+    _assert(entry["lane_status"] == "unavailable", "unavailable reason must mark lane status")
+    _assert(entry["unavailable_reason"] == "tool unavailable", "unavailable reason must be preserved")
+    _assert("parent session" in entry["parent_local_task"], "parent-local task must be explicit")
+
+
 def test_same_file_collision() -> None:
     reports = [
         _fake_report(1, ["hushh-webapp/lib/a.ts"]),
@@ -81,6 +116,22 @@ def test_same_file_collision() -> None:
     )
     _assert(graph["collision_groups"], "same file must create a collision group")
     _assert(reports[1]["must_wait_for"] == [1], "second shared-file PR must wait for first")
+
+
+def test_transitive_collision_only_waits_for_direct_edge() -> None:
+    reports = [
+        _fake_report(1, ["hushh-webapp/lib/a.ts"]),
+        _fake_report(2, ["hushh-webapp/lib/a.ts", "hushh-webapp/lib/b.ts"]),
+        _fake_report(3, ["hushh-webapp/lib/b.ts"]),
+    ]
+    graph = checklist._build_train_graph(
+        reports,
+        queue_cohort_size=4,
+        max_parallel_patch_trains=3,
+    )
+    _assert(graph["collision_groups"], "transitive exact-file edges still create a collision group")
+    _assert(reports[1]["must_wait_for"] == [1], "bridge PR must wait for its direct older edge")
+    _assert(reports[2]["must_wait_for"] == [2], "leaf PR must not wait on unrelated transitive edges")
 
 
 def test_disjoint_merge_queue_cohort() -> None:
@@ -97,7 +148,7 @@ def test_disjoint_merge_queue_cohort() -> None:
     _assert(reports[0]["can_queue_with"] == [2], "first PR should queue with second")
 
 
-def test_hard_surface_and_sensitive_runtime_sequence() -> None:
+def test_hard_surface_sequence() -> None:
     lock_reports = [
         _fake_report(1, ["hushh-webapp/package-lock.json"]),
         _fake_report(2, ["package-lock.json"]),
@@ -109,6 +160,8 @@ def test_hard_surface_and_sensitive_runtime_sequence() -> None:
     )
     _assert(lock_graph["collision_groups"], "lockfile changes must sequence")
 
+
+def test_sensitive_runtime_overlap_without_file_edge_does_not_sequence() -> None:
     runtime_reports = [
         _fake_report(3, ["hushh-webapp/lib/pkm/a.ts"], contract_set="pkm-privacy"),
         _fake_report(4, ["consent-protocol/hushh_mcp/services/personal_knowledge_model_service.py"], contract_set="pkm-privacy"),
@@ -118,7 +171,24 @@ def test_hard_surface_and_sensitive_runtime_sequence() -> None:
         queue_cohort_size=4,
         max_parallel_patch_trains=3,
     )
-    _assert(runtime_graph["collision_groups"], "sensitive PKM runtime overlap must sequence")
+    _assert(
+        not runtime_graph["collision_groups"],
+        "sensitive runtime labels alone must not weld unrelated files into one train",
+    )
+
+    same_file_reports = [
+        _fake_report(5, ["consent-protocol/api/routes/pkm_routes_shared.py"], contract_set="pkm-privacy"),
+        _fake_report(6, ["consent-protocol/api/routes/pkm_routes_shared.py"], contract_set="pkm-privacy"),
+    ]
+    same_file_graph = checklist._build_train_graph(
+        same_file_reports,
+        queue_cohort_size=4,
+        max_parallel_patch_trains=3,
+    )
+    _assert(
+        same_file_graph["collision_groups"],
+        "sensitive runtime PRs still sequence when they share an exact file edge",
+    )
 
 
 def test_patch_gate_blocks_unattached_export() -> None:
@@ -169,6 +239,106 @@ def test_pure_test_report_can_merge_now() -> None:
         changed_files=["consent-protocol/tests/test_existing_helper.py"],
     )
     _assert(decision["lane"] == "merge_now", "pure test proof with no findings can merge")
+
+
+def test_mock_only_frontend_test_blocks_merge_now() -> None:
+    findings = checklist._mock_only_test_findings(
+        ["hushh-webapp/__tests__/components/dialog-escape-dismiss.test.tsx"],
+        {
+            "hushh-webapp/__tests__/components/dialog-escape-dismiss.test.tsx": """
+new file mode 100644
++import { render } from "@testing-library/react";
++import { describe, it } from "vitest";
++
++function MockDialog() {
++  return <div role="dialog">Dialog</div>;
++}
+""",
+        },
+    )
+    _assert(findings, "mock-only frontend test must be detected")
+    decision = checklist._recommend_merge_lane(
+        ci_status_gate="SUCCESS",
+        review_decision="",
+        findings=findings,
+        surface_tags=["tests"],
+        changed_files=["hushh-webapp/__tests__/components/dialog-escape-dismiss.test.tsx"],
+    )
+    _assert(decision["lane"] == "block", "mock-only frontend tests must not merge")
+
+
+def test_frontend_test_importing_production_code_can_merge_now() -> None:
+    findings = checklist._mock_only_test_findings(
+        ["hushh-webapp/__tests__/components/real-dialog.test.tsx"],
+        {
+            "hushh-webapp/__tests__/components/real-dialog.test.tsx": """
+new file mode 100644
++import { render } from "@testing-library/react";
++import { Dialog } from "@/components/app-ui/dialog";
+""",
+        },
+    )
+    _assert(not findings, "frontend test importing production code should not be mock-only")
+
+
+def test_claim_surface_mismatch_ignores_template_boilerplate() -> None:
+    body = """
+# Description
+
+Adds explicit type="button" to the sidebar rail button.
+
+## Impact Map (Required)
+
+- API / schema / type changes:
+  - [x] None
+
+## Privacy & Consent
+
+- [ ] Does this change access user data?
+- [ ] If yes, have you implemented checkConsentToken()?
+"""
+    findings = checklist._claim_surface_mismatch_findings(
+        "fix(ui): add type=button to sidebar rail",
+        body,
+        ["hushh-webapp/components/ui/sidebar.tsx"],
+    )
+    _assert(not findings, "template privacy/consent boilerplate must not create a consent claim")
+
+
+def test_claim_surface_mismatch_ignores_generic_scope_heading() -> None:
+    body = """
+## Summary
+
+Disabled pagination controls should leave the keyboard tab order.
+
+## Scope
+
+Two attribute additions in components/app-ui/data-table.tsx.
+"""
+    findings = checklist._claim_surface_mismatch_findings(
+        "fix(data-table): remove disabled pagination controls from tab order",
+        body,
+        ["hushh-webapp/components/app-ui/data-table.tsx"],
+    )
+    _assert(not findings, "generic Scope heading must not create a consent scope claim")
+
+
+def test_claim_surface_mismatch_keeps_actual_consent_claim() -> None:
+    findings = checklist._claim_surface_mismatch_findings(
+        "fix(consent): enforce consent scope on profile export",
+        "This fixes consent scope enforcement for export access.",
+        ["hushh-webapp/components/app-ui/data-table.tsx"],
+    )
+    _assert(findings, "actual consent claim should still require consent-surface files")
+
+
+def test_claim_surface_mismatch_ignores_html_scope_attribute() -> None:
+    findings = checklist._claim_surface_mismatch_findings(
+        'fix(table): add scope="col" to TableHead column header primitive',
+        'Adds scope="col" to shared table header cells for accessibility.',
+        ["hushh-webapp/components/ui/table.tsx"],
+    )
+    _assert(not findings, "HTML table scope attribute must not create a consent-scope claim")
 
 
 def test_failing_required_gate_excluded_from_executable_trains() -> None:
@@ -401,6 +571,54 @@ def test_live_selection_order_latest() -> None:
     _assert([row["number"] for row in ordered[:2]] == [3, 2], "latest selection must use newest inventory first")
 
 
+def test_live_selection_excludes_previous_tranche() -> None:
+    original_inventory = checklist._open_pr_inventory
+    try:
+        checklist._open_pr_inventory = lambda repo: [
+            OrderedDict(number=1, title="old", author="a", created_at="2026-05-01T00:00:00Z", updated_at="2026-05-01T00:00:00Z", base_ref="main"),
+            OrderedDict(number=2, title="mid", author="a", created_at="2026-05-02T00:00:00Z", updated_at="2026-05-02T00:00:00Z", base_ref="main"),
+            OrderedDict(number=3, title="next", author="a", created_at="2026-05-03T00:00:00Z", updated_at="2026-05-03T00:00:00Z", base_ref="main"),
+            OrderedDict(number=4, title="last", author="a", created_at="2026-05-04T00:00:00Z", updated_at="2026-05-04T00:00:00Z", base_ref="main"),
+        ]
+        prs, scope = checklist._select_live_scan_prs(
+            "hushh-labs/hushh-research",
+            scan_mode="hybrid",
+            active_limit=2,
+            candidate_limit=0,
+            per_pr_timeout_seconds=25,
+            excluded_prs={1, 2},
+        )
+    finally:
+        checklist._open_pr_inventory = original_inventory
+    _assert(prs == [3, 4], "next tranche must not repeat excluded reviewed PRs")
+    _assert(scope["excluded_count"] == 2, "scope must record excluded PR count")
+    _assert(scope["excluded_prs"] == [1, 2], "scope must preserve excluded PR list for audit")
+
+
+def test_exclude_files_can_chain_completed_reports() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        first = Path(tmpdir) / "first.md"
+        second = Path(tmpdir) / "second.md"
+        first.write_text("- Reviewed PRs: [#10](url), [#11](url)\n- Blocked: [#99](url)\n", encoding="utf-8")
+        second.write_text("- Reviewed PRs: [#12](url), [#13](url)\n", encoding="utf-8")
+        excluded = checklist._pr_numbers_from_exclude_files([str(first), str(second)])
+    _assert(excluded == {10, 11, 12, 13}, "repeated exclude files must chain reviewed tranches only")
+
+
+def test_exclude_files_accept_globbed_tranche_reports() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        first = Path(tmpdir) / "pr-governance-refill-1-report.md"
+        second = Path(tmpdir) / "pr-governance-refill-2-report.md"
+        ignored = Path(tmpdir) / "notes.md"
+        first.write_text("- Reviewed PRs: [#20](url), [#21](url)\n", encoding="utf-8")
+        second.write_text("- Reviewed PRs: [#22](url), [#23](url)\n", encoding="utf-8")
+        ignored.write_text("- Reviewed PRs: [#99](url)\n", encoding="utf-8")
+        excluded = checklist._pr_numbers_from_exclude_files(
+            [str(Path(tmpdir) / "pr-governance-refill-*-report.md")]
+        )
+    _assert(excluded == {20, 21, 22, 23}, "globbed refill reports must chain exclusions")
+
+
 def test_train_pool_refills_next_oldest_non_touching_train() -> None:
     reports = []
     for number in range(200, 212):
@@ -554,10 +772,190 @@ def test_check_failure_excluded_from_acknowledgement_wave() -> None:
     _assert(graph["check_failure_holds"][0]["pr"] == 90, "check-failure PR must be held separately")
 
 
+def test_actionable_intake_filter_separates_unattended_repass_and_dormant() -> None:
+    rows = [
+        OrderedDict(
+            number=3000,
+            url="https://github.com/hushh-labs/hushh-research/pull/3000",
+            head_sha="head-3000",
+            latest_reviews=[],
+            comments=[],
+            commits=[],
+        ),
+        OrderedDict(
+            number=3001,
+            url="https://github.com/hushh-labs/hushh-research/pull/3001",
+            head_sha="head-3001",
+            latest_reviews=[
+                {
+                    "author": {"login": "kushaltrivedi5"},
+                    "state": "CHANGES_REQUESTED",
+                    "submittedAt": "2026-05-30T10:00:00Z",
+                    "body": "## Changes Requested: narrow this",
+                }
+            ],
+            comments=[
+                {
+                    "author": {"login": "contributor"},
+                    "createdAt": "2026-05-30T11:00:00Z",
+                    "body": "Updated the branch.",
+                }
+            ],
+            commits=[],
+        ),
+        OrderedDict(
+            number=3002,
+            url="https://github.com/hushh-labs/hushh-research/pull/3002",
+            head_sha="head-3002",
+            updated_at="2026-05-30T12:00:00Z",
+            latest_reviews=[
+                {
+                    "author": {"login": "kushaltrivedi5"},
+                    "state": "CHANGES_REQUESTED",
+                    "submittedAt": "2026-05-30T12:00:00Z",
+                    "body": "## Changes Requested: narrow this",
+                }
+            ],
+            comments=[
+                {
+                    "author": {"login": "contributor"},
+                    "createdAt": "2026-05-30T09:00:00Z",
+                    "body": "Earlier note.",
+                }
+            ],
+            commits=[],
+        ),
+        OrderedDict(
+            number=3003,
+            url="https://github.com/hushh-labs/hushh-research/pull/3003",
+            head_sha="head-3003",
+            updated_at="2026-05-30T13:00:00Z",
+            latest_reviews=[
+                {
+                    "author": {"login": "kushaltrivedi5"},
+                    "state": "CHANGES_REQUESTED",
+                    "submittedAt": "2026-05-30T12:00:00Z",
+                    "body": "## Changes Requested: narrow this",
+                }
+            ],
+            comments=[],
+            commits=[],
+        ),
+    ]
+    selected, meta = checklist._apply_actionable_intake_filter(rows)
+    _assert([row["number"] for row in selected] == [3000, 3001, 3003], "filter must keep unattended and fresh repass PRs")
+    _assert(meta["reasons"]["3000"] == "unattended_no_current_maintainer_record", "unattended reason must be explicit")
+    _assert(meta["reasons"]["3001"] == "repass_after_contributor_activity", "fresh contributor activity must trigger repass")
+    _assert(meta["reasons"]["3003"] == "coarse_pr_activity_after_maintainer_record", "post-review PR activity must trigger repass")
+    _assert(meta["dormant_current_count"] == 1, "unchanged current maintainer record should become dormant-current")
+    _assert(
+        checklist._actionable_intake_reason(rows[3], allow_coarse=False) == "",
+        "deep per-PR repass evidence must drop metadata-only updatedAt noise",
+    )
+
+
+def test_repass_changes_requested_can_remain_train_work() -> None:
+    report = _fake_report(
+        3003,
+        ["docs/repass.md"],
+        review_decision="CHANGES_REQUESTED",
+    )
+    report["actionable_intake_reason"] = "repass_after_contributor_activity"
+    state, reason = checklist._reviewed_state_for_report(report)
+    _assert(state == "remaining", "fresh repass PR should not be classified as terminal")
+    _assert(reason == "awaiting train action", "fresh repass PR should not be terminal")
+    _assert(checklist._is_actionable_live_candidate(report), "fresh repass merge candidate should be actionable")
+
+
+def test_decision_wave_excludes_current_changes_requested_without_fresh_repass() -> None:
+    current = _fake_report(
+        3100,
+        ["docs/current.md"],
+        lane="block",
+        review_decision="CHANGES_REQUESTED",
+    )
+    fresh = _fake_report(
+        3101,
+        ["docs/fresh.md"],
+        lane="block",
+        review_decision="CHANGES_REQUESTED",
+    )
+    fresh["actionable_intake_reason"] = "repass_after_contributor_activity"
+    graph = checklist._build_train_graph(
+        [current, fresh],
+        queue_cohort_size=4,
+        max_parallel_patch_trains=3,
+    )
+    candidates = graph["decision_waves"][0]["candidate_prs"]
+    _assert(3100 not in candidates, "current changes-requested PR must not consume decision-wave capacity")
+    _assert(3101 in candidates, "fresh repass changes-requested PR should remain in decision wave")
+
+
+def test_approved_review_counts_as_current_maintainer_record() -> None:
+    row = OrderedDict(
+        number=3200,
+        url="https://github.com/hushh-labs/hushh-research/pull/3200",
+        head_sha="head-3200",
+        updated_at="2026-05-30T12:00:00Z",
+        latest_reviews=[
+            {
+                "author": {"login": "kushaltrivedi5"},
+                "state": "APPROVED",
+                "submittedAt": "2026-05-30T12:00:00Z",
+                "body": "## Approved: test-only coverage",
+            }
+        ],
+        comments=[],
+        commits=[],
+    )
+    selected, meta = checklist._apply_actionable_intake_filter([row])
+    _assert(selected == [], "approved maintainer review should not re-enter unattended intake")
+    _assert(meta["dormant_current_count"] == 1, "approved review should become dormant-current until state changes")
+
+
+def test_current_maintainer_harvest_comment_blocks_merge_repass() -> None:
+    row = OrderedDict(
+        number=3201,
+        url="https://github.com/hushh-labs/hushh-research/pull/3201",
+        head_sha="head-3201",
+        updated_at="2026-05-31T08:28:27Z",
+        latest_reviews=[
+            {
+                "author": {"login": "kushaltrivedi5"},
+                "state": "CHANGES_REQUESTED",
+                "submittedAt": "2026-05-16T05:29:15Z",
+                "body": "## Changes Requested: maintainer harvest landed",
+                "commit": {"oid": "head-3201"},
+            }
+        ],
+        comments=[
+            {
+                "author": {"login": "kushaltrivedi5"},
+                "body": "## Maintainer harvest staged\n\nCurrent-head repass completed.",
+                "createdAt": "2026-05-31T08:28:27Z",
+                "url": "https://github.com/hushh-labs/hushh-research/pull/3201#issuecomment-1",
+            }
+        ],
+        commits=[
+            {
+                "authors": [{"login": "contributor"}],
+                "committedDate": "2026-05-30T00:00:00Z",
+                "oid": "head-3201",
+            }
+        ],
+    )
+    _assert(checklist._actionable_intake_reason(row) == "", "current harvest comment must block repass")
+    selected, meta = checklist._apply_actionable_intake_filter([row])
+    _assert(selected == [], "current harvest comment should not re-enter merge intake")
+    _assert(meta["dormant_current_count"] == 1, "current harvest comment should become dormant-current")
+
+
 def main() -> int:
     test_same_file_collision()
+    test_transitive_collision_only_waits_for_direct_edge()
     test_disjoint_merge_queue_cohort()
-    test_hard_surface_and_sensitive_runtime_sequence()
+    test_hard_surface_sequence()
+    test_sensitive_runtime_overlap_without_file_edge_does_not_sequence()
     test_patch_gate_blocks_unattached_export()
     test_patch_gate_allows_canonical_attach_point()
     test_pure_test_report_can_merge_now()
@@ -573,6 +971,9 @@ def main() -> int:
     test_all_async_trains_output_names_parallel_model()
     test_live_selection_order_defaults_to_oldest()
     test_live_selection_order_latest()
+    test_live_selection_excludes_previous_tranche()
+    test_exclude_files_can_chain_completed_reports()
+    test_exclude_files_accept_globbed_tranche_reports()
     test_train_pool_refills_next_oldest_non_touching_train()
     test_report_state_buckets_classify_reviewed_terminal_blocked_remaining()
     test_live_report_prints_reviewed_state_bucket_links()
@@ -581,6 +982,11 @@ def main() -> int:
     test_decision_wave_visible_without_merge_or_patch_train()
     test_pre_wave_question_contains_research_shape_and_links()
     test_check_failure_excluded_from_acknowledgement_wave()
+    test_actionable_intake_filter_separates_unattended_repass_and_dormant()
+    test_repass_changes_requested_can_remain_train_work()
+    test_decision_wave_excludes_current_changes_requested_without_fresh_repass()
+    test_approved_review_counts_as_current_maintainer_record()
+    test_current_maintainer_harvest_comment_blocks_merge_repass()
     print("pr_review_checklist unit tests passed")
     return 0
 

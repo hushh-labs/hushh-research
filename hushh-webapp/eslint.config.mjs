@@ -139,6 +139,15 @@ export default [
       "@typescript-eslint/no-unsafe-function-type": "off",
     },
   },
+  // Override: native UI runner source executes inside the WebView test harness
+  // and fetches static test assets/flow manifests from the bundled app shell.
+  {
+    files: ["scripts/native/native-ui-test-runner-source.js"],
+    rules: {
+      "no-restricted-syntax": "off",
+      "no-restricted-globals": "off",
+    },
+  },
   // Override: auth/vault contexts + logout/exit (limited fetch ban, storage allowed for cleanup)
   {
     files: [

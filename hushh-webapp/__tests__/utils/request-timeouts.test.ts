@@ -4,12 +4,14 @@ import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 const ORIGINAL_APP_ENV = process.env.NEXT_PUBLIC_APP_ENV;
 const ORIGINAL_RUNTIME_PROFILE = process.env.APP_RUNTIME_PROFILE;
+const ORIGINAL_ENVIRONMENT = process.env.ENVIRONMENT;
 const ORIGINAL_OVERRIDE = process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS;
 
 describe("resolveSlowRequestTimeoutMs", () => {
   afterEach(() => {
     process.env.NEXT_PUBLIC_APP_ENV = ORIGINAL_APP_ENV;
     process.env.APP_RUNTIME_PROFILE = ORIGINAL_RUNTIME_PROFILE;
+    process.env.ENVIRONMENT = ORIGINAL_ENVIRONMENT;
     process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS = ORIGINAL_OVERRIDE;
   });
 
@@ -24,6 +26,15 @@ describe("resolveSlowRequestTimeoutMs", () => {
   it("keeps production-like runtimes on the provided default", () => {
     process.env.NEXT_PUBLIC_APP_ENV = "uat";
     delete process.env.APP_RUNTIME_PROFILE;
+    delete process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS;
+
+    expect(resolveSlowRequestTimeoutMs(20_000)).toBe(20_000);
+  });
+
+  it("lets runtime profile beat backend ENVIRONMENT for local UAT frontend", () => {
+    delete process.env.NEXT_PUBLIC_APP_ENV;
+    process.env.APP_RUNTIME_PROFILE = "uat";
+    process.env.ENVIRONMENT = "development";
     delete process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS;
 
     expect(resolveSlowRequestTimeoutMs(20_000)).toBe(20_000);

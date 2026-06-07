@@ -195,6 +195,11 @@ class FourUserMemoryService(OneLocationAgentService):
         self.public_submissions: dict[str, dict] = {}
         self.events: dict[str, dict] = {}
         self.notifications: list[dict] = []
+        self.professional_relationships: list[dict] = []
+        self.organization_memberships: list[dict] = []
+        self.consent_audit_rows: list[dict] = []
+        self.marketplace_profiles: dict[str, dict] = {}
+        self.persona_states: dict[str, dict] = {}
 
     def _send_metadata_notification(self, **kwargs) -> None:
         assert _contains_plaintext_location_key(kwargs.get("data") or {}) is False
@@ -252,6 +257,99 @@ class FourUserMemoryService(OneLocationAgentService):
                     }
                 )
             return rows
+        if (
+            "FROM one_location_share_grants" in sql
+            and "owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id" in sql
+        ):
+            owner = params["owner_user_id"]
+            return [
+                grant
+                for grant in sorted(
+                    self.grants.values(),
+                    key=lambda item: item["created_at"],
+                    reverse=True,
+                )
+                if grant["owner_user_id"] == owner or grant["recipient_user_id"] == owner
+            ][:100]
+        if (
+            "FROM one_location_access_requests" in sql
+            and "owner_user_id = :owner_user_id OR requester_user_id = :owner_user_id" in sql
+        ):
+            owner = params["owner_user_id"]
+            return [
+                request
+                for request in sorted(
+                    self.requests.values(),
+                    key=lambda item: item["requested_at"],
+                    reverse=True,
+                )
+                if request["owner_user_id"] == owner or request["requester_user_id"] == owner
+            ][:100]
+        if "FROM one_location_referrals" in sql and "owner_user_id = :owner_user_id" in sql:
+            owner = params["owner_user_id"]
+            return [
+                referral
+                for referral in sorted(
+                    self.referrals.values(),
+                    key=lambda item: item["created_at"],
+                    reverse=True,
+                )
+                if owner
+                in {
+                    referral["owner_user_id"],
+                    referral["referring_user_id"],
+                    referral["referred_user_id"],
+                }
+            ][:100]
+        if "FROM consent_audit" in sql:
+            owner = params["owner_user_id"]
+            return [
+                row
+                for row in sorted(
+                    self.consent_audit_rows,
+                    key=lambda item: item["issued_at"],
+                    reverse=True,
+                )
+                if row.get("user_id") == owner or row.get("agent_id") == owner
+            ][:100]
+        if (
+            "FROM advisor_investor_relationships rel" in sql
+            and "LEFT JOIN relationship_share_grants share" in sql
+        ):
+            owner = params["owner_user_id"]
+            return [
+                row
+                for row in self.professional_relationships
+                if row.get("investor_user_id") == owner or row.get("ria_user_id") == owner
+            ][:100]
+        if "FROM advisor_investor_relationships rel" in sql:
+            return self.professional_relationships[:500]
+        if "FROM ria_profiles owner_rp" in sql:
+            owner = params["owner_user_id"]
+            return [
+                row for row in self.organization_memberships if row.get("owner_user_id") == owner
+            ][:100]
+        if "FROM marketplace_public_profiles" in sql:
+            return [
+                profile
+                for profile in sorted(
+                    self.marketplace_profiles.values(),
+                    key=lambda item: item["updated_at"],
+                    reverse=True,
+                )
+                if profile.get("is_discoverable")
+            ][:200]
+        if "FROM runtime_persona_state" in sql:
+            owner = params["owner_user_id"]
+            return [
+                state
+                for state in sorted(
+                    self.persona_states.values(),
+                    key=lambda item: item["updated_at"],
+                    reverse=True,
+                )
+                if state.get("user_id") != owner
+            ][:200]
         if "FROM one_location_public_invites" in sql:
             return [
                 invite
@@ -278,6 +376,41 @@ class FourUserMemoryService(OneLocationAgentService):
                         {**submission, "request_status": request.get("status") if request else None}
                     )
             return rows[:50]
+        if "FROM one_location_events e" in sql:
+            user_id = params["user_id"]
+            since_at = params.get("since_at")
+            event_types = set(params.get("event_types") or [])
+            rows = []
+            for event in sorted(
+                self.events.values(),
+                key=lambda item: item["created_at"],
+                reverse=True,
+            ):
+                if event_types and event.get("event_type") not in event_types:
+                    continue
+                if since_at and event.get("created_at") and event["created_at"] < since_at:
+                    continue
+                if user_id not in {
+                    event.get("owner_user_id"),
+                    event.get("actor_user_id"),
+                    event.get("recipient_user_id"),
+                }:
+                    continue
+                owner = self.identities.get(event.get("owner_user_id") or "", {})
+                actor = self.identities.get(event.get("actor_user_id") or "", {})
+                recipient = self.identities.get(event.get("recipient_user_id") or "", {})
+                metadata = event.get("metadata") or {}
+                submission = self.public_submissions.get(metadata.get("submission_id") or "")
+                rows.append(
+                    {
+                        **event,
+                        "owner_display_name": owner.get("display_name"),
+                        "actor_display_name": actor.get("display_name"),
+                        "recipient_display_name": recipient.get("display_name"),
+                        "visitor_display_name": (submission or {}).get("visitor_display_name"),
+                    }
+                )
+            return rows[: params.get("limit", 40)]
         if "UPDATE one_location_share_grants" in sql and "status = 'revoked'" in sql:
             revoked = []
             for grant in self.grants.values():
@@ -460,6 +593,14 @@ class FourUserMemoryService(OneLocationAgentService):
                 "created_at": datetime.now(timezone.utc),
             }
             return None
+        if "COUNT(*)::int AS active_share_count" in sql:
+            return {
+                "active_share_count": sum(
+                    1
+                    for grant in self.grants.values()
+                    if grant["owner_user_id"] == params["user_id"] and grant["status"] == "active"
+                )
+            }
         if "UPDATE one_location_recipient_keys" in sql:
             return None
         if "FROM actor_identity_cache" in sql and "regexp_replace" in sql:
@@ -747,6 +888,190 @@ def encrypted_envelope(key_id: str, ciphertext: str = "ciphertext") -> dict:
     }
 
 
+def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> None:
+    service = FourUserMemoryService()
+    now = datetime.now(timezone.utc)
+    user_a = "user_a"
+    user_b = "user_b"
+    user_c = "user_c"
+    user_d = "user_d"
+    user_e = "user_e"
+    user_f = "user_f"
+    user_g = "user_g"
+    service.identities[user_e] = {
+        "user_id": user_e,
+        "display_name": "User E",
+        "phone_number": "+15550100005",
+        "phone_verified": True,
+    }
+    service.identities[user_f] = {
+        "user_id": user_f,
+        "display_name": "User F",
+        "phone_number": "+15550100006",
+        "phone_verified": True,
+    }
+    service.identities[user_g] = {
+        "user_id": user_g,
+        "display_name": "User G",
+        "phone_number": "+15550100007",
+        "phone_verified": True,
+    }
+
+    for user_id in (user_a, user_b, user_c, user_d, user_f, user_g):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+
+    service.create_grant(
+        owner_user_id=user_a,
+        recipient_user_id=user_b,
+        recipient_key_id=f"key-{user_b}",
+        duration_hours=1,
+    )
+    service.request_access(
+        owner_user_id=user_a,
+        requester_user_id=user_c,
+        message="Can you share your location?",
+    )
+    service.professional_relationships.append(
+        {
+            "investor_user_id": user_a,
+            "ria_user_id": user_d,
+            "status": "discovered",
+            "granted_scope": None,
+            "consent_granted_at": None,
+            "created_at": now - timedelta(days=3),
+            "updated_at": now - timedelta(days=2),
+            "ria_display_name": "User D",
+            "ria_verification_status": "verified",
+            "relationship_share_status": None,
+            "relationship_share_granted_at": None,
+        }
+    )
+    service.professional_relationships.append(
+        {
+            "investor_user_id": user_g,
+            "ria_user_id": user_d,
+            "status": "approved",
+            "granted_scope": "attr.financial.*",
+            "consent_granted_at": now - timedelta(days=2),
+            "created_at": now - timedelta(days=3),
+            "updated_at": now - timedelta(days=1),
+            "ria_display_name": "User D",
+            "ria_verification_status": "verified",
+            "relationship_share_status": "active",
+            "relationship_share_granted_at": now - timedelta(days=1),
+        }
+    )
+    service.organization_memberships.append(
+        {
+            "owner_user_id": user_a,
+            "peer_user_id": user_g,
+            "firm_name": "Hushh Advisors",
+            "peer_role_title": "Advisor partner",
+            "owner_membership_updated_at": now - timedelta(days=2),
+            "peer_membership_updated_at": now - timedelta(days=1),
+        }
+    )
+    service.consent_audit_rows.append(
+        {
+            "user_id": user_a,
+            "agent_id": user_g,
+            "action": "CONSENT_GRANTED",
+            "issued_at": now - timedelta(hours=3),
+        }
+    )
+    service.marketplace_profiles[user_a] = {
+        "user_id": user_a,
+        "profile_type": "investor",
+        "headline": "Long-term family planning",
+        "strategy_summary": "Public owner profile",
+        "verification_badge": "Verified investor",
+        "metadata": {"categories": ["retirement", "tax"], "location": "private"},
+        "is_discoverable": True,
+        "created_at": now - timedelta(days=7),
+        "updated_at": now - timedelta(days=1),
+    }
+    service.marketplace_profiles[user_d] = {
+        "user_id": user_d,
+        "profile_type": "ria",
+        "headline": "Retirement planning specialist",
+        "strategy_summary": "Public advisor profile",
+        "verification_badge": "Verified advisor",
+        "metadata": {"categories": ["estate"]},
+        "is_discoverable": True,
+        "created_at": now - timedelta(days=4),
+        "updated_at": now - timedelta(days=1),
+    }
+    service.marketplace_profiles[user_f] = {
+        "user_id": user_f,
+        "profile_type": "investor",
+        "headline": "Family tax planning",
+        "strategy_summary": "Public investor profile",
+        "verification_badge": "Verified profile",
+        "metadata": {"categories": ["retirement", "family"], "address": "private"},
+        "is_discoverable": True,
+        "created_at": now - timedelta(days=4),
+        "updated_at": now,
+    }
+    service.persona_states[user_d] = {
+        "user_id": user_d,
+        "last_active_persona": "ria",
+        "updated_at": now,
+    }
+
+    recipients = service.list_verified_recipients(owner_user_id=user_a)
+    by_id = {recipient["userId"]: recipient for recipient in recipients}
+
+    assert by_id[user_b]["recommendationCategory"] == "trusted_circle"
+    assert by_id[user_b]["trustLevel"] == "high"
+    assert any(
+        reason["code"] == "active_location_share"
+        for reason in by_id[user_b]["recommendationReasons"]
+    )
+    assert by_id[user_c]["recommendationCategory"] == "needs_action"
+    assert by_id[user_c]["recommendationTier"] == "needs_action"
+    assert any(
+        reason["code"] == "pending_location_request"
+        for reason in by_id[user_c]["recommendationReasons"]
+    )
+    assert by_id[user_d]["recommendationCategory"] == "professional_network"
+    assert by_id[user_d]["relationshipType"] == "Advisor relationship"
+    assert by_id[user_d]["profileHeadline"] == "Retirement planning specialist"
+    assert by_id[user_f]["recommendationCategory"] == "professional_network"
+    assert any(
+        reason["code"] == "shared_marketplace_categories"
+        for reason in by_id[user_f]["recommendationReasons"]
+    )
+    assert by_id[user_g]["recommendationCategory"] == "trusted_circle"
+    assert any(
+        reason["code"] == "prior_consent_relationship"
+        for reason in by_id[user_g]["recommendationReasons"]
+    )
+    assert any(
+        reason["code"] == "organization_membership"
+        for reason in by_id[user_g]["recommendationReasons"]
+    )
+    assert any(
+        reason["code"] == "mutual_kai_relationship"
+        for reason in by_id[user_g]["recommendationReasons"]
+    )
+    assert by_id[user_e]["recommendationCategory"] == "needs_setup"
+    assert by_id[user_e]["canReceiveLocation"] is False
+
+    ranks = [recipient["recommendationRank"] for recipient in recipients]
+    assert ranks == sorted(ranks)
+    encoded = json.dumps(recipients, default=str)
+    assert "latitude" not in encoded
+    assert "longitude" not in encoded
+    assert "15550100002" not in encoded
+    assert "Can you share your location?" not in encoded
+    assert "attr.financial" not in encoded
+    assert "private" not in encoded
+
+
 def test_terminal_location_work_is_deleted_after_twelve_hour_retention() -> None:
     service = FourUserMemoryService()
     now = datetime.now(timezone.utc)
@@ -1003,6 +1328,75 @@ def test_four_user_location_workflow_contract() -> None:
     )
     assert "latitude" not in serialized_state
     assert "longitude" not in serialized_state
+
+
+def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
+    service = FourUserMemoryService()
+
+    for user_id in ("user_a", "user_b", "user_c"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+    )
+    service.store_encrypted_envelope(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        envelope=encrypted_envelope("key-user_b", "ciphertext-for-b"),
+    )
+    service.view_latest_envelope(recipient_user_id="user_b", grant_id=grant["id"])
+    service.request_access(
+        requester_user_id="user_c",
+        owner_user_id="user_a",
+        message="Can you share?",
+    )
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    service.submit_public_invite_request(
+        public_token=created["publicToken"],
+        visitor_display_name="User B",
+        phone_number="+1 555 010 0002",
+    )
+
+    activity = service.list_activity(user_id="user_a", range_key="30d")
+
+    assert activity["range"] == "30d"
+    assert activity["summary"]["sharedWithCount"] == 1
+    assert activity["summary"]["activeShareCount"] == 1
+    assert activity["summary"]["requestsReceivedCount"] >= 1
+    assert activity["summary"]["viewsCount"] == 1
+    assert activity["summary"]["publicLinkCount"] == 1
+    assert activity["summary"]["publicResponseCount"] == 1
+    titles = {event["title"] for event in activity["events"]}
+    assert "Shared with User B" in titles
+    assert "Viewed by User B" in titles
+    assert "Request from User C" in titles
+    assert "Request link created" in titles
+    assert "Response from User B" in titles
+
+    def without_timestamps(value):
+        if isinstance(value, dict):
+            return {
+                key: without_timestamps(item)
+                for key, item in value.items()
+                if not key.lower().endswith("at")
+            }
+        if isinstance(value, list):
+            return [without_timestamps(item) for item in value]
+        return value
+
+    serialized = json.dumps(without_timestamps(activity), default=str)
+    assert "ciphertext" not in serialized
+    assert "latitude" not in serialized
+    assert "longitude" not in serialized
+    assert "0100002" not in serialized
+    assert "0002" not in serialized
 
 
 def test_public_invite_is_request_only_and_token_hash_only() -> None:
