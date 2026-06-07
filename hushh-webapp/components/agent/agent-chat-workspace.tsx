@@ -13,9 +13,15 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Bot,
+  Check,
+  Copy,
   Menu,
   Mic,
+  RotateCcw,
   Send,
+  Sparkles,
+  ThumbsDown,
+  ThumbsUp,
   UserRound,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -119,6 +125,11 @@ type AgentVoiceTranscriptReview = {
 };
 
 type AgentTurnSource = "typed" | "voice";
+type AgentRunTurnOptions = {
+  source: AgentTurnSource;
+  appendUserMessage?: boolean;
+  replaceAssistantMessageId?: string | null;
+};
 
 export type AgentChatWorkspaceVariant = "page" | "popover";
 
@@ -133,6 +144,11 @@ type AgentChatWorkspaceProps = {
 const AGENT_GREETING =
   "Hey, I'm Agent. Ask me about markets, your portfolio, Kai analysis, or consent workflows.";
 const AGENT_GREETING_TIMESTAMP = "Just now";
+const AGENT_WELCOME_PROMPTS = [
+  "Review my portfolio",
+  "Save a PKM memory",
+  "Explain consent flows",
+] as const;
 
 const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   text: "",
@@ -186,6 +202,77 @@ function createGreetingMessage(): AgentMessage {
     timestamp: AGENT_GREETING_TIMESTAMP,
     status: "done",
   };
+}
+
+function formatAgentDisplayName(displayName?: string | null, email?: string | null): string {
+  const rawName = displayName?.trim() || email?.split("@")[0]?.trim() || "";
+  const firstName = rawName
+    .replace(/[._-]+/g, " ")
+    .split(/\s+/)
+    .find(Boolean);
+  if (!firstName) return "there";
+  return firstName.charAt(0).toUpperCase() + firstName.slice(1);
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
+function AgentWelcomePanel({
+  name,
+  disabled,
+  onPromptSelect,
+}: {
+  name: string;
+  disabled: boolean;
+  onPromptSelect: (prompt: string) => void;
+}) {
+  return (
+    <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-6 sm:py-10">
+      <div className="mx-auto w-full max-w-2xl">
+        <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-zinc-400">
+          <Sparkles className="h-3.5 w-3.5 text-primary" />
+          Kai workspace
+        </div>
+        <h2 className="text-4xl font-semibold tracking-normal text-zinc-50 sm:text-5xl">
+          Hi {name}
+        </h2>
+        <p className="mt-3 max-w-xl text-base leading-7 text-zinc-400 sm:text-lg">
+          Ask Agent about your markets, portfolio, memories, or Hushh workflows.
+        </p>
+        <div className="mt-8 grid gap-3 sm:grid-cols-3">
+          {AGENT_WELCOME_PROMPTS.map((prompt) => (
+            <button
+              key={prompt}
+              type="button"
+              disabled={disabled}
+              onClick={() => onPromptSelect(prompt)}
+              className="group min-h-24 rounded-xl border border-white/10 bg-white/[0.035] p-4 text-left text-sm font-medium text-zinc-200 transition hover:border-primary/40 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span className="block leading-5">{prompt}</span>
+              <span className="mt-4 block h-px w-10 bg-primary/50 transition group-hover:w-14" />
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function AgentMarkdown({ text }: { text: string }) {
@@ -365,13 +452,36 @@ function AgentThinkingDots() {
   );
 }
 
-function AgentBubble({ message }: { message: AgentMessage }) {
+function AgentBubble({
+  message,
+  onRetry,
+  retryDisabled = false,
+}: {
+  message: AgentMessage;
+  onRetry?: () => void;
+  retryDisabled?: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [liked, setLiked] = useState(false);
+  const [disliked, setDisliked] = useState(false);
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
   const animated = useAnimatedAssistantText(message.text, !isUser && isStreaming);
   const assistantText = isUser ? message.text : animated.displayedText;
   const showStreamingAffordance = !isUser && animated.isAnimating;
+  const showResponseActions =
+    !isUser && !message.ephemeral && !isStreaming && assistantText.trim().length > 0;
+
+  const handleCopy = async () => {
+    try {
+      await copyTextToClipboard(message.text || assistantText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      toast.error("Could not copy response.");
+    }
+  };
 
   return (
     <div
@@ -418,9 +528,78 @@ function AgentBubble({ message }: { message: AgentMessage }) {
             />
           ) : null}
         </div>
-        <p className={cn("mt-1 text-[11px] text-zinc-500", isUser && "text-right")}>
-          {message.timestamp}
-        </p>
+        <div
+          className={cn(
+            "mt-1 flex items-center gap-2 text-[11px] text-zinc-500",
+            isUser && "justify-end text-right"
+          )}
+        >
+          <span>{message.timestamp}</span>
+          {showResponseActions ? (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-zinc-500 transition hover:border-white/10 hover:bg-white/[0.06] hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                aria-label={copied ? "Response copied" : "Copy response"}
+                title={copied ? "Copied" : "Copy response"}
+              >
+                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextLiked = !liked;
+                  setLiked(nextLiked);
+                  if (nextLiked) setDisliked(false);
+                }}
+                className={cn(
+                  "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+                  liked
+                    ? "border-white/15 bg-zinc-800 text-zinc-100"
+                    : "border-transparent text-zinc-500 hover:border-white/10 hover:bg-white/[0.06] hover:text-zinc-200"
+                )}
+                aria-label="Like response"
+                aria-pressed={liked}
+                title="Like response"
+              >
+                <ThumbsUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextDisliked = !disliked;
+                  setDisliked(nextDisliked);
+                  if (nextDisliked) setLiked(false);
+                }}
+                className={cn(
+                  "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+                  disliked
+                    ? "border-white/15 bg-zinc-800 text-zinc-100"
+                    : "border-transparent text-zinc-500 hover:border-white/10 hover:bg-white/[0.06] hover:text-zinc-200"
+                )}
+                aria-label="Dislike response"
+                aria-pressed={disliked}
+                title="Dislike response"
+              >
+                <ThumbsDown className="h-3.5 w-3.5" />
+              </button>
+              {onRetry ? (
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  disabled={retryDisabled}
+                  className="ml-1 inline-flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium text-zinc-500 transition hover:border-white/10 hover:bg-white/[0.06] hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-45"
+                  aria-label="Try again"
+                  title="Try again"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Try again</span>
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
       {isUser ? (
         <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-white/10 bg-white/[0.04] text-zinc-400 sm:grid">
@@ -1187,7 +1366,7 @@ export function AgentChatWorkspace({
 
   const runAgentTurn = async (
     textInput: string,
-    options: { source: AgentTurnSource } = { source: "typed" }
+    options: AgentRunTurnOptions = { source: "typed" }
   ) => {
     const text = textInput.trim();
     if (!text || !hasChatAccess || !user?.uid) return;
@@ -1195,6 +1374,8 @@ export function AgentChatWorkspace({
     const userId = user.uid;
     const token = getVaultOwnerToken();
     const isVoiceTurn = options.source === "voice";
+    const appendUserMessage = options.appendUserMessage ?? true;
+    const voiceTurnEpoch = isVoiceTurn ? voiceSessionEpochRef.current : null;
     let voiceAssistantMarkdown = "";
     let voiceReceiptSpoken = false;
     const timestamp = formatNow();
@@ -1224,10 +1405,7 @@ export function AgentChatWorkspace({
             return;
           }
           voiceTtsSpeakingRef.current = false;
-          voiceClientRef.current?.setCapturePaused(false);
-          if (voiceClientRef.current?.isActive) {
-            setAgentVoiceStatus(voiceClientRef.current.isMuted ? "muted" : "listening");
-          }
+          resumeAgentVoiceCapture(voiceTurnEpoch);
         },
         onError: (failure) => {
           console.warn("[Agent voice] TTS failure", failure);
@@ -1683,23 +1861,33 @@ export function AgentChatWorkspace({
       }
     };
 
-    setMessages((current) => [
-      ...current,
-      {
-        id: `msg-${turnId}-user`,
-        role: "user",
-        text,
-        timestamp,
-      },
-      {
-        id: assistantMessageId,
-        role: "assistant",
-        text: "",
-        timestamp,
-        status: "streaming",
-      },
-    ]);
-    if (options.source === "typed") {
+    const userMessage: AgentMessage = {
+      id: `msg-${turnId}-user`,
+      role: "user",
+      text,
+      timestamp,
+    };
+    const assistantMessage: AgentMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      text: "",
+      timestamp,
+      status: "streaming",
+    };
+
+    setMessages((current) => {
+      if (options.replaceAssistantMessageId) {
+        let replaced = false;
+        const nextMessages = current.map((message) => {
+          if (message.id !== options.replaceAssistantMessageId) return message;
+          replaced = true;
+          return assistantMessage;
+        });
+        if (replaced) return nextMessages;
+      }
+      return [...current, ...(appendUserMessage ? [userMessage] : []), assistantMessage];
+    });
+    if (options.source === "typed" && appendUserMessage) {
       setInput("");
     }
     latestVisibleTurnIdRef.current = debugTurnId;
@@ -1907,6 +2095,7 @@ export function AgentChatWorkspace({
             flushAssistantDelta();
             if (isVoiceTurn) {
               voiceTtsQueueRef.current?.flushStream();
+              scheduleAgentVoiceCaptureResume(voiceTurnEpoch);
             }
             if (nextConversationId) {
               setConversationId(nextConversationId);
@@ -1947,6 +2136,7 @@ export function AgentChatWorkspace({
       flushAssistantDelta();
       if (isVoiceTurn) {
         voiceTtsQueueRef.current?.flushStream();
+        scheduleAgentVoiceCaptureResume(voiceTurnEpoch);
       }
       updateMessage(assistantMessageId, (message) => {
         if (message.status === "error") return message;
@@ -1997,6 +2187,9 @@ export function AgentChatWorkspace({
       if (streamAbortControllerRef.current === streamAbortController) {
         streamAbortControllerRef.current = null;
       }
+      if (isVoiceTurn) {
+        scheduleAgentVoiceCaptureResume(voiceTurnEpoch);
+      }
     }
   };
 
@@ -2005,10 +2198,25 @@ export function AgentChatWorkspace({
     await runAgentTurn(input, { source: "typed" });
   };
 
-  const setAgentVoiceStatus = (status: AgentVoiceStatus, message?: string | null) => {
+  function setAgentVoiceStatus(status: AgentVoiceStatus, message?: string | null) {
     setVoiceState(status);
     setGlobalVoiceStatus(status, message ?? null);
-  };
+  }
+
+  function resumeAgentVoiceCapture(expectedEpoch?: number | null) {
+    if (expectedEpoch !== undefined && expectedEpoch !== null) {
+      if (expectedEpoch !== voiceSessionEpochRef.current) return;
+    }
+    const client = voiceClientRef.current;
+    if (!client?.isActive || voiceTtsSpeakingRef.current) return;
+    if (voiceTtsQueueRef.current?.hasPendingSpeech) return;
+    client.setCapturePaused(false);
+    setAgentVoiceStatus(client.isMuted ? "muted" : "listening");
+  }
+
+  function scheduleAgentVoiceCaptureResume(expectedEpoch?: number | null) {
+    window.setTimeout(() => resumeAgentVoiceCapture(expectedEpoch), 0);
+  }
 
   const handleCancelVoice = useCallback(async () => {
     voiceSessionEpochRef.current += 1;
@@ -2031,6 +2239,7 @@ export function AgentChatWorkspace({
     if (!voiceClientRef.current?.isActive) return;
     void runAgentTurn(transcript, { source: "voice" }).finally(() => {
       voiceClientRef.current?.setMuted(false);
+      resumeAgentVoiceCapture();
     });
   };
 
@@ -2160,15 +2369,11 @@ export function AgentChatWorkspace({
                   .finally(() => {
                     if (
                       voiceSessionEpoch !== voiceSessionEpochRef.current ||
-                      !voiceClientRef.current?.isActive ||
-                      voiceTtsSpeakingRef.current
+                      !voiceClientRef.current?.isActive
                     ) {
                       return;
                     }
-                    voiceClientRef.current.setCapturePaused(false);
-                    setAgentVoiceStatus(
-                      voiceClientRef.current.isMuted ? "muted" : "listening"
-                    );
+                    resumeAgentVoiceCapture(voiceSessionEpoch);
                   });
               },
               requestReview: (transcript, reason) => {
@@ -2247,6 +2452,46 @@ export function AgentChatWorkspace({
       : !isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh
         ? "Unlock your vault to use Agent."
         : null;
+  const displayName = useMemo(
+    () => formatAgentDisplayName(user?.displayName, user?.email),
+    [user?.displayName, user?.email]
+  );
+  const hasStartedConversation = messages.some((message) => message.id !== "agent-greeting");
+  const visibleMessages = messages.filter((message) => message.id !== "agent-greeting");
+  const latestRetryableAssistantId =
+    [...visibleMessages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          !message.ephemeral &&
+          message.status !== "streaming" &&
+          message.text.trim().length > 0
+      )?.id ?? null;
+  const handleRetryAssistantResponse = (messageId: string) => {
+    if (isChatLoading || isStreaming) return;
+    const assistantIndex = messages.findIndex((message) => message.id === messageId);
+    if (assistantIndex < 0) return;
+    const previousUserMessage = [...messages.slice(0, assistantIndex)]
+      .reverse()
+      .find((message) => message.role === "user" && message.text.trim().length > 0);
+    const retryText = previousUserMessage?.text.trim();
+    if (!retryText) {
+      toast.error("No previous message found to retry.");
+      return;
+    }
+    setPkmReviews([]);
+    setPkmActivity([]);
+    void runAgentTurn(retryText, {
+      source: "typed",
+      appendUserMessage: false,
+      replaceAssistantMessageId: messageId,
+    });
+  };
+  const handleWelcomePromptSelect = useCallback((prompt: string) => {
+    setInput(prompt);
+    window.setTimeout(() => composerTextareaRef.current?.focus(), 0);
+  }, []);
   const swipeStartYRef = useRef<number | null>(null);
   const handleHeaderPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!onMinimize || event.pointerType === "mouse") return;
@@ -2390,8 +2635,25 @@ export function AgentChatWorkspace({
                 </div>
               ) : null}
 
-              {messages.map((message) => (
-                <AgentBubble key={message.id} message={message} />
+              {!accessMessage && !hasStartedConversation ? (
+                <AgentWelcomePanel
+                  name={displayName}
+                  disabled={!hasChatAccess || isChatLoading || isStreaming}
+                  onPromptSelect={handleWelcomePromptSelect}
+                />
+              ) : null}
+
+              {visibleMessages.map((message) => (
+                <AgentBubble
+                  key={message.id}
+                  message={message}
+                  retryDisabled={isChatLoading || isStreaming}
+                  onRetry={
+                    message.id === latestRetryableAssistantId
+                      ? () => handleRetryAssistantResponse(message.id)
+                      : undefined
+                  }
+                />
               ))}
 
               {pkmActivity.map((item) => (

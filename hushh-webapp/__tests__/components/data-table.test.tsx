@@ -87,7 +87,7 @@ describe("DataTable", () => {
       />
     );
 
-    const searchInput = screen.getByRole("textbox", {
+    const searchInput = screen.getByRole("searchbox", {
       name: "Search table",
     });
 

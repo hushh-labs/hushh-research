@@ -740,6 +740,7 @@ function AccessWorkspace({
                     <InputGroup>
                       <InputGroupInput
                         id="developer-website-url"
+                        type="url"
                         value={profileDraft.website_url}
                         onChange={(event) => onProfileDraftChange("website_url", event.target.value)}
                         placeholder="https://example.com"
@@ -754,6 +755,7 @@ function AccessWorkspace({
                     <InputGroup>
                       <InputGroupInput
                         id="developer-brand-image-url"
+                        type="url"
                         value={profileDraft.brand_image_url}
                         onChange={(event) =>
                           onProfileDraftChange("brand_image_url", event.target.value)
@@ -768,6 +770,7 @@ function AccessWorkspace({
                     <InputGroup>
                       <InputGroupInput
                         id="developer-support-url"
+                        type="url"
                         value={profileDraft.support_url}
                         onChange={(event) => onProfileDraftChange("support_url", event.target.value)}
                         placeholder="https://example.com/support"
@@ -782,6 +785,7 @@ function AccessWorkspace({
                     <InputGroup>
                       <InputGroupInput
                         id="developer-policy-url"
+                        type="url"
                         value={profileDraft.policy_url}
                         onChange={(event) => onProfileDraftChange("policy_url", event.target.value)}
                         placeholder="https://example.com/privacy"
