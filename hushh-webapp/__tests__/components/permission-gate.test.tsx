@@ -62,4 +62,27 @@ describe("PermissionGate", () => {
       "/consents"
     );
   });
+  it("keeps the consent review route canonical without query parameters", () => {
+    mockUseVault.mockReturnValue({
+      isVaultUnlocked: false,
+      vaultOwnerToken: null,
+    });
+
+    render(
+      <PermissionGate permission="portfolio_valuation">
+        <button type="button">Launch portfolio</button>
+      </PermissionGate>
+    );
+
+    const reviewLink = screen.getByRole("link", {
+      name: "Review permissions",
+    });
+
+    const href = reviewLink.getAttribute("href");
+
+    expect(href).toBe("/consents");
+    expect(href).not.toContain("?");
+    expect(href).not.toContain("redirect=");
+    expect(href).not.toContain("returnTo=");
+  });
 });
