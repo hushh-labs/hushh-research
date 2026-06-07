@@ -89,6 +89,36 @@ describe("agent voice TTS", () => {
     await vi.waitFor(() => expect(playAudio).toHaveBeenCalledTimes(1));
   });
 
+  it("reports pending speech while a chunk is queued or playing", async () => {
+    let resolveSynthesize: (() => void) | null = null;
+    const synthesize = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveSynthesize = () =>
+            resolve(
+              new Response(new Blob(["audio"], { type: "audio/wav" }), {
+                status: 200,
+                headers: { "Content-Type": "audio/wav" },
+              })
+            );
+        })
+    );
+    const playAudio = vi.fn().mockResolvedValue(undefined);
+    const queue = new AgentTtsQueue({
+      userId: "user-1",
+      vaultOwnerToken: "vault-token",
+      synthesize,
+      playAudio,
+    });
+
+    queue.speakNow("Keep the mic paused until this finishes.");
+
+    expect(queue.hasPendingSpeech).toBe(true);
+    resolveSynthesize?.();
+    await vi.waitFor(() => expect(playAudio).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(queue.hasPendingSpeech).toBe(false));
+  });
+
   it("uses browser speech fallback when backend TTS does not return audio", async () => {
     const synthesize = vi.fn().mockResolvedValue(new Response("unavailable", { status: 503 }));
     const playAudio = vi.fn().mockResolvedValue(undefined);

@@ -235,6 +235,10 @@ export class AgentTtsQueue {
     this.maxAttempts = Math.max(1, options.maxAttempts || DEFAULT_TTS_MAX_ATTEMPTS);
   }
 
+  get hasPendingSpeech(): boolean {
+    return this.draining || this.queue.length > 0 || this.sentenceBuffer.trim().length > 0;
+  }
+
   resetStream(): void {
     this.streamMarkdown = "";
     this.emittedSpeechChars = 0;

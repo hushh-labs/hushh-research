@@ -11,7 +11,7 @@ import hmac
 import os
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
@@ -145,6 +145,22 @@ def _require_retention_auth(request: Request) -> None:
 async def get_location_state(token_data: dict = Depends(require_vault_owner_token)):
     try:
         return _service().list_state(user_id=_user_id(token_data))
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/activity")
+async def get_location_activity(
+    range_key: str = Query(default="30d", alias="range", pattern="^(7d|30d|90d|all)$"),
+    limit: int = Query(default=40, ge=1, le=100),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return _service().list_activity(
+            user_id=_user_id(token_data),
+            range_key=range_key,
+            limit=limit,
+        )
     except Exception as exc:
         raise _handle_error(exc) from exc
 
