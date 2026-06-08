@@ -250,6 +250,7 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				A11C0A730000000000000001 /* Verify Native Backend */,
 			);
 			buildRules = (
 			);
@@ -358,6 +359,30 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A11C0A730000000000000001 /* Verify Native Backend */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/App/capacitor.config.json",
+				"$(SRCROOT)/../../scripts/native/verify-ios-bundled-backend.sh",
+			);
+			name = "Verify Native Backend";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"${CONFIGURATION}\" = \"Release\" ] && [ \"${PLATFORM_NAME}\" = \"iphoneos\" ]; then\n  \"${SRCROOT}/../../scripts/native/verify-ios-bundled-backend.sh\" \"${SRCROOT}/App/capacitor.config.json\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		4A8D9E89A516B1CFD35056B9 /* Sources */ = {

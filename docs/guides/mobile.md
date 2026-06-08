@@ -833,10 +833,14 @@ Local verification:
 ```bash
 cd hushh-webapp
 npm run typecheck
-npm run cap:build
-npm run cap:sync:ios
 npm run ios:test
 ```
+
+`ios:test` runs `ios:prepare:uat` before building so simulator validation uses
+the same UAT backend target as the archive path. `ios:prepare:uat` loads the
+maintainer-only UAT profile, regenerates the static web bundle, syncs Capacitor
+iOS, and verifies that the generated native `capacitor.config.json` is not
+pointing at localhost.
 
 Run the connected-device UI lane before archiving when native permissions,
 contacts, vault unlock, or role sync behavior changed:
@@ -848,9 +852,24 @@ npm run ios:device:ui:test
 
 Archive and upload:
 
+- Immediately before creating the Xcode archive, rerun:
+  ```bash
+  cd hushh-webapp
+  npm run ios:prepare:uat
+  ```
+  This is intentionally repeated because any later generic `cap:sync:ios` can
+  replace the ignored generated native config. Xcode Release archives for
+  physical iPhoneOS also run a build-phase guard that blocks archives when the
+  bundled native plugin backend is local.
 - In Xcode, archive the app and use Organizer distribution with
   `TestFlight & App Store` / App Store Connect upload, including symbols. Apple
   documents this flow in [Distributing your app for beta testing and releases][apple-xcode-distribution].
+- Before distributing the archive, verify or repair embedded Firebase/Google
+  framework dSYM bundles:
+  ```bash
+  cd hushh-webapp
+  npm run ios:verify-archive-symbols -- --repair "<path-to.xcarchive>"
+  ```
 - Wait for App Store Connect processing; Apple notes that uploaded builds must
   be processed before they appear for selection in [Upload builds][apple-upload-builds].
 

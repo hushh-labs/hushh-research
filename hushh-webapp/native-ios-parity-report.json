@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-07T03:11:27.689Z",
+  "generated_at": "2026-06-08T09:19:54.473Z",
   "destination": "platform=iOS Simulator,id=9C5B1D61-028C-474A-BDFC-523BACC3B02C",
   "screenshot_dir": "native-ios-screenshots",
   "audited_routes": 36,
@@ -35,14 +35,14 @@
         "routeok": "1",
         "test": "1",
         "auto": "0",
-        "bridge": "0",
+        "bridge": "1",
         "uirunner": "1",
         "runui": "0",
         "uistarted": "0",
         "uifailed": "0",
         "uiboot": "0",
-        "persona": "",
-        "primary_persona": "",
+        "persona": "investor",
+        "primary_persona": "investor",
         "persona_switch": "",
         "persona_error": "",
         "portfolio_start_state": "",
@@ -62,7 +62,8 @@
         "bootstrap": "",
         "bootstrap_uid": "",
         "bootstrap_error": "",
-        "jserr": "",
+        "jserr": "<redacted>",
+        " visit https://react.dev/errors/418?args[]": "HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.",
         "jsrej": "",
         "body": "<redacted>",
         "visible404": "0",
@@ -74,7 +75,7 @@
         "ui_error": "",
         "error": ""
       },
-      "raw": "route=/;ready=1;marker=native-route-home;auth=anonymous;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=0;bridge=0;uirunner=1;runui=0;uistarted=0;uifailed=0;uiboot=0;persona=;primary_persona=;persona_switch=;persona_error=;portfolio_start_state=;portfolio_start_status=;portfolio_start_run=;portfolio_start_error=;portfolio_stream_state=;portfolio_stream_run=;portfolio_events=0;portfolio_last_event=;portfolio_last_seq=;portfolio_stream_error=;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=;bootstrap_uid=;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;ui_complete=0;ui_ok=0;ui_flow=;ui_step=;ui_step_type=;ui_error=;error="
+      "raw": "route=/;ready=1;marker=native-route-home;auth=anonymous;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=0;bridge=1;uirunner=1;runui=0;uistarted=0;uifailed=0;uiboot=0;persona=investor;primary_persona=investor;persona_switch=;persona_error=;portfolio_start_state=;portfolio_start_status=;portfolio_start_run=;portfolio_start_error=;portfolio_stream_state=;portfolio_stream_run=;portfolio_events=0;portfolio_last_event=;portfolio_last_seq=;portfolio_stream_error=;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=;bootstrap_uid=;bootstrap_error=;jserr=<redacted>; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.;jsrej=;body=<redacted>;visible404=0;ui_complete=0;ui_ok=0;ui_flow=;ui_step=;ui_step_type=;ui_error=;error="
     },
     {
       "route": "/register-phone",
@@ -104,7 +105,7 @@
         "routeok": "1",
         "test": "1",
         "auto": "1",
-        "bridge": "1",
+        "bridge": "0",
         "uirunner": "1",
         "runui": "0",
         "uistarted": "0",
@@ -112,7 +113,7 @@
         "uiboot": "0",
         "persona": "investor",
         "primary_persona": "investor",
-        "persona_switch": "",
+        "persona_switch": "ok:investor",
         "persona_error": "",
         "portfolio_start_state": "",
         "portfolio_start_status": "",
@@ -144,7 +145,7 @@
         "ui_error": "",
         "error": ""
       },
-      "raw": "route=/kai/;ready=1;marker=native-route-kai-home;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;uirunner=1;runui=0;uistarted=0;uifailed=0;uiboot=0;persona=investor;primary_persona=investor;persona_switch=;persona_error=;portfolio_start_state=;portfolio_start_status=;portfolio_start_run=;portfolio_start_error=;portfolio_stream_state=;portfolio_stream_run=;portfolio_events=0;portfolio_last_event=;portfolio_last_seq=;portfolio_stream_error=;trigger=1;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=<redacted>; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.;jsrej=;body=<redacted>;visible404=0;ui_complete=0;ui_ok=0;ui_flow=;ui_step=;ui_step_type=;ui_error=;error="
+      "raw": "route=/kai/;ready=1;marker=native-route-kai-home;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=0;uirunner=1;runui=0;uistarted=0;uifailed=0;uiboot=0;persona=investor;primary_persona=investor;persona_switch=ok:investor;persona_error=;portfolio_start_state=;portfolio_start_status=;portfolio_start_run=;portfolio_start_error=;portfolio_stream_state=;portfolio_stream_run=;portfolio_events=0;portfolio_last_event=;portfolio_last_seq=;portfolio_stream_error=;trigger=1;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=<redacted>; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.;jsrej=;body=<redacted>;visible404=0;ui_complete=0;ui_ok=0;ui_flow=;ui_step=;ui_step_type=;ui_error=;error="
     },
     {
       "route": "/kai",
@@ -182,7 +183,7 @@
         "uiboot": "0",
         "persona": "investor",
         "primary_persona": "investor",
-        "persona_switch": "",
+        "persona_switch": "ok:investor",
         "persona_error": "",
         "portfolio_start_state": "",
         "portfolio_start_status": "",
@@ -214,7 +215,7 @@
         "ui_error": "",
         "error": ""
       },
-      "raw": "route=/kai/;ready=1;marker=native-route-kai-home;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;uirunner=1;runui=0;uistarted=0;uifailed=0;uiboot=0;persona=investor;primary_persona=investor;persona_switch=;persona_error=;portfolio_start_state=;portfolio_start_status=;portfolio_start_run=;portfolio_start_error=;portfolio_stream_state=;portfolio_stream_run=;portfolio_events=0;portfolio_last_event=;portfolio_last_seq=;portfolio_stream_error=;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=<redacted>; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.;jsrej=;body=<redacted>;visible404=0;ui_complete=0;ui_ok=0;ui_flow=;ui_step=;ui_step_type=;ui_error=;error="
+      "raw": "route=/kai/;ready=1;marker=native-route-kai-home;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;uirunner=1;runui=0;uistarted=0;uifailed=0;uiboot=0;persona=investor;primary_persona=investor;persona_switch=ok:investor;persona_error=;portfolio_start_state=;portfolio_start_status=;portfolio_start_run=;portfolio_start_error=;portfolio_stream_state=;portfolio_stream_run=;portfolio_events=0;portfolio_last_event=;portfolio_last_seq=;portfolio_stream_error=;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=<redacted>; visit https://react.dev/errors/418?args[]=HTML&args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.;jsrej=;body=<redacted>;visible404=0;ui_complete=0;ui_ok=0;ui_flow=;ui_step=;ui_step_type=;ui_error=;error="
     },
     {
       "route": "/kai/analysis",
@@ -314,7 +315,7 @@
         "routeok": "1",
         "test": "1",
         "auto": "1",
-        "bridge": "0",
+        "bridge": "1",
         "uirunner": "1",
         "runui": "0",
         "uistarted": "0",
@@ -353,7 +354,7 @@
         "ui_error": "",
         "error": ""
       },
-      "raw": "route=/kai/portfolio/;ready=1;marker=native-route-kai-portfolio;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=0;uirunner=1;runui=0;uistarted=0;uifailed=0;uiboot=0;persona=investor;primary_persona=investor;persona_switch=;persona_error=;portfolio_start_state=;portfolio_start_status=;portfolio_start_run=;portfolio_start_error=;portfolio_stream_state=;portfolio_stream_run=;portfolio_events=0;portfolio_last_event=;portfolio_last_seq=;portfolio_stream_error=;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;ui_complete=0;ui_ok=0;ui_flow=;ui_step=;ui_step_type=;ui_error=;error="
+      "raw": "route=/kai/portfolio/;ready=1;marker=native-route-kai-portfolio;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;uirunner=1;runui=0;uistarted=0;uifailed=0;uiboot=0;persona=investor;primary_persona=investor;persona_switch=;persona_error=;portfolio_start_state=;portfolio_start_status=;portfolio_start_run=;portfolio_start_error=;portfolio_stream_state=;portfolio_stream_run=;portfolio_events=0;portfolio_last_event=;portfolio_last_seq=;portfolio_stream_error=;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;ui_complete=0;ui_ok=0;ui_flow=;ui_step=;ui_step_type=;ui_error=;error="
     },
     {
       "route": "/kai/dashboard/analysis",
@@ -1928,8 +1929,8 @@
         "uistarted": "0",
         "uifailed": "0",
         "uiboot": "0",
-        "persona": "ria",
-        "primary_persona": "ria",
+        "persona": "investor",
+        "primary_persona": "investor",
         "persona_switch": "",
         "persona_error": "",
         "portfolio_start_state": "",
@@ -1961,7 +1962,7 @@
         "ui_error": "",
         "error": ""
       },
-      "raw": "route=/consents/;ready=1;marker=native-route-consents;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;uirunner=1;runui=0;uistarted=0;uifailed=0;uiboot=0;persona=ria;primary_persona=ria;persona_switch=;persona_error=;portfolio_start_state=;portfolio_start_status=;portfolio_start_run=;portfolio_start_error=;portfolio_stream_state=;portfolio_stream_run=;portfolio_events=0;portfolio_last_event=;portfolio_last_seq=;portfolio_stream_error=;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;ui_complete=0;ui_ok=0;ui_flow=;ui_step=;ui_step_type=;ui_error=;error="
+      "raw": "route=/consents/;ready=1;marker=native-route-consents;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;uirunner=1;runui=0;uistarted=0;uifailed=0;uiboot=0;persona=investor;primary_persona=investor;persona_switch=;persona_error=;portfolio_start_state=;portfolio_start_status=;portfolio_start_run=;portfolio_start_error=;portfolio_stream_state=;portfolio_stream_run=;portfolio_events=0;portfolio_last_event=;portfolio_last_seq=;portfolio_stream_error=;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;ui_complete=0;ui_ok=0;ui_flow=;ui_step=;ui_step_type=;ui_error=;error="
     },
     {
       "route": "/ria/settings",
@@ -1997,8 +1998,8 @@
         "uistarted": "0",
         "uifailed": "0",
         "uiboot": "0",
-        "persona": "ria",
-        "primary_persona": "ria",
+        "persona": "investor",
+        "primary_persona": "investor",
         "persona_switch": "",
         "persona_error": "",
         "portfolio_start_state": "",
@@ -2030,7 +2031,7 @@
         "ui_error": "",
         "error": ""
       },
-      "raw": "route=/profile/;ready=1;marker=native-route-profile;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;uirunner=1;runui=0;uistarted=0;uifailed=0;uiboot=0;persona=ria;primary_persona=ria;persona_switch=;persona_error=;portfolio_start_state=;portfolio_start_status=;portfolio_start_run=;portfolio_start_error=;portfolio_stream_state=;portfolio_stream_run=;portfolio_events=0;portfolio_last_event=;portfolio_last_seq=;portfolio_stream_error=;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;ui_complete=0;ui_ok=0;ui_flow=;ui_step=;ui_step_type=;ui_error=;error="
+      "raw": "route=/profile/;ready=1;marker=native-route-profile;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;uirunner=1;runui=0;uistarted=0;uifailed=0;uiboot=0;persona=investor;primary_persona=investor;persona_switch=;persona_error=;portfolio_start_state=;portfolio_start_status=;portfolio_start_run=;portfolio_start_error=;portfolio_stream_state=;portfolio_stream_run=;portfolio_events=0;portfolio_last_event=;portfolio_last_seq=;portfolio_stream_error=;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;ui_complete=0;ui_ok=0;ui_flow=;ui_step=;ui_step_type=;ui_error=;error="
     },
     {
       "route": "/ria/workspace",
@@ -2209,8 +2210,8 @@
         "uistarted": "0",
         "uifailed": "0",
         "uiboot": "0",
-        "persona": "ria",
-        "primary_persona": "ria",
+        "persona": "investor",
+        "primary_persona": "investor",
         "persona_switch": "",
         "persona_error": "",
         "portfolio_start_state": "",
@@ -2242,7 +2243,7 @@
         "ui_error": "",
         "error": ""
       },
-      "raw": "route=/consents/?tab=pending;ready=1;marker=native-route-consents;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;uirunner=1;runui=0;uistarted=0;uifailed=0;uiboot=0;persona=ria;primary_persona=ria;persona_switch=;persona_error=;portfolio_start_state=;portfolio_start_status=;portfolio_start_run=;portfolio_start_error=;portfolio_stream_state=;portfolio_stream_run=;portfolio_events=0;portfolio_last_event=;portfolio_last_seq=;portfolio_stream_error=;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;ui_complete=0;ui_ok=0;ui_flow=;ui_step=;ui_step_type=;ui_error=;error="
+      "raw": "route=/consents/?tab=pending;ready=1;marker=native-route-consents;auth=authenticated;data=loaded;doc=complete;found=1;routeok=1;test=1;auto=1;bridge=1;uirunner=1;runui=0;uistarted=0;uifailed=0;uiboot=0;persona=investor;primary_persona=investor;persona_switch=;persona_error=;portfolio_start_state=;portfolio_start_status=;portfolio_start_run=;portfolio_start_error=;portfolio_stream_state=;portfolio_stream_run=;portfolio_events=0;portfolio_last_event=;portfolio_last_seq=;portfolio_stream_error=;trigger=0;domtest=;domauto=;reviewer=0;bootstrap=vault_unlocked;bootstrap_uid=<redacted>;bootstrap_error=;jserr=;jsrej=;body=<redacted>;visible404=0;ui_complete=0;ui_ok=0;ui_flow=;ui_step=;ui_step_type=;ui_error=;error="
     },
     {
       "route": "/marketplace/connections/portfolio",
