@@ -142,7 +142,7 @@ function DomainCard({
             <span className="min-w-0 truncate">{domain.accessSummary}</span>
           </div>
         </div>
-        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5" />
+        <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5" />
       </div>
     </button>
   );
@@ -399,7 +399,7 @@ function ConnectionCard({
             <span className="min-w-0 truncate">{connection.domains.slice(0, 2).join(" · ")}</span>
           </div>
         </div>
-        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5" />
+        <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5" />
       </div>
     </button>
   );
