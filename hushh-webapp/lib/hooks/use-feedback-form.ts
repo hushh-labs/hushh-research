@@ -26,7 +26,7 @@ export const useFeedbackForm = create<FeedbackState>((set, get) => ({
   reset: () => set({ type: "bug", message: "", isSubmitting: false }),
   
   submitFeedback: async () => {
-    const { type, message } = get();
+    const { message } = get();
     
     if (!message.trim()) {
       toast.error("Please enter a message");
@@ -42,6 +42,7 @@ export const useFeedbackForm = create<FeedbackState>((set, get) => ({
       toast.success("Feedback submitted! Thank you.");
       set({ isOpen: false, message: "", type: "bug", isSubmitting: false });
     } catch (error) {
+      console.error("Feedback submission error:", error);
       toast.error("Failed to submit feedback. Please try again.");
       set({ isSubmitting: false });
     }
