@@ -87,6 +87,37 @@ describe("agent chat client", () => {
       conversationId: undefined,
       vaultOwnerToken: "vault-token",
       pkmContext: undefined,
+      runtimeCredential: undefined,
+      runtimeCredentialMode: undefined,
+      signal: undefined,
+    });
+  });
+
+  it("passes runtime credential fields through to the backend stream request", async () => {
+    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
+      sseResponse([
+        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-2.5-flash"}\n\n',
+        'event: complete\ndata: {"conversation_id":"conversation-1","model":"gemini-2.5-flash"}\n\n',
+      ])
+    );
+
+    await streamAgentChat({
+      userId: "user-1",
+      message: "Hello",
+      vaultOwnerToken: "vault-token",
+      pkmContext: "Saved domains: Financial",
+      runtimeCredential: "USER_BYOK_KEY",
+      runtimeCredentialMode: "byok",
+    });
+
+    expect(ApiService.streamAgentChat).toHaveBeenCalledWith({
+      userId: "user-1",
+      message: "Hello",
+      conversationId: undefined,
+      vaultOwnerToken: "vault-token",
+      pkmContext: "Saved domains: Financial",
+      runtimeCredential: "USER_BYOK_KEY",
+      runtimeCredentialMode: "byok",
       signal: undefined,
     });
   });
@@ -140,6 +171,34 @@ describe("agent chat client", () => {
     ).rejects.toThrow("Vault locked");
   });
 
+  it("formats runtime credential errors from backend JSON detail", async () => {
+    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail: {
+            code: "AGENT_RUNTIME_CREDENTIAL_MISSING",
+            message: "No runtime credential resolved for 'pkm:runtime_secrets.llm.gemini_api_key'.",
+          },
+        }),
+        {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+
+    await expect(
+      streamAgentChat({
+        userId: "user-1",
+        message: "Hello",
+        vaultOwnerToken: "vault-token",
+        runtimeCredentialMode: "byok",
+      })
+    ).rejects.toThrow(
+      "Kai needs your Gemini key. Add it in Profile > Runtime keys, or switch Kai to Hushh managed Gemini."
+    );
+  });
+
   it("throws streamed backend error events after notifying the handler", async () => {
     vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
       sseResponse([
@@ -161,6 +220,32 @@ describe("agent chat client", () => {
       })
     ).rejects.toThrow("Agent chat failed. Please try again.");
     expect(errors).toEqual(["Agent chat failed. Please try again."]);
+  });
+
+  it("formats streamed runtime provider errors", async () => {
+    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
+      sseResponse([
+        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-2.5-flash"}\n\n',
+        'event: error\ndata: {"code":"AGENT_RUNTIME_CREDENTIAL_INVALID","message":"Provider detail should not leak."}\n\n',
+      ])
+    );
+    const errors: string[] = [];
+
+    await expect(
+      streamAgentChat({
+        userId: "user-1",
+        message: "Hello",
+        vaultOwnerToken: "vault-token",
+        handlers: {
+          onError: (message) => errors.push(message),
+        },
+      })
+    ).rejects.toThrow(
+      "Your saved Gemini key could not be used. Update it in Profile > Runtime keys, or switch Kai to Hushh managed Gemini."
+    );
+    expect(errors).toEqual([
+      "Your saved Gemini key could not be used. Update it in Profile > Runtime keys, or switch Kai to Hushh managed Gemini.",
+    ]);
   });
 
   it("reads recent conversations and history", async () => {

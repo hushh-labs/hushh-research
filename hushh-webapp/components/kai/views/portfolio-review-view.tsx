@@ -1996,9 +1996,9 @@ export function PortfolioReviewView({
                       )}
                     >
                       {totalUnrealizedGainLoss >= 0 ? (
-                        <Icon icon={TrendingUp} size={12} className="mr-1.5" />
+                        <Icon icon={TrendingUp} size={12} className="mr-1.5" aria-hidden="true" />
                       ) : (
-                        <Icon icon={TrendingDown} size={12} className="mr-1.5" />
+                        <Icon icon={TrendingDown} size={12} className="mr-1.5" aria-hidden="true" />
                       )}
                       <span title={formatCurrency(totalUnrealizedGainLoss)}>
                         {formatCurrencyCompact(totalUnrealizedGainLoss)} unrealized
@@ -2061,15 +2061,16 @@ export function PortfolioReviewView({
 
 
             <div className="flex items-center gap-2">
-              <Icon icon={Building2} size="sm" />
+              <Icon icon={Building2} size="sm" aria-hidden="true" />
               Account Information
             </div>
           </AccordionTrigger>
           <AccordionContent>
             <div className="grid grid-cols-2 gap-4 pt-2">
               <div>
-                <Label className="text-xs">Account Holder</Label>
+                <Label htmlFor="account-holder" className="text-xs">Account Holder</Label>
                 <Input
+                  id="account-holder"
                   value={accountInfo.holder_name || ""}
                   onChange={(e) =>
                     setAccountInfo((prev) => ({
@@ -2083,8 +2084,9 @@ export function PortfolioReviewView({
                 />
               </div>
               <div>
-                <Label className="text-xs">Account Number</Label>
+                <Label htmlFor="account-number" className="text-xs">Account Number</Label>
                 <Input
+                  id="account-number"
                   value={accountInfo.account_number || ""}
                   onChange={(e) =>
                     setAccountInfo((prev) => ({
@@ -2098,8 +2100,9 @@ export function PortfolioReviewView({
                 />
               </div>
               <div>
-                <Label className="text-xs">Brokerage</Label>
+                <Label htmlFor="account-brokerage" className="text-xs">Brokerage</Label>
                 <Input
+                  id="account-brokerage"
                   value={accountInfo.brokerage || ""}
                   onChange={(e) =>
                     setAccountInfo((prev) => ({
@@ -2113,8 +2116,9 @@ export function PortfolioReviewView({
                 />
               </div>
               <div>
-                <Label className="text-xs">Account Type</Label>
+                <Label htmlFor="account-type" className="text-xs">Account Type</Label>
                 <Input
+                  id="account-type"
                   value={accountInfo.account_type || ""}
                   onChange={(e) =>
                     setAccountInfo((prev) => ({
@@ -2141,7 +2145,7 @@ export function PortfolioReviewView({
 
 
               <div className="flex items-center gap-2">
-                <Icon icon={PieChart} size="sm" />
+                <Icon icon={PieChart} size="sm" aria-hidden="true" />
                 Asset Allocation
               </div>
             </AccordionTrigger>
@@ -2230,7 +2234,7 @@ export function PortfolioReviewView({
 
 
               <div className="flex items-center gap-2">
-                <Icon icon={Wallet} size="sm" />
+                <Icon icon={Wallet} size="sm" aria-hidden="true" />
                 Income Summary
               </div>
             </AccordionTrigger>
@@ -2286,7 +2290,7 @@ export function PortfolioReviewView({
                   size="sm"
                   onClick={handleAddHolding}
                 >
-                  <Icon icon={Plus} size="sm" className="mr-1" />
+                  <Icon icon={Plus} size="sm" className="mr-1" aria-hidden="true" />
                   Add Holding
                 </MorphyButton>
               </div>
@@ -2410,7 +2414,7 @@ export function PortfolioReviewView({
                   {isBusySaving ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
-                    <Icon icon={Save} size="sm" className="mr-2" />
+                    <Icon icon={Save} size="sm" className="mr-2" aria-hidden="true" />
                   )}
                   {isBusySaving
                     ? hasVault === false

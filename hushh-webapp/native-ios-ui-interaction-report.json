@@ -1,0 +1,115 @@
+{
+  "generated_at": "2026-06-08T02:38:06.553Z",
+  "destination": "platform=iOS Simulator,id=9C5B1D61-028C-474A-BDFC-523BACC3B02C",
+  "flow_count": 1,
+  "passed_flows": 1,
+  "failed_flows": 0,
+  "ok": true,
+  "flows": [
+    "native-investor-kai-debate-preview-start"
+  ],
+  "report": {
+    "flows": [
+      {
+        "optional": false,
+        "ok": true,
+        "id": "native-investor-kai-debate-preview-start",
+        "failedStep": null,
+        "results": [
+          {
+            "step": 0,
+            "type": "ensure_persona",
+            "ok": true
+          },
+          {
+            "step": 1,
+            "type": "navigate_route",
+            "ok": true
+          },
+          {
+            "step": 2,
+            "type": "wait_beacon",
+            "ok": true
+          },
+          {
+            "step": 3,
+            "type": "wait_button",
+            "ok": true
+          },
+          {
+            "type": "click_button",
+            "step": 4,
+            "ok": true
+          },
+          {
+            "step": 5,
+            "type": "assert_no_text",
+            "ok": true
+          },
+          {
+            "step": 6,
+            "type": "assert_text",
+            "ok": true
+          }
+        ],
+        "description": "Investor analysis preview: select list source and start debate without active-run loop",
+        "route": "/kai/analysis?ticker=AAPL&pick_source=default"
+      }
+    ],
+    "completedAt": "2026-06-08T02:38:06.194Z",
+    "ok": true,
+    "startedAt": "2026-06-08T02:37:53.248Z"
+  },
+  "error": null,
+  "failure_screenshot": null,
+  "last_status": {
+    "route": "/kai/analysis/?focus=active&ticker=AAPL",
+    "ready": "1",
+    "marker": "",
+    "auth": "authenticated",
+    "data": "loaded",
+    "doc": "complete",
+    "found": "1",
+    "routeok": "1",
+    "test": "1",
+    "auto": "1",
+    "bridge": "1",
+    "uirunner": "1",
+    "runui": "1",
+    "uistarted": "1",
+    "uifailed": "0",
+    "uiboot": "0",
+    "persona": "investor",
+    "primary_persona": "investor",
+    "persona_switch": "ok:investor",
+    "persona_error": "",
+    "portfolio_start_state": "",
+    "portfolio_start_status": "",
+    "portfolio_start_run": "",
+    "portfolio_start_error": "",
+    "portfolio_stream_state": "",
+    "portfolio_stream_run": "",
+    "portfolio_events": "0",
+    "portfolio_last_event": "",
+    "portfolio_last_seq": "",
+    "portfolio_stream_error": "",
+    "trigger": "1",
+    "domtest": "",
+    "domauto": "",
+    "reviewer": "0",
+    "bootstrap": "vault_unlocked",
+    "bootstrap_uid": "<redacted>",
+    "bootstrap_error": "",
+    "jserr": "",
+    "jsrej": "",
+    "body": "<redacted>",
+    "visible404": "0",
+    "ui_complete": "1",
+    "ui_ok": "1",
+    "ui_flow": "native-investor-kai-debate-preview-start",
+    "ui_step": "6",
+    "ui_step_type": "assert_text",
+    "ui_error": "",
+    "error": ""
+  }
+}

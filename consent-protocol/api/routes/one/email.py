@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/one", tags=["One Email KYC"])
 
 
 class WorkflowUserRequest(BaseModel):
-    user_id: str = Field(min_length=1)
+    user_id: str = Field(min_length=1, max_length=128)
 
 
 class ClientConnectorRequest(WorkflowUserRequest):

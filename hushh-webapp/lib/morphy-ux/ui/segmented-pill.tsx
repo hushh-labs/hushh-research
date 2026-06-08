@@ -142,8 +142,8 @@ export const SegmentedPill = React.forwardRef<HTMLDivElement, SegmentedPillProps
                 isActive
                   ? "text-foreground font-semibold"
                   : isAccent
-                    ? "text-primary/85 hover:text-primary"
-                    : "text-foreground/60 hover:text-foreground/80",
+                    ? "text-primary/85 segmented-pill-button-accent"
+                    : "text-foreground/60 segmented-pill-button-default",
                 isDisabled && "opacity-45"
               )}
             >

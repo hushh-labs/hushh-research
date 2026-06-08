@@ -1,6 +1,6 @@
 # api/routes/kai/__init__.py
 """
-Agent Kai API Routes — Modular Package
+Agent Kai API Routes - Modular Package
 
 This package organizes Kai routes into logical modules:
 - chat.py: Conversational chat endpoint with auto-learning
@@ -13,7 +13,8 @@ This package organizes Kai routes into logical modules:
 - support.py: Profile support and bug-report messaging via Gmail API
 - agent_chat.py: Gemini-backed Agent text chat with encrypted durable history
 - agent_realtime.py: Minimal OpenAI Realtime endpoint for the Agent chat and voice surface
-- location.py: KAI location sharing, public bearer links, access requests, and live updates
+- agent_voice.py: Gemini STT adapter for chained Agent voice mode
+- location.py: legacy prototype only; not mounted for product traffic
 
 All sub-routers are aggregated into `kai_router` for backward compatibility.
 """
@@ -22,13 +23,13 @@ from fastapi import APIRouter
 
 from .agent_chat import router as agent_chat_router
 from .agent_realtime import router as agent_realtime_router
+from .agent_voice import router as agent_voice_router
 from .analyze import router as analyze_router
 from .chat import router as chat_router
 from .consent import router as consent_router
 from .decisions import router as decisions_router
 from .gmail import router as gmail_router
 from .health import router as health_router
-from .location import router as location_router
 from .losers import router as losers_router
 from .market_insights import router as market_insights_router
 from .plaid import router as plaid_router
@@ -51,6 +52,8 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/agent/chat/stream",
     "/agent/chat/conversations/{user_id}",
     "/agent/chat/history/{conversation_id}",
+    "/agent/voice/stt",
+    "/agent/voice/tts",
     "/agent/realtime/session",
     "/consent/grant",
     "/analyze",
@@ -115,24 +118,13 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/market/insights/baseline/{user_id}",
     "/market/insights/{user_id}",
     "/stock-preview/{user_id}",
-    "/location/state",
-    "/location/contacts",
-    "/location/contacts/{contact_id}",
-    "/location/shares",
-    "/location/shares/{share_id}",
-    "/location/shares/stop-active",
-    "/location/access-requests/{request_id}/approve",
-    "/location/access-requests/{request_id}/deny",
-    "/location/update-sessions",
-    "/location/updates",
-    "/location/shared",
-    "/location/shared/access-request",
 ]
 
 # Include all sub-routers (no prefix since main router has /api/kai)
 kai_router.include_router(health_router)
 kai_router.include_router(agent_chat_router)
 kai_router.include_router(agent_realtime_router)
+kai_router.include_router(agent_voice_router)
 kai_router.include_router(chat_router)
 kai_router.include_router(portfolio_router)
 kai_router.include_router(plaid_router)
@@ -145,7 +137,6 @@ kai_router.include_router(decisions_router)
 kai_router.include_router(losers_router)
 kai_router.include_router(market_insights_router)
 kai_router.include_router(support_router)
-kai_router.include_router(location_router)
 
 # Export for server.py
 router = kai_router

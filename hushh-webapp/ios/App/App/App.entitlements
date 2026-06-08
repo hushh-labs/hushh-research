@@ -15,6 +15,7 @@
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)$(CFBundleIdentifier)</string>
+		<string>$(AppIdentifierPrefix)com.hushh.app.imessage</string>
 	</array>
 </dict>
 </plist>

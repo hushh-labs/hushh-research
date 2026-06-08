@@ -7,6 +7,7 @@ import { RootLayoutClient } from "./layout-client";
 import {
   resolveAnalyticsMeasurementId,
   resolveGtmContainerId,
+  shouldLoadWebAnalyticsScripts,
 } from "@/lib/observability/env";
 
 // Configure web typography frameworks with structural configuration blocks
@@ -30,11 +31,13 @@ const headingSans = Inter({
 
 const gtmContainerId = resolveGtmContainerId();
 const analyticsMeasurementId = resolveAnalyticsMeasurementId();
+const loadWebAnalyticsScripts = shouldLoadWebAnalyticsScripts();
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://hushh.ai"),
   title: {
     default: "One: Your Personal Agent",
-    template: "%s | One Personal Agent"
+    template: "%s | One Personal Agent",
   },
   description: "Personal AI agents with consent at the core. Your data, your control.",
   keywords: ["AI agents", "personal AI", "One", "consent-first", "privacy", "hushh"],
@@ -49,19 +52,34 @@ export const metadata: Metadata = {
     shortcut: "/quiet-emoji-icon.svg",
     apple: "/quiet-emoji-icon.png",
   },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Hushh One",
+  },
   manifest: "/manifest.webmanifest",
   openGraph: {
     title: "One: Your Personal Agent",
     description: "Personal AI agents with consent at the core. Your data, your control.",
+    url: "https://hushh.ai",
     type: "website",
     siteName: "One Platform",
     locale: "en_US",
+    images: [
+      {
+        url: "/quiet-emoji-icon.png",
+        width: 512,
+        height: 512,
+        alt: "Hushh One",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "One: Your Personal Agent",
     description: "Personal AI agents with consent at the core.",
-    creator: "@hushh_labs"
+    images: ["/quiet-emoji-icon.png"],
+    creator: "@hushh_labs",
   },
   robots: {
     index: true,
@@ -123,9 +141,8 @@ export default function RootLayout({
             border-width: 0;
           }
         `}</style>
-
         {/* Google Analytics Integration Strategy Layout */}
-        {analyticsMeasurementId ? (
+        {loadWebAnalyticsScripts && analyticsMeasurementId ? (
           <>
             <Script
               id="ga-base"
@@ -146,7 +163,7 @@ export default function RootLayout({
         ) : null}
 
         {/* Google Tag Manager Strategy Layout */}
-        {gtmContainerId ? (
+        {loadWebAnalyticsScripts && gtmContainerId ? (
           <Script
             id="gtm-base"
             strategy="afterInteractive"

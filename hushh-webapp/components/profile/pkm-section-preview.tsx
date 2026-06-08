@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Trash2 } from "lucide-react";
+import { Loader2, PenLine, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import type {
@@ -75,13 +75,16 @@ function PreviewSectionItems({
 function PreviewEntityRow({
   entity,
   deletingEntityKey,
+  onEditEntity,
   onDeleteEntity,
 }: {
   entity: PkmSectionPreviewEntity;
   deletingEntityKey?: string | null;
+  onEditEntity?: (entity: PkmSectionPreviewEntity) => void;
   onDeleteEntity?: (entity: PkmSectionPreviewEntity) => void;
 }) {
   const deleting = deletingEntityKey === entity.key;
+  const canEdit = entity.editable === true && Boolean(onEditEntity);
   const canDelete = entity.deletable === true && Boolean(onDeleteEntity);
 
   function handleDelete() {
@@ -100,20 +103,35 @@ function PreviewEntityRow({
             <span className="text-xs text-muted-foreground">{entity.subtitle}</span>
           ) : null}
         </div>
-        {canDelete ? (
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={deleting}
-            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-red-500/20 bg-red-500/10 px-3 text-xs font-medium text-red-700 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:text-red-300"
-          >
-            {deleting ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Trash2 className="h-3.5 w-3.5" />
-            )}
-            Delete
-          </button>
+        {canEdit || canDelete ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {canEdit ? (
+              <button
+                type="button"
+                onClick={() => onEditEntity?.(entity)}
+                disabled={deleting}
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-3 text-xs font-medium text-foreground transition-colors hover:bg-[color:var(--app-card-surface-default-solid)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <PenLine className="h-3.5 w-3.5" />
+                Edit
+              </button>
+            ) : null}
+            {canDelete ? (
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-red-500/20 bg-red-500/10 px-3 text-xs font-medium text-red-700 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:text-red-300"
+              >
+                {deleting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
+                Delete
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
       {entity.fields.length > 0 ? <PreviewFieldList fields={entity.fields} /> : null}
@@ -136,10 +154,12 @@ function PreviewEntityRow({
 export function PkmSectionPreview({
   presentation,
   deletingEntityKey,
+  onEditEntity,
   onDeleteEntity,
 }: {
   presentation: PkmSectionPreviewPresentation;
   deletingEntityKey?: string | null;
+  onEditEntity?: (entity: PkmSectionPreviewEntity) => void;
   onDeleteEntity?: (entity: PkmSectionPreviewEntity) => void;
 }) {
   return (
@@ -208,6 +228,7 @@ export function PkmSectionPreview({
                   key={entity.key}
                   entity={entity}
                   deletingEntityKey={deletingEntityKey}
+                  onEditEntity={onEditEntity}
                   onDeleteEntity={onDeleteEntity}
                 />
               ))}

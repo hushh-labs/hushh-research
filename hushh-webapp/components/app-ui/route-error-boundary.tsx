@@ -1,9 +1,10 @@
 "use client";
 
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component, createRef, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "@/lib/morphy-ux/button";
 import { Card } from "@/lib/morphy-ux/card";
 import { AlertTriangle } from "lucide-react";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 interface Props {
   children: ReactNode;
@@ -20,6 +21,8 @@ interface State {
  * Catches render errors and shows a morphy-styled recovery UI.
  */
 export class RouteErrorBoundary extends Component<Props, State> {
+  private errorRef = createRef<HTMLDivElement>();
+
   constructor(props: Props) {
     super(props);
     this.state = { hasError: false, error: null };
@@ -27,6 +30,12 @@ export class RouteErrorBoundary extends Component<Props, State> {
 
   static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
+  }
+
+  componentDidUpdate(_prevProps: Props, prevState: State) {
+    if (this.state.hasError && !prevState.hasError) {
+      this.errorRef.current?.focus();
+    }
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -42,13 +51,22 @@ export class RouteErrorBoundary extends Component<Props, State> {
   };
 
   private handleGoHome = () => {
-    window.location.href = this.props.fallbackRoute ?? "/";
+    requestInternalAppNavigation({
+      href: this.props.fallbackRoute ?? "/",
+      replace: true,
+      scroll: false,
+    });
   };
 
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex min-h-[60vh] flex-col items-center justify-center px-6">
+        <div
+          ref={this.errorRef}
+          role="alert"
+          tabIndex={-1}
+          className="flex min-h-[60vh] flex-col items-center justify-center px-6 outline-none"
+        >
           <Card
             preset="default"
             effect="glass"
@@ -70,6 +88,7 @@ export class RouteErrorBoundary extends Component<Props, State> {
                   variant="muted"
                   effect="glass"
                   size="sm"
+                  className="min-h-[44px]"
                   onClick={this.handleRetry}
                 >
                   Try again
@@ -78,6 +97,7 @@ export class RouteErrorBoundary extends Component<Props, State> {
                   variant="blue-gradient"
                   effect="fill"
                   size="sm"
+                  className="min-h-[44px]"
                   onClick={this.handleGoHome}
                 >
                   Go home

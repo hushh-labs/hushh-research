@@ -64,6 +64,7 @@ EXPECTED_WORKFLOW_IDS = [
     "repo-orientation",
     "new-feature-tri-flow",
     "frontend-native-surface-map",
+    "frontend-cache-coherence",
     "api-contract-change",
     "pr-governance-review",
     "analytics-observability-review",
