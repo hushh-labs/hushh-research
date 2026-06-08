@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Lock, RefreshCw, ShieldAlert, Sparkles, Users } from "lucide-react";
+import { Check, Edit3, Loader2, Lock, RefreshCw, ShieldAlert, Sparkles, Trash2, Users, X } from "lucide-react";
 
 import {
   SurfaceCard,
@@ -13,6 +13,18 @@ import {
 } from "@/components/app-ui/surfaces";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import {
   ConsentCenterService,
@@ -29,6 +41,14 @@ import {
   buildNaturalDomainPresentation,
   type NaturalAccessEntry,
 } from "@/lib/personal-knowledge-model/natural-language";
+import {
+  buildPkmMemorySnapshot,
+  deletePkmDomainValue,
+  updatePkmDomainValue,
+  type PkmMemoryCard,
+} from "@/lib/pkm/pkm-memory-cards";
+import { clearAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
+import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { useVault } from "@/lib/vault/vault-context";
 
 function formatTimestamp(value: string | null | undefined): string {
@@ -64,14 +84,20 @@ export function PkmNaturalPanel({
   onOpenExplorer,
 }: PkmNaturalPanelProps) {
   const { user, loading } = useAuth();
-  const { isVaultUnlocked, vaultOwnerToken } = useVault();
+  const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
 
   const [metadata, setMetadata] = useState<PersonalKnowledgeModelMetadata | null>(null);
+  const [fullBlob, setFullBlob] = useState<Record<string, unknown>>({});
   const [manifests, setManifests] = useState<Record<string, DomainManifest | null>>({});
   const [activeGrants, setActiveGrants] = useState<ConsentCenterEntry[]>([]);
   const [bootstrapLoading, setBootstrapLoading] = useState(true);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [editingCardId, setEditingCardId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [memoryActionId, setMemoryActionId] = useState<string | null>(null);
+  const [memoryActionMessage, setMemoryActionMessage] = useState<string | null>(null);
+  const [memoryActionError, setMemoryActionError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,6 +107,7 @@ export function PkmNaturalPanel({
       if (!user) {
         if (!cancelled) {
           setMetadata(null);
+          setFullBlob({});
           setManifests({});
           setActiveGrants([]);
           setBootstrapLoading(false);
@@ -88,9 +115,10 @@ export function PkmNaturalPanel({
         }
         return;
       }
-      if (!isVaultUnlocked || !vaultOwnerToken) {
+      if (!isVaultUnlocked || !vaultOwnerToken || !vaultKey) {
         if (!cancelled) {
           setMetadata(null);
+          setFullBlob({});
           setManifests({});
           setActiveGrants([]);
           setBootstrapLoading(false);
@@ -126,9 +154,15 @@ export function PkmNaturalPanel({
           view: "active",
           force,
         }).catch(() => null);
+        const nextFullBlob = await PersonalKnowledgeModelService.loadFullBlob({
+          userId: user.uid,
+          vaultKey,
+          vaultOwnerToken,
+        });
 
         if (cancelled) return;
         setMetadata(nextMetadata);
+        setFullBlob(nextFullBlob);
         setManifests(Object.fromEntries(manifestPairs));
         setActiveGrants(center?.active_grants || []);
       } catch (nextError) {
@@ -148,7 +182,21 @@ export function PkmNaturalPanel({
     return () => {
       cancelled = true;
     };
-  }, [isVaultUnlocked, loading, refreshNonce, refreshToken, user, vaultOwnerToken]);
+  }, [isVaultUnlocked, loading, refreshNonce, refreshToken, user, vaultKey, vaultOwnerToken]);
+
+  const memorySnapshot = useMemo(
+    () =>
+      buildPkmMemorySnapshot({
+        metadata,
+        fullBlob,
+      }),
+    [fullBlob, metadata]
+  );
+
+  const domainInsightByKey = useMemo(
+    () => new Map(memorySnapshot.domainInsights.map((insight) => [insight.domain, insight])),
+    [memorySnapshot.domainInsights]
+  );
 
   const globalAccessEntries = useMemo(() => {
     return activeGrants
@@ -177,16 +225,146 @@ export function PkmNaturalPanel({
     return metadata.domains.map((domain) => ({
       domain,
       manifest: manifests[domain.key] || null,
-      presentation: buildNaturalDomainPresentation({
-        domain,
-        manifest: manifests[domain.key] || null,
-      }),
+      presentation: (() => {
+        const base = buildNaturalDomainPresentation({
+          domain,
+          manifest: manifests[domain.key] || null,
+        });
+        const insight = domainInsightByKey.get(domain.key);
+        if (!insight) return base;
+        return {
+          ...base,
+          summary: insight.summary || base.summary,
+          highlights: insight.highlights.length > 0 ? insight.highlights : base.highlights,
+          updatedAt: insight.updatedAt || base.updatedAt,
+        };
+      })(),
       accessEntries: buildNaturalAccessEntries({
         domain,
         activeGrants: domainScopedGrants,
       }),
     }));
-  }, [activeGrants, manifests, metadata]);
+  }, [activeGrants, domainInsightByKey, manifests, metadata]);
+
+  async function refreshMetadataAfterMemoryWrite() {
+    if (!user || !vaultOwnerToken) return;
+    const nextMetadata = await PersonalKnowledgeModelService.getMetadata(
+      user.uid,
+      true,
+      vaultOwnerToken
+    );
+    setMetadata(nextMetadata);
+  }
+
+  function domainDataForCard(card: PkmMemoryCard): Record<string, unknown> {
+    const value = fullBlob[card.domain];
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  }
+
+  function memoryWriteSummary(
+    card: PkmMemoryCard,
+    action: "edited" | "deleted",
+    nextDomainData: Record<string, unknown>
+  ) {
+    const now = new Date().toISOString();
+    const nextDomainSnapshot = buildPkmMemorySnapshot({
+      metadata,
+      fullBlob: {
+        [card.domain]: nextDomainData,
+      },
+      maxCards: 128,
+      maxCardsPerDomain: 128,
+    });
+    return {
+      readable_summary: `${card.domainTitle} memory was ${action} from your data view.`,
+      readable_highlights: [`${action === "edited" ? "Updated" : "Removed"} ${card.title}`],
+      readable_updated_at: now,
+      readable_source_label: action === "edited" ? "Edited memory" : "Deleted memory",
+      readable_event_summary: `${action === "edited" ? "Updated" : "Removed"} ${card.title}.`,
+      memory_count: nextDomainSnapshot.cards.filter((item) => item.domain === card.domain).length,
+    };
+  }
+
+  async function persistMemoryCardChange(params: {
+    card: PkmMemoryCard;
+    action: "edited" | "deleted";
+    nextDomainData: Record<string, unknown>;
+  }) {
+    if (!user || !vaultKey || !vaultOwnerToken) return;
+    setMemoryActionId(`${params.card.id}:${params.action}`);
+    setMemoryActionError(null);
+    setMemoryActionMessage(null);
+    try {
+      const result = await PkmWriteCoordinator.saveMergedDomain({
+        userId: user.uid,
+        domain: params.card.domain,
+        vaultKey,
+        vaultOwnerToken,
+        build: () => ({
+          domainData: params.nextDomainData,
+          summary: memoryWriteSummary(params.card, params.action, params.nextDomainData),
+          mergeDecision: {
+            merge_mode: "replace_domain",
+          },
+        }),
+      });
+      if (!result.success) {
+        throw new Error(result.message || "Failed to update saved memory.");
+      }
+      setFullBlob((current) => ({
+        ...current,
+        [params.card.domain]: result.fullBlob[params.card.domain] || params.nextDomainData,
+      }));
+      clearAgentPkmContext(user.uid);
+      await refreshMetadataAfterMemoryWrite();
+      setEditingCardId(null);
+      setEditValue("");
+      setMemoryActionMessage(
+        params.action === "edited" ? "Memory card updated." : "Memory card deleted."
+      );
+    } catch (error) {
+      setMemoryActionError(
+        error instanceof Error ? error.message : "Failed to update saved memory."
+      );
+    } finally {
+      setMemoryActionId(null);
+    }
+  }
+
+  function startEditing(card: PkmMemoryCard) {
+    setEditingCardId(card.id);
+    setEditValue(card.value);
+    setMemoryActionError(null);
+    setMemoryActionMessage(null);
+  }
+
+  async function saveEditedCard(card: PkmMemoryCard) {
+    const nextDomainData = updatePkmDomainValue({
+      domainData: domainDataForCard(card),
+      pathSegments: card.pathSegments,
+      previousValue: card.value,
+      nextValue: editValue,
+    });
+    await persistMemoryCardChange({
+      card,
+      action: "edited",
+      nextDomainData,
+    });
+  }
+
+  async function deleteCard(card: PkmMemoryCard) {
+    const nextDomainData = deletePkmDomainValue({
+      domainData: domainDataForCard(card),
+      pathSegments: card.pathSegments,
+    });
+    await persistMemoryCardChange({
+      card,
+      action: "deleted",
+      nextDomainData,
+    });
+  }
 
   if (loading || bootstrapLoading) {
     return (
@@ -209,7 +387,7 @@ export function PkmNaturalPanel({
     );
   }
 
-  if (!isVaultUnlocked || !vaultOwnerToken) {
+  if (!isVaultUnlocked || !vaultOwnerToken || !vaultKey) {
     return (
       <SurfaceInset className="space-y-2 px-4 py-4 text-sm text-muted-foreground">
         <div className="flex items-center gap-2 font-medium text-foreground">
@@ -258,6 +436,7 @@ export function PkmNaturalPanel({
         <div className="flex flex-wrap gap-2">
           <Badge variant="secondary">{metadata?.domains.length || 0} domains</Badge>
           <Badge variant="secondary">{metadata?.totalAttributes || 0} saved details</Badge>
+          <Badge variant="secondary">{memorySnapshot.totalCards} memory cards</Badge>
           <Badge variant="secondary">{activeGrants.length} active access grants</Badge>
           <Badge variant="secondary">
             Last updated {formatTimestamp(metadata?.lastUpdated || null)}
@@ -300,6 +479,149 @@ export function PkmNaturalPanel({
           </SurfaceCardContent>
         </SurfaceCard>
       ) : null}
+
+      <SurfaceCard accent="violet">
+        <SurfaceCardHeader className="space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="space-y-1">
+              <SurfaceCardTitle>Memory cards</SurfaceCardTitle>
+              <SurfaceCardDescription>
+                Decrypted only while your vault is unlocked. Edit or delete cards to update the
+                encrypted PKM domain.
+              </SurfaceCardDescription>
+            </div>
+            <Badge variant="secondary">{memorySnapshot.totalCards} cards</Badge>
+          </div>
+          {memoryActionMessage ? (
+            <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800 dark:text-emerald-100">
+              {memoryActionMessage}
+            </div>
+          ) : null}
+          {memoryActionError ? (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {memoryActionError}
+            </div>
+          ) : null}
+        </SurfaceCardHeader>
+        <SurfaceCardContent>
+          {memorySnapshot.cards.length === 0 ? (
+            <div className="rounded-2xl border border-dashed bg-muted/10 px-4 py-4 text-sm text-muted-foreground">
+              No readable memory cards yet. Save a profile fact, preference, project note, receipt,
+              or portfolio detail and it will show up here after vault unlock.
+            </div>
+          ) : (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {memorySnapshot.cards.slice(0, 24).map((card) => {
+                const editing = editingCardId === card.id;
+                const savingEdit = memoryActionId === `${card.id}:edited`;
+                const deleting = memoryActionId === `${card.id}:deleted`;
+                return (
+                  <div key={card.id} className="rounded-2xl border bg-muted/15 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant="secondary">{card.domainTitle}</Badge>
+                          <Badge variant="outline">{Math.round(card.confidence * 100)}%</Badge>
+                          <Badge variant="outline">{card.sourceLabel}</Badge>
+                        </div>
+                        <h3 className="text-sm font-semibold leading-6">{card.title}</h3>
+                        <p className="text-xs text-muted-foreground">{card.detail}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Updated {formatTimestamp(card.updatedAt)}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        {editing ? (
+                          <>
+                            <Button
+                              variant="none"
+                              effect="fade"
+                              disabled={savingEdit}
+                              onClick={() => void saveEditedCard(card)}
+                              aria-label="Save memory card"
+                            >
+                              {savingEdit ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Check className="h-4 w-4" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="none"
+                              effect="fade"
+                              disabled={savingEdit}
+                              onClick={() => {
+                                setEditingCardId(null);
+                                setEditValue("");
+                              }}
+                              aria-label="Cancel memory card edit"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              variant="none"
+                              effect="fade"
+                              onClick={() => startEditing(card)}
+                              aria-label="Edit memory card"
+                            >
+                              <Edit3 className="h-4 w-4" />
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="none"
+                                  effect="fade"
+                                  disabled={deleting}
+                                  aria-label="Delete memory card"
+                                >
+                                  {deleting ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent size="sm">
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete this memory?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This removes the selected detail from the encrypted{" "}
+                                    {card.domainTitle} PKM domain.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    variant="destructive"
+                                    onClick={() => void deleteCard(card)}
+                                  >
+                                    Delete
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {editing ? (
+                      <Input
+                        className="mt-3"
+                        value={editValue}
+                        onChange={(event) => setEditValue(event.target.value)}
+                        aria-label="Memory card value"
+                      />
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </SurfaceCardContent>
+      </SurfaceCard>
 
       {domainEntries.length === 0 ? (
         <SurfaceInset className="space-y-2 px-4 py-4 text-sm text-muted-foreground">

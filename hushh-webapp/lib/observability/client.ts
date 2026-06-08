@@ -7,6 +7,10 @@ import {
   resolveObservabilitySampleRate,
 } from "@/lib/observability/env";
 import type {
+  CacheFootprintBucket,
+  CacheFreshness,
+  CacheResourceClass,
+  CacheTier,
   DurationBucket,
   EventPayloadFor,
   EventPayloadWithContextFor,
@@ -14,6 +18,8 @@ import type {
   ObservabilityAdapter,
   ObservabilityEventName,
   ObservabilityPlatform,
+  RefreshTrigger,
+  RouteRenderPath,
   StatusBucket,
 } from "@/lib/observability/events";
 import { resolveObservabilityEventCategory } from "@/lib/observability/events";
@@ -213,5 +219,85 @@ export function trackApiRequestCompleted(params: {
     status_bucket: statusBucket,
     duration_ms_bucket: toDurationBucket(params.durationMs),
     retry_count: params.retryCount,
+  });
+}
+
+export function trackRouteReadinessCompleted(params: {
+  routeId: RouteId;
+  result: EventResult;
+  renderPath: RouteRenderPath;
+  cacheTier: CacheTier;
+  resourceClass: CacheResourceClass;
+  durationMs: number;
+  blockingLoaderShown: boolean;
+  staleRendered: boolean;
+}): void {
+  trackEvent("route_readiness_completed", {
+    route_id: params.routeId,
+    result: params.result,
+    render_path: params.renderPath,
+    cache_tier: params.cacheTier,
+    resource_class: params.resourceClass,
+    duration_ms_bucket: toDurationBucket(params.durationMs),
+    blocking_loader_shown: params.blockingLoaderShown,
+    stale_rendered: params.staleRendered,
+  });
+}
+
+export function trackCacheResourceResolved(params: {
+  result: EventResult;
+  resourceClass: CacheResourceClass;
+  cacheTier: CacheTier;
+  freshness: CacheFreshness;
+  durationMs: number;
+  routeId?: RouteId;
+  footprintBucket?: CacheFootprintBucket;
+}): void {
+  trackEvent("cache_resource_resolved", {
+    route_id: params.routeId,
+    result: params.result,
+    resource_class: params.resourceClass,
+    cache_tier: params.cacheTier,
+    freshness: params.freshness,
+    duration_ms_bucket: toDurationBucket(params.durationMs),
+    footprint_bucket: params.footprintBucket,
+  });
+}
+
+export function trackRouteRefreshCompleted(params: {
+  routeId: RouteId;
+  result: EventResult;
+  resourceClass: CacheResourceClass;
+  refreshTrigger: RefreshTrigger;
+  durationMs: number;
+  retryCount?: number;
+}): void {
+  trackEvent("route_refresh_completed", {
+    route_id: params.routeId,
+    result: params.result,
+    resource_class: params.resourceClass,
+    refresh_trigger: params.refreshTrigger,
+    duration_ms_bucket: toDurationBucket(params.durationMs),
+    retry_count: params.retryCount,
+  });
+}
+
+export function trackWarmupCompleted(params: {
+  result: EventResult;
+  resourceClass: CacheResourceClass;
+  cacheTier: CacheTier;
+  warmPriority: string;
+  durationMs: number;
+  routeId?: RouteId;
+  footprintBucket?: CacheFootprintBucket;
+}): void {
+  trackEvent("warmup_completed", {
+    route_id: params.routeId,
+    result: params.result,
+    resource_class: params.resourceClass,
+    cache_tier: params.cacheTier,
+    warm_priority: params.warmPriority,
+    duration_ms_bucket: toDurationBucket(params.durationMs),
+    footprint_bucket: params.footprintBucket,
   });
 }

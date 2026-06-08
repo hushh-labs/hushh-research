@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   ChevronRight,
@@ -231,7 +231,7 @@ export function PkmDataManagerPanel({
           </SurfaceCardDescription>
         </SurfaceCardHeader>
         <SurfaceCardContent>
-          <Button onClick={onOpenImport}>Create vault</Button>
+          <Button type="button" onClick={onOpenImport}>Create vault</Button>
         </SurfaceCardContent>
       </SurfaceCard>
     );
@@ -274,8 +274,8 @@ export function PkmDataManagerPanel({
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          {!needsUnlock ? <Button onClick={onOpenSharing}>Manage sharing</Button> : null}
-          <Button variant="none" effect="fade" onClick={onRefresh}>
+          {!needsUnlock ? <Button type="button" onClick={onOpenSharing}>Manage sharing</Button> : null}
+          <Button type="button" variant="none" effect="fade" onClick={onRefresh}>
             <RefreshCw className="mr-2 h-4 w-4" />
             Refresh
           </Button>
@@ -415,8 +415,11 @@ export function PkmDomainDetailPanel({
   previewLoading,
   previewError,
   previewDeletingEntityKey,
+  contextControls,
+  hideHighlights,
   onPreviewOpenChange,
   onPreviewPermission,
+  onEditPreviewEntity,
   onDeletePreviewEntity,
   onTogglePermission,
 }: {
@@ -433,8 +436,11 @@ export function PkmDomainDetailPanel({
   previewLoading: boolean;
   previewError?: string | null;
   previewDeletingEntityKey?: string | null;
+  contextControls?: ReactNode;
+  hideHighlights?: boolean;
   onPreviewOpenChange: (open: boolean) => void;
   onPreviewPermission: (permission: PkmDomainPermissionPresentation) => void;
+  onEditPreviewEntity?: (entity: PkmSectionPreviewEntity) => void;
   onDeletePreviewEntity?: (entity: PkmSectionPreviewEntity) => void;
   onTogglePermission: (
     permission: PkmDomainPermissionPresentation,
@@ -478,9 +484,14 @@ export function PkmDomainDetailPanel({
             </Badge>
           ) : null}
         </div>
+        {contextControls ? (
+          <div className="border-t border-[color:var(--app-card-border-standard)] pt-3">
+            {contextControls}
+          </div>
+        ) : null}
       </SurfaceInset>
 
-      {domain.highlights.length > 0 ? (
+      {!hideHighlights && domain.highlights.length > 0 ? (
         <SurfaceInset className="space-y-2 p-4">
           {domain.highlights.slice(0, 5).map((highlight) => (
             <p key={highlight} className="text-sm leading-6 text-foreground/90">
@@ -562,6 +573,7 @@ export function PkmDomainDetailPanel({
                     </div>
                     <div className="flex shrink-0 items-center gap-2 pt-0.5">
                       <Button
+                        type="button"
                         variant="none"
                         effect="fade"
                         size="sm"
@@ -642,6 +654,7 @@ export function PkmDomainDetailPanel({
               <PkmSectionPreview
                 presentation={previewPresentation}
                 deletingEntityKey={previewDeletingEntityKey}
+                onEditEntity={onEditPreviewEntity}
                 onDeleteEntity={onDeletePreviewEntity}
               />
             ) : (
@@ -794,7 +807,7 @@ export function PkmAccessConnectionDetailPanel({
               <p className="text-xs leading-5 text-muted-foreground">{grant.readableAccessLabel}</p>
               <p className="text-[11px] text-muted-foreground">Expires {formatTimestamp(grant.expiresAt)}</p>
             </div>
-            <Button variant="none" effect="fade" size="sm" onClick={() => void onRevokeAccess(grant.scope)}>
+            <Button type="button" variant="none" effect="fade" size="sm" onClick={() => void onRevokeAccess(grant.scope)}>
               Revoke
             </Button>
           </div>

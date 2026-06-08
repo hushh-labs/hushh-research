@@ -23,6 +23,7 @@ import {
   buildConsentExportForScope,
   ConsentExportNoDataError,
 } from "@/lib/consent/export-builder";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 // ============================================================================
 // Types
@@ -182,7 +183,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           action: {
             label: "Unlock",
             onClick: () => {
-              window.location.href = "/kai";
+              requestInternalAppNavigation({ href: "/kai", scroll: false });
             },
           },
         });

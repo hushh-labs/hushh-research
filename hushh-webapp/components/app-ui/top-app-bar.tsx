@@ -17,14 +17,16 @@
  * evaluates correctly in both environments.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Bell,
   BriefcaseBusiness,
+  ChartColumnIncreasing,
   Check,
   ChevronDown,
   Code2,
+  Compass,
   type LucideIcon,
   Loader2,
   LogOut,
@@ -116,6 +118,7 @@ export function TopAppBarSpacer() {
 /* ── Helpers ───────────────────────────────────────────────────────── */
 function getTopBarTitle(
   pathname: string,
+  isScrolled: boolean = false,
 ): {
   label: string;
   icon?: LucideIcon;
@@ -151,6 +154,23 @@ function getTopBarTitle(
       icon: UserRound,
       interactive: true as const,
     };
+  }
+
+  if (isScrolled) {
+    if (pathname === ROUTES.KAI_HOME) {
+      return {
+        label: "Market",
+        icon: ChartColumnIncreasing,
+        interactive: false as const,
+      };
+    }
+    if (pathname === ROUTES.MARKETPLACE) {
+      return {
+        label: "Search people",
+        icon: Compass,
+        interactive: false as const,
+      };
+    }
   }
 
   const isPersonaShellRoute =
@@ -220,9 +240,52 @@ export function TopAppBar({ className }: TopAppBarProps) {
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const showOnboardingActions = chromeState.useOnboardingChrome;
   const hideChrome = !topShellMetrics.shellVisible;
+
+  // Track scroll state of the root page container to show dynamic titles
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const resolveTarget = () => {
+      return document.querySelector('[data-app-scroll-root="true"]');
+    };
+
+    const handleScroll = (e: Event) => {
+      const target = e.target as HTMLElement;
+      if (target) {
+        setIsScrolled(target.scrollTop > 60);
+      }
+    };
+
+    let target = resolveTarget();
+    let retryTimer: number;
+
+    const attach = () => {
+      if (target) {
+        target.addEventListener("scroll", handleScroll, { passive: true });
+        setIsScrolled(target.scrollTop > 60);
+      } else {
+        retryTimer = window.setTimeout(() => {
+          target = resolveTarget();
+          attach();
+        }, 150);
+      }
+    };
+
+    attach();
+
+    return () => {
+      if (target) {
+        target.removeEventListener("scroll", handleScroll);
+      }
+      window.clearTimeout(retryTimer);
+    };
+  }, [pathname]);
+
   const centerTitle = useMemo(
-    () => getTopBarTitle(pathname),
-    [pathname],
+    () => getTopBarTitle(pathname, isScrolled),
+    [pathname, isScrolled],
   );
   const canShowPersonaSwitcher = useMemo(
     () => isProfileTopBarRoute(pathname),
@@ -310,16 +373,22 @@ export function TopAppBar({ className }: TopAppBarProps) {
     ],
   );
 
-  // Subscribe to scroll-direction store so top glass height follows tabs visibility.
-  const { progress: tabsScrollHideProgress } =
-    useKaiBottomChromeVisibility(showKaiTabs);
+  // Subscribe to the shared scroll-direction store so top chrome hides opposite
+  // the bottom nav while keeping the page layout spacer stable.
+  const { progress: topChromeHideProgress } =
+    useKaiBottomChromeVisibility(!hideChrome);
 
   const topGlassHeight = useMemo(
     () =>
       showKaiTabs
-        ? `calc(var(--top-inset) + var(--top-systembar-row-gap, 0px) + var(--top-bar-h) + ((1 - ${tabsScrollHideProgress}) * var(--top-tabs-h)) + var(--top-fade-active))`
+        ? `calc(var(--top-inset) + var(--top-systembar-row-gap, 0px) + var(--top-bar-h) + ((1 - ${topChromeHideProgress}) * var(--top-tabs-h)) + var(--top-fade-active))`
         : "var(--top-shell-visual-height)",
-    [showKaiTabs, tabsScrollHideProgress],
+    [showKaiTabs, topChromeHideProgress],
+  );
+  const topChromeTransform = useMemo(
+    () =>
+      `translate3d(0, calc(-1 * ${topChromeHideProgress} * var(--top-shell-reserved-height)), 0)`,
+    [topChromeHideProgress],
   );
 
   const topGlassStyle = useMemo<React.CSSProperties>(
@@ -327,7 +396,6 @@ export function TopAppBar({ className }: TopAppBarProps) {
       ({
         "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.76)",
         "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.76)",
-        "--app-bar-glass-blur": "6px",
         "--app-bar-shadow": "0 10px 26px rgba(120, 120, 128, 0.12)",
         "--app-bar-mask-overscan": "14px",
       }) as React.CSSProperties,
@@ -345,7 +413,11 @@ export function TopAppBar({ className }: TopAppBarProps) {
     >
       <div
         className="pointer-events-none relative w-full overflow-visible"
-        style={{ height: "var(--top-shell-reserved-height)" }}
+        style={{
+          height: "var(--top-shell-reserved-height)",
+          transform: topChromeTransform,
+          willChange: "transform",
+        }}
       >
         <div
           aria-hidden
@@ -395,7 +467,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                 </div>
               </div>
 
-              <div className="pointer-events-none flex min-w-0 flex-1 items-center justify-center">
+              <div className="pointer-events-none flex min-w-0 flex-1 items-center justify-center px-3 sm:px-4">
                 {centerTitle ? (
                   centerTitle.interactive && canShowPersonaSwitcher ? (
                     <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">
@@ -504,7 +576,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
               >
                 <div
                   data-testid="top-app-bar-actions"
-                  className="pointer-events-auto flex flex-nowrap items-center justify-end gap-1.5 sm:gap-2"
+                  className="pointer-events-auto flex flex-nowrap items-center justify-end gap-1.5 sm:gap-2 pr-[env(safe-area-inset-right)]"
                 >
                   {showOnboardingActions ? (
                     <OnboardingRouteActions />

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   ArrowRight,
   BadgeDollarSign,
@@ -60,6 +61,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { useVault } from "@/lib/vault/vault-context";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import { getTickerUniverseSnapshot, preloadTickerUniverse } from "@/lib/kai/ticker-universe-cache";
@@ -1036,7 +1038,7 @@ export function DashboardMasterView({
           returnPath: ROUTES.KAI_PORTFOLIO,
           startedAt: new Date().toISOString(),
         });
-        window.location.assign(connect.authorization_url);
+        openExternalUrl(connect.authorization_url);
       } catch (oauthError) {
         toast.error("Could not start Alpaca login.", {
           description:
@@ -2638,7 +2640,7 @@ export function DashboardMasterView({
           onRefreshPlaid={hasPlaidConnections ? () => handleRefreshPlaid() : undefined}
           onCancelRefreshPlaid={isPlaidRefreshing ? () => handleCancelPlaidRefresh() : undefined}
           onManageConnections={plaidConfigured !== false ? () => void openPlaidLinkFlow() : undefined}
-          onImportStatement={activeSource === "statement" ? onReupload : undefined}
+          onImportStatement={onReupload}
           onDeletePortfolio={
             canDeletePortfolio ? () => setDeleteImportedDialogOpen(true) : undefined
           }
@@ -2716,7 +2718,7 @@ export function DashboardMasterView({
         onRefreshPlaid={hasPlaidConnections ? () => handleRefreshPlaid() : undefined}
         onCancelRefreshPlaid={isPlaidRefreshing ? () => handleCancelPlaidRefresh() : undefined}
         onManageConnections={plaidConfigured !== false ? () => void openPlaidLinkFlow() : undefined}
-        onImportStatement={activeSource === "statement" ? onReupload : undefined}
+        onImportStatement={onReupload}
         onDeletePortfolio={
           canDeletePortfolio ? () => setDeleteImportedDialogOpen(true) : undefined
         }
@@ -2833,11 +2835,13 @@ export function DashboardMasterView({
             <MorphyButton
               variant="none"
               effect="fade"
-              onClick={() => router.push(ROUTES.KAI_INVESTMENTS)}
               data-voice-control-id="view_investments"
+              asChild
             >
-              <Building2 className="mr-2 h-4 w-4" />
-              View Investments
+              <Link href={ROUTES.KAI_INVESTMENTS}>
+                <Building2 className="mr-2 h-4 w-4" />
+                View Investments
+              </Link>
             </MorphyButton>
             {plaidConfigured !== false ? (
               <MorphyButton
@@ -2858,10 +2862,12 @@ export function DashboardMasterView({
             <MorphyButton
               variant="none"
               effect="fade"
-              onClick={() => router.push(ROUTES.KAI_FUNDING_TRADE)}
+              asChild
             >
-              <BadgeDollarSign className="mr-2 h-4 w-4" />
-              Fund + Trade
+              <Link href={ROUTES.KAI_FUNDING_TRADE}>
+                <BadgeDollarSign className="mr-2 h-4 w-4" />
+                Fund + Trade
+              </Link>
             </MorphyButton>
           </div>
         </SurfaceCardContent>

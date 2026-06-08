@@ -79,7 +79,18 @@ export type ObservabilityEventName =
   | "investor_activation_completed"
   | "ria_activation_completed"
   | "api_request_completed"
-  | "startup_readiness_warmup_completed";
+  | "route_readiness_completed"
+  | "cache_resource_resolved"
+  | "route_refresh_completed"
+  | "warmup_completed"
+  | "startup_readiness_warmup_completed"
+  | "one_location_foreground_retry"
+  | "one_location_share_confirmed"
+  | "one_location_contact_signal_synced"
+  | "one_location_request_sent"
+  | "one_location_public_link_created"
+  | "one_location_recommendation_selected"
+  | "one_location_share_review_opened";
 
 export type StatusBucket =
   | "2xx"
@@ -98,6 +109,47 @@ export type DurationBucket =
   | "gte_10s";
 
 export type EventResult = "success" | "expected_error" | "error";
+export type CacheTier =
+  | "memory"
+  | "secure_device"
+  | "plain_device"
+  | "network"
+  | "none";
+export type CacheFreshness = "fresh" | "stale" | "missing" | "locked" | "unsafe";
+export type CacheResourceClass =
+  | "public_static"
+  | "auth_state"
+  | "vault_metadata"
+  | "pkm_metadata"
+  | "pkm_projection"
+  | "financial_resource"
+  | "consent_list"
+  | "market_data"
+  | "ria_workspace"
+  | "realtime_stream"
+  | "unknown";
+export type RouteRenderPath =
+  | "fresh_memory"
+  | "secure_device_stale"
+  | "plain_device_stale"
+  | "background_refresh"
+  | "cold_loader"
+  | "blocked_locked"
+  | "realtime_patch";
+export type RefreshTrigger =
+  | "initial_load"
+  | "route_change"
+  | "focus"
+  | "manual"
+  | "mutation"
+  | "warmup";
+export type CacheFootprintBucket =
+  | "none"
+  | "lt_50kb"
+  | "50kb_250kb"
+  | "250kb_1mb"
+  | "1mb_5mb"
+  | "gte_5mb";
 
 export type AuthMethod = "google" | "apple" | "reviewer" | "redirect" | "existing_session";
 export type ConsentAction = "approve" | "deny" | "revoke";
@@ -160,7 +212,18 @@ const EVENT_CATEGORY_BY_NAME: Record<
   investor_activation_completed: "funnel",
   ria_activation_completed: "funnel",
   api_request_completed: "system",
+  route_readiness_completed: "system",
+  cache_resource_resolved: "system",
+  route_refresh_completed: "system",
+  warmup_completed: "system",
   startup_readiness_warmup_completed: "system",
+  one_location_foreground_retry: "feature",
+  one_location_share_confirmed: "feature",
+  one_location_contact_signal_synced: "feature",
+  one_location_request_sent: "feature",
+  one_location_public_link_created: "feature",
+  one_location_recommendation_selected: "feature",
+  one_location_share_review_opened: "feature",
 };
 
 export function resolveObservabilityEventCategory(
@@ -359,6 +422,42 @@ export interface EventPayloadMap {
     duration_ms_bucket: DurationBucket;
     retry_count?: number;
   };
+  route_readiness_completed: {
+    route_id: RouteId;
+    result: EventResult;
+    render_path: RouteRenderPath;
+    cache_tier: CacheTier;
+    resource_class: CacheResourceClass;
+    duration_ms_bucket: DurationBucket;
+    blocking_loader_shown: boolean;
+    stale_rendered: boolean;
+  };
+  cache_resource_resolved: {
+    route_id?: RouteId;
+    result: EventResult;
+    resource_class: CacheResourceClass;
+    cache_tier: CacheTier;
+    freshness: CacheFreshness;
+    duration_ms_bucket: DurationBucket;
+    footprint_bucket?: CacheFootprintBucket;
+  };
+  route_refresh_completed: {
+    route_id: RouteId;
+    result: EventResult;
+    resource_class: CacheResourceClass;
+    refresh_trigger: RefreshTrigger;
+    duration_ms_bucket: DurationBucket;
+    retry_count?: number;
+  };
+  warmup_completed: {
+    route_id?: RouteId;
+    result: EventResult;
+    resource_class: CacheResourceClass;
+    cache_tier: CacheTier;
+    warm_priority: string;
+    duration_ms_bucket: DurationBucket;
+    footprint_bucket?: CacheFootprintBucket;
+  };
   startup_readiness_warmup_completed: {
     result: EventResult;
     warm_priority: string;
@@ -371,6 +470,68 @@ export interface EventPayloadMap {
     dashboard_picks_warmed: boolean;
     consents_warmed: boolean;
     vault_status_warmed: boolean;
+  };
+  one_location_foreground_retry: {
+    route_id: RouteId;
+    operation: string;
+    trigger: string;
+    result: EventResult;
+    attempt_count: number;
+    retry_count: number;
+    backoff_bucket: string;
+    duration_ms_bucket: DurationBucket;
+    error_class: string;
+  };
+  one_location_share_confirmed: {
+    route_id: RouteId;
+    result: EventResult;
+    selected_count: number;
+    success_count: number;
+    failure_count: number;
+    duration_bucket: string;
+    review_required: boolean;
+  };
+  one_location_contact_signal_synced: {
+    route_id: RouteId;
+    result: EventResult;
+    source_platform: string;
+    contact_count_bucket: string;
+    matched_count: number;
+    invite_candidate_count: number;
+  };
+  one_location_request_sent: {
+    route_id: RouteId;
+    result: EventResult;
+    selected_count: number;
+    success_count: number;
+    failure_count: number;
+    has_note: boolean;
+  };
+  one_location_public_link_created: {
+    route_id: RouteId;
+    result: EventResult;
+    duration_bucket: string;
+    copied_to_clipboard: boolean;
+    active_invite_count: number;
+  };
+  one_location_recommendation_selected: {
+    route_id: RouteId;
+    action: string;
+    result: EventResult;
+    selection_surface: string;
+    recommendation_category: string;
+    recommendation_tier: string;
+    selected_count: number;
+    can_receive_location: boolean;
+  };
+  one_location_share_review_opened: {
+    route_id: RouteId;
+    result: EventResult;
+    selected_count: number;
+    duration_bucket: string;
+    has_permission_warning: boolean;
+    has_professional_signal: boolean;
+    has_setup_warning: boolean;
   };
 }
 

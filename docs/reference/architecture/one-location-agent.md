@@ -2,7 +2,7 @@
 
 Status: v1 implementation contract
 Owner: One + IAM/consent governance
-Last updated: 2026-05-21
+Last updated: 2026-05-22
 
 ## Visual Map
 
@@ -137,12 +137,42 @@ previews, or movement/freshness trails. Public submissions are bounded per token
 throttled per phone/fingerprint hash, and never return request internals, grants,
 ciphertext, or location payloads to the anonymous caller.
 
+## KAI Circle Recommendation Contract
+
+Phase 5 KAI Circle improves the authenticated recipient directory ranking. The
+service may use existing One Location sharing history, pending requests,
+referrals, mutual KAI graph proximity, prior consent approvals,
+advisor/investor relationship proximity, active relationship-share grants,
+same-organization RIA firm membership, discoverable marketplace profiles,
+shared public marketplace categories/interests, and runtime persona state as
+safe recommendation signals.
+
+Recommendation metadata can include category, tier, score, short reason labels,
+public profile headline, verification badge, and last interaction timestamp. It
+does not create access, replace consent, or expose coordinates, raw phone
+numbers, invite tokens, grant ids, request ids, raw consent scopes, ciphertext,
+or PKM payloads. Missing optional marketplace, relationship, consent, persona,
+or organization tables must degrade to cold-start location-ready
+recommendations instead of failing the location state API.
+
 ## Notification Contract
 
 Location notifications are best-effort and metadata-only. Payloads may include
 safe ids, actor ids, action type, expiry/countdown metadata, and `/one/location`
 navigation. They must not include coordinates, addresses, map previews,
 freshness trails, ciphertext, token values, or debug terminology.
+
+## Retention Contract
+
+Expired or revoked One Location work is short-lived. Terminal grants, their
+ciphertext envelopes, terminal access requests, referrals, and related
+metadata-only events are retained for at most 12 hours after expiry or
+revocation, then purged from the database. The runtime runs opportunistic
+cleanup during state/read flows, and hosted environments may call
+`POST /api/one/location/retention/purge?older_than_hours=12` with
+`X-Hushh-Maintenance-Token` backed by the dedicated
+`ONE_LOCATION_RETENTION_TOKEN` for scheduled cleanup. Public request-link
+invites and submissions follow the same terminal-state retention boundary.
 
 ## Native Contract
 

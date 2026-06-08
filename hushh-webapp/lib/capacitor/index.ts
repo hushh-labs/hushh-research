@@ -174,6 +174,27 @@ export interface HushhConsentPlugin {
     scope: string;
   }>;
 
+  /**
+   * Publish the current unlocked VAULT_OWNER session to the shared iMessage
+   * Keychain group. Native only; no-op fallback on web.
+   */
+  publishIMessageSession(options: {
+    userId: string;
+    vaultOwnerToken?: string;
+    accessToken?: string; // Legacy alias for vaultOwnerToken.
+    vaultKey?: string;
+    expiresAt: number;
+    firebaseIDToken?: string;
+    idToken?: string; // Legacy alias for firebaseIDToken.
+    displayName?: string | null;
+    email?: string | null;
+    avatarURL?: string | null;
+    photoUrl?: string | null; // Legacy alias for avatarURL.
+  }): Promise<{ published: boolean }>;
+
+  /** Clear the shared iMessage session when the vault locks or user signs out. */
+  clearIMessageSession(): Promise<{ cleared: boolean }>;
+
   getPending(options: {
     userId: string;
     vaultOwnerToken?: string;
@@ -450,6 +471,26 @@ export interface HushhVaultPlugin {
     vaultOwnerToken: string;
     authToken: string;
   }): Promise<Record<string, unknown>>;
+
+  /**
+   * Legacy domain-specific preference read kept for native bridge compatibility.
+   * @deprecated Use token-enforced vault/domain flows instead.
+   */
+  getFoodPreferences(options: {
+    userId: string;
+    vaultOwnerToken: string;
+    authToken?: string;
+  }): Promise<{ domain: "food"; preferences: unknown | null }>;
+
+  /**
+   * Legacy domain-specific profile read kept for native bridge compatibility.
+   * @deprecated Use token-enforced vault/domain flows instead.
+   */
+  getProfessionalData(options: {
+    userId: string;
+    vaultOwnerToken: string;
+    authToken?: string;
+  }): Promise<{ domain: "professional"; preferences: unknown | null }>;
 }
 
 export const HushhVault = registerPlugin<HushhVaultPlugin>("HushhVault", {
@@ -745,6 +786,31 @@ export interface HushhLocationPlugin {
 
 export const HushhLocation = registerPlugin<HushhLocationPlugin>("HushhLocation", {
   web: () => import("./plugins/location-web").then((m) => new m.HushhLocationWeb()),
+});
+
+// ==================== HushhContactsPlugin ====================
+// Contact-book permission and read-only contact lookup for Connect matching.
+
+export type HushhContactsPermissionState = {
+  state: "granted" | "denied" | "prompt" | "restricted" | "unavailable";
+};
+
+export type HushhContactRecord = {
+  id?: string | null;
+  displayName?: string | null;
+  phoneNumbers: string[];
+};
+
+export interface HushhContactsPlugin {
+  getPermissionState(): Promise<HushhContactsPermissionState>;
+  readContacts(options?: { limit?: number }): Promise<{
+    contacts: HushhContactRecord[];
+    sourcePlatform: "web" | "ios" | "android" | "native";
+  }>;
+}
+
+export const HushhContacts = registerPlugin<HushhContactsPlugin>("HushhContacts", {
+  web: () => import("./plugins/contacts-web").then((m) => new m.HushhContactsWeb()),
 });
 
 // ==================== HushhPersonalKnowledgeModelPlugin ====================

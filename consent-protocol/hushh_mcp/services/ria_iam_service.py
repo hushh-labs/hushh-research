@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import hashlib
 import io
 import json
 import logging
 import os
 import re
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -69,7 +71,78 @@ _RELATIONSHIP_SHARE_ORIGIN_RELATIONSHIP_IMPLICIT = "relationship_implicit"
 _RIA_PICKS_PKM_DOMAIN = "ria"
 _RIA_PICKS_PKM_PATH = "advisor_package"
 _PERSONA_STATE_CACHE_TTL = timedelta(seconds=30)
-_PERSONA_STATE_CACHE: dict[str, tuple[datetime, dict[str, Any]]] = {}
+
+
+class _PersonaStateCache:
+    """Thread-safe, TTL-aware, size-bounded cache for persona state payloads.
+
+    The cache is keyed by normalised ``user_id``.  Each entry stores the
+    time the payload was written together with the payload dict itself.
+    Stale entries (age > TTL) are evicted lazily on every read and
+    proactively during writes when the cap is reached.
+
+    Memory footprint (default cap = 10 000):
+      10 000 entries x ~600 B per entry ~ 6 MB worst-case.
+    """
+
+    MAX_ENTRIES: int = 10_000
+
+    def __init__(self, max_entries: int = MAX_ENTRIES) -> None:
+        if max_entries < 1:
+            raise ValueError(f"max_entries must be >= 1, got {max_entries}")
+        self._max = max_entries
+        self._data: dict[str, tuple[datetime, dict[str, Any]]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: str, ttl: timedelta) -> dict[str, Any] | None:
+        """Return a copy of the cached payload for *key*, or ``None`` if absent/stale."""
+        with self._lock:
+            entry = self._data.get(key)
+            if entry is None:
+                return None
+            cached_at, payload = entry
+            if datetime.now(timezone.utc) - cached_at > ttl:
+                del self._data[key]
+                return None
+            return dict(payload)
+
+    def set(self, key: str, payload: dict[str, Any]) -> None:
+        """Write *payload* under *key*, evicting stale and oldest entries as needed."""
+        with self._lock:
+            # Fast path: update in place if already present (no size change).
+            if key in self._data:
+                self._data[key] = (datetime.now(timezone.utc), dict(payload))
+                return
+            # Make room if at capacity.
+            if len(self._data) >= self._max:
+                # Step 1: remove entries that are already past the TTL.
+                now = datetime.now(timezone.utc)
+                stale = [
+                    k for k, (ts, _) in self._data.items() if now - ts > _PERSONA_STATE_CACHE_TTL
+                ]
+                for k in stale:
+                    del self._data[k]
+            # Step 2: if still at capacity, evict the oldest-inserted entry.
+            while len(self._data) >= self._max:
+                oldest = next(iter(self._data))
+                del self._data[oldest]
+            self._data[key] = (datetime.now(timezone.utc), dict(payload))
+
+    def invalidate(self, key: str) -> None:
+        """Remove *key* from the cache (no-op if absent)."""
+        with self._lock:
+            self._data.pop(key, None)
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._data)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._data.clear()
+
+
+_PERSONA_STATE_CACHE = _PersonaStateCache()
 _MARKETPLACE_INVESTOR_ACTION_STATUS: dict[str, str] = {
     "view_more": "viewed",
     "pass": "passed",
@@ -771,30 +844,20 @@ class RIAIAMService:
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
             return None
-        cached = _PERSONA_STATE_CACHE.get(normalized_user_id)
-        if not cached:
-            return None
-        cached_at, payload = cached
-        if datetime.now(timezone.utc) - cached_at > _PERSONA_STATE_CACHE_TTL:
-            _PERSONA_STATE_CACHE.pop(normalized_user_id, None)
-            return None
-        return dict(payload)
+        return _PERSONA_STATE_CACHE.get(normalized_user_id, _PERSONA_STATE_CACHE_TTL)
 
     @staticmethod
     def _write_cached_persona_state(user_id: str, payload: dict[str, Any]) -> None:
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
             return
-        _PERSONA_STATE_CACHE[normalized_user_id] = (
-            datetime.now(timezone.utc),
-            dict(payload),
-        )
+        _PERSONA_STATE_CACHE.set(normalized_user_id, payload)
 
     @staticmethod
     def _invalidate_cached_persona_state(user_id: str) -> None:
         normalized_user_id = str(user_id or "").strip()
         if normalized_user_id:
-            _PERSONA_STATE_CACHE.pop(normalized_user_id, None)
+            _PERSONA_STATE_CACHE.invalidate(normalized_user_id)
 
     @staticmethod
     def _env_truthy(name: str, fallback: str = "false") -> bool:
@@ -8454,6 +8517,137 @@ class RIAIAMService:
         )
         items.extend(self._marketplace_public_sec_investor_row(row) for row in public_rows)
         return items
+
+    @staticmethod
+    def _normalize_contact_phone_for_hash(value: Any) -> str | None:
+        raw = str(value or "").strip()
+        digits = re.sub(r"\D", "", raw)
+        if not digits:
+            return None
+        if raw.startswith("+"):
+            return f"+{digits}"
+        if len(digits) == 10:
+            return f"+1{digits}"
+        return f"+{digits}"
+
+    async def match_marketplace_contacts(
+        self,
+        user_id: str,
+        *,
+        phone_lookups: list[dict[str, Any]],
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        normalized_lookups: dict[str, set[str]] = {}
+        for item in phone_lookups:
+            digest = str(item.get("hash") or "").strip().lower()
+            last4 = re.sub(r"\D", "", str(item.get("last4") or ""))[-4:]
+            if len(digest) != 64 or not last4:
+                continue
+            normalized_lookups.setdefault(last4, set()).add(digest)
+        if not normalized_lookups:
+            return []
+
+        limit_safe = max(1, min(limit, 100))
+        last4_values = sorted(normalized_lookups.keys())
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            rows = await conn.fetch(
+                """
+                SELECT
+                  aic.user_id,
+                  aic.phone_number,
+                  COALESCE(NULLIF(aic.display_name, ''), mp.display_name) AS identity_display_name,
+                  mp.profile_type,
+                  mp.display_name,
+                  mp.headline,
+                  mp.location_hint,
+                  mp.strategy_summary,
+                  rp.id AS ria_id,
+                  rp.verification_status,
+                  COALESCE(ap.investor_marketplace_opt_in, FALSE) AS investor_marketplace_opt_in
+                FROM actor_identity_cache aic
+                JOIN marketplace_public_profiles mp
+                  ON mp.user_id = aic.user_id
+                  AND mp.is_discoverable = TRUE
+                LEFT JOIN actor_profiles ap
+                  ON ap.user_id = aic.user_id
+                LEFT JOIN ria_profiles rp
+                  ON rp.user_id = aic.user_id
+                WHERE
+                  aic.user_id <> $1
+                  AND aic.phone_verified = TRUE
+                  AND aic.phone_number IS NOT NULL
+                  AND RIGHT(regexp_replace(aic.phone_number, '[^0-9]', '', 'g'), 4) = ANY($2::text[])
+                  AND (
+                    (
+                      mp.profile_type = 'ria'
+                      AND rp.verification_status IN ('active', 'verified', 'finra_verified')
+                    )
+                    OR (
+                      mp.profile_type = 'investor'
+                      AND COALESCE(ap.investor_marketplace_opt_in, FALSE) = TRUE
+                    )
+                  )
+                ORDER BY mp.display_name ASC
+                LIMIT $3::integer
+                """,
+                user_id,
+                last4_values,
+                max(limit_safe * 8, limit_safe),
+            )
+            matches: list[dict[str, Any]] = []
+            seen_users: set[str] = set()
+            for row in rows:
+                normalized_phone = self._normalize_contact_phone_for_hash(row["phone_number"])
+                if not normalized_phone:
+                    continue
+                last4 = re.sub(r"\D", "", normalized_phone)[-4:]
+                digest = hashlib.sha256(normalized_phone.encode("utf-8")).hexdigest()
+                if digest not in normalized_lookups.get(last4, set()):
+                    continue
+
+                target_user_id = str(row["user_id"])
+                if target_user_id in seen_users:
+                    continue
+                seen_users.add(target_user_id)
+                kind = str(row["profile_type"] or "").strip().lower()
+                profile = {
+                    "id": str(row["ria_id"])
+                    if kind == "ria" and row["ria_id"]
+                    else f"hushh_user:{target_user_id}",
+                    "user_id": target_user_id,
+                    "display_name": row["display_name"],
+                    "headline": row["headline"],
+                    "location_hint": row["location_hint"],
+                    "strategy_summary": row["strategy_summary"],
+                }
+                if kind == "ria":
+                    profile["verification_status"] = row["verification_status"]
+                else:
+                    profile["source_type"] = "hushh_user"
+                    profile["connectable"] = True
+
+                matches.append(
+                    {
+                        "user_id": target_user_id,
+                        "kind": "ria" if kind == "ria" else "investor",
+                        "display_name": row["display_name"] or row["identity_display_name"],
+                        "headline": row["headline"],
+                        "phone_last4": last4,
+                        "profile": profile,
+                    }
+                )
+                if len(matches) >= limit_safe:
+                    break
+            return matches
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
 
     async def record_marketplace_investor_action(
         self,

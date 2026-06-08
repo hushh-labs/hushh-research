@@ -46,6 +46,7 @@ import { PersonaProvider } from "@/lib/persona/persona-context";
 import { resolveSignedInShellContentOffset } from "@/components/app-ui/signed-in-shell-content-offset";
 import { NativeTestRouter } from "@/components/app-ui/native-test-router";
 import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
+import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-status";
 import {
   INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
   type InternalAppNavigationRequest,
@@ -115,7 +116,7 @@ export function Providers({ children }: ProvidersProps) {
           ? "calc(var(--app-bottom-inset) + var(--bottom-chrome-fade-overscan))"
           : "calc(var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift) + var(--kai-command-fixed-ui) + var(--bottom-chrome-fade-overscan))",
         "--bottom-chrome-visual-height": "var(--bottom-chrome-full-height)",
-        "--bottom-chrome-hide-distance": "var(--bottom-chrome-full-height)",
+        "--bottom-chrome-hide-distance": "var(--app-bottom-fixed-ui)",
         "--app-scroll-bottom-pad": "var(--bottom-chrome-stack-height)",
       } as CSSProperties),
     [
@@ -252,6 +253,7 @@ export function Providers({ children }: ProvidersProps) {
                 <AgentPopoverProvider>
                   <NativeTestRouter />
                   <NativeTestBootstrap />
+                  <NativeTestRouteStatus />
                   <PersonaBootstrapRedirect />
                   <Suspense
                     fallback={
@@ -285,7 +287,6 @@ export function Providers({ children }: ProvidersProps) {
                                         "--bottom-chrome-progress": String(hideBottomChromeGlassProgress),
                                         "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.72)",
                                         "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.72)",
-                                        "--app-bar-glass-blur": "2px",
                                         "--app-bar-shadow": "none",
                                         "--app-bar-mask-overscan": "14px",
                                       } as CSSProperties
@@ -362,7 +363,6 @@ export function Providers({ children }: ProvidersProps) {
                                         "--bottom-chrome-progress": String(hideBottomChromeGlassProgress),
                                         "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.72)",
                                         "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.72)",
-                                        "--app-bar-glass-blur": "2px",
                                         "--app-bar-shadow": "none",
                                         "--app-bar-mask-overscan": "14px",
                                       } as CSSProperties

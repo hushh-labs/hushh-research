@@ -427,6 +427,14 @@ export async function loadAgentPkmContext(params: {
   };
 }
 
+export function peekAgentPkmContext(params: {
+  userId: string;
+  message?: string;
+  maxChars?: number;
+}): AgentPkmContext | null {
+  return AgentPkmContextStore.peek(params);
+}
+
 export function clearAgentPkmContext(userId?: string): void {
   AgentPkmContextStore.clear(userId);
 }

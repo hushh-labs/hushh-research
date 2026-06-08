@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Kai</string>
+	<string>One</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Kai</string>
+	<string>One</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -28,11 +28,21 @@
 				<string>com.googleusercontent.apps.1006304528804-5f4ni5h8nschgv9gcoa9i07bhqtjeb91</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.hushh.app.messages</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>hushh</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>GIDClientID</key>
 	<string>1006304528804-5f4ni5h8nschgv9gcoa9i07bhqtjeb91.apps.googleusercontent.com</string>
+	<key>HusshIMessageKeychainAccessGroup</key>
+	<string>WVDK9JW99C.com.hushh.app.imessage</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
@@ -43,9 +53,11 @@
 		<true/>
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Kai uses the microphone only when you start a voice command.</string>
+	<string>One uses the microphone only when you start a voice command.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>One uses foreground location only when you choose to share an encrypted live-location update.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>One uses contacts only when you choose to find people already on Hushh.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

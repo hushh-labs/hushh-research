@@ -100,4 +100,52 @@ describe("observability schema", () => {
     expect(result.sanitized.action).toBe("link");
     expect(result.sanitized.result).toBe("success");
   });
+
+  it("accepts route cache performance metadata without user payloads", () => {
+    const result = validateAndSanitizeEvent("route_readiness_completed", {
+      env: "uat",
+      platform: "web",
+      event_category: "system",
+      app_version: "2.1.0",
+      route_id: "kai_portfolio",
+      result: "success",
+      render_path: "secure_device_stale",
+      cache_tier: "secure_device",
+      resource_class: "financial_resource",
+      duration_ms_bucket: "100ms_300ms",
+      blocking_loader_shown: false,
+      stale_rendered: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.droppedKeys).toEqual([]);
+    expect(result.sanitized.render_path).toBe("secure_device_stale");
+    expect(result.sanitized.cache_tier).toBe("secure_device");
+  });
+
+  it("drops sensitive fields from cache performance events", () => {
+    const result = validateAndSanitizeEvent("cache_resource_resolved", {
+      env: "uat",
+      platform: "web",
+      event_category: "system",
+      app_version: "2.1.0",
+      route_id: "one_kyc",
+      result: "success",
+      resource_class: "pkm_projection",
+      cache_tier: "memory",
+      freshness: "fresh",
+      duration_ms_bucket: "lt_100ms",
+      footprint_bucket: "50kb_250kb",
+      user_id: "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
+      cache_key: "domain_data_UWHGeUyfUAbmEl5xwIPoWJ7Cyft2_financial",
+      pkm_payload: "portfolio holdings should never be logged",
+    } as any);
+
+    expect(result.ok).toBe(false);
+    expect(result.droppedKeys).toContain("user_id");
+    expect(result.droppedKeys).toContain("cache_key");
+    expect(result.droppedKeys).toContain("pkm_payload");
+    expect(result.sanitized.resource_class).toBe("pkm_projection");
+    expect(result.sanitized.freshness).toBe("fresh");
+  });
 });

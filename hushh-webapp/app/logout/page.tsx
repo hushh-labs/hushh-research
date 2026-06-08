@@ -10,10 +10,10 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { signOut } from "firebase/auth";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { auth } from "@/lib/firebase/config";
+import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import {
   clearLocalStorage,
@@ -57,15 +57,12 @@ export default function LogoutPage() {
       ];
 
       try {
-        console.log("🔐 Logging out and clearing all vault data...");
-
         // CRITICAL: Clear ALL vault-related data from localStorage
         clearLocalStorageKeys(storageKeysToClear);
 
         // Clear session cookie via API (httpOnly cookie)
         try {
           await ApiService.deleteSession();
-          console.log("🍪 Session cookie cleared");
         } catch (e) {
           console.warn("⚠️ Failed to clear session cookie:", e);
         }
@@ -81,13 +78,12 @@ export default function LogoutPage() {
 
         // Sign out from Firebase
         const currentUid = auth.currentUser?.uid ?? null;
-        await signOut(auth);
+        await AuthService.signOut();
         CacheSyncService.onAuthSignedOut(currentUid);
 
         // Step 1: Logout complete
         completeStep();
 
-        console.log("✅ Logged out successfully");
         router.push(ROUTES.HOME);
       } catch (error) {
         console.error("Logout failed:", error);

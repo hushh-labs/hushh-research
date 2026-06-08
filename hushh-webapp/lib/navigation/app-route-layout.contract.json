@@ -42,6 +42,11 @@
     }
   },
   {
+    "route": "/one/location/request/[token]",
+    "mode": "hidden",
+    "exemptionReason": "Public one-location invite route is a standalone external-request form outside the signed-in app shell."
+  },
+  {
     "route": "/register-phone",
     "mode": "hidden",
     "exemptionReason": "Mandatory post-login phone verification flow intentionally bypasses the signed-in app shell."

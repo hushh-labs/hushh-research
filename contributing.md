@@ -100,25 +100,24 @@ Those are real, but they are not part of the normal first-PR path. If you need t
 
 ## PR Expectations
 
+- before opening a PR, use [docs/reference/quality/pr-contributor-readiness.md](./docs/reference/quality/pr-contributor-readiness.md) as the review-ready contract
 - keep changes small and explainable
+- wire new helpers, components, services, routes, agents, or scripts to an existing caller, package export, generated contract, or documented devex entrypoint
+- for test-only PRs, import and exercise production code; local mock-only tests do not prove the app contract
+- if your PR is stacked, link the predecessor and keep each PR reviewable against `main`
 - update docs when public behavior or contracts change
 - do not add a second setup path when the existing one can be simplified instead
 - prefer self-contained scripts and small modules over coupled one-off flows
 - run the local verification surface before pushing when your change affects docs, routes, CI, native parity, or backend contracts
 
 Common checks:
-
 ```bash
 ./bin/hushh codex pre-pr
 ./bin/hushh docs verify
 cd hushh-webapp && npm run verify:docs
 ```
 
-Commit signoff:
-
-```bash
-git commit -s
-```
+Commit signoff: `git commit -s`
 
 ## Naming Policy
 

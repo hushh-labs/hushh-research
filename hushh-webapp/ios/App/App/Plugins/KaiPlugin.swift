@@ -675,17 +675,51 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
 
         activeStreamKind = "kai"
         let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/kai/analyze/stream"
-        guard let url = URL(string: urlStr) else {
-            call.reject("Invalid URL: \(urlStr)")
-            return
-        }
+        let runId = (body["run_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let request: URLRequest
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(vaultOwnerToken)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        if !runId.isEmpty {
+            guard let userId = (body["user_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !userId.isEmpty else {
+                call.reject("Missing user_id for run stream")
+                return
+            }
+            let cursor =
+                (body["resume_cursor"] as? Int) ??
+                (body["resume_cursor"] as? NSNumber)?.intValue ??
+                0
+            let encodedRunId = runId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? runId
+            guard var components = URLComponents(string: "\(backendUrl)/api/kai/analyze/run/\(encodedRunId)/stream") else {
+                call.reject("Invalid URL components for streamKaiAnalysis run")
+                return
+            }
+            components.queryItems = [
+                URLQueryItem(name: "user_id", value: userId),
+                URLQueryItem(name: "cursor", value: String(max(0, cursor))),
+            ]
+            guard let url = components.url else {
+                call.reject("Invalid URL for streamKaiAnalysis run")
+                return
+            }
+            var runRequest = URLRequest(url: url)
+            runRequest.httpMethod = "GET"
+            runRequest.setValue("Bearer \(vaultOwnerToken)", forHTTPHeaderField: "Authorization")
+            runRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+            request = runRequest
+        } else {
+            let urlStr = "\(backendUrl)/api/kai/analyze/stream"
+            guard let url = URL(string: urlStr) else {
+                call.reject("Invalid URL: \(urlStr)")
+                return
+            }
+
+            var analysisRequest = URLRequest(url: url)
+            analysisRequest.httpMethod = "POST"
+            analysisRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            analysisRequest.setValue("Bearer \(vaultOwnerToken)", forHTTPHeaderField: "Authorization")
+            analysisRequest.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            request = analysisRequest
+        }
 
         streamCall = call
         streamBuffer = ""

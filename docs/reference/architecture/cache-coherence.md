@@ -148,17 +148,53 @@ Do:
   - `VAULT_OWNER` stays memory-only
   - decrypted PKM stays memory-only
   - only ciphertext may persist to encrypted IndexedDB
+- Treat performance as a cache-coherence contract, not an afterthought:
+  - warm cache should reach usable UI without a blocking full-page loader
+  - stale safe data should remain visible while refresh runs
+  - cold or unsafe states may show loaders, but must emit route-readiness metadata
+  - route/cache performance events must use route IDs, resource classes, cache tiers, duration buckets, and result state only
+  - never emit raw cache keys, user IDs, workflow IDs, PKM payloads, portfolio values, prompts, or decrypted values in analytics
 
 Don't:
 - Add ad-hoc `CacheService.getInstance().invalidate(...)` calls in mutation flows.
 - Mix component-level DB mutation and cache operations.
 - Reintroduce plaintext browser persistence for PKM-derived user data.
 
+## Performance KPI Contract
+
+Every cacheable route should be able to explain its best available UX path from the generated screen manifest:
+
+1. fresh memory render when the resource is valid
+2. secure device stale render for encrypted user data when revision/TTL permits
+3. plain device stale render for non-sensitive app resources
+4. background refresh after a safe stale render
+5. cold loader only when the data is missing, locked, unsafe, or first-use
+
+The standard KPI set is:
+
+- warm-cache time to usable UI
+- cold unlock-to-usable time
+- stale render rate versus blocking loader rate
+- cache hit, stale-hit, miss, and locked/unsafe rate by route and resource class
+- refresh duration, retry count, and error rate
+- warmup duration and usefulness by resource class
+- approximate footprint bucket by cache tier and sensitivity class
+
+Use these internal observability events for the contract:
+
+- `route_readiness_completed`
+- `cache_resource_resolved`
+- `route_refresh_completed`
+- `warmup_completed`
+
+The events are metadata-only. They are for UX and reliability decisions; they are not a reason to retain decrypted PKM longer or broaden warmup.
+
 ## Verification
 
 Run:
 - `cd hushh-webapp && npm run verify:cache`
 - `cd hushh-webapp && npm run audit:cache-coherence`
+- `cd hushh-webapp && npm run verify:analytics`
 - `./bin/hushh native ios --mode uat`
 
 The `verify:cache` script hard-fails when critical mutation/auth paths bypass `CacheSyncService`.
