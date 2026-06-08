@@ -9,6 +9,12 @@ export const KAI_ROUTE_TABS = [
     prefetchHref: ROUTES.KAI_DASHBOARD,
   },
   {
+    id: "chat",
+    label: "Chat",
+    href: ROUTES.KAI_CHAT,
+    prefetchHref: ROUTES.KAI_CHAT,
+  },
+  {
     id: "connect",
     label: "Connect",
     href: ROUTES.MARKETPLACE,
@@ -27,6 +33,7 @@ export type KaiRouteTabId = (typeof KAI_ROUTE_TABS)[number]["id"];
 export function activeKaiRouteTabFromPath(pathname: string): KaiRouteTabId {
   if (pathname.startsWith(ROUTES.MARKETPLACE)) return "connect";
   if (pathname === ROUTES.KAI_HOME || pathname.startsWith(`${ROUTES.KAI_HOME}?`)) return "market";
+  if (pathname === ROUTES.KAI_CHAT || pathname.startsWith(`${ROUTES.KAI_CHAT}/`)) return "chat";
   if (pathname.startsWith(ROUTES.KAI_ANALYSIS) || pathname.startsWith("/kai/dashboard/analysis")) {
     return "analysis";
   }
