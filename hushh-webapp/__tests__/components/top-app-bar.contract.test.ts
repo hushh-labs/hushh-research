@@ -58,9 +58,9 @@ describe("Top app bar responsive contract", () => {
   });
 
   it("uses shared mobile-width chrome for top-shell shield and bell dropdowns", () => {
-    const chrome = read("components/app-ui/top-shell-dropdown.tsx");
-    const consentInbox = read("components/consent/consent-inbox-dropdown.tsx");
-    const taskCenter = read("components/app-ui/debate-task-center.tsx");
+    const chrome = read("components/app-ui/top-shell-dropdown.tsx").replace(/\r\n/g, "\n");
+    const consentInbox = read("components/consent/consent-inbox-dropdown.tsx").replace(/\r\n/g, "\n");
+    const taskCenter = read("components/app-ui/debate-task-center.tsx").replace(/\r\n/g, "\n");
 
     expect(chrome).toContain("export function TopShellDropdownContent");
     expect(chrome).toContain("centeredMobileAlignOffset");

@@ -35,10 +35,7 @@ const loadWebAnalyticsScripts = shouldLoadWebAnalyticsScripts();
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://hushh.ai"),
-  title: {
-    default: "One: Your Personal Agent",
-    template: "%s | One Personal Agent",
-  },
+  title: "One | Your Personal Agent",
   description: "Personal AI agents with consent at the core. Your data, your control.",
   keywords: ["AI agents", "personal AI", "One", "consent-first", "privacy", "hushh"],
   authors: [{ name: "Hushh Labs", url: "https://hushh.ai" }],
@@ -63,7 +60,7 @@ export const metadata: Metadata = {
     description: "Personal AI agents with consent at the core. Your data, your control.",
     url: "https://hushh.ai",
     type: "website",
-    siteName: "One Platform",
+    siteName: "Hussh",
     locale: "en_US",
     images: [
       {
