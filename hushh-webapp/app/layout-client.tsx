@@ -2,7 +2,7 @@
 
 import { ReactNode } from "react";
 import { Providers } from "./providers";
-import { ScrollProgressBar } from "@/components/ui/scroll-progress-bar";
+import { ScrollProgressBar } from "@/components/app-ui/scroll-progress-bar";
 
 interface RootLayoutClientProps {
   children: ReactNode;
