@@ -2,7 +2,7 @@
 
 import { ReactNode } from "react";
 import { Providers } from "./providers";
-import { ScrollProgressBar } from "@/components/app-ui/scroll-progress-bar";
+
 import { FeedbackWidget } from "@/components/app-ui/feedback-widget";
 
 interface RootLayoutClientProps {
@@ -36,7 +36,7 @@ export function RootLayoutClient({
       />
 
       <Providers>
-        <ScrollProgressBar />
+        
         {children}
         <FeedbackWidget />
       </Providers>
