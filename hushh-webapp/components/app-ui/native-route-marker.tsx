@@ -1,32 +1,25 @@
-"use client";
-
-import { type ReactNode } from "react";
-import { cn } from "@/lib/utils";
-
-// Make sure you only have ONE interface block like this:
-export interface NativeRouteMarkerProps {
-  children?: ReactNode;
-  className?: string;
+type NativeRouteMarkerProps = {
   routeId: string;
   marker: string;
-  // Combine all types into one line here
-  authState: "authenticated" | "unauthenticated" | "loading" | "anonymous";
-  dataState: "loaded" | "loading" | "error";
-}
+  authState?: string;
+  dataState?: string;
+};
 
-export function NativeRouteMarker({ 
-  children, 
-  className,
+export function NativeRouteMarker({
   routeId,
   marker,
-  authState,
-  dataState
+  authState = "",
+  dataState = "",
 }: NativeRouteMarkerProps) {
   return (
-    <div className={cn("hidden", className)} data-route={routeId} data-marker={marker}>
-      {children}
-    </div>
+    <div
+      style={{ display: "none" }}
+      aria-hidden="true"
+      data-testid={marker}
+      data-native-route-marker="true"
+      data-native-route-id={routeId}
+      data-native-auth-default={authState}
+      data-native-data-default={dataState}
+    />
   );
 }
-
-NativeRouteMarker.displayName = "NativeRouteMarker";
