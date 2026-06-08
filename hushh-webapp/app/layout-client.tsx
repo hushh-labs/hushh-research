@@ -2,6 +2,7 @@
 
 import { ReactNode } from "react";
 import { Providers } from "./providers";
+import { ScratchpadWidget } from "@/components/features/scratchpad/scratchpad-widget";
 
 interface RootLayoutClientProps {
   children: ReactNode;
@@ -35,6 +36,7 @@ export function RootLayoutClient({
 
       <Providers>
         {children}
+        <ScratchpadWidget />
       </Providers>
     </body>
   );
