@@ -48,6 +48,11 @@ export const metadata: Metadata = {
     shortcut: "/quiet-emoji-icon.svg",
     apple: "/quiet-emoji-icon.png",
   },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Hushh One",
+  },
   manifest: "/manifest.webmanifest",
   openGraph: {
     title: "One | Your Personal Agent",

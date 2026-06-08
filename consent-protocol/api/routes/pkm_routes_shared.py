@@ -327,7 +327,9 @@ class EncryptedBlob(BaseModel):
     """Encrypted data blob."""
 
     # AES-256-GCM base64url ciphertext: 1 B minimum, 10 MB practical ceiling.
-    ciphertext: str = Field(..., min_length=1, max_length=10_000_000, description="AES-256-GCM encrypted data")
+    ciphertext: str = Field(
+        ..., min_length=1, max_length=10_000_000, description="AES-256-GCM encrypted data"
+    )
     # IV is typically 12 bytes -> 16 base64 chars; allow up to 512 for future algs.
     iv: str = Field(..., min_length=1, max_length=512, description="Initialization vector")
     # GCM tag is 16 bytes -> 24 base64 chars; allow up to 512.

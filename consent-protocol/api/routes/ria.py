@@ -61,6 +61,7 @@ class RIAOnboardingSubmitRequest(BaseModel):
         if not v.startswith(("http://", "https://")):
             raise ValueError("disclosures_url must use http or https scheme")
         return v
+
     primary_firm_role: str | None = Field(None, max_length=128)
     force_live_verification: bool = False
     # Onboarding v2: license-first fields

@@ -92,9 +92,7 @@ class TestRequestIdConstraints:
 
     def test_request_id_too_long_rejected(self):
         with pytest.raises(ValidationError) as exc_info:
-            ConsentApprovalPayload.model_validate(
-                {"userId": _VALID_USER, "requestId": "r" * 129}
-            )
+            ConsentApprovalPayload.model_validate({"userId": _VALID_USER, "requestId": "r" * 129})
         errors = exc_info.value.errors()
         assert any(e["loc"] == ("requestId",) for e in errors)
 
@@ -399,9 +397,7 @@ class TestTrustBoundaryProof:
     def test_field_constraints_are_enforced_not_handler_logic(self):
         """Pydantic ValidationError proves constraint rejection happens at parse time."""
         with pytest.raises(ValidationError) as exc_info:
-            ConsentApprovalPayload.model_validate(
-                {"userId": "", "requestId": _VALID_REQUEST}
-            )
+            ConsentApprovalPayload.model_validate({"userId": "", "requestId": _VALID_REQUEST})
         errors = exc_info.value.errors()
         assert any(e["loc"][-1] == "userId" for e in errors)
 

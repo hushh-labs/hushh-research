@@ -37,9 +37,7 @@ class TestRIAOnboardingSubmitRequestBounds:
     def test_individual_crd_max_length_50(self):
         """Test that individual_crd enforces max_length=50."""
         with pytest.raises(ValidationError):
-            RIAOnboardingSubmitRequest(
-                display_name="Test", individual_crd="a" * 51
-            )
+            RIAOnboardingSubmitRequest(display_name="Test", individual_crd="a" * 51)
 
     def test_bio_max_length_5000(self):
         """Test that bio enforces max_length=5000."""
@@ -49,23 +47,17 @@ class TestRIAOnboardingSubmitRequestBounds:
     def test_strategy_max_length_5000(self):
         """Test that strategy enforces max_length=5000."""
         with pytest.raises(ValidationError):
-            RIAOnboardingSubmitRequest(
-                display_name="Test", strategy="a" * 5001
-            )
+            RIAOnboardingSubmitRequest(display_name="Test", strategy="a" * 5001)
 
     def test_disclosures_url_max_length_2048(self):
         """Test that disclosures_url enforces max_length=2048."""
         with pytest.raises(ValidationError):
-            RIAOnboardingSubmitRequest(
-                display_name="Test", disclosures_url="https://" + "a" * 2048
-            )
+            RIAOnboardingSubmitRequest(display_name="Test", disclosures_url="https://" + "a" * 2048)
 
     def test_disclosures_url_scheme_validation(self):
         """Test that disclosures_url must use http or https."""
         with pytest.raises(ValidationError) as exc_info:
-            RIAOnboardingSubmitRequest(
-                display_name="Test", disclosures_url="ftp://example.com"
-            )
+            RIAOnboardingSubmitRequest(display_name="Test", disclosures_url="ftp://example.com")
         assert "http or https scheme" in str(exc_info.value)
 
     def test_contact_email_max_length_320(self):
@@ -78,16 +70,12 @@ class TestRIAOnboardingSubmitRequestBounds:
     def test_contact_phone_max_length_30(self):
         """Test that contact_phone enforces max_length=30."""
         with pytest.raises(ValidationError):
-            RIAOnboardingSubmitRequest(
-                display_name="Test", contact_phone="1" * 31
-            )
+            RIAOnboardingSubmitRequest(display_name="Test", contact_phone="1" * 31)
 
     def test_business_address_max_length_512(self):
         """Test that business_address enforces max_length=512."""
         with pytest.raises(ValidationError):
-            RIAOnboardingSubmitRequest(
-                display_name="Test", business_address="a" * 513
-            )
+            RIAOnboardingSubmitRequest(display_name="Test", business_address="a" * 513)
 
     def test_requested_capabilities_list_bounded(self):
         """Test that requested_capabilities list enforces max_length=20."""
@@ -137,9 +125,7 @@ class TestRIAOnboardingVerifyLicenseRequestBounds:
     def test_regulator_max_length_128(self):
         """Test that regulator enforces max_length=128."""
         with pytest.raises(ValidationError):
-            RIAOnboardingVerifyLicenseRequest(
-                license_number="123456", regulator="a" * 129
-            )
+            RIAOnboardingVerifyLicenseRequest(license_number="123456", regulator="a" * 129)
 
     def test_valid_license_verification(self):
         """Test that valid license verification passes."""
@@ -158,9 +144,7 @@ class TestRIAProfileRefreshLicenseRequestBounds:
     def test_regulator_max_length_128(self):
         """Test that regulator enforces max_length=128."""
         with pytest.raises(ValidationError):
-            RIAProfileRefreshLicenseRequest(
-                license_number="123456", regulator="a" * 129
-            )
+            RIAProfileRefreshLicenseRequest(license_number="123456", regulator="a" * 129)
 
 
 class TestRIAConsentRequestCreateBounds:
@@ -169,16 +153,12 @@ class TestRIAConsentRequestCreateBounds:
     def test_subject_user_id_max_length_128(self):
         """Test that subject_user_id enforces max_length=128."""
         with pytest.raises(ValidationError):
-            RIAConsentRequestCreate(
-                subject_user_id="a" * 129, scope_template_id="valid"
-            )
+            RIAConsentRequestCreate(subject_user_id="a" * 129, scope_template_id="valid")
 
     def test_scope_template_id_max_length_128(self):
         """Test that scope_template_id enforces max_length=128."""
         with pytest.raises(ValidationError):
-            RIAConsentRequestCreate(
-                subject_user_id="user", scope_template_id="a" * 129
-            )
+            RIAConsentRequestCreate(subject_user_id="user", scope_template_id="a" * 129)
 
     def test_selected_scope_max_length_128(self):
         """Test that selected_scope enforces max_length=128."""
@@ -214,9 +194,7 @@ class TestRIAConsentBundleCreateBounds:
     def test_subject_user_id_max_length_128(self):
         """Test that subject_user_id enforces max_length=128."""
         with pytest.raises(ValidationError):
-            RIAConsentBundleCreate(
-                subject_user_id="a" * 129, scope_template_id="valid"
-            )
+            RIAConsentBundleCreate(subject_user_id="a" * 129, scope_template_id="valid")
 
     def test_selected_scopes_list_bounded_50(self):
         """Test that selected_scopes list enforces max_length=50."""
@@ -257,16 +235,12 @@ class TestRIAPicksParseRequestBounds:
     def test_source_filename_max_length_256(self):
         """Test that source_filename enforces max_length=256."""
         with pytest.raises(ValidationError):
-            RIAPicksParseRequest(
-                csv_content="valid", source_filename="a" * 257
-            )
+            RIAPicksParseRequest(csv_content="valid", source_filename="a" * 257)
 
     def test_package_note_max_length_1000(self):
         """Test that package_note enforces max_length=1000."""
         with pytest.raises(ValidationError):
-            RIAPicksParseRequest(
-                csv_content="valid", package_note="a" * 1001
-            )
+            RIAPicksParseRequest(csv_content="valid", package_note="a" * 1001)
 
     def test_avoid_rows_list_bounded_5000(self):
         """Test that avoid_rows list enforces max_length=5000."""
@@ -365,16 +339,12 @@ class TestRIAInviteCreateRequestBounds:
     def test_duration_mode_max_length_50(self):
         """Test that duration_mode enforces max_length=50."""
         with pytest.raises(ValidationError):
-            RIAInviteCreateRequest(
-                scope_template_id="valid", duration_mode="a" * 51
-            )
+            RIAInviteCreateRequest(scope_template_id="valid", duration_mode="a" * 51)
 
     def test_reason_max_length_1000(self):
         """Test that reason enforces max_length=1000."""
         with pytest.raises(ValidationError):
-            RIAInviteCreateRequest(
-                scope_template_id="valid", reason="a" * 1001
-            )
+            RIAInviteCreateRequest(scope_template_id="valid", reason="a" * 1001)
 
     def test_targets_list_bounded_500(self):
         """Test that targets list enforces max_length=500."""
@@ -391,16 +361,12 @@ class TestRIAMarketplaceDiscoverabilityRequestBounds:
     def test_headline_max_length_512(self):
         """Test that headline enforces max_length=512."""
         with pytest.raises(ValidationError):
-            RIAMarketplaceDiscoverabilityRequest(
-                enabled=True, headline="a" * 513
-            )
+            RIAMarketplaceDiscoverabilityRequest(enabled=True, headline="a" * 513)
 
     def test_strategy_summary_max_length_5000(self):
         """Test that strategy_summary enforces max_length=5000."""
         with pytest.raises(ValidationError):
-            RIAMarketplaceDiscoverabilityRequest(
-                enabled=True, strategy_summary="a" * 5001
-            )
+            RIAMarketplaceDiscoverabilityRequest(enabled=True, strategy_summary="a" * 5001)
 
     def test_valid_marketplace_request(self):
         """Test that valid marketplace request passes."""
@@ -410,8 +376,6 @@ class TestRIAMarketplaceDiscoverabilityRequestBounds:
             strategy_summary="Long term growth focused",
         )
         assert req.enabled is True
-
-
 
 
 if __name__ == "__main__":

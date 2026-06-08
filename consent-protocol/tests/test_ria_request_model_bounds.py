@@ -334,7 +334,6 @@ class TestRIAMarketplaceDiscoverabilityRequest:
 # ===========================================================================
 
 
-
 def _firebase_stub():
     return "test-firebase-uid"
 
@@ -427,9 +426,7 @@ class TestVerifyOnboardingNameRouteInputBounds:
 
     def test_crd_number_over_max_returns_422(self):
         """crd_number > 50 chars must be rejected with 422."""
-        resp = _client_with_auth().post(
-            self._URL, json={"query": "Alice", "crd_number": "c" * 51}
-        )
+        resp = _client_with_auth().post(self._URL, json={"query": "Alice", "crd_number": "c" * 51})
         assert resp.status_code == 422
 
 
@@ -475,23 +472,18 @@ class TestCreateRiaRequestRouteInputBounds:
 
     def test_subject_user_id_over_max_returns_422(self):
         """subject_user_id > 128 chars must be rejected with 422."""
-        resp = _client_with_auth().post(
-            self._URL, json=self._valid_body(subject_user_id="u" * 129)
-        )
+        resp = _client_with_auth().post(self._URL, json=self._valid_body(subject_user_id="u" * 129))
         assert resp.status_code == 422
 
     def test_reason_over_max_returns_422(self):
         """reason > 1000 chars must be rejected with 422."""
-        resp = _client_with_auth().post(
-            self._URL, json=self._valid_body(reason="r" * 1001)
-        )
+        resp = _client_with_auth().post(self._URL, json=self._valid_body(reason="r" * 1001))
         assert resp.status_code == 422
 
 
 # ---------------------------------------------------------------------------
 # v2 onboarding fields: license, contact, address, URL scheme
 # ---------------------------------------------------------------------------
-
 
 
 class TestV2LicenseContactAddressBounds:

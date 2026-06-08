@@ -2572,7 +2572,9 @@ async def get_market_insights_baseline(
 @router.get("/market/insights/{user_id}")
 async def get_market_insights(
     user_id: str,
-    symbols: str | None = Query(default=None, max_length=512, description="CSV list of symbols, max 8"),
+    symbols: str | None = Query(
+        default=None, max_length=512, description="CSV list of symbols, max 8"
+    ),
     days_back: int = Query(default=7, ge=1, le=14),
     pick_source: str | None = Query(
         default=None,

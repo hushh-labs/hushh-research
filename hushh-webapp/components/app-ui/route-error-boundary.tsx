@@ -1,6 +1,6 @@
 "use client";
 
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component, createRef, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "@/lib/morphy-ux/button";
 import { Card } from "@/lib/morphy-ux/card";
 import { AlertTriangle } from "lucide-react";
@@ -21,6 +21,8 @@ interface State {
  * Catches render errors and shows a morphy-styled recovery UI.
  */
 export class RouteErrorBoundary extends Component<Props, State> {
+  private errorRef = createRef<HTMLDivElement>();
+
   constructor(props: Props) {
     super(props);
     this.state = { hasError: false, error: null };
@@ -28,6 +30,12 @@ export class RouteErrorBoundary extends Component<Props, State> {
 
   static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
+  }
+
+  componentDidUpdate(_prevProps: Props, prevState: State) {
+    if (this.state.hasError && !prevState.hasError) {
+      this.errorRef.current?.focus();
+    }
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -54,8 +62,10 @@ export class RouteErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div
+          ref={this.errorRef}
           role="alert"
-          className="flex min-h-[60vh] flex-col items-center justify-center px-6"
+          tabIndex={-1}
+          className="flex min-h-[60vh] flex-col items-center justify-center px-6 outline-none"
         >
           <Card
             preset="default"

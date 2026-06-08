@@ -486,15 +486,21 @@ class TestDashboardProfilePicksResponseBounds:
 
     def test_user_id_max_length_256(self):
         with pytest.raises(ValidationError):
-            DashboardProfilePicksResponse(user_id="u" * 257, picks=[], generated_at="2026-01-01", risk_profile="balanced")
+            DashboardProfilePicksResponse(
+                user_id="u" * 257, picks=[], generated_at="2026-01-01", risk_profile="balanced"
+            )
 
     def test_generated_at_max_length_64(self):
         with pytest.raises(ValidationError):
-            DashboardProfilePicksResponse(user_id="user-1", picks=[], generated_at="d" * 65, risk_profile="balanced")
+            DashboardProfilePicksResponse(
+                user_id="user-1", picks=[], generated_at="d" * 65, risk_profile="balanced"
+            )
 
     def test_risk_profile_max_length_64(self):
         with pytest.raises(ValidationError):
-            DashboardProfilePicksResponse(user_id="user-1", picks=[], generated_at="2026-01-01", risk_profile="r" * 65)
+            DashboardProfilePicksResponse(
+                user_id="user-1", picks=[], generated_at="2026-01-01", risk_profile="r" * 65
+            )
 
 
 class TestPortfolioImportResponseBounds:

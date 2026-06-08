@@ -51,12 +51,16 @@ class KaiChatResponseModel(BaseModel):
 
     conversation_id: str = Field(..., description="Conversation ID for continuity", max_length=256)
     response: str = Field(..., description="Kai's response text", max_length=8192)
-    component_type: Optional[str] = Field(default=None, description="UI component type to render", max_length=128)
+    component_type: Optional[str] = Field(
+        default=None, description="UI component type to render", max_length=128
+    )
     component_data: Optional[dict] = Field(default=None, description="Data for the UI component")
     learned_attributes: list[dict] = Field(
         default_factory=list, description="Attributes learned from this exchange"
     )
-    tokens_used: Optional[int] = Field(default=None, description="Tokens used for this response", ge=0, le=1000000)
+    tokens_used: Optional[int] = Field(
+        default=None, description="Tokens used for this response", ge=0, le=1000000
+    )
 
 
 class ConversationHistoryResponse(BaseModel):
@@ -288,11 +292,15 @@ class AnalyzeLoserResponse(BaseModel):
 
     conversation_id: str = Field(..., description="Conversation ID for continuity", max_length=256)
     ticker: str = Field(..., description="Analyzed ticker symbol", max_length=10)
-    decision: str = Field(..., description="Investment decision: BUY, HOLD, or REDUCE", max_length=32)
+    decision: str = Field(
+        ..., description="Investment decision: BUY, HOLD, or REDUCE", max_length=32
+    )
     confidence: float = Field(..., description="Confidence score 0-1", ge=0.0, le=1.0)
     summary: str = Field(..., description="One-line summary of the analysis", max_length=256)
     reasoning: str = Field(..., description="Detailed reasoning for the decision", max_length=4096)
-    component_type: str = Field(default="analysis_summary", description="UI component type", max_length=64)
+    component_type: str = Field(
+        default="analysis_summary", description="UI component type", max_length=64
+    )
     component_data: dict = Field(default_factory=dict, description="Data for the UI component")
     saved_to_pkm: bool = Field(default=False, description="Whether decision was saved")
 

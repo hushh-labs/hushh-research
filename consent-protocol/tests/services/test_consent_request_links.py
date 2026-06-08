@@ -247,22 +247,30 @@ class TestBuildConnectionRequestUrl:
 # ad-tracking and telemetry params (fbclid, gclid, utm_*) must NEVER appear
 # in any generated URL, regardless of inputs.
 
-_TRACKING_PARAMS: frozenset[str] = frozenset({
-    "fbclid",       # Facebook Click ID
-    "gclid",        # Google Ads Click ID
-    "utm_source",
-    "utm_medium",
-    "utm_campaign",
-    "utm_term",
-    "utm_content",
-    "msclkid",      # Microsoft Advertising Click ID
-    "twclid",       # Twitter Click ID
-    "ttclid",       # TikTok Click ID
-})
+_TRACKING_PARAMS: frozenset[str] = frozenset(
+    {
+        "fbclid",  # Facebook Click ID
+        "gclid",  # Google Ads Click ID
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "utm_term",
+        "utm_content",
+        "msclkid",  # Microsoft Advertising Click ID
+        "twclid",  # Twitter Click ID
+        "ttclid",  # TikTok Click ID
+    }
+)
 
-_ALLOWED_CONSENT_PARAMS: frozenset[str] = frozenset({
-    "tab", "requestId", "bundleId", "actor", "view",
-})
+_ALLOWED_CONSENT_PARAMS: frozenset[str] = frozenset(
+    {
+        "tab",
+        "requestId",
+        "bundleId",
+        "actor",
+        "view",
+    }
+)
 
 
 def _query_keys(url_or_path: str) -> set[str]:
@@ -314,8 +322,9 @@ class TestTrackingParameterAbsence:
         params = parse_qs(urlparse(path).query)
 
         # Tracking key must NOT be injected as a top-level parameter.
-        assert "fbclid" not in params, \
+        assert "fbclid" not in params, (
             "fbclid was injected as a query parameter — urlencode is not escaping correctly"
+        )
 
         # The requestId value itself must be present (encoding should not drop it).
         assert "requestId" in params
@@ -348,8 +357,7 @@ class TestTrackingParameterAbsence:
             manager_view="outgoing",
         )
         unexpected = _query_keys(path) - _ALLOWED_CONSENT_PARAMS
-        assert not unexpected, \
-            f"Unexpected query params in consent path: {unexpected}"
+        assert not unexpected, f"Unexpected query params in consent path: {unexpected}"
 
     def test_utm_params_absent_across_all_valid_view_and_actor_combinations(self):
         """UTM parameters must never appear for any view+actor combination.
@@ -367,13 +375,9 @@ class TestTrackingParameterAbsence:
                     actor=actor,
                     request_id="req-sweep",
                 )
-                utm_leaked = {
-                    k for k in _query_keys(path)
-                    if k.startswith("utm_")
-                }
+                utm_leaked = {k for k in _query_keys(path) if k.startswith("utm_")}
                 assert not utm_leaked, (
-                    f"UTM params {utm_leaked} appeared for view={view!r}, "
-                    f"actor={actor!r}"
+                    f"UTM params {utm_leaked} appeared for view={view!r}, actor={actor!r}"
                 )
 
     def test_all_known_tracking_params_absent_in_connection_url(self):

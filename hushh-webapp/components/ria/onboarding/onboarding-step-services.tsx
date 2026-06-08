@@ -57,6 +57,7 @@ function TextRow({
   placeholder,
   inputMode,
   prefix,
+  autoComplete,
 }: {
   label: string;
   value: string;
@@ -64,6 +65,7 @@ function TextRow({
   placeholder?: string;
   inputMode?: "numeric" | "text";
   prefix?: string;
+  autoComplete?: string;
 }) {
   return (
     <label className="flex min-h-[54px] items-center gap-4 px-4 py-2 sm:px-5">
@@ -75,6 +77,7 @@ function TextRow({
         <input
           type="text"
           inputMode={inputMode}
+          autoComplete={autoComplete}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
@@ -244,6 +247,7 @@ export function OnboardingStepServices({
             value={fullStreetAddress}
             onChange={onFullStreetAddressChange}
             placeholder="Building, floor, street"
+            autoComplete="street-address"
           />
           <Divider />
           <TextRow
@@ -251,6 +255,7 @@ export function OnboardingStepServices({
             value={areaLocality}
             onChange={onAreaLocalityChange}
             placeholder="Area or state"
+            autoComplete="address-level1"
           />
           <Divider />
           <TextRow
@@ -258,6 +263,7 @@ export function OnboardingStepServices({
             value={city}
             onChange={onCityChange}
             placeholder="City"
+            autoComplete="address-level2"
           />
           <Divider />
           <TextRow
@@ -266,6 +272,7 @@ export function OnboardingStepServices({
             onChange={onPinZipChange}
             placeholder="PIN / ZIP"
             inputMode="numeric"
+            autoComplete="postal-code"
           />
         </GroupShell>
 

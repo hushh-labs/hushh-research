@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   ChevronRight,
@@ -415,8 +415,11 @@ export function PkmDomainDetailPanel({
   previewLoading,
   previewError,
   previewDeletingEntityKey,
+  contextControls,
+  hideHighlights,
   onPreviewOpenChange,
   onPreviewPermission,
+  onEditPreviewEntity,
   onDeletePreviewEntity,
   onTogglePermission,
 }: {
@@ -433,8 +436,11 @@ export function PkmDomainDetailPanel({
   previewLoading: boolean;
   previewError?: string | null;
   previewDeletingEntityKey?: string | null;
+  contextControls?: ReactNode;
+  hideHighlights?: boolean;
   onPreviewOpenChange: (open: boolean) => void;
   onPreviewPermission: (permission: PkmDomainPermissionPresentation) => void;
+  onEditPreviewEntity?: (entity: PkmSectionPreviewEntity) => void;
   onDeletePreviewEntity?: (entity: PkmSectionPreviewEntity) => void;
   onTogglePermission: (
     permission: PkmDomainPermissionPresentation,
@@ -478,9 +484,14 @@ export function PkmDomainDetailPanel({
             </Badge>
           ) : null}
         </div>
+        {contextControls ? (
+          <div className="border-t border-[color:var(--app-card-border-standard)] pt-3">
+            {contextControls}
+          </div>
+        ) : null}
       </SurfaceInset>
 
-      {domain.highlights.length > 0 ? (
+      {!hideHighlights && domain.highlights.length > 0 ? (
         <SurfaceInset className="space-y-2 p-4">
           {domain.highlights.slice(0, 5).map((highlight) => (
             <p key={highlight} className="text-sm leading-6 text-foreground/90">
@@ -643,6 +654,7 @@ export function PkmDomainDetailPanel({
               <PkmSectionPreview
                 presentation={previewPresentation}
                 deletingEntityKey={previewDeletingEntityKey}
+                onEditEntity={onEditPreviewEntity}
                 onDeleteEntity={onDeletePreviewEntity}
               />
             ) : (

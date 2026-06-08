@@ -17,14 +17,16 @@
  * evaluates correctly in both environments.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Bell,
   BriefcaseBusiness,
+  ChartColumnIncreasing,
   Check,
   ChevronDown,
   Code2,
+  Compass,
   type LucideIcon,
   Loader2,
   LogOut,
@@ -116,6 +118,7 @@ export function TopAppBarSpacer() {
 /* ── Helpers ───────────────────────────────────────────────────────── */
 function getTopBarTitle(
   pathname: string,
+  isScrolled: boolean = false,
 ): {
   label: string;
   icon?: LucideIcon;
@@ -151,6 +154,23 @@ function getTopBarTitle(
       icon: UserRound,
       interactive: true as const,
     };
+  }
+
+  if (isScrolled) {
+    if (pathname === ROUTES.KAI_HOME) {
+      return {
+        label: "Market",
+        icon: ChartColumnIncreasing,
+        interactive: false as const,
+      };
+    }
+    if (pathname === ROUTES.MARKETPLACE) {
+      return {
+        label: "Search people",
+        icon: Compass,
+        interactive: false as const,
+      };
+    }
   }
 
   const isPersonaShellRoute =
@@ -220,9 +240,52 @@ export function TopAppBar({ className }: TopAppBarProps) {
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const showOnboardingActions = chromeState.useOnboardingChrome;
   const hideChrome = !topShellMetrics.shellVisible;
+
+  // Track scroll state of the root page container to show dynamic titles
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const resolveTarget = () => {
+      return document.querySelector('[data-app-scroll-root="true"]');
+    };
+
+    const handleScroll = (e: Event) => {
+      const target = e.target as HTMLElement;
+      if (target) {
+        setIsScrolled(target.scrollTop > 60);
+      }
+    };
+
+    let target = resolveTarget();
+    let retryTimer: number;
+
+    const attach = () => {
+      if (target) {
+        target.addEventListener("scroll", handleScroll, { passive: true });
+        setIsScrolled(target.scrollTop > 60);
+      } else {
+        retryTimer = window.setTimeout(() => {
+          target = resolveTarget();
+          attach();
+        }, 150);
+      }
+    };
+
+    attach();
+
+    return () => {
+      if (target) {
+        target.removeEventListener("scroll", handleScroll);
+      }
+      window.clearTimeout(retryTimer);
+    };
+  }, [pathname]);
+
   const centerTitle = useMemo(
-    () => getTopBarTitle(pathname),
-    [pathname],
+    () => getTopBarTitle(pathname, isScrolled),
+    [pathname, isScrolled],
   );
   const canShowPersonaSwitcher = useMemo(
     () => isProfileTopBarRoute(pathname),
@@ -404,7 +467,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                 </div>
               </div>
 
-              <div className="pointer-events-none flex min-w-0 flex-1 items-center justify-center">
+              <div className="pointer-events-none flex min-w-0 flex-1 items-center justify-center px-3 sm:px-4">
                 {centerTitle ? (
                   centerTitle.interactive && canShowPersonaSwitcher ? (
                     <div className="pointer-events-auto inline-flex min-w-0 max-w-full items-center justify-center">

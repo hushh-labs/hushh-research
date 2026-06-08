@@ -1,6 +1,34 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* ============================================================================
+ * MOBILE UX & ACCESSIBILITY FIXES
+ * ============================================================================ */
+
+/* Remove 300ms tap delay on interactive elements */
+a,
+button,
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+[role="button"] {
+  touch-action: manipulation;
+}
+
+/* Remove default iOS tap highlight flash */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent auto-zoom on iOS Safari when focusing inputs */
+@media screen and (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 html,
 body {
   height: 100%;
@@ -652,6 +680,8 @@ html body[data-scroll-locked] {
 
 /* Capacitor iOS uses `ios.contentInset = "never"` with CSS-owned insets; don't double-count shell spacing. */
 html.native-ios {
+  /* Enforce a minimum status bar safe area top of 44px to prevent overlapping on iOS Capacitor */
+  --app-safe-area-top: max(44px, env(safe-area-inset-top, 0px));
   /* Lift persistent bottom chrome above the iOS home indicator zone. */
   --app-bottom-chrome-lift: 10px;
   /* Keep a small effective inset because WKWebView already applies content inset on iOS. */
@@ -1805,4 +1835,13 @@ html.dark body,
 html.dark .morphy-app-bg {
   background-color: #1c1c1e !important;
   background-image: none !important;
+}
+
+@media (hover: hover) {
+  .segmented-pill-button-accent:hover {
+    color: var(--primary);
+  }
+  .segmented-pill-button-default:hover {
+    color: color-mix(in srgb, var(--foreground) 80%, transparent);
+  }
 }

@@ -573,5 +573,7 @@ class VaultDBService:
                 "encoding": "base64",
             }
 
-        logger.warning("vault.DEPRECATED: unauthenticated access domain=%s (user=[redacted])", domain)
+        logger.warning(
+            "vault.DEPRECATED: unauthenticated access domain=%s (user=[redacted])", domain
+        )
         return preferences

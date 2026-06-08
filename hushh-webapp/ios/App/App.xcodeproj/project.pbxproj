@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		ABCDEF000000000000000002 /* HusshIMessageSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABCDEF000000000000000001 /* HusshIMessageSessionStore.swift */; };
 		139101184C4F226D678D2C5B /* AppUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14D3E927F8363CA903B58341 /* AppUITestsLaunchTests.swift */; };
 		19493A2C811E742D1FAA4874 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D70EFDA31DB35F5785665EA6 /* Foundation.framework */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
@@ -57,6 +58,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		ABCDEF000000000000000001 /* HusshIMessageSessionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HusshIMessageSessionStore.swift; path = Plugins/HusshIMessageSessionStore.swift; sourceTree = "<group>"; };
 		0E424BC311E720A549078D16 /* NativeTestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeTestSupport.swift; sourceTree = "<group>"; };
 		14D3E927F8363CA903B58341 /* AppUITestsLaunchTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppUITestsLaunchTests.swift; sourceTree = "<group>"; };
 		21773A44233202A79EA4E97B /* AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -195,6 +197,7 @@
 			isa = PBXGroup;
 			children = (
 				D1F9F90F2F0E966A009FC3FB /* KaiPlugin.swift */,
+				ABCDEF000000000000000001 /* HusshIMessageSessionStore.swift */,
 				EE27DFB8DCD94B9C5C0516DD /* HushhSyncPlugin.swift */,
 				99D0CE383269D3D6B23A9A02 /* HushhConsentPlugin.swift */,
 				2A7FDF5F68507FD8EE707E81 /* HushhAuthPlugin.swift */,
@@ -370,6 +373,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
+				ABCDEF000000000000000002 /* HusshIMessageSessionStore.swift in Sources */,
 				D1F9F9122F0E966A009FC3FB /* KaiPlugin.swift in Sources */,
 				4DDFEE23E895EA15BE093A8C /* MyViewController.swift in Sources */,
 				F368A19E68607FCBA9D2DD32 /* HushhSyncPlugin.swift in Sources */,

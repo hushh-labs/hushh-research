@@ -401,6 +401,18 @@ enum NativeUiTestRunnerScript {
     throw new Error('text not visible: "' + value + '" on ' + window.location.href);
   }
 
+  async function assertNoText(value, regex, timeoutMs) {
+    var pattern = regex ? new RegExp(value, "i") : new RegExp(escapeRegExp(value), "i");
+    var deadline = Date.now() + (timeoutMs || 3000);
+    while (Date.now() < deadline) {
+      var text = (document.body && document.body.innerText) || "";
+      if (pattern.test(text)) {
+        throw new Error('unexpected text visible: "' + value + '" on ' + window.location.href);
+      }
+      await sleep(250);
+    }
+  }
+
   async function waitForUrlIncludes(value, timeoutMs) {
     var deadline = Date.now() + (timeoutMs || 5000);
     while (Date.now() < deadline) {
@@ -511,6 +523,22 @@ enum NativeUiTestRunnerScript {
       if (root) {
         root.setAttribute("data-hushh-native-test-initial-route", "");
         root.setAttribute("data-hushh-native-test-expected-route", "");
+        root.setAttribute("data-hushh-native-test-expected-marker", "");
+      }
+      window.dispatchEvent(new Event("hushh:native-test-config-updated"));
+    } catch (_) {}
+  }
+
+  function applyNativeTestRouteLock(route) {
+    var bridge = nativeTestBridge();
+    bridge.initialRoute = route;
+    bridge.expectedRoute = route;
+    bridge.expectedMarker = null;
+    try {
+      var root = document.documentElement;
+      if (root) {
+        root.setAttribute("data-hushh-native-test-initial-route", route);
+        root.setAttribute("data-hushh-native-test-expected-route", route);
         root.setAttribute("data-hushh-native-test-expected-marker", "");
       }
       window.dispatchEvent(new Event("hushh:native-test-config-updated"));
@@ -650,10 +678,13 @@ enum NativeUiTestRunnerScript {
 
   async function waitForRoute(route, timeoutMs) {
     var expected = normalizeRoute(route);
+    var expectedBase = expected.length > 1 && expected.endsWith("/") ? expected.slice(0, -1) : expected;
     var deadline = Date.now() + (timeoutMs || 5000);
     while (Date.now() < deadline) {
       var current = normalizeRoute(window.location.pathname + window.location.search);
+      var currentBase = current.length > 1 && current.endsWith("/") ? current.slice(0, -1) : current;
       if (
+        currentBase === expectedBase ||
         current === expected ||
         current.indexOf(expected + "/") === 0 ||
         current.indexOf(expected + "?") === 0 ||
@@ -668,10 +699,21 @@ enum NativeUiTestRunnerScript {
 
   async function navigateWithNativeRouter(route) {
     var bridge = nativeTestBridge();
-    clearNativeTestRouteLock();
+    if (currentRouteMatches(route)) {
+      clearNativeTestRouteLock();
+      return;
+    }
+    applyNativeTestRouteLock(route);
     if (typeof bridge.navigateToRoute === "function") {
       bridge.navigateToRoute(route);
-      if (await waitForRoute(route, 5000)) return;
+      if (await waitForRoute(route, 30000)) {
+        clearNativeTestRouteLock();
+        return;
+      }
+      if (currentRouteMatches(route)) {
+        clearNativeTestRouteLock();
+        return;
+      }
       throw new Error(
         "Next.js native router did not reach " +
           route +
@@ -697,10 +739,10 @@ enum NativeUiTestRunnerScript {
     }
 
     if (bridge.enabled === true && typeof bridge.switchPersona === "function") {
-      var switched = await attemptNativePersonaSwitch(persona);
       if (!routeMatchesPersona(persona)) {
         await navigateWithNativeRouter(route);
       }
+      var switched = await attemptNativePersonaSwitch(persona);
       if (switched) {
         await resolvePersonaMismatchPrompt(persona);
       }
@@ -837,6 +879,9 @@ enum NativeUiTestRunnerScript {
       case "assert_text":
         await waitForText(step.value, step.regex === true, step.timeoutMs);
         return;
+      case "assert_no_text":
+        await assertNoText(step.value, step.regex === true, step.timeoutMs);
+        return;
       case "assert_no_persona_mismatch_prompt":
         await waitForNoPersonaMismatchPrompt(step.timeoutMs);
         return;
@@ -855,6 +900,9 @@ enum NativeUiTestRunnerScript {
         }
         clickElement(testTarget);
         await sleep(400);
+        return;
+      case "navigate_route":
+        await navigateWithNativeRouter(step.route);
         return;
       case "wait_beacon":
         await waitForBeacon(step.routeIds, step.dataStates, step.timeoutMs);
@@ -878,7 +926,9 @@ enum NativeUiTestRunnerScript {
     var defaultStepTimeoutMs = flow.stepTimeoutMs || 30000;
     for (var i = 0; i < flow.steps.length; i += 1) {
       var step = flow.steps[i];
-      var stepTimeoutMs = step.timeoutMs || defaultStepTimeoutMs;
+      var stepTimeoutMs = step.timeoutMs
+        ? step.timeoutMs + 1000
+        : defaultStepTimeoutMs;
       var bridge = nativeTestBridge();
       bridge.uiFlowStepIndex = i;
       bridge.uiFlowStepType = step.type || "";
