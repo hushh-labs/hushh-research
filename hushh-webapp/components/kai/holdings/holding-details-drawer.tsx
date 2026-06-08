@@ -1,9 +1,15 @@
 "use client";
 
+import { AlertCircle } from "lucide-react";
 import { Drawer, DrawerContent, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
+import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 import type { HoldingMobileCardViewModel } from "@/components/kai/holdings/holding-mobile-card";
+
+// =============================================================================
+// HELPERS
+// =============================================================================
 
 function formatCurrency(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return "—";
@@ -24,6 +30,10 @@ function formatShares(value: number): string {
   return value.toLocaleString("en-US", { maximumFractionDigits: 4 });
 }
 
+// =============================================================================
+// TYPES
+// =============================================================================
+
 interface HoldingDetailsDrawerProps {
   open: boolean;
   holding: HoldingMobileCardViewModel | null;
@@ -33,6 +43,10 @@ interface HoldingDetailsDrawerProps {
   onToggleDelete: () => void;
 }
 
+// =============================================================================
+// SUB-COMPONENTS
+// =============================================================================
+
 function DetailRow({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
   return (
     <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2.5">
@@ -41,6 +55,10 @@ function DetailRow({ label, value, valueClassName }: { label: string; value: str
     </div>
   );
 }
+
+// =============================================================================
+// MAIN COMPONENT
+// =============================================================================
 
 export function HoldingDetailsDrawer({
   open,
@@ -67,7 +85,14 @@ export function HoldingDetailsDrawer({
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent className="border-border/70 bg-background/95 backdrop-blur-lg">
-        <DrawerHeader className="px-5 pb-2 text-left">
+        {/* Sticky Header with Pending Delete Alert */}
+        <DrawerHeader className="sticky top-0 z-10 bg-background/80 px-5 pb-2 text-left backdrop-blur-md">
+          {holding?.pendingDelete && (
+            <div className="mb-2 flex items-center gap-2 rounded-lg bg-rose-500/10 p-2 text-xs text-rose-600">
+              <Icon icon={AlertCircle} size="sm" />
+              This holding is marked for deletion.
+            </div>
+          )}
           <DrawerTitle className="app-card-title text-left text-foreground">
             {holding?.symbol || "Holding Details"}
           </DrawerTitle>
@@ -76,7 +101,13 @@ export function HoldingDetailsDrawer({
           </p>
         </DrawerHeader>
 
-        <div className="grid max-h-[60svh] gap-2 overflow-y-auto px-5 pb-3 sm:grid-cols-2">
+        {/* Detail Grid — dimmed when pending delete */}
+        <div
+          className={cn(
+            "grid max-h-[60svh] gap-2 overflow-y-auto px-5 pb-3 sm:grid-cols-2",
+            holding?.pendingDelete && "pointer-events-none opacity-60 grayscale"
+          )}
+        >
           <DetailRow label="Ticker" value={holding?.symbol || "—"} />
           <DetailRow label="Company Name" value={holding?.name || "—"} />
           <DetailRow label="Shares" value={holding ? formatShares(holding.shares) : "—"} />
@@ -92,13 +123,21 @@ export function HoldingDetailsDrawer({
         </div>
 
         <DrawerFooter className="border-t border-border/60 bg-background/80 pb-[calc(1rem+var(--app-safe-area-bottom-effective))]">
+          {!canManageHoldings && (
+            <p className="mb-2 text-center text-[10px] text-muted-foreground">
+              Management disabled for read-only portfolios.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <MorphyButton
               variant="none"
               effect="fade"
               size="sm"
               fullWidth
-              className="app-button-text app-button-black"
+              className={cn(
+                "app-button-text",
+                holding?.pendingDelete ? "bg-muted text-muted-foreground" : "app-button-black"
+              )}
               disabled={!canManageHoldings || !holding || holding.pendingDelete}
               onClick={onEdit}
             >
@@ -109,11 +148,14 @@ export function HoldingDetailsDrawer({
               effect="fade"
               size="sm"
               fullWidth
-              className="app-button-text app-button-black"
+              className={cn(
+                "app-button-text",
+                holding?.pendingDelete ? "bg-emerald-600 text-white" : "app-button-black"
+              )}
               disabled={!canManageHoldings || !holding}
               onClick={onToggleDelete}
             >
-              {holding?.pendingDelete ? "Restore" : "Delete"}
+              {holding?.pendingDelete ? "Restore Holding" : "Delete Holding"}
             </MorphyButton>
           </div>
         </DrawerFooter>
