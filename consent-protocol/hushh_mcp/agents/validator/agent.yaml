@@ -1,0 +1,35 @@
+name: "SkillValidatorAgent"
+
+description: >
+  Validates candidate skills using public proof of work
+  from GitHub repositories and technical activity.
+
+retry_policy:
+  max_retries: 3
+  timeout_seconds: 20
+
+tools:
+  - name: "github_validator"
+    description: "Checks GitHub repos for skill evidence"
+
+validation_rules:
+  min_repo_match: 2
+  confidence_threshold: 70
+  min_commits: 5
+  ignore_forks: true
+  ignore_empty_repos: true
+
+verification_levels:
+  expert: 90
+  verified: 70
+  partial: 40
+  unverified: 0
+
+cache:
+  ttl_seconds: 86400
+
+validation_checks:
+  - readme_content
+  - package_json_dependencies
+  - commit_frequency
+  - repo_language_stats
