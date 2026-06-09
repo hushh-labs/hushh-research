@@ -22,7 +22,6 @@ from hushh_mcp.services.consent_request_links import (
     build_consent_request_path,
     build_consent_request_url,
 )
-
 from mcp_modules.log_redaction import redact_log_value
 
 logger = logging.getLogger(__name__)
