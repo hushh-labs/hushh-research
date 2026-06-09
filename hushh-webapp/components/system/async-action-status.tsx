@@ -39,6 +39,7 @@ export function AsyncActionStatus({
     <div
       role="status"
       aria-live={state === "error" ? "assertive" : "polite"}
+      aria-atomic="true"
       className={
         compact
           ? "inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/70 px-2.5 py-1 text-xs font-medium text-muted-foreground"
