@@ -32,6 +32,7 @@ import {
 } from "@/lib/observability/growth";
 import { getNativeTestConfig, useNativeTestConfig } from "@/lib/testing/native-test";
 import { resolveLocalReviewerCredentials } from "@/lib/testing/local-reviewer-auth";
+import { getErrorMessage } from "@/lib/utils/error-handling";
 
 export function AuthStep({
   redirectPath,
@@ -292,7 +293,7 @@ export function AuthStep({
         });
         morphyToast.error("Reviewer login failed: no user session returned.");
       }
-    } catch (err: any) {
+    } catch (err) {
       setNativeAuthState("anonymous");
       setNativeDataState("error");
       setNativeErrorCode("reviewer_login_failed");
@@ -302,7 +303,7 @@ export function AuthStep({
         result: "error",
         error_class: "auth_failed",
       });
-      morphyToast.error(err.message || "Failed to sign in as reviewer");
+      morphyToast.error(getErrorMessage(err, "Failed to sign in as reviewer"));
     }
   }, [
     growthEntrySurface,
@@ -407,7 +408,7 @@ export function AuthStep({
           description: "Please try again.",
         });
       }
-    } catch (err: any) {
+    } catch (err) {
       debugError("[AuthStep] Google login failed", err);
       trackEvent("auth_failed", {
         action: "google",
@@ -459,7 +460,7 @@ export function AuthStep({
           description: "Please try again.",
         });
       }
-    } catch (err: any) {
+    } catch (err) {
       debugError("[AuthStep] Apple login failed", err);
       trackEvent("auth_failed", {
         action: "apple",

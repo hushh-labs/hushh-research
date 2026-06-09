@@ -40,6 +40,7 @@ import { VaultMethodPromptLocalService } from "@/lib/services/vault-method-promp
 import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 import { reloadWindow } from "@/lib/utils/browser-navigation";
+import { getErrorMessage } from "@/lib/utils/error-handling";
 import {
   toInvestorLoading,
   toInvestorMessage,
@@ -316,9 +317,9 @@ export function VaultFlow({
       VaultService.setVaultCheckCache(user.uid, true);
       setRecoveryKey(vaultData.recoveryKey);
       setStep("recovery"); // Show recovery key dialog
-    } catch (err: any) {
+    } catch (err) {
       console.error("Create vault error:", err);
-      toast.error(err.message || "We could not create your Vault. Please try again.");
+      toast.error(getErrorMessage(err, "We could not create your Vault. Please try again."));
     } finally {
       setIsUnlocking(false);
     }
@@ -360,7 +361,7 @@ export function VaultFlow({
         setError(message);
         toast.error(message);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("Unlock error:", err);
       const message = toInvestorVaultUnlockError(err);
       setError(message);
@@ -479,7 +480,7 @@ export function VaultFlow({
 
       await VaultService.assertVaultKeyMatchesState(vaultData, decryptedKey);
       await finalizeUnlock(decryptedKey);
-    } catch (err: any) {
+    } catch (err) {
       console.error("Generated vault unlock failed:", err);
       const message = toInvestorVaultUnlockError(err);
       setError(message);
@@ -1052,10 +1053,10 @@ export function VaultFlow({
                           ? "Passkey unlock enabled."
                           : "Biometric unlock enabled."
                       );
-                    } catch (err: any) {
+                    } catch (err) {
                       console.error("Quick unlock enable failed:", err);
                       toast.error(
-                        err?.message || "Couldn't enable quick unlock right now."
+                        getErrorMessage(err, "Couldn't enable quick unlock right now.")
                       );
                     } finally {
                       setIsUnlocking(false);
