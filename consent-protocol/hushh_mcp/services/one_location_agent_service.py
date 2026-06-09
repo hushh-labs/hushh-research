@@ -12,8 +12,8 @@ from typing import Any
 from api.utils.fcm_messages import build_push_message
 from api.utils.firebase_admin import ensure_firebase_admin
 from db.db_client import DatabaseExecutionError, get_db
-from hushh_mcp.operons.location.policy import (
 from mcp_modules.log_redaction import redact_log_value
+from hushh_mcp.operons.location.policy import (
     LOCATION_CAPABILITY_SCOPES,
     normalize_duration_hours,
     normalize_source_platform,
