@@ -28,6 +28,7 @@ from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.vault_keys_service import VaultKeysService
+from mcp_modules.log_redaction import redact_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -297,7 +298,7 @@ async def vault_check(
         return VaultCheckResponse(hasVault=has_vault)
 
     except Exception as e:
-        logger.error(f"vault/check error: {e}")
+        logger.error("vault/check error: %s", e)
         _raise_database_http_exception(e)
 
 
@@ -414,7 +415,7 @@ async def vault_get(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"vault/get error: {e}")
+        logger.error("vault/get error: %s", e)
         _raise_database_http_exception(e)
 
 
@@ -751,10 +752,10 @@ async def validate_vault_owner_token(consent_token: str, user_id: str) -> None:
         )
 
     if str(token_obj.user_id) != user_id:
-        logger.warning(f"Token userId mismatch: {token_obj.user_id} != {user_id}")
+        logger.warning("Token userId mismatch: %s != %s", redact_log_value(token_obj.user_id), redact_log_value(user_id))
         raise HTTPException(status_code=403, detail="Token userId does not match requested userId")
 
-    logger.info(f"✅ VAULT_OWNER token validated for {user_id}")
+    logger.info("VAULT_OWNER token validated for %s", redact_log_value(user_id))
 
 
 @router.post("/vault/status")
