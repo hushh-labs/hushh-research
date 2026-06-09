@@ -22,6 +22,7 @@ export function NetworkStatusIndicator() {
       }, 3500); // Hide after 3.5 seconds
       return () => clearTimeout(timer);
     }
+    return undefined;
   }, [isOnline, wasOffline]);
 
   const isVisible = isOffline || showRestored;
