@@ -17,7 +17,6 @@ from hushh_mcp.operons.location.policy import (
     normalize_duration_hours,
     normalize_source_platform,
 )
-from mcp_modules.log_redaction import redact_log_value
 
 logger = logging.getLogger(__name__)
 _NOTIFICATION_EXECUTOR = ThreadPoolExecutor(
@@ -203,14 +202,14 @@ def _submit_notification_send(
                 logger.warning(
                     "one.location.notification_token_cleanup_failed type=%s user=%s error=%s",
                     notification_type,
-                    redact_log_value(user_id),
+                    user_id,
                     exc,
                 )
         except Exception as exc:
             logger.warning(
                 "one.location.notification_send_failed type=%s user=%s error=%s",
                 notification_type,
-                redact_log_value(user_id),
+                user_id,
                 exc,
             )
 
@@ -220,7 +219,7 @@ def _submit_notification_send(
         logger.warning(
             "one.location.notification_submit_failed type=%s user=%s error=%s",
             notification_type,
-            redact_log_value(user_id),
+            user_id,
             exc,
         )
 
@@ -439,7 +438,7 @@ class OneLocationAgentService:
                 logger.warning(
                     "one.location.notification_blocked_plaintext_keys type=%s user=%s",
                     notification_type,
-                    redact_log_value(user_id),
+                    user_id,
                 )
                 return
             seen: set[str] = set()
@@ -471,7 +470,7 @@ class OneLocationAgentService:
             logger.warning(
                 "one.location.notification_skipped type=%s user=%s error=%s",
                 notification_type,
-                redact_log_value(user_id),
+                user_id,
                 exc,
             )
 
@@ -487,7 +486,7 @@ class OneLocationAgentService:
                 {"user_id": user_id},
             )
         except Exception as exc:
-            logger.debug("one.location.identity_lookup_failed user=%s error=%s", redact_log_value(user_id), exc)
+            logger.debug("one.location.identity_lookup_failed user=%s error=%s", user_id, exc)
             return None
 
     def _identity_row_by_phone_digits(self, phone_digits: str) -> dict[str, Any] | None:
