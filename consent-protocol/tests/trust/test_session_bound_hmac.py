@@ -1,4 +1,4 @@
-﻿import time
+import time
 
 from hushh_mcp.trust.link import create_trust_link, verify_trust_link
 from hushh_mcp.types import ConsentScope, TrustLink
