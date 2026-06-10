@@ -387,6 +387,13 @@ class DeveloperRegistryService:
         if self.__class__._tables_ensured:
             return
 
+        # Offline mode: the developer_* tables are pre-created by the SQLite
+        # offline schema (db/offline_schema.sql). The Postgres DDL below uses
+        # BIGSERIAL/JSONB/::jsonb casts that SQLite cannot parse, so skip it.
+        if str(os.getenv("DB_OFFLINE", "0")).strip().lower() in ("1", "true", "yes", "on"):
+            self.__class__._tables_ensured = True
+            return
+
         statements = [
             """
             CREATE TABLE IF NOT EXISTS developer_applications (
