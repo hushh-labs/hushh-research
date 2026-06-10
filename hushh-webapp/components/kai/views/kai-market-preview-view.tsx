@@ -1699,14 +1699,12 @@ export function KaiMarketPreviewView() {
         </SurfaceCard>
       ) : null}
 
-      {error ? (
+      {error && !hasPayload ? (
         <SurfaceCard tone="critical" className={marketCardClassName}>
           <SurfaceCardContent className="space-y-3 text-left">
             <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
               <AlertTriangle className="h-4 w-4" />
-              <p className="text-sm font-semibold">
-                {hasPayload ? "Failed to refresh market home" : "Failed to load market home"}
-              </p>
+              <p className="text-sm font-semibold">Failed to load market home</p>
             </div>
             <p className="text-xs leading-5 text-muted-foreground">{error}</p>
             <Button
@@ -1719,6 +1717,27 @@ export function KaiMarketPreviewView() {
             </Button>
           </SurfaceCardContent>
         </SurfaceCard>
+      ) : null}
+
+      {error && hasPayload ? (
+        // Payload is on screen; a background refresh failed. Surface this as a
+        // non-blocking notice (not a critical card) so we don't scream "failed"
+        // over data that loaded fine. Matches the Next.js/native parity contract:
+        // visible data + soft refresh hint, never a blocking error on stale-OK.
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-300/40 bg-amber-50/60 px-3 py-2 text-xs text-amber-700 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-300">
+          <span className="flex items-center gap-2">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Showing saved data — couldn’t refresh just now.
+          </span>
+          <Button
+            variant="none"
+            effect="fade"
+            size="sm"
+            onClick={() => void loadInsights({ manual: true })}
+          >
+            Retry
+          </Button>
+        </div>
       ) : null}
 
       {hasPayload ? (
