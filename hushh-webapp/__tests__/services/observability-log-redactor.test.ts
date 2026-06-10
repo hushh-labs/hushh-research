@@ -247,4 +247,17 @@ describe("observability log redactor — tab-separated value handling", () => {
     expect(output).toContain("profile");
     expect(output).toContain("data");
   });
+
+  it("preserves alternating tab and space delimiters around an existing vault-key redaction", () => {
+    const mixedWhitespace = "\t \t   \t";
+    const logLine = `user${mixedWhitespace}vault_secret_key_003`;
+
+    const output = redactObservabilityLog(logLine);
+
+    expect(output).toBe(`user${mixedWhitespace}[REDACTED_VAULT_KEY]`);
+    expect(output).not.toContain("vault_secret_key_003");
+    expect(output).toContain("[REDACTED_VAULT_KEY]");
+    expect(output.startsWith(`user${mixedWhitespace}`)).toBe(true);
+    expect((output.match(/\t/g) ?? []).length).toBe(3);
+  });
 });
