@@ -42,6 +42,26 @@ describe("observability log redactor", () => {
   });
 });
 
+describe("getErrorMessage stringification - boundary limits", () => {
+  it("handles explicit null without crashing", async () => {
+    const { getErrorMessage } = await import("@/lib/services/error-sanitizer");
+
+    expect(() => getErrorMessage(null)).not.toThrow();
+    expect(getErrorMessage(null)).toBe("null");
+  });
+
+  it("handles circular object inputs without JSON circular-structure panic", async () => {
+    const { getErrorMessage } = await import("@/lib/services/error-sanitizer");
+    const circularValue: { label: string; self?: unknown } = {
+      label: "circular-boundary",
+    };
+    circularValue.self = circularValue;
+
+    expect(() => getErrorMessage(circularValue)).not.toThrow();
+    expect(getErrorMessage(circularValue)).toBe("[object Object]");
+  });
+});
+
 // ── Parameter truncation mechanics ────────────────────────────────────────────
 //
 // redactObservabilityLog contains an implicit truncation mechanism:
