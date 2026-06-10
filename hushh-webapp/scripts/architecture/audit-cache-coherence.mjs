@@ -3,7 +3,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { pathToFileURL } from "node:url";
 
 const appRoot = process.cwd();
 const repoRoot = path.resolve(appRoot, "..");
@@ -30,11 +29,11 @@ function walkFiles(dir, predicate, results = []) {
   return results;
 }
 
-export function toForwardSlash(filePath) {
+function toForwardSlash(filePath) {
   return filePath.replaceAll("\\", "/");
 }
 
-export function isPageFilePath(filePath) {
+function isPageFilePath(filePath) {
   return toForwardSlash(filePath).endsWith("/page.tsx");
 }
 
@@ -45,12 +44,12 @@ function routeSort(left, right) {
   return left.localeCompare(right);
 }
 
-export function routeFromRelativePageFile(relativePath) {
+function routeFromRelativePageFile(relativePath) {
   const route = toForwardSlash(relativePath).replace(/(?:^|\/)page\.tsx$/, "");
   return route ? `/${route}` : "/";
 }
 
-export function routeFromPageFile(filePath) {
+function routeFromPageFile(filePath) {
   return routeFromRelativePageFile(path.relative(path.join(appRoot, "app"), filePath));
 }
 
@@ -405,40 +404,34 @@ function stableJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-function runAuditCacheCoherence(argv = process.argv) {
-  const check = argv.includes("--check");
-  const next = stableJson(buildManifest());
+const check = process.argv.includes("--check");
+const next = stableJson(buildManifest());
 
-  if (check) {
-    const current = fs.existsSync(outputPath) ? read(outputPath) : "";
-    if (current !== next) {
-      console.error(
-        `cache-coherence: ${path.relative(repoRoot, outputPath)} is stale. Run node scripts/architecture/audit-cache-coherence.mjs from hushh-webapp.`
-      );
-      process.exit(1);
-    }
-    const manifest = JSON.parse(next);
-    if (manifest.summary.pages_missing_route_contract.length > 0) {
-      console.error(
-        `cache-coherence: missing route contract entries: ${manifest.summary.pages_missing_route_contract.join(", ")}`
-      );
-      process.exit(1);
-    }
-    if (manifest.summary.routes_missing_surface_map.length > 0) {
-      console.error(
-        `cache-coherence: missing surface map entries: ${manifest.summary.routes_missing_surface_map.join(", ")}`
-      );
-      process.exit(1);
-    }
-    console.log(
-      `Cache coherence manifest is current (${manifest.summary.total_screens} screens).`
+if (check) {
+  const current = fs.existsSync(outputPath) ? read(outputPath) : "";
+  if (current !== next) {
+    console.error(
+      `cache-coherence: ${path.relative(repoRoot, outputPath)} is stale. Run node scripts/architecture/audit-cache-coherence.mjs from hushh-webapp.`
     );
-  } else {
-    fs.writeFileSync(outputPath, next);
-    console.log(`Wrote ${path.relative(repoRoot, outputPath)}`);
+    process.exit(1);
   }
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  runAuditCacheCoherence();
+  const manifest = JSON.parse(next);
+  if (manifest.summary.pages_missing_route_contract.length > 0) {
+    console.error(
+      `cache-coherence: missing route contract entries: ${manifest.summary.pages_missing_route_contract.join(", ")}`
+    );
+    process.exit(1);
+  }
+  if (manifest.summary.routes_missing_surface_map.length > 0) {
+    console.error(
+      `cache-coherence: missing surface map entries: ${manifest.summary.routes_missing_surface_map.join(", ")}`
+    );
+    process.exit(1);
+  }
+  console.log(
+    `Cache coherence manifest is current (${manifest.summary.total_screens} screens).`
+  );
+} else {
+  fs.writeFileSync(outputPath, next);
+  console.log(`Wrote ${path.relative(repoRoot, outputPath)}`);
 }
