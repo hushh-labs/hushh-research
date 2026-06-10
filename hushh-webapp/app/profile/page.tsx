@@ -3227,6 +3227,14 @@ function ProfilePageContent() {
             updateProfileView({ panel: "account", detail: "phone" }, "push")
           }
         />
+        <SettingsRow
+          icon={Trash2}
+          title={deleteButtonLabel}
+          description={deleteRowDescription}
+          tone="destructive"
+          chevron
+          onClick={() => void handleDeleteClick()}
+        />
       </SettingsGroup>
     </div>
   );
@@ -4325,17 +4333,6 @@ function ProfilePageContent() {
                 tone="destructive"
                 chevron
                 onClick={() => void handleSignOut()}
-              />
-            </SettingsGroup>
-
-            <SettingsGroup>
-              <SettingsRow
-                icon={Trash2}
-                title="Delete account"
-                description="Permanently delete your account and all data."
-                tone="destructive"
-                chevron
-                onClick={() => void handleDeleteClick()}
               />
             </SettingsGroup>
           </div>
