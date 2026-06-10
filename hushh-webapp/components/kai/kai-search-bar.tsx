@@ -1733,6 +1733,12 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
             <VoiceAmbientSearchSurface
               mode={ambientMode}
               placeholder="Analyze, dashboard, consent with Kai"
+              showAgent={Boolean(agentPopover)}
+              agentDisabled={!agentPopover}
+              onAgentOpen={(event) => {
+                event.stopPropagation();
+                agentPopover?.openAgent();
+              }}
               transcriptPreview={transcriptPreview}
               stageText={processingStageText}
               replyText={

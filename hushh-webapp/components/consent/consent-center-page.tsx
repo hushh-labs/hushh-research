@@ -514,7 +514,7 @@ function ConsentEntryDetail({
         {entry.kind === "incoming_request" && entry.status === "pending" ? (
           <>
             <SettingsRow
-              title="Approve request"
+              title="Allow access"
               description="Grant the requested slice with your chosen vault-backed export."
               trailing={
                 <Button
@@ -524,12 +524,12 @@ function ConsentEntryDetail({
                   onClick={() => onApprove(entry)}
                   data-voice-control-id="consent_approve"
                 >
-                  Approve
+                  Allow
                 </Button>
               }
             />
             <SettingsRow
-              title="Deny request"
+              title="Don't allow"
               description="Decline the request without opening access."
               trailing={
                 <Button
@@ -539,7 +539,7 @@ function ConsentEntryDetail({
                   onClick={() => onDeny(entry)}
                   data-voice-control-id="consent_deny"
                 >
-                  Deny
+                  Don&apos;t allow
                 </Button>
               }
             />
@@ -614,7 +614,7 @@ function ConsentEntryDetail({
             <SettingsRow title="Request ID" description={entry.request_id} />
           ) : null}
           {entry.scope ? (
-            <SettingsRow title="Scope code" description={entry.scope} />
+            <SettingsRow title="Scope ID" description={entry.scope} />
           ) : null}
         </SettingsGroup>
       ) : null}
@@ -1347,7 +1347,7 @@ export function ConsentCenterPage() {
                         setParam({ notificationAction: null });
                       }}
                     >
-                      Confirm approve
+                      Confirm allow
                     </Button>
                   ) : null}
                   {notificationAction === "deny" && selectedEntry ? (
@@ -1362,7 +1362,7 @@ export function ConsentCenterPage() {
                         setParam({ notificationAction: null });
                       }}
                     >
-                      Confirm deny
+                      Confirm don&apos;t allow
                     </Button>
                   ) : null}
                   <Button
