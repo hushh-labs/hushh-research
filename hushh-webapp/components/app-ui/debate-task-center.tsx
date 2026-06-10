@@ -50,15 +50,15 @@ function statusLabel(task: DebateRunTask): string {
 
 function statusIcon(task: DebateRunTask) {
   if (task.status === "running") {
-    return <Icon icon={Loader2} size="sm" className="animate-spin text-sky-500" />;
+    return <Icon icon={Loader2} size="sm" className="animate-spin text-sky-500" aria-hidden="true" />;
   }
   if (task.status === "completed") {
-    return <Icon icon={CheckCircle2} size="sm" className="text-emerald-500" />;
+    return <Icon icon={CheckCircle2} size="sm" className="text-emerald-500" aria-hidden="true" />;
   }
   if (task.status === "failed") {
-    return <Icon icon={XCircle} size="sm" className="text-rose-500" />;
+    return <Icon icon={XCircle} size="sm" className="text-rose-500" aria-hidden="true" />;
   }
-  return <Icon icon={Ban} size="sm" className="text-amber-500" />;
+  return <Icon icon={Ban} size="sm" className="text-amber-500" aria-hidden="true" />;
 }
 
 function appTaskStatusLabel(task: AppBackgroundTask): string {
@@ -70,15 +70,15 @@ function appTaskStatusLabel(task: AppBackgroundTask): string {
 
 function appTaskStatusIcon(task: AppBackgroundTask) {
   if (task.status === "running") {
-    return <Icon icon={Loader2} size="sm" className="animate-spin text-sky-500" />;
+    return <Icon icon={Loader2} size="sm" className="animate-spin text-sky-500" aria-hidden="true" />;
   }
   if (task.status === "completed") {
-    return <Icon icon={CheckCircle2} size="sm" className="text-emerald-500" />;
+    return <Icon icon={CheckCircle2} size="sm" className="text-emerald-500" aria-hidden="true" />;
   }
   if (task.status === "canceled") {
-    return <Icon icon={Ban} size="sm" className="text-amber-500" />;
+    return <Icon icon={Ban} size="sm" className="text-amber-500" aria-hidden="true" />;
   }
-  return <Icon icon={XCircle} size="sm" className="text-rose-500" />;
+  return <Icon icon={XCircle} size="sm" className="text-rose-500" aria-hidden="true" />;
 }
 
 function appTaskStatusItems(task: AppBackgroundTask): string[] {
@@ -369,7 +369,7 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
               }}
               aria-label="Open related screen"
             >
-              <Icon icon={ExternalLink} size="xs" />
+              <Icon icon={ExternalLink} size="xs" aria-hidden="true" />
             </Button>
           ) : null}
           {task.status === "running" &&
@@ -394,7 +394,7 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
                 task.kind === "plaid_refresh" ? "Cancel refresh" : "Cancel import"
               }
             >
-              <Icon icon={X} size="xs" />
+              <Icon icon={X} size="xs" aria-hidden="true" />
             </Button>
           ) : null}
           {task.status !== "running" ? (
@@ -406,7 +406,7 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
               onClick={() => AppBackgroundTaskService.dismissTask(task.taskId)}
               aria-label="Dismiss task"
             >
-              <Icon icon={X} size="xs" />
+              <Icon icon={X} size="xs" aria-hidden="true" />
             </Button>
           ) : null}
         </div>
@@ -428,9 +428,9 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
             aria-label="Notifications"
           >
             {activeCount > 0 ? (
-              <Loader2 className="h-5 w-5 animate-spin text-sky-500" />
+              <Loader2 className="h-5 w-5 animate-spin text-sky-500" aria-hidden="true" />
             ) : (
-              <Bell className="h-5 w-5" />
+              <Bell className="h-5 w-5" aria-hidden="true" />
             )}
             {badgeCount > 0 ? (
               <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-semibold text-white">
@@ -485,7 +485,7 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
                           onClick={() => openAnalysis(item.task.runId)}
                           aria-label="Open analysis"
                         >
-                          <Icon icon={ExternalLink} size="xs" />
+                          <Icon icon={ExternalLink} size="xs" aria-hidden="true" />
                         </Button>
                         {item.task.status === "running" ? (
                           <Button
@@ -506,7 +506,7 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
                             }
                             aria-label="Cancel run"
                           >
-                            <Icon icon={X} size="xs" />
+                            <Icon icon={X} size="xs" aria-hidden="true" />
                           </Button>
                         ) : item.task.persistenceState === "failed" ? (
                           <Button
@@ -522,7 +522,7 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
                             }
                             aria-label="Retry save"
                           >
-                            <Icon icon={RotateCw} size="xs" />
+                            <Icon icon={RotateCw} size="xs" aria-hidden="true" />
                           </Button>
                         ) : null}
                         {item.task.status !== "running" ? (
@@ -534,7 +534,7 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
                             onClick={() => DebateRunManagerService.dismissTask(item.task.runId)}
                             aria-label="Dismiss task"
                           >
-                            <Icon icon={X} size="xs" />
+                            <Icon icon={X} size="xs" aria-hidden="true" />
                           </Button>
                         ) : null}
                       </div>
@@ -561,12 +561,13 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
                       <span className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] font-medium">
                         {passiveAppTasks.length}
                       </span>
-                      <ChevronDown
-                        className={cn(
-                          "h-4 w-4 transition-transform",
-                          showPassiveActivity && "rotate-180"
-                        )}
-                      />
+                        <ChevronDown
+                          className={cn(
+                            "h-4 w-4 transition-transform",
+                            showPassiveActivity && "rotate-180"
+                          )}
+                          aria-hidden="true"
+                        />
                     </div>
                   </button>
                   {showPassiveActivity ? (

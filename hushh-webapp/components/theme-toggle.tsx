@@ -88,7 +88,7 @@ export function ThemeToggle({ className }: { className?: string }) {
             )}
           >
             <span className="relative z-10 inline-flex items-center gap-1.5">
-              <Icon icon={option.icon} size="sm" />
+              <Icon icon={option.icon} size="sm" aria-hidden="true" />
               <span className="text-[11px] font-medium leading-none sm:text-xs">
                 {option.label}
               </span>
@@ -132,7 +132,7 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
             className
           )}
         >
-          <Icon icon={activeOption.icon} size="sm" />
+          <Icon icon={activeOption.icon} size="sm" aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={8} className="min-w-[140px]">
@@ -144,7 +144,7 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
               onSelect={() => !isActive && setTheme(option.value)}
               className={cn("flex items-center gap-2", isActive && "font-medium")}
             >
-              <Icon icon={option.icon} size="sm" />
+              <Icon icon={option.icon} size="sm" aria-hidden="true" />
               <span className="flex-1">{option.label}</span>
               {isActive && <span className="text-xs">✓</span>}
             </DropdownMenuItem>

@@ -45,11 +45,11 @@ export function StaleCacheTimestamp({
   const [, setTick] = useState(0);
 
   useEffect(() => {
-    const intervalId = window.setInterval(() => {
+    const intervalId = setInterval(() => {
       setTick((value) => value + 1);
     }, 60 * 1000);
 
-    return () => window.clearInterval(intervalId);
+    return () => clearInterval(intervalId);
   }, []);
 
   const text = useMemo(() => {

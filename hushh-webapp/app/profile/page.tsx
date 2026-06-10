@@ -4444,6 +4444,8 @@ function ProfilePageContent() {
                 inputMode="numeric"
                 placeholder="Enter license or CRD number"
                 disabled={refreshingRegulatoryProfile}
+                spellCheck={false}
+                autoComplete="off"
               />
             </label>
 
@@ -4456,6 +4458,8 @@ function ProfilePageContent() {
                 onChange={(event) => setRegulatoryRegulator(event.target.value)}
                 placeholder="SEC"
                 disabled={refreshingRegulatoryProfile}
+                spellCheck={false}
+                autoComplete="off"
               />
             </label>
 
@@ -4516,12 +4520,14 @@ function ProfilePageContent() {
             <Input
               type="password"
               placeholder="New passphrase (min 8 characters)"
+              autoComplete="new-password"
               value={newPassphrase}
               onChange={(event) => setNewPassphrase(event.target.value)}
             />
             <Input
               type="password"
               placeholder="Confirm passphrase"
+              autoComplete="new-password"
               value={confirmPassphrase}
               onChange={(event) => setConfirmPassphrase(event.target.value)}
             />
