@@ -125,7 +125,7 @@ function decisionStyles(decision: string, ownsPosition?: boolean | null): {
       bg: "bg-emerald-500/10",
       text: "text-emerald-600 dark:text-emerald-400",
       border: "border-emerald-500/30",
-      icon: <Icon icon={TrendingUp} size={12} />,
+      icon: <Icon icon={TrendingUp} size={12} aria-hidden="true" />,
       label: presentation.label,
     };
   }
@@ -134,7 +134,7 @@ function decisionStyles(decision: string, ownsPosition?: boolean | null): {
       bg: "bg-red-500/10",
       text: "text-red-600 dark:text-red-400",
       border: "border-red-500/30",
-      icon: <Icon icon={TrendingDown} size={12} />,
+      icon: <Icon icon={TrendingDown} size={12} aria-hidden="true" />,
       label: presentation.label,
     };
   }
@@ -151,7 +151,7 @@ function decisionStyles(decision: string, ownsPosition?: boolean | null): {
       presentation.label === "WATCH"
         ? "border-[color:var(--app-card-border-standard)]"
         : "border-amber-500/30",
-    icon: <Icon icon={Minus} size={12} />,
+    icon: <Icon icon={Minus} size={12} aria-hidden="true" />,
     label: presentation.label,
   };
 }
@@ -1142,7 +1142,7 @@ export function AnalysisHistoryDashboard({
                       title="Delete this version"
                       aria-label="Delete this version"
                     >
-                      <Icon icon={Trash2} size="sm" />
+                      <Icon icon={Trash2} size="sm" aria-hidden="true" />
                     </Button>
                   </div>
                 );

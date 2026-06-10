@@ -619,6 +619,7 @@ export function AuthStep({
 function GoogleIcon() {
   return (
     <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden>
+      <title>Google</title>
       <path
         fill="#4285F4"
         d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -642,6 +643,7 @@ function GoogleIcon() {
 function AppleIcon() {
   return (
     <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <title>Apple</title>
       <path d="M17.05 20.28c-.98.95-2.05.88-3.08.38-1.07-.52-2.07-.51-3.2 0-1.01.43-2.1.49-2.98-.38C5.22 17.63 2.7 12 5.45 8.04c1.47-2.09 3.8-2.31 5.33-1.18 1.1.75 3.3.73 4.45-.04 2.1-1.31 3.55-.95 4.5 1.14-.15.08.2.14 0 .2-2.63 1.34-3.35 6.03.95 7.84-.46 1.4-1.25 2.89-2.26 4.4l-.07.08-.05-.2zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.17 2.22-1.8 4.19-3.74 4.25z" />
     </svg>
   );

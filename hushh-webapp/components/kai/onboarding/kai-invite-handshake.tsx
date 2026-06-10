@@ -171,6 +171,9 @@ export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
             <div className="space-y-4">
               <h2 className="text-2xl font-semibold text-foreground">A little about you</h2>
               <input
+                type="text"
+                autoComplete="name"
+                autoCapitalize="words"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 className="min-h-12 w-full rounded-2xl border border-border bg-background px-4 text-sm"

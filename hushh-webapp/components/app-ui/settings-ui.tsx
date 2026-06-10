@@ -428,6 +428,10 @@ export function SettingsDetailPanel({
           "w-[calc(100%-1.5rem)] overflow-hidden p-0",
           desktopMaxWidthClassName || "sm:!max-w-[720px]"
         )}
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          (e.currentTarget as HTMLElement).focus();
+        }}
       >
         <DialogHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-6 py-4 text-left">
           <DialogTitle className="text-base font-semibold tracking-tight">

@@ -631,6 +631,8 @@ export function ConsentCenterView({
                     src={requesterImage}
                     alt={bundle.counterpartLabel}
                     className="size-full object-cover"
+                    loading="lazy"
+                    decoding="async"
                   />
                 ) : (
                   requesterInitials(bundle.counterpartLabel)
@@ -905,6 +907,8 @@ export function ConsentCenterView({
                     src={requesterImage}
                     alt={entryHeadline(entry)}
                     className="size-full object-cover"
+                    loading="lazy"
+                    decoding="async"
                   />
                 ) : (
                   requesterInitials(entry.counterpart_label)

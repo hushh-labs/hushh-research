@@ -100,8 +100,13 @@ export function AgentPopoverProvider({ children }: { children: ReactNode }) {
   const [hasOpened, setHasOpened] = useState(false);
   const [motionState, setMotionState] =
     useState<AgentPopoverMotionState>("idle");
-  const [sizeMode, setSizeModeState] = useState<AgentPopoverSizeMode>(readStoredSizeMode);
-  const [customSize, setCustomSize] = useState<AgentPopoverSize>(readStoredCustomSize);
+  const [sizeMode, setSizeModeState] = useState<AgentPopoverSizeMode>(AGENT_POPOVER_DEFAULT_SIZE_MODE);
+  const [customSize, setCustomSize] = useState<AgentPopoverSize>(DEFAULT_CUSTOM_SIZE);
+
+  useEffect(() => {
+    setSizeModeState(readStoredSizeMode());
+    setCustomSize(readStoredCustomSize());
+  }, []);
   const animationFrameRef = useRef<number | null>(null);
   const motionTimerRef = useRef<number | null>(null);
 
