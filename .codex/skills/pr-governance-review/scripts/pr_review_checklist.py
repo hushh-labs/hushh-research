@@ -1871,9 +1871,10 @@ CLAIM_SURFACE_RULES: tuple[dict[str, Any], ...] = (
         "id": "streaming",
         "keywords": (
             "sse",
-            "stream",
+            "sse parser",
+            "stream parser",
+            "frame parser",
             "streaming",
-            "parser",
             "backoff",
             "envelope",
             "oom",
