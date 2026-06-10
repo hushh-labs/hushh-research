@@ -1,4 +1,4 @@
-﻿# hushh_mcp/consent/token.py
+# hushh_mcp/consent/token.py
 
 import base64
 import binascii
