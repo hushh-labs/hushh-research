@@ -132,9 +132,13 @@ explicit reason in the dossier.
 
 ## Agent-Authored Maintainer Patch Authority
 
-The maintainer patch in `maintainer_patch_then_merge` may be written by the
-coding agent itself (not only by a human), under operator standing approval,
-when ALL of the following hold:
+Agent-authored maintainer patches are the DEFAULT execution path for
+`maintainer_patch_then_merge`, not an exception. Under operator standing
+approval the coding agent writes the patch itself and does NOT ask the operator
+per-PR. Hand-write the patch whenever the gate below is satisfied; only fall
+back to `request_changes` when the gate genuinely cannot be met from repo
+evidence (see trust-boundary rule). The maintainer patch is authored by the
+agent when ALL of the following hold:
 
 1. `aligned_direction`: the contributor's intent matches the north-star and a
    real reachable app/backend/package/runtime use case.
@@ -143,15 +147,23 @@ when ALL of the following hold:
    security, correctness, trust-boundary integrity, or contributor clarity, and
    worse on none. Increasing security/correctness by repo standards is the
    whole point of the patch — a patch that only reformats or only silences a
-   gate is not allowed.
+   gate is not allowed. The agent SHOULD actively strengthen the change beyond
+   the contributor's version when repo standards call for it (tighter
+   validation, DB-backed enforcement, correct error surface, missing guard).
 3. `bounded_to_attach_point`: edits stay on the canonical attach point and its
    direct caller/contract/test; no new parallel root, no scope sprawl, no
    unrelated files.
 4. `intent_preserved`: the change does not alter product or policy intent; it
    makes the contributor's stated intent safe and landable.
-5. `proof`: the smallest unit/route/contract proof that exercises the patched
-   behavior passes locally, and the required `CI Status Gate` is green at the
-   patched head before queueing.
+5. `proof`: a test that exercises the patched behavior passes locally, and the
+   required `CI Status Gate` is green at the patched head before queueing. Proof
+   may be (a) an existing test that already covers the surface, (b) the
+   contributor's test, or (c) a test the agent ADDS or EVOLVES as part of the
+   patch. Evolving an existing test to assert the strengthened behavior counts
+   as valid proof and is encouraged — a patch that changes behavior without a
+   test that would fail on regression is not done. When the agent tightens a
+   contract, it must also update/extend the test so the test logically tracks
+   the new behavior (the test evolving WITH the code is correct, not a red flag).
 6. `attribution`: the landing commit preserves `Co-authored-by:` for the
    original contributor when their code or tests are materially reused.
 7. `mechanics`: prefer pushing to the contributor branch when
