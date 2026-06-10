@@ -130,6 +130,65 @@ If generated reports still emit `patch_then_merge`, treat it as
 Choosing `maintainer_harvest` over `maintainer_patch_then_merge` requires an
 explicit reason in the dossier.
 
+## Agent-Authored Maintainer Patch Authority
+
+The maintainer patch in `maintainer_patch_then_merge` may be written by the
+coding agent itself (not only by a human), under operator standing approval,
+when ALL of the following hold:
+
+1. `aligned_direction`: the contributor's intent matches the north-star and a
+   real reachable app/backend/package/runtime use case.
+2. `net_improvement`: the patched head is measurably better than both the
+   contributor head AND current `integration/pr-train` on at least one of
+   security, correctness, trust-boundary integrity, or contributor clarity, and
+   worse on none. Increasing security/correctness by repo standards is the
+   whole point of the patch — a patch that only reformats or only silences a
+   gate is not allowed.
+3. `bounded_to_attach_point`: edits stay on the canonical attach point and its
+   direct caller/contract/test; no new parallel root, no scope sprawl, no
+   unrelated files.
+4. `intent_preserved`: the change does not alter product or policy intent; it
+   makes the contributor's stated intent safe and landable.
+5. `proof`: the smallest unit/route/contract proof that exercises the patched
+   behavior passes locally, and the required `CI Status Gate` is green at the
+   patched head before queueing.
+6. `attribution`: the landing commit preserves `Co-authored-by:` for the
+   original contributor when their code or tests are materially reused.
+7. `mechanics`: prefer pushing to the contributor branch when
+   `maintainerCanModify` is true; otherwise use a short-lived
+   `temp/pr-<n>-patch` branch and delete it after.
+
+Trust-boundary surfaces (auth, consent, vault, PKM, voice, finance, KYC,
+session, migration, generated contracts, CI/merge authority) get the SAME
+authority but a HIGHER bar: the patch must independently strengthen — never
+weaken or merely preserve-while-touching — the DB-backed enforcement, scope,
+caller-credential shape, or data-boundary, and the security reasoning must be
+written into the landing record. When the safe patch is not obvious from repo
+evidence, downgrade to `request_changes` with the researched blocker rather than
+guessing on a trust boundary.
+
+The ABSOLUTE FORBIDDEN list still binds: never merge directly to `main`, never
+deploy, never handle secrets, never change product/policy intent, never create
+the `integration/pr-train -> main` promotion PR. Agent-authored patches are a
+contributor-branch / pr-train operation only, and the merge queue (which runs CI
+and auto-ejects failures) is the backstop against a bad patch reaching `main`.
+
+## No-Unattended Invariant
+
+Every governance cycle must end with ZERO unattended actionable PRs. "Unattended"
+means an open non-draft contributor PR on the train with no current maintainer
+decision of any kind. Every such PR must terminate the cycle in exactly one
+decision state: `merge_now` (queued), `maintainer_patch_then_merge` (patched +
+queued), `maintainer_harvest`, `request_changes` (standardized record),
+`close` (duplicate/superseded), or `dormant_current_hold` (a current maintainer
+record already applies and no new contributor activity). Self-authored
+maintainer PRs (GitHub blocks self-review) are the only allowed exception and
+must be listed explicitly. A cycle report that leaves any contributor PR with no
+decision is incomplete. Compute "unattended" from the presence of a current
+maintainer review record, NOT from `reviewDecision` alone — a later
+APPROVED/DISMISSED state can supersede an earlier `CHANGES_REQUESTED` while the
+PR remains decided/handled.
+
 Before requesting changes, evaluate whether the useful contribution can be
 harvested or patched into a current canonical surface.
 
