@@ -252,3 +252,23 @@ describe("portfolio normalizer - mixed currency string boundaries", () => {
     expect(consolidated[0].cost_basis).toBeUndefined();
   });
 });
+
+describe("portfolio normalizer - negative currency boundaries", () => {
+  it("safely preserves hard negative and sub-zero currency strings without producing NaN", () => {
+    const consolidated = consolidateHoldingsBySymbol([
+      {
+        symbol: "LOSS",
+        name: "Loss Position",
+        quantity: "2",
+        market_value: "-5400.22",
+        cost_basis: "-0.0001",
+      },
+    ]);
+
+    expect(consolidated).toHaveLength(1);
+    expect(Number.isFinite(consolidated[0].market_value)).toBe(true);
+    expect(Number.isFinite(consolidated[0].cost_basis)).toBe(true);
+    expect(consolidated[0].market_value).toBeCloseTo(-5400.22, 8);
+    expect(consolidated[0].cost_basis).toBeCloseTo(-0.0001, 8);
+  });
+});
