@@ -56,6 +56,7 @@ export function FocusTimerWidget() {
             size="icon" 
             className="h-7 w-7 rounded-full text-muted-foreground hover:text-foreground" 
             onClick={() => setIsOpen(false)}
+            aria-label="Close focus timer"
           >
             <X className="w-4 h-4" />
           </Button>
@@ -82,7 +83,7 @@ export function FocusTimerWidget() {
           </div>
 
           <div className="relative flex items-center justify-center w-40 h-40 mb-6">
-            <svg className="absolute w-full h-full -rotate-90">
+            <svg className="absolute w-full h-full -rotate-90" aria-hidden="true">
               <circle
                 cx="80"
                 cy="80"
@@ -102,10 +103,14 @@ export function FocusTimerWidget() {
               />
             </svg>
             <div className="absolute flex flex-col items-center">
-              <span className="text-4xl font-light font-mono tracking-tighter">
+              <span
+                aria-live="polite"
+                aria-atomic="true"
+                className="text-4xl font-light font-mono tracking-tighter"
+              >
                 {formatTime(timeLeft)}
               </span>
-              <span className="text-[10px] text-muted-foreground mt-1 uppercase tracking-widest flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground mt-1 uppercase tracking-widest flex items-center gap-1" aria-hidden="true">
                 {mode === "pomodoro" ? <><Brain className="w-3 h-3" /> Focus</> : <><Coffee className="w-3 h-3" /> Break</>}
               </span>
             </div>
@@ -125,6 +130,7 @@ export function FocusTimerWidget() {
               size="icon" 
               className="rounded-xl w-10 shrink-0"
               onClick={resetTimer}
+              aria-label="Reset timer"
             >
               <RotateCcw className="w-4 h-4" />
             </Button>
@@ -143,7 +149,7 @@ export function FocusTimerWidget() {
         size="icon"
         onClick={() => setIsOpen(!isOpen)}
         className={`pointer-events-auto h-12 w-12 rounded-full shadow-lg border transition-all duration-300 ${isOpen ? "rotate-90 scale-90 opacity-0" : "hover:scale-105"}`}
-        title="Open Focus Timer"
+        aria-label={isOpen ? "Close focus timer" : "Open focus timer"}
       >
         <Timer className="w-5 h-5" />
         {isRunning && (
