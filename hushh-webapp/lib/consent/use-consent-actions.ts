@@ -23,6 +23,7 @@ import {
   buildConsentExportForScope,
   ConsentExportNoDataError,
 } from "@/lib/consent/export-builder";
+import { verifyLocalConsentActionAccess } from "@/lib/consent/consent-cache-manager";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 // ============================================================================
@@ -196,6 +197,9 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         const vaultOwnerToken = getVaultOwnerToken();
         if (!vaultOwnerToken) {
           throw new Error("Vault owner token required");
+        }
+        if (!(await verifyLocalConsentActionAccess(userId, vaultOwnerToken))) {
+          throw new Error("Consent access required");
         }
 
         let scopeData: Record<string, unknown> = {};
@@ -454,6 +458,9 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         if (!vaultOwnerToken) {
           throw new Error("Vault owner token required");
         }
+        if (!(await verifyLocalConsentActionAccess(userId, vaultOwnerToken))) {
+          throw new Error("Consent access required");
+        }
 
         const response = await ApiService.denyPendingConsent({
           userId,
@@ -566,6 +573,12 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
 
       const promise = (async () => {
         const vaultOwnerToken = getVaultOwnerToken();
+        if (
+          vaultOwnerToken &&
+          !(await verifyLocalConsentActionAccess(userId, vaultOwnerToken))
+        ) {
+          throw new Error("Consent access required");
+        }
         const response = await ApiService.revokeConsent({
           userId,
           scope,
