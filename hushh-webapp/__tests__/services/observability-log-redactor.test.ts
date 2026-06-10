@@ -248,3 +248,24 @@ describe("observability log redactor — tab-separated value handling", () => {
     expect(output).toContain("data");
   });
 });
+
+describe("observability log redactor - multi-line JSON handling", () => {
+  it("redacts JWT values inside multi-line JSON blocks without corrupting JSON structure", () => {
+    const jwtToken = ["eyJx", "payload", "sig"].join(".");
+    const jsonLog = [
+      "{",
+      '  "event": "session_refresh",',
+      `  "id_token": "${jwtToken}",`,
+      '  "status": "ok"',
+      "}",
+    ].join("\n");
+
+    const output = redactObservabilityLog(jsonLog);
+
+    expect(output).not.toContain(jwtToken);
+    expect(output).toContain('"id_token": "[REDACTED_JWT]"');
+    expect(output).toContain("{\n");
+    expect(output).toContain(',\n  "status": "ok"');
+    expect(output.trim().endsWith("}")).toBe(true);
+  });
+});
