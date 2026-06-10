@@ -270,9 +270,14 @@ export const MaterialRipple = ({
   return (
     <div
       ref={containerRef}
-      className={`morphy-ripple-host absolute inset-0 isolate overflow-hidden ${className}`}
+      className={`morphy-ripple-host pointer-events-none absolute inset-0 isolate overflow-hidden ${className}`}
       // Let the ripple host own the clip boundary for rounded actionables.
-      style={{ borderRadius: "inherit", contain: "paint" }}
+      // pointer-events:none is critical: the host overlays the actionable's
+      // content (absolute inset-0). On iOS WKWebView an overlay without it can
+      // swallow the first tap, which surfaced as "bottom nav needs a double tap
+      // / never switches". The ripple is purely visual; the parent button still
+      // receives the pointer events md-ripple observes.
+      style={{ borderRadius: "inherit", contain: "paint", pointerEvents: "none" }}
     />
   );
 };
