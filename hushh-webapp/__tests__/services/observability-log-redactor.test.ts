@@ -248,3 +248,17 @@ describe("observability log redactor — tab-separated value handling", () => {
     expect(output).toContain("data");
   });
 });
+
+describe("observability log redactor - literal escape sequence handling", () => {
+  it("redacts sensitive tokens surrounded by literal escaped quotes without regex failures", () => {
+    const escapedLogLine = String.raw`auth_header=\"Bearer literalEscapeToken12345\" status=\"ok\"`;
+
+    expect(() => redactObservabilityLog(escapedLogLine)).not.toThrow();
+
+    const output = redactObservabilityLog(escapedLogLine);
+
+    expect(output).not.toContain("literalEscapeToken12345");
+    expect(output).toContain(String.raw`auth_header=\"Bearer [REDACTED_TOKEN]\"`);
+    expect(output).toContain(String.raw`status=\"ok\"`);
+  });
+});
