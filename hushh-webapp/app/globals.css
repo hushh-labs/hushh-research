@@ -620,6 +620,13 @@ a, button, input, select, textarea {
   pointer-events: none;
 }
 
+/* Anchor clearance: hash-targeted elements must clear the fixed top shell */
+[id]:target,
+[data-page-primary][id],
+[data-section-header][id] {
+  scroll-margin-top: var(--top-shell-reserved-height, 60px);
+}
+
 .fullscreen-flow-shell {
   min-height: calc(100dvh - var(--app-fullscreen-flow-content-offset, 0px));
   width: 100%;

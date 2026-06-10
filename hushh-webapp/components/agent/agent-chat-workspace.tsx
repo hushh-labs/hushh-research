@@ -315,7 +315,7 @@ function AgentMarkdown({ text }: { text: string }) {
             <a
               href={href || "#"}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="font-medium text-primary underline-offset-4 hover:underline"
             >
               {children}

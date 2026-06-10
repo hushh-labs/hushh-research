@@ -2,7 +2,7 @@
 
 import { ReactNode } from "react";
 import { Providers } from "./providers";
-import { NetworkStatusIndicator } from "@/components/app-ui/network-status-indicator";
+
 
 interface RootLayoutClientProps {
   children: ReactNode;
@@ -36,6 +36,7 @@ export function RootLayoutClient({
 
       <Providers>
         {children}
+        <FocusTimerWidget />
       </Providers>
       
       <NetworkStatusIndicator />

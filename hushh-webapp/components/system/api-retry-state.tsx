@@ -19,7 +19,7 @@ export function ApiRetryState({
 }: ApiRetryStateProps) {
   if (variant === "compact") {
     return (
-      <div className="flex items-center justify-between gap-3 rounded-[var(--app-card-radius-compact)] border border-amber-500/20 bg-amber-500/10 px-3 py-2">
+      <div role="status" aria-live="polite" aria-atomic="true" className="flex items-center justify-between gap-3 rounded-[var(--app-card-radius-compact)] border border-amber-500/20 bg-amber-500/10 px-3 py-2">
         <div className="flex min-w-0 items-center gap-2 text-sm">
           <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
           <div className="min-w-0">
@@ -36,7 +36,7 @@ export function ApiRetryState({
   }
 
   return (
-    <div className="rounded-[var(--app-card-radius-compact)] border border-amber-500/20 bg-amber-500/10 p-4">
+    <div role="status" aria-live="polite" aria-atomic="true" className="rounded-[var(--app-card-radius-compact)] border border-amber-500/20 bg-amber-500/10 p-4">
       <div className="flex items-start gap-3">
         <div className="rounded-full bg-amber-500/15 p-2">
           <AlertTriangle className="h-5 w-5 text-amber-700 dark:text-amber-300" />

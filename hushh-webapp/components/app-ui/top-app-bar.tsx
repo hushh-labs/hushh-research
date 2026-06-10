@@ -639,6 +639,16 @@ export function TopAppBar({ className }: TopAppBarProps) {
           </div>
         </div>
       </div>
+      <span
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {switchingPersona
+          ? `Switching to ${switchingPersona === "ria" ? "RIA" : "Investor"}`
+          : ""}
+      </span>
     </div>
   );
 }
