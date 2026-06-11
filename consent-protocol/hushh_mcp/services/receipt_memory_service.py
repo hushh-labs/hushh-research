@@ -34,6 +34,7 @@ RECEIPT_MEMORY_MAX_HIGHLIGHTS = 8
 RECEIPT_MEMORY_MAX_SIGNALS = 8
 RECEIPT_MEMORY_MAX_SUMMARY_HIGHLIGHTS = 6
 RECEIPT_MEMORY_MAX_SUMMARY_CHARS = 600
+RECEIPT_MEMORY_DOMAIN = "shopping"
 
 _SUFFIX_TOKENS = {
     "co",
@@ -140,6 +141,11 @@ def _sha256_text(value: str) -> str:
 
 def _sha256_json(value: Any) -> str:
     return _sha256_text(_json_dumps(value))
+
+
+def _normalize_memory_domain(value: Any) -> str:
+    domain = _clean_text(value).lower()
+    return domain or RECEIPT_MEMORY_DOMAIN
 
 
 def _clip_text(value: str, max_chars: int) -> str:
@@ -1041,6 +1047,7 @@ class ReceiptMemoryArtifactService:
         *,
         artifact_id: str,
         user_id: str,
+        memory_domain: str,
         source_watermark_hash: str,
         source_watermark: dict[str, Any],
         inference_window_days: int,
@@ -1055,6 +1062,7 @@ class ReceiptMemoryArtifactService:
         return {
             "artifact_id": artifact_id,
             "user_id": user_id,
+            "memory_domain": _normalize_memory_domain(memory_domain),
             "source_kind": "gmail_receipts",
             "artifact_version": RECEIPT_MEMORY_ARTIFACT_VERSION,
             "status": "ready",
@@ -1091,6 +1099,7 @@ class ReceiptMemoryArtifactService:
         highlights_window_days: int,
         deterministic_schema_version: int,
         enrichment_cache_key: str,
+        memory_domain: str = RECEIPT_MEMORY_DOMAIN,
     ) -> dict[str, Any] | None:
         if not self._cache_persistence_available:
             return None
@@ -1101,6 +1110,7 @@ class ReceiptMemoryArtifactService:
                 FROM kai_receipt_memory_artifacts
                 WHERE user_id = :user_id
                   AND source_watermark_hash = :source_watermark_hash
+                  AND COALESCE(memory_domain, 'shopping') = :memory_domain
                   AND inference_window_days = :inference_window_days
                   AND highlights_window_days = :highlights_window_days
                   AND deterministic_schema_version = :deterministic_schema_version
@@ -1111,6 +1121,7 @@ class ReceiptMemoryArtifactService:
                 {
                     "user_id": user_id,
                     "source_watermark_hash": source_watermark_hash,
+                    "memory_domain": _normalize_memory_domain(memory_domain),
                     "inference_window_days": inference_window_days,
                     "highlights_window_days": highlights_window_days,
                     "deterministic_schema_version": deterministic_schema_version,
@@ -1166,6 +1177,7 @@ class ReceiptMemoryArtifactService:
         enrichment: dict[str, Any] | None,
         candidate_pkm_payload: dict[str, Any],
         debug_stats: dict[str, Any],
+        memory_domain: str = RECEIPT_MEMORY_DOMAIN,
     ) -> dict[str, Any]:
         deterministic_projection_hash = _sha256_json(deterministic_projection)
         enrichment_hash = _sha256_json(enrichment) if enrichment else None
@@ -1174,6 +1186,7 @@ class ReceiptMemoryArtifactService:
             return self._build_ephemeral_artifact(
                 artifact_id=artifact_id,
                 user_id=user_id,
+                memory_domain=memory_domain,
                 source_watermark_hash=source_watermark_hash,
                 source_watermark=source_watermark,
                 inference_window_days=inference_window_days,
@@ -1190,6 +1203,7 @@ class ReceiptMemoryArtifactService:
                 INSERT INTO kai_receipt_memory_artifacts (
                     artifact_id,
                     user_id,
+                    memory_domain,
                     source_kind,
                     artifact_version,
                     status,
@@ -1212,6 +1226,7 @@ class ReceiptMemoryArtifactService:
                 ) VALUES (
                     :artifact_id,
                     :user_id,
+                    :memory_domain,
                     'gmail_receipts',
                     :artifact_version,
                     'ready',
@@ -1236,6 +1251,7 @@ class ReceiptMemoryArtifactService:
                 {
                     "artifact_id": artifact_id,
                     "user_id": user_id,
+                    "memory_domain": _normalize_memory_domain(memory_domain),
                     "artifact_version": RECEIPT_MEMORY_ARTIFACT_VERSION,
                     "deterministic_schema_version": RECEIPT_MEMORY_DETERMINISTIC_SCHEMA_VERSION,
                     "enrichment_schema_version": RECEIPT_MEMORY_ENRICHMENT_SCHEMA_VERSION
@@ -1261,6 +1277,7 @@ class ReceiptMemoryArtifactService:
                 return self._build_ephemeral_artifact(
                     artifact_id=artifact_id,
                     user_id=user_id,
+                    memory_domain=memory_domain,
                     source_watermark_hash=source_watermark_hash,
                     source_watermark=source_watermark,
                     inference_window_days=inference_window_days,
@@ -1291,6 +1308,7 @@ class ReceiptMemoryArtifactService:
         artifact = {
             "artifact_id": _clean_text(row.get("artifact_id")),
             "user_id": _clean_text(row.get("user_id")),
+            "memory_domain": _normalize_memory_domain(row.get("memory_domain")),
             "source_kind": _clean_text(row.get("source_kind"), "gmail_receipts"),
             "artifact_version": _safe_int(row.get("artifact_version"))
             or RECEIPT_MEMORY_ARTIFACT_VERSION,
@@ -1369,6 +1387,7 @@ class ReceiptMemoryPreviewService:
             cached = self.artifact_service.get_cached_artifact(
                 user_id=user_id,
                 source_watermark_hash=watermark_hash,
+                memory_domain=RECEIPT_MEMORY_DOMAIN,
                 inference_window_days=inference_window_days,
                 highlights_window_days=highlights_window_days,
                 deterministic_schema_version=RECEIPT_MEMORY_DETERMINISTIC_SCHEMA_VERSION,
@@ -1422,6 +1441,7 @@ class ReceiptMemoryPreviewService:
             user_id=user_id,
             source_watermark_hash=watermark_hash,
             source_watermark=_json_object(source.get("source_watermark")),
+            memory_domain=RECEIPT_MEMORY_DOMAIN,
             inference_window_days=inference_window_days,
             highlights_window_days=highlights_window_days,
             enrichment_cache_key=enrichment_cache_key,
