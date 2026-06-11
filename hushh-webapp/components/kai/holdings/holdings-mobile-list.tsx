@@ -247,6 +247,7 @@ export function HoldingsMobileList({
             placeholder="Search holdings by ticker or company"
             className="app-body-text h-10 rounded-full border-border/60 bg-background/70 pl-9 pr-4 text-sm"
             autoCapitalize="off"
+            autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
           />
