@@ -296,4 +296,19 @@ describe("ApiService.apiFetch", () => {
     expect(payload.phone_verified).toBe(true);
     expect(payload.identity?.source).toBe("uat_test_phone_claim");
   });
+  it("normalizes invalid request timestamp headers before fetch", async () => {
+  mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
+
+  await ApiService.apiFetch("/api/ping", {
+    method: "GET",
+    headers: {
+      [REQUEST_TIMESTAMP_HEADER]: "not-a-number",
+    },
+  });
+
+  const [, fetchOptions] = mockFetch.mock.calls[0] as [string, RequestInit];
+  const headers = fetchOptions.headers as Record<string, string>;
+
+  expect(headers[REQUEST_TIMESTAMP_HEADER]).not.toBe("not-a-number");
+});
 });
