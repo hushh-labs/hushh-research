@@ -166,18 +166,24 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
             # Map start and target dates to real PR creation and merge timelines
             start_date = pr["createdAt"][:10]
             target_date = pr["updatedAt"][:10]
-            if dry_run:
-                completed.append(f"PR #{pr['number']} -> would ensure on board & set **Done** (Start: {start_date}, Target: {target_date})")
-                has_changes = True
+            key = f"pr#{pr['number']}"
+            sig = f"{signature(pr, 'pr')}:Done"
+            if prev_state.get(key) == sig:
+                cur_state[key] = sig
             else:
-                board_ops.ensure_issue_on_project(repo, pr["number"])
-                board_ops.update_task(
-                    repo=repo, issue_number=pr["number"], status="Done",
-                    start_date=start_date, target_date=target_date, labels=None,
-                    sync_current_sprint=False, hierarchy=OPERATOR_HIERARCHY,
-                )
-                completed.append(f"PR #{pr['number']} -> ensured on board & marked **Done** (Start: {start_date}, Target: {target_date})")
-                has_changes = True
+                if dry_run:
+                    completed.append(f"PR #{pr['number']} -> would ensure on board & set **Done** (Start: {start_date}, Target: {target_date})")
+                    has_changes = True
+                else:
+                    board_ops.ensure_issue_on_project(repo, pr["number"])
+                    board_ops.update_task(
+                        repo=repo, issue_number=pr["number"], status="Done",
+                        start_date=start_date, target_date=target_date, labels=None,
+                        sync_current_sprint=False, hierarchy=OPERATOR_HIERARCHY,
+                    )
+                    completed.append(f"PR #{pr['number']} -> ensured on board & marked **Done** (Start: {start_date}, Target: {target_date})")
+                    has_changes = True
+                cur_state[key] = sig
         except Exception:
             pass
 
@@ -196,22 +202,27 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
                 # Determine timeline from actual issue creation and completion
                 start_date = details["createdAt"][:10]
                 target_date = pr["updatedAt"][:10] # finished when PR was merged/closed
-                
-                if dry_run:
-                    completed.append(f"#{num} -> would ensure on board & set **Done** (Start: {start_date}, Target: {target_date})")
+                key = f"issue#{num}"
+                sig = f"{signature(details, 'issue')}:Done"
+                if prev_state.get(key) == sig:
+                    cur_state[key] = sig
+                else:
+                    if dry_run:
+                        completed.append(f"#{num} -> would ensure on board & set **Done** (Start: {start_date}, Target: {target_date})")
+                        has_changes = True
+                        continue
+                    # Ensure it is added to the board (adds if missing)
+                    board_ops.ensure_issue_on_project(repo, num)
+                    if details["state"] == "OPEN":
+                        board_ops.run_gh(["issue", "close", str(num), "--repo", repo])
+                    board_ops.update_task(
+                        repo=repo, issue_number=num, status="Done",
+                        start_date=start_date, target_date=target_date, labels=None,
+                        sync_current_sprint=False, hierarchy=OPERATOR_HIERARCHY,
+                    )
+                    completed.append(f"#{num} -> ensured on board & marked **Done** (Start: {start_date}, Target: {target_date})")
                     has_changes = True
-                    continue
-                # Ensure it is added to the board (adds if missing)
-                board_ops.ensure_issue_on_project(repo, num)
-                if details["state"] == "OPEN":
-                    board_ops.run_gh(["issue", "close", str(num), "--repo", repo])
-                board_ops.update_task(
-                    repo=repo, issue_number=num, status="Done",
-                    start_date=start_date, target_date=target_date, labels=None,
-                    sync_current_sprint=False, hierarchy=OPERATOR_HIERARCHY,
-                )
-                completed.append(f"#{num} -> ensured on board & marked **Done** (Start: {start_date}, Target: {target_date})")
-                has_changes = True
+                    cur_state[key] = sig
             except Exception:  # noqa: BLE001
                 pass
 
@@ -225,19 +236,25 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
             num = issue["number"]
             start_date = issue["createdAt"][:10]
             target_date = issue["updatedAt"][:10]
-            if dry_run:
-                completed.append(f"#{num} -> would ensure on board & set **Done** (Start: {start_date}, Target: {target_date})")
+            key = f"issue#{num}"
+            sig = f"{signature(issue, 'issue')}:Done"
+            if prev_state.get(key) == sig:
+                cur_state[key] = sig
+            else:
+                if dry_run:
+                    completed.append(f"#{num} -> would ensure on board & set **Done** (Start: {start_date}, Target: {target_date})")
+                    has_changes = True
+                    continue
+                # Ensure it is added to the board (adds if missing)
+                board_ops.ensure_issue_on_project(repo, num)
+                board_ops.update_task(
+                    repo=repo, issue_number=num, status="Done",
+                    start_date=start_date, target_date=target_date, labels=None,
+                    sync_current_sprint=False, hierarchy=OPERATOR_HIERARCHY,
+                )
+                completed.append(f"#{num} -> ensured on board & marked **Done** (Start: {start_date}, Target: {target_date})")
                 has_changes = True
-                continue
-            # Ensure it is added to the board (adds if missing)
-            board_ops.ensure_issue_on_project(repo, num)
-            board_ops.update_task(
-                repo=repo, issue_number=num, status="Done",
-                start_date=start_date, target_date=target_date, labels=None,
-                sync_current_sprint=False, hierarchy=OPERATOR_HIERARCHY,
-            )
-            completed.append(f"#{num} -> ensured on board & marked **Done** (Start: {start_date}, Target: {target_date})")
-            has_changes = True
+                cur_state[key] = sig
         except Exception:  # noqa: BLE001
             pass
 
@@ -266,20 +283,22 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
             # Align start and target date to actual creation and standard sprint buffer
             start_date = issue["createdAt"][:10]
             target_date = (dt.date.today() + dt.timedelta(days=1)).isoformat() # Tightly bounded forward target
-            
-            if dry_run:
-                active.append(f"#{issue['number']} *{issue['title']}* -> would set **{status}** (Start: {start_date}, Target: {target_date})")
-                has_changes = True
-                continue
-            board_ops.update_task(
-                repo=repo, issue_number=issue["number"], status=status,
-                start_date=start_date, target_date=target_date,
-                labels=[l["name"] for l in issue.get("labels", [])],
-                sync_current_sprint=True, hierarchy=OPERATOR_HIERARCHY,
-            )
-            # Only flag a change if this item's signature actually transitioned.
-            changed = mark_delta(f"issue#{issue['number']}", f"{signature(issue, 'issue')}:{status}")
-            if changed:
+            key = f"issue#{issue['number']}"
+            sig = f"{signature(issue, 'issue')}:{status}"
+            if prev_state.get(key) == sig:
+                cur_state[key] = sig
+            else:
+                if dry_run:
+                    active.append(f"#{issue['number']} *{issue['title']}* -> would set **{status}** (Start: {start_date}, Target: {target_date})")
+                    has_changes = True
+                    continue
+                board_ops.update_task(
+                    repo=repo, issue_number=issue["number"], status=status,
+                    start_date=start_date, target_date=target_date,
+                    labels=[l["name"] for l in issue.get("labels", [])],
+                    sync_current_sprint=True, hierarchy=OPERATOR_HIERARCHY,
+                )
+                cur_state[key] = sig
                 active.append(f"🔧 #{issue['number']} *{issue['title']}* -> **{status}**")
                 has_changes = True
         except Exception as exc:  # noqa: BLE001
@@ -292,18 +311,22 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
             status = "In progress" if pr.get("isDraft") else "In review"
             start_date = pr["createdAt"][:10]
             target_date = (dt.date.today() + dt.timedelta(days=1)).isoformat()
-            if dry_run:
-                active.append(f"PR #{pr['number']} *{pr['title']}* -> would set **{status}** (Start: {start_date}, Target: {target_date})")
-                has_changes = True
-                continue
-            board_ops.update_task(
-                repo=repo, issue_number=pr["number"], status=status,
-                start_date=start_date, target_date=target_date,
-                labels=[l["name"] for l in pr.get("labels", [])],
-                sync_current_sprint=True, hierarchy=OPERATOR_HIERARCHY,
-            )
-            changed = mark_delta(f"pr#{pr['number']}", f"{signature(pr, 'pr')}:{status}")
-            if changed:
+            key = f"pr#{pr['number']}"
+            sig = f"{signature(pr, 'pr')}:{status}"
+            if prev_state.get(key) == sig:
+                cur_state[key] = sig
+            else:
+                if dry_run:
+                    active.append(f"PR #{pr['number']} *{pr['title']}* -> would set **{status}** (Start: {start_date}, Target: {target_date})")
+                    has_changes = True
+                    continue
+                board_ops.update_task(
+                    repo=repo, issue_number=pr["number"], status=status,
+                    start_date=start_date, target_date=target_date,
+                    labels=[l["name"] for l in pr.get("labels", [])],
+                    sync_current_sprint=True, hierarchy=OPERATOR_HIERARCHY,
+                )
+                cur_state[key] = sig
                 active.append(f"🚀 PR #{pr['number']} *{pr['title']}* -> **{status}**")
                 has_changes = True
         except Exception:  # noqa: BLE001
