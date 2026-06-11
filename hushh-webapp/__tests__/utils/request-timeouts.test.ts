@@ -250,4 +250,10 @@ describe("resolveSlowRequestTimeoutMs — fringe-input boundary fallbacks", () =
     expect(Number.isFinite(result)).toBe(true);
     expect(Number.isInteger(result)).toBe(true);
   });
+  it("ignores negative explicit timeout overrides", () => {
+    process.env.NEXT_PUBLIC_APP_ENV = "uat";
+    process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS = "-1000";
+
+    expect(resolveSlowRequestTimeoutMs(20_000)).toBe(20_000);
+  });
 });
