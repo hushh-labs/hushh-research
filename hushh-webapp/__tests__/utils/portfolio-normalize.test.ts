@@ -272,3 +272,20 @@ describe("portfolio normalizer - negative currency boundaries", () => {
     expect(consolidated[0].cost_basis).toBeCloseTo(-0.0001, 8);
   });
 });
+
+describe("portfolio normalizer - exponential numeric string boundaries", () => {
+  it("normalizes exponential currency strings to standard numeric values", () => {
+    const consolidated = consolidateHoldingsBySymbol([
+      {
+        symbol: "EXP",
+        name: "Exponential Numeric Holding",
+        quantity: "1",
+        market_value: "1.5e3",
+      },
+    ]);
+
+    expect(consolidated).toHaveLength(1);
+    expect(consolidated[0].market_value).toBe(1500);
+    expect(consolidated[0].price).toBe(1500);
+  });
+});
