@@ -43,21 +43,23 @@ LOGREDACT=re.compile(r'process\.env\.NODE_ENV|logger\.(debug|info)|redact|\#\s*l
 # typing makes the codebase stronger; a change that REMOVES them weakens it.
 # We decide on direction, not on the mere presence of a security keyword.
 STRENGTHEN=re.compile(
-    r'(\+.*\b(validat\w*|verif\w*|assert\w*|guard\w*|ensure\w*|check\w*|reject\w*|throw new|raise )\b)'
-    r'|(\+.*(===|!==|!= None|is None|is not None|!\s*null|== null|!== null|\?\?|\?\.))'
-    r'|(\+.*\b(len\(|length|byteLength|maxlen|min_length|max_length|maxLength|minLength|Field\(|AES-?256|key.?format|isinstance)\b)'
-    r'|(\+.*catch\s*\(\s*\w+\s*:\s*unknown)'
-    r'|(\+.*\b(redact|sanitiz\w*|escape|noopener|null-?safe|null-?check)\b)'
+    r'(?m)'  # ^ and $ match per line
+    r'(^\+.*\b(validat\w*|verif\w*|assert\w*|guard\w*|ensure\w*|check\w*|reject\w*|throw new|raise )\b)'
+    r'|(^\+.*(===|!==|!= None|is None|is not None|!\s*null|== null|!== null|\?\?|\?\.))'
+    r'|(^\+.*\b(len\(|length|byteLength|maxlen|min_length|max_length|maxLength|minLength|Field\(|AES-?256|key.?format|isinstance)\b)'
+    r'|(^\+.*catch\s*\(\s*\w+\s*:\s*unknown)'
+    r'|(^\+.*\b(redact|sanitiz\w*|escape|noopener|null-?safe|null-?check)\b)'
     # Info-leak fixes: REMOVING a verbatim error/reason/exception from a client
     # response or log is security-positive (CWE-209 / token-reason disclosure).
-    r'|(-.*\b(detail|message|error)\b.*\b(reason|str\(exc\)|exc\)|err\.message|stack)\b)'
-    r'|(-.*f["\'].*\{(reason|exc|err|e)\b)',
+    r'|(^-.*\b(detail|message|error)\b.*\b(reason|str\(exc\)|exc\)|err\.message|stack)\b)'
+    r'|(^-.*f["\'].*\{(reason|exc|err|e)\b)',
     re.I)
 WEAKEN=re.compile(
-    r'(-.*\b(validat\w*|verif\w*|assert\w*|guard\w*|ensure\w*|sanitiz\w*|reject\w*)\b)'
-    r'|(\+.*\b(bypass|skip[_ ]?(auth|check|validation)|disable[_ ]?(auth|check)|allow[_ ]?all|no[_ ]?verify|verify\s*=\s*False|insecure|trust[_ ]?all)\b)'
-    r'|(\+.*catch\s*\(\s*\w+\s*:\s*any)'
-    r'|(\+.*(== True|return True\s*#.*auth|always.*allow))',
+    r'(?m)'  # ^ and $ match per line
+    r'(^-.*\b(validat\w*|verif\w*|assert\w*|guard\w*|ensure\w*|sanitiz\w*|reject\w*)\b)'
+    r'|(^\+.*\b(bypass|skip[_ ]?(auth|check|validation)|disable[_ ]?(auth|check)|allow[_ ]?all|no[_ ]?verify|verify\s*=\s*False|insecure|trust[_ ]?all)\b)'
+    r'|(^\+.*catch\s*\(\s*\w+\s*:\s*any)'
+    r'|(^\+.*(== True|return True\s*#.*auth|always.*allow))',
     re.I)
 
 def run(a):
@@ -74,7 +76,22 @@ def triage(n,files):
     add,rem=diff_lines(n)
     if add is None or rem is None: return "skip","no_diff"
     body="\n".join(add)
-    diff_all="\n".join(["+"+l for l in add]+["-"+l for l in rem])
+    # Build directional diff text from CODE lines only — exclude comments,
+    # docstrings, and import reordering so prose like "oversized input is
+    # rejected" or a moved `ValidationError` import can't be misread as a
+    # weakening signal. Direction must reflect real logic, not narration.
+    def _is_code(line: str) -> bool:
+        s = line.strip()
+        if not s:
+            return False
+        if s.startswith(("#", "//", "*", '"""', "'''", "/*")):
+            return False
+        if s.startswith(("import ", "from ")) or " import " in s:
+            return False
+        return True
+    code_add = [l for l in add if _is_code(l)]
+    code_rem = [l for l in rem if _is_code(l)]
+    diff_all="\n".join(["+"+l for l in code_add]+["-"+l for l in code_rem])
     # self-mock test (asserts against mocks, imports no production code) -> not real coverage
     tests=[f for f in files if "__tests__" in f or f.endswith((".test.ts",".test.tsx",".test.js")) or f.startswith("tests/")]
     if tests and len(tests)==len(files):
