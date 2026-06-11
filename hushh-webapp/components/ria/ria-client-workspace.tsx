@@ -506,7 +506,7 @@ export function RiaClientWorkspace({
       }}
       actions={
         detail && !detail.is_self_relationship && !isTestProfile ? (
-          <Button
+          <Button type="button"
             variant="none"
             effect="fade"
             size="sm"
@@ -707,7 +707,7 @@ export function RiaClientWorkspace({
                   <>
                     <div className="flex flex-wrap gap-2">
                       {detail.requestable_scope_templates.map((template) => (
-                        <Button
+                        <Button type="button"
                           key={template.template_id}
                           variant={selectedTemplateId === template.template_id ? "blue-gradient" : "none"}
                           effect={selectedTemplateId === template.template_id ? "fill" : "fade"}
@@ -728,11 +728,11 @@ export function RiaClientWorkspace({
                         {availableScopeOptions.map((scope) => {
                           const checked = selectedScopes.includes(scope.scope);
                           return (
-                            <label
+                            <label htmlFor="ria-client-input-1"
                               key={scope.scope}
                               className="flex items-start gap-3 rounded-[20px] border border-border/60 bg-background/70 px-4 py-3"
                             >
-                              <Checkbox
+                              <Checkbox id="ria-client-input-1"
                                 checked={checked}
                                 onCheckedChange={(next) => {
                                   const shouldCheck = Boolean(next);
@@ -764,11 +764,11 @@ export function RiaClientWorkspace({
                           activeAccountBranches.map((branch) => {
                             const checked = selectedAccountIds.includes(branch.branch_id);
                             return (
-                              <label
+                              <label htmlFor="ria-client-input-2"
                                 key={branch.branch_id}
                                 className="flex items-start gap-3 px-4 py-3"
                               >
-                                <Checkbox
+                                <Checkbox id="ria-client-input-2"
                                   checked={checked}
                                   onCheckedChange={(next) => {
                                     const shouldCheck = Boolean(next);
@@ -814,7 +814,7 @@ export function RiaClientWorkspace({
                     />
 
                     <div className="flex flex-wrap gap-2">
-                      <Button
+                      <Button type="button"
                         variant="blue-gradient"
                         effect="fill"
                         data-voice-control-id="ria_client_workspace_send_request"
@@ -824,7 +824,7 @@ export function RiaClientWorkspace({
                         {requestingAccess ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                         Send request
                       </Button>
-                      <Button asChild variant="none" effect="fade">
+                      <Button type="button" asChild variant="none" effect="fade">
                         <Link
                           href={consentManagerHref}
                           data-voice-control-id="ria_client_workspace_open_access_manager"

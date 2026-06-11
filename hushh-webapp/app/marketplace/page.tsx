@@ -1319,6 +1319,7 @@ export default function MarketplacePage() {
                       size="sm"
                       className="justify-center"
                       onClick={passCurrentCard}
+                      aria-label="Pass card"
                     >
                       <X className="h-4 w-4 sm:mr-2" />
                       <span className="hidden sm:inline">Pass</span>
@@ -1329,6 +1330,7 @@ export default function MarketplacePage() {
                       size="sm"
                       className="justify-center"
                       onClick={() => openDiscoveryProfile(swipeCard)}
+                      aria-label="View profile"
                     >
                       <span className="hidden sm:inline">View</span>
                       <ArrowUpRight className="h-4 w-4 sm:ml-2" />
