@@ -233,4 +233,15 @@ describe("resolveSlowRequestTimeoutMs — fringe-input boundary fallbacks", () =
     expect(Number.isFinite(result)).toBe(true);
     expect(Number.isSafeInteger(result)).toBe(true);
   });
+
+  it("rounds mid-range fractional timeout inputs to a safe integer duration", () => {
+    process.env.NEXT_PUBLIC_APP_ENV = "uat";
+    delete process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS;
+
+    const result = resolveSlowRequestTimeoutMs(45.67);
+
+    expect(result).toBe(46);
+    expect(Number.isFinite(result)).toBe(true);
+    expect(Number.isInteger(result)).toBe(true);
+  });
 });
