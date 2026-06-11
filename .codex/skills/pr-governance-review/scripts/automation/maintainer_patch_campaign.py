@@ -45,9 +45,13 @@ LOGREDACT=re.compile(r'process\.env\.NODE_ENV|logger\.(debug|info)|redact|\#\s*l
 STRENGTHEN=re.compile(
     r'(\+.*\b(validat\w*|verif\w*|assert\w*|guard\w*|ensure\w*|check\w*|reject\w*|throw new|raise )\b)'
     r'|(\+.*(===|!==|!= None|is None|is not None|!\s*null|== null|!== null|\?\?|\?\.))'
-    r'|(\+.*\b(len\(|length|byteLength|maxlen|min_length|max_length|AES-?256|key.?format|isinstance)\b)'
+    r'|(\+.*\b(len\(|length|byteLength|maxlen|min_length|max_length|maxLength|minLength|Field\(|AES-?256|key.?format|isinstance)\b)'
     r'|(\+.*catch\s*\(\s*\w+\s*:\s*unknown)'
-    r'|(\+.*\b(redact|sanitiz\w*|escape|noopener|null-?safe|null-?check)\b)',
+    r'|(\+.*\b(redact|sanitiz\w*|escape|noopener|null-?safe|null-?check)\b)'
+    # Info-leak fixes: REMOVING a verbatim error/reason/exception from a client
+    # response or log is security-positive (CWE-209 / token-reason disclosure).
+    r'|(-.*\b(detail|message|error)\b.*\b(reason|str\(exc\)|exc\)|err\.message|stack)\b)'
+    r'|(-.*f["\'].*\{(reason|exc|err|e)\b)',
     re.I)
 WEAKEN=re.compile(
     r'(-.*\b(validat\w*|verif\w*|assert\w*|guard\w*|ensure\w*|sanitiz\w*|reject\w*)\b)'
