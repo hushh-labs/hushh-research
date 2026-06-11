@@ -222,4 +222,15 @@ describe("resolveSlowRequestTimeoutMs — fringe-input boundary fallbacks", () =
       ).toBe(20_000);
     }
   });
+
+  it("handles Number.MAX_SAFE_INTEGER defaultMs without overflow or NaN fallback", () => {
+    process.env.NEXT_PUBLIC_APP_ENV = "uat";
+    delete process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS;
+
+    const result = resolveSlowRequestTimeoutMs(Number.MAX_SAFE_INTEGER);
+
+    expect(result).toBe(Number.MAX_SAFE_INTEGER);
+    expect(Number.isFinite(result)).toBe(true);
+    expect(Number.isSafeInteger(result)).toBe(true);
+  });
 });
