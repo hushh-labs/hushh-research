@@ -54,8 +54,8 @@ def triage(n,files):
         if not any(("@/" in l or re.search(r'from\s+["\']\.\.?/',l) or "require(" in l) for l in add):
             return "request_changes","self_mock_test"
         return "safe_merge","test_imports_prod"
-    # too broad
-    if len(files)>3 or len(add)>120:
+    # too broad (raised bounds to allow actual LLM review to run and decide instead of blind rejection)
+    if len(files) > 15 or len(add) > 1000:
         return "request_changes","too_broad_split"
     # benign/security-positive signals dominate and no real security-logic edits
     benign_hits=sum(1 for l in add if BENIGN_ADD.search(l))

@@ -1981,7 +1981,7 @@ def _stacked_branch_findings(
             if "/" in path
         }
     )
-    broad_or_unstable = len(non_test_doc_files) > 2 or len(top_dirs) > 1
+    broad_or_unstable = len(non_test_doc_files) > 15 or len(top_dirs) > 5
     if not broad_or_unstable and "diff against main will collapse" not in text:
         return []
 
