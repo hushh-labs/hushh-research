@@ -21,7 +21,7 @@ interface State {
  * Catches render errors and shows a morphy-styled recovery UI.
  */
 export class RouteErrorBoundary extends Component<Props, State> {
-  private errorRef = createRef<HTMLDivElement>();
+  private errorContainerRef = createRef<HTMLDivElement>();
 
   constructor(props: Props) {
     super(props);
@@ -34,7 +34,7 @@ export class RouteErrorBoundary extends Component<Props, State> {
 
   componentDidUpdate(_prevProps: Props, prevState: State) {
     if (this.state.hasError && !prevState.hasError) {
-      this.errorRef.current?.focus();
+      this.errorContainerRef.current?.focus();
     }
   }
 
@@ -62,8 +62,9 @@ export class RouteErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div
-          ref={this.errorRef}
+          ref={this.errorContainerRef}
           role="alert"
+          aria-atomic="true"
           tabIndex={-1}
           className="flex min-h-[60vh] flex-col items-center justify-center px-6 outline-none"
         >
