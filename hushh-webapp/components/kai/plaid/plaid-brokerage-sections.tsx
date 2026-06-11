@@ -825,6 +825,11 @@ export function PlaidFundingTransfersSection({
                 <label className="space-y-1 text-xs text-muted-foreground">
                   Legal name
                   <input
+                    type="text"
+                    autoComplete="name"
+                    autoCapitalize="words"
+                    spellCheck={false}
+                    autoCorrect="off"
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={legalNameInput}
                     onChange={(event) => setLegalNameInput(event.target.value)}
