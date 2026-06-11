@@ -3139,7 +3139,11 @@ def _recommend_merge_lane(
         )
     unsupported_high = high_ids - SALVAGEABLE_HIGH_FINDINGS
     unsupported_medium = medium_ids - SALVAGEABLE_MEDIUM_FINDINGS
-    governance_heavy = "governance" in surface_tags and len(changed_files) > 5
+    # Governance surfaces are genuinely sensitive, but file COUNT alone is a poor
+    # proxy for risk — a 6-file PR that only adds type=button or a test is not
+    # "heavy". Gate on a realistic count so small, legitimate governance-adjacent
+    # diffs flow to patch_then_merge and get real review instead of a blind block.
+    governance_heavy = "governance" in surface_tags and len(changed_files) > 15
 
     if (
         not unsupported_high
