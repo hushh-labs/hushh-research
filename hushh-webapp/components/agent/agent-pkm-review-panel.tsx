@@ -60,7 +60,7 @@ export function AgentPkmReviewPanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 gap-2">
           <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
-            <Brain className="h-4 w-4" />
+            <Brain className="h-4 w-4" aria-hidden="true" />
           </div>
           <div className="min-w-0">
             <p className="font-medium text-foreground">Save to PKM?</p>
@@ -78,7 +78,7 @@ export function AgentPkmReviewPanel({
             onClick={onDismiss}
             disabled={saving}
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
             Skip
           </Button>
           <Button
@@ -88,7 +88,7 @@ export function AgentPkmReviewPanel({
             onClick={onSave}
             disabled={saving}
           >
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Check className="h-3.5 w-3.5" aria-hidden="true" />}
             Save
           </Button>
         </div>
