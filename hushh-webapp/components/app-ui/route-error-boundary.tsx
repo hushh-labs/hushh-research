@@ -85,6 +85,7 @@ export class RouteErrorBoundary extends Component<Props, State> {
               </div>
               <div className="flex gap-3 pt-1">
                 <Button
+                  type="button"
                   variant="muted"
                   effect="glass"
                   size="sm"
@@ -94,6 +95,7 @@ export class RouteErrorBoundary extends Component<Props, State> {
                   Try again
                 </Button>
                 <Button
+                  type="button"
                   variant="blue-gradient"
                   effect="fill"
                   size="sm"
