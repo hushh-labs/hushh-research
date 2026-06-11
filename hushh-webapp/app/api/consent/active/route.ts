@@ -89,7 +89,9 @@ export async function GET(request: NextRequest) {
     }
     return withRequestIdJson(requestId, result.payload, { status: result.status });
   } catch (error) {
-    console.error("[API] Active consents error:", error);
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[API] Active consents error:", error);
+    }
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get("userId");
     const authHeader = request.headers.get("Authorization");
