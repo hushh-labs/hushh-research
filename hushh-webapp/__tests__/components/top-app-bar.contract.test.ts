@@ -6,9 +6,7 @@ import { describe, expect, it } from "vitest";
 const WEBAPP_ROOT = path.resolve(__dirname, "../..");
 
 function read(relativePath: string) {
-  return fs
-    .readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8")
-    .replace(/\r\n/g, "\n");
+  return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8");
 }
 
 describe("Top app bar responsive contract", () => {
