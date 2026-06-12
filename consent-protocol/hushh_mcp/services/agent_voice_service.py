@@ -30,6 +30,7 @@ DEFAULT_AGENT_STT_MODEL = "gemini-2.5-flash"
 DEFAULT_AGENT_TTS_MODEL = "gemini-2.5-flash-preview-tts"
 DEFAULT_AGENT_TTS_VOICE = "Sulafat"
 DEFAULT_AGENT_TTS_MAX_ATTEMPTS = 2
+MALFORMED_TRANSCRIPTION_REASON = "The transcription response was not structured."
 
 _TRANSCRIPTION_SCHEMA = {
     "type": "OBJECT",
@@ -49,6 +50,11 @@ Return JSON only with:
 - reason: a short reason when uncertain is true.
 
 Do not answer the user. Do not summarize. Do not add punctuation unless it is obvious from the speech.
+"""
+
+_TRANSCRIPTION_RETRY_PROMPT = f"""{_TRANSCRIPTION_PROMPT}
+
+Your previous response was not valid JSON. Return only a complete JSON object that matches the requested schema.
 """
 
 
@@ -115,6 +121,28 @@ class AgentVoiceService:
                 model=self.model,
             )
 
+        response_text = await self._generate_transcription_text(
+            audio_bytes=audio_bytes,
+            mime_type=mime_type,
+            prompt=_TRANSCRIPTION_PROMPT,
+        )
+        transcription = self._parse_transcription_response(response_text or "")
+        if transcription.uncertain and transcription.reason == MALFORMED_TRANSCRIPTION_REASON:
+            retry_text = await self._generate_transcription_text(
+                audio_bytes=audio_bytes,
+                mime_type=mime_type,
+                prompt=_TRANSCRIPTION_RETRY_PROMPT,
+            )
+            transcription = self._parse_transcription_response(retry_text or "")
+        return transcription
+
+    async def _generate_transcription_text(
+        self,
+        *,
+        audio_bytes: bytes,
+        mime_type: str,
+        prompt: str,
+    ) -> str:
         config = genai_types.GenerateContentConfig(
             temperature=0.0,
             max_output_tokens=128,
@@ -127,13 +155,13 @@ class AgentVoiceService:
             contents=genai_types.Content(
                 role="user",
                 parts=[
-                    genai_types.Part.from_text(text=_TRANSCRIPTION_PROMPT),
+                    genai_types.Part.from_text(text=prompt),
                     genai_types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
                 ],
             ),
             config=config,
         )
-        return self._parse_transcription_response(response.text or "")
+        return response.text or ""
 
     async def synthesize_speech(
         self,
@@ -209,9 +237,9 @@ class AgentVoiceService:
         except json.JSONDecodeError:
             logger.warning("Agent voice STT returned non-JSON response.")
             return AgentVoiceTranscription(
-                transcript=response_text.strip(),
+                transcript="",
                 uncertain=True,
-                reason="The transcription response was not structured.",
+                reason=MALFORMED_TRANSCRIPTION_REASON,
                 model=self.model,
             )
 
