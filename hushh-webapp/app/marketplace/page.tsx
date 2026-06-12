@@ -213,17 +213,6 @@ export default function MarketplacePage() {
   const [deckRefreshNonce, setDeckRefreshNonce] = useState(0);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
-  const actionInFlightRef = useRef<Set<string>>(new Set());
-
-  const beginAction = useCallback((key: string) => {
-    if (actionInFlightRef.current.has(key)) return false;
-    actionInFlightRef.current.add(key);
-    return true;
-  }, []);
-
-  const endAction = useCallback((key: string) => {
-    actionInFlightRef.current.delete(key);
-  }, []);
 
   const injectedTestCards = useMemo<DiscoveryCard[]>(() => {
     if (!allowTestProfiles || directoryKind !== "rias") return [];
@@ -876,8 +865,6 @@ export default function MarketplacePage() {
       });
       return;
     }
-    const actionKey = `connect-investor:${investorUserId}`;
-    if (!beginAction(actionKey)) return;
     try {
       setActionLoadingUserId(investorUserId);
       const idToken = await user.getIdToken();
@@ -912,15 +899,12 @@ export default function MarketplacePage() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send connection request");
     } finally {
-      endAction(actionKey);
       setActionLoadingUserId(null);
     }
-  }, [beginAction, endAction, persistInvestorAction, rememberInvestorDeckDecision, router, user]);
+  }, [persistInvestorAction, rememberInvestorDeckDecision, router, user]);
 
   const createConnectionToAdvisor = useCallback(async (ria: MarketplaceRia) => {
     if (!user) return;
-    const actionKey = `connect-advisor:${ria.user_id}`;
-    if (!beginAction(actionKey)) return;
     try {
       setActionLoadingUserId(ria.user_id);
       const idToken = await user.getIdToken();
@@ -943,15 +927,12 @@ export default function MarketplacePage() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send connection request");
     } finally {
-      endAction(actionKey);
       setActionLoadingUserId(null);
     }
-  }, [beginAction, endAction, router, user]);
+  }, [router, user]);
 
   const shortlistInvestor = useCallback(async (investor: MarketplaceInvestor) => {
     const investorId = marketplaceInvestorCardId(investor);
-    const actionKey = `shortlist-investor:${investorId}`;
-    if (!beginAction(actionKey)) return;
     try {
       await persistInvestorAction(investor, "shortlist", { gesture: "right_swipe_or_save" });
       setShortlistedInvestorIds((current) =>
@@ -967,10 +948,8 @@ export default function MarketplacePage() {
       });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save investor lead");
-    } finally {
-      endAction(actionKey);
     }
-  }, [beginAction, endAction, persistInvestorAction, rememberInvestorDeckDecision]);
+  }, [persistInvestorAction, rememberInvestorDeckDecision]);
 
   const openDiscoveryProfile = useCallback((card: DiscoveryCard) => {
     if (card.kind === "investor") {
@@ -1340,6 +1319,7 @@ export default function MarketplacePage() {
                       size="sm"
                       className="justify-center"
                       onClick={passCurrentCard}
+                      aria-label="Pass card"
                     >
                       <X className="h-4 w-4 sm:mr-2" />
                       <span className="hidden sm:inline">Pass</span>
@@ -1350,6 +1330,7 @@ export default function MarketplacePage() {
                       size="sm"
                       className="justify-center"
                       onClick={() => openDiscoveryProfile(swipeCard)}
+                      aria-label="View profile"
                     >
                       <span className="hidden sm:inline">View</span>
                       <ArrowUpRight className="h-4 w-4 sm:ml-2" />
