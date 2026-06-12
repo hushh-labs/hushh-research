@@ -1,6 +1,6 @@
 "use client";
 
-import { Drawer, DrawerContent, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
 import type { HoldingMobileCardViewModel } from "@/components/kai/holdings/holding-mobile-card";
@@ -71,9 +71,9 @@ export function HoldingDetailsDrawer({
           <DrawerTitle className="app-card-title text-left text-foreground">
             {holding?.symbol || "Holding Details"}
           </DrawerTitle>
-          <p className="app-body-text app-title-subtitle-gap text-left text-muted-foreground">
+          <DrawerDescription className="app-body-text app-title-subtitle-gap text-left text-muted-foreground">
             {holding?.name || "Select a holding"}
-          </p>
+          </DrawerDescription>
         </DrawerHeader>
 
         <div className="grid max-h-[60svh] gap-2 overflow-y-auto px-5 pb-3 sm:grid-cols-2">
