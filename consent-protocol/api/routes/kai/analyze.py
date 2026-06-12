@@ -112,7 +112,11 @@ async def analyze_ticker(
         raw_card = orchestrator.decision_generator.to_json(decision_card)
         raw_dict = json.loads(raw_card)
 
-        logger.info("[Kai] Generated analysis for %s (%s)", request.ticker, request.risk_profile)
+        logger.info(
+            "kai.analyze.success ticker=%s risk_profile=%s",
+            request.ticker,
+            request.risk_profile,
+        )
 
         return AnalyzeResponse(
             decision_id=decision_card.decision_id,
@@ -126,12 +130,10 @@ async def analyze_ticker(
         )
 
     except ValueError as e:
-        logger.error("[Kai] Analysis failed: %s", e)
-        raise HTTPException(
-            status_code=400, detail="Invalid analysis request. Check ticker and parameters."
-        )
+        logger.error("kai.analyze.invalid_request ticker=%s error=%s", request.ticker, e)
+        raise HTTPException(status_code=400, detail="Invalid analysis request.")
     except RealtimeDataUnavailable as e:
-        logger.error("[Kai] Realtime dependency unavailable: %s", e.detail)
+        logger.error("kai.analyze.realtime_unavailable ticker=%s source=%s", request.ticker, e.source)
         raise HTTPException(
             status_code=503,
             detail={
@@ -142,5 +144,5 @@ async def analyze_ticker(
             },
         )
     except Exception:
-        logger.exception("[Kai] Unexpected error during analysis")
+        logger.exception("kai.analyze.unexpected_error ticker=%s", request.ticker)
         raise HTTPException(status_code=500, detail="Analysis is temporarily unavailable.")
