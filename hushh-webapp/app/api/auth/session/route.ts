@@ -35,7 +35,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create session cookie using Firebase Admin SDK
     const { success, sessionCookie } = await createSessionCookie(
       idToken,
       SESSION_DURATION
@@ -48,13 +47,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Set the httpOnly cookie
     const cookieStore = await cookies();
     cookieStore.set(SESSION_COOKIE_NAME, sessionCookie, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: SESSION_DURATION / 1000, // Convert to seconds
+      maxAge: SESSION_DURATION / 1000,
       path: "/",
     });
 
@@ -63,7 +61,12 @@ export async function POST(request: NextRequest) {
       message: "Session created successfully",
     });
   } catch (error) {
-    console.error("[Session API] Error creating session:", error);
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[Session API] Error creating session:", error);
+    } else {
+      console.error("[Session API] Error creating session");
+    }
+
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
@@ -85,7 +88,12 @@ export async function DELETE() {
       message: "Session destroyed",
     });
   } catch (error) {
-    console.error("[Session API] Error destroying session:", error);
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[Session API] Error destroying session:", error);
+    } else {
+      console.error("[Session API] Error destroying session");
+    }
+
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
@@ -109,7 +117,6 @@ export async function GET() {
     const { valid, uid } = await verifySessionCookie(sessionCookie.value);
 
     if (!valid) {
-      // Clear invalid cookie
       cookieStore.delete(SESSION_COOKIE_NAME);
       return NextResponse.json({ authenticated: false }, { status: 401 });
     }
@@ -119,7 +126,12 @@ export async function GET() {
       uid,
     });
   } catch (error) {
-    console.error("[Session API] Error verifying session:", error);
+    if (process.env.NODE_ENV !== "production") {
+      console.error("[Session API] Error verifying session:", error);
+    } else {
+      console.error("[Session API] Error verifying session");
+    }
+
     return NextResponse.json(
       { authenticated: false, error: "Verification failed" },
       { status: 500 }
