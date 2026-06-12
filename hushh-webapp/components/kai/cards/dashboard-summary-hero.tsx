@@ -118,7 +118,7 @@ export function DashboardSummaryHero({
             <div className="flex items-center justify-center gap-2 text-sm">
               <span className={cn("inline-flex items-center font-medium", isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-500 dark:text-rose-400")}>
                 <Icon icon={isPositive ? ArrowUpRight : ArrowDownRight} size="sm" className="mr-1" />
-                {formatChange(netChange)} ({changePct >= 0 ? "+" : ""}{changePct?.toFixed(2) ?? "0.00"}%)
+                {formatChange(netChange)} ({(changePct ?? 0) >= 0 ? "+" : ""}{changePct?.toFixed(2) ?? "0.00"}%)
               </span>
               <span className="text-muted-foreground">•</span>
               <span className="font-medium text-muted-foreground">{periodLabel}</span>
