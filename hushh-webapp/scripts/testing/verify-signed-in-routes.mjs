@@ -41,6 +41,7 @@ const appOrigin = (
   process.env.NEXT_PUBLIC_APP_URL ||
   "http://localhost:3000"
 ).replace(/\/$/, "");
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const routeFilter = String(process.env.HUSHH_ROUTE_FILTER || "").trim().toLowerCase();
 const viewportFilter = String(process.env.HUSHH_VIEWPORT_FILTER || "").trim().toLowerCase();
 const reviewerIdentity = resolveReviewerTestIdentity({
@@ -285,9 +286,10 @@ function startDevServerIfNeeded() {
         return null;
       }
 
-      child = spawn("npm", ["run", "dev"], {
+      child = spawn(npmCommand, ["run", "dev"], {
         cwd: webDir,
         env: { ...process.env },
+        shell: process.platform === "win32",
         stdio: "pipe",
       });
 

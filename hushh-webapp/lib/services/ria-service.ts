@@ -44,6 +44,8 @@ export interface MarketplaceRia {
   disclosures_url?: string | null;
   verification_status: string;
   is_test_profile?: boolean;
+  visibility_posture?: string | null;
+  exposure_enabled?: boolean | null;
   firms?: Array<{
     firm_id: string;
     legal_name: string;
@@ -82,6 +84,8 @@ export interface MarketplaceInvestor {
     metadata?: Record<string, unknown>;
   } | null;
   is_test_profile?: boolean;
+  visibility_posture?: string | null;
+  exposure_enabled?: boolean | null;
 }
 
 export type MarketplaceInvestorActionName =

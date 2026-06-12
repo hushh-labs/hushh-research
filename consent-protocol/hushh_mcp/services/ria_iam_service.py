@@ -1453,7 +1453,10 @@ class RIAIAMService:
                 """,
                 user_id,
             )
-        except asyncpg.exceptions.UndefinedTableError as exc:
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
             await conn.close()
@@ -1772,6 +1775,8 @@ class RIAIAMService:
                       headline,
                       strategy_summary,
                       verification_badge,
+                      exposure_enabled,
+                      visibility_posture,
                       is_discoverable,
                       updated_at
                     )
@@ -1783,6 +1788,8 @@ class RIAIAMService:
                       NULL,
                       'verified',
                       TRUE,
+                      'default_available',
+                      TRUE,
                       NOW()
                     )
                     ON CONFLICT (user_id) DO UPDATE
@@ -1790,6 +1797,9 @@ class RIAIAMService:
                       profile_type = 'ria',
                       display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), marketplace_public_profiles.display_name),
                       verification_badge = 'verified',
+                      exposure_enabled = TRUE,
+                      visibility_posture = 'default_available',
+                      is_discoverable = TRUE,
                       updated_at = NOW()
                     """,
                     user_id,
@@ -1851,7 +1861,10 @@ class RIAIAMService:
                         default=str,
                     ),
                 )
-        except asyncpg.exceptions.UndefinedTableError as exc:
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
             await conn.close()
@@ -2427,7 +2440,10 @@ class RIAIAMService:
                 await self._ensure_iam_schema_ready(conn)
                 row = await self._ensure_actor_profile_row(conn, user_id)
                 return dict(row)
-        except asyncpg.exceptions.UndefinedTableError as exc:
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
             self._invalidate_cached_persona_state(user_id)
@@ -2594,13 +2610,25 @@ class RIAIAMService:
                         user_id,
                         profile_type,
                         display_name,
+                        exposure_enabled,
+                        visibility_posture,
                         is_discoverable,
                         updated_at
                     )
-                    VALUES ($1, 'investor', $3, $2, NOW())
+                    VALUES (
+                      $1,
+                      'investor',
+                      $3,
+                      $2,
+                      CASE WHEN $2 THEN 'default_available' ELSE 'private' END,
+                      $2,
+                      NOW()
+                    )
                     ON CONFLICT (user_id) DO UPDATE
                     SET
                       profile_type = 'investor',
+                      exposure_enabled = $2,
+                      visibility_posture = CASE WHEN $2 THEN 'default_available' ELSE 'private' END,
                       is_discoverable = $2,
                       updated_at = NOW()
                     """,
@@ -4527,7 +4555,10 @@ class RIAIAMService:
                 user_id,
             )
             return [dict(row) for row in rows]
-        except asyncpg.exceptions.UndefinedTableError as exc:
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
             await conn.close()
@@ -7126,6 +7157,8 @@ class RIAIAMService:
                       strategy_summary,
                       verification_badge,
                       metadata,
+                      exposure_enabled,
+                      visibility_posture,
                       is_discoverable
                     )
                     VALUES (
@@ -7136,6 +7169,11 @@ class RIAIAMService:
                       NULLIF($4, ''),
                       $5,
                       '{}'::jsonb,
+                      $6,
+                      CASE
+                        WHEN $6 THEN 'default_available'
+                        ELSE 'private'
+                      END,
                       $6
                     )
                     ON CONFLICT (user_id) DO UPDATE
@@ -7147,6 +7185,8 @@ class RIAIAMService:
                         marketplace_public_profiles.strategy_summary
                       ),
                       verification_badge = EXCLUDED.verification_badge,
+                      exposure_enabled = EXCLUDED.exposure_enabled,
+                      visibility_posture = EXCLUDED.visibility_posture,
                       is_discoverable = EXCLUDED.is_discoverable,
                       updated_at = NOW()
                     """,
@@ -8201,6 +8241,8 @@ class RIAIAMService:
                   mp.display_name,
                   mp.headline,
                   mp.strategy_summary,
+                  mp.exposure_enabled,
+                  mp.visibility_posture,
                   rp.verification_status,
                   CASE
                     WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
@@ -8223,6 +8265,8 @@ class RIAIAMService:
                   ON mp.user_id = rp.user_id
                   AND mp.profile_type = 'ria'
                   AND mp.is_discoverable = TRUE
+                  AND mp.exposure_enabled = TRUE
+                  AND mp.visibility_posture <> 'private'
                 LEFT JOIN ria_firm_memberships m
                   ON m.ria_profile_id = rp.id
                   AND m.membership_status = 'active'
@@ -8255,6 +8299,8 @@ class RIAIAMService:
                   mp.display_name,
                   mp.headline,
                   mp.strategy_summary,
+                  mp.exposure_enabled,
+                  mp.visibility_posture,
                   mp.metadata,
                   rp.verification_status
                 ORDER BY
@@ -8285,6 +8331,8 @@ class RIAIAMService:
                   mp.display_name,
                   mp.headline,
                   mp.strategy_summary,
+                  mp.exposure_enabled,
+                  mp.visibility_posture,
                   rp.verification_status,
                   CASE
                     WHEN jsonb_typeof(mp.metadata -> 'is_test_profile') = 'boolean'
@@ -8310,6 +8358,8 @@ class RIAIAMService:
                   ON mp.user_id = rp.user_id
                   AND mp.profile_type = 'ria'
                   AND mp.is_discoverable = TRUE
+                  AND mp.exposure_enabled = TRUE
+                  AND mp.visibility_posture <> 'private'
                 LEFT JOIN ria_firm_memberships m
                   ON m.ria_profile_id = rp.id
                   AND m.membership_status = 'active'
@@ -8323,12 +8373,15 @@ class RIAIAMService:
                       ELSE FALSE
                     END
                   ) = FALSE
-                GROUP BY rp.id, rp.user_id, mp.display_name, mp.headline, mp.strategy_summary, rp.verification_status, rp.bio, rp.strategy, rp.disclosures_url, is_test_profile
+                GROUP BY rp.id, rp.user_id, mp.display_name, mp.headline, mp.strategy_summary, mp.exposure_enabled, mp.visibility_posture, rp.verification_status, rp.bio, rp.strategy, rp.disclosures_url, is_test_profile
                 """,
                 ria_id,
             )
             return dict(row) if row else None
-        except asyncpg.exceptions.UndefinedTableError as exc:
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
             raise IAMSchemaNotReadyError() from exc
         finally:
             await conn.close()
@@ -8442,6 +8495,8 @@ class RIAIAMService:
               mp.headline,
               mp.location_hint,
               mp.strategy_summary,
+              mp.exposure_enabled,
+              mp.visibility_posture,
               mp.metadata,
               COALESCE(
                 mp.metadata ->> 'admission_status',
@@ -8466,6 +8521,8 @@ class RIAIAMService:
               ON mp.user_id = ap.user_id
               AND mp.profile_type = 'investor'
               AND mp.is_discoverable = TRUE
+              AND mp.exposure_enabled = TRUE
+              AND mp.visibility_posture <> 'private'
             WHERE
               ap.investor_marketplace_opt_in = TRUE
               AND NOT (('hushh_user:' || ap.user_id) = ANY($5::text[]))
@@ -8563,6 +8620,8 @@ class RIAIAMService:
                   mp.headline,
                   mp.location_hint,
                   mp.strategy_summary,
+                  mp.exposure_enabled,
+                  mp.visibility_posture,
                   rp.id AS ria_id,
                   rp.verification_status,
                   COALESCE(ap.investor_marketplace_opt_in, FALSE) AS investor_marketplace_opt_in
@@ -8570,6 +8629,8 @@ class RIAIAMService:
                 JOIN marketplace_public_profiles mp
                   ON mp.user_id = aic.user_id
                   AND mp.is_discoverable = TRUE
+                  AND mp.exposure_enabled = TRUE
+                  AND mp.visibility_posture <> 'private'
                 LEFT JOIN actor_profiles ap
                   ON ap.user_id = aic.user_id
                 LEFT JOIN ria_profiles rp
@@ -8621,6 +8682,8 @@ class RIAIAMService:
                     "headline": row["headline"],
                     "location_hint": row["location_hint"],
                     "strategy_summary": row["strategy_summary"],
+                    "exposure_enabled": bool(row["exposure_enabled"]),
+                    "visibility_posture": row["visibility_posture"],
                 }
                 if kind == "ria":
                     profile["verification_status"] = row["verification_status"]
@@ -8891,6 +8954,8 @@ class RIAIAMService:
               ON mp.user_id = ap.user_id
               AND mp.profile_type = 'investor'
               AND mp.is_discoverable = TRUE
+              AND mp.exposure_enabled = TRUE
+              AND mp.visibility_posture <> 'private'
             WHERE
               ap.investor_marketplace_opt_in = TRUE
               AND NOT (('hushh_user:' || ap.user_id) = ANY($4::text[]))
@@ -9031,6 +9096,8 @@ class RIAIAMService:
               mp.headline,
               mp.location_hint,
               mp.strategy_summary,
+              mp.exposure_enabled,
+              mp.visibility_posture,
               mp.metadata,
               COALESCE(
                 mp.metadata ->> 'admission_status',
@@ -9055,6 +9122,8 @@ class RIAIAMService:
               ON mp.user_id = ap.user_id
               AND mp.profile_type = 'investor'
               AND mp.is_discoverable = TRUE
+              AND mp.exposure_enabled = TRUE
+              AND mp.visibility_posture <> 'private'
             WHERE ap.user_id = $1
               AND ap.investor_marketplace_opt_in = TRUE
               AND LOWER(COALESCE(
@@ -9215,6 +9284,11 @@ class RIAIAMService:
                 "metadata": metadata,
             },
             "is_test_profile": bool(payload.get("is_test_profile")),
+            "exposure_enabled": payload.get("exposure_enabled") is not False,
+            "visibility_posture": str(
+                payload.get("visibility_posture") or "default_available"
+            ).strip()
+            or "default_available",
         }
 
     @classmethod
@@ -9251,6 +9325,8 @@ class RIAIAMService:
             "actions": ["shortlist", "view_more"],
             "evidence": cls._public_investor_evidence(payload),
             "is_test_profile": False,
+            "exposure_enabled": True,
+            "visibility_posture": "public",
         }
 
     @classmethod

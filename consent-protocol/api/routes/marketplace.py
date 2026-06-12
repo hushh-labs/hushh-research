@@ -164,7 +164,7 @@ async def match_marketplace_contacts(
     try:
         items = await service.match_marketplace_contacts(
             firebase_uid,
-            phone_lookups=[item.dict() for item in payload.phone_lookups],
+            phone_lookups=[item.model_dump() for item in payload.phone_lookups],
             limit=payload.limit,
         )
         return {"items": items}
