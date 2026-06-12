@@ -8,10 +8,12 @@
  * - click_button: { name: string, regex?: boolean }  // case-insensitive exact match unless regex=true
  * - click_voice_control: { controlId: string }
  * - click_testid: { testId: string }
+ * - navigate_route: { route: string }
  * - clear_import_background: {}
  * - upload_test_asset: { assetPath: string, fileName: string, mimeType: string }
  * - wait_button: { name: string, regex?: boolean, timeoutMs?: number }
  * - assert_text: { value: string, regex?: boolean }
+ * - assert_no_text: { value: string, regex?: boolean, timeoutMs?: number }
  * - assert_no_persona_mismatch_prompt: { timeoutMs?: number }
  * - wait_beacon: { routeIds: string[], dataStates?: string[] }
  * - assert_url_includes: { value: string }
@@ -38,6 +40,37 @@ export const UI_FLOWS = [
       { type: "click_bottom_nav", label: "Analysis" },
       { type: "wait_beacon", routeIds: ["/kai/analysis"] },
       { type: "assert_visible_testid", testId: "kai-analysis-primary" },
+    ],
+  },
+  {
+    id: "native-investor-kai-debate-preview-start",
+    route: "/kai/analysis?ticker=AAPL&pick_source=default",
+    description: "Investor analysis preview: select list source and start debate without active-run loop",
+    stepTimeoutMs: 60000,
+    steps: [
+      { type: "ensure_persona", persona: "investor" },
+      {
+        type: "navigate_route",
+        route: "/kai/analysis?ticker=AAPL&pick_source=default",
+      },
+      {
+        type: "wait_beacon",
+        routeIds: ["/kai/analysis"],
+        dataStates: ["loaded"],
+        timeoutMs: 60000,
+      },
+      { type: "wait_button", name: "Start debate", timeoutMs: 60000 },
+      { type: "click_button", name: "Start debate" },
+      {
+        type: "assert_no_text",
+        value: "A debate is already running.",
+        timeoutMs: 5000,
+      },
+      {
+        type: "assert_text",
+        value: "Initial Deep Analysis",
+        timeoutMs: 60000,
+      },
     ],
   },
   {

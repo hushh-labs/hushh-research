@@ -118,6 +118,15 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
     revoke_b = client.delete(f"/api/one/location/grants/{grant_b['id']}")
     assert revoke_b.status_code == 200
 
+    activity_response = client.get("/api/one/location/activity?range=30d")
+    assert activity_response.status_code == 200
+    activity_payload = activity_response.json()
+    assert activity_payload["summary"]["sharedWithCount"] >= 1
+    assert activity_payload["summary"]["viewsCount"] >= 1
+    assert any(event["title"] == "Shared with User B" for event in activity_payload["events"])
+    assert "0002" not in json.dumps(activity_payload, default=str)
+    assert "ciphertext" not in json.dumps(activity_payload, default=str)
+
     current_user["user_id"] = user_b
     view_b_after_revoke = client.get(f"/api/one/location/grants/{grant_b['id']}/envelope")
     assert view_b_after_revoke.status_code == 410
@@ -133,6 +142,7 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
                 store_d.json(),
                 view_d_after.json(),
                 revoke_b.json(),
+                activity_payload,
             ],
             "notifications": service.notifications,
         },

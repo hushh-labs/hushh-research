@@ -263,7 +263,7 @@ export function SettingsRow({
       "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0"
   );
   const primaryActionClassName = cn(
-    "relative isolate min-w-0 overflow-hidden rounded-[inherit] border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 transition-[border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0"
+    "relative isolate min-w-0 overflow-hidden rounded-[inherit] border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 transition-[border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
   );
   const voiceProps = {
     "data-voice-control-id": voiceControlId || undefined,
@@ -303,7 +303,7 @@ export function SettingsRow({
             />
           </button>
           {trailingContent ? (
-            <div onClick={(e) => e.stopPropagation()}>
+            <div role="presentation" onClick={(e) => e.stopPropagation()}>
               {trailingContent}
             </div>
           ) : null}
@@ -390,7 +390,7 @@ export function SettingsDetailPanel({
   const isMobile = useIsMobile();
   if (isMobile) {
     return (
-      <Drawer open={open} onOpenChange={onOpenChange}>
+      <Drawer open={open} onOpenChange={onOpenChange} modal>
         <DrawerContent
           className="h-[100dvh] max-h-[100dvh] rounded-none border-none bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)]"
           onOpenAutoFocus={(e) => {
@@ -428,16 +428,20 @@ export function SettingsDetailPanel({
           "w-[calc(100%-1.5rem)] overflow-hidden p-0",
           desktopMaxWidthClassName || "sm:!max-w-[720px]"
         )}
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          (e.currentTarget as HTMLElement).focus();
+        }}
       >
         <DialogHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-6 py-4 text-left">
           <DialogTitle className="text-base font-semibold tracking-tight">
             {title}
           </DialogTitle>
-          {description ? (
-            <DialogDescription className="text-sm leading-6">
-              {description}
-            </DialogDescription>
-          ) : null}
+          <DialogDescription
+            className={cn("text-sm leading-6", !description && "sr-only")}
+          >
+            {description ?? "Settings"}
+          </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-y-auto bg-[color:var(--app-card-surface-default-solid)] px-4 pb-8 pt-4 sm:px-5 sm:pt-5">
           {children}

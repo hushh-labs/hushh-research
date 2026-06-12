@@ -251,6 +251,11 @@ export function DataTable<TData, TValue>({
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
               <Input
+                type="search"
+                spellCheck={false}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
                 placeholder={searchPlaceholder}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -361,6 +366,18 @@ export function DataTable<TData, TValue>({
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
                   aria-selected={row.getIsSelected() || undefined}
+                  tabIndex={onRowClick ? 0 : undefined}
+                  role={onRowClick ? "button" : undefined}
+                  onKeyDown={
+                    onRowClick
+                      ? (e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onRowClick(row.original);
+                          }
+                        }
+                      : undefined
+                  }
                   className={cn(
                     onRowClick
                       ? "cursor-pointer transition-[background-color,transform] duration-200 ease-out hover:-translate-y-px hover:bg-foreground/[0.045] active:translate-y-0 active:bg-foreground/[0.065]"
@@ -419,6 +436,7 @@ export function DataTable<TData, TValue>({
                     size="sm"
                     className="h-8 min-w-[64px] justify-between px-2 text-xs sm:min-w-[80px] sm:px-3 sm:text-sm"
                     data-no-route-swipe
+                    aria-label="Rows per page"
                   >
                     {table.getState().pagination.pageSize}
                   </Button>

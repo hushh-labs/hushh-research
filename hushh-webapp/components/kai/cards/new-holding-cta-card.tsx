@@ -24,11 +24,11 @@ export function NewHoldingCtaCard({ onAddHolding, onImportStatement }: NewHoldin
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Button variant="blue-gradient" effect="fill" size="default" onClick={onAddHolding}>
-            <Icon icon={Plus} size="sm" className="mr-2" />
+            <Icon icon={Plus} size="sm" className="mr-2" aria-hidden="true" />
             Add Holding
           </Button>
           <Button variant="none" effect="fade" size="default" onClick={onImportStatement}>
-            <Icon icon={Upload} size="sm" className="mr-2" />
+            <Icon icon={Upload} size="sm" className="mr-2" aria-hidden="true" />
             Import Statement
           </Button>
         </div>

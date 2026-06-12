@@ -144,4 +144,36 @@ describe("DebateRunManagerService start gate", () => {
     expect(result.task.pickSource).toBe("search");
     expect(apiMocks.startKaiDebateRun).not.toHaveBeenCalled();
   });
+
+  it("coalesces identical in-flight starts for the same debate session", async () => {
+    const manager = await loadManager([]);
+    let resolveStart!: (value: ReturnType<typeof response>) => void;
+    apiMocks.startKaiDebateRun.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveStart = resolve;
+      }),
+    );
+
+    const first = manager.ensureRun({
+      ...ensureParams,
+      pickSource: "default",
+      pickSourceLabel: "Default list",
+    });
+    const second = manager.ensureRun({
+      ...ensureParams,
+      pickSource: "default",
+      pickSourceLabel: "Default list",
+    });
+
+    await Promise.resolve();
+    expect(apiMocks.startKaiDebateRun).toHaveBeenCalledTimes(1);
+
+    resolveStart(response(200, { run: runPayload("fresh-run") }));
+    const results = await Promise.all([first, second]);
+
+    expect(results.map((result) => result.kind)).toEqual(["started", "started"]);
+    expect(results[0]?.task.runId).toBe("fresh-run");
+    expect(results[1]?.task.runId).toBe("fresh-run");
+    expect(apiMocks.streamKaiDebateRun).toHaveBeenCalledTimes(1);
+  });
 });

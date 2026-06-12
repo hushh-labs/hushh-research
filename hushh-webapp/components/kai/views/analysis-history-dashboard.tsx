@@ -125,7 +125,7 @@ function decisionStyles(decision: string, ownsPosition?: boolean | null): {
       bg: "bg-emerald-500/10",
       text: "text-emerald-600 dark:text-emerald-400",
       border: "border-emerald-500/30",
-      icon: <Icon icon={TrendingUp} size={12} />,
+      icon: <Icon icon={TrendingUp} size={12} aria-hidden="true" />,
       label: presentation.label,
     };
   }
@@ -134,7 +134,7 @@ function decisionStyles(decision: string, ownsPosition?: boolean | null): {
       bg: "bg-red-500/10",
       text: "text-red-600 dark:text-red-400",
       border: "border-red-500/30",
-      icon: <Icon icon={TrendingDown} size={12} />,
+      icon: <Icon icon={TrendingDown} size={12} aria-hidden="true" />,
       label: presentation.label,
     };
   }
@@ -151,7 +151,7 @@ function decisionStyles(decision: string, ownsPosition?: boolean | null): {
       presentation.label === "WATCH"
         ? "border-[color:var(--app-card-border-standard)]"
         : "border-amber-500/30",
-    icon: <Icon icon={Minus} size={12} />,
+    icon: <Icon icon={Minus} size={12} aria-hidden="true" />,
     label: presentation.label,
   };
 }
@@ -551,7 +551,7 @@ function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center py-12 px-4 space-y-6">
       <div className="p-4 rounded-full bg-primary/5 border border-primary/10">
-        <Icon icon={BarChart3} size={32} className="text-primary/60" />
+        <Icon icon={BarChart3} size={32} className="text-primary/60" aria-hidden="true" />
       </div>
       <div className="text-center space-y-2 max-w-sm">
         <h3 className="text-lg font-semibold">No analyses yet</h3>
@@ -593,7 +593,7 @@ function DebateInputsCard({
       <SurfaceCardHeader>
         <div className="flex items-center justify-between gap-2">
           <SurfaceCardTitle className="flex items-center gap-2 text-sm">
-            <Icon icon={MessageSquareText} size="sm" className="text-primary" />
+            <Icon icon={MessageSquareText} size="sm" className="text-primary" aria-hidden="true" />
             Debate Inputs
           </SurfaceCardTitle>
           <Badge variant="secondary" className="text-[11px] font-semibold">
@@ -1142,7 +1142,7 @@ export function AnalysisHistoryDashboard({
                       title="Delete this version"
                       aria-label="Delete this version"
                     >
-                      <Icon icon={Trash2} size="sm" />
+                      <Icon icon={Trash2} size="sm" aria-hidden="true" />
                     </Button>
                   </div>
                 );

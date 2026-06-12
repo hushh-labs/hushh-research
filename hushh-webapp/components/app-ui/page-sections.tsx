@@ -232,7 +232,7 @@ export function PageHeader({
           {description}
         </div>
       ) : null}
-      <div className={cn("h-px w-full", styles.divider)} />
+      <div className={cn("h-px w-full", styles.divider)} aria-hidden="true" />
     </header>
   );
 }
@@ -311,7 +311,7 @@ export function SectionHeader({
           </div>
         </div>
       </div>
-      <div className={cn("h-px w-full", styles.divider)} />
+      <div className={cn("h-px w-full", styles.divider)} aria-hidden="true" />
     </div>
   );
 }

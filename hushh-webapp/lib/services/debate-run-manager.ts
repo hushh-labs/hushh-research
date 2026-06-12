@@ -69,6 +69,23 @@ export type EnsureRunResult =
   | { kind: "attached"; task: DebateRunTask }
   | { kind: "blocked"; task: DebateRunTask };
 
+export interface EnsureDebateRunParams {
+  userId: string;
+  ticker: string;
+  riskProfile: string;
+  userContext?: Record<string, unknown> | null;
+  pickSource?: string;
+  pickSourceLabel?: string;
+  pickSourceKind?: string;
+  vaultOwnerToken: string;
+  vaultKey?: string;
+}
+
+type InFlightEnsureRun = {
+  signature: string;
+  promise: Promise<EnsureRunResult>;
+};
+
 const AGENTS = ["fundamental", "sentiment", "valuation"] as const;
 
 type TranscriptAgentState = {
@@ -254,6 +271,7 @@ class DebateRunManager {
   private runSecrets = new Map<string, RunSecrets>();
   private runHistoryEntries = new Map<string, AnalysisHistoryEntry>();
   private streamControllers = new Map<string, AbortController>();
+  private ensureRunInFlight = new Map<string, InFlightEnsureRun>();
   private debateSessionId: string;
 
   constructor() {
@@ -621,17 +639,47 @@ class DebateRunManager {
     return this.verifyActiveRunWithBackend(params);
   }
 
-  async ensureRun(params: {
-    userId: string;
-    ticker: string;
-    riskProfile: string;
-    userContext?: Record<string, unknown> | null;
-    pickSource?: string;
-    pickSourceLabel?: string;
-    pickSourceKind?: string;
-    vaultOwnerToken: string;
-    vaultKey?: string;
-  }): Promise<EnsureRunResult> {
+  private ensureRunStartKey(userId: string): string {
+    return `${userId}:${this.debateSessionId}`;
+  }
+
+  private ensureRunSignature(params: EnsureDebateRunParams): string {
+    return [
+      toUpperTicker(params.ticker),
+      params.riskProfile,
+      params.pickSource || "",
+      params.pickSourceLabel || "",
+      params.pickSourceKind || "",
+    ].join("|");
+  }
+
+  async ensureRun(params: EnsureDebateRunParams): Promise<EnsureRunResult> {
+    const startKey = this.ensureRunStartKey(params.userId);
+    const signature = this.ensureRunSignature(params);
+    const inFlight = this.ensureRunInFlight.get(startKey);
+    if (inFlight) {
+      if (inFlight.signature === signature) {
+        return inFlight.promise;
+      }
+      const result = await inFlight.promise;
+      if (result.task.status === "running" && !result.task.dismissedAt) {
+        return { kind: "blocked", task: result.task };
+      }
+    }
+
+    const promise = this.ensureRunUntracked(params);
+    this.ensureRunInFlight.set(startKey, { signature, promise });
+    try {
+      return await promise;
+    } finally {
+      const current = this.ensureRunInFlight.get(startKey);
+      if (current?.promise === promise) {
+        this.ensureRunInFlight.delete(startKey);
+      }
+    }
+  }
+
+  private async ensureRunUntracked(params: EnsureDebateRunParams): Promise<EnsureRunResult> {
     const {
       userId,
       ticker,
@@ -651,7 +699,7 @@ class DebateRunManager {
         vaultKey,
       });
       if (!verifiedActiveTask) {
-        return this.ensureRun(params);
+        return this.ensureRunUntracked(params);
       }
       const refreshedActiveTask = this.upsertTask({
         ...verifiedActiveTask,

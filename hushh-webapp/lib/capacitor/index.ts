@@ -174,6 +174,27 @@ export interface HushhConsentPlugin {
     scope: string;
   }>;
 
+  /**
+   * Publish the current unlocked VAULT_OWNER session to the shared iMessage
+   * Keychain group. Native only; no-op fallback on web.
+   */
+  publishIMessageSession(options: {
+    userId: string;
+    vaultOwnerToken?: string;
+    accessToken?: string; // Legacy alias for vaultOwnerToken.
+    vaultKey?: string;
+    expiresAt: number;
+    firebaseIDToken?: string;
+    idToken?: string; // Legacy alias for firebaseIDToken.
+    displayName?: string | null;
+    email?: string | null;
+    avatarURL?: string | null;
+    photoUrl?: string | null; // Legacy alias for avatarURL.
+  }): Promise<{ published: boolean }>;
+
+  /** Clear the shared iMessage session when the vault locks or user signs out. */
+  clearIMessageSession(): Promise<{ cleared: boolean }>;
+
   getPending(options: {
     userId: string;
     vaultOwnerToken?: string;

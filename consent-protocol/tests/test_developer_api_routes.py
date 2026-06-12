@@ -111,6 +111,44 @@ def test_consent_status_rejects_oversized_query_params_before_auth(monkeypatch):
     assert response.status_code == 422
 
 
+def test_tool_catalog_rejects_oversized_query_token_before_auth(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    client = TestClient(_build_app())
+    response = client.get("/api/v1/tool-catalog", params={"token": "x" * 2049})
+
+    assert response.status_code == 422
+
+
+def test_request_consent_rejects_oversized_query_token_before_auth(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/v1/request-consent",
+        params={"token": "x" * 2049},
+        json={"scope": "attr.financial.*"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_scoped_export_rejects_oversized_query_token_before_auth(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/v1/scoped-export",
+        params={"token": "x" * 2049},
+        json={"scope": "attr.financial.*", "consent_token": "valid_token"},
+    )
+
+    assert response.status_code == 422
+
+
 class _EmptyScopeGenerator:
     async def get_available_scopes(self, user_id: str) -> list[str]:
         return []

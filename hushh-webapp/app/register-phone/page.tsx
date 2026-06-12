@@ -1,6 +1,6 @@
 "use client";
 
-import { type CSSProperties, Suspense, useCallback, useEffect } from "react";
+import { type CSSProperties, Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
@@ -87,12 +87,15 @@ function PhoneMandatePageContent() {
     [redirectPath, refreshUser, router, user]
   );
 
-  const shouldBypassLocalPhoneMandate =
-    !loading &&
-    Boolean(user) &&
-    !phoneNumber &&
-    typeof window !== "undefined" &&
-    shouldBypassPhoneMandateForLocalhost(window.location.hostname);
+  const [shouldBypassLocalPhoneMandate, setShouldBypassLocalPhoneMandate] = useState(false);
+
+  useEffect(() => {
+    if (!loading && Boolean(user) && !phoneNumber) {
+      if (typeof window !== "undefined" && shouldBypassPhoneMandateForLocalhost(window.location.hostname)) {
+        setShouldBypassLocalPhoneMandate(true);
+      }
+    }
+  }, [loading, user, phoneNumber]);
 
   useEffect(() => {
     if (!shouldBypassLocalPhoneMandate || !user) {

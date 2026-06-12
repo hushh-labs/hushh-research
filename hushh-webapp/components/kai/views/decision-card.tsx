@@ -788,22 +788,22 @@ function RenaissanceBadge({ tier, score }: { tier: "ACE" | "KING" | "QUEEN" | "J
   const badgeConfig = {
     ACE: {
       color: "bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200 dark:bg-fuchsia-950/30 dark:text-fuchsia-400 dark:border-fuchsia-800",
-      icon: <Icon icon={Crown} size="xs" className="fill-current" />,
+      icon: <Icon icon={Crown} size="xs" className="fill-current" aria-hidden="true" />,
       label: "Renaissance Ace",
     },
     KING: {
       color: "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800",
-      icon: <Icon icon={Trophy} size="xs" className="fill-current" />,
+      icon: <Icon icon={Trophy} size="xs" className="fill-current" aria-hidden="true" />,
       label: "Renaissance King",
     },
     QUEEN: {
       color: "bg-violet-100 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-800",
-      icon: <Icon icon={Star} size="xs" className="fill-current" />,
+      icon: <Icon icon={Star} size="xs" className="fill-current" aria-hidden="true" />,
       label: "Renaissance Queen",
     },
     JACK: {
       color: "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800",
-      icon: <Icon icon={Medal} size="xs" className="fill-current" />,
+      icon: <Icon icon={Medal} size="xs" className="fill-current" aria-hidden="true" />,
       label: "Renaissance Jack",
     },
   };

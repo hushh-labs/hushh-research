@@ -141,6 +141,7 @@ export default function RiaOnboardingPage() {
     inFlight: boolean;
     lastKey: string | null;
   }>({ inFlight: false, lastKey: null });
+  const submitInFlightRef = useRef(false);
 
   const advisoryVerificationStatus =
     status?.advisory_status || status?.verification_status || "draft";
@@ -576,11 +577,13 @@ export default function RiaOnboardingPage() {
 
   async function handleSubmit() {
     if (!user) return;
+    if (submitInFlightRef.current) return;
     if (advisoryAccessReady) {
       router.push(ROUTES.RIA_HOME);
       return;
     }
 
+    submitInFlightRef.current = true;
     setSaving(true);
     setError(null);
 
@@ -697,6 +700,7 @@ export default function RiaOnboardingPage() {
             : "Failed to submit onboarding.",
       });
     } finally {
+      submitInFlightRef.current = false;
       setSaving(false);
     }
   }

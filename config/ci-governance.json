@@ -3,7 +3,8 @@
     "train_branch": "integration/pr-train",
     "promotion_branch": "main",
     "main_allowed_head_branches": [
-      "integration/pr-train"
+      "integration/pr-train",
+      "maintainer/promote-damria-one-location-to-main"
     ]
   },
   "main": {
