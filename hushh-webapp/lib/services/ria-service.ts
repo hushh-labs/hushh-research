@@ -129,6 +129,7 @@ export interface MarketplaceContactMatch {
   display_name: string;
   headline?: string | null;
   phone_last4?: string | null;
+  matched_by?: "phone" | "email" | "phone_and_email" | null;
   profile: MarketplaceRia | MarketplaceInvestor;
 }
 
@@ -1339,6 +1340,7 @@ export class RiaService {
     idToken: string,
     payload: {
       phone_lookups: Array<{ hash: string; last4: string }>;
+      email_lookups?: Array<{ hash: string }>;
       limit?: number;
     },
   ): Promise<MarketplaceContactMatch[]> {

@@ -103,6 +103,9 @@ def test_verified_recipient_directory_filters_self_and_requires_phone_verified()
     assert service.list_verified_recipients(owner_user_id="owner") == []
     assert "a.phone_verified = TRUE" in service.sql
     assert "a.user_id <> :owner_user_id" in service.sql
+    assert "LEFT JOIN marketplace_public_profiles mp" in service.sql
+    assert "COALESCE(mp.exposure_enabled, TRUE) = TRUE" in service.sql
+    assert "COALESCE(mp.visibility_posture, 'default_available') <> 'private'" in service.sql
     assert "ORDER BY COALESCE" in service.sql
     assert service.params["owner_user_id"] == "owner"
 
@@ -246,6 +249,13 @@ class FourUserMemoryService(OneLocationAgentService):
             for user_id, identity in self.identities.items():
                 if user_id == owner or not identity["phone_verified"]:
                     continue
+                marketplace_profile = self.marketplace_profiles.get(user_id)
+                if marketplace_profile and (
+                    marketplace_profile.get("exposure_enabled") is False
+                    or str(marketplace_profile.get("visibility_posture") or "").lower()
+                    == "private"
+                ):
+                    continue
                 key = self._active_key(user_id)
                 rows.append(
                     {
@@ -360,6 +370,78 @@ class FourUserMemoryService(OneLocationAgentService):
                 )
                 if invite["owner_user_id"] == params["user_id"]
             ][:20]
+        if "FROM one_location_share_grants g" in sql and "g.owner_user_id = :user_id" in sql:
+            rows = []
+            for grant in sorted(
+                self.grants.values(),
+                key=lambda item: item["created_at"],
+                reverse=True,
+            ):
+                if grant["owner_user_id"] != params["user_id"]:
+                    continue
+                recipient = self.identities.get(grant["recipient_user_id"], {})
+                rows.append(
+                    {
+                        **grant,
+                        "recipient_display_name": recipient.get("display_name"),
+                        "recipient_phone_number": recipient.get("phone_number"),
+                    }
+                )
+            return rows[:50]
+        if "FROM one_location_share_grants g" in sql and "g.recipient_user_id = :user_id" in sql:
+            rows = []
+            for grant in sorted(
+                self.grants.values(),
+                key=lambda item: item["created_at"],
+                reverse=True,
+            ):
+                if grant["recipient_user_id"] != params["user_id"]:
+                    continue
+                owner = self.identities.get(grant["owner_user_id"], {})
+                rows.append(
+                    {
+                        **grant,
+                        "owner_display_name": owner.get("display_name"),
+                        "owner_phone_number": owner.get("phone_number"),
+                    }
+                )
+            return rows[:50]
+        if "FROM one_location_access_requests req" in sql:
+            rows = []
+            for request in sorted(
+                self.requests.values(),
+                key=lambda item: item["requested_at"],
+                reverse=True,
+            ):
+                if params["user_id"] not in {
+                    request["owner_user_id"],
+                    request["requester_user_id"],
+                }:
+                    continue
+                requester = self.identities.get(request["requester_user_id"], {})
+                rows.append(
+                    {
+                        **request,
+                        "requester_display_name": requester.get("display_name"),
+                        "requester_phone_number": requester.get("phone_number"),
+                    }
+                )
+            return rows[:50]
+        if "FROM one_location_referrals" in sql and "owner_user_id = :user_id" in sql:
+            return [
+                referral
+                for referral in sorted(
+                    self.referrals.values(),
+                    key=lambda item: item["created_at"],
+                    reverse=True,
+                )
+                if params["user_id"]
+                in {
+                    referral["owner_user_id"],
+                    referral["referring_user_id"],
+                    referral["referred_user_id"],
+                }
+            ][:50]
         if "FROM one_location_public_invite_submissions submission" in sql:
             rows = []
             for submission in sorted(
@@ -628,6 +710,14 @@ class FourUserMemoryService(OneLocationAgentService):
             }
             self.keys[(user_id, key_id)] = row
             return row
+        if "FROM one_location_recipient_keys" in sql and "user_id = :user_id" in sql:
+            user_id = params["user_id"]
+            rows = [
+                row
+                for (row_user_id, _), row in self.keys.items()
+                if row_user_id == user_id and row.get("status") == "active"
+            ]
+            return rows[-1] if rows else None
         if "JOIN one_location_recipient_keys k" in sql:
             return self._identity_key_row(
                 params["recipient_user_id"], params.get("recipient_key_id")
@@ -888,6 +978,38 @@ def encrypted_envelope(key_id: str, ciphertext: str = "ciphertext") -> dict:
     }
 
 
+def test_verified_recipients_exclude_private_marketplace_profiles() -> None:
+    service = FourUserMemoryService()
+    now = datetime.now(timezone.utc)
+
+    for user_id in ("user_b", "user_c"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+
+    service.marketplace_profiles["user_b"] = {
+        "user_id": "user_b",
+        "profile_type": "investor",
+        "headline": "Hidden investor",
+        "strategy_summary": "Private profile",
+        "verification_badge": "Verified investor",
+        "metadata": {},
+        "is_discoverable": False,
+        "exposure_enabled": False,
+        "visibility_posture": "private",
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    recipients = service.list_verified_recipients(owner_user_id="user_a")
+    recipient_ids = {recipient["userId"] for recipient in recipients}
+
+    assert "user_b" not in recipient_ids
+    assert "user_c" in recipient_ids
+
+
 def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> None:
     service = FourUserMemoryService()
     now = datetime.now(timezone.utc)
@@ -1070,6 +1192,24 @@ def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> No
     assert "Can you share your location?" not in encoded
     assert "attr.financial" not in encoded
     assert "private" not in encoded
+
+
+def test_one_location_state_includes_viewer_capabilities() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_a",
+        key_id="key-user-a",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "a", "y": "a"},
+    )
+
+    state = service.list_state(user_id="user_a")
+
+    assert state["viewerCapabilities"] == {
+        "hasLocationRecipientKey": True,
+        "canBootstrapRecipientKey": True,
+        "canShareLocation": True,
+        "canRequestLocation": True,
+    }
 
 
 def test_terminal_location_work_is_deleted_after_twelve_hour_retention() -> None:

@@ -58,8 +58,15 @@ import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import {
   decryptLocationEnvelope,
   encryptLocationForRecipient,
-  ensureLocationRecipientKey,
 } from "@/lib/one-location/encryption";
+import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
+import { buildKaiCircleCandidates } from "@/lib/one-location/kai-circle-connect-bridge";
+import { resolveKaiCircleCtas } from "@/lib/one-location/kai-circle-ctas";
+import {
+  buildKaiCircleSections,
+  KAI_CIRCLE_SECTION_EMPTY_COPY,
+  kaiCircleSectionKey,
+} from "@/lib/one-location/kai-circle-sections";
 import {
   buildOneLocationNotificationHref,
   isOneLocationGrantOpened,
@@ -73,13 +80,10 @@ import {
   recordOneLocationShareNotification,
 } from "@/lib/one-location/notifications";
 import { OneLocationService } from "@/lib/one-location/service";
-import {
-  syncOneLocationContactSignals,
-  type OneLocationContactSignalResult,
-} from "@/lib/one-location/contact-signals";
 import { OneLocationActivityDashboard } from "@/components/one-location/activity-dashboard";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
 import type {
+  KaiCircleCandidate,
   OneLocationAccessRequest,
   OneLocationActivityRange,
   OneLocationActivityResponse,
@@ -91,6 +95,8 @@ import type {
   OneLocationState,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
+import { useConnectDiscovery } from "@/lib/connect";
+import { usePersonaState } from "@/lib/persona/persona-context";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
@@ -125,20 +131,6 @@ type BusyState =
   | "publicRevoke"
   | null;
 
-type KaiCircleSectionKey =
-  | "needs_action"
-  | "trusted_circle"
-  | "professional_network"
-  | "location_ready"
-  | "needs_setup";
-
-type KaiCircleSection = {
-  key: KaiCircleSectionKey;
-  title: string;
-  description: string;
-  recipients: OneLocationRecipient[];
-};
-
 type OneLocationSelectionSurface =
   | "quick_circle"
   | "section_list"
@@ -169,7 +161,7 @@ type OneLocationContactSignalState = {
   matchedCount: number;
   totalContacts: number;
   inviteCandidateCount: number;
-  sourcePlatform?: OneLocationContactSignalResult["sourcePlatform"];
+  sourcePlatform?: "web" | "ios" | "android" | "native" | "unknown";
   error?: string | null;
   syncedAt?: string | null;
 };
@@ -206,7 +198,9 @@ function safePersonLabel(value?: string | null, fallback = "KAI member"): string
   return String(value || "").trim() || fallback;
 }
 
-function recipientLabel(recipient: OneLocationRecipient): string {
+function recipientLabel(
+  recipient: Pick<KaiCircleCandidate | OneLocationRecipient, "displayName">,
+): string {
   return safePersonLabel(recipient.displayName);
 }
 
@@ -244,14 +238,19 @@ function recommendationToneClassName(tier?: string | null): string {
 }
 
 function visibleRecommendationReasons(
-  recipient: OneLocationRecipient,
+  recipient: Pick<KaiCircleCandidate | OneLocationRecipient, "recommendationReasons">,
 ): OneLocationRecommendationReason[] {
   return (recipient.recommendationReasons ?? [])
     .filter((reason) => reason.code && reason.label)
     .slice(0, 2);
 }
 
-function recipientRecommendationLine(recipient: OneLocationRecipient): string {
+function recipientRecommendationLine(
+  recipient: Pick<
+    KaiCircleCandidate | OneLocationRecipient,
+    "recommendationSummary" | "recommendationReasons" | "canReceiveLocation"
+  >,
+): string {
   return (
     recipient.recommendationSummary ||
     visibleRecommendationReasons(recipient)[0]?.label ||
@@ -261,14 +260,19 @@ function recipientRecommendationLine(recipient: OneLocationRecipient): string {
   );
 }
 
-function recommendationCategoryLabel(recipient: OneLocationRecipient): string {
+function recommendationCategoryLabel(
+  recipient: Pick<
+    KaiCircleCandidate | OneLocationRecipient,
+    "recommendationCategoryLabel" | "recommendationTier"
+  >,
+): string {
   return (
     recipient.recommendationCategoryLabel ||
     recommendationTierLabel(recipient.recommendationTier)
   );
 }
 
-function recommendationSearchText(recipient: OneLocationRecipient): string {
+function recommendationSearchText(recipient: KaiCircleCandidate): string {
   return [
     recipientLabel(recipient),
     recipient.profileHeadline,
@@ -283,30 +287,10 @@ function recommendationSearchText(recipient: OneLocationRecipient): string {
     .toLowerCase();
 }
 
-function rankRecipientsForRecommendation(
-  recipients: OneLocationRecipient[],
-  contactMatchedUserIds: Set<string> = new Set(),
-): OneLocationRecipient[] {
-  if (contactMatchedUserIds.size > 0) {
-    return [...recipients].sort((a, b) => {
-      const aScore =
-        (a.recommendationScore ?? 0) +
-        (contactMatchedUserIds.has(a.userId) ? 8 : 0);
-      const bScore =
-        (b.recommendationScore ?? 0) +
-        (contactMatchedUserIds.has(b.userId) ? 8 : 0);
-      if (aScore !== bScore) return bScore - aScore;
-      const aRank = a.recommendationRank ?? Number.MAX_SAFE_INTEGER;
-      const bRank = b.recommendationRank ?? Number.MAX_SAFE_INTEGER;
-      if (aRank !== bRank) return aRank - bRank;
-      if (a.canReceiveLocation !== b.canReceiveLocation) {
-        return a.canReceiveLocation ? -1 : 1;
-      }
-      return recipientLabel(a).localeCompare(recipientLabel(b));
-    });
-  }
-
-  return [...recipients].sort((a, b) => {
+function rankKaiCircleCandidates(
+  candidates: KaiCircleCandidate[],
+): KaiCircleCandidate[] {
+  return [...candidates].sort((a, b) => {
     const aRank = a.recommendationRank ?? Number.MAX_SAFE_INTEGER;
     const bRank = b.recommendationRank ?? Number.MAX_SAFE_INTEGER;
     if (aRank !== bRank) return aRank - bRank;
@@ -320,44 +304,16 @@ function rankRecipientsForRecommendation(
   });
 }
 
-function enrichRecipientsWithContactSignal(
-  recipients: OneLocationRecipient[],
-  contactMatchedUserIds: Set<string>,
-): OneLocationRecipient[] {
-  if (contactMatchedUserIds.size === 0) return recipients;
-
-  return recipients.map((recipient) => {
-    if (!contactMatchedUserIds.has(recipient.userId)) return recipient;
-    const reasons = recipient.recommendationReasons ?? [];
-    const hasContactReason = reasons.some(
-      (reason) => reason.code === "mobile_contact_signal",
-    );
-    return {
-      ...recipient,
-      recommendationTier: recipient.recommendationTier || "contacts",
-      recommendationReasons: hasContactReason
-        ? reasons
-        : [
-            { code: "mobile_contact_signal", label: "In your contacts" },
-            ...reasons,
-          ],
-      recommendationSummary:
-        recipient.recommendationSummary ||
-        "Matched from your private mobile contact scan",
-    };
-  });
-}
-
 function recipientSelectionFromIds(
-  recipients: OneLocationRecipient[],
+  recipients: KaiCircleCandidate[],
   selectedIds: string[],
-): OneLocationRecipient[] {
+): KaiCircleCandidate[] {
   const recipientById = new Map(
-    recipients.map((recipient) => [recipient.userId, recipient]),
+    recipients.map((recipient) => [recipient.candidateId, recipient]),
   );
   return selectedIds
     .map((recipientId) => recipientById.get(recipientId))
-    .filter((recipient): recipient is OneLocationRecipient => Boolean(recipient));
+    .filter((recipient): recipient is KaiCircleCandidate => Boolean(recipient));
 }
 
 function addSelectedId(selectedIds: string[], recipientId: string): string[] {
@@ -375,13 +331,14 @@ function toggleSelectedId(
   return [...selectedIds, recipientId];
 }
 
-type ShareReadyRecipient = OneLocationRecipient & {
+type ShareReadyRecipient = KaiCircleCandidate & {
+  userId: string;
   keyId: string;
   publicKeyJwk: JsonWebKey;
 };
 
 function isShareReadyRecipient(
-  recipient: OneLocationRecipient,
+  recipient: KaiCircleCandidate,
 ): recipient is ShareReadyRecipient {
   return Boolean(
     recipient.canReceiveLocation &&
@@ -392,120 +349,6 @@ function isShareReadyRecipient(
 
 function peopleCountLabel(count: number): string {
   return count === 1 ? "1 person" : `${count} people`;
-}
-
-const KAI_CIRCLE_SECTION_META: Record<
-  KaiCircleSectionKey,
-  Pick<KaiCircleSection, "title" | "description">
-> = {
-  needs_action: {
-    title: "Needs your approval",
-    description: "Requests and people waiting on a decision.",
-  },
-  trusted_circle: {
-    title: "Trusted Circle",
-    description: "People with active sharing, history, or referrals.",
-  },
-  professional_network: {
-    title: "Professional Network",
-    description: "RIA, investor, advisor, and marketplace signals.",
-  },
-  location_ready: {
-    title: "Location-ready KAI members",
-    description: "Verified KAI members ready for encrypted sharing.",
-  },
-  needs_setup: {
-    title: "Needs setup",
-    description: "People who need to open One Location once.",
-  },
-};
-
-const KAI_CIRCLE_SECTION_EMPTY_COPY: Record<
-  KaiCircleSectionKey,
-  { title: string; description: string }
-> = {
-  needs_action: {
-    title: "No approvals waiting",
-    description: "New location requests and pending decisions will appear here.",
-  },
-  trusted_circle: {
-    title: "No trusted matches yet",
-    description:
-      "Active shares, repeat approvals, and referrals will lift people here.",
-  },
-  professional_network: {
-    title: "No professional signals yet",
-    description: "RIA, investor, advisor, and marketplace matches will appear here.",
-  },
-  location_ready: {
-    title: "No ready KAI members yet",
-    description: "Verified KAI members with location keys will appear here.",
-  },
-  needs_setup: {
-    title: "No setup blockers",
-    description: "Everyone in this section is ready enough for the current flow.",
-  },
-};
-
-const KAI_CIRCLE_SECTION_ORDER: KaiCircleSectionKey[] = [
-  "needs_action",
-  "trusted_circle",
-  "professional_network",
-  "location_ready",
-  "needs_setup",
-];
-
-function kaiCircleSectionKey(
-  recipient: OneLocationRecipient,
-): KaiCircleSectionKey {
-  switch (recipient.recommendationCategory) {
-    case "needs_action":
-    case "trusted_circle":
-    case "professional_network":
-    case "location_ready":
-    case "needs_setup":
-      return recipient.recommendationCategory;
-  }
-
-  if (!recipient.canReceiveLocation) return "needs_setup";
-  switch (recipient.recommendationTier) {
-    case "needs_action":
-      return "needs_action";
-    case "trusted_circle":
-      return "trusted_circle";
-    case "kai_network":
-      return "professional_network";
-    default:
-      if (
-        recipient.relationshipType ||
-        recipient.profileHeadline ||
-        recipient.verificationBadge
-      ) {
-        return "professional_network";
-      }
-      return "location_ready";
-  }
-}
-
-function buildKaiCircleSections(
-  recipients: OneLocationRecipient[],
-): KaiCircleSection[] {
-  const grouped = new Map<KaiCircleSectionKey, OneLocationRecipient[]>();
-  KAI_CIRCLE_SECTION_ORDER.forEach((key) => grouped.set(key, []));
-
-  recipients.forEach((recipient) => {
-    grouped.get(kaiCircleSectionKey(recipient))?.push(recipient);
-  });
-
-  return KAI_CIRCLE_SECTION_ORDER.map((key) => {
-    const meta = KAI_CIRCLE_SECTION_META[key];
-    return {
-      key,
-      title: meta.title,
-      description: meta.description,
-      recipients: grouped.get(key) ?? [],
-    };
-  });
 }
 
 function oneLocationDurationBucket(value: string): OneLocationDurationBucket {
@@ -570,7 +413,7 @@ function contactSignalSummary(state: OneLocationContactSignalState): string {
     case "empty":
       return state.totalContacts > 0
         ? "No KAI users matched from this scan."
-        : "No contact numbers were available to match.";
+        : "No contact phone numbers or emails were available to match.";
     case "unavailable":
       return "Open One on iOS or Android to scan contacts.";
     case "denied":
@@ -582,6 +425,18 @@ function contactSignalSummary(state: OneLocationContactSignalState): string {
     default:
       return "Contacts stay on-device; only hashed lookups are used for matching.";
   }
+}
+
+function matchedUserIdsFromContactMatches(
+  matches: Array<{ user_id?: string | null }> | undefined,
+): string[] {
+  return Array.from(
+    new Set(
+      (matches ?? [])
+        .map((match) => String(match.user_id || "").trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
 function grantCounterpartyLabel(grant: OneLocationGrant): string {
@@ -908,6 +763,10 @@ type ShareMode = "share" | "request";
 
 const onePanelClassName =
   "overflow-hidden rounded-[20px] border border-black/[0.05] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_30px_rgba(15,23,42,0.05)] dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_38px_rgba(0,0,0,0.28)]";
+const kaiCircleRecipientListClassName = cn(
+  onePanelClassName,
+  "max-h-[22rem] overflow-y-auto overflow-x-hidden overscroll-contain scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:max-h-[24rem]",
+);
 const oneInsetClassName =
   "rounded-[14px] border border-black/[0.04] bg-[#f7f7fa] text-[#1c1c1e] dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white";
 const oneSecondaryTextClassName = "text-[#8e8e93] dark:text-white/55";
@@ -929,7 +788,9 @@ function sectionLabel(title: string, count?: number) {
   );
 }
 
-function displayNameFromRecipient(recipient: OneLocationRecipient): string {
+function displayNameFromRecipient(
+  recipient: Pick<KaiCircleCandidate | OneLocationRecipient, "displayName">,
+): string {
   return recipientLabel(recipient);
 }
 
@@ -1128,6 +989,7 @@ export function OneLocationAgentPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const auth = useRequireAuth();
+  const { activePersona } = usePersonaState();
   const { isVaultUnlocked, vaultOwnerToken } = useVault();
   const [state, setState] = useState<OneLocationState | null>(null);
   const [permission, setPermission] =
@@ -1163,29 +1025,34 @@ export function OneLocationAgentPageContent() {
     Record<string, PlainLocationPoint>
   >({});
   const [openedGrantTick, setOpenedGrantTick] = useState(0);
+  const sharedWithSectionRef = useRef<HTMLElement | null>(null);
+  const openedNotificationGrantRef = useRef<string | null>(null);
   const refreshInFlightRef = useRef<Promise<void> | null>(null);
   const livePublishInFlightRef = useRef(false);
   const liveViewInFlightRef = useRef(false);
+  const connectDiscovery = useConnectDiscovery(auth.user, {
+    query: recipientSearch,
+    activePersona,
+    view: "all",
+    includeContacts: true,
+    limit: 64,
+  });
 
   const recipients = useMemo(
     () => state?.recipients ?? [],
     [state?.recipients],
   );
-  const contactMatchedUserIds = useMemo(
-    () => new Set(contactSignal.matchedUserIds),
-    [contactSignal.matchedUserIds],
-  );
-  const contactSignalRecipients = useMemo(
-    () => enrichRecipientsWithContactSignal(recipients, contactMatchedUserIds),
-    [contactMatchedUserIds, recipients],
+  const kaiCircleCandidates = useMemo(
+    () =>
+      buildKaiCircleCandidates({
+        connectCandidates: connectDiscovery.candidates,
+        state,
+      }),
+    [connectDiscovery.candidates, state],
   );
   const rankedRecipients = useMemo(
-    () =>
-      rankRecipientsForRecommendation(
-        contactSignalRecipients,
-        contactMatchedUserIds,
-      ),
-    [contactMatchedUserIds, contactSignalRecipients],
+    () => rankKaiCircleCandidates(kaiCircleCandidates),
+    [kaiCircleCandidates],
   );
   const visibleRecipients = useMemo(() => {
     const query = recipientSearch.trim().toLowerCase();
@@ -1199,8 +1066,8 @@ export function OneLocationAgentPageContent() {
     [visibleRecipients],
   );
   const selectedShareRecipients = useMemo(
-    () => recipientSelectionFromIds(contactSignalRecipients, selectedRecipientIds),
-    [contactSignalRecipients, selectedRecipientIds],
+    () => recipientSelectionFromIds(kaiCircleCandidates, selectedRecipientIds),
+    [kaiCircleCandidates, selectedRecipientIds],
   );
   const shareReadySelectedRecipients = useMemo(
     () => selectedShareRecipients.filter(isShareReadyRecipient),
@@ -1215,8 +1082,8 @@ export function OneLocationAgentPageContent() {
   );
   const selectedRequestOwners = useMemo(
     () =>
-      recipientSelectionFromIds(contactSignalRecipients, selectedRequestOwnerIds),
-    [contactSignalRecipients, selectedRequestOwnerIds],
+      recipientSelectionFromIds(kaiCircleCandidates, selectedRequestOwnerIds),
+    [kaiCircleCandidates, selectedRequestOwnerIds],
   );
   const pendingOwnerRequests = useMemo(
     () =>
@@ -1271,6 +1138,49 @@ export function OneLocationAgentPageContent() {
     [activityRange, auth.userId, state],
   );
   const locationActivity = activitySnapshot ?? fallbackActivity;
+
+  useEffect(() => {
+    const matchedUserIds = connectDiscovery.candidates
+      .filter((candidate) => candidate.sourceTypes.includes("contact_match"))
+      .map((candidate) => String(candidate.userId || "").trim())
+      .filter(Boolean);
+    if (connectDiscovery.contactState.loading) {
+      setContactSignal((current) => ({
+        ...current,
+        status: "scanning",
+        error: null,
+      }));
+      return;
+    }
+    if (connectDiscovery.contactState.error) {
+      setContactSignal((current) => ({
+        ...current,
+        status: "error",
+        error: connectDiscovery.contactState.error,
+        syncedAt: new Date().toISOString(),
+      }));
+      return;
+    }
+    if (!connectDiscovery.contactState.hasScanned) return;
+    setContactSignal({
+      status: matchedUserIds.length > 0 ? "matched" : "empty",
+      matchedUserIds,
+      matchedCount: matchedUserIds.length,
+      totalContacts:
+        connectDiscovery.contactState.totalContacts ?? matchedUserIds.length,
+      inviteCandidateCount: 0,
+      sourcePlatform: connectDiscovery.contactState.sourcePlatform ?? "unknown",
+      error: null,
+      syncedAt: new Date().toISOString(),
+    });
+  }, [
+    connectDiscovery.candidates,
+    connectDiscovery.contactState.error,
+    connectDiscovery.contactState.hasScanned,
+    connectDiscovery.contactState.loading,
+    connectDiscovery.contactState.sourcePlatform,
+    connectDiscovery.contactState.totalContacts,
+  ]);
 
   useEffect(() => {
     if (!auth.userId || !vaultOwnerToken || !state) {
@@ -1385,12 +1295,9 @@ export function OneLocationAgentPageContent() {
             },
           );
         }
-        const key = await ensureLocationRecipientKey(activeUserId);
-        await OneLocationService.registerRecipientKey({
+        await bootstrapCurrentUserLocationRecipientKey({
+          userId: activeUserId,
           vaultOwnerToken: activeVaultOwnerToken,
-          keyId: key.keyId,
-          publicKeyJwk: key.publicKeyJwk,
-          algorithm: key.algorithm,
         });
         const [nextPermission, nextState] = await Promise.all([
           OneLocationService.getPermissionState().catch(() => ({
@@ -1402,47 +1309,6 @@ export function OneLocationAgentPageContent() {
         ]);
         setPermission(nextPermission);
         setState(nextState);
-        const rankedNextRecipients = rankRecipientsForRecommendation(
-          enrichRecipientsWithContactSignal(
-            nextState.recipients,
-            contactMatchedUserIds,
-          ),
-          contactMatchedUserIds,
-        );
-        const firstRecommendedRecipient = rankedNextRecipients[0];
-        const nextRecipientIds = new Set(
-          nextState.recipients.map((recipient) => recipient.userId),
-        );
-        setSelectedRecipientId((current) =>
-          current && nextRecipientIds.has(current)
-            ? current
-            : firstRecommendedRecipient?.userId || "",
-        );
-        setSelectedRequestOwnerId((current) =>
-          current && nextRecipientIds.has(current)
-            ? current
-            : firstRecommendedRecipient?.userId || "",
-        );
-        setSelectedRecipientIds((current) => {
-          const validSelectedIds = current.filter((recipientId) =>
-            nextRecipientIds.has(recipientId),
-          );
-          return validSelectedIds.length
-            ? validSelectedIds
-            : firstRecommendedRecipient
-              ? [firstRecommendedRecipient.userId]
-              : [];
-        });
-        setSelectedRequestOwnerIds((current) => {
-          const validSelectedIds = current.filter((recipientId) =>
-            nextRecipientIds.has(recipientId),
-          );
-          return validSelectedIds.length
-            ? validSelectedIds
-            : firstRecommendedRecipient
-              ? [firstRecommendedRecipient.userId]
-              : [];
-        });
       } catch (error) {
         setLoadError(
           oneLocationErrorMessage(error, "Could not load location sharing."),
@@ -1457,10 +1323,44 @@ export function OneLocationAgentPageContent() {
   }, [
     auth.user,
     auth.userId,
-    contactMatchedUserIds,
     isVaultUnlocked,
     vaultOwnerToken,
   ]);
+
+  useEffect(() => {
+    const firstRecommendedRecipient = rankedRecipients.find((candidate) => candidate.userId);
+    const nextCandidateIds = new Set(rankedRecipients.map((candidate) => candidate.candidateId));
+    setSelectedRecipientId((current) =>
+      current && nextCandidateIds.has(current)
+        ? current
+        : firstRecommendedRecipient?.candidateId || "",
+    );
+    setSelectedRequestOwnerId((current) =>
+      current && nextCandidateIds.has(current)
+        ? current
+        : firstRecommendedRecipient?.candidateId || "",
+    );
+    setSelectedRecipientIds((current) => {
+      const validSelectedIds = current.filter((candidateId) =>
+        nextCandidateIds.has(candidateId),
+      );
+      return validSelectedIds.length
+        ? validSelectedIds
+        : firstRecommendedRecipient
+          ? [firstRecommendedRecipient.candidateId]
+          : [];
+    });
+    setSelectedRequestOwnerIds((current) => {
+      const validSelectedIds = current.filter((candidateId) =>
+        nextCandidateIds.has(candidateId),
+      );
+      return validSelectedIds.length
+        ? validSelectedIds
+        : firstRecommendedRecipient
+          ? [firstRecommendedRecipient.candidateId]
+          : [];
+    });
+  }, [rankedRecipients]);
 
   useEffect(() => {
     if (!auth.loading) {
@@ -1503,9 +1403,20 @@ export function OneLocationAgentPageContent() {
     const notificationState = String(
       searchParams.get(ONE_LOCATION_NOTIFICATION_OPEN_PARAM) || "",
     ).trim();
-    if (grantId && notificationState === ONE_LOCATION_NOTIFICATION_OPEN_VALUE) {
+    if (
+      grantId &&
+      notificationState === ONE_LOCATION_NOTIFICATION_OPEN_VALUE &&
+      openedNotificationGrantRef.current !== grantId
+    ) {
+      openedNotificationGrantRef.current = grantId;
       markOneLocationGrantOpened(auth.userId, grantId);
       setOpenedGrantTick((value) => value + 1);
+      window.requestAnimationFrame(() => {
+        sharedWithSectionRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
     }
   }, [auth.userId, searchParams]);
 
@@ -1875,32 +1786,45 @@ export function OneLocationAgentPageContent() {
     }));
 
     try {
-      const idToken = await auth.user.getIdToken();
-      const result = await syncOneLocationContactSignals({ idToken });
-      const nextStatus: OneLocationContactSignalStatus =
-        result.matchedUserIds.length > 0 ? "matched" : "empty";
+      const result = await connectDiscovery.actions.matchContacts();
+      const freshMatchedUserIds = matchedUserIdsFromContactMatches(result?.matches);
+      const matchedUserIds =
+        freshMatchedUserIds.length > 0
+          ? freshMatchedUserIds
+          : connectDiscovery.candidates
+              .filter((candidate) => candidate.sourceTypes.includes("contact_match"))
+              .map((candidate) => String(candidate.userId || "").trim())
+              .filter(Boolean);
+      const totalContacts =
+        result?.totalContacts ??
+        connectDiscovery.contactState.totalContacts ??
+        matchedUserIds.length;
+      const sourcePlatform =
+        result?.sourcePlatform ??
+        connectDiscovery.contactState.sourcePlatform ??
+        "unknown";
       setContactSignal({
-        status: nextStatus,
-        matchedUserIds: result.matchedUserIds,
-        matchedCount: result.matchedUserIds.length,
-        totalContacts: result.totalContacts,
-        inviteCandidateCount: result.inviteCandidateCount,
-        sourcePlatform: result.sourcePlatform,
+        status: matchedUserIds.length > 0 ? "matched" : "empty",
+        matchedUserIds,
+        matchedCount: matchedUserIds.length,
+        totalContacts,
+        inviteCandidateCount: 0,
+        sourcePlatform,
         error: null,
         syncedAt: new Date().toISOString(),
       });
       trackEvent("one_location_contact_signal_synced", {
         route_id: "one_location",
         result: "success",
-        source_platform: result.sourcePlatform,
-        contact_count_bucket: contactCountBucket(result.totalContacts),
-        matched_count: result.matchedUserIds.length,
-        invite_candidate_count: result.inviteCandidateCount,
+        source_platform: sourcePlatform,
+        contact_count_bucket: contactCountBucket(totalContacts),
+        matched_count: matchedUserIds.length,
+        invite_candidate_count: 0,
       });
-      if (result.matchedUserIds.length > 0) {
+      if (matchedUserIds.length > 0) {
         toast.success(
           `${peopleCountLabel(
-            result.matchedUserIds.length,
+            matchedUserIds.length,
           )} added as a contact signal.`,
         );
       } else {
@@ -1943,14 +1867,28 @@ export function OneLocationAgentPageContent() {
     } finally {
       setBusy(null);
     }
-  }, [auth.user, contactSignal]);
+  }, [
+    auth.user,
+    connectDiscovery.actions,
+    connectDiscovery.candidates,
+    connectDiscovery.contactState.sourcePlatform,
+    connectDiscovery.contactState.totalContacts,
+    contactSignal,
+  ]);
 
   const handleRequestAccess = useCallback(async () => {
-    if (!vaultOwnerToken || !selectedRequestOwners.length) return;
+    if (!auth.userId || !vaultOwnerToken || !selectedRequestOwners.length) return;
     setBusy("request");
     let successCount = 0;
     try {
+      if (state?.viewerCapabilities?.hasLocationRecipientKey === false) {
+        await bootstrapCurrentUserLocationRecipientKey({
+          userId: auth.userId,
+          vaultOwnerToken,
+        });
+      }
       for (const owner of selectedRequestOwners) {
+        if (!owner.userId) continue;
         await OneLocationService.requestAccess({
           vaultOwnerToken,
           ownerUserId: owner.userId,
@@ -1993,7 +1931,14 @@ export function OneLocationAgentPageContent() {
     } finally {
       setBusy(null);
     }
-  }, [refresh, requestMessage, selectedRequestOwners, vaultOwnerToken]);
+  }, [
+    auth.userId,
+    refresh,
+    requestMessage,
+    selectedRequestOwners,
+    state?.viewerCapabilities?.hasLocationRecipientKey,
+    vaultOwnerToken,
+  ]);
 
   const handleCreatePublicInvite = useCallback(async () => {
     if (!vaultOwnerToken) return;
@@ -2228,7 +2173,7 @@ export function OneLocationAgentPageContent() {
 
   const trackRecommendationSelection = useCallback(
     (
-      recipient: OneLocationRecipient,
+      recipient: KaiCircleCandidate,
       action: ShareMode,
       selectionSurface: OneLocationSelectionSurface,
       selectedCount: number,
@@ -2258,7 +2203,8 @@ export function OneLocationAgentPageContent() {
       recipientId: string,
       selectionSurface: OneLocationSelectionSurface = "select_menu",
     ) => {
-      const recipient = recipients.find((item) => item.userId === recipientId);
+      const recipient = kaiCircleCandidates.find((item) => item.candidateId === recipientId);
+      if (!recipient?.userId) return;
       const nextSelectedIds = addSelectedId(selectedRecipientIds, recipientId);
       setSelectedRecipientId(recipientId);
       setSelectedRecipientIds(nextSelectedIds);
@@ -2272,14 +2218,15 @@ export function OneLocationAgentPageContent() {
         );
       }
     },
-    [recipients, selectedRecipientIds, trackRecommendationSelection],
+    [kaiCircleCandidates, selectedRecipientIds, trackRecommendationSelection],
   );
   const toggleShareRecipient = useCallback(
     (
       recipientId: string,
       selectionSurface: OneLocationSelectionSurface = "quick_circle",
     ) => {
-      const recipient = recipients.find((item) => item.userId === recipientId);
+      const recipient = kaiCircleCandidates.find((item) => item.candidateId === recipientId);
+      if (!recipient?.userId) return;
       const nextSelectedIds = toggleSelectedId(selectedRecipientIds, recipientId);
       setSelectedRecipientId(recipientId);
       setSelectedRecipientIds(nextSelectedIds);
@@ -2293,7 +2240,7 @@ export function OneLocationAgentPageContent() {
         );
       }
     },
-    [recipients, selectedRecipientIds, trackRecommendationSelection],
+    [kaiCircleCandidates, selectedRecipientIds, trackRecommendationSelection],
   );
   const removeShareRecipient = useCallback(
     (recipientId: string) => {
@@ -2313,7 +2260,8 @@ export function OneLocationAgentPageContent() {
       recipientId: string,
       selectionSurface: OneLocationSelectionSurface = "select_menu",
     ) => {
-      const recipient = recipients.find((item) => item.userId === recipientId);
+      const recipient = kaiCircleCandidates.find((item) => item.candidateId === recipientId);
+      if (!recipient?.userId) return;
       const nextSelectedIds = addSelectedId(
         selectedRequestOwnerIds,
         recipientId,
@@ -2329,14 +2277,15 @@ export function OneLocationAgentPageContent() {
         );
       }
     },
-    [recipients, selectedRequestOwnerIds, trackRecommendationSelection],
+    [kaiCircleCandidates, selectedRequestOwnerIds, trackRecommendationSelection],
   );
   const toggleRequestOwner = useCallback(
     (
       recipientId: string,
       selectionSurface: OneLocationSelectionSurface = "quick_circle",
     ) => {
-      const recipient = recipients.find((item) => item.userId === recipientId);
+      const recipient = kaiCircleCandidates.find((item) => item.candidateId === recipientId);
+      if (!recipient?.userId) return;
       const nextSelectedIds = toggleSelectedId(
         selectedRequestOwnerIds,
         recipientId,
@@ -2352,7 +2301,7 @@ export function OneLocationAgentPageContent() {
         );
       }
     },
-    [recipients, selectedRequestOwnerIds, trackRecommendationSelection],
+    [kaiCircleCandidates, selectedRequestOwnerIds, trackRecommendationSelection],
   );
   const removeRequestOwner = useCallback(
     (recipientId: string) => {
@@ -2511,25 +2460,27 @@ export function OneLocationAgentPageContent() {
                         const label = displayNameFromRecipient(recipient);
                         const selected =
                           activeMode === "share"
-                            ? selectedRecipientIds.includes(recipient.userId)
+                            ? selectedRecipientIds.includes(recipient.candidateId)
                             : selectedRequestOwnerIds.includes(
-                                recipient.userId,
+                                recipient.candidateId,
                               );
                         return (
                           <button
-                            key={recipient.userId}
+                            key={recipient.candidateId}
                             type="button"
                             aria-label={`Select ${recipientLabel(
                               recipient,
                             )} from KAI Circle`}
+                            disabled={!recipient.userId}
                             onClick={() => {
+                              if (!recipient.userId) return;
                               if (activeMode === "share") {
-                                toggleShareRecipient(recipient.userId);
+                                toggleShareRecipient(recipient.candidateId);
                               } else {
-                                toggleRequestOwner(recipient.userId);
+                                toggleRequestOwner(recipient.candidateId);
                               }
                             }}
-                            className="flex shrink-0 flex-col items-center gap-1.5"
+                            className="flex shrink-0 flex-col items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-70"
                           >
                             <span className="relative">
                               <AvatarBubble label={label} index={index} />
@@ -2541,8 +2492,10 @@ export function OneLocationAgentPageContent() {
                               >
                                 {selected ? (
                                   <CheckCircle2 className="h-3 w-3 text-[#2e7d32] dark:text-emerald-300" />
-                                ) : recipient.canReceiveLocation ? (
+                                ) : recipient.isShareReady ? (
                                   <ShieldCheck className="h-3 w-3 text-[#8e8e93] dark:text-white/55" />
+                                ) : !recipient.userId ? (
+                                  <ExternalLink className="h-3 w-3 text-[#8e8e93] dark:text-white/55" />
                                 ) : (
                                   <AlertTriangle className="h-3 w-3 text-[#ff9500]" />
                                 )}
@@ -2575,19 +2528,6 @@ export function OneLocationAgentPageContent() {
                 </div>
 
                 <div className="space-y-3">
-                  <div className="relative">
-                    <Search className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-[#8e8e93]" />
-                    <input
-                      value={recipientSearch}
-                      onChange={(event) =>
-                        setRecipientSearch(event.target.value)
-                      }
-                      className="h-10 w-full rounded-[14px] border border-black/[0.04] bg-white pl-10 pr-4 text-[15px] text-[#1c1c1e] shadow-sm outline-none transition-shadow placeholder:text-[#8e8e93] focus:ring-2 focus:ring-[#007aff]/20 dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white"
-                      placeholder="Search KAI Circle..."
-                      type="text"
-                    />
-                  </div>
-
                   <div
                     aria-label="KAI Circle section states"
                     className="grid gap-2 sm:grid-cols-2"
@@ -2600,9 +2540,9 @@ export function OneLocationAgentPageContent() {
                           key={section.key}
                           className="rounded-[14px] border border-black/[0.04] bg-white/70 p-3 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.06]"
                         >
-                          {sectionLabel(section.title, section.recipients.length)}
+                          {sectionLabel(section.title, section.candidates.length)}
                           <p className="mt-1 text-[12px] leading-5 text-[#8e8e93] dark:text-white/55">
-                            {section.recipients.length
+                            {section.candidates.length
                               ? section.description
                               : `${emptyCopy.title}. ${emptyCopy.description}`}
                           </p>
@@ -2667,20 +2607,42 @@ export function OneLocationAgentPageContent() {
                     </div>
                   </div>
 
-                  <div className={onePanelClassName}>
+                  <div className="relative">
+                    <Search className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-[#8e8e93]" />
+                    <input
+                      value={recipientSearch}
+                      onChange={(event) =>
+                        setRecipientSearch(event.target.value)
+                      }
+                      aria-label="Search KAI Circle"
+                      className="h-10 w-full rounded-[14px] border border-black/[0.04] bg-white pl-10 pr-4 text-[15px] text-[#1c1c1e] shadow-sm outline-none transition-shadow placeholder:text-[#8e8e93] focus:ring-2 focus:ring-[#007aff]/20 dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white"
+                      placeholder="Search KAI Circle..."
+                      type="text"
+                    />
+                  </div>
+
+                  <div className={kaiCircleRecipientListClassName}>
                     {visibleRecipients.length ? (
                       visibleRecipients.map((recipient, index) => {
                         const label = displayNameFromRecipient(recipient);
                         const selected =
                           activeMode === "share"
-                            ? selectedRecipientIds.includes(recipient.userId)
+                            ? selectedRecipientIds.includes(recipient.candidateId)
                             : selectedRequestOwnerIds.includes(
-                                recipient.userId,
+                                recipient.candidateId,
                               );
                         const reasons = visibleRecommendationReasons(recipient);
+                        const ctas = resolveKaiCircleCtas({
+                          candidate: recipient,
+                          mode: activeMode,
+                          viewerCapabilities: state?.viewerCapabilities,
+                        });
+                        const connectCta = ctas.find((cta) =>
+                          ["connect_first", "open_connect_profile", "ask_to_setup_one_location"].includes(cta.id),
+                        );
                         return (
                           <div
-                            key={recipient.userId}
+                            key={recipient.candidateId}
                             className="relative flex flex-col gap-2.5 p-3.5 after:absolute after:bottom-0 after:left-[62px] after:right-0 after:border-b after:border-black/[0.05] last:after:hidden dark:after:border-white/[0.08]"
                           >
                             <div className="flex items-center gap-3">
@@ -2696,7 +2658,9 @@ export function OneLocationAgentPageContent() {
                                     {recipientLabel(recipient)}
                                   </span>
                                   <span className="rounded-md bg-[#f0f5ff] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]">
-                                    {recipient.phoneVerified
+                                    {!recipient.userId
+                                      ? "Connect"
+                                      : recipient.phoneVerified
                                       ? "Verified"
                                       : "Contact"}
                                   </span>
@@ -2733,14 +2697,22 @@ export function OneLocationAgentPageContent() {
                                 <button
                                   type="button"
                                   onClick={() => {
+                                    if (!recipient.userId) {
+                                      const href =
+                                        recipient.profileHref ||
+                                        recipient.connectionHref ||
+                                        "/marketplace";
+                                      router.push(href);
+                                      return;
+                                    }
                                     if (activeMode === "share") {
                                       toggleShareRecipient(
-                                        recipient.userId,
+                                        recipient.candidateId,
                                         "section_list",
                                       );
                                     } else {
                                       toggleRequestOwner(
-                                        recipient.userId,
+                                        recipient.candidateId,
                                         "section_list",
                                       );
                                     }
@@ -2748,7 +2720,11 @@ export function OneLocationAgentPageContent() {
                                   className="inline-flex h-8 items-center gap-1 rounded-full bg-[#f2f2f7] px-3 text-[12px] font-semibold text-[#007aff] transition-colors hover:bg-[#e5e5ea] dark:bg-white/10 dark:text-[#76b7ff] dark:hover:bg-white/15"
                                 >
                                   <Plus className="h-3.5 w-3.5" />
-                                  Select
+                                  {!recipient.userId
+                                    ? connectCta?.label || "Open Profile"
+                                    : connectCta?.id === "ask_to_setup_one_location"
+                                      ? "Setup Needed"
+                                      : "Select"}
                                 </button>
                               )}
                             </div>
@@ -2785,8 +2761,9 @@ export function OneLocationAgentPageContent() {
                           <SelectContent>
                             {rankedRecipients.map((recipient) => (
                               <SelectItem
-                                key={recipient.userId}
-                                value={recipient.userId}
+                                key={recipient.candidateId}
+                                value={recipient.candidateId}
+                                disabled={!recipient.userId}
                               >
                                 {recipientLabel(recipient)}
                               </SelectItem>
@@ -2819,10 +2796,10 @@ export function OneLocationAgentPageContent() {
                         >
                           {selectedShareRecipients.map((recipient) => (
                             <button
-                              key={recipient.userId}
+                              key={recipient.candidateId}
                               type="button"
                               onClick={() =>
-                                removeShareRecipient(recipient.userId)
+                                removeShareRecipient(recipient.candidateId)
                               }
                               className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[#eef5ff] px-3 text-[12px] font-semibold text-[#005bb5] transition-colors hover:bg-[#dfefff] dark:bg-[#0a84ff]/15 dark:text-[#a7d4ff] dark:hover:bg-[#0a84ff]/25"
                             >
@@ -2914,8 +2891,9 @@ export function OneLocationAgentPageContent() {
                         <SelectContent>
                           {rankedRecipients.map((recipient) => (
                             <SelectItem
-                              key={recipient.userId}
-                              value={recipient.userId}
+                              key={recipient.candidateId}
+                              value={recipient.candidateId}
+                              disabled={!recipient.userId}
                             >
                               {recipientLabel(recipient)}
                             </SelectItem>
@@ -2929,10 +2907,10 @@ export function OneLocationAgentPageContent() {
                         >
                           {selectedRequestOwners.map((recipient) => (
                             <button
-                              key={recipient.userId}
+                              key={recipient.candidateId}
                               type="button"
                               onClick={() =>
-                                removeRequestOwner(recipient.userId)
+                                removeRequestOwner(recipient.candidateId)
                               }
                               className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[#eef5ff] px-3 text-[12px] font-semibold text-[#005bb5] transition-colors hover:bg-[#dfefff] dark:bg-[#0a84ff]/15 dark:text-[#a7d4ff] dark:hover:bg-[#0a84ff]/25"
                             >
@@ -3205,7 +3183,11 @@ export function OneLocationAgentPageContent() {
                 </div>
               </section>
 
-              <section className="space-y-2 px-1">
+              <section
+                ref={sharedWithSectionRef}
+                id="one-location-shared-with-me"
+                className="scroll-mt-24 space-y-2 px-1"
+              >
                 {sectionLabel("Shared with me")}
                 <div className={onePanelClassName}>
                   {visibleReceivedGrants.length ? (

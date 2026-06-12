@@ -27,11 +27,15 @@ function readFixtureContacts(limit?: number): HushhContactRecord[] | null {
       const phoneNumbers = Array.isArray(record.phoneNumbers)
         ? record.phoneNumbers.map((value) => String(value || "").trim()).filter(Boolean)
         : [];
-      if (phoneNumbers.length === 0) return null;
+      const emailAddresses = Array.isArray(record.emailAddresses)
+        ? record.emailAddresses.map((value) => String(value || "").trim()).filter(Boolean)
+        : [];
+      if (phoneNumbers.length === 0 && emailAddresses.length === 0) return null;
       return {
         id: record.id == null ? `web-fixture-${index}` : String(record.id),
         displayName: record.displayName == null ? null : String(record.displayName),
         phoneNumbers,
+        emailAddresses,
       };
     })
     .filter((contact): contact is HushhContactRecord => Boolean(contact));

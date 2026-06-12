@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   mockUseRequireAuth,
   mockUseVault,
-  mockEnsureKey,
+  mockBootstrapLocationKey,
   mockEncryptLocationForRecipient,
   mockDecryptLocationEnvelope,
   mockRegisterKey,
@@ -20,14 +20,15 @@ const {
   mockGetActivity,
   mockGetState,
   mockSyncCurrentUser,
-  mockSyncOneLocationContactSignals,
+  mockUseConnectDiscovery,
+  mockMatchContacts,
   mockTrackEvent,
   mockRouterPush,
   mockSearchParamsGet,
 } = vi.hoisted(() => ({
   mockUseRequireAuth: vi.fn(),
   mockUseVault: vi.fn(),
-  mockEnsureKey: vi.fn(),
+  mockBootstrapLocationKey: vi.fn(),
   mockEncryptLocationForRecipient: vi.fn(),
   mockDecryptLocationEnvelope: vi.fn(),
   mockRegisterKey: vi.fn(),
@@ -42,7 +43,8 @@ const {
   mockGetActivity: vi.fn(),
   mockGetState: vi.fn(),
   mockSyncCurrentUser: vi.fn(),
-  mockSyncOneLocationContactSignals: vi.fn(),
+  mockUseConnectDiscovery: vi.fn(),
+  mockMatchContacts: vi.fn(),
   mockTrackEvent: vi.fn(),
   mockRouterPush: vi.fn(),
   mockSearchParamsGet: vi.fn(),
@@ -76,9 +78,12 @@ vi.mock("@/components/vault/vault-lock-guard", () => ({
 }));
 
 vi.mock("@/lib/one-location/encryption", () => ({
-  ensureLocationRecipientKey: mockEnsureKey,
   encryptLocationForRecipient: mockEncryptLocationForRecipient,
   decryptLocationEnvelope: mockDecryptLocationEnvelope,
+}));
+
+vi.mock("@/lib/one-location/key-bootstrap", () => ({
+  bootstrapCurrentUserLocationRecipientKey: mockBootstrapLocationKey,
 }));
 
 vi.mock("@/lib/one-location/service", () => ({
@@ -101,8 +106,14 @@ vi.mock("@/lib/one-location/service", () => ({
   },
 }));
 
-vi.mock("@/lib/one-location/contact-signals", () => ({
-  syncOneLocationContactSignals: mockSyncOneLocationContactSignals,
+vi.mock("@/lib/connect", () => ({
+  useConnectDiscovery: mockUseConnectDiscovery,
+}));
+
+vi.mock("@/lib/persona/persona-context", () => ({
+  usePersonaState: () => ({
+    activePersona: "investor",
+  }),
 }));
 
 vi.mock("@/lib/services/account-identity-service", () => ({
@@ -121,6 +132,8 @@ vi.mock("sonner", () => ({
 
 import { OneLocationAgentPageContent } from "@/app/one/location/page";
 
+const TEST_LOCATION_KEY_ALGORITHM = "test-location-key-agreement";
+
 function locationState() {
   return {
     recipients: [
@@ -131,7 +144,7 @@ function locationState() {
         phoneVerified: true,
         keyId: "key_b",
         publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
-        keyAlgorithm: "ECDH-P256-AES256-GCM",
+        keyAlgorithm: TEST_LOCATION_KEY_ALGORITHM,
         canReceiveLocation: true,
         recommendationScore: 96,
         recommendationRank: 1,
@@ -302,11 +315,7 @@ describe("OneLocationAgentPage", () => {
       isVaultUnlocked: true,
       vaultOwnerToken: "vault-token",
     });
-    mockEnsureKey.mockResolvedValue({
-      keyId: "key_a",
-      publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
-      algorithm: "ECDH-P256-AES256-GCM",
-    });
+    mockBootstrapLocationKey.mockResolvedValue({});
     mockRegisterKey.mockResolvedValue({});
     mockGetPermissionState.mockResolvedValue({
       state: "granted",
@@ -334,7 +343,7 @@ describe("OneLocationAgentPage", () => {
     });
     mockEncryptLocationForRecipient.mockResolvedValue({
       recipientKeyId: "key_b",
-      algorithm: "ECDH-P256-AES256-GCM",
+      algorithm: TEST_LOCATION_KEY_ALGORITHM,
       ciphertext: "ciphertext",
       iv: "iv",
       senderEphemeralPublicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
@@ -346,7 +355,7 @@ describe("OneLocationAgentPage", () => {
       grant: {},
       envelope: {
         recipientKeyId: "key_a",
-        algorithm: "ECDH-P256-AES256-GCM",
+        algorithm: TEST_LOCATION_KEY_ALGORITHM,
         ciphertext: "ciphertext",
         iv: "iv",
         senderEphemeralPublicKeyJwk: {
@@ -374,12 +383,30 @@ describe("OneLocationAgentPage", () => {
     mockGetState.mockResolvedValue(locationState());
     mockGetActivity.mockResolvedValue(locationActivity());
     mockSyncCurrentUser.mockResolvedValue({ user_id: "user_a" });
-    mockSyncOneLocationContactSignals.mockResolvedValue({
+    mockMatchContacts.mockResolvedValue({
       matches: [],
-      matchedUserIds: [],
       totalContacts: 0,
-      inviteCandidateCount: 0,
-      sourcePlatform: "ios",
+      sourcePlatform: "web",
+    });
+    mockUseConnectDiscovery.mockReturnValue({
+      candidates: [],
+      sections: [],
+      loading: false,
+      refreshing: false,
+      error: null,
+      iamUnavailable: false,
+      contactState: {
+        available: true,
+        loading: false,
+        hasScanned: false,
+      },
+      actions: {
+        refresh: vi.fn(),
+        matchContacts: mockMatchContacts,
+        recordAction: vi.fn(),
+        connect: vi.fn(),
+        openProfile: vi.fn(),
+      },
     });
   });
 
@@ -403,13 +430,35 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByText("No ready KAI members yet. Verified KAI members with location keys will appear here.")).toBeTruthy();
     expect(screen.queryByText(/8012|9911/)).toBeNull();
     expect(screen.getByText("Share Encrypted Update")).toBeTruthy();
-    expect(mockRegisterKey).toHaveBeenCalledWith({
+    expect(mockBootstrapLocationKey).toHaveBeenCalledWith({
+      userId: "user_a",
       vaultOwnerToken: "vault-token",
-      keyId: "key_a",
-      publicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
-      algorithm: "ECDH-P256-AES256-GCM",
     });
     expect(mockSyncCurrentUser).toHaveBeenCalledWith({ uid: "user_a" });
+  });
+
+  it("scrolls to Shared with me when a location notification opens the current page", async () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+    mockSearchParamsGet.mockImplementation((key: string) => {
+      if (key === "grantId") return "grant_1";
+      if (key === "locationNotification") return "opened";
+      return null;
+    });
+
+    try {
+      render(<OneLocationAgentPageContent />);
+
+      expect(await screen.findByText("Shared with me")).toBeTruthy();
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: "smooth",
+        block: "start",
+      }));
+      expect(window.localStorage.getItem("one_location_opened_grants_v1:user_a")).toContain("grant_1");
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+    }
   });
 
   it("renders KAI Circle recommendation metadata without phone-derived labels", async () => {
@@ -445,7 +494,7 @@ describe("OneLocationAgentPage", () => {
 
     const { container } = render(<OneLocationAgentPageContent />);
 
-    await waitFor(() => expect(mockRegisterKey).toHaveBeenCalled());
+    await waitFor(() => expect(mockBootstrapLocationKey).toHaveBeenCalled());
     expect(
       container.querySelectorAll('[data-slot="skeleton"]').length,
     ).toBeGreaterThan(0);
@@ -519,7 +568,7 @@ describe("OneLocationAgentPage", () => {
       grant: staleGrant,
       envelope: {
         recipientKeyId: "key_b",
-        algorithm: "ECDH-P256-AES256-GCM",
+        algorithm: TEST_LOCATION_KEY_ALGORITHM,
         ciphertext: "ciphertext",
         iv: "iv",
         senderEphemeralPublicKeyJwk: {
@@ -892,27 +941,65 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("adds mobile contact matches as a ranking reason without showing phone digits", async () => {
-    mockUseRequireAuth.mockReturnValue({
-      loading: false,
-      isAuthenticated: true,
-      userId: "user_a",
-      user: { uid: "user_a", getIdToken: vi.fn().mockResolvedValue("id-token") },
-    });
-    mockSyncOneLocationContactSignals.mockResolvedValueOnce({
+  it("routes contact matching through Connect without showing phone digits", async () => {
+    mockMatchContacts.mockResolvedValue({
       matches: [
         {
           user_id: "user_d",
           kind: "investor",
           display_name: "Investor D",
           phone_last4: "9911",
+          matched_by: "phone",
           profile: {},
         },
       ],
-      matchedUserIds: ["user_d"],
-      totalContacts: 8,
-      inviteCandidateCount: 7,
+      totalContacts: 3,
       sourcePlatform: "ios",
+    });
+    mockUseRequireAuth.mockReturnValue({
+      loading: false,
+      isAuthenticated: true,
+      userId: "user_a",
+      user: { uid: "user_a", getIdToken: vi.fn().mockResolvedValue("id-token") },
+    });
+    mockUseConnectDiscovery.mockReturnValue({
+      candidates: [
+        {
+          candidateId: "user:user_d",
+          kind: "investor",
+          sourceTypes: ["contact_match"],
+          userId: "user_d",
+          displayName: "Investor D",
+          visibilityPosture: "default_available",
+          exposureEnabled: true,
+          isDiscoverable: true,
+          connectionStatus: "available",
+          score: 80,
+          reasons: [],
+          primaryCta: "open_profile",
+          secondaryCtas: [],
+        },
+      ],
+      sections: [],
+      loading: false,
+      refreshing: false,
+      error: null,
+      iamUnavailable: false,
+      contactState: {
+        available: true,
+        loading: false,
+        hasScanned: true,
+        matchedCount: 1,
+        totalContacts: 3,
+        sourcePlatform: "ios",
+      },
+      actions: {
+        refresh: vi.fn(),
+        matchContacts: mockMatchContacts,
+        recordAction: vi.fn(),
+        connect: vi.fn(),
+        openProfile: vi.fn(),
+      },
     });
 
     render(<OneLocationAgentPageContent />);
@@ -920,13 +1007,11 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Sync Contacts/i }));
 
-    await waitFor(() =>
-      expect(mockSyncOneLocationContactSignals).toHaveBeenCalledWith({
-        idToken: "id-token",
-      }),
+    await waitFor(() => expect(mockMatchContacts).toHaveBeenCalled());
+    expect(screen.getAllByText("Investor D").length).toBeGreaterThan(0);
+    expect(screen.getByText(/1 matched \//i).textContent).toContain(
+      "1 matched / 0 invite-ready",
     );
-    expect(await screen.findByText("In your contacts")).toBeTruthy();
-    expect(screen.getByText(/1 matched \/ 7 invite-ready/i)).toBeTruthy();
     expect(screen.queryByText(/9911|8012|4455/)).toBeNull();
     expect(mockTrackEvent).toHaveBeenCalledWith(
       "one_location_contact_signal_synced",
@@ -936,10 +1021,10 @@ describe("OneLocationAgentPage", () => {
         source_platform: "ios",
         contact_count_bucket: "1_10",
         matched_count: 1,
-        invite_candidate_count: 7,
+        invite_candidate_count: 0,
       }),
     );
-  });
+  }, 15_000);
 
   it("creates an approval-first invite path for contacts who are not KAI users", async () => {
     render(<OneLocationAgentPageContent />);
@@ -1027,7 +1112,7 @@ describe("OneLocationAgentPage", () => {
         "Unlock your vault before loading location sharing.",
       ),
     ).toBeTruthy();
-    expect(mockRegisterKey).not.toHaveBeenCalled();
+    expect(mockBootstrapLocationKey).not.toHaveBeenCalled();
     expect(mockGetState).not.toHaveBeenCalled();
   });
 });

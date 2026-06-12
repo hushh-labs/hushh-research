@@ -73,7 +73,8 @@ public class HushhContactsPlugin: CAPPlugin, CAPBridgedPlugin {
             CNContactGivenNameKey as CNKeyDescriptor,
             CNContactFamilyNameKey as CNKeyDescriptor,
             CNContactOrganizationNameKey as CNKeyDescriptor,
-            CNContactPhoneNumbersKey as CNKeyDescriptor
+            CNContactPhoneNumbersKey as CNKeyDescriptor,
+            CNContactEmailAddressesKey as CNKeyDescriptor
         ]
         let request = CNContactFetchRequest(keysToFetch: keys)
         var contacts: [[String: Any]] = []
@@ -83,7 +84,10 @@ public class HushhContactsPlugin: CAPPlugin, CAPBridgedPlugin {
                 let phoneNumbers = contact.phoneNumbers
                     .map { $0.value.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) }
                     .filter { !$0.isEmpty }
-                if phoneNumbers.isEmpty {
+                let emailAddresses = contact.emailAddresses
+                    .map { String($0.value).trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                if phoneNumbers.isEmpty && emailAddresses.isEmpty {
                     return
                 }
 
@@ -95,7 +99,8 @@ public class HushhContactsPlugin: CAPPlugin, CAPBridgedPlugin {
                 contacts.append([
                     "id": contact.identifier,
                     "displayName": displayName.isEmpty ? contact.organizationName : displayName,
-                    "phoneNumbers": phoneNumbers
+                    "phoneNumbers": phoneNumbers,
+                    "emailAddresses": emailAddresses
                 ])
                 if contacts.count >= limit {
                     stop.pointee = true

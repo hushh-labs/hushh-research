@@ -8592,6 +8592,7 @@ class RIAIAMService:
         user_id: str,
         *,
         phone_lookups: list[dict[str, Any]],
+        email_lookups: list[dict[str, Any]] | None = None,
         limit: int,
     ) -> list[dict[str, Any]]:
         normalized_lookups: dict[str, set[str]] = {}
@@ -8601,11 +8602,17 @@ class RIAIAMService:
             if len(digest) != 64 or not last4:
                 continue
             normalized_lookups.setdefault(last4, set()).add(digest)
-        if not normalized_lookups:
+        normalized_email_hashes: set[str] = set()
+        for item in email_lookups or []:
+            digest = str(item.get("hash") or "").strip().lower()
+            if len(digest) == 64:
+                normalized_email_hashes.add(digest)
+        if not normalized_lookups and not normalized_email_hashes:
             return []
 
         limit_safe = max(1, min(limit, 100))
         last4_values = sorted(normalized_lookups.keys())
+        email_hash_values = sorted(normalized_email_hashes)
         conn = await self._conn()
         try:
             await self._ensure_iam_schema_ready(conn)
@@ -8614,6 +8621,7 @@ class RIAIAMService:
                 SELECT
                   aic.user_id,
                   aic.phone_number,
+                  aic.email,
                   COALESCE(NULLIF(aic.display_name, ''), mp.display_name) AS identity_display_name,
                   mp.profile_type,
                   mp.display_name,
@@ -8637,9 +8645,20 @@ class RIAIAMService:
                   ON rp.user_id = aic.user_id
                 WHERE
                   aic.user_id <> $1
-                  AND aic.phone_verified = TRUE
-                  AND aic.phone_number IS NOT NULL
-                  AND RIGHT(regexp_replace(aic.phone_number, '[^0-9]', '', 'g'), 4) = ANY($2::text[])
+                  AND (
+                    (
+                      CARDINALITY($2::text[]) > 0
+                      AND aic.phone_verified = TRUE
+                      AND aic.phone_number IS NOT NULL
+                      AND RIGHT(regexp_replace(aic.phone_number, '[^0-9]', '', 'g'), 4) = ANY($2::text[])
+                    )
+                    OR (
+                      CARDINALITY($4::text[]) > 0
+                      AND aic.email_verified = TRUE
+                      AND aic.email IS NOT NULL
+                      AND encode(digest(lower(trim(aic.email)), 'sha256'), 'hex') = ANY($4::text[])
+                    )
+                  )
                   AND (
                     (
                       mp.profile_type = 'ria'
@@ -8656,16 +8675,26 @@ class RIAIAMService:
                 user_id,
                 last4_values,
                 max(limit_safe * 8, limit_safe),
+                email_hash_values,
             )
             matches: list[dict[str, Any]] = []
             seen_users: set[str] = set()
             for row in rows:
+                phone_matched = False
                 normalized_phone = self._normalize_contact_phone_for_hash(row["phone_number"])
-                if not normalized_phone:
-                    continue
-                last4 = re.sub(r"\D", "", normalized_phone)[-4:]
-                digest = hashlib.sha256(normalized_phone.encode("utf-8")).hexdigest()
-                if digest not in normalized_lookups.get(last4, set()):
+                last4 = None
+                if normalized_phone:
+                    last4 = re.sub(r"\D", "", normalized_phone)[-4:]
+                    digest = hashlib.sha256(normalized_phone.encode("utf-8")).hexdigest()
+                    phone_matched = digest in normalized_lookups.get(last4, set())
+
+                normalized_email = str(row["email"] or "").strip().lower()
+                email_matched = (
+                    bool(normalized_email)
+                    and hashlib.sha256(normalized_email.encode("utf-8")).hexdigest()
+                    in normalized_email_hashes
+                )
+                if not phone_matched and not email_matched:
                     continue
 
                 target_user_id = str(row["user_id"])
@@ -8697,7 +8726,12 @@ class RIAIAMService:
                         "kind": "ria" if kind == "ria" else "investor",
                         "display_name": row["display_name"] or row["identity_display_name"],
                         "headline": row["headline"],
-                        "phone_last4": last4,
+                        "phone_last4": last4 if phone_matched else None,
+                        "matched_by": "phone_and_email"
+                        if phone_matched and email_matched
+                        else "phone"
+                        if phone_matched
+                        else "email",
                         "profile": profile,
                     }
                 )

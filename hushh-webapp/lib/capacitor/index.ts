@@ -799,6 +799,7 @@ export type HushhContactRecord = {
   id?: string | null;
   displayName?: string | null;
   phoneNumbers: string[];
+  emailAddresses?: string[];
 };
 
 export interface HushhContactsPlugin {

@@ -310,7 +310,7 @@ export function useConnectDiscovery(
   const matchContacts = useCallback(async () => {
     if (!user) {
       toast.error("Sign in required", { description: "Connect needs your account to match contacts." });
-      return;
+      return null;
     }
     setContactState((s) => ({ ...s, loading: true, error: null }));
     try {
@@ -322,17 +322,22 @@ export function useConnectDiscovery(
         ...s,
         loading: false,
         hasScanned: true,
+        matchedCount: result.matches.length,
+        totalContacts: result.totalContacts,
+        sourcePlatform: result.sourcePlatform,
         summary: result.matches.length > 0
           ? `${result.matches.length} match${result.matches.length === 1 ? "" : "es"} from ${result.totalContacts} contacts.`
-          : "No phone numbers found in contacts.",
+          : "No phone numbers or emails found in contacts.",
       }));
       if (result.matches.length === 0) {
         toast.info("No Hushh contacts found", { description: "Search is still available across public profiles." });
       }
+      return result;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Could not match contacts.";
       setContactState((s) => ({ ...s, loading: false, error: msg }));
       toast.error(msg);
+      throw err;
     }
   }, [user]);
 

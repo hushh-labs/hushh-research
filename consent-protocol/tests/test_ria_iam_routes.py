@@ -327,6 +327,11 @@ def test_marketplace_contact_match_route_is_authenticated_and_forwarded(monkeypa
                     "last4": "0101",
                 }
             ],
+            "email_lookups": [
+                {
+                    "hash": "b" * 64,
+                }
+            ],
             "limit": 25,
         }
         return [
@@ -357,6 +362,11 @@ def test_marketplace_contact_match_route_is_authenticated_and_forwarded(monkeypa
                 {
                     "hash": "a" * 64,
                     "last4": "0101",
+                }
+            ],
+            "email_lookups": [
+                {
+                    "hash": "b" * 64,
                 }
             ],
             "limit": 25,

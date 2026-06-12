@@ -19,10 +19,14 @@ import {
   ConsentCenterService,
   type ConsentCenterEntry,
 } from "@/lib/services/consent-center-service";
-import { buildMarketplaceContactLookups } from "@/lib/marketplace/contact-matching";
+import {
+  buildMarketplaceContactLookups,
+  buildMarketplaceContactLookupsFromQuery,
+} from "@/lib/marketplace/contact-matching";
 import type { ConnectRawPayload } from "./types";
 
 const WEB_CONTACT_MATCH_FIXTURE_KEY = "hushh:dev:marketplace-contact-matches";
+const MARKETPLACE_DISCOVERY_LIMIT_MAX = 50;
 
 export type ConnectServiceLoadOptions = {
   idToken: string;
@@ -36,7 +40,7 @@ export type ConnectServiceLoadOptions = {
 export type ConnectContactLoadResult = {
   matches: MarketplaceContactMatch[];
   totalContacts: number;
-  sourcePlatform: string;
+  sourcePlatform: "web" | "ios" | "android" | "native" | "unknown";
   error?: string;
 };
 
@@ -90,6 +94,14 @@ function readLocalContactMatchFixture(): MarketplaceContactMatch[] {
     .filter((match): match is MarketplaceContactMatch => Boolean(match));
 }
 
+function clampMarketplaceDiscoveryLimit(limit: number): number {
+  if (!Number.isFinite(limit)) return 32;
+  return Math.min(
+    MARKETPLACE_DISCOVERY_LIMIT_MAX,
+    Math.max(1, Math.trunc(limit)),
+  );
+}
+
 export function hasLocalContactMatchFixture(): boolean {
   try {
     return readLocalContactMatchFixture().length > 0;
@@ -106,13 +118,14 @@ export async function loadConnectPayload(
   options: ConnectServiceLoadOptions,
 ): Promise<ConnectRawPayload> {
   const { idToken, userId, persona, query = "", limit = 32 } = options;
+  const marketplaceLimit = clampMarketplaceDiscoveryLimit(limit);
 
   const iamUnavailableFlags: boolean[] = [];
 
   // ─── RIA search ───────────────────────────────────────────────────────────
   const riasPromise = RiaService.searchRias({
     query,
-    limit,
+    limit: marketplaceLimit,
     verification_status: "active",
   }).catch((err) => {
     if (isIAMSchemaNotReadyError(err)) iamUnavailableFlags.push(true);
@@ -125,7 +138,7 @@ export async function loadConnectPayload(
       if (persona === "ria") {
         const deck = await RiaService.searchInvestorDeck(idToken, {
           query,
-          limit,
+          limit: marketplaceLimit,
           persona: "ria",
           deck: "qualified",
         });
@@ -133,7 +146,7 @@ export async function loadConnectPayload(
       }
       return await RiaService.searchInvestors({
         query,
-        limit,
+        limit: marketplaceLimit,
         persona: "ria",
         deck: "qualified",
       });
@@ -181,14 +194,32 @@ export async function loadConnectPayload(
     ? RiaService.listInvestorActions(idToken, { limit: 100 }).catch(() => [] as MarketplaceInvestorActionRecord[])
     : Promise.resolve([] as MarketplaceInvestorActionRecord[]);
 
+  const queryContactMatchesPromise = (async (): Promise<MarketplaceContactMatch[]> => {
+    const queryLookups = await buildMarketplaceContactLookupsFromQuery(query);
+    if (queryLookups.phoneLookups.length === 0 && queryLookups.emailLookups.length === 0) {
+      return [];
+    }
+    try {
+      return await RiaService.matchMarketplaceContacts(idToken, {
+        phone_lookups: queryLookups.phoneLookups,
+        email_lookups: queryLookups.emailLookups,
+        limit: Math.min(limit, 50),
+      });
+    } catch (err) {
+      if (isIAMSchemaNotReadyError(err)) iamUnavailableFlags.push(true);
+      return [];
+    }
+  })();
+
   // ─── Await all ────────────────────────────────────────────────────────────
-  const [rias, investors, connectionResults, riaClientsResult, investorActions] =
+  const [rias, investors, connectionResults, riaClientsResult, investorActions, queryContactMatches] =
     await Promise.all([
       riasPromise,
       investorsPromise,
       connectionsPromise,
       riaRelationshipsPromise,
       investorActionsPromise,
+      queryContactMatchesPromise,
     ]);
 
   const [activeResult, pendingResult, previousResult] = connectionResults;
@@ -205,7 +236,7 @@ export async function loadConnectPayload(
   return {
     rias,
     investors,
-    contactMatches: [], // Populated separately via matchContacts()
+    contactMatches: queryContactMatches,
     activeConnections,
     pendingConnections,
     previousConnections,
@@ -224,16 +255,21 @@ export async function loadContactMatches(
   options?: { limit?: number },
 ): Promise<ConnectContactLoadResult> {
   let totalContacts = 0;
-  let sourcePlatform = "web";
+  let sourcePlatform: ConnectContactLoadResult["sourcePlatform"] = "web";
 
   try {
-    const { lookups, totalContacts: total, sourcePlatform: platform } =
+    const {
+      phoneLookups,
+      emailLookups,
+      totalContacts: total,
+      sourcePlatform: platform,
+    } =
       await buildMarketplaceContactLookups({ limit: options?.limit ?? 500 });
 
     totalContacts = total;
     sourcePlatform = platform;
 
-    if (lookups.length === 0) {
+    if (phoneLookups.length === 0 && emailLookups.length === 0) {
       return {
         matches: [],
         totalContacts,
@@ -241,9 +277,11 @@ export async function loadContactMatches(
       };
     }
 
-    const contactLookups = lookups.map((l) => ({ hash: l.hash, last4: l.last4 }));
+    const contactLookups = phoneLookups.map((l) => ({ hash: l.hash, last4: l.last4 }));
+    const contactEmailLookups = emailLookups.map((l) => ({ hash: l.hash }));
     const matches = await RiaService.matchMarketplaceContacts(idToken, {
       phone_lookups: contactLookups,
+      email_lookups: contactEmailLookups,
       limit: 50,
     });
     const fixtureMatches = matches.length === 0 ? readLocalContactMatchFixture() : [];

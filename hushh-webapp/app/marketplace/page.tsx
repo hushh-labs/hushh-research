@@ -905,7 +905,7 @@ function MarketplacePageClient() {
           ? `${visibleMatches.length} discoverable match${visibleMatches.length === 1 ? "" : "es"} from ${result.totalContacts} contacts.`
           : result.totalContacts > 0
             ? `No discoverable Hushh matches from ${result.totalContacts} contacts.`
-            : "No phone numbers found in contacts."
+            : "No phone numbers or emails found in contacts."
       );
       if (visibleMatches.length === 0) {
         toast.info("No Hushh contacts found", {

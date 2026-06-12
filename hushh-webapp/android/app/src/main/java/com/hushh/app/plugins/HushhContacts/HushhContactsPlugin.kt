@@ -95,15 +95,46 @@ class HushhContactsPlugin : Plugin() {
                 }
             }
 
+            val emailProjection = arrayOf(
+                ContactsContract.CommonDataKinds.Email.CONTACT_ID,
+                ContactsContract.CommonDataKinds.Email.DISPLAY_NAME,
+                ContactsContract.CommonDataKinds.Email.ADDRESS
+            )
+            context.contentResolver.query(
+                ContactsContract.CommonDataKinds.Email.CONTENT_URI,
+                emailProjection,
+                null,
+                null,
+                ContactsContract.CommonDataKinds.Email.DISPLAY_NAME + " ASC"
+            )?.use { cursor ->
+                val idIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Email.CONTACT_ID)
+                val nameIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Email.DISPLAY_NAME)
+                val emailIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Email.ADDRESS)
+                while (cursor.moveToNext()) {
+                    val id = cursor.getString(idIndex) ?: continue
+                    if (!contactsById.containsKey(id) && contactsById.size >= limit) continue
+                    val email = cursor.getString(emailIndex)?.trim().orEmpty()
+                    if (email.isEmpty()) continue
+                    val name = cursor.getString(nameIndex)?.trim().orEmpty()
+                    val entry = contactsById.getOrPut(id) { ContactAccumulator(id, name) }
+                    if (!entry.emailAddresses.contains(email)) {
+                        entry.emailAddresses.add(email)
+                    }
+                }
+            }
+
             val contacts = JSArray()
             contactsById.values.forEach { entry ->
                 val phoneNumbers = JSArray()
                 entry.phoneNumbers.forEach { phoneNumbers.put(it) }
+                val emailAddresses = JSArray()
+                entry.emailAddresses.forEach { emailAddresses.put(it) }
                 contacts.put(
                     JSObject()
                         .put("id", entry.id)
                         .put("displayName", entry.displayName)
                         .put("phoneNumbers", phoneNumbers)
+                        .put("emailAddresses", emailAddresses)
                 )
             }
             call.resolve(
@@ -119,6 +150,7 @@ class HushhContactsPlugin : Plugin() {
     private data class ContactAccumulator(
         val id: String,
         val displayName: String,
-        val phoneNumbers: MutableList<String> = mutableListOf()
+        val phoneNumbers: MutableList<String> = mutableListOf(),
+        val emailAddresses: MutableList<String> = mutableListOf()
     )
 }

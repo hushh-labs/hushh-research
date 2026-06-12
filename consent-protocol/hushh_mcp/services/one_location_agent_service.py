@@ -487,7 +487,11 @@ class OneLocationAgentService:
                 {"user_id": user_id},
             )
         except Exception as exc:
-            logger.debug("one.location.identity_lookup_failed user=%s error=%s", redact_log_value(user_id), exc)
+            logger.debug(
+                "one.location.identity_lookup_failed user=%s error=%s",
+                redact_log_value(user_id),
+                exc,
+            )
             return None
 
     def _identity_row_by_phone_digits(self, phone_digits: str) -> dict[str, Any] | None:
@@ -2010,6 +2014,7 @@ class OneLocationAgentService:
               a.user_id, a.display_name, a.phone_number, a.phone_verified,
               k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
             FROM actor_identity_cache a
+            LEFT JOIN marketplace_public_profiles mp ON mp.user_id = a.user_id
             LEFT JOIN LATERAL (
               SELECT key_id, public_key_jwk, algorithm, created_at
               FROM one_location_recipient_keys
@@ -2020,6 +2025,13 @@ class OneLocationAgentService:
             ) k ON TRUE
             WHERE a.phone_verified = TRUE
               AND a.user_id <> :owner_user_id
+              AND (
+                mp.user_id IS NULL
+                OR (
+                  COALESCE(mp.exposure_enabled, TRUE) = TRUE
+                  AND COALESCE(mp.visibility_posture, 'default_available') <> 'private'
+                )
+              )
             ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
             LIMIT :limit
             """,
@@ -2030,6 +2042,34 @@ class OneLocationAgentService:
             owner_user_id=owner_user_id,
             recipients=recipients,
         )
+
+    def _viewer_capabilities(self, *, user_id: str) -> dict[str, Any]:
+        has_location_key = False
+        try:
+            row = self._execute_one(
+                """
+                SELECT key_id
+                FROM one_location_recipient_keys
+                WHERE user_id = :user_id
+                  AND status = 'active'
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                {"user_id": user_id},
+            )
+            has_location_key = bool(row and row.get("key_id"))
+        except Exception as exc:
+            logger.debug(
+                "one.location.viewer_capabilities_unavailable user_id=%s error=%s",
+                redact_log_value(user_id),
+                exc,
+            )
+        return {
+            "hasLocationRecipientKey": has_location_key,
+            "canBootstrapRecipientKey": True,
+            "canShareLocation": has_location_key,
+            "canRequestLocation": True,
+        }
 
     def _recipient_key_row(
         self, *, recipient_user_id: str, recipient_key_id: str | None = None
@@ -2740,6 +2780,7 @@ class OneLocationAgentService:
         )
         return {
             "recipients": recipients,
+            "viewerCapabilities": self._viewer_capabilities(user_id=user_id),
             "ownerGrants": [
                 payload for row in owner_grants if (payload := self._grant_payload(row))
             ],

@@ -12,6 +12,7 @@ Credential sources (in priority order):
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any, Optional, Tuple
 
 from hushh_mcp.runtime_settings import (
@@ -20,6 +21,7 @@ from hushh_mcp.runtime_settings import (
 )
 
 DEFAULT_SERVICE_ACCOUNT_ENV = FIREBASE_ADMIN_CREDENTIALS_JSON_ENV
+_FIREBASE_ADMIN_INIT_LOCK = threading.Lock()
 
 
 def _load_service_account_from_env(var_name: str) -> Optional[dict[str, Any]]:
@@ -89,20 +91,38 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
         proj = app.project_id if hasattr(app, "project_id") else None
         return True, proj
 
-    sa = _load_service_account_from_env(DEFAULT_SERVICE_ACCOUNT_ENV)
-    if sa:
-        cred = credentials.Certificate(sa)
-        app = firebase_admin.initialize_app(cred)
-        return True, _project_id_from_app(app, sa)
+    with _FIREBASE_ADMIN_INIT_LOCK:
+        # Re-check inside the lock. Login boot often triggers several backend
+        # auth checks at once; without this guard concurrent first requests can
+        # race into initialize_app() and turn a valid sign-in into 401s.
+        app = _get_existing_app()
+        if app is not None:
+            return True, _project_id_from_app(app)
 
-    # Fall back to ADC (Cloud Run / local gcloud)
-    try:
-        cred = credentials.ApplicationDefault()
-        app = firebase_admin.initialize_app(cred)
-        return True, _project_id_from_app(app)
-    except Exception:
-        # Not configured (caller decides whether to 500/401)
-        return False, None
+        sa = _load_service_account_from_env(DEFAULT_SERVICE_ACCOUNT_ENV)
+        if sa:
+            cred = credentials.Certificate(sa)
+            try:
+                app = firebase_admin.initialize_app(cred)
+            except ValueError:
+                app = _get_existing_app()
+                if app is None:
+                    raise
+            return True, _project_id_from_app(app, sa)
+
+        # Fall back to ADC (Cloud Run / local gcloud)
+        try:
+            cred = credentials.ApplicationDefault()
+            try:
+                app = firebase_admin.initialize_app(cred)
+            except ValueError:
+                app = _get_existing_app()
+                if app is None:
+                    raise
+            return True, _project_id_from_app(app)
+        except Exception:
+            # Not configured (caller decides whether to 500/401)
+            return False, None
 
 
 def ensure_firebase_auth_admin() -> Tuple[bool, Optional[str]]:

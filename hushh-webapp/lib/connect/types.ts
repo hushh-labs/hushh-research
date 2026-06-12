@@ -146,6 +146,9 @@ export type ConnectContactState = {
   permissionStatus?: string | null;
   summary?: string | null;
   error?: string | null;
+  matchedCount?: number;
+  totalContacts?: number;
+  sourcePlatform?: "web" | "ios" | "android" | "native" | "unknown" | null;
   /** true once a scan has been completed at least once this session */
   hasScanned: boolean;
 };
@@ -170,7 +173,11 @@ export type ConnectDiscoveryResult = {
   contactState: ConnectContactState;
   actions: {
     refresh(): Promise<void>;
-    matchContacts(): Promise<void>;
+    matchContacts(): Promise<{
+      matches: Array<{ user_id?: string | null }>;
+      totalContacts: number;
+      sourcePlatform?: "web" | "ios" | "android" | "native" | "unknown" | null;
+    } | null>;
     recordAction(
       candidate: ConnectCandidate,
       action: "view_more" | "pass" | "shortlist" | "connect_request",
