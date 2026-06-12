@@ -9,6 +9,13 @@ CONSENT-FIRST ARCHITECTURE:
     All consent operations go through this service.
     Provides methods for pending requests, active tokens, and audit logs.
 
+Attach points:
+- ConsentDBService.insert_event
+- ConsentDBService.store_consent_export
+- ConsentDBService.get_consent_export
+- ConsentDBService.delete_consent_export
+- ConsentDBService.cleanup_expired_exports
+
 Usage:
     from hushh_mcp.services.consent_db import ConsentDBService
 
@@ -1243,12 +1250,14 @@ class ConsentDBService:
         # Extract event ID from response
         if response.data and len(response.data) > 0:
             event_id = response.data[0].get("id")
-            logger.info(f"Inserted {action} event: {event_id}")
+            logger.info("consent_db.insert_event action=%s event_id=%s", action, event_id)
             return event_id
         else:
             # Fallback: return issued_at as ID if response doesn't have id
             logger.warning(
-                f"Inserted {action} event but no ID returned, using issued_at: {issued_at}"
+                "consent_db.insert_event.missing_id action=%s issued_at=%s",
+                action,
+                issued_at,
             )
             return issued_at
 
@@ -1731,10 +1740,10 @@ class ConsentDBService:
                 on_conflict="consent_token",
             ).execute()
 
-            logger.info(f"Stored consent export for token: {consent_token[:30]}...")
+            logger.info("consent_db.store_export token=%.30s...", consent_token)
             return True
         except Exception as e:
-            logger.error(f"Failed to store consent export: {e}")
+            logger.error("consent_db.store_export.error: %s", e)
             return False
 
     async def get_consent_export(self, consent_token: str) -> Optional[Dict]:
@@ -1763,7 +1772,7 @@ class ConsentDBService:
                 return self._normalize_export_row(response.data[0])
             return None
         except Exception as e:
-            logger.error(f"Failed to get consent export: {e}")
+            logger.error("consent_db.get_export.error: %s", e)
             return None
 
     async def get_consent_export_metadata(self, consent_token: str) -> Optional[Dict[str, Any]]:
@@ -1811,10 +1820,10 @@ class ConsentDBService:
         try:
             supabase.table("consent_exports").delete().eq("consent_token", consent_token).execute()
 
-            logger.info(f"Deleted consent export for token: {consent_token[:30]}...")
+            logger.info("consent_db.delete_export token=%.30s...", consent_token)
             return True
         except Exception as e:
-            logger.error(f"Failed to delete consent export: {e}")
+            logger.error("consent_db.delete_export.error: %s", e)
             return False
 
     async def invalidate_legacy_active_token(
@@ -2026,9 +2035,9 @@ class ConsentDBService:
 
             if response.data is not None:
                 deleted_count = response.data
-                logger.info(f"Cleaned up {deleted_count} expired consent exports")
+                logger.info("consent_db.cleanup_exports deleted=%s", deleted_count)
                 return deleted_count
             return 0
         except Exception as e:
-            logger.error(f"Failed to cleanup expired exports: {e}")
+            logger.error("consent_db.cleanup_exports.error: %s", e)
             return 0
