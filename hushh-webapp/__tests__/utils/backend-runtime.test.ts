@@ -72,13 +72,13 @@ describe("backend runtime resolution", () => {
   });
 
   describe("URL whitespace sanitization", () => {
-    it("strips leading and trailing spaces from a backend URL env var without throwing", async () => {
+       it("strips mixed whitespace around a backend URL env var", async () => {
       process.env.K_SERVICE = "hushh-webapp";
-      process.env.PYTHON_API_URL = "  https://api.example.com  ";
+      process.env.PYTHON_API_URL = " \t\nhttps://api.example.com\r\n\t ";
       const helper = await loadHelper();
+
       expect(helper.getPythonApiUrl()).toBe("https://api.example.com");
     });
-
     it("strips surrounding tab characters from a backend URL env var without throwing", async () => {
       process.env.K_SERVICE = "hushh-webapp";
       process.env.PYTHON_API_URL = "\thttps://api.example.com\t";
