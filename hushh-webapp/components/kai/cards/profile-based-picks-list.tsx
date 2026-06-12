@@ -107,7 +107,7 @@ export function ProfileBasedPicksList({
         const validPicks = (response.picks || []).filter((p) => p?.symbol);
         setData({ picks: validPicks, riskProfile: response.risk_profile || "balanced" });
         cache.set(cacheKey, { picks: validPicks, risk_profile: response.risk_profile }, CACHE_TTL.MEDIUM);
-      } catch (err) {
+      } catch {
         if (!controller.signal.aborted) setError("Unable to load picks");
       } finally {
         if (!controller.signal.aborted) setLoading(false);
