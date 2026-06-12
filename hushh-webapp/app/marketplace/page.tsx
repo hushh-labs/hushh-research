@@ -1306,7 +1306,6 @@ function MarketplacePageClient() {
                     </span>
                     <span className="block line-clamp-1 text-xs text-muted-foreground">
                       {match.kind === "ria" ? "RIA" : "Investor"}
-                      {match.phone_last4 ? ` · ${match.phone_last4}` : ""}
                     </span>
                   </span>
                 </button>
