@@ -570,6 +570,7 @@ export function ManagePortfolioView() {
               ) : null}
             </h2>
             <Button
+              type="button"
               variant="none"
               effect="glass"
               size="sm"
@@ -643,6 +644,7 @@ export function ManagePortfolioView() {
                             <div className="flex items-center gap-3 ml-4 border-l border-primary/10 pl-4">
                               <div className="flex flex-col items-center gap-1">
                                   <Button
+                                    type="button"
                                     variant="none"
                                     effect="glass"
                                     size="icon-sm"
@@ -658,6 +660,7 @@ export function ManagePortfolioView() {
                               </div>
                               <div className="flex flex-col items-center gap-1">
                                   <Button
+                                    type="button"
                                     variant="none"
                                     effect="glass"
                                     size="icon-sm"
@@ -723,7 +726,7 @@ export function ManagePortfolioView() {
                   <p className="text-muted-foreground mb-4">
                     No holdings yet. Add your first holding or import a portfolio statement.
                   </p>
-                  <Button onClick={handleAddHolding} icon={{ icon: Plus, gradient: false }}>
+                  <Button type="button" onClick={handleAddHolding} icon={{ icon: Plus, gradient: false }}>
                     Add Holding
                   </Button>
                 </CardContent>
@@ -739,6 +742,7 @@ export function ManagePortfolioView() {
         <div className="fixed left-0 right-0 bottom-[var(--app-bottom-inset)] px-10 sm:px-16 pb-2 z-[145] pointer-events-none">
           <div className="max-w-xs mx-auto pointer-events-auto">
             <Button
+              type="button"
               onClick={handleSave}
               disabled={isSaving}
               variant="morphy"
