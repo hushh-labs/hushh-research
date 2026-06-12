@@ -13,6 +13,7 @@ This ensures consistent consent-first architecture throughout the system.
 import logging
 import re
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -21,6 +22,7 @@ from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.utils.firebase_auth import verify_firebase_bearer
+from hushh_mcp.consent.consent_schemas import ConsentExpiredError
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
 from hushh_mcp.consent.token import issue_token, revoke_token, validate_token_with_db
@@ -454,6 +456,28 @@ class ConsentApprovalPayload(BaseModel):
 
     userId: str = Field(..., min_length=1, max_length=128, pattern=r"^\S+$")
     requestId: str = Field(..., min_length=1, max_length=128, pattern=r"^\S+$")
+
+    # Temporal expiry guard — rejects payloads whose approval window has closed.
+    # Prevents stale consent replay.  Integrated by Abdul Gaffar — canonical
+    # temporal-consent boundary (hushh_mcp/consent/consent_schemas.py).
+    expiresAt: datetime | None = Field(
+        default=None,
+        description=(
+            "UTC datetime after which this approval payload is rejected. "
+            "Stale payloads are refused before any DB or token logic runs. "
+            "[Temporal Governance by Abdul Gaffar]"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _check_not_expired(self) -> "ConsentApprovalPayload":
+        if self.expiresAt is not None:
+            dt = self.expiresAt
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > dt:
+                raise ConsentExpiredError(dt)
+        return self
 
     agent_id: str | None = Field(
         default=None,
