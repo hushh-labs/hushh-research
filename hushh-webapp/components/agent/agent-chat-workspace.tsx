@@ -17,6 +17,7 @@ import {
   Copy,
   Menu,
   Mic,
+  Minus,
   RotateCcw,
   Send,
   Sparkles,
@@ -1475,6 +1476,10 @@ export function AgentChatWorkspace({
 
     const finishCanceledTurn = () => {
       flushAssistantDelta();
+      if (isVoiceTurn) {
+        voiceTtsQueueRef.current?.cancel();
+        voiceTtsSpeakingRef.current = false;
+      }
       updateMessage(assistantMessageId, (message) => ({
         ...message,
         text: message.text || (isVoiceTurn ? "Voice turn canceled." : "Agent turn canceled."),
@@ -1935,6 +1940,7 @@ export function AgentChatWorkspace({
         text: current.text || message,
         status: "error",
       }));
+      voiceTtsQueueRef.current?.flushStream();
       voiceTtsQueueRef.current?.speakNow(message);
       setIsChatLoading(false);
       setIsStreaming(false);
@@ -2112,6 +2118,7 @@ export function AgentChatWorkspace({
             clearVoiceStreamWatchdog();
             flushAssistantDelta();
             if (isVoiceTurn) {
+              voiceTtsQueueRef.current?.flushStream();
               voiceTtsQueueRef.current?.speakNow(message);
             }
             updateMessage(assistantMessageId, (current) => ({
@@ -2176,6 +2183,7 @@ export function AgentChatWorkspace({
         status: "error",
       }));
       if (isVoiceTurn) {
+        voiceTtsQueueRef.current?.flushStream();
         voiceTtsQueueRef.current?.speakNow(message);
       }
       void loadConversationList().catch(() => undefined);
@@ -2245,7 +2253,11 @@ export function AgentChatWorkspace({
 
   const handleVoiceTranscriptRetry = () => {
     setVoiceTranscriptReview(null);
-    voiceClientRef.current?.setMuted(false);
+    const client = voiceClientRef.current;
+    if (!client?.isActive) return;
+    client.setMuted(false);
+    client.setCapturePaused(false);
+    setAgentVoiceStatus("listening");
   };
 
   const handleToggleVoice = async () => {
@@ -2330,12 +2342,16 @@ export function AgentChatWorkspace({
             }
             console.info("[Agent voice] STT timing", {
               source: transcriptionSource,
+              mime_type: audio.type || "unknown",
               audio_bytes: audio.size,
               captured_ms: Math.round(durationMs),
               stt_ms: Math.round(performance.now() - sttStartedAt),
               native_transcript_chars: nativeCandidate?.transcript.length ?? 0,
+              native_uncertain: nativeCandidate?.uncertain ?? null,
+              native_reason: nativeCandidate?.reason ?? null,
               transcript_chars: result.transcript.length,
               uncertain: result.uncertain,
+              reason: result.reason,
             });
             if (
               sttAbortController.signal.aborted ||
@@ -2505,6 +2521,17 @@ export function AgentChatWorkspace({
       onMinimize();
     }
   };
+  const handlePageMinimize = useCallback(() => {
+    if (onMinimize) {
+      onMinimize();
+      return;
+    }
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push("/profile");
+  }, [onMinimize, router]);
   const renderHistorySidebar = (
     sidebarClassName?: string,
     onClose?: () => void,
@@ -2557,7 +2584,7 @@ export function AgentChatWorkspace({
         />
         <div
           className={cn(
-            "fixed inset-y-0 left-0 z-[530] w-[min(88vw,320px)] transform transition-transform duration-200 ease-out lg:hidden",
+            "fixed bottom-0 left-0 top-[var(--app-safe-area-top-effective,0px)] z-[530] w-[min(88vw,320px)] transform transition-transform duration-200 ease-out lg:hidden",
             isHistoryDrawerOpen ? "translate-x-0" : "-translate-x-full"
           )}
           role="dialog"
@@ -2578,7 +2605,10 @@ export function AgentChatWorkspace({
         >
           <div
             className={cn(
-              "flex h-14 shrink-0 touch-pan-y items-center justify-between gap-3 border-b border-white/10 bg-[#15171c]/95 px-3 backdrop-blur sm:h-16 sm:px-5",
+              "flex shrink-0 touch-pan-y items-center justify-between gap-3 border-b border-white/10 bg-[#15171c]/95 px-3 pt-[var(--app-safe-area-top-effective,0px)] backdrop-blur sm:px-5",
+              isPopover
+                ? "h-14 sm:h-16"
+                : "h-[calc(3.5rem+var(--app-safe-area-top-effective,0px))] sm:h-[calc(4rem+var(--app-safe-area-top-effective,0px))]",
               !isPopover && "lg:px-6"
             )}
             onPointerDown={handleHeaderPointerDown}
@@ -2618,6 +2648,19 @@ export function AgentChatWorkspace({
               <span className="hidden rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs font-medium text-zinc-400 sm:inline-flex">
                 {statusText}
               </span>
+              {!isPopover ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-lg text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-50 focus-visible:ring-2 focus-visible:ring-primary/60 lg:hidden"
+                  onClick={handlePageMinimize}
+                  aria-label="Minimize Agent"
+                  title="Minimize Agent"
+                >
+                  <Minus className="h-4 w-4" />
+                </Button>
+              ) : null}
               {windowControls ? <div className="ml-1">{windowControls}</div> : null}
             </div>
           </div>
