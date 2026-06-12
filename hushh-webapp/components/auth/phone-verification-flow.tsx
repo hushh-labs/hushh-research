@@ -215,6 +215,9 @@ export function PhoneVerificationFlow({
     () => composePhoneNumber(activeDialCode, localPhoneNumber),
     [activeDialCode, localPhoneNumber]
   );
+  const canStartVerification =
+    !busy && E164_PHONE_PATTERN.test(normalizedPhoneInput.trim());
+  const canConfirmVerification = !busy && verificationCode.trim().length > 0;
 
   const handleCountrySelection = useCallback((value: string | null) => {
     if (!value) {
@@ -243,6 +246,7 @@ export function PhoneVerificationFlow({
 
   const handleStartVerification = useCallback(
     async (resendCode = false) => {
+      if (busy) return;
       const normalizedPhone = normalizedPhoneInput.trim();
       if (!E164_PHONE_PATTERN.test(normalizedPhone)) {
         morphyToast.error("Enter a valid country code and phone number.");
@@ -296,10 +300,11 @@ export function PhoneVerificationFlow({
         setBusy(false);
       }
     },
-    [currentPhoneNumber, mode, normalizedPhoneInput, onCompleted, startVerification]
+    [busy, currentPhoneNumber, mode, normalizedPhoneInput, onCompleted, startVerification]
   );
 
   const handleConfirmVerification = useCallback(async () => {
+    if (busy) return;
     const normalizedCode = verificationCode.trim();
     if (!normalizedCode) {
       morphyToast.error("Enter the verification code you received.");
@@ -327,7 +332,7 @@ export function PhoneVerificationFlow({
     } finally {
       setBusy(false);
     }
-  }, [confirmVerification, mode, onCompleted, verificationCode]);
+  }, [busy, confirmVerification, mode, onCompleted, verificationCode]);
 
   if (step === "linked") {
     return (
@@ -445,6 +450,7 @@ export function PhoneVerificationFlow({
               loading={busy}
               size="lg"
               fullWidth
+              disabled={!canStartVerification}
               className={`h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Send verification code"}
@@ -496,6 +502,7 @@ export function PhoneVerificationFlow({
               loading={busy}
               size="lg"
               fullWidth
+              disabled={!canConfirmVerification}
               className={`h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : confirmLabel || "Verify and continue"}
