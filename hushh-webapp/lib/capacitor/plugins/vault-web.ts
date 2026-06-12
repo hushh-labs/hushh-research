@@ -47,7 +47,8 @@ export class HushhVaultWeb extends WebPlugin {
     let saltBytes: Uint8Array;
     if (options.salt) {
       saltBytes = new Uint8Array(
-        options.salt.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16)),
+        (options.salt.match(/.{1,2}/g) ?? []).map((byte) => parseInt(byte, 16))
+        ,
       );
     } else {
       saltBytes = crypto.getRandomValues(new Uint8Array(16));
@@ -97,7 +98,7 @@ export class HushhVaultWeb extends WebPlugin {
    */
   async encryptData(options: EncryptDataOptions): Promise<EncryptedPayload> {
     const keyBytes = new Uint8Array(
-      options.keyHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16)),
+      (options.keyHex.match(/.{1,2}/g) ?? []).map((byte) => parseInt(byte, 16)),
     );
 
     const key = await crypto.subtle.importKey(
@@ -139,7 +140,7 @@ export class HushhVaultWeb extends WebPlugin {
    */
   async decryptData(options: DecryptDataOptions): Promise<DecryptDataResult> {
     const keyBytes = new Uint8Array(
-      options.keyHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16)),
+      (options.keyHex.match(/.{1,2}/g) ?? []).map((byte) => parseInt(byte, 16)),
     );
 
     const key = await crypto.subtle.importKey(

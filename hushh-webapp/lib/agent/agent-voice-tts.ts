@@ -39,6 +39,9 @@ const MIN_TTS_CHUNK_CHARS = 12;
 const EARLY_TTS_CHUNK_CHARS = 90;
 const DEFAULT_TTS_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_TTS_MAX_ATTEMPTS = 2;
+const FALLBACK_SPEECH_TIMEOUT_BASE_MS = 4_000;
+const FALLBACK_SPEECH_TIMEOUT_PER_CHAR_MS = 90;
+const FALLBACK_SPEECH_TIMEOUT_MAX_MS = 30_000;
 
 export function markdownToSpeechText(markdown: string): string {
   return String(markdown || "")
@@ -117,6 +120,13 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+function estimateFallbackSpeechTimeoutMs(text: string): number {
+  return Math.min(
+    FALLBACK_SPEECH_TIMEOUT_MAX_MS,
+    FALLBACK_SPEECH_TIMEOUT_BASE_MS + text.length * FALLBACK_SPEECH_TIMEOUT_PER_CHAR_MS
+  );
+}
+
 async function defaultPlayAudio(audio: Blob, signal: AbortSignal): Promise<void> {
   if (signal.aborted) throw new DOMException("Aborted", "AbortError");
   const url = URL.createObjectURL(audio);
@@ -168,8 +178,13 @@ async function defaultFallbackSpeak(text: string, signal: AbortSignal): Promise<
   await new Promise<void>((resolve, reject) => {
     const utterance = new SpeechSynthesisUtterance(text);
     let settled = false;
+    const timeoutId = window.setTimeout(() => {
+      window.speechSynthesis.cancel();
+      settle(() => reject(new Error("Browser speech synthesis timed out.")));
+    }, estimateFallbackSpeechTimeoutMs(text));
 
     const cleanup = () => {
+      window.clearTimeout(timeoutId);
       utterance.onend = null;
       utterance.onerror = null;
       signal.removeEventListener("abort", handleAbort);

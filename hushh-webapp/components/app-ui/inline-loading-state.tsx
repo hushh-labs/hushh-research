@@ -23,6 +23,7 @@ export function InlineLoadingState({
       )}
     >
       <Loader2
+        aria-hidden="true"
         className={cn("h-4 w-4 shrink-0 motion-safe:animate-spin", iconClassName)}
       />
       <span>{label}</span>

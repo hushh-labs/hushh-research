@@ -194,9 +194,10 @@ async def one_email_webhook(request: Request):
     try:
         payload = await request.json()
     except Exception as exc:
+        logger.warning("one_email.webhook.invalid_json: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "ONE_EMAIL_WEBHOOK_INVALID_JSON", "message": str(exc)},
+            detail={"code": "ONE_EMAIL_WEBHOOK_INVALID_JSON", "message": "Webhook payload is not valid JSON."},
         ) from exc
     if not isinstance(payload, dict):
         raise HTTPException(

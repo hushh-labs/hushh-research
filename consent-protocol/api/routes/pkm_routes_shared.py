@@ -141,26 +141,26 @@ def _normalize_manifest_response_payload(manifest: dict) -> dict:
 
 
 class StockContextRequest(BaseModel):
-    ticker: str  # user_id is extracted from VAULT_OWNER token, not request body
+    ticker: str = Field(..., min_length=1, max_length=10)
 
 
 class DecisionRecord(BaseModel):
     """Represents a Kai investment decision."""
 
-    id: int
-    ticker: str
-    decision_type: str
-    confidence: float
-    created_at: str
-    metadata: dict | None
+    id: int = Field(..., ge=0)
+    ticker: str = Field(..., min_length=1, max_length=10)
+    decision_type: str = Field(..., min_length=1, max_length=32)
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    created_at: str = Field(..., min_length=1, max_length=64)
+    metadata: dict | None = None
 
 
 class StockContextResponse(BaseModel):
-    ticker: str
-    user_risk_profile: str
-    holdings: list[dict]
-    recent_decisions: list[dict]
-    portfolio_allocation: dict[str, int]
+    ticker: str = Field(..., min_length=1, max_length=10)
+    user_risk_profile: str = Field(..., min_length=1, max_length=50)
+    holdings: list[dict] = Field(..., max_length=100)
+    recent_decisions: list[dict] = Field(..., max_length=50)
+    portfolio_allocation: dict[str, int] = Field(...)
 
 
 def _summary_attribute_count(summary: dict | None) -> int:
@@ -342,60 +342,60 @@ class EncryptedBlob(BaseModel):
 
 
 class PathDescriptorPayload(BaseModel):
-    json_path: str
-    parent_path: Optional[str] = None
-    path_type: str = "leaf"
+    json_path: str = Field(..., min_length=1, max_length=1024)
+    parent_path: Optional[str] = Field(default=None, max_length=1024)
+    path_type: str = Field(default="leaf", min_length=1, max_length=64)
     exposure_eligibility: bool = True
-    consent_label: Optional[str] = None
-    sensitivity_label: Optional[str] = None
-    source_agent: Optional[str] = None
+    consent_label: Optional[str] = Field(default=None, max_length=256)
+    sensitivity_label: Optional[str] = Field(default=None, max_length=256)
+    source_agent: Optional[str] = Field(default=None, max_length=256)
 
 
 class StructureDecisionPayload(BaseModel):
-    action: str = Field(default="match_existing_domain")
-    target_domain: Optional[str] = None
-    json_paths: List[str] = Field(default_factory=list)
-    top_level_scope_paths: List[str] = Field(default_factory=list)
-    externalizable_paths: List[str] = Field(default_factory=list)
+    action: str = Field(default="match_existing_domain", min_length=1, max_length=128)
+    target_domain: Optional[str] = Field(default=None, max_length=256)
+    json_paths: List[str] = Field(default_factory=list, max_length=1000)
+    top_level_scope_paths: List[str] = Field(default_factory=list, max_length=1000)
+    externalizable_paths: List[str] = Field(default_factory=list, max_length=1000)
     summary_projection: dict = Field(default_factory=dict)
     sensitivity_labels: dict = Field(default_factory=dict)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
-    source_agent: str = Field(default="pkm_structure_agent")
-    contract_version: int = Field(default=1, ge=1)
+    source_agent: str = Field(default="pkm_structure_agent", min_length=1, max_length=256)
+    contract_version: int = Field(default=1, ge=1, le=1000)
 
 
 class DomainManifestPayload(BaseModel):
-    manifest_version: int = Field(default=1, ge=1)
-    domain_contract_version: int = Field(default=1, ge=1)
-    readable_summary_version: int = Field(default=0, ge=0)
-    upgraded_at: Optional[str] = None
+    manifest_version: int = Field(default=1, ge=1, le=1000)
+    domain_contract_version: int = Field(default=1, ge=1, le=1000)
+    readable_summary_version: int = Field(default=0, ge=0, le=1000)
+    upgraded_at: Optional[str] = Field(default=None, max_length=64)
     summary_projection: dict = Field(default_factory=dict)
-    top_level_scope_paths: List[str] = Field(default_factory=list)
-    externalizable_paths: List[str] = Field(default_factory=list)
-    paths: List[PathDescriptorPayload] = Field(default_factory=list)
-    source_agent: Optional[str] = None
+    top_level_scope_paths: List[str] = Field(default_factory=list, max_length=1000)
+    externalizable_paths: List[str] = Field(default_factory=list, max_length=1000)
+    paths: List[PathDescriptorPayload] = Field(default_factory=list, max_length=10000)
+    source_agent: Optional[str] = Field(default=None, max_length=256)
 
 
 class UpgradeContextPayload(BaseModel):
-    run_id: str = Field(..., min_length=1)
-    prior_domain_contract_version: Optional[int] = Field(default=None, ge=0)
-    new_domain_contract_version: Optional[int] = Field(default=None, ge=0)
-    prior_readable_summary_version: Optional[int] = Field(default=None, ge=0)
-    new_readable_summary_version: Optional[int] = Field(default=None, ge=0)
-    retry_count: Optional[int] = Field(default=None, ge=0)
+    run_id: str = Field(..., min_length=1, max_length=256)
+    prior_domain_contract_version: Optional[int] = Field(default=None, ge=0, le=1000)
+    new_domain_contract_version: Optional[int] = Field(default=None, ge=0, le=1000)
+    prior_readable_summary_version: Optional[int] = Field(default=None, ge=0, le=1000)
+    new_readable_summary_version: Optional[int] = Field(default=None, ge=0, le=1000)
+    retry_count: Optional[int] = Field(default=None, ge=0, le=1000)
 
 
 class WriteProjectionPayload(BaseModel):
-    projection_type: str = Field(..., min_length=1)
-    projection_version: int = Field(default=1, ge=1)
+    projection_type: str = Field(..., min_length=1, max_length=256)
+    projection_version: int = Field(default=1, ge=1, le=1000)
     payload: dict = Field(default_factory=dict)
 
 
 class StoreDomainRequest(BaseModel):
     """Request to store domain data."""
 
-    user_id: str = Field(..., description="User's ID")
-    domain: str = Field(..., description="Domain key (e.g., 'financial')")
+    user_id: str = Field(..., min_length=1, max_length=256, description="User's ID")
+    domain: str = Field(..., min_length=1, max_length=128, description="Domain key (e.g., 'financial')")
     encrypted_blob: EncryptedBlob = Field(..., description="Pre-encrypted data from client")
     summary: dict = Field(..., description="Non-sensitive metadata for index")
     structure_decision: Optional[StructureDecisionPayload] = Field(
@@ -408,11 +408,13 @@ class StoreDomainRequest(BaseModel):
     )
     source_agent: Optional[str] = Field(
         default=None,
+        max_length=256,
         description="Optional explicit source agent label for mutation/audit events",
     )
     expected_data_version: Optional[int] = Field(
         default=None,
         ge=0,
+        le=1000000,
         description="Optional optimistic concurrency guard for the current domain blob version",
     )
     upgrade_context: Optional[UpgradeContextPayload] = Field(
@@ -430,10 +432,10 @@ class StoreDomainResponse(BaseModel):
     """Response from store domain operation."""
 
     success: bool
-    message: Optional[str] = None
+    message: Optional[str] = Field(default=None, max_length=512)
     conflict: bool = False
-    data_version: Optional[int] = None
-    updated_at: Optional[str] = None
+    data_version: Optional[int] = Field(default=None, ge=0, le=1000000)
+    updated_at: Optional[str] = Field(default=None, max_length=64)
 
 
 EncryptedBlob.model_rebuild()
@@ -592,11 +594,11 @@ async def get_encrypted_data(
 
 class DomainDataResponse(BaseModel):
     encrypted_blob: EncryptedBlob
-    storage_mode: str = "domain"
-    data_version: Optional[int] = None
-    updated_at: Optional[str] = None
-    manifest_revision: Optional[int] = None
-    segment_ids: List[str] = Field(default_factory=list)
+    storage_mode: str = Field(default="domain", min_length=1, max_length=64)
+    data_version: Optional[int] = Field(default=None, ge=0, le=1000000)
+    updated_at: Optional[str] = Field(default=None, max_length=64)
+    manifest_revision: Optional[int] = Field(default=None, ge=0, le=1000000)
+    segment_ids: List[str] = Field(default_factory=list, max_length=50)
 
 
 @router.get("/domain-data/{user_id}/{domain}", response_model=DomainDataResponse)
@@ -651,25 +653,25 @@ async def get_domain_data(
 
 
 class DomainManifestResponse(BaseModel):
-    user_id: str
-    domain: str
-    manifest_version: int = 1
-    domain_contract_version: int = 1
-    pkm_contract_version: Optional[str] = None
-    readable_summary_version: int = 0
-    readable_projection_version: Optional[str] = None
-    upgraded_at: Optional[str] = None
+    user_id: str = Field(..., min_length=1, max_length=256)
+    domain: str = Field(..., min_length=1, max_length=128)
+    manifest_version: int = Field(default=1, ge=1, le=1000)
+    domain_contract_version: int = Field(default=1, ge=1, le=1000)
+    pkm_contract_version: Optional[str] = Field(default=None, max_length=256)
+    readable_summary_version: int = Field(default=0, ge=0, le=1000)
+    readable_projection_version: Optional[str] = Field(default=None, max_length=256)
+    upgraded_at: Optional[str] = Field(default=None, max_length=64)
     structure_decision: dict = Field(default_factory=dict)
     summary_projection: dict = Field(default_factory=dict)
-    top_level_scope_paths: List[str] = Field(default_factory=list)
-    externalizable_paths: List[str] = Field(default_factory=list)
-    path_count: int = 0
-    externalizable_path_count: int = 0
-    segment_ids: List[str] = Field(default_factory=list)
-    last_structured_at: Optional[str] = None
-    last_content_at: Optional[str] = None
-    paths: List[dict] = Field(default_factory=list)
-    scope_registry: List[dict] = Field(default_factory=list)
+    top_level_scope_paths: List[str] = Field(default_factory=list, max_length=1000)
+    externalizable_paths: List[str] = Field(default_factory=list, max_length=1000)
+    path_count: int = Field(default=0, ge=0, le=1000000)
+    externalizable_path_count: int = Field(default=0, ge=0, le=1000000)
+    segment_ids: List[str] = Field(default_factory=list, max_length=50)
+    last_structured_at: Optional[str] = Field(default=None, max_length=64)
+    last_content_at: Optional[str] = Field(default=None, max_length=64)
+    paths: List[dict] = Field(default_factory=list, max_length=10000)
+    scope_registry: List[dict] = Field(default_factory=list, max_length=10000)
 
 
 @router.get("/manifest/{user_id}/{domain}", response_model=DomainManifestResponse)
@@ -722,47 +724,47 @@ async def get_domain_manifest(
 
 
 class ScopeExposureChangePayload(BaseModel):
-    scope_handle: Optional[str] = Field(default=None)
-    top_level_scope_path: Optional[str] = Field(default=None)
+    scope_handle: Optional[str] = Field(default=None, max_length=256)
+    top_level_scope_path: Optional[str] = Field(default=None, max_length=1024)
     exposure_enabled: Optional[bool] = Field(default=None)
-    visibility_posture: Optional[str] = Field(default=None)
+    visibility_posture: Optional[str] = Field(default=None, max_length=128)
 
 
 class ScopeExposureRequest(BaseModel):
-    user_id: str = Field(..., description="User's ID")
-    expected_manifest_version: Optional[int] = Field(default=None, ge=1)
+    user_id: str = Field(..., min_length=1, max_length=256, description="User's ID")
+    expected_manifest_version: Optional[int] = Field(default=None, ge=1, le=1000)
     revoke_matching_active_grants: bool = Field(default=True)
     changes: List[ScopeExposureChangePayload] = Field(default_factory=list, max_length=200)
 
 
 class ScopeExposureResponse(BaseModel):
     success: bool
-    message: Optional[str] = None
-    manifest_version: Optional[int] = None
-    revoked_grant_count: int = 0
-    revoked_grant_ids: List[str] = Field(default_factory=list)
+    message: Optional[str] = Field(default=None, max_length=512)
+    manifest_version: Optional[int] = Field(default=None, ge=1, le=1000)
+    revoked_grant_count: int = Field(default=0, ge=0, le=10000)
+    revoked_grant_ids: List[str] = Field(default_factory=list, max_length=10000)
     manifest: dict = Field(default_factory=dict)
 
 
 class DefaultAvailableProjectionRequest(BaseModel):
-    user_id: str = Field(..., description="User's ID")
-    scope: str
-    scope_handle: Optional[str] = None
-    top_level_scope_path: str
+    user_id: str = Field(..., min_length=1, max_length=256, description="User's ID")
+    scope: str = Field(..., min_length=1, max_length=256)
+    scope_handle: Optional[str] = Field(default=None, max_length=256)
+    top_level_scope_path: str = Field(..., min_length=1, max_length=1024)
     projection_payload: dict = Field(default_factory=dict)
-    projection_version: int = Field(default=1, ge=1)
-    manifest_version: Optional[int] = Field(default=None, ge=1)
-    content_revision: Optional[int] = Field(default=None, ge=1)
-    source_content_revision: Optional[int] = Field(default=None, ge=1)
-    source_manifest_revision: Optional[int] = Field(default=None, ge=1)
+    projection_version: int = Field(default=1, ge=1, le=1000)
+    manifest_version: Optional[int] = Field(default=None, ge=1, le=1000)
+    content_revision: Optional[int] = Field(default=None, ge=1, le=1000000)
+    source_content_revision: Optional[int] = Field(default=None, ge=1, le=1000000)
+    source_manifest_revision: Optional[int] = Field(default=None, ge=1, le=1000)
     metadata: dict = Field(default_factory=dict)
 
 
 class DefaultAvailableProjectionResponse(BaseModel):
     success: bool
-    message: Optional[str] = None
-    projection_hash: Optional[str] = None
-    projection_updated_at: Optional[str] = None
+    message: Optional[str] = Field(default=None, max_length=512)
+    projection_hash: Optional[str] = Field(default=None, max_length=256)
+    projection_updated_at: Optional[str] = Field(default=None, max_length=64)
     manifest: dict = Field(default_factory=dict)
 
 
@@ -872,14 +874,14 @@ class DeleteDomainResponse(BaseModel):
     """Response from delete domain operation."""
 
     success: bool
-    message: Optional[str] = None
+    message: Optional[str] = Field(default=None, max_length=512)
 
 
 class ReconcilePkmResponse(BaseModel):
     """Response from index/registry reconciliation."""
 
     success: bool
-    message: Optional[str] = None
+    message: Optional[str] = Field(default=None, max_length=512)
 
 
 @router.delete("/domain-data/{user_id}/{domain}", response_model=DeleteDomainResponse)
@@ -972,66 +974,71 @@ async def delete_attribute_legacy(
 class DomainMetadata(BaseModel):
     """Domain metadata for UI display."""
 
-    key: str = Field(..., description="Domain key (e.g., 'financial')")
-    display_name: str = Field(..., description="Human-readable domain name")
-    icon: str = Field(default="folder", description="Icon name for UI")
-    color: str = Field(default="#6366F1", description="Color hex for UI")
-    attribute_count: int = Field(default=0, description="Number of attributes in domain")
+    key: str = Field(..., min_length=1, max_length=128, description="Domain key (e.g., 'financial')")
+    display_name: str = Field(..., min_length=1, max_length=256, description="Human-readable domain name")
+    icon: str = Field(default="folder", min_length=1, max_length=64, description="Icon name for UI")
+    color: str = Field(default="#6366F1", min_length=1, max_length=64, description="Color hex for UI")
+    attribute_count: int = Field(default=0, ge=0, le=1000000, description="Number of attributes in domain")
     summary: dict = Field(default_factory=dict, description="Domain-specific summary data")
-    available_scopes: List[str] = Field(default_factory=list, description="Available MCP scopes")
-    last_updated: Optional[str] = Field(default=None, description="ISO timestamp of last update")
+    available_scopes: List[str] = Field(default_factory=list, max_length=1000, description="Available MCP scopes")
+    last_updated: Optional[str] = Field(default=None, max_length=64, description="ISO timestamp of last update")
     readable_summary: Optional[str] = Field(
-        default=None, description="Optional consumer-readable summary for this domain"
+        default=None, max_length=8192, description="Optional consumer-readable summary for this domain"
     )
     readable_highlights: List[str] = Field(
         default_factory=list,
+        max_length=1000,
         description="Optional consumer-readable highlights for this domain",
     )
     readable_updated_at: Optional[str] = Field(
-        default=None, description="ISO timestamp of the readable summary refresh"
+        default=None, max_length=64, description="ISO timestamp of the readable summary refresh"
     )
     readable_source_label: Optional[str] = Field(
-        default=None, description="Short label describing where the readable summary came from"
+        default=None, max_length=256, description="Short label describing where the readable summary came from"
     )
-    domain_contract_version: int = Field(default=1, description="Current domain contract version")
-    pkm_contract_version: Optional[str] = Field(default=None)
+    domain_contract_version: int = Field(default=1, ge=1, le=1000, description="Current domain contract version")
+    pkm_contract_version: Optional[str] = Field(default=None, max_length=256)
     readable_summary_version: int = Field(
-        default=0, description="Current readable summary contract version"
+        default=0, ge=0, le=1000, description="Current readable summary contract version"
     )
-    readable_projection_version: Optional[str] = Field(default=None)
+    readable_projection_version: Optional[str] = Field(default=None, max_length=256)
     upgraded_at: Optional[str] = Field(
-        default=None, description="ISO timestamp of the last successful PKM upgrade for this domain"
+        default=None, max_length=64, description="ISO timestamp of the last successful PKM upgrade for this domain"
     )
 
 
 class PersonalKnowledgeModelMetadataResponse(BaseModel):
     """Response for PKM metadata."""
 
-    user_id: str
+    user_id: str = Field(..., min_length=1, max_length=256)
     domains: List[DomainMetadata]
-    total_attributes: int
-    model_completeness: int = Field(description="Percentage of recommended domains filled (0-100)")
-    model_version: int = Field(default=1, description="Current PKM model version for this user")
+    total_attributes: int = Field(..., ge=0, le=1000000)
+    model_completeness: int = Field(..., ge=0, le=100, description="Percentage of recommended domains filled (0-100)")
+    model_version: int = Field(default=1, ge=1, le=1000, description="Current PKM model version for this user")
     stored_model_version: int = Field(
         default=1,
+        ge=1,
+        le=1000,
         description="Stored PKM model version currently persisted in the top-level index",
     )
     effective_model_version: int = Field(
         default=1,
+        ge=1,
+        le=1000,
         description="Effective PKM model version after reconciling manifest truth",
     )
-    target_model_version: int = Field(default=1, description="Latest PKM model version supported")
-    current_pkm_contract_version: Optional[str] = None
-    target_pkm_contract_version: Optional[str] = None
-    current_readable_projection_version: Optional[str] = None
-    target_readable_projection_version: Optional[str] = None
-    upgrade_status: str = Field(default="current")
-    upgradable_domains: List[dict] = Field(default_factory=list)
-    last_upgraded_at: Optional[str] = None
+    target_model_version: int = Field(default=1, ge=1, le=1000, description="Latest PKM model version supported")
+    current_pkm_contract_version: Optional[str] = Field(default=None, max_length=256)
+    target_pkm_contract_version: Optional[str] = Field(default=None, max_length=256)
+    current_readable_projection_version: Optional[str] = Field(default=None, max_length=256)
+    target_readable_projection_version: Optional[str] = Field(default=None, max_length=256)
+    upgrade_status: str = Field(default="current", min_length=1, max_length=128)
+    upgradable_domains: List[dict] = Field(default_factory=list, max_length=1000)
+    last_upgraded_at: Optional[str] = Field(default=None, max_length=64)
     suggested_domains: List[str] = Field(
-        default_factory=list, description="Domains user should consider adding"
+        default_factory=list, max_length=1000, description="Domains user should consider adding"
     )
-    last_updated: Optional[str] = None
+    last_updated: Optional[str] = Field(default=None, max_length=64)
 
 
 @router.get("/metadata/{user_id}", response_model=PersonalKnowledgeModelMetadataResponse)
@@ -1558,30 +1565,31 @@ async def fail_upgrade_run(
 class UserScopesResponse(BaseModel):
     """Lightweight response with scope strings for a user (agent discovery)."""
 
-    user_id: str
+    user_id: str = Field(..., min_length=1, max_length=256)
     scopes: List[str] = Field(
         default_factory=list,
+        max_length=10000,
         description=(
             "Available scope strings for this user, for example pkm.read, "
             "attr.{domain}.*, attr.{domain}.{subintent}.*, or attr.{domain}.{path}."
         ),
     )
-    scope_entries: List[dict] = Field(default_factory=list)
+    scope_entries: List[dict] = Field(default_factory=list, max_length=10000)
 
 
 class DomainRegistryEntryResponse(BaseModel):
-    domain_key: str
-    display_name: str
-    icon_name: str
-    color_hex: str
-    description: str
-    status: str
-    parent_domain: Optional[str] = None
+    domain_key: str = Field(..., min_length=1, max_length=128)
+    display_name: str = Field(..., min_length=1, max_length=256)
+    icon_name: str = Field(..., min_length=1, max_length=64)
+    color_hex: str = Field(..., min_length=1, max_length=64)
+    description: str = Field(..., max_length=1024)
+    status: str = Field(..., min_length=1, max_length=64)
+    parent_domain: Optional[str] = Field(default=None, max_length=128)
 
 
 class DomainRegistryResponse(BaseModel):
-    domains: List[DomainRegistryEntryResponse]
-    canonical_domain_count: int
+    domains: List[DomainRegistryEntryResponse] = Field(..., max_length=1000)
+    canonical_domain_count: int = Field(..., ge=0, le=10000)
 
 
 @router.get("/domain-registry", response_model=DomainRegistryResponse)
