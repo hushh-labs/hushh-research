@@ -395,12 +395,12 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
           accent="sky"
           actions={
             <>
-              <Button variant="none" effect="fade" onClick={() => router.push(ROUTES.KAI_INVESTMENTS)}>
-                <ArrowLeft className="mr-2 h-4 w-4" />
+              <Button type="button" variant="none" effect="fade" onClick={() => router.push(ROUTES.KAI_INVESTMENTS)}>
+                <ArrowLeft className="mr-2 h-4 w-4" aria-hidden="true" />
                 Back to investments
               </Button>
-              <Button variant="none" effect="fade" onClick={() => void reload()}>
-                <RefreshCw className="mr-2 h-4 w-4" />
+              <Button type="button" variant="none" effect="fade" onClick={() => void reload()}>
+                <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
                 Refresh
               </Button>
             </>
@@ -495,41 +495,44 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
 
               <div className="flex flex-wrap gap-2">
                 <Button
+                  type="button"
                   variant="none"
                   effect="fade"
                   disabled={isLinkingFunding}
                   onClick={() => void openFundingLink()}
                 >
                   {isLinkingFunding ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
                   ) : (
-                    <WalletCards className="mr-2 h-4 w-4" />
+                    <WalletCards className="mr-2 h-4 w-4" aria-hidden="true" />
                   )}
                   {fundingItem ? "Manage funding account" : "Connect funding account"}
                 </Button>
                 <Button
+                  type="button"
                   variant="none"
                   effect="fade"
                   disabled={isLinkingBrokerage}
                   onClick={() => void connectBrokerage()}
                 >
                   {isLinkingBrokerage ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
                   ) : (
-                    <KeyRound className="mr-2 h-4 w-4" />
+                    <KeyRound className="mr-2 h-4 w-4" aria-hidden="true" />
                   )}
                   {brokerageOptions.length ? "Manage brokerage account" : "Connect brokerage account"}
                 </Button>
                 <Button
+                  type="button"
                   variant="blue-gradient"
                   effect="fill"
                   disabled={isSubmitting}
                   onClick={() => void createFundAndTrade()}
                 >
                   {isSubmitting ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
                   ) : (
-                    <BadgeDollarSign className="mr-2 h-4 w-4" />
+                    <BadgeDollarSign className="mr-2 h-4 w-4" aria-hidden="true" />
                   )}
                   Fund and trade
                 </Button>
@@ -583,6 +586,7 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
                       {intentId ? (
                         <div className="mt-2">
                           <Button
+                            type="button"
                             variant="none"
                             effect="fade"
                             size="sm"
@@ -590,9 +594,9 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
                             onClick={() => void refreshIntent(intentId)}
                           >
                             {refreshingIntentId === intentId ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
                             ) : (
-                              <RefreshCw className="mr-2 h-4 w-4" />
+                              <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
                             )}
                             Refresh status
                           </Button>
