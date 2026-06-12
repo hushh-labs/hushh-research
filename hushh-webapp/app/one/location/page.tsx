@@ -985,7 +985,7 @@ function OneLocationInitialSkeleton() {
   );
 }
 
-export function OneLocationAgentPageContent() {
+function OneLocationAgentPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const auth = useRequireAuth();
