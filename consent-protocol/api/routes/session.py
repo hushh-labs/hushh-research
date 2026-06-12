@@ -6,6 +6,7 @@ Session token and user management endpoints.
 import hmac
 import logging
 import os
+import time
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -14,6 +15,7 @@ from api.middleware import require_vault_owner_token
 from api.models import LogoutRequest, SessionTokenRequest, SessionTokenResponse
 from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import verify_firebase_bearer
+from hushh_mcp.consent.token import revoke_token
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.user_identifier_service import resolve_lookup_identifier
@@ -99,24 +101,58 @@ async def issue_session_token(
 
 
 @router.post("/consent/logout")
-async def logout_session(request: LogoutRequest):
+async def logout_session(
+    request: LogoutRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
     """
     Destroy all session tokens for a user.
 
-    Called when user logs out. Invalidates all active session tokens.
-    External API tokens are NOT affected.
+    REQUIRES: VAULT_OWNER consent token (via Authorization header).
+    Only revokes session tokens (agent_id="self"). External API tokens are
+    NOT affected so third-party integrations survive user logout.
     """
+    if str(token_data["user_id"]) != request.userId:
+        raise HTTPException(status_code=403, detail="Token user mismatch")
 
-    logger.info("session.logout")
+    logger.info("session.logout user=%s", request.userId)
 
-    # In production, this would query the database for all session tokens
-    # and revoke them. For now, we just log the action.
-    # The frontend should also clear sessionStorage.
+    try:
+        service = ConsentDBService()
+        active_tokens = await service.get_active_tokens(request.userId, agent_id="self")
 
-    return {
-        "status": "success",
-        "message": "Session tokens marked for revocation",
-    }
+        revoked_count = 0
+        for tok in active_tokens:
+            token_id = tok.get("token_id")
+            tok_scope = tok.get("scope", "vault.owner")
+            tok_agent = tok.get("agent_id", "self")
+            if token_id:
+                # In-memory revocation: fast path on this instance.
+                revoke_token(token_id)
+                # DB revocation: cross-instance consistency via event-sourcing.
+                revoke_event_id = f"REVOKED_SESSION_{int(time.time() * 1000)}_{revoked_count}"
+                await service.insert_event(
+                    user_id=request.userId,
+                    agent_id=tok_agent,
+                    scope=tok_scope,
+                    action="REVOKED",
+                    token_id=revoke_event_id,
+                    metadata={"reason": "logout"},
+                )
+                revoked_count += 1
+
+        logger.info("session.logout.revoked count=%s user=%s", revoked_count, request.userId)
+
+        return {
+            "status": "success",
+            "message": "Session tokens revoked. Clear sessionStorage on the client.",
+            "revoked_count": revoked_count,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("session.logout.failed user=%s error=%s", request.userId, e)
+        raise HTTPException(status_code=500, detail="Failed to revoke session tokens")
 
 
 @router.get("/consent/history")

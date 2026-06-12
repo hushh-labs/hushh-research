@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/tickers", tags=["Tickers (Public)"])
 class SyncHoldingsRequest(BaseModel):
     """User-holdings driven ticker ETL request payload."""
 
-    holdings: list[dict] = Field(default_factory=list)
+    holdings: list[dict] = Field(default_factory=list, max_length=10000)
     max_symbols: int = Field(default=200, ge=1, le=1000)
     enrich_missing: bool = Field(default=True)
     refresh_cache: bool = Field(default=True)

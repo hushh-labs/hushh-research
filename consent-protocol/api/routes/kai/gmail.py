@@ -19,33 +19,33 @@ router = APIRouter(tags=["Kai Gmail"])
 
 
 class GmailConnectStartRequest(BaseModel):
-    user_id: str = Field(min_length=1)
-    redirect_uri: str | None = Field(default=None, max_length=1000)
-    login_hint: str | None = Field(default=None, max_length=320)
+    user_id: str = Field(min_length=1, max_length=256)
+    redirect_uri: str | None = Field(default=None, max_length=2048)
+    login_hint: str | None = Field(default=None, max_length=512)
     include_granted_scopes: bool = False
 
 
 class GmailConnectCompleteRequest(BaseModel):
-    user_id: str = Field(min_length=1)
-    code: str = Field(min_length=1)
-    state: str = Field(min_length=1)
-    redirect_uri: str | None = Field(default=None, max_length=1000)
+    user_id: str = Field(min_length=1, max_length=256)
+    code: str = Field(min_length=1, max_length=512)
+    state: str = Field(min_length=1, max_length=512)
+    redirect_uri: str | None = Field(default=None, max_length=2048)
 
 
 class GmailDisconnectRequest(BaseModel):
-    user_id: str = Field(min_length=1)
+    user_id: str = Field(min_length=1, max_length=256)
 
 
 class GmailSyncRequest(BaseModel):
-    user_id: str = Field(min_length=1)
+    user_id: str = Field(min_length=1, max_length=256)
 
 
 class GmailReconcileRequest(BaseModel):
-    user_id: str = Field(min_length=1)
+    user_id: str = Field(min_length=1, max_length=256)
 
 
 class GmailReceiptMemoryPreviewRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=128)
+    user_id: str = Field(min_length=1, max_length=256)
     force_refresh: bool = False
 
 
@@ -363,9 +363,10 @@ async def gmail_webhook(request: Request):
     try:
         payload = await request.json()
     except Exception as exc:
+        logger.warning("kai.gmail.webhook.invalid_json: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "GMAIL_WEBHOOK_INVALID_JSON", "message": str(exc)},
+            detail={"code": "GMAIL_WEBHOOK_INVALID_JSON", "message": "Webhook payload is not valid JSON."},
         ) from exc
 
     if not isinstance(payload, dict):
