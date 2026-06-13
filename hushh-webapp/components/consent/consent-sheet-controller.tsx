@@ -103,7 +103,9 @@ export function ConsentSheetProvider({ children }: { children: ReactNode }) {
 
   return (
     <ConsentSheetContext.Provider value={value}>
-      {children}
+      <div data-testid="consent-sheet-provider" style={{ display: "contents" }}>
+        {children}
+      </div>
     </ConsentSheetContext.Provider>
   );
 }
