@@ -1376,6 +1376,7 @@ export function AgentChatWorkspace({
     const token = getVaultOwnerToken();
     const isVoiceTurn = options.source === "voice";
     const appendUserMessage = options.appendUserMessage ?? true;
+    const shouldRestoreTypedDraft = options.source === "typed" && appendUserMessage;
     const voiceTurnEpoch = isVoiceTurn ? voiceSessionEpochRef.current : null;
     let voiceAssistantMarkdown = "";
     let voiceReceiptSpoken = false;
@@ -1908,6 +1909,9 @@ export function AgentChatWorkspace({
       }));
       setIsChatLoading(false);
       setIsStreaming(false);
+      if (shouldRestoreTypedDraft) {
+        setInput((current) => (current.length > 0 ? current : textInput));
+      }
       return;
     }
 
@@ -2128,6 +2132,9 @@ export function AgentChatWorkspace({
             }));
             setIsChatLoading(false);
             setIsStreaming(false);
+            if (shouldRestoreTypedDraft) {
+              setInput((current) => (current.length > 0 ? current : textInput));
+            }
           },
         },
       });
@@ -2189,6 +2196,9 @@ export function AgentChatWorkspace({
       void loadConversationList().catch(() => undefined);
       setIsChatLoading(false);
       setIsStreaming(false);
+      if (shouldRestoreTypedDraft) {
+        setInput((current) => (current.length > 0 ? current : textInput));
+      }
     } finally {
       clearVoiceStreamWatchdog();
       cancelAssistantFlush();
