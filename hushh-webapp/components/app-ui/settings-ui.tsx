@@ -245,6 +245,7 @@ export function SettingsRow({
       {trailing}
       {chevron ? (
         <ChevronRight
+          aria-hidden="true"
           className={cn(
             "h-4 w-4 shrink-0 text-muted-foreground/90 transition-transform",
             isInteractive && "group-hover:translate-x-0.5"
