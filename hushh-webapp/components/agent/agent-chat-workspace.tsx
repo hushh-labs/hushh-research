@@ -2763,7 +2763,8 @@ export function AgentChatWorkspace({
             onSubmit={handleSubmit}
             className={cn(
               "shrink-0 border-t border-white/10 bg-[#15171c]/95 px-3 py-3 backdrop-blur sm:px-5",
-              !isPopover && "pb-[calc(0.75rem+var(--app-safe-area-bottom-effective,0px))]"
+              !isPopover &&
+                "pb-[calc(0.75rem+max(var(--app-safe-area-bottom-effective,0px),env(keyboard-inset-height,0px)))]"
             )}
           >
             <div className="mx-auto w-full max-w-3xl">
