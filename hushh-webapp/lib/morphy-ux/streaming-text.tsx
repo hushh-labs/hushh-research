@@ -298,6 +298,7 @@ export function StreamingTextDisplay({
       {/* Scroll to bottom button (shows when user scrolled up during streaming) */}
       {userScrolledUp && isStreaming && (
         <button
+          type="button"
           onClick={handleScrollToBottom}
           className={cn(
             "sticky bottom-2 left-1/2 -translate-x-1/2 z-10",
