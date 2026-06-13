@@ -23,9 +23,9 @@ type KycDisplayItem = {
 
 function StatusIcon({ status }: { status: KycItemStatus }) {
   if (status === "verified") {
-    return <Icon icon={CircleCheck} size="lg" className="text-emerald-500" />;
+    return <Icon icon={CircleCheck} size="lg" aria-hidden="true" className="text-emerald-500" />;
   }
-  return <Icon icon={CircleDashed} size="lg" className="text-muted-foreground" />;
+  return <Icon icon={CircleDashed} size="lg" aria-hidden="true" className="text-muted-foreground" />;
 }
 
 function buildDisplayItems(
@@ -99,7 +99,7 @@ export function KycPreviewCompact() {
                   <div
                     className={`grid h-10 w-10 place-items-center rounded-full ${item.iconTone}`}
                   >
-                    <Icon icon={item.icon} size="md" />
+                    <Icon icon={item.icon} size="md" aria-hidden="true" />
                   </div>
                   <span className="text-[15px] font-semibold">{item.label}</span>
                 </div>
