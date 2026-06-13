@@ -83,6 +83,17 @@ Fastest frontend-only hosted shortcut:
 ./bin/hushh web
 ```
 
+Production-like local frontend:
+
+```bash
+./bin/hushh env use --mode local
+cd hushh-webapp
+npm run build
+npm run start
+```
+
+Use `./bin/hushh env use --mode uat` or `./bin/hushh env use --mode prod` before `npm run build` only when you intentionally want the optimized local frontend to call the deployed UAT or production backend.
+
 ## Choose Your Lane
 
 - Monorepo app contributor:

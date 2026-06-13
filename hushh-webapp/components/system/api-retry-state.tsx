@@ -28,7 +28,6 @@ export function ApiRetryState({
           </div>
         </div>
         <Button type="button" variant="none" effect="fade" size="sm" onClick={onRetry}>
-          <RefreshCcw className="mr-2 h-4 w-4" aria-hidden="true" />
           Retry
         </Button>
       </div>
@@ -51,8 +50,7 @@ export function ApiRetryState({
           </div>
 
           <Button type="button" variant="none" effect="fade" size="sm" onClick={onRetry}>
-            <RefreshCcw className="mr-2 h-4 w-4" aria-hidden="true" />
-            Retry
+
           </Button>
         </div>
       </div>

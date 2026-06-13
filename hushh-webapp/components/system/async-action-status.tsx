@@ -46,6 +46,7 @@ export function AsyncActionStatus({
       }
     >
       <Icon
+        aria-hidden="true"
         className={
           state === "loading" || state === "retrying"
             ? "h-4 w-4 animate-spin"
