@@ -222,6 +222,8 @@ export function ConsentInboxDropdown({
             type="button"
             className={triggerClassName}
             aria-label="Open consent inbox"
+            aria-haspopup="menu"
+            aria-expanded={open}
           >
             <Shield className="h-5 w-5" />
             {pendingCount > 0 ? (
