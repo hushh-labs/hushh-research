@@ -59,11 +59,13 @@ function InfoRow({
 
 function EditableRow({
   label,
+  inputId,
   value,
   onChange,
   loading,
 }: {
   label: string;
+  inputId?: string;
   value: string;
   onChange: (value: string) => void;
   loading?: boolean;
@@ -78,6 +80,7 @@ function EditableRow({
       ) : (
         <span className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">
           <input
+            id={inputId}
             type="text"
             value={value}
             onChange={(event) => onChange(event.target.value)}
@@ -137,6 +140,7 @@ export function OnboardingStepLicenseDetails({
       <GroupShell>
         <EditableRow
           label="Advisor"
+          inputId="ria-advisor-name"
           value={advisorName}
           onChange={onAdvisorNameChange}
         />
