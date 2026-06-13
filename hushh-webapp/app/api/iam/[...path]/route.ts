@@ -140,7 +140,7 @@ async function proxyRequest(
       requestId,
       {
         error: "Failed to proxy IAM request",
-        detail: error instanceof Error ? error.message : "unknown_error",
+        detail: "unknown_error",
       },
       { status: 504 }
     );
