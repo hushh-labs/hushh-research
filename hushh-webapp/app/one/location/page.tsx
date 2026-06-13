@@ -3244,7 +3244,10 @@ export function OneLocationAgentPageContent() {
                                 className="rounded-full border-black/[0.06] bg-[#f2f2f7] dark:border-white/[0.08] dark:bg-white/10"
                               >
                                 {busy === "view" ? (
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  <Loader2
+                                    aria-hidden="true"
+                                    className="mr-2 h-4 w-4 animate-spin"
+                                  />
                                 ) : (
                                   <ShieldCheck className="mr-2 h-4 w-4" />
                                 )}
