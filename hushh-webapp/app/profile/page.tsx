@@ -4110,7 +4110,7 @@ function ProfilePageContent() {
                   .slice(0, 2)
                   .toUpperCase()
               ) : (
-                <Icon icon={User} size={48} />
+                <Icon icon={User} size={48} aria-hidden="true" />
               )}
             </AvatarFallback>
           </Avatar>
