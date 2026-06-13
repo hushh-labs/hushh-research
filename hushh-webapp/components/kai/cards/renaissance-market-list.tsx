@@ -159,7 +159,7 @@ export function RiaPicksList({
     ? MOBILE_PICKS_PAGE_SIZE_OPTIONS
     : DESKTOP_PICKS_PAGE_SIZE_OPTIONS;
   const defaultPageSize = pageSizeOptions[0] ?? 6;
-  const [selectedRow, setSelectedRow] = useState<KaiHomeRenaissanceItem | null>(null);
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [activeMobileControl, setActiveMobileControl] = useState<"search" | "filters" | "rows" | null>(
     null
   );
@@ -223,6 +223,13 @@ export function RiaPicksList({
       return matchesTier && matchesSector && matchesQuery;
     });
   }, [query, rows, sectorFilter, tierFilter]);
+  const selectedRow = useMemo(
+    () =>
+      selectedSymbol
+        ? rows.find((row) => String(row.symbol || "") === selectedSymbol) ?? null
+        : null,
+    [rows, selectedSymbol]
+  );
 
   useEffect(() => {
     setPage(1);
@@ -633,7 +640,7 @@ export function RiaPicksList({
                   key={`${row.symbol}-${row.tier || "tierless"}`}
                   type="button"
                   data-no-route-swipe
-                  onClick={() => setSelectedRow(row)}
+                  onClick={() => setSelectedSymbol(String(row.symbol || ""))}
                   className={cn(
                     "group relative isolate flex w-full gap-3 text-left transition-colors",
                     isMobile
@@ -784,7 +791,7 @@ export function RiaPicksList({
       <KaiControlSurface
         open={Boolean(selectedRow)}
         onOpenChange={(open) => {
-          if (!open) setSelectedRow(null);
+          if (!open) setSelectedSymbol(null);
         }}
         eyebrow="Advisor ideas"
         title={selectedRow ? `${selectedRow.symbol} · ${selectedRow.company_name}` : "Pick detail"}
