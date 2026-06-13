@@ -37,7 +37,7 @@ export function HoldingRowActions({
     return (
       <div
         className={cn(
-          "flex w-full items-center justify-start",
+          "flex w-full flex-nowrap items-center justify-start",
           className
         )}
       >
@@ -82,7 +82,7 @@ export function HoldingRowActions({
   }
 
   return (
-    <div className={cn("flex items-center justify-end gap-1", className)}>
+    <div className={cn("flex flex-nowrap items-center justify-end gap-1", className)}>
       <MorphyButton
         variant="none"
         effect="fade"
