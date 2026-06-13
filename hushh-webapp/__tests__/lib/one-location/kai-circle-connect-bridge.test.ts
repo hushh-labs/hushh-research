@@ -77,7 +77,7 @@ describe("KAI Circle Connect bridge", () => {
     });
   });
 
-  it("keeps public profiles without userId as connect-first and never share-ready", () => {
+  it("keeps public profiles without userId as invite-only and never share-ready", () => {
     const [candidate] = buildKaiCircleCandidates({
       connectCandidates: [
         connectCandidate({
@@ -93,10 +93,11 @@ describe("KAI Circle Connect bridge", () => {
     });
 
     expect(candidate.userId).toBeNull();
-    expect(candidate.readiness).toBe("connect_first");
+    expect(candidate.readiness).toBe("invite_only");
     expect(candidate.isShareReady).toBe(false);
     expect(resolveKaiCircleCtas({ candidate, mode: "share" })[0]).toMatchObject({
-      id: "connect_first",
+      id: "open_connect_profile",
+      label: "Invite to One",
     });
   });
 

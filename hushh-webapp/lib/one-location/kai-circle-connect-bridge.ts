@@ -126,7 +126,7 @@ function fromConnect(connect: ConnectCandidate, viewerCapabilities?: OneLocation
     canReceiveLocation: false,
     isShareReady: false,
     readiness: isPublicProfileOnly
-      ? "connect_first"
+      ? "invite_only"
       : viewerNeedsSetup
         ? "viewer_setup_needed"
         : "target_setup_needed",

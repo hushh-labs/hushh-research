@@ -32,19 +32,11 @@ export function resolveKaiCircleCtas(params: {
   }
 
   if (!candidate.userId || candidate.isPublicProfileOnly) {
-    ctas.push(
-      {
-        id: "connect_first",
-        label: "Connect First",
-        enabled: Boolean(candidate.profileHref || candidate.connectionHref),
-        reason: "Location sharing requires a real KAI user connection.",
-      },
-      {
-        id: "open_connect_profile",
-        label: "Open Connect Profile",
-        enabled: Boolean(candidate.profileHref || candidate.connectionHref),
-      },
-    );
+    ctas.push({
+      id: "open_connect_profile",
+      label: "Invite to One",
+      enabled: Boolean(candidate.profileHref || candidate.connectionHref),
+    });
     return ctas;
   }
 
@@ -56,7 +48,7 @@ export function resolveKaiCircleCtas(params: {
         id: "ask_to_setup_one_location",
         label: "Ask to Setup One Location",
         enabled: true,
-        reason: "They need a One Location recipient key before encrypted sharing.",
+        reason: "They need a One Location recipient key before private sharing.",
       });
     }
   } else {

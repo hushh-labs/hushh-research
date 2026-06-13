@@ -2638,7 +2638,7 @@ function OneLocationAgentPageContent() {
                           viewerCapabilities: state?.viewerCapabilities,
                         });
                         const connectCta = ctas.find((cta) =>
-                          ["connect_first", "open_connect_profile", "ask_to_setup_one_location"].includes(cta.id),
+                          ["open_connect_profile", "ask_to_setup_one_location"].includes(cta.id),
                         );
                         return (
                           <div
@@ -2659,7 +2659,7 @@ function OneLocationAgentPageContent() {
                                   </span>
                                   <span className="rounded-md bg-[#f0f5ff] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]">
                                     {!recipient.userId
-                                      ? "Connect"
+                                      ? "Invite"
                                       : recipient.phoneVerified
                                       ? "Verified"
                                       : "Contact"}

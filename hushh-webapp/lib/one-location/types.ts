@@ -63,7 +63,7 @@ type KaiCircleCandidateReadiness =
   | "location_ready"
   | "target_setup_needed"
   | "viewer_setup_needed"
-  | "connect_first"
+  | "invite_only"
   | "not_shareable";
 
 export type KaiCircleCandidate = {
@@ -121,7 +121,6 @@ type KaiCircleCtaId =
   | "request_location"
   | "ask_to_setup_one_location"
   | "open_connect_profile"
-  | "connect_first"
   | "approve"
   | "deny"
   | "view_shared_location"
