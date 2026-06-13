@@ -552,6 +552,7 @@ export function ConsentNotificationProvider({
 
           <div className="flex gap-2 justify-center">
             <button
+              type="button"
               onClick={() => {
                 void acknowledgePendingConsent(consent, "review_button");
                 toast.dismiss(toastKey);
@@ -573,6 +574,7 @@ export function ConsentNotificationProvider({
               Review
             </button>
             <button
+              type="button"
               onClick={() => {
                 toast.dismiss(toastKey);
                 void handleDeny(consent.id);
@@ -632,6 +634,7 @@ export function ConsentNotificationProvider({
             <p className="line-clamp-2 text-xs text-muted-foreground">{description}</p>
           </div>
           <button
+            type="button"
             onClick={() => {
               markOneLocationGrantOpened(user.uid, grantId);
               toast.dismiss(toastKey);
@@ -720,6 +723,7 @@ export function ConsentNotificationProvider({
             <p className="line-clamp-2 text-xs text-muted-foreground">{copy.description}</p>
           </div>
           <button
+            type="button"
             onClick={() => {
               toast.dismiss(toastKey);
               router.push(routeHref, { scroll: false });

@@ -307,6 +307,7 @@ export function PkmExplorerPanel() {
                   <button
                     key={domain.key}
                     type="button"
+                    aria-pressed={isActive}
                     className={`w-full rounded-[var(--radius-md)] border-0 px-4 py-3 text-left transition ${
                       isActive
                         ? "bg-primary/8 text-foreground dark:bg-primary/12"

@@ -1,6 +1,13 @@
 # api/routes/session.py
 """
 Session token and user management endpoints.
+
+Canonical attach point (pagination offset cap):
+    api.routes.session.get_consent_history -> GET /api/session/consent/history
+    page is capped at 1_000 (was 10_000) so the maximum DB offset is
+    page_max * limit_max = 1_000 * 200 = 200_000 rows.  The previous cap
+    of 10_000 allowed offsets of up to 2_000_000 rows, creating a
+    denial-of-service vector via expensive full-table-scan queries.
 """
 
 import hmac
@@ -158,7 +165,7 @@ async def logout_session(
 @router.get("/consent/history")
 async def get_consent_history(
     userId: str = Query(..., max_length=128),
-    page: int = Query(1, ge=1, le=10_000),
+    page: int = Query(1, ge=1, le=1_000),
     limit: int = Query(50, ge=1, le=200),
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -246,11 +253,11 @@ async def get_active_consents(
 
 @router.get("/user/lookup")
 async def lookup_user(
-    identifier: Optional[str] = None,
-    email: Optional[str] = None,
-    phone_number: Optional[str] = None,
-    country_iso2: Optional[str] = None,
-    country: Optional[str] = None,
+    identifier: Optional[str] = Query(default=None, max_length=128),
+    email: Optional[str] = Query(default=None, max_length=320),
+    phone_number: Optional[str] = Query(default=None, max_length=32),
+    country_iso2: Optional[str] = Query(default=None, max_length=2),
+    country: Optional[str] = Query(default=None, max_length=64),
     x_mcp_developer_token: Optional[str] = Header(None, alias="X-MCP-Developer-Token"),
 ):
     """

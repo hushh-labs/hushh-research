@@ -405,98 +405,93 @@ class DomainInferrer:
 
         Returns:
             The inferred domain key, or 'general' if no match
+            or 'ambiguous' if two domains score within 2 points of each other.
         """
-        # Normalize the key
-        key_lower = attribute_key.lower().strip()
-        key_parts = set(key_lower.replace("_", " ").replace("-", " ").split())
-
-        # Track scores for each domain
-        scores: dict[str, int] = {}
-
-        for domain, config in self.rules.items():
-            score = 0
-
-            # Check keywords
-            keywords = set(config.get("keywords", []))
-            keyword_matches = key_parts & keywords
-            score += len(keyword_matches) * 2  # Keywords worth 2 points each
-
-            # Check if any keyword is a substring of the key
-            for keyword in keywords:
-                if keyword in key_lower:
-                    score += 1
-
-            # Check patterns
-            for pattern in self._compiled_patterns.get(domain, []):
-                if pattern.match(key_lower):
-                    score += 3  # Pattern match worth 3 points
-
-            # Check value hint if provided
-            if value_hint:
-                value_lower = value_hint.lower()
-                for keyword in keywords:
-                    if keyword in value_lower:
-                        score += 1
-
-            if score > 0:
-                scores[domain] = score
-
-        # Return domain with highest score, or 'general' if no matches
-        if not scores:
-            return "general"
-
-        return max(scores, key=scores.get)
+        domain, _ = self.infer_with_confidence(attribute_key, value_hint)
+        return domain
 
     def infer_with_confidence(
-        self, attribute_key: str, value_hint: Optional[str] = None
-    ) -> tuple[str, float]:
+    self, attribute_key: str, value_hint: Optional[str] = None
+                        ) -> tuple[str, float]:
         """
         Infer domain with confidence score.
 
+        Fixes two bugs in the original implementation:
+        1. Silent wrong domain assignment when two domains score closely.
+        Now returns 'ambiguous' when top-2 domains are within 2 points.
+        2. Confidence was calculated against global max_possible_score
+        (across all domains) instead of the winning domain's own max.
+        Now uses winning domain's max for a meaningful confidence value.
+
         Returns:
-            Tuple of (domain_key, confidence) where confidence is 0.0-1.0
+            Tuple of (domain_key, confidence) where:
+            - domain_key is the best domain, 'ambiguous', or 'general'
+            - confidence is 0.0-1.0 relative to the winning domain's max
         """
         key_lower = attribute_key.lower().strip()
         key_parts = set(key_lower.replace("_", " ").replace("-", " ").split())
 
         scores: dict[str, int] = {}
-        max_possible_score = 0
+        domain_max_scores: dict[str, int] = {}
 
         for domain, config in self.rules.items():
             score = 0
             domain_max = 0
 
-            # Keywords
             keywords = set(config.get("keywords", []))
             keyword_matches = key_parts & keywords
             score += len(keyword_matches) * 2
             domain_max += len(keywords) * 2
 
-            # Substring matches
             for keyword in keywords:
                 if keyword in key_lower:
                     score += 1
                     domain_max += 1
-
-            # Patterns
+            
+            #pattens
             patterns = self._compiled_patterns.get(domain, [])
             for pattern in patterns:
                 if pattern.match(key_lower):
                     score += 3
                 domain_max += 3
 
+            if value_hint:
+                value_lower = value_hint.lower()
+                for keyword in keywords:
+                    if keyword in value_lower:
+                        score += 1
+                        domain_max += 1
+
             if score > 0:
                 scores[domain] = score
-            max_possible_score = max(max_possible_score, domain_max)
+                # Cap domain_max at 3x the actual score for meaningful confidence
+                # Full theoretical max inflates confidence unfairly
+                domain_max_scores[domain] = min(domain_max, score * 3)
 
         if not scores:
             return ("general", 0.0)
 
-        best_domain = max(scores, key=scores.get)
-        best_score = scores[best_domain]
+        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        best_domain, best_score = ranked[0]
 
-        # Calculate confidence as ratio of score to max possible
-        confidence = min(1.0, best_score / max(1, max_possible_score))
+        # Bug fix 1: Ambiguity detection
+        if len(ranked) >= 2:
+            second_domain, second_score = ranked[1]
+            if (best_score - second_score) <= 2:
+                logger.info(
+                    "[DomainInferrer] Ambiguous key '%s': "
+                    "%s(%d) vs %s(%d) — flagging as ambiguous",
+                    attribute_key,
+                    best_domain,
+                    best_score,
+                    second_domain,
+                    second_score,
+                )
+                return ("ambiguous", 0.0)
+
+        # Bug fix 2: Use winning domain's own max score for confidence
+        winning_domain_max = domain_max_scores.get(best_domain, 1)
+        confidence = min(1.0, best_score / max(1, winning_domain_max))
 
         return (best_domain, confidence)
 
@@ -562,6 +557,57 @@ class DomainInferrer:
     def list_domains(self) -> list[str]:
         """List all known domain keys."""
         return list(self.rules.keys())
+
+    def infer_with_candidates(
+        self, attribute_key: str, value_hint: Optional[str] = None
+    ) -> dict:
+        """
+        Infer domain and return full candidate list for ambiguous keys.
+        Use this when you need to show the user a choice between domains.
+        """
+        key_lower = attribute_key.lower().strip()
+        key_parts = set(key_lower.replace("_", " ").replace("-", " ").split())
+        scores: dict[str, int] = {}
+
+        for domain, config in self.rules.items():
+            score = 0
+            keywords = set(config.get("keywords", []))
+            score += len(key_parts & keywords) * 2
+            for keyword in keywords:
+                if keyword in key_lower:
+                    score += 1
+            for pattern in self._compiled_patterns.get(domain, []):
+                if pattern.match(key_lower):
+                    score += 3
+            if value_hint:
+                value_lower = value_hint.lower()
+                for keyword in keywords:
+                    if keyword in value_lower:
+                        score += 1
+            if score > 0:
+                scores[domain] = score
+
+        if not scores:
+            return {
+                "domain": "general",
+                "confidence": 0.0,
+                "candidates": [],
+                "is_ambiguous": False,
+            }
+
+        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        best_score = ranked[0][1]
+        is_ambiguous = (
+            len(ranked) >= 2 and (best_score - ranked[1][1]) <= 2
+        )
+        domain, confidence = self.infer_with_confidence(attribute_key, value_hint)
+
+        return {
+            "domain": domain,
+            "confidence": confidence,
+            "candidates": ranked[:3],
+            "is_ambiguous": is_ambiguous,
+        }
 
 
 # Singleton instance

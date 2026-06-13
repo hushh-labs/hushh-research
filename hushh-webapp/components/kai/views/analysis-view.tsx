@@ -210,6 +210,7 @@ export function AnalysisView({
                 key={tab.key}
                 variant={activeTab === tab.key ? "gradient" : "muted"}
                 size="sm"
+                aria-pressed={activeTab === tab.key}
                 onClick={() => setActiveTab(tab.key as typeof activeTab)}
                 className="flex-1"
               >

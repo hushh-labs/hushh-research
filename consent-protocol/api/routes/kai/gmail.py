@@ -1,11 +1,17 @@
-"""Kai Gmail receipts connector routes."""
+"""Kai Gmail receipts connector routes.
+
+Canonical attach points
+-----------------------
+api.routes.kai.gmail.gmail_status   -> GET /gmail/status/{user_id}
+api.routes.kai.gmail.gmail_receipts -> GET /gmail/receipts/{user_id}
+"""
 
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
@@ -185,7 +191,7 @@ async def gmail_connect_complete(
 
 @router.get("/gmail/status/{user_id}")
 async def gmail_status(
-    user_id: str,
+    user_id: str = Path(..., min_length=1, max_length=128),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     verify_user_id_match(firebase_uid, user_id)
@@ -270,8 +276,8 @@ async def gmail_sync_run(
 
 @router.get("/gmail/receipts/{user_id}")
 async def gmail_receipts(
-    user_id: str,
-    page: int = Query(1, ge=1),
+    user_id: str = Path(..., min_length=1, max_length=128),
+    page: int = Query(1, ge=1, le=1_000),
     per_page: int = Query(25, ge=1, le=100),
     firebase_uid: str = Depends(require_firebase_auth),
     token_data: dict = Depends(require_vault_owner_token),

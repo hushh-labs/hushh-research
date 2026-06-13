@@ -12,7 +12,7 @@ import json
 import logging
 import uuid
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Annotated, Any, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field, ValidationError
@@ -25,6 +25,11 @@ from hushh_mcp.services.pkm_upgrade_service import get_pkm_upgrade_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/pkm", tags=["pkm"])
+
+# Bounded path-parameter aliases (CWE-400: uncontrolled resource consumption).
+_UserId = Annotated[str, Path(min_length=1, max_length=128)]
+_Domain = Annotated[str, Path(min_length=1, max_length=200)]
+_AttributeKey = Annotated[str, Path(min_length=1, max_length=256)]
 
 _COMPACT_SCOPE_SOURCE_KINDS = {"pkm_index", "pkm_manifests.top_level_scope_paths"}
 _INTERNAL_ONLY_PKM_DOMAINS = {"kyc_connector", "kyc_workflow"}
@@ -568,7 +573,7 @@ async def store_domain(
 
 @router.get("/data/{user_id}", response_model=dict)
 async def get_encrypted_data(
-    user_id: str,
+    user_id: _UserId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -603,8 +608,8 @@ class DomainDataResponse(BaseModel):
 
 @router.get("/domain-data/{user_id}/{domain}", response_model=DomainDataResponse)
 async def get_domain_data(
-    user_id: str,
-    domain: str,
+    user_id: _UserId,
+    domain: _Domain,
     segment_ids: Optional[List[str]] = Depends(_validated_segment_ids),
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -676,8 +681,8 @@ class DomainManifestResponse(BaseModel):
 
 @router.get("/manifest/{user_id}/{domain}", response_model=DomainManifestResponse)
 async def get_domain_manifest(
-    user_id: str,
-    domain: str,
+    user_id: _UserId,
+    domain: _Domain,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """Get the manifest-backed structure contract for a specific user/domain."""
@@ -886,8 +891,8 @@ class ReconcilePkmResponse(BaseModel):
 
 @router.delete("/domain-data/{user_id}/{domain}", response_model=DeleteDomainResponse)
 async def delete_domain_data(
-    user_id: str,
-    domain: str,
+    user_id: _UserId,
+    domain: _Domain,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -919,7 +924,7 @@ async def delete_domain_data(
 
 @router.post("/reconcile/{user_id}", response_model=ReconcilePkmResponse)
 async def reconcile_pkm_index(
-    user_id: str,
+    user_id: _UserId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -954,9 +959,9 @@ async def reconcile_pkm_index(
 
 @router.delete("/attributes/{user_id}/{domain}/{attribute_key}", status_code=410)
 async def delete_attribute_legacy(
-    user_id: str,
-    domain: str,
-    attribute_key: str,
+    user_id: _UserId,
+    domain: _Domain,
+    attribute_key: _AttributeKey,
 ):
     """
     Deprecated. Attribute-level delete is client-side only (BYOK).
