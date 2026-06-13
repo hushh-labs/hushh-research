@@ -61,12 +61,13 @@ export function IntroStep({
 
         <footer className="flex-none pt-4 pb-[var(--app-screen-footer-pad)]">
           <div className="space-y-3">
-            <Button size="lg" fullWidth onClick={onNext} showRipple>
+            <Button type="button" size="lg" fullWidth onClick={onNext} showRipple>
               Get Started
-              <Icon icon={ArrowRight} size="md" className="ml-2" />
+              <Icon icon={ArrowRight} size="md" className="ml-2" aria-hidden="true" />
             </Button>
             {onLogin ? (
               <Button
+                type="button"
                 size="lg"
                 fullWidth
                 variant="none"
@@ -76,7 +77,7 @@ export function IntroStep({
                 showRipple
               >
                 Login
-                <Icon icon={LogIn} size="md" className="ml-2" />
+                <Icon icon={LogIn} size="md" className="ml-2" aria-hidden="true" />
               </Button>
             ) : null}
           </div>
