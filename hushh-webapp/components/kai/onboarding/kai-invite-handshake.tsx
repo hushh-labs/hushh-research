@@ -176,12 +176,14 @@ export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
                 autoCapitalize="words"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
+                aria-label="Preferred name"
                 className="min-h-12 w-full rounded-2xl border border-border bg-background px-4 text-sm"
                 placeholder="How should Kai address you?"
               />
               <textarea
                 value={goal}
                 onChange={(event) => setGoal(event.target.value)}
+                aria-label="Financial goals"
                 className="min-h-28 w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm"
                 placeholder="Optional: what matters most to you financially right now?"
               />

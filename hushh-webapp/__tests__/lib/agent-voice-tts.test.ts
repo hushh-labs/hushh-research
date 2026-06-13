@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   AgentTtsQueue,
@@ -7,6 +7,11 @@ import {
 } from "@/lib/agent/agent-voice-tts";
 
 describe("agent voice TTS", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
   it("cleans Markdown before speech synthesis", () => {
     expect(
       markdownToSpeechText(
@@ -146,6 +151,53 @@ describe("agent voice TTS", () => {
         status: 503,
       })
     );
+  });
+
+  it("times out browser speech fallback so voice capture can resume", async () => {
+    vi.useFakeTimers();
+    const synthesize = vi.fn().mockResolvedValue(new Response("unavailable", { status: 503 }));
+    const playAudio = vi.fn().mockResolvedValue(undefined);
+    const speak = vi.fn();
+    const cancel = vi.fn();
+    const onError = vi.fn();
+    class MockSpeechSynthesisUtterance {
+      text: string;
+      onend: (() => void) | null = null;
+      onerror: ((event: { error?: string }) => void) | null = null;
+
+      constructor(text: string) {
+        this.text = text;
+      }
+    }
+    Object.defineProperty(window, "speechSynthesis", {
+      configurable: true,
+      value: { speak, cancel },
+    });
+    vi.stubGlobal("SpeechSynthesisUtterance", MockSpeechSynthesisUtterance);
+    const queue = new AgentTtsQueue({
+      userId: "user-1",
+      vaultOwnerToken: "vault-token",
+      synthesize,
+      playAudio,
+      onError,
+      maxAttempts: 1,
+    });
+
+    queue.speakNow("Fallback speech that never reaches onend.");
+
+    await vi.waitFor(() => expect(speak).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    await vi.waitFor(() =>
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stage: "fallback",
+          message: "Browser speech synthesis timed out.",
+        })
+      )
+    );
+    expect(cancel).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(queue.hasPendingSpeech).toBe(false));
   });
 
   it("aborts current TTS work on cancel", async () => {
