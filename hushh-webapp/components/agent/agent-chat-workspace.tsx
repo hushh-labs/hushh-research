@@ -711,6 +711,7 @@ export function AgentChatWorkspace({
   const [backgroundTaskState, setBackgroundTaskState] = useState(() =>
     AppBackgroundTaskService.getState()
   );
+  const typedSubmitPendingRef = useRef(false);
   const voiceClientRef = useRef<AgentVoiceClient | null>(null);
   const voiceTtsQueueRef = useRef<AgentTtsQueue | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -2203,7 +2204,13 @@ export function AgentChatWorkspace({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await runAgentTurn(input, { source: "typed" });
+    if (!canSend || typedSubmitPendingRef.current) return;
+    typedSubmitPendingRef.current = true;
+    try {
+      await runAgentTurn(input, { source: "typed" });
+    } finally {
+      typedSubmitPendingRef.current = false;
+    }
   };
 
   function setAgentVoiceStatus(status: AgentVoiceStatus, message?: string | null) {
