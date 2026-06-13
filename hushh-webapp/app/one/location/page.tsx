@@ -4870,6 +4870,157 @@ export function OneLocationAgentPageContent({
     vaultOwnerToken,
   ]);
 
+  const refreshLocationPermission = useCallback(async () => {
+    const nextPermission = await OneLocationService.getPermissionState().catch(
+      () => ({
+        state: "unavailable" as const,
+        precise: false,
+        background: "unavailable" as const,
+        locationServicesEnabled: null,
+      }),
+    );
+    setPermission(nextPermission);
+    return nextPermission;
+  }, []);
+
+  const handleOpenLocationSettings = useCallback(async () => {
+    setBusy("locationSettings");
+    try {
+      const result = await OneLocationService.openLocationSettings();
+      toast.info(
+        result.opened
+          ? "Turn on Location, then return to One Location and refresh."
+          : "Open your phone or browser location settings, then return and refresh.",
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not open location settings.",
+      );
+    } finally {
+      setBusy(null);
+      window.setTimeout(() => void refreshLocationPermission(), 1200);
+    }
+  }, [refreshLocationPermission]);
+
+  const ensureForegroundLocationReady = useCallback(
+    async (options?: {
+      capturePoint?: boolean;
+      autoOpenSettings?: boolean;
+    }): Promise<{ ready: boolean; point?: PlainLocationPoint }> => {
+      const shouldCapturePoint = Boolean(options?.capturePoint);
+      const shouldOpenSettings = options?.autoOpenSettings !== false;
+      const currentPermission = await refreshLocationPermission();
+
+      if (isLocationServicesDisabled(currentPermission)) {
+        toast.error("Turn on phone Location before sharing.");
+        if (shouldOpenSettings) {
+          await OneLocationService.openLocationSettings().catch(() => null);
+        }
+        return { ready: false };
+      }
+
+      if (
+        currentPermission.state === "denied" ||
+        currentPermission.state === "restricted"
+      ) {
+        toast.error("Allow location permission before sharing.");
+        if (shouldOpenSettings) {
+          await OneLocationService.openLocationSettings().catch(() => null);
+        }
+        return { ready: false };
+      }
+
+      if (currentPermission.state === "unavailable") {
+        toast.error("Location is unavailable. Check your phone Location settings.");
+        if (shouldOpenSettings) {
+          await OneLocationService.openLocationSettings().catch(() => null);
+        }
+        return { ready: false };
+      }
+
+      if (currentPermission.state === "granted" && !shouldCapturePoint) {
+        return { ready: true };
+      }
+
+      try {
+        const point = await OneLocationService.captureCurrentPosition();
+        const nextPermission = await OneLocationService.getPermissionState().catch(
+          () => null,
+        );
+        setPermission(
+          nextPermission ?? {
+            state: "granted",
+            precise: null,
+            background: "foreground-only",
+            locationServicesEnabled: true,
+          },
+        );
+        return shouldCapturePoint ? { ready: true, point } : { ready: true };
+      } catch (error) {
+        const nextPermission = await OneLocationService.getPermissionState().catch(
+          () => null,
+        );
+        if (nextPermission) {
+          setPermission(nextPermission);
+        }
+        const message = locationServicesErrorMessage(error);
+        toast.error(message);
+        if (
+          shouldOpenSettings &&
+          (isLocationServicesDisabled(nextPermission) ||
+            message.toLowerCase().includes("turn on location"))
+        ) {
+          await OneLocationService.openLocationSettings().catch(() => null);
+        }
+        return { ready: false };
+      }
+    },
+    [refreshLocationPermission],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (focusClearRef.current && typeof window !== "undefined") {
+        window.clearTimeout(focusClearRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      !auth.userId ||
+      !state ||
+      permission?.state !== "prompt" ||
+      permissionPromptInFlightRef.current
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    permissionPromptInFlightRef.current = true;
+    const promptForForegroundLocation = async () => {
+      try {
+        await ensureForegroundLocationReady({
+          capturePoint: false,
+          autoOpenSettings: false,
+        });
+      } finally {
+        if (!cancelled) {
+          permissionPromptInFlightRef.current = false;
+        }
+      }
+    };
+
+    void promptForForegroundLocation();
+
+    return () => {
+      cancelled = true;
+      permissionPromptInFlightRef.current = false;
+    };
+  }, [auth.userId, ensureForegroundLocationReady, permission?.state, state]);
+
   useEffect(() => {
     return () => {
       if (focusClearRef.current && typeof window !== "undefined") {
@@ -5033,6 +5184,84 @@ export function OneLocationAgentPageContent({
       );
     };
   }, [auth.userId, setDecryptedPoints]);
+
+  useEffect(() => {
+    if (!auth.userId || !state) return;
+
+    for (const request of pendingOwnerRequests) {
+      showWorkflowToast({
+        notificationType: "location_access_request",
+        id: request.id,
+        requestId: request.id,
+        requesterLabel: requestLabel(request),
+        section: "approvals",
+      });
+    }
+
+    for (const request of requestedByMe) {
+      const ownerLabel = requestOwnerLabel(request, recipients);
+      if (request.status === "approved") {
+        showWorkflowToast({
+          notificationType: "location_access_approved",
+          id: request.approvedGrantId || request.id,
+          requestId: request.id,
+          grantId: request.approvedGrantId,
+          ownerLabel,
+          section: "shared",
+          openGrant: Boolean(request.approvedGrantId),
+        });
+      }
+      if (request.status === "denied") {
+        showWorkflowToast({
+          notificationType: "location_access_denied",
+          id: request.id,
+          requestId: request.id,
+          ownerLabel,
+          section: "my_requests",
+        });
+      }
+    }
+
+    for (const grant of state.receivedGrants ?? []) {
+      if (grant.status === "revoked") {
+        showWorkflowToast({
+          notificationType: "location_share_revoked",
+          id: grant.id,
+          grantId: grant.id,
+          ownerLabel: receivedGrantOwnerLabel(grant),
+          section: "shared",
+        });
+      }
+      if (grant.status === "expired") {
+        showWorkflowToast({
+          notificationType: "location_share_expired",
+          id: grant.id,
+          grantId: grant.id,
+          ownerLabel: receivedGrantOwnerLabel(grant),
+          section: "shared",
+        });
+      }
+    }
+
+    for (const submission of publicSubmissions) {
+      if (submission.ownerUserId !== auth.userId) continue;
+      showWorkflowToast({
+        notificationType: "location_public_invite_submitted",
+        id: submission.id,
+        submissionId: submission.id,
+        visitorLabel: publicSubmissionLabel(submission),
+        section: "public_responses",
+      });
+    }
+  }, [
+    auth.userId,
+    pendingOwnerRequests,
+    publicSubmissions,
+    recipients,
+    requestedByMe,
+    showWorkflowToast,
+    state,
+  ]);
 
   const recipientForGrant = useCallback(
     (grant: OneLocationGrant) =>
@@ -6713,6 +6942,7 @@ export function OneLocationAgentPageContent({
     permission?.state,
     publishEnvelopeWithRetry,
     recipientForGrant,
+    refreshLocationPermission,
     vaultOwnerToken,
   ]);
 
@@ -16140,6 +16370,10 @@ export function OneLocationAgentPageContent({
           </div>
         )}
       </AppPageContentRegion>
+
+      {showOnboarding && (
+        <OneLocationOnboardingOverlay onDismiss={dismissOnboarding} />
+      )}
     </AppPageShell>
   );
 }

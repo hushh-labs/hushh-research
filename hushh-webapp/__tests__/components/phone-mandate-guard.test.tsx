@@ -309,6 +309,29 @@ describe("PhoneMandateGuard", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
+  it("redirects users when backend phone verification is false even if Firebase has a phone", async () => {
+    authValue = {
+      user: { uid: "user-verified-in-firebase-only" },
+      loading: false,
+      phoneNumber: "+16505550101",
+    };
+    checkVaultMock.mockResolvedValue(false);
+    refreshCurrentUserIdentityMock.mockResolvedValue({
+      phone_verified: false,
+      phone_number: "+16505550101",
+    });
+
+    render(
+      <PhoneMandateGuard>
+        <div>kai content</div>
+      </PhoneMandateGuard>
+    );
+
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith("/register-phone?redirect=%2Fprofile");
+    });
+  });
+
   it("does not redirect users with a backend-verified phone claim", async () => {
     authValue = {
       user: { uid: "user-4" },

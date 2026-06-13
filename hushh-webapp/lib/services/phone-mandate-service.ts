@@ -18,8 +18,9 @@ export function hasVerifiedPhoneNumber(phoneNumber?: string | null): boolean {
 }
 
 export function shouldBypassPhoneMandateForLocalhost(hostname?: string | null): boolean {
+  const appEnvironment = resolveAppEnvironment();
   return (
-    resolveAppEnvironment() === "development" &&
+    (appEnvironment === "development" || appEnvironment === "uat") &&
     LOCAL_PHONE_MANDATE_BYPASS_HOSTS.has(normalizeHostname(hostname))
   );
 }
@@ -59,7 +60,7 @@ export function shouldRequirePhoneMandate(params: {
   hostname?: string | null;
   pathname?: string | null;
 }): boolean {
-  if (params.phoneVerified === true || hasVerifiedPhoneNumber(params.phoneNumber)) {
+  if (params.phoneVerified === true) {
     return false;
   }
 
@@ -78,6 +79,14 @@ export function shouldRequirePhoneMandate(params: {
   // Phone admission belongs to unfinished account onboarding, on every route.
   // A missing Firebase phone is not evidence that an established account is new.
   if (params.hasVault === true || params.setupResolved === true) {
+    return false;
+  }
+
+  if (params.phoneVerified === false) {
+    return true;
+  }
+
+  if (hasVerifiedPhoneNumber(params.phoneNumber)) {
     return false;
   }
 
