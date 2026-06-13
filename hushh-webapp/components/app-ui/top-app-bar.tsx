@@ -541,7 +541,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                               </span>
                             </div>
                             {switchingPersona === "ria" ? (
-                              <Loader2 className="ml-auto h-4 w-4 animate-spin text-current" />
+                              <Loader2 className="ml-auto h-4 w-4 animate-spin text-current" aria-hidden="true" />
                             ) : activePersona === "ria" ? (
                               <Check className="ml-auto h-4 w-4 text-current" />
                             ) : null}
@@ -615,7 +615,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                               }
                             >
                               {activeCount > 0 ? (
-                                <Loader2 className="h-5 w-5 animate-spin text-sky-500" />
+                                <Loader2 className="h-5 w-5 animate-spin text-sky-500" aria-hidden="true" />
                               ) : (
                                 <Bell className="h-5 w-5" />
                               )}
