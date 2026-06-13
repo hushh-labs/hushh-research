@@ -5090,6 +5090,29 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
   });
 
+  it("opens the section guided tour and lets the user skip it", async () => {
+    render(<OneLocationAgentPage />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(
+      screen.getByRole("button", { name: /Show onboarding tour/i }),
+    );
+
+    expect(
+      await screen.findByRole("dialog", { name: /One Location guided tour/i }),
+    ).toBeTruthy();
+    expect(screen.getByText("Check location readiness")).toBeTruthy();
+    expect(screen.getByText(/Highlighting: Device readiness/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Skip$/i }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: /One Location guided tour/i }),
+      ).toBeNull(),
+    );
+  });
+
   it("loads One Location setup without requiring backend phone verification", async () => {
     mockSyncCurrentUser.mockResolvedValueOnce({
       user_id: "user_a",

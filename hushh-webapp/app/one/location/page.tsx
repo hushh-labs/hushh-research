@@ -3211,6 +3211,12 @@ export function OneLocationAgentPageContent({
   const myRequestsSectionRef = useRef<HTMLElement | null>(null);
   const publicResponsesSectionRef = useRef<HTMLElement | null>(null);
   const activitySectionRef = useRef<HTMLElement | null>(null);
+  const readinessTourRef = useRef<HTMLElement | null>(null);
+  const promisesTourRef = useRef<HTMLElement | null>(null);
+  const oneNetworkTourRef = useRef<HTMLElement | null>(null);
+  const contactSignalTourRef = useRef<HTMLDivElement | null>(null);
+  const shareRequestTourRef = useRef<HTMLDivElement | null>(null);
+  const accessHistoryTourRef = useRef<HTMLDivElement | null>(null);
   const focusClearRef = useRef<number | null>(null);
   const contactSyncInFlightRef = useRef(false);
   const livePublishInFlightRef = useRef(false);
@@ -15212,7 +15218,14 @@ export function OneLocationAgentPageContent({
                 </div>
               </section>
 
-              <section className="min-w-0 max-w-full space-y-4 px-1">
+              <section
+                ref={oneNetworkTourRef}
+                tabIndex={-1}
+                className={cn(
+                  "min-w-0 max-w-full space-y-4 px-1 outline-none",
+                  tourSectionClassName("one_network"),
+                )}
+              >
                 <SegmentedModeControl
                   value={activeMode}
                   onChange={setActiveMode}
@@ -16372,7 +16385,11 @@ export function OneLocationAgentPageContent({
       </AppPageContentRegion>
 
       {showOnboarding && (
-        <OneLocationOnboardingOverlay onDismiss={dismissOnboarding} />
+        <OneLocationOnboardingOverlay
+          onDismiss={dismissOnboarding}
+          onStepChange={setActiveTourStep}
+          targets={onboardingTourTargets}
+        />
       )}
     </AppPageShell>
   );
