@@ -133,6 +133,19 @@ def test_signature_tampering():
     assert "Malformed token" in reason or "Invalid token prefix" in reason
 
 
+def test_truncated_token_signature_is_rejected():
+    token_obj = issue_token(USER_ID, AGENT_ID, VALID_SCOPE)
+    prefix, signed_part = token_obj.token.split(":", 1)
+    encoded, signature = signed_part.split(".", 1)
+
+    for truncated_signature in ("", signature[:1], signature[:-1]):
+        valid, reason, parsed = validate_token(f"{prefix}:{encoded}.{truncated_signature}")
+
+        assert valid is False
+        assert reason == "Invalid signature"
+        assert parsed is None
+
+
 def test_invalid_base64_token_is_rejected():
     malformed = "HCT:%%%%.signature"
 
