@@ -2817,7 +2817,7 @@ export function AgentChatWorkspace({
                   <Button
                     type="submit"
                     size="icon"
-                    className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 disabled:bg-white/[0.08] disabled:text-zinc-500 disabled:shadow-none"
+                    className="h-9 w-9 basis-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 disabled:bg-white/[0.08] disabled:text-zinc-500 disabled:shadow-none"
                     disabled={!canSend}
                     aria-label="Send message"
                   >
