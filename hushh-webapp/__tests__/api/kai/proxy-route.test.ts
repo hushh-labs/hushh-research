@@ -297,4 +297,50 @@ describe("/api/kai/[...path] proxy", () => {
     expect(headers.get("Accept")).toBe("audio/mpeg");
     expect(headers.get("X-Voice-Turn-Id")).toBe("vturn_proxy_tts_1");
   });
+
+  it("passes through binary /agent/voice/tts responses and preserves Agent voice headers", async () => {
+    const audioBytes = new Uint8Array([8, 6, 7, 5]);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(audioBytes, {
+        status: 200,
+        headers: {
+          "Content-Type": "audio/wav",
+          "X-Agent-TTS-Model": "gemini-2.5-flash-preview-tts",
+          "X-Agent-TTS-Voice": "Sulafat",
+          "X-Agent-TTS-Source": "backend_gemini_audio",
+          "X-Agent-TTS-Audio-Bytes": "4",
+        },
+      })
+    );
+
+    const req = createRequest("http://localhost:3000/api/kai/agent/voice/tts", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer vault_owner_token",
+        Accept: "audio/wav",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id: "user_123", text: "hello" }),
+    });
+
+    const res = await kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["agent", "voice", "tts"] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("audio/wav");
+    expect(res.headers.get("X-Agent-TTS-Model")).toBe("gemini-2.5-flash-preview-tts");
+    expect(res.headers.get("X-Agent-TTS-Voice")).toBe("Sulafat");
+    expect(res.headers.get("X-Agent-TTS-Source")).toBe("backend_gemini_audio");
+    expect(res.headers.get("X-Agent-TTS-Audio-Bytes")).toBe("4");
+
+    const body = new Uint8Array(await res.arrayBuffer());
+    expect(Array.from(body)).toEqual([8, 6, 7, 5]);
+
+    const [url, options] = fetchSpy.mock.calls[0] ?? [];
+    expect(url).toBe("http://backend.test/api/kai/agent/voice/tts");
+    const headers = options?.headers as Headers;
+    expect(headers.get("Authorization")).toBe("Bearer vault_owner_token");
+    expect(headers.get("Accept")).toBe("audio/wav");
+  });
 });

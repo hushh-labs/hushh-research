@@ -11,11 +11,11 @@ import os
 import secrets
 from datetime import datetime, timezone
 from time import time
-from typing import Any
+from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from api.middleware import require_firebase_auth, require_vault_owner_token, verify_user_id_match
@@ -34,6 +34,9 @@ from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Bounded path-parameter alias (CWE-400: uncontrolled resource consumption).
+_UserId = Annotated[str, Path(min_length=1, max_length=128)]
 
 HOME_FRESH_TTL_SECONDS = 600
 HOME_STALE_TTL_SECONDS = 1800
@@ -2547,7 +2550,7 @@ async def _get_market_insights_payload(
 
 @router.get("/market/insights/baseline/{user_id}")
 async def get_market_insights_baseline(
-    user_id: str,
+    user_id: _UserId,
     days_back: int = Query(default=7, ge=1, le=14),
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
@@ -2571,7 +2574,7 @@ async def get_market_insights_baseline(
 
 @router.get("/market/insights/{user_id}")
 async def get_market_insights(
-    user_id: str,
+    user_id: _UserId,
     symbols: str | None = Query(
         default=None, max_length=512, description="CSV list of symbols, max 8"
     ),
@@ -2632,7 +2635,7 @@ async def get_market_insights(
 
 @router.get("/stock-preview/{user_id}")
 async def get_stock_preview(
-    user_id: str,
+    user_id: _UserId,
     symbol: str = Query(..., min_length=1, max_length=20, description="Ticker symbol"),
     pick_source: str | None = Query(default=None, max_length=256),
     token_data: dict = Depends(require_vault_owner_token),
