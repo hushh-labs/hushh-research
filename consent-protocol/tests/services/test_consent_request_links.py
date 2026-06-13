@@ -20,6 +20,7 @@ from __future__ import annotations
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
+from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import (
     build_connection_request_path,
     build_connection_request_url,
@@ -158,6 +159,22 @@ class TestBuildConsentRequestUrl:
     def test_url_carries_bundle_id(self):
         url = self._build(bundle_id="b1")
         assert "bundleId=b1" in url
+
+    def test_consent_db_request_url_omits_whitespace_bundle_metadata(self):
+        with patch(
+            "hushh_mcp.services.consent_request_links.frontend_origin",
+            return_value=_ORIGIN,
+        ):
+            url = ConsentDBService._request_url(
+                request_id="req-bundle-fallback",
+                metadata={"bundle_id": "   "},
+            )
+
+        assert url is not None
+        params = parse_qs(urlparse(url).query)
+
+        assert params["requestId"] == ["req-bundle-fallback"]
+        assert "bundleId" not in params
 
     def test_canonical_caller_path_consent_db(self):
         """Exercises the same call pattern used by consent_db.py.
