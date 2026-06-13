@@ -2968,7 +2968,7 @@ export function DashboardMasterView({
               </SurfaceCardTitle>
             </SurfaceCardHeader>
             <SurfaceCardContent className="space-y-4 px-6 pb-6 pt-0 sm:px-7 sm:pb-7">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-2 gap-3">
                 <SurfaceInset className="p-3">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                     Debate Readiness
