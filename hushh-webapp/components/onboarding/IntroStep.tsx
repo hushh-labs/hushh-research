@@ -83,46 +83,38 @@ export function IntroStep({
 }) {
   return (
     <main className="min-h-[100dvh] w-full bg-[#ffffff] text-[#1d1d1f] dark:bg-[#ffffff] dark:text-[#1d1d1f]">
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col px-6 pt-[calc(46px+var(--app-safe-area-top-effective,0px))]">
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col px-6 pt-[calc(28px+var(--app-safe-area-top-effective,0px))]">
         <section className="relative flex flex-none flex-col items-center text-center">
-          <div
-            aria-hidden
-            className="absolute left-1/2 top-6 h-[220px] w-[320px] -translate-x-1/2 rounded-full bg-[#eaf5ff] blur-2xl"
-          />
-          <span className="relative text-[66px] leading-none">🤫</span>
+          <span className="relative text-[54px] leading-none">🤫</span>
 
           <div
             role="heading"
             aria-level={1}
             aria-label="Meet One, Your Personal Financial Advisor"
-            className="relative mt-5 text-[38px] font-semibold leading-[1.08] tracking-normal text-[#1d1d1f]"
+            className="relative mt-6 text-[38px] font-bold leading-[1.08] tracking-normal text-[#1d1d1f]"
           >
             Meet One.
           </div>
-          <p className="relative mt-2 text-[18px] leading-7 tracking-normal text-[#6e6e73]">
+          <p className="relative mt-2.5 text-[21px] font-medium leading-[1.32] tracking-normal text-[#1d1d1f]">
             Your personal financial advisor.
           </p>
         </section>
 
-        <div className="flex min-h-0 flex-1 items-center py-9">
+        <div className="flex min-h-0 flex-1 items-stretch py-6">
           <div className="relative w-full">
-            <div
-              aria-hidden
-              className="absolute bottom-[3.5rem] left-7 top-[3.5rem] w-0.5 rounded-full bg-gradient-to-b from-transparent via-[#b8d4ff] to-transparent"
-            />
-            <div className="relative z-10 space-y-6">
+            <div className="relative z-10 mx-auto flex h-full w-full max-w-[332px] flex-col justify-evenly gap-3">
               {INTRO_FEATURES.map((feature) => (
-                <div key={feature.title} className="grid grid-cols-[56px_minmax(0,1fr)] items-center gap-5">
+                <div key={feature.title} className="grid grid-cols-[46px_minmax(0,1fr)] items-center gap-4">
                   <span
-                    className={`grid h-14 w-14 place-items-center rounded-[16px] border ${feature.tileClassName}`}
+                    className={`grid h-[46px] w-[46px] place-items-center rounded-[14px] border ${feature.tileClassName}`}
                   >
-                    <feature.icon className="h-6 w-6" />
+                    <feature.icon className="h-[23px] w-[23px]" />
                   </span>
                   <div className="min-w-0">
-                    <p className="text-[20px] font-semibold leading-6 tracking-normal text-[#1d1d1f]">
+                    <p className="text-[16.5px] font-semibold leading-[1.25] tracking-normal text-[#1d1d1f]">
                       {feature.title}
                     </p>
-                    <p className="mt-1 text-[17px] leading-6 tracking-normal text-[#6e6e73]">
+                    <p className="mt-0.5 text-[14.5px] leading-[1.35] tracking-normal text-[rgba(0,0,0,0.56)]">
                       {feature.subtitle}
                     </p>
                   </div>
@@ -143,14 +135,14 @@ export function IntroStep({
               fullWidth
               onClick={onNext}
               showRipple
-              className="h-[60px] rounded-full bg-[#0071e3] text-[22px] font-semibold tracking-normal text-white shadow-none hover:bg-[#0077ed]"
+              className="h-[50px] rounded-full bg-[#0071e3] text-[17px] font-semibold tracking-normal text-white shadow-none hover:bg-[#0077ed]"
             >
               Get started
             </Button>
             {onLogin ? (
               <button
                 type="button"
-                className="mx-auto block min-h-10 px-4 text-[17px] font-semibold tracking-normal text-[#0066cc] transition-colors hover:text-[#0071e3]"
+                className="mx-auto block min-h-10 px-4 text-[15px] font-semibold tracking-normal text-[#0066cc] transition-colors hover:text-[#0071e3]"
                 onClick={onLogin}
               >
                 Log in
