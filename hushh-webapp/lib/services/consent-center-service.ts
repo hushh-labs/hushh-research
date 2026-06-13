@@ -262,6 +262,32 @@ interface ErrorPayload {
 }
 
 function normalizeConsentEntry(entry: ConsentCenterEntry): ConsentCenterEntry {
+  // ── Local-override precedence matrix (inline) ─────────────────────────────
+  // When entry.active is an explicit boolean it carries a local user decision
+  // that must bypass every system-derived inference, including the
+  // normalizeConsentResponse call below.
+  //
+  // explicit true  → immediate grant; status is promoted if necessary.
+  // explicit false → immediate revocation; normalizeConsentResponse is
+  //                  skipped entirely so a concurrent granted:true field
+  //                  cannot re-open the entry through the system path.
+  //
+  // Only when active is absent (undefined) does execution fall through to the
+  // original normalization logic — preserving backward compatibility.
+  if (typeof entry.active === "boolean") {
+    if (entry.active) {
+      const status = ["approved", "active", "granted"].includes(entry.status)
+        ? entry.status
+        : entry.kind === "active_grant"
+        ? "active"
+        : "approved";
+      return { ...entry, status };
+    }
+    // Explicit local revocation — return entry as-is, no promotion.
+    return entry;
+  }
+  // ── End override matrix ───────────────────────────────────────────────────
+
   const normalized = normalizeConsentResponse({
     active: entry.active,
     granted: entry.granted,
