@@ -19,9 +19,9 @@ router = APIRouter(prefix="/api/marketplace", tags=["Marketplace"])
 class MarketplaceInvestorActionRequest(BaseModel):
     action: str = Field(..., max_length=32)
     source_type: str | None = Field(default=None, max_length=32)
-    public_profile_id: str | int | None = None
+    public_profile_id: str | int | None = Field(None)
     target_user_id: str | None = Field(default=None, max_length=256)
-    metadata: dict | None = None
+    metadata: dict | None = Field(None)
 
 
 class MarketplaceContactLookup(BaseModel):

@@ -221,3 +221,54 @@ describe("portfolio normalizer — circular reference safety", () => {
     expect(consolidated.map((h) => h.symbol).sort()).toEqual(["AMZN", "META", "NVDA"]);
   });
 });
+
+describe("portfolio normalizer - mixed currency string boundaries", () => {
+  it("defaults dirty alpha-numeric currency strings to safe numeric floors without throwing", () => {
+    expect(() =>
+      consolidateHoldingsBySymbol([
+        {
+          symbol: "MIX",
+          name: "Mixed Currency Holding",
+          quantity: "1",
+          market_value: "1250.50INR",
+          cost_basis: "450.00USD",
+        },
+      ])
+    ).not.toThrow();
+
+    const consolidated = consolidateHoldingsBySymbol([
+      {
+        symbol: "MIX",
+        name: "Mixed Currency Holding",
+        quantity: "1",
+        market_value: "1250.50INR",
+        cost_basis: "450.00USD",
+      },
+    ]);
+
+    expect(consolidated).toHaveLength(1);
+    expect(consolidated[0].quantity).toBe(1);
+    expect(consolidated[0].market_value).toBe(0);
+    expect(consolidated[0].cost_basis).toBeUndefined();
+  });
+});
+
+describe("portfolio normalizer - negative currency boundaries", () => {
+  it("safely preserves hard negative and sub-zero currency strings without producing NaN", () => {
+    const consolidated = consolidateHoldingsBySymbol([
+      {
+        symbol: "LOSS",
+        name: "Loss Position",
+        quantity: "2",
+        market_value: "-5400.22",
+        cost_basis: "-0.0001",
+      },
+    ]);
+
+    expect(consolidated).toHaveLength(1);
+    expect(Number.isFinite(consolidated[0].market_value)).toBe(true);
+    expect(Number.isFinite(consolidated[0].cost_basis)).toBe(true);
+    expect(consolidated[0].market_value).toBeCloseTo(-5400.22, 8);
+    expect(consolidated[0].cost_basis).toBeCloseTo(-0.0001, 8);
+  });
+});
