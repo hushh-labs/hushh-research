@@ -42,10 +42,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`[API] Revoking consent for scope: ${scope}`);
-
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[API] Revoking consent for scope: ${scope}`);
+    }
     const backendUrl = `${BACKEND_URL}/api/consent/revoke`;
-    console.log(`[API] Calling backend: ${backendUrl}`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[API] Calling backend: ${backendUrl}`);
+    }
 
     const response = await fetch(backendUrl, {
       method: "POST",
@@ -57,8 +60,10 @@ export async function POST(request: NextRequest) {
     });
 
     const responseText = await response.text();
-    console.log(`[API] Backend response status: ${response.status}`);
-    console.log(`[API] Backend response body: ${responseText}`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[API] Backend response status: ${response.status}`);
+      console.log(`[API] Backend response body: ${responseText}`);
+    }
 
     if (!response.ok) {
       console.error("[API] Backend error:", responseText);
