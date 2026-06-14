@@ -151,7 +151,7 @@ export function OnboardingStepServices({
     <div className="space-y-6">
       <div className="space-y-3">
         <SectionLabel>Services</SectionLabel>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div role="group" aria-label="Services offered" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {AVAILABLE_SERVICES.map(({ label, icon: Icon }) => {
             const selected = servicesOffered.includes(label);
             return (
@@ -186,7 +186,7 @@ export function OnboardingStepServices({
 
       <div className="space-y-3">
         <SectionLabel>Fee Structure</SectionLabel>
-        <div className="flex flex-wrap gap-2">
+        <div role="group" aria-label="Fee structure" className="flex flex-wrap gap-2">
           {FEE_OPTIONS.map((fee) => {
             const selected = feeStructure.includes(fee);
             return (

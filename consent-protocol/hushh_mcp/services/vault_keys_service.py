@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
@@ -187,7 +187,7 @@ class VaultKeysService:
 
     @staticmethod
     def _now_ms() -> int:
-        return int(datetime.now().timestamp() * 1000)
+        return int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
     @classmethod
     def _serialize_user_entry(cls, row: Dict[str, Any]) -> Dict[str, Any]:
@@ -727,7 +727,7 @@ class VaultKeysService:
         if not recovery_encrypted or not recovery_salt_clean or not recovery_iv_clean:
             raise ValueError("Recovery wrapper fields are required")
 
-        now_ms = int(datetime.now().timestamp() * 1000)
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
         key_data = {
             "user_id": user_id_clean,
@@ -1008,7 +1008,7 @@ class VaultKeysService:
                 "passkeyLastUsedAt": passkey_last_used_at,
             }
         )
-        now_ms = int(datetime.now().timestamp() * 1000)
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
         data = {
             "user_id": user_id_clean,
@@ -1071,7 +1071,7 @@ class VaultKeysService:
         if not wrapper_response.data:
             raise ValueError("Primary method/wrapper must be an enrolled wrapper")
 
-        now_ms = int(datetime.now().timestamp() * 1000)
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         update_result = (
             supabase.table("vault_keys")
             .update(
@@ -1195,7 +1195,7 @@ class VaultKeysService:
                 if not fallback_exists:
                     raise ValueError("Fallback primary method/wrapper must be an enrolled wrapper")
 
-                now_ms = int(datetime.now().timestamp() * 1000)
+                now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
                 updated_primary = conn.execute(
                     text(
                         """
