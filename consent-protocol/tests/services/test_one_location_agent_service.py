@@ -15,6 +15,14 @@ from hushh_mcp.services.one_location_agent_service import (
     _redact_location_metadata,
 )
 
+PUBLIC_LOCATION_SNAPSHOT = {
+    "latitude": 28.6139,
+    "longitude": 77.209,
+    "accuracyM": 18,
+    "capturedAt": "2026-05-20T07:30:00.000Z",
+    "sourcePlatform": "web",
+}
+
 
 def test_location_metadata_redaction_removes_coordinate_like_keys() -> None:
     payload = {
@@ -877,6 +885,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
                 "revoked_at": None,
+                "metadata": json.loads(params.get("metadata_json") or "{}"),
             }
             self.public_invites[invite_id] = row
             return row
@@ -1497,7 +1506,11 @@ def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
         owner_user_id="user_a",
         message="Can you share?",
     )
-    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    created = service.create_public_invite(
+        owner_user_id="user_a",
+        duration_hours=1,
+        location_snapshot=PUBLIC_LOCATION_SNAPSHOT,
+    )
     service.submit_public_invite_request(
         public_token=created["publicToken"],
         visitor_display_name="User B",
@@ -1517,7 +1530,7 @@ def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
     assert "Shared with User B" in titles
     assert "Viewed by User B" in titles
     assert "Request from User C" in titles
-    assert "Request link created" in titles
+    assert "Public live link created" in titles
     assert "Response from User B" in titles
 
     def without_timestamps(value):
@@ -1539,7 +1552,7 @@ def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
     assert "0002" not in serialized
 
 
-def test_public_invite_is_request_only_and_token_hash_only() -> None:
+def test_public_invite_returns_live_location_after_public_intake_and_keeps_token_hash_only() -> None:
     service = FourUserMemoryService()
     service.register_recipient_key(
         user_id="user_b",
@@ -1547,7 +1560,11 @@ def test_public_invite_is_request_only_and_token_hash_only() -> None:
         public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
     )
 
-    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    created = service.create_public_invite(
+        owner_user_id="user_a",
+        duration_hours=1,
+        location_snapshot=PUBLIC_LOCATION_SNAPSHOT,
+    )
     token = created["publicToken"]
 
     assert created["publicUrl"].endswith(token)
@@ -1572,11 +1589,11 @@ def test_public_invite_is_request_only_and_token_hash_only() -> None:
         message="Please share for pickup.",
     )
 
-    assert submitted["submission"]["status"] == "matched_request_pending"
+    assert submitted["submission"]["status"] == "approved"
+    assert submitted["publicLocation"]["latitude"] == PUBLIC_LOCATION_SNAPSHOT["latitude"]
+    assert submitted["publicLocation"]["longitude"] == PUBLIC_LOCATION_SNAPSHOT["longitude"]
     assert "request" not in submitted
-    assert len(service.requests) == 1
-    assert next(iter(service.requests.values()))["status"] == "pending"
-    assert next(iter(service.requests.values()))["requester_user_id"] == "user_b"
+    assert service.requests == {}
     assert "latitude" not in json.dumps(service.public_submissions, default=str)
     assert "longitude" not in json.dumps(service.notifications, default=str)
     assert token not in json.dumps(service.notifications, default=str)
@@ -1585,9 +1602,13 @@ def test_public_invite_is_request_only_and_token_hash_only() -> None:
     }
 
 
-def test_public_invite_submission_without_key_never_creates_access() -> None:
+def test_public_invite_submission_without_key_still_views_public_location() -> None:
     service = FourUserMemoryService()
-    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    created = service.create_public_invite(
+        owner_user_id="user_a",
+        duration_hours=1,
+        location_snapshot=PUBLIC_LOCATION_SNAPSHOT,
+    )
 
     submitted = service.submit_public_invite_request(
         public_token=created["publicToken"],
@@ -1595,7 +1616,8 @@ def test_public_invite_submission_without_key_never_creates_access() -> None:
         phone_number="+1 555 010 0003",
     )
 
-    assert submitted["submission"]["status"] == "identity_pending_key"
+    assert submitted["submission"]["status"] == "approved"
+    assert submitted["publicLocation"]["latitude"] == PUBLIC_LOCATION_SNAPSHOT["latitude"]
     assert "matchedUserId" not in submitted["submission"]
     assert "request" not in submitted
     assert service.requests == {}
@@ -1608,7 +1630,11 @@ def test_public_invite_submission_limits_bound_duplicate_phone_requests() -> Non
         key_id="key-user_b",
         public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
     )
-    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    created = service.create_public_invite(
+        owner_user_id="user_a",
+        duration_hours=1,
+        location_snapshot=PUBLIC_LOCATION_SNAPSHOT,
+    )
 
     service.submit_public_invite_request(
         public_token=created["publicToken"],
@@ -1628,4 +1654,4 @@ def test_public_invite_submission_limits_bound_duplicate_phone_requests() -> Non
     assert duplicate.value.code == "LOCATION_PUBLIC_INVITE_ALREADY_SUBMITTED"
     assert duplicate.value.status_code == 429
     assert len(service.public_submissions) == 1
-    assert len(service.requests) == 1
+    assert service.requests == {}

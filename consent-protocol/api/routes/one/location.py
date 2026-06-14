@@ -1,7 +1,8 @@
 """One Location Agent routes with bounded path parameters (CWE-400).
 
-Live-location reads are authenticated and ciphertext-only. Public invite routes
-are request-only and never return coordinates, ciphertext, or grants.
+Private live-location reads stay authenticated and ciphertext-only. Public
+invite links can expose an owner-captured live-location snapshot after the
+visitor submits required identity details.
 Path parameters (public_token, invite_id, grant_id) are bounded to 128 chars max.
 """
 
@@ -66,6 +67,7 @@ class ReferralRequest(_CamelModel):
 
 class CreatePublicInviteRequest(_CamelModel):
     duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=24)
+    location_snapshot: dict[str, Any] | None = Field(default=None, alias="locationSnapshot")
 
 
 class SubmitPublicInviteRequest(_CamelModel):
@@ -195,6 +197,7 @@ async def create_public_location_invite(
         return _service().create_public_invite(
             owner_user_id=_user_id(token_data),
             duration_hours=payload.duration_hours,
+            location_snapshot=payload.location_snapshot,
         )
     except Exception as exc:
         raise _handle_error(exc) from exc

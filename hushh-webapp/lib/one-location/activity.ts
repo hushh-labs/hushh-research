@@ -22,8 +22,31 @@ function formatDateTime(value?: string | null): string {
   }).format(date);
 }
 
-function safeLabel(value?: string | null, fallback = "KAI member"): string {
-  return String(value || "").trim() || fallback;
+function looksLikeInternalIdentifier(value: string): boolean {
+  const label = value.trim();
+  if (!label) return false;
+  if (
+    /^(actor|grant|invite|key|location|one_location|recipient|referral|request|submission|user)[_-]/i.test(
+      label,
+    )
+  ) {
+    return true;
+  }
+  if (/^[0-9a-f]{24,}$/i.test(label) || /^[0-9a-f-]{32,}$/i.test(label)) {
+    return true;
+  }
+  return (
+    /^[A-Za-z0-9_-]{16,}$/.test(label) &&
+    /[A-Z]/.test(label) &&
+    /[a-z]/.test(label) &&
+    /\d/.test(label)
+  );
+}
+
+function safeLabel(value?: string | null, fallback = "One user"): string {
+  const label = String(value || "").trim();
+  if (!label || looksLikeInternalIdentifier(label)) return fallback;
+  return label;
 }
 
 function grantCounterpartyLabel(grant: OneLocationGrant): string {
@@ -44,7 +67,7 @@ function requestLabel(request: OneLocationAccessRequest): string {
 function publicSubmissionLabel(
   submission: OneLocationPublicInviteSubmission,
 ): string {
-  return safeLabel(submission.visitorDisplayName, "Public request");
+  return safeLabel(submission.visitorDisplayName, "Public viewer");
 }
 
 function parseActivityDate(value?: string | null): Date | null {
@@ -151,7 +174,7 @@ export function buildOneLocationActivityFallback(
       safeLabel(recipient.displayName),
     ]),
   );
-  const labelForUser = (userId?: string | null, fallback = "KAI member") =>
+  const labelForUser = (userId?: string | null, fallback = "One user") =>
     safeLabel(userId ? recipientLabels.get(userId) : null, fallback);
   const events: OneLocationActivityEvent[] = [];
   const addEvent = ({
@@ -241,7 +264,7 @@ export function buildOneLocationActivityFallback(
       id: `public-link-created:${invite.id}`,
       kind: "public",
       occurredAt: invite.createdAt || invite.updatedAt || invite.expiresAt,
-      title: "Request link created",
+      title: "Public live link created",
       detail: `${invite.status} - expires ${formatDateTime(invite.expiresAt)}`,
     });
     if (invite.status !== "active") {
@@ -250,7 +273,7 @@ export function buildOneLocationActivityFallback(
         id: `public-link-closed:${invite.id}`,
         kind: "public",
         occurredAt: closedAt,
-        title: "Request link closed",
+        title: "Public live link closed",
         detail: `${invite.status} - ${formatDateTime(closedAt)}`,
       });
     }

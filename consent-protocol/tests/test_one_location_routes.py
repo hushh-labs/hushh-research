@@ -9,7 +9,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.one import location as one_location
-from tests.services.test_one_location_agent_service import FourUserMemoryService, encrypted_envelope
+from tests.services.test_one_location_agent_service import (
+    FourUserMemoryService,
+    PUBLIC_LOCATION_SNAPSHOT,
+    encrypted_envelope,
+)
 
 
 class DatabaseExecutionError(Exception):
@@ -124,8 +128,10 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
     assert activity_payload["summary"]["sharedWithCount"] >= 1
     assert activity_payload["summary"]["viewsCount"] >= 1
     assert any(event["title"] == "Shared with User B" for event in activity_payload["events"])
-    assert "0002" not in json.dumps(activity_payload, default=str)
-    assert "ciphertext" not in json.dumps(activity_payload, default=str)
+    serialized_activity = json.dumps(activity_payload, default=str)
+    assert "latitude" not in serialized_activity
+    assert "longitude" not in serialized_activity
+    assert "ciphertext-for-" not in serialized_activity
 
     current_user["user_id"] = user_b
     view_b_after_revoke = client.get(f"/api/one/location/grants/{grant_b['id']}/envelope")
@@ -152,7 +158,7 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
     assert "longitude" not in serialized
 
 
-def test_public_location_invite_route_creates_request_without_returning_location(
+def test_public_location_invite_route_returns_location_after_public_intake(
     monkeypatch,
 ) -> None:
     service = FourUserMemoryService()
@@ -164,7 +170,10 @@ def test_public_location_invite_route_creates_request_without_returning_location
 
     invite_response = client.post(
         "/api/one/location/public-invites",
-        json={"durationHours": 1},
+        json={
+            "durationHours": 1,
+            "locationSnapshot": PUBLIC_LOCATION_SNAPSHOT,
+        },
     )
     assert invite_response.status_code == 200
     token = invite_response.json()["publicToken"]
@@ -187,10 +196,11 @@ def test_public_location_invite_route_creates_request_without_returning_location
     )
     assert submit_response.status_code == 200
     payload = submit_response.json()
-    assert payload["submission"]["status"] == "matched_request_pending"
+    assert payload["submission"]["status"] == "approved"
+    assert payload["publicLocation"]["latitude"] == PUBLIC_LOCATION_SNAPSHOT["latitude"]
+    assert payload["publicLocation"]["longitude"] == PUBLIC_LOCATION_SNAPSHOT["longitude"]
     assert "request" not in payload
-    assert len(service.requests) == 1
-    assert next(iter(service.requests.values()))["status"] == "pending"
+    assert service.requests == {}
 
     serialized = json.dumps(
         {
@@ -211,8 +221,14 @@ def test_public_location_invite_route_creates_request_without_returning_location
     )
     assert "grant" not in json.dumps(payload)
     assert "ciphertext" not in serialized
-    assert "latitude" not in serialized
-    assert "longitude" not in serialized
+    assert "latitude" not in json.dumps(
+        {"resolve": resolve_response.json(), "notifications": service.notifications},
+        default=str,
+    )
+    assert "longitude" not in json.dumps(
+        {"resolve": resolve_response.json(), "notifications": service.notifications},
+        default=str,
+    )
     assert "map" not in serialized
     assert "address" not in serialized
     assert "reverse_geocode" not in serialized

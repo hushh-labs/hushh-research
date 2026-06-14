@@ -75,19 +75,18 @@ reverse geocode, map, notify, or inspect latitude/longitude.
 
 ## Authorization Contract
 
-All live-location grant, envelope, approval, revocation, and state routes
-require a VAULT_OWNER bearer token. Scope-2 public invite routes are the only
-public exceptions, and they are request-only. They may resolve safe owner/link
-metadata and accept visitor name/phone/message, but they never return
-coordinates, ciphertext, grants, map embeds, or share authority.
+All private live-location grant, envelope, approval, revocation, and state
+routes require a VAULT_OWNER bearer token. Scope-2 public invite routes are the
+only public exceptions: they resolve safe owner/link metadata and accept visitor
+name/phone/message before returning the owner-captured public live-location
+snapshot for that active link.
 
 - `actor_identity_cache.phone_verified = true` is eligibility only.
 - Each recipient needs a separate active grant.
 - Expiry and revocation block reads before ciphertext is returned.
 - Referrals create access requests only; they never forward access.
-- Public invite submissions create access requests only when the visitor maps
-  to a verified Hussh user with active recipient key material; otherwise they
-  remain metadata-only intent for follow-up.
+- Public invite submissions do not create private grants. They record visitor
+  intake, then return the active public snapshot while the link is valid.
 - Consent/audit records are metadata-only.
 
 Capability scopes:
@@ -106,36 +105,37 @@ envelope publishing, ciphertext viewing, revocation, access requests, request
 resolution, and referrals. Tools validate their capability scope per invocation
 and delegate persistence to `OneLocationAgentService`.
 
-The agent refuses public bearer links that reveal location, plaintext server
-coordinates, and referrals or public submissions that grant access without owner
-approval.
+The agent refuses public bearer links for private grants, ciphertext, referrals,
+or movement trails. Public live links are intentionally separate: the owner
+captures one public snapshot, chooses a duration, and visitors must submit
+identity details before the map is shown.
 
-## Public Request Links
+## Public Live Links
 
-Scope-2 public sharing is a request-link workflow, not a public live-location
-viewer.
+Scope-2 public sharing is a direct public live-location viewer after visitor
+intake, not an owner-approval request workflow.
 
-1. The authenticated owner creates a duration-bounded public request link from
-   `/one/location`.
-2. The backend returns the raw token once and stores only its hash.
+1. The authenticated owner captures current GPS location and creates a
+   duration-bounded public live link from `/one/location`.
+2. The backend returns the raw token once, stores only its hash, and stores the
+   explicit public location snapshot in invite metadata for the active window.
 3. The public page `/one/location/request/{token}` asks the visitor for name, phone,
    and optional message.
 4. The public resolve response exposes only a safe owner label, status,
    duration, and expiry. By default the safe label is "a trusted person".
-5. The public page submits metadata only. It never displays a map or location.
-6. If the phone maps to a verified/keyed Hussh user, One creates a normal
-   pending access request for owner approval.
-7. If the phone does not have usable Hussh identity/key material, the submission
-   stays pending identity/key setup.
-8. Owner approval still creates a fresh recipient-scoped grant and the owner
-   device still encrypts the coordinate envelope for that recipient.
+5. After visitor details are submitted, the public page displays the shared map
+   with directions/start-navigation actions.
+6. The submission status is recorded as approved public viewing. It does not
+   create a private access request or recipient-scoped grant.
+7. Private KAI-to-KAI sharing remains the encrypted grant/envelope workflow.
 
 Public invite tables store token hashes, status, expiry, visitor display name,
-phone hash/last4, matched user id when available, and request linkage. They must
-not store raw phone numbers, raw invite tokens, coordinates, addresses, map
-previews, or movement/freshness trails. Public submissions are bounded per token,
-throttled per phone/fingerprint hash, and never return request internals, grants,
-ciphertext, or location payloads to the anonymous caller.
+phone hash/last4, matched user id when available, and public snapshot metadata
+for the active link. They must not store raw phone numbers, raw invite tokens,
+addresses, reverse-geocoded labels, map thumbnails, or movement trails. Public
+submissions are bounded per token, throttled per phone/fingerprint hash, and
+never return private request internals, grants, or ciphertext to the anonymous
+caller.
 
 ## KAI Circle Recommendation Contract
 
@@ -171,7 +171,7 @@ revocation, then purged from the database. The runtime runs opportunistic
 cleanup during state/read flows, and hosted environments may call
 `POST /api/one/location/retention/purge?older_than_hours=12` with
 `X-Hushh-Maintenance-Token` backed by the dedicated
-`ONE_LOCATION_RETENTION_TOKEN` for scheduled cleanup. Public request-link
+`ONE_LOCATION_RETENTION_TOKEN` for scheduled cleanup. Public live-link
 invites and submissions follow the same terminal-state retention boundary.
 
 ## Native Contract
@@ -202,13 +202,13 @@ the web control surface.
 The implementation must prove:
 
 - verified directory excludes self and unverified users
-- backend never returns plaintext coordinates
+- private grant/envelope routes never return plaintext coordinates
 - encrypted envelopes are recipient-bound
 - non-recipient reads fail
 - expired/revoked grants block reads
 - referrals create requests but no access
 - notification and audit metadata contain no coordinates
-- public request links store token hashes only and never reveal location
+- public live links store token hashes and owner-captured public snapshots only
 - web, iOS, and Android have foreground permission parity
 - A/B/C/D flow is covered at service, authenticated API route, and browser
   crypto levels
