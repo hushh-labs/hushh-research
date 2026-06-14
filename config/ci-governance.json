@@ -17,7 +17,8 @@
       "kushaltrivedi5",
       "RGlodAkshat",
       "ankitkumarsingh1702",
-      "azfx"
+      "azfx",
+      "Jhumma-hushh"
     ],
     "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
@@ -28,13 +29,15 @@
       "kushaltrivedi5",
       "RGlodAkshat",
       "ankitkumarsingh1702",
-      "azfx"
+      "azfx",
+      "Jhumma-hushh"
     ],
     "protected_pipeline_edit_users": [
       "kushaltrivedi5",
       "RGlodAkshat",
       "ankitkumarsingh1702",
-      "azfx"
+      "azfx",
+      "Jhumma-hushh"
     ],
     "protected_pipeline_paths": [
       ".github/workflows/",
@@ -54,7 +57,8 @@
       "kushaltrivedi5",
       "RGlodAkshat",
       "ankitkumarsingh1702",
-      "azfx"
+      "azfx",
+      "Jhumma-hushh"
     ],
     "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
@@ -65,7 +69,8 @@
       "kushaltrivedi5",
       "RGlodAkshat",
       "ankitkumarsingh1702",
-      "azfx"
+      "azfx",
+      "Jhumma-hushh"
     ]
   },
   "uat": {
@@ -75,7 +80,9 @@
     "manual_dispatch_users": [
       "kushaltrivedi5",
       "RGlodAkshat",
-      "ankitkumarsingh1702"
+      "ankitkumarsingh1702",
+      "azfx",
+      "Jhumma-hushh"
     ]
   },
   "production": {

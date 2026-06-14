@@ -12,7 +12,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -100,6 +100,8 @@ export function ConsentDialog({
   loading = false,
 }: ConsentDialogProps) {
   const [isGranting, setIsGranting] = useState(false);
+  
+  const scopeInfoRef = useRef<HTMLDivElement>(null);
 
   const scopeInfo = resolveScopeDisplay(request);
 
@@ -114,7 +116,17 @@ export function ConsentDialog({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onDeny()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent
+        className="sm:max-w-md"
+        aria-busy={isGranting || loading}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          scopeInfoRef.current?.focus();
+        }}
+        onEscapeKeyDown={(event) => {
+          if (isGranting) event.preventDefault();
+        }}
+      >
         <DialogHeader>
           <div className="flex items-center gap-3 mb-2">
             <div className="h-12 w-12 rounded-full bg-linear-to-br from-blue-500 to-purple-600 flex items-center justify-center text-2xl shadow-lg">
@@ -132,7 +144,9 @@ export function ConsentDialog({
         {/* Scope Info */}
         <div className="space-y-4 py-4">
           <div
-            className="flex items-start gap-3 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-800/40"
+            ref={scopeInfoRef}
+            tabIndex={-1}
+            className="flex items-start gap-3 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-800/40 focus:outline-none"
             style={scopeInfo.colorHex ? {
               backgroundColor: `${scopeInfo.colorHex}08`,
               borderColor: `${scopeInfo.colorHex}20`,
