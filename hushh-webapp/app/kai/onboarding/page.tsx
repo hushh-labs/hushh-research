@@ -38,6 +38,8 @@ import {
 import { trackEvent } from "@/lib/observability/client";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 import { Card } from "@/lib/morphy-ux/card";
+import { Button } from "@/lib/morphy-ux/button";
+import { AlertTriangle } from "lucide-react";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
 
 type Stage = "loading" | "entry" | "wizard" | "persona";
@@ -256,7 +258,7 @@ function KaiOnboardingPageContent() {
 
   if (loadError) {
     return (
-      <div className="mx-auto flex min-h-[70vh] w-full max-w-md items-center px-5">
+      <div className="mx-auto flex min-h-[70vh] w-full max-w-md items-center justify-center px-5">
         <NativeTestBeacon
           routeId="/kai/onboarding"
           marker="native-route-kai-onboarding"
@@ -265,16 +267,34 @@ function KaiOnboardingPageContent() {
           errorCode="kai_onboarding"
           errorMessage={loadError}
         />
-        <div className="w-full rounded-2xl border border-border bg-card/80 p-5 text-center">
-          <p className="text-sm text-muted-foreground">{loadError}</p>
-          <button
-            type="button"
-            className="mt-3 inline-flex h-10 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"
-            onClick={() => setRetryNonce((value) => value + 1)}
-          >
-            Retry
-          </button>
-        </div>
+        <Card
+          preset="default"
+          effect="glass"
+          glassAccent="soft"
+          className="w-full max-w-sm text-center"
+        >
+          <div className="flex flex-col items-center gap-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-red-500/12 to-orange-500/12 dark:from-red-400/16 dark:to-orange-400/16">
+              <AlertTriangle className="h-7 w-7 text-red-500 dark:text-red-400" />
+            </div>
+            <div className="space-y-1.5">
+              <h2 className="text-lg font-semibold tracking-tight">
+                Couldn&apos;t load onboarding
+              </h2>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {loadError}
+              </p>
+            </div>
+            <Button
+              variant="blue-gradient"
+              effect="fill"
+              size="sm"
+              onClick={() => setRetryNonce((value) => value + 1)}
+            >
+              Retry
+            </Button>
+          </div>
+        </Card>
       </div>
     );
   }

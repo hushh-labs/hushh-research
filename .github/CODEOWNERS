@@ -1,29 +1,61 @@
-# CODEOWNERS - Automatic PR Review Assignment
+# CODEOWNERS - Automatic PR Review Assignment & Protected-Surface Gate
 # See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Ownership is mapped to the @hushh-labs/allowed-maintainers-to-approve team
+# (the sanctioned maintainer cohort defined in config/ci-governance.json) rather
+# than to a single hardcoded user. This:
+#   1. removes the single-owner bus factor and review bottleneck, and
+#   2. keeps code-owner review in lockstep with the bypass cohort automatically
+#      as team membership changes (no file edit required when a maintainer is
+#      added or removed).
+#
+# For this file to BLOCK merges (not just request review), the branch protection
+# for `main` and `integration/pr-train` must have "Require review from Code
+# Owners" enabled. The team must retain at least write/maintain access to the
+# repo or GitHub silently ignores these team entries.
+#
+# Most-specific match wins: the protected-surface entries at the bottom override
+# the broader directory entries above them.
 
-# Global owner of record (fallback)
-* @kushaltrivedi5
+# ---------------------------------------------------------------------------
+# Global owner of record (fallback) -- any maintainer may satisfy review.
+# ---------------------------------------------------------------------------
+* @hushh-labs/allowed-maintainers-to-approve
 
 # Backend (Python/FastAPI) -- GIT SUBTREE: upstream at hushh-labs/consent-protocol
-/consent-protocol/ @kushaltrivedi5
+/consent-protocol/ @hushh-labs/allowed-maintainers-to-approve
 
 # Frontend (Next.js/Capacitor)
-/hushh-webapp/ @kushaltrivedi5
+/hushh-webapp/ @hushh-labs/allowed-maintainers-to-approve
 
 # Documentation
-/docs/ @kushaltrivedi5
+/docs/ @hushh-labs/allowed-maintainers-to-approve
 
 # CI/CD and workflows
-/.github/ @kushaltrivedi5
+/.github/ @hushh-labs/allowed-maintainers-to-approve
 
 # Deployment configs
-/deploy/ @kushaltrivedi5
+/deploy/ @hushh-labs/allowed-maintainers-to-approve
 
 # Scripts and utilities
-/scripts/ @kushaltrivedi5
+/scripts/ @hushh-labs/allowed-maintainers-to-approve
 
 # Native macOS app (One for macOS)
-/apps/one-mac/ @kushaltrivedi5
-/.codex/skills/desktop-mac/ @kushaltrivedi5
-/.codex/skills/desktop-mac-connectors/ @kushaltrivedi5
-/.codex/skills/desktop-mac-mcp-host/ @kushaltrivedi5
+/apps/one-mac/ @hushh-labs/allowed-maintainers-to-approve
+/.codex/skills/desktop-mac/ @hushh-labs/allowed-maintainers-to-approve
+/.codex/skills/desktop-mac-connectors/ @hushh-labs/allowed-maintainers-to-approve
+/.codex/skills/desktop-mac-mcp-host/ @hushh-labs/allowed-maintainers-to-approve
+
+# ---------------------------------------------------------------------------
+# PROTECTED GOVERNANCE & DEPLOY-AUTHORITY SURFACES
+# These define who may merge, deploy, and edit the pipeline itself. They are
+# owned by the maintainer team and additionally enforced at CI time by
+# scripts/ci/verify-protected-pipeline-edits.py. A community PR touching any of
+# these must pass: CODEOWNERS team review + the CI maintainer-actor guard +
+# branch-protection approval. No single mistaken approval can land them.
+# ---------------------------------------------------------------------------
+/.github/workflows/ @hushh-labs/allowed-maintainers-to-approve
+/.github/actions/ @hushh-labs/allowed-maintainers-to-approve
+/scripts/ci/ @hushh-labs/allowed-maintainers-to-approve
+/config/ci-governance.json @hushh-labs/allowed-maintainers-to-approve
+/.github/CODEOWNERS @hushh-labs/allowed-maintainers-to-approve

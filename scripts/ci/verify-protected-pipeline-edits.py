@@ -70,6 +70,18 @@ def _fetch_pr_files(repo: str, pr_number: int, token: str) -> list[str]:
     return files
 
 
+class GuardResolutionError(RuntimeError):
+    """Raised when a PR's changed-file list cannot be resolved.
+
+    The guard must FAIL CLOSED on resolution failure: if we cannot determine
+    which files a pull request touches, we cannot prove the change is safe, so
+    we refuse rather than wave it through. Historically this path returned an
+    empty list, which the caller treated as "nothing to enforce" and passed —
+    a silent fail-open that disabled the guard entirely whenever GH_TOKEN was
+    not wired into the job environment.
+    """
+
+
 def _files_from_event(args: argparse.Namespace) -> list[str]:
     if args.files:
         return _normalize_csv(args.files)
@@ -78,15 +90,100 @@ def _files_from_event(args: argparse.Namespace) -> list[str]:
         return []
     event_path = os.environ.get("GITHUB_EVENT_PATH", "")
     if not event_path:
-        return []
-    payload = json.loads(Path(event_path).read_text(encoding="utf-8"))
+        raise GuardResolutionError(
+            "GITHUB_EVENT_PATH is unset on a pull_request event; cannot resolve "
+            "changed files to enforce protected-surface policy."
+        )
+    try:
+        payload = json.loads(Path(event_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise GuardResolutionError(
+            f"Could not read GitHub event payload at '{event_path}': {exc}"
+        ) from exc
     pull_request = payload.get("pull_request") or {}
     pr_number = args.pr_number or pull_request.get("number")
     repo = args.repo or os.environ.get("GITHUB_REPOSITORY", "").strip()
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
-    if not pr_number or not repo or not token:
-        return []
-    return _fetch_pr_files(repo=repo, pr_number=int(pr_number), token=token)
+    missing = [
+        name
+        for name, value in (
+            ("pr_number", pr_number),
+            ("repo", repo),
+            ("GH_TOKEN/GITHUB_TOKEN", token),
+        )
+        if not value
+    ]
+    if missing:
+        raise GuardResolutionError(
+            "Cannot resolve PR changed files for protected-surface enforcement; "
+            f"missing required input(s): {', '.join(missing)}. Wire GH_TOKEN into "
+            "the governance job and ensure the repo/PR context is present."
+        )
+    assert pr_number is not None  # narrowed by the `missing` guard above
+    return _fetch_pr_files(repo=str(repo), pr_number=int(pr_number), token=str(token))
+
+
+def evaluate(
+    *,
+    changed_files: list[str],
+    actor: str,
+    allowed_users: list[str],
+    protected_paths: list[str],
+) -> tuple[int, str]:
+    """Pure decision core for protected-surface enforcement.
+
+    Returns (exit_code, message). 0 = allowed/not-applicable, 1 = blocked.
+    Kept side-effect-free so it can be unit-tested via --self-test.
+    """
+    protected_changes = sorted(
+        path
+        for path in changed_files
+        if any(_matches(path, protected_path) for protected_path in protected_paths)
+    )
+    if not protected_changes:
+        return 0, "Protected pipeline edit guard: no protected pipeline surfaces changed."
+
+    actor = actor.strip()
+    if actor in allowed_users:
+        return 0, (
+            "Protected pipeline edit guard: allowed "
+            f"(actor={actor}, files={protected_changes}, allowed_users={allowed_users})."
+        )
+
+    return 1, (
+        "ERROR: protected pipeline surfaces changed by non-sanctioned actor "
+        f"'{actor or '<unknown>'}'.\n"
+        f"ERROR: protected files={protected_changes}\n"
+        f"ERROR: allowed users={allowed_users}"
+    )
+
+
+def _self_test() -> int:
+    allowed = ["kushaltrivedi5", "Jhumma-hushh"]
+    paths = list(DEFAULT_PROTECTED_PATHS)
+    cases: list[tuple[str, list[str], str, int]] = [
+        # name, changed_files, actor, expected_exit
+        ("community edits governance config", ["config/ci-governance.json"], "random-contributor", 1),
+        ("community edits a workflow", [".github/workflows/ci.yml"], "random-contributor", 1),
+        ("maintainer edits governance config", ["config/ci-governance.json"], "kushaltrivedi5", 0),
+        ("community edits only app code", ["hushh-webapp/app/page.tsx"], "random-contributor", 0),
+        ("community edits scripts/ci", ["scripts/ci/orchestrate.sh"], "random-contributor", 1),
+    ]
+    failures: list[str] = []
+    for name, files, actor, expected in cases:
+        code, message = evaluate(
+            changed_files=files, actor=actor, allowed_users=allowed, protected_paths=paths
+        )
+        status = "ok" if code == expected else "FAIL"
+        print(f"[{status}] {name}: exit={code} (expected {expected})")
+        if code != expected:
+            failures.append(f"{name}: got {code}, expected {expected}")
+    if failures:
+        for failure in failures:
+            print(f"ERROR: self-test case failed: {failure}", file=sys.stderr)
+        return 1
+    print("Protected pipeline edit guard self-test passed.")
+    return 0
 
 
 def main() -> int:
@@ -101,7 +198,15 @@ def main() -> int:
         "--files",
         help="Comma-separated changed files for local verification.",
     )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="Run the built-in decision-core self-test and exit.",
+    )
     args = parser.parse_args()
+
+    if args.self_test:
+        return _self_test()
 
     policy = _load_policy()
     main_policy = policy["main"]
@@ -127,35 +232,23 @@ def main() -> int:
         print("Protected pipeline edit guard: no changed files resolved; nothing to enforce.")
         return 0
 
-    protected_changes = sorted(
-        path
-        for path in changed_files
-        if any(_matches(path, protected_path) for protected_path in protected_paths)
+    code, message = evaluate(
+        changed_files=changed_files,
+        actor=args.actor or os.environ.get("GITHUB_ACTOR", ""),
+        allowed_users=allowed_users,
+        protected_paths=protected_paths,
     )
-    if not protected_changes:
-        print("Protected pipeline edit guard: no protected pipeline surfaces changed.")
-        return 0
-
-    actor = (args.actor or os.environ.get("GITHUB_ACTOR", "")).strip()
-    if actor in allowed_users:
-        print(
-            "Protected pipeline edit guard: allowed "
-            f"(actor={actor}, files={protected_changes}, allowed_users={allowed_users})."
-        )
-        return 0
-
-    print(
-        "ERROR: protected pipeline surfaces changed by non-sanctioned actor "
-        f"'{actor or '<unknown>'}'."
-    )
-    print(f"ERROR: protected files={protected_changes}")
-    print(f"ERROR: allowed users={allowed_users}")
-    return 1
+    print(message)
+    return code
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
+    except GuardResolutionError as exc:
+        # Fail CLOSED: an unresolvable PR file list must block, never wave through.
+        print(f"ERROR: protected pipeline edit guard could not enforce policy: {exc}", file=sys.stderr)
+        raise SystemExit(1)
     except urllib.error.HTTPError as exc:
         print(f"ERROR: failed to resolve PR files from GitHub API: {exc}", file=sys.stderr)
         raise SystemExit(1)
