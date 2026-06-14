@@ -228,7 +228,7 @@ function BullBearCase({ bullCase, bearCase }: { bullCase?: string; bearCase?: st
             <Icon icon={TrendingUp} size={12} className="text-emerald-500" />
             <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">Bull Case</span>
           </div>
-          <p className="text-[10px] text-muted-foreground leading-relaxed">{bullCase}</p>
+          <p className="break-words text-[10px] text-muted-foreground leading-relaxed">{bullCase}</p>
         </div>
       )}
       {hasBear && (
@@ -237,7 +237,7 @@ function BullBearCase({ bullCase, bearCase }: { bullCase?: string; bearCase?: st
             <Icon icon={TrendingDown} size={12} className="text-red-500" />
             <span className="text-[10px] font-semibold text-red-600 dark:text-red-400">Bear Case</span>
           </div>
-          <p className="text-[10px] text-muted-foreground leading-relaxed">{bearCase}</p>
+          <p className="break-words text-[10px] text-muted-foreground leading-relaxed">{bearCase}</p>
         </div>
       )}
     </div>
