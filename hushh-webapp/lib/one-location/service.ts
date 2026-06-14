@@ -66,6 +66,9 @@ export class OneLocationService {
   }
 
   static async openLocationSettings() {
+    if (typeof HushhLocation.openLocationSettings !== "function") {
+      return { opened: false };
+    }
     return HushhLocation.openLocationSettings();
   }
 

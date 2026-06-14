@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 
 from api.routes.one import location as one_location
 from tests.services.test_one_location_agent_service import (
-    FourUserMemoryService,
     PUBLIC_LOCATION_SNAPSHOT,
+    FourUserMemoryService,
     encrypted_envelope,
 )
 

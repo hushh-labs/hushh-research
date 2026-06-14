@@ -772,6 +772,7 @@ export type HushhLocationPermissionState = {
 
 export interface HushhLocationPlugin {
   getPermissionState(): Promise<HushhLocationPermissionState>;
+  openLocationSettings?(): Promise<{ opened: boolean }>;
   getCurrentPosition(options?: {
     enableHighAccuracy?: boolean;
     timeoutMs?: number;
