@@ -247,6 +247,7 @@ export function SectionHeader({
   accent = "default",
   className,
   testId = "section-header",
+  id,
 }: {
   eyebrow?: string;
   title: ReactNode;
@@ -257,10 +258,15 @@ export function SectionHeader({
   accent?: SectionAccent;
   className?: string;
   testId?: string;
+  id?: string;
 }) {
   const styles = ACCENT_STYLES[accent];
   return (
-    <div className={cn("space-y-[var(--section-header-stack-gap)]", className)} data-testid={testId}>
+    <div
+      id={id}
+      className={cn("space-y-[var(--section-header-stack-gap)]", className)}
+      data-testid={testId}
+    >
       <div className="flex items-stretch gap-3">
         {icon || leading ? (
           <HeaderLeading

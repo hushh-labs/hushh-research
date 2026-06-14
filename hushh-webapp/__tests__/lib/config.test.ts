@@ -63,4 +63,18 @@ describe("config", () => {
 
     expect(config.APP_FRONTEND_ORIGIN).toBe("http://localhost:3000");
   });
+
+  it("keeps production backend empty when runtime backend url is empty", async () => {
+    const { resolveAppEnvironment } = await import("@/lib/app-env");
+    const { resolveRuntimeBackendUrl } = await import(
+      "@/lib/runtime/settings"
+    );
+
+    vi.mocked(resolveAppEnvironment).mockReturnValue("production");
+    vi.mocked(resolveRuntimeBackendUrl).mockReturnValue("");
+
+    const config = await import("@/lib/config");
+
+    expect(config.BACKEND_URL).toBe("");
+  });
 });
