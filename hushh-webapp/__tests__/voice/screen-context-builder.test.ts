@@ -210,6 +210,23 @@ describe("buildStructuredScreenContext", () => {
     );
   });
 
+  it("trims oversized DOM visible module labels before adding them to screen context", () => {
+    const longModuleLabel = `Portfolio ${"A".repeat(120)}`;
+    window.history.pushState({}, "", "/profile?tab=account");
+    document.body.innerHTML = `
+      <h1>Profile Settings</h1>
+      <section data-voice-module="${longModuleLabel}"></section>
+    `;
+
+    const context = buildStructuredScreenContext({
+      appRuntimeState: makeRuntimeState("/profile", "profile"),
+      voiceContext: {},
+    });
+
+    expect(context.ui.visible_modules).toContain(longModuleLabel.slice(0, 64));
+    expect(context.ui.visible_modules).not.toContain(longModuleLabel);
+  });
+
   it("caps multi-source context arrays before they enter the voice planner payload", () => {
     const oversizedActions = Array.from({ length: 12 }, (_, index) => ({
       id: `action_${index}`,
