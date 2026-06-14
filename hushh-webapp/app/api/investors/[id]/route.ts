@@ -41,8 +41,9 @@ export async function GET(
     return NextResponse.json(data, { status: response.status });
   } catch (error) {
     console.error("[Investors Proxy] Get error:", error);
+
     return NextResponse.json(
-      { error: "Failed to get investor", details: String(error) },
+      { error: "Failed to get investor" },
       { status: 500 }
     );
   }
