@@ -37,7 +37,7 @@ Usage:
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from hushh_mcp.consent.token import validate_token_with_db
@@ -149,7 +149,7 @@ class VaultDBService:
                     "action": action,
                     "scope": f"vault.{domain}",
                     "scope_description": str(details) if details else None,
-                    "issued_at": int(datetime.now().timestamp() * 1000),
+                    "issued_at": int(datetime.now(tz=timezone.utc).timestamp() * 1000),
                     "agent_id": "vault_service",
                 }
             ).execute()
@@ -276,7 +276,7 @@ class VaultDBService:
         supabase = self._get_supabase()
 
         # Upsert using Supabase (handles ON CONFLICT automatically)
-        timestamp = int(datetime.now().timestamp() * 1000)
+        timestamp = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         data = {
             "user_id": user_id,
             "field_name": field_name,
@@ -336,7 +336,7 @@ class VaultDBService:
         supabase = self._get_supabase()
 
         # Batch upsert using Supabase (no transactions, but atomic per batch)
-        timestamp = int(datetime.now().timestamp() * 1000)
+        timestamp = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         data = [
             {
                 "user_id": user_id,

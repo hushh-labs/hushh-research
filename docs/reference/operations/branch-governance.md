@@ -75,7 +75,7 @@ Before deleting a local backup branch, classify its unique commits as:
 
 1. UAT deploys only through a manual workflow dispatch with an explicit green `main` SHA.
 2. The workflow checks out that exact chosen green `main` SHA.
-3. Manual dispatch is limited to `kushaltrivedi5`, `RGlodAkshat`, and `ankitkumarsingh1702`.
+3. Manual dispatch is limited to the maintainer cohort in `config/ci-governance.json` (`uat.manual_dispatch_users`): `kushaltrivedi5`, `RGlodAkshat`, `ankitkumarsingh1702`, `azfx`, and `Jhumma-hushh`. This list is held equal to the merge cohort (`main.review_bypass_users`) by design — anyone trusted to land code on `main` may validate it in the UAT sandbox — and `scripts/ci/verify-deployment-environment-governance.py` fails if the two drift apart.
 4. Workflow preflight fails if the requested SHA is not reachable from `origin/main`.
 5. Workflow preflight also fails if the SHA does not already have a successful `Main Post-Merge Smoke Gate`.
 6. The canonical GitHub deployment environment for this lane is `uat`.
@@ -91,6 +91,68 @@ Before deleting a local backup branch, classify its unique commits as:
 4. The workflow also validates that `Main Post-Merge Smoke Gate` succeeded for that SHA before deployment starts.
 5. Only `kushaltrivedi5` may dispatch the production workflow after the SHA preflight passes.
 6. The canonical GitHub deployment environment for this lane is `production`.
+
+## Protected Surfaces & Trust Model
+
+The repository protects a set of high-blast-radius surfaces — the files that
+decide who can merge, who can deploy, and what the pipeline does — behind
+**three independent, defense-in-depth layers**. No single mistaken approval can
+land a change to these surfaces.
+
+### Protected surfaces
+
+These paths are owned by the maintainer team in `.github/CODEOWNERS` and are
+listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
+
+- `.github/workflows/`
+- `.github/actions/`
+- `scripts/ci/`
+- `deploy/`
+- `config/ci-governance.json`
+- `.github/CODEOWNERS`
+
+### The three enforcement layers
+
+1. **CODEOWNERS (GitHub-native, blocks merge).** Ownership is mapped to the
+   `@hushh-labs/allowed-maintainers-to-approve` team, not a single user, so it
+   auto-tracks membership and removes the single-owner bottleneck. For this to
+   *block* (not merely request review), `main` and `integration/pr-train` must
+   have **"Require review from Code Owners"** enabled, and the team must keep at
+   least write/maintain repo access or GitHub silently ignores team entries.
+2. **CI maintainer-actor guard (fails closed).**
+   `scripts/ci/verify-protected-pipeline-edits.py` runs in the required
+   `CI Status Gate` and fails the PR if a non-maintainer touches a protected
+   surface. It requires `GH_TOKEN` in the governance job to resolve the PR's
+   changed files; if it cannot resolve them it **fails closed** (blocks), never
+   open. A `--self-test` runs in CI so the guard can never silently regress.
+3. **Branch-protection approval.** The standard 1 independent approval plus
+   approval-of-most-recent-push still applies underneath the two layers above.
+
+### Concentric privilege rings
+
+Privilege is deliberately nested. Each inner ring is a strict subset of the one
+outside it, and the boundaries are enforced, not informal:
+
+| Ring | Who | Authority | Source of truth |
+|---|---|---|---|
+| Merge cohort | `allowed-maintainers-to-approve` team (5) | bypass review + queue, edit pipeline | `main.review_bypass_users` / `merge_queue_bypass_users` / `protected_pipeline_edit_users` |
+| UAT deploy cohort | same 5 | dispatch UAT deploy of a green `main` SHA | `uat.manual_dispatch_users` (held == merge cohort) |
+| Production deploy cohort | `kushaltrivedi5` only | dispatch production deploy | `production.manual_dispatch_users` |
+
+Invariants enforced in CI by `verify-deployment-environment-governance.py`:
+
+- **UAT == merge cohort.** Anyone trusted to land code on `main` may validate it
+  in the UAT sandbox — no more, no less. The two lists are held equal and any
+  independent drift fails the check.
+- **Production == owner only.** `production.manual_dispatch_users` must be exactly
+  `["kushaltrivedi5"]`; any widening fails the check.
+
+### Rule: deploy-actor lists are governance, not routine config
+
+Changes to `manual_dispatch_users` (UAT or production) and to the maintainer
+cohort lists are protected-surface edits: they require maintainer-team code-owner
+review, pass the CI guard, and should be authored/merged by the owner. Widening
+who can deploy is never a routine, self-mergeable change.
 
 ## Hotfix Playbook
 
@@ -140,8 +202,8 @@ Current operating note:
 - admin ownership does not count as an independent PR approval
 - require approval of the most recent push is enabled, so stale approvals cannot carry newly pushed code
 - a PR author cannot self-approve through GitHub; sanctioned maintainer "self approval" means explicit branch-protection bypass, not a counted GitHub review
-- the current live branch protection review-bypass allowlist is `kushaltrivedi5`, `RGlodAkshat`, `ankitkumarsingh1702`, and `azfx`
-- the current live merge-queue bypass team is `Allowed Maintainers to Approve`, containing those same 4 users only
+- the current live branch protection review-bypass allowlist is `kushaltrivedi5`, `RGlodAkshat`, `ankitkumarsingh1702`, `azfx`, and `Jhumma-hushh`
+- the current live merge-queue bypass team is `Allowed Maintainers to Approve`, containing those same 5 users only
 - the sanctioned review-bypass cohort is intentional policy and should not be reported as governance drift when it matches `config/ci-governance.json`
 - if an admin needs to proceed on a green PR, verify whether the live ruleset allows queue entry; do not assume approval is implicitly satisfied
 - bypass actors may waive review through branch protection and bypass queue through the dedicated owner team path

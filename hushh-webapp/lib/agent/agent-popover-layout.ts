@@ -5,6 +5,22 @@ export type AgentPopoverSize = {
   height: number;
 };
 
+export type AgentTriggerPosition = {
+  x: number;
+  y: number;
+};
+
+export type AgentTriggerBounds = {
+  viewportWidth: number;
+  viewportHeight: number;
+  triggerWidth: number;
+  triggerHeight: number;
+  reservedBottom: number;
+  reservedTop?: number;
+  safeTop?: number;
+  margin?: number;
+};
+
 export const AGENT_POPOVER_DEFAULT_SIZE_MODE: AgentPopoverSizeMode = "fullscreen";
 
 export const AGENT_POPOVER_PRESET_SIZES: Record<Exclude<AgentPopoverSizeMode, "fullscreen" | "custom">, AgentPopoverSize> = {
@@ -21,7 +37,10 @@ export const AGENT_POPOVER_PRESET_SIZES: Record<Exclude<AgentPopoverSizeMode, "f
 export const AGENT_POPOVER_STORAGE_KEYS = {
   mode: "hushh.agent.popover.sizeMode",
   customSize: "hushh.agent.popover.customSize",
+  triggerPosition: "hushh.agent.popover.triggerPosition",
 } as const;
+
+const DEFAULT_TRIGGER_MARGIN = 16;
 
 export function isAgentPopoverSizeMode(value: unknown): value is AgentPopoverSizeMode {
   return value === "fullscreen" || value === "large" || value === "compact" || value === "custom";
@@ -59,4 +78,39 @@ export function resolveAgentPopoverSize(
     return AGENT_POPOVER_PRESET_SIZES[mode];
   }
   return customSize;
+}
+
+export function getDefaultAgentTriggerPosition(bounds: AgentTriggerBounds): AgentTriggerPosition {
+  const margin = bounds.margin ?? DEFAULT_TRIGGER_MARGIN;
+  return clampAgentTriggerPosition(
+    {
+      x: bounds.viewportWidth - bounds.triggerWidth - margin,
+      y:
+        bounds.viewportHeight -
+        bounds.reservedBottom -
+        bounds.triggerHeight -
+        margin,
+    },
+    bounds
+  );
+}
+
+export function clampAgentTriggerPosition(
+  position: AgentTriggerPosition,
+  bounds: AgentTriggerBounds
+): AgentTriggerPosition {
+  const margin = bounds.margin ?? DEFAULT_TRIGGER_MARGIN;
+  const reservedTop = Math.max(0, bounds.reservedTop ?? 0);
+  const safeTop = Math.max(0, bounds.safeTop ?? 0);
+  const railX = Math.max(margin, bounds.viewportWidth - bounds.triggerWidth - margin);
+  const minY = Math.max(safeTop, reservedTop) + margin;
+  const maxY = Math.max(
+    minY,
+    bounds.viewportHeight - bounds.reservedBottom - bounds.triggerHeight - margin
+  );
+
+  return {
+    x: Math.round(railX),
+    y: Math.round(Math.min(maxY, Math.max(minY, position.y))),
+  };
 }

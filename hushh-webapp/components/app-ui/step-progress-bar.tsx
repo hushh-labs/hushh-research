@@ -73,9 +73,18 @@ export function StepProgressBar() {
         top: "var(--top-inset, 0px)",
       }}
     >
+      <span
+        role="status"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {displayProgress >= 100 ? "Page loaded." : ""}
+      </span>
       <Progress
         value={displayProgress}
         className="h-1 w-full rounded-none bg-transparent"
+        aria-label="Page loading"
+        aria-valuetext={`${Math.round(displayProgress)}%`}
       />
     </div>
   );

@@ -43,7 +43,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`[API] Cancelling consent request: ${requestId}`);
+    if (process.env.NODE_ENV !== "production") {
+  console.log(`[API] Cancelling consent request: ${requestId}`);
+}
 
     const response = await fetch(`${BACKEND_URL}/api/consent/cancel`, {
       method: "POST",
@@ -56,7 +58,9 @@ export async function POST(request: NextRequest) {
 
     if (!response.ok) {
       const error = await response.text();
-      console.error("[API] Backend error:", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[API] Cancel consent error:", error);
+      }
       return NextResponse.json(
         { error: "Failed to cancel consent" },
         { status: response.status },
