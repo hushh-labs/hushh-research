@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   AGENT_POPOVER_PRESET_SIZES,
+  clampAgentTriggerPosition,
   clampAgentPopoverSize,
+  getDefaultAgentTriggerPosition,
   getAgentPopoverViewportBounds,
   isAgentPopoverSizeMode,
   resolveAgentPopoverSize,
@@ -45,5 +47,86 @@ describe("agent popover layout", () => {
     const bounds = getAgentPopoverViewportBounds(320, 480);
     expect(bounds.minWidth).toBeLessThanOrEqual(bounds.maxWidth);
     expect(bounds.minHeight).toBeLessThanOrEqual(bounds.maxHeight);
+  });
+
+  it("places the floating trigger above bottom chrome by default", () => {
+    expect(
+      getDefaultAgentTriggerPosition({
+        viewportWidth: 430,
+        viewportHeight: 932,
+        triggerWidth: 44,
+        triggerHeight: 44,
+        reservedBottom: 188,
+        reservedTop: 88,
+        safeTop: 47,
+        margin: 16,
+      })
+    ).toEqual({
+      x: 370,
+      y: 684,
+    });
+  });
+
+  it("prevents dragging the floating trigger into the bottom chrome", () => {
+    expect(
+      clampAgentTriggerPosition(
+        { x: 386, y: 900 },
+        {
+          viewportWidth: 430,
+          viewportHeight: 932,
+          triggerWidth: 44,
+          triggerHeight: 44,
+          reservedBottom: 188,
+          reservedTop: 88,
+          safeTop: 47,
+          margin: 16,
+        }
+      )
+    ).toEqual({
+      x: 370,
+      y: 684,
+    });
+  });
+
+  it("keeps the floating trigger on the right rail", () => {
+    expect(
+      clampAgentTriggerPosition(
+        { x: 20, y: 300 },
+        {
+          viewportWidth: 430,
+          viewportHeight: 932,
+          triggerWidth: 44,
+          triggerHeight: 44,
+          reservedBottom: 188,
+          reservedTop: 88,
+          safeTop: 47,
+          margin: 16,
+        }
+      )
+    ).toEqual({
+      x: 370,
+      y: 300,
+    });
+  });
+
+  it("prevents dragging the floating trigger into the top chrome", () => {
+    expect(
+      clampAgentTriggerPosition(
+        { x: 386, y: 12 },
+        {
+          viewportWidth: 430,
+          viewportHeight: 932,
+          triggerWidth: 44,
+          triggerHeight: 44,
+          reservedBottom: 188,
+          reservedTop: 88,
+          safeTop: 47,
+          margin: 16,
+        }
+      )
+    ).toEqual({
+      x: 370,
+      y: 104,
+    });
   });
 });

@@ -292,7 +292,7 @@ export function AuthStep({
         });
         morphyToast.error("Reviewer login failed: no user session returned.");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setNativeAuthState("anonymous");
       setNativeDataState("error");
       setNativeErrorCode("reviewer_login_failed");
@@ -302,7 +302,7 @@ export function AuthStep({
         result: "error",
         error_class: "auth_failed",
       });
-      morphyToast.error(err.message || "Failed to sign in as reviewer");
+      morphyToast.error(err instanceof Error ? err.message : "Failed to sign in as reviewer");
     }
   }, [
     growthEntrySurface,

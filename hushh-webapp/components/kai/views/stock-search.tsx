@@ -150,7 +150,7 @@ export function StockSearch({
     }
 
     let cancelled = false;
-    const timer = window.setTimeout(async () => {
+    const timer = setTimeout(async () => {
       try {
         setRemoteLoading(true);
         const rows = await searchTickerUniverseRemote(q, 25);
@@ -178,7 +178,7 @@ export function StockSearch({
 
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      clearTimeout(timer);
     };
   }, [search]);
 
