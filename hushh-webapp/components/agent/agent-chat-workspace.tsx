@@ -403,7 +403,7 @@ function useAnimatedAssistantText(targetText: string, active: boolean) {
       }
 
       if (lastPaintAt && now - lastPaintAt < AGENT_STREAM_RENDER_FRAME_MS) {
-        frame = window.requestAnimationFrame(tick);
+        frame = requestAnimationFrame(tick);
         return;
       }
 
@@ -420,19 +420,19 @@ function useAnimatedAssistantText(targetText: string, active: boolean) {
       setDisplayedText(nextText);
 
       if (nextText.length < target.length) {
-        frame = window.requestAnimationFrame(tick);
+        frame = requestAnimationFrame(tick);
       }
     };
 
     const target = targetTextRef.current;
     const current = displayedTextRef.current;
     if (target && (!target.startsWith(current) || current.length < target.length)) {
-      frame = window.requestAnimationFrame(tick);
+      frame = requestAnimationFrame(tick);
     }
 
     return () => {
       if (frame) {
-        window.cancelAnimationFrame(frame);
+        cancelAnimationFrame(frame);
       }
     };
   }, [active, targetText]);
@@ -478,7 +478,7 @@ function AgentBubble({
     try {
       await copyTextToClipboard(message.text || assistantText);
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 1400);
+      setTimeout(() => setCopied(false), 1400);
     } catch {
       toast.error("Could not copy response.");
     }
@@ -942,8 +942,8 @@ export function AgentChatWorkspace({
         setIsHistoryDrawerOpen(false);
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    addEventListener("keydown", handleKeyDown);
+    return () => removeEventListener("keydown", handleKeyDown);
   }, [isHistoryDrawerOpen]);
 
   useEffect(() => {
