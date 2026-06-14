@@ -27,6 +27,7 @@ const STOCK_UI_FILES = new Set([
   "dropdown-menu.tsx",
   "empty.tsx",
   "field.tsx",
+  "hover-card.tsx",
   "input-group.tsx",
   "input.tsx",
   "kbd.tsx",

@@ -24,7 +24,6 @@ import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import {
   SurfaceCard,
   SurfaceCardContent,
-  SurfaceCardDescription,
   SurfaceCardHeader,
   SurfaceInset,
   SurfaceStack,
@@ -47,6 +46,7 @@ import {
 } from "@/components/kai/shared/market-surface-theme";
 import { ThemeFocusList, type ThemeFocusItem } from "@/components/kai/cards/theme-focus-list";
 import { Badge } from "@/components/ui/badge";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
@@ -440,7 +440,7 @@ function SpotlightFeatureTile({
   );
 }
 
-function MarketHeadlinesRail({ rows }: { rows: KaiHomeNewsItem[] }) {
+export function MarketHeadlinesRail({ rows }: { rows: KaiHomeNewsItem[] }) {
   if (!rows.length) {
     return (
       <SurfaceCard className={cn("h-full", marketCardClassName)}>
@@ -454,46 +454,79 @@ function MarketHeadlinesRail({ rows }: { rows: KaiHomeNewsItem[] }) {
   return (
     <SurfaceCard className={cn("h-full overflow-hidden", marketCardClassName)}>
       <SurfaceCardContent className="flex h-full min-h-[240px] flex-col p-0">
-        <SurfaceCardHeader className="gap-1 border-b border-[color:var(--app-card-border-standard)] [--surface-card-header-px:1rem] [--surface-card-header-pt:0.75rem] [--surface-card-header-pb:0.75rem]">
-          <SurfaceCardDescription className="text-[10px] font-semibold uppercase tracking-[0.2em]">
-            Latest coverage
-          </SurfaceCardDescription>
-          <SurfaceCardTitle className="text-[15px] font-semibold tracking-tight">
-            Fast reads from the tape
-          </SurfaceCardTitle>
+        <SurfaceCardHeader className="flex flex-row items-center justify-between pb-4 pt-5 px-5">
+          <div className="space-y-1">
+            <SurfaceCardTitle className="text-[10px] font-bold uppercase tracking-[0.15em] text-muted-foreground">
+              Latest coverage
+            </SurfaceCardTitle>
+            <h3 className="text-[18px] font-bold tracking-tight text-foreground">
+              Fast reads from the tape
+            </h3>
+          </div>
         </SurfaceCardHeader>
         <div className="max-h-[520px] overflow-y-auto">
           <div className="divide-y divide-border/40">
             {rows.slice(0, 8).map((row, index) => (
-              <button
-                key={`${row.symbol}-${index}-${row.url}`}
-                type="button"
-                onClick={() => openExternalUrl(row.url)}
-                className="group flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors duration-150 hover:bg-foreground/[0.03]"
-              >
-                <div className="min-w-0 space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className="border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-2 py-0 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground"
-                    >
-                      {row.symbol}
-                    </Badge>
-                    <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                      {row.source_name}
+              <HoverCard key={`${row.symbol}-${index}-${row.url}`} openDelay={200} closeDelay={150}>
+                <HoverCardTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => openExternalUrl(row.url)}
+                    className="group flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors duration-150 hover:bg-foreground/[0.03]"
+                  >
+                    <div className="min-w-0 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge
+                          variant="outline"
+                          className="border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-2 py-0 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground"
+                        >
+                          {row.symbol}
+                        </Badge>
+                        <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                          {row.source_name}
+                        </span>
+                      </div>
+                      <p className="line-clamp-2 text-[14px] font-medium leading-5 text-foreground">
+                        {row.title}
+                      </p>
+                      <p className="text-[12px] text-muted-foreground">
+                        {formatHeadlinePublished(row.published_at)}
+                      </p>
+                    </div>
+                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-transparent text-muted-foreground transition-colors duration-150 group-hover:border-[color:var(--app-card-border-standard)] group-hover:bg-[var(--app-card-surface-compact)] group-hover:text-foreground">
+                      <ExternalLink className="h-3.5 w-3.5" />
                     </span>
+                  </button>
+                </HoverCardTrigger>
+                <HoverCardContent 
+                  side="bottom" 
+                  align="start" 
+                  sideOffset={8}
+                  className="z-50 w-80 space-y-3 bg-background shadow-xl border-[color:var(--app-card-border-standard)]"
+                >
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-semibold leading-tight text-foreground">{row.title}</h4>
+                    <p className="text-[11px] font-medium text-muted-foreground">
+                      {row.source_name} · {formatHeadlinePublished(row.published_at)}
+                    </p>
                   </div>
-                  <p className="line-clamp-2 text-[14px] font-medium leading-5 text-foreground">
-                    {row.title}
-                  </p>
-                  <p className="text-[12px] text-muted-foreground">
-                    {formatHeadlinePublished(row.published_at)}
-                  </p>
-                </div>
-                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-transparent text-muted-foreground transition-colors duration-150 group-hover:border-[color:var(--app-card-border-standard)] group-hover:bg-[var(--app-card-surface-compact)] group-hover:text-foreground">
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </span>
-              </button>
+                  {row.sentiment_hint ? (
+                    <>
+                      <div className="text-xs leading-relaxed text-muted-foreground">
+                        {row.sentiment_hint}
+                      </div>
+                      <div className="flex items-center gap-1.5 pt-2 border-t border-[color:var(--app-card-border-standard)]">
+                        <Zap className="h-3 w-3 text-amber-500" />
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Kai quick scan</span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-xs italic text-muted-foreground">
+                      No analysis available for this headline.
+                    </div>
+                  )}
+                </HoverCardContent>
+              </HoverCard>
             ))}
           </div>
         </div>
