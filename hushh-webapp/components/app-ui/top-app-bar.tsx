@@ -507,7 +507,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                                 aria-label={`Active role: ${activePersona === "ria" ? "RIA" : "Investor"}`}
                               />
                             )}
-                            <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
+                            <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" aria-hidden="true" />
                           </ShellActionSurface>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent
@@ -524,7 +524,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                               <span>Investor</span>
                             </div>
                             {activePersona === "investor" ? (
-                              <Check className="ml-auto h-4 w-4 text-current" />
+                              <Check className="ml-auto h-4 w-4 text-current" aria-hidden="true" />
                             ) : null}
                           </DropdownMenuItem>
                           <DropdownMenuItem
@@ -541,9 +541,9 @@ export function TopAppBar({ className }: TopAppBarProps) {
                               </span>
                             </div>
                             {switchingPersona === "ria" ? (
-                              <Loader2 className="ml-auto h-4 w-4 animate-spin text-current" />
+                              <Loader2 className="ml-auto h-4 w-4 animate-spin text-current" aria-hidden="true" />
                             ) : activePersona === "ria" ? (
-                              <Check className="ml-auto h-4 w-4 text-current" />
+                              <Check className="ml-auto h-4 w-4 text-current" aria-hidden="true" />
                             ) : null}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
@@ -615,7 +615,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                               }
                             >
                               {activeCount > 0 ? (
-                                <Loader2 className="h-5 w-5 animate-spin text-sky-500" />
+                                <Loader2 className="h-5 w-5 animate-spin text-sky-500" aria-hidden="true" />
                               ) : (
                                 <Bell className="h-5 w-5" />
                               )}
@@ -730,7 +730,7 @@ function OnboardingRouteActions() {
             onClick={() => setDeleteConfirmOpen(true)}
             className="text-red-600 focus:text-red-600"
           >
-            <Trash2 className="h-4 w-4" />
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
             Delete account
           </DropdownMenuItem>
         </DropdownMenuContent>
