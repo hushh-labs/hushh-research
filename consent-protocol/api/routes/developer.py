@@ -191,48 +191,48 @@ class DeveloperScopedExportResponse(BaseModel):
     export_revision: int | None = None
     export_generated_at: str | None = Field(default=None, max_length=64)
     export_refresh_status: str | None = Field(default=None, max_length=64)
-    encrypted_data: str | None = None
-    iv: str | None = None
-    tag: str | None = None
+    encrypted_data: str | None = Field(default=None, max_length=10_000_000)
+    iv: str | None = Field(default=None, max_length=512)
+    tag: str | None = Field(default=None, max_length=512)
     wrapped_key_bundle: dict | None = None
     message: str = Field(..., min_length=1, max_length=2000)
 
 
 class DeveloperDefaultAvailableExportResponse(BaseModel):
-    status: str
-    user_id: str
-    scope: str
-    domain: str | None = None
-    top_level_scope_path: str | None = None
+    status: str = Field(..., max_length=64)
+    user_id: str = Field(..., max_length=128)
+    scope: str = Field(..., max_length=200)
+    domain: str | None = Field(default=None, max_length=200)
+    top_level_scope_path: str | None = Field(default=None, max_length=512)
     projection_payload: dict = Field(default_factory=dict)
-    projection_hash: str | None = None
+    projection_hash: str | None = Field(default=None, max_length=256)
     projection_version: int | None = None
-    projection_updated_at: str | None = None
-    app_id: str | None = None
-    app_display_name: str | None = None
-    message: str
+    projection_updated_at: str | None = Field(default=None, max_length=64)
+    app_id: str | None = Field(default=None, max_length=128)
+    app_display_name: str | None = Field(default=None, max_length=200)
+    message: str = Field(..., max_length=2000)
 
 
 class DeveloperPortalTokenResponse(BaseModel):
     id: int
-    app_id: str
-    token_prefix: str
-    label: str | None = None
+    app_id: str = Field(..., max_length=128)
+    token_prefix: str = Field(..., max_length=64)
+    label: str | None = Field(default=None, max_length=256)
     created_at: int
     revoked_at: int | None = None
     last_used_at: int | None = None
 
 
 class DeveloperPortalAppResponse(BaseModel):
-    app_id: str
-    agent_id: str
-    display_name: str
-    contact_email: str
-    support_url: str | None = None
-    policy_url: str | None = None
-    website_url: str | None = None
-    brand_image_url: str | None = None
-    status: str
+    app_id: str = Field(..., max_length=128)
+    agent_id: str = Field(..., max_length=128)
+    display_name: str = Field(..., max_length=200)
+    contact_email: str = Field(..., max_length=320)
+    support_url: str | None = Field(default=None, max_length=2048)
+    policy_url: str | None = Field(default=None, max_length=2048)
+    website_url: str | None = Field(default=None, max_length=2048)
+    brand_image_url: str | None = Field(default=None, max_length=2048)
+    status: str = Field(..., max_length=64)
     allowed_tool_groups: list[str]
     created_at: int
     updated_at: int
@@ -240,13 +240,13 @@ class DeveloperPortalAppResponse(BaseModel):
 
 class DeveloperPortalAccessResponse(BaseModel):
     access_enabled: bool
-    user_id: str
-    owner_email: str | None = None
-    owner_display_name: str | None = None
+    user_id: str = Field(..., max_length=128)
+    owner_email: str | None = Field(default=None, max_length=320)
+    owner_display_name: str | None = Field(default=None, max_length=200)
     owner_provider_ids: list[str] = Field(default_factory=list)
     app: DeveloperPortalAppResponse | None = None
     active_token: DeveloperPortalTokenResponse | None = None
-    raw_token: str | None = None
+    raw_token: str | None = Field(default=None, max_length=512)
     developer_token_env_var: str = "HUSHH_DEVELOPER_TOKEN"  # noqa: S105
     notes: list[str] = Field(
         default_factory=lambda: [
@@ -1208,7 +1208,7 @@ async def request_consent(
 async def get_default_available_export(
     payload: DeveloperDefaultAvailableExportRequest,
     request: Request,
-    token: Optional[str] = Query(None),
+    token: Optional[str] = Query(None, max_length=2048),
     authorization: Optional[str] = Header(None),
 ):
     principal = _resolve_principal(

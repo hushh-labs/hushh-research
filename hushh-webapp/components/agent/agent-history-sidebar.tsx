@@ -213,7 +213,11 @@ export function AgentHistorySidebar({
             </div>
           ) : null}
 
-          <div className="space-y-1">
+          <div
+            className="space-y-1"
+            role="list"
+            aria-label="Conversation history"
+          >
             {conversations.map((conversation) => {
               const title = conversationLabel(conversation);
               const active = conversation.id === activeConversationId;
@@ -223,6 +227,7 @@ export function AgentHistorySidebar({
               return (
                 <div
                   key={conversation.id}
+                  role="listitem"
                   className={cn(
                     "group rounded-lg transition-colors",
                     active && "bg-primary/15 text-zinc-50 ring-1 ring-primary/20",
