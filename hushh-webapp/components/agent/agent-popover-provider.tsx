@@ -64,8 +64,8 @@ function getViewportSize() {
     return { width: 1280, height: 800 };
   }
   return {
-    width: window.innerWidth,
-    height: window.innerHeight,
+    width: innerWidth,
+    height: innerHeight,
   };
 }
 
@@ -431,7 +431,7 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
 
   useEffect(() => {
     if (!triggerPosition) return;
-    window.localStorage.setItem(
+      localStorage.setItem(
       AGENT_POPOVER_STORAGE_KEYS.triggerPosition,
       JSON.stringify(triggerPosition)
     );
