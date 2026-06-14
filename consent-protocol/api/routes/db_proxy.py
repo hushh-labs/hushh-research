@@ -727,6 +727,10 @@ async def validate_vault_owner_token(consent_token: str, user_id: str) -> None:
     valid, reason, token_obj = await validate_token_with_db(consent_token, ConsentScope.VAULT_OWNER)
 
     if not valid:
+        # Log the precise failure reason server-side for diagnostics, but return
+        # a generic client detail. Echoing the internal reason (expired vs
+        # revoked vs bad-signature vs scope) to the caller is CWE-209
+        # token-reason disclosure on the auth boundary and aids token probing.
         logger.warning("db_proxy.validate_vault_owner_token.invalid reason=%s", reason)
         raise HTTPException(
             status_code=401,
@@ -748,11 +752,15 @@ async def validate_vault_owner_token(consent_token: str, user_id: str) -> None:
         )
         raise HTTPException(
             status_code=403,
-            detail=f"Insufficient scope: {token_obj.scope.value}. VAULT_OWNER scope required.",
+            detail="VAULT_OWNER scope required.",
         )
 
     if str(token_obj.user_id) != user_id:
-        logger.warning("Token userId mismatch: %s != %s", redact_log_value(token_obj.user_id), redact_log_value(user_id))
+        logger.warning(
+            "Token userId mismatch: %s != %s",
+            redact_log_value(token_obj.user_id),
+            redact_log_value(user_id),
+        )
         raise HTTPException(status_code=403, detail="Token userId does not match requested userId")
 
     logger.info("VAULT_OWNER token validated for %s", redact_log_value(user_id))

@@ -51,7 +51,55 @@ async def test_validate_vault_owner_token_invalid_token_returns_401(monkeypatch)
 
     assert exc.value.status_code == 401
     assert exc.value.headers == {"WWW-Authenticate": "Bearer"}
-    assert "revoked" in exc.value.detail
+    # CWE-209: the internal token-failure reason must NOT be echoed to the
+    # client; only a generic message is returned. The precise reason is logged
+    # server-side instead.
+    assert exc.value.detail == "Invalid or expired consent token."
+    assert "revoked" not in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_validate_vault_owner_token_invalid_reason_is_logged_not_returned(
+    monkeypatch, caplog
+):
+    async def _validate_token_with_db(token: str, scope: ConsentScope):
+        return (False, "token signature expired at 2024-01-01", None)
+
+    monkeypatch.setattr(db_proxy, "validate_token_with_db", _validate_token_with_db)
+
+    with caplog.at_level("WARNING"):
+        with pytest.raises(HTTPException) as exc:
+            await db_proxy.validate_vault_owner_token("expired-token", "user_123")
+
+    # Client gets the generic detail with no internal reason.
+    assert "token signature expired" not in exc.value.detail
+    # Operators still get the precise reason in the server log.
+    assert "token signature expired at 2024-01-01" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_validate_vault_owner_token_insufficient_scope_returns_generic_403(monkeypatch):
+    from types import SimpleNamespace
+
+    class _OtherScope:
+        value = "vault.read.finance"
+
+    async def _validate_token_with_db(token: str, scope: ConsentScope):
+        return (
+            True,
+            None,
+            SimpleNamespace(user_id="user_123", scope=_OtherScope()),
+        )
+
+    monkeypatch.setattr(db_proxy, "validate_token_with_db", _validate_token_with_db)
+
+    with pytest.raises(HTTPException) as exc:
+        await db_proxy.validate_vault_owner_token("consent-token", "user_123")
+
+    assert exc.value.status_code == 403
+    # CWE-209: do not echo the caller's actual scope value back to the client.
+    assert "vault.read.finance" not in exc.value.detail
+    assert exc.value.detail == "VAULT_OWNER scope required."
 
 
 @pytest.mark.asyncio
