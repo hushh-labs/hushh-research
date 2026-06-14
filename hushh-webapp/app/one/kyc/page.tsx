@@ -1626,9 +1626,9 @@ function OneKycWorkspace() {
                           }}
                         >
                           {archivingWorkflowId === workflow.workflow_id ? (
-                            <Loader2 className="size-4 animate-spin" />
+                            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                           ) : (
-                            <Trash2 className="size-4" />
+                            <Trash2 className="size-4" aria-hidden="true" />
                           )}
                         </Button>
                       </div>
@@ -1653,9 +1653,9 @@ function OneKycWorkspace() {
                   disabled={loadingMore}
                 >
                   {loadingMore ? (
-                    <Loader2 className="size-4 animate-spin" />
+                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                   ) : (
-                    <RefreshCw className="size-4" />
+                    <RefreshCw className="size-4" aria-hidden="true" />
                   )}
                   {loadingMore ? "Loading..." : "Load more"}
                 </Button>
@@ -1857,9 +1857,9 @@ function OneKycWorkspace() {
                           data-voice-action-id="kyc.workflow.deny_access"
                         >
                           {busy === "consent-deny" ? (
-                            <Loader2 className="size-4 animate-spin" />
+                            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                           ) : (
-                            <XCircle className="size-4" />
+                            <XCircle className="size-4" aria-hidden="true" />
                           )}
                           {busy === "consent-deny" ? "Denying..." : "Deny"}
                         </Button>
@@ -1874,6 +1874,7 @@ function OneKycWorkspace() {
                         data-voice-action-id="kyc.workflow.sync_status"
                       >
                         <RefreshCw
+                          aria-hidden="true"
                           className={
                             busy === "refresh" ? "size-4 animate-spin" : "size-4"
                           }
