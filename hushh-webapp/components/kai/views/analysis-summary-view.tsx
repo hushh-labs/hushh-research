@@ -384,10 +384,10 @@ export function AnalysisSummaryView({
           <div className="grid h-14 w-14 place-items-center rounded-full bg-black text-lg font-black text-white dark:bg-white dark:text-black">
             {entry.ticker.slice(0, 1)}
           </div>
-          <div>
+          <div className="min-w-0">
             <h2 className="text-2xl font-black tracking-tight leading-tight">{entry.ticker} Insight</h2>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              <span className="font-mono text-sm text-muted-foreground">{priceLabel}</span>
+            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
+              <span className="break-words font-mono text-sm text-muted-foreground">{priceLabel}</span>
               {todayChangePct !== null ? (
                 <span
                   className={cn(
@@ -401,10 +401,10 @@ export function AnalysisSummaryView({
                   {todayChangePct.toFixed(2)}%
                 </span>
               ) : (
-                <span className="text-xs text-muted-foreground">Today's status unavailable</span>
+                <span className="break-words text-xs text-muted-foreground">Today's status unavailable</span>
               )}
               {fairValueGapLabel ? (
-                <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                <span className="break-words rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
                   {fairValueGapLabel}
                 </span>
               ) : null}
