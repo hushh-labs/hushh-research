@@ -7,12 +7,13 @@
  * - Drag-and-drop zone for PDF/CSV files
  * - Supported brokerages list
  * - Skip option (minimal)
- */
+ * */
 
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
+import { FileDropzone } from "@/components/app-ui/file-dropzone";
 
 import {
   Upload,
@@ -61,10 +62,9 @@ export function PortfolioImportView({
   plaidConfigured = true,
   plaidConnectedInstitutionCount = 0,
 }: PortfolioImportViewProps) {
-  const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectionError, setSelectionError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     scrollAppToTop("auto");
@@ -74,59 +74,6 @@ export function PortfolioImportView({
     const validTypes = ["application/pdf", "text/csv", "application/vnd.ms-excel"];
     return validTypes.includes(file.type) || file.name.endsWith(".csv") || file.name.endsWith(".pdf");
   }, []);
-
-  // Handle file drop
-  const handleDrop = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      setIsDragging(false);
-
-      const files = Array.from(e.dataTransfer.files);
-      const file = files[0];
-
-      if (file && isSupportedFile(file)) {
-        setSelectedFile(file);
-        setSelectionError(null);
-        return;
-      }
-      setSelectionError("Please select a PDF or CSV statement.");
-    },
-    [isSupportedFile]
-  );
-
-  // Handle file input change
-  const handleFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (files && files[0]) {
-        const file = files[0];
-        if (isSupportedFile(file)) {
-          setSelectedFile(file);
-          setSelectionError(null);
-        } else {
-          setSelectionError("Please select a PDF or CSV statement.");
-        }
-      }
-      e.currentTarget.value = "";
-    },
-    [isSupportedFile]
-  );
-
-  // Handle drag over
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
-
-  // Handle drag leave
-  const handleDragLeave = useCallback(() => {
-    setIsDragging(false);
-  }, []);
-
-  // Trigger file input click
-  const triggerFileInput = () => {
-    fileInputRef.current?.click();
-  };
 
   const handleContinue = useCallback(() => {
     if (!selectedFile || isUploading) return;
@@ -150,6 +97,46 @@ export function PortfolioImportView({
     onConnectPlaid,
     plaidConfigured,
   ]);
+
+  // Handle standard React drop events mapped to the FileDropzone input
+  const handleDrop = useCallback((e: React.DragEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      const targetFile = files[0];
+      if (targetFile && isSupportedFile(targetFile)) {
+        setSelectedFile(targetFile);
+        setSelectionError(null);
+        return;
+      }
+    }
+    setSelectionError("Please select a PDF or CSV statement.");
+  }, [isSupportedFile]);
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+  }, []);
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target?.files;
+    if (files && files.length > 0) {
+      const targetFile = files[0];
+      if (targetFile && isSupportedFile(targetFile)) {
+        setSelectedFile(targetFile);
+        setSelectionError(null);
+        return;
+      }
+    }
+    setSelectionError("Please select a PDF or CSV statement.");
+  }, [isSupportedFile]);
 
   return (
     <div className="mx-auto w-full space-y-3.5 pt-3 pb-6" style={APP_MEASURE_STYLES.reading}>
@@ -253,56 +240,44 @@ export function PortfolioImportView({
             </div>
           </div>
 
-          {/* Drag & Drop Zone */}
-          <div
+          {/* HARVESTED ACCESSIBLE DROPZONE WITH REGULATED STORAGE CONTRACT */}
+          <FileDropzone
+            accept=".csv,.pdf,.xls,.xlsx"
+            disabled={isUploading}
             onDrop={handleDrop}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
-            className={cn(
-              "relative border border-dashed rounded-3xl p-7 transition-all duration-200 text-center cursor-pointer min-h-44 flex flex-col items-center justify-center",
-              isDragging
-                ? "border-primary bg-primary/8 scale-[1.01]"
-                : "border-border/70 hover:border-primary/50 hover:bg-muted/25",
-              isUploading && "pointer-events-none opacity-50"
-            )}
-            onClick={triggerFileInput}
+            onChange={handleChange}
           >
-            {/* Upload Icon */}
-            <div className="mx-auto w-14 h-14 rounded-full bg-primary/10 border border-primary/15 flex items-center justify-center mb-3">
-              <Icon icon={Upload} size={30} className="text-primary" />
-            </div>
-
-            {/* Text */}
-            <div className="space-y-1">
-              <h3 className="text-[17px] font-semibold text-primary">
-                {isDragging
-                  ? "Drop your file here"
-                  : "Tap to upload official statement"}
-              </h3>
-              <p className="text-[14px] font-medium text-muted-foreground">
-                PDF or CSV
-              </p>
-            </div>
-
-            {/* Selected File Display */}
-            {selectedFile && !isUploading && (
-              <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full text-sm">
-                <Icon icon={FileText} size="sm" />
-                <span>{selectedFile.name}</span>
-                <Icon icon={CheckCircle} size="sm" className="text-green-500" />
+            <div className={cn(
+              "w-full text-center flex flex-col items-center justify-center min-h-44 transition-colors",
+              isDragging && "bg-primary/5 rounded-3xl"
+            )}>
+              {/* Upload Icon */}
+              <div className="mx-auto w-14 h-14 rounded-full bg-primary/10 border border-primary/15 flex items-center justify-center mb-3">
+                <Icon icon={Upload} size={30} className="text-primary" />
               </div>
-            )}
 
-            {/* Hidden File Input */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv,.pdf"
-              onChange={handleFileChange}
-              className="hidden"
-              disabled={isUploading}
-            />
-          </div>
+              {/* Text */}
+              <div className="space-y-1">
+                <h3 className="text-[17px] font-semibold text-primary">
+                  {isDragging ? "Drop your file here" : "Drag and drop or tap to upload"}
+                </h3>
+                <p className="text-[14px] font-medium text-muted-foreground">
+                  PDF or CSV
+                </p>
+              </div>
+
+              {/* Selected File Display */}
+              {selectedFile && !isUploading && (
+                <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full text-sm">
+                  <Icon icon={FileText} size="sm" />
+                  <span>{selectedFile.name}</span>
+                  <Icon icon={CheckCircle} size="sm" className="text-green-500" />
+                </div>
+              )}
+            </div>
+          </FileDropzone>
 
           <MorphyButton
             variant="morphy"
@@ -369,3 +344,5 @@ export function PortfolioImportView({
     </div>
   );
 }
+
+export default PortfolioImportView;
