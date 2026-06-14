@@ -101,9 +101,10 @@ async def _require_vault_owner_token(
     valid, reason, payload = await validate_token_with_db(consent_token, ConsentScope.VAULT_OWNER)
 
     if not valid or not payload:
+        logger.warning("stream.token_invalid reason=%s", reason)
         raise HTTPException(
             status_code=401,
-            detail=f"Invalid token: {reason}",
+            detail="Consent token validation failed.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

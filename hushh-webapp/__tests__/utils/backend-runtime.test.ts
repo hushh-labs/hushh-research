@@ -72,13 +72,14 @@ describe("backend runtime resolution", () => {
   });
 
   describe("URL whitespace sanitization", () => {
-    it("strips leading and trailing spaces from a backend URL env var without throwing", async () => {
-      process.env.K_SERVICE = "hushh-webapp";
-      process.env.PYTHON_API_URL = "  https://api.example.com  ";
-      const helper = await loadHelper();
-      expect(helper.getPythonApiUrl()).toBe("https://api.example.com");
-    });
+    it("strips a trailing carriage return from a backend URL env var", async () => {
+  process.env.K_SERVICE = "hushh-webapp";
+  process.env.PYTHON_API_URL = "https://api.example.com\r";
 
+  const helper = await loadHelper();
+
+  expect(helper.getPythonApiUrl()).toBe("https://api.example.com");
+});
     it("strips surrounding tab characters from a backend URL env var without throwing", async () => {
       process.env.K_SERVICE = "hushh-webapp";
       process.env.PYTHON_API_URL = "\thttps://api.example.com\t";
@@ -86,13 +87,15 @@ describe("backend runtime resolution", () => {
       expect(helper.getPythonApiUrl()).toBe("https://api.example.com");
     });
 
-    it("strips a trailing newline from a backend URL env var without throwing", async () => {
-      process.env.K_SERVICE = "hushh-webapp";
-      process.env.PYTHON_API_URL = "https://api.example.com\n";
-      const helper = await loadHelper();
-      expect(helper.getPythonApiUrl()).toBe("https://api.example.com");
-    });
+    it("skips a newline-only backend URL env var and falls through to the next key", async () => {
+  process.env.K_SERVICE = "hushh-webapp";
+  process.env.PYTHON_API_URL = "\n";
+  process.env.BACKEND_URL = "https://api.example.com";
 
+  const helper = await loadHelper();
+
+  expect(helper.getPythonApiUrl()).toBe("https://api.example.com");
+});
     it("skips a whitespace-only env var and falls through to the next key", async () => {
       process.env.K_SERVICE = "hushh-webapp";
       process.env.PYTHON_API_URL = "   ";
