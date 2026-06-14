@@ -78,7 +78,7 @@ export function AgentPkmReviewPanel({
             onClick={onDismiss}
             disabled={saving}
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
             Skip
           </Button>
           <Button
@@ -88,7 +88,7 @@ export function AgentPkmReviewPanel({
             onClick={onSave}
             disabled={saving}
           >
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Check className="h-3.5 w-3.5" aria-hidden="true" />}
             Save
           </Button>
         </div>

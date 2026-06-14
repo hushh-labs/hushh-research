@@ -190,7 +190,7 @@ export function AgentHistorySidebar({
               aria-label="Close chat history"
               title="Close chat history"
             >
-              <X className="h-4 w-4" />
+              <X className="h-4 w-4" aria-hidden="true" />
             </Button>
           ) : null}
         </div>
@@ -250,7 +250,7 @@ export function AgentHistorySidebar({
                         disabled={pending || !normalizeTitle(renameValue)}
                         aria-label="Save chat name"
                       >
-                        <Check className="h-3.5 w-3.5" />
+                        <Check className="h-3.5 w-3.5" aria-hidden="true" />
                       </Button>
                       <Button
                         type="button"
@@ -260,7 +260,7 @@ export function AgentHistorySidebar({
                         disabled={pending}
                         aria-label="Cancel rename"
                       >
-                        <X className="h-3.5 w-3.5" />
+                        <X className="h-3.5 w-3.5" aria-hidden="true" />
                       </Button>
                     </form>
                   ) : (
