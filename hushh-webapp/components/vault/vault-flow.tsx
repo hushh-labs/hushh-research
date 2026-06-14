@@ -937,6 +937,10 @@ export function VaultFlow({
                   onChange={(e) =>
                     setRecoveryKeyInput(e.target.value.toUpperCase())
                   }
+                  spellCheck={false}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="characters"
                   className="h-10 px-3 font-mono text-base sm:h-11"
                 />
               </div>

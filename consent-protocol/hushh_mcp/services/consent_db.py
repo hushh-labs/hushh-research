@@ -5,9 +5,15 @@ Consent Database Service
 
 Service layer for consent-related database operations.
 
+Canonical attach point:
+  hushh_mcp.services.consent_db.ConsentDBService -> multiple consent routes
+
 CONSENT-FIRST ARCHITECTURE:
     All consent operations go through this service.
     Provides methods for pending requests, active tokens, and audit logs.
+
+All timestamps use timezone-aware datetime.now(tz=timezone.utc) to avoid
+ambiguous local-time values when the server runs in a non-UTC environment.
 
 Usage:
     from hushh_mcp.services.consent_db import ConsentDBService
@@ -30,10 +36,11 @@ Usage:
     )
 """
 
+import hashlib
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.consent.scope_generator import get_scope_generator
@@ -41,6 +48,11 @@ from hushh_mcp.consent.scope_helpers import scope_matches
 from hushh_mcp.services.consent_request_links import build_consent_request_url
 
 logger = logging.getLogger(__name__)
+
+
+def _token_fingerprint(token: str) -> str:
+    """Return a 12-char SHA-256 fingerprint for safe log messages."""
+    return hashlib.sha256(token.encode()).hexdigest()[:12]
 
 
 class ConsentDBService:
@@ -62,32 +74,6 @@ class ConsentDBService:
     @staticmethod
     def _normalize_agent_id(agent_id: Optional[str]) -> str:
         return str(agent_id or "").strip().lower()
-
-    @staticmethod
-    def _normalize_user_identifiers(
-        primary_user_id: str,
-        user_ids: Iterable[str] | None = None,
-    ) -> list[str]:
-        identifiers: list[str] = []
-        for value in [primary_user_id, *(list(user_ids or []))]:
-            normalized = str(value or "").strip()
-            if "@" in normalized:
-                normalized = normalized.lower()
-            if normalized and normalized not in identifiers:
-                identifiers.append(normalized)
-        return identifiers
-
-    @classmethod
-    def _filter_user_id_query(
-        cls,
-        query: Any,
-        primary_user_id: str,
-        user_ids: Iterable[str] | None = None,
-    ) -> Any:
-        identifiers = cls._normalize_user_identifiers(primary_user_id, user_ids)
-        if len(identifiers) <= 1:
-            return query.eq("user_id", identifiers[0] if identifiers else primary_user_id)
-        return query.in_("user_id", identifiers)
 
     @classmethod
     def _is_internal_event(
@@ -292,8 +278,6 @@ class ConsentDBService:
         is_scope_upgrade = bool(metadata.get("is_scope_upgrade"))
         return {
             "id": row.get("request_id"),
-            "userId": row.get("user_id"),
-            "subjectUserId": row.get("user_id"),
             "developer": row.get("agent_id"),
             "agent_id": row.get("agent_id"),
             "requesterLabel": cls._requester_label(row.get("agent_id"), metadata),
@@ -406,12 +390,7 @@ class ConsentDBService:
     # Pending Requests
     # =========================================================================
 
-    async def get_pending_requests(
-        self,
-        user_id: str,
-        *,
-        user_ids: Iterable[str] | None = None,
-    ) -> List[Dict]:
+    async def get_pending_requests(self, user_id: str) -> List[Dict]:
         """
         Get pending consent requests for a user.
         A request is pending if it has REQUESTED action with no resolution.
@@ -420,14 +399,18 @@ class ConsentDBService:
         since Supabase REST API doesn't support complex SQL.
         """
         supabase = self._get_supabase()
-        now_ms = int(datetime.now().timestamp() * 1000)
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
         # Fetch all relevant rows (we'll filter in Python)
         # Note: Cannot use .neq("request_id", None) - SQL "!= NULL" is always NULL (not true)
         # Instead, fetch all rows and filter request_id IS NOT NULL in Python
-        query = supabase.table("consent_audit").select("*")
-        query = self._filter_user_id_query(query, user_id, user_ids)
-        response = query.order("issued_at", desc=True).execute()
+        response = (
+            supabase.table("consent_audit")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("issued_at", desc=True)
+            .execute()
+        )
 
         # Post-process to get latest per request_id (DISTINCT ON equivalent)
         latest_per_request = {}
@@ -483,20 +466,18 @@ class ConsentDBService:
 
         return results
 
-    async def get_pending_by_request_id(
-        self,
-        user_id: str,
-        request_id: str,
-        *,
-        user_ids: Iterable[str] | None = None,
-    ) -> Optional[Dict]:
+    async def get_pending_by_request_id(self, user_id: str, request_id: str) -> Optional[Dict]:
         """Get a specific pending request by request_id."""
         supabase = self._get_supabase()
 
-        query = supabase.table("consent_audit").select("*")
-        query = self._filter_user_id_query(query, user_id, user_ids)
         response = (
-            query.eq("request_id", request_id).order("issued_at", desc=True).limit(1).execute()
+            supabase.table("consent_audit")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("request_id", request_id)
+            .order("issued_at", desc=True)
+            .limit(1)
+            .execute()
         )
 
         if response.data and len(response.data) > 0:
@@ -504,10 +485,6 @@ class ConsentDBService:
             if not self._is_external_audit_row(row):
                 return None
             if row.get("action") == "REQUESTED":
-                poll_timeout_at = self._effective_pending_timeout_at(row)
-                now_ms = int(datetime.now().timestamp() * 1000)
-                if poll_timeout_at is not None and poll_timeout_at <= now_ms:
-                    return None
                 notification_events = await self.list_internal_request_events(
                     [request_id],
                     actions=["NOTIFICATION_OPENED"],
@@ -523,7 +500,6 @@ class ConsentDBService:
                 )
                 return {
                     "request_id": pending.get("id"),
-                    "user_id": pending.get("subjectUserId"),
                     "developer": pending.get("developer"),
                     "agent_id": pending.get("agent_id"),
                     "requester_label": pending.get("requesterLabel"),
@@ -552,7 +528,6 @@ class ConsentDBService:
         request_id: str | None = None,
         bundle_id: str | None = None,
         opened_via: str | None = None,
-        user_ids: Iterable[str] | None = None,
     ) -> Dict[str, Any] | None:
         normalized_request_id = str(request_id or "").strip()
         normalized_bundle_id = str(bundle_id or "").strip()
@@ -560,11 +535,15 @@ class ConsentDBService:
             return None
 
         supabase = self._get_supabase()
-        query = supabase.table("consent_audit").select("*")
-        query = self._filter_user_id_query(query, user_id, user_ids)
-        response = query.order("issued_at", desc=True).execute()
+        response = (
+            supabase.table("consent_audit")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("issued_at", desc=True)
+            .execute()
+        )
 
-        now_ms = int(datetime.now().timestamp() * 1000)
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         matched_row: Dict[str, Any] | None = None
         for row in response.data or []:
             if not self._is_external_audit_row(row):
@@ -595,7 +574,7 @@ class ConsentDBService:
         resolved_metadata = self._parse_metadata(matched_row.get("metadata"))
         resolved_bundle_id = str(resolved_metadata.get("bundle_id") or "").strip() or None
         await self.insert_event(
-            user_id=str(matched_row.get("user_id") or user_id),
+            user_id=user_id,
             agent_id="self",
             scope=str(matched_row.get("scope") or ""),
             action="NOTIFICATION_OPENED",
@@ -620,7 +599,7 @@ class ConsentDBService:
     ) -> Optional[Dict]:
         """Return the newest still-pending exact request for one agent+scope."""
         supabase = self._get_supabase()
-        now_ms = int(datetime.now().timestamp() * 1000)
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
         response = (
             supabase.table("consent_audit")
@@ -669,7 +648,6 @@ class ConsentDBService:
         user_id: str,
         agent_id: Optional[str] = None,
         scope: Optional[str] = None,
-        user_ids: Iterable[str] | None = None,
     ) -> List[Dict]:
         """
         Get active consent tokens for a user.
@@ -679,13 +657,14 @@ class ConsentDBService:
         Uniqueness is keyed by (agent_id, scope), not just scope.
         """
         supabase = self._get_supabase()
-        now_ms = int(datetime.now().timestamp() * 1000)
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
         # Fetch all CONSENT_GRANTED and REVOKED actions
-        query = supabase.table("consent_audit").select("*")
-        query = self._filter_user_id_query(query, user_id, user_ids)
         response = (
-            query.in_("action", ["CONSENT_GRANTED", "REVOKED"])
+            supabase.table("consent_audit")
+            .select("*")
+            .eq("user_id", user_id)
+            .in_("action", ["CONSENT_GRANTED", "REVOKED"])
             .order("issued_at", desc=True)
             .execute()
         )
@@ -727,7 +706,7 @@ class ConsentDBService:
                             "id": token_id[:20] + "..."
                             if token_id and len(token_id) > 20
                             else str(row.get("id")),
-                            "user_id": row.get("user_id") or user_id,
+                            "user_id": user_id,
                             "scope": row.get("scope"),
                             "developer": row.get("agent_id"),
                             "agent_id": row.get("agent_id"),
@@ -748,14 +727,12 @@ class ConsentDBService:
         *,
         requested_scope: str,
         agent_id: Optional[str] = None,
-        user_ids: Iterable[str] | None = None,
     ) -> Optional[Dict[str, Any]]:
         """Return the best active token whose granted scope covers the requested scope."""
         covering = await self.get_covering_active_tokens(
             user_id,
             requested_scope=requested_scope,
             agent_id=agent_id,
-            user_ids=user_ids,
         )
         if not covering:
             return None
@@ -767,14 +744,9 @@ class ConsentDBService:
         *,
         requested_scope: str,
         agent_id: Optional[str] = None,
-        user_ids: Iterable[str] | None = None,
     ) -> List[Dict[str, Any]]:
         """Return all active covering tokens ordered by most-specific coverage."""
-        active_tokens = await self.get_active_tokens(
-            user_id,
-            agent_id=agent_id,
-            user_ids=user_ids,
-        )
+        active_tokens = await self.get_active_tokens(user_id, agent_id=agent_id)
         covering = [
             token
             for token in active_tokens
@@ -788,16 +760,11 @@ class ConsentDBService:
         *,
         requested_scope: str,
         agent_id: Optional[str] = None,
-        user_ids: Iterable[str] | None = None,
     ) -> List[Dict[str, Any]]:
         """
         Return active narrower tokens that would be superseded by a newly approved broader scope.
         """
-        active_tokens = await self.get_active_tokens(
-            user_id,
-            agent_id=agent_id,
-            user_ids=user_ids,
-        )
+        active_tokens = await self.get_active_tokens(user_id, agent_id=agent_id)
         superseded = []
         for token in active_tokens:
             granted_scope = str(token.get("scope") or "")
@@ -814,7 +781,7 @@ class ConsentDBService:
         scope: Optional[str] = None,
     ) -> List[Dict]:
         """Get active internal/self tokens without exposing them to the external consent ledger."""
-        now_ms = int(datetime.now().timestamp() * 1000)
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         try:
             supabase = self._get_supabase()
             response_data = (
@@ -886,7 +853,7 @@ class ConsentDBService:
         self, user_id: str, scope: str, agent_id: Optional[str] = None
     ) -> bool:
         """Check if there's an active token for user+scope (+agent_id when provided)."""
-        now_ms = int(datetime.now().timestamp() * 1000)
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         normalized_scope = str(scope or "").strip()
         normalized_agent_id = agent_id or None
         is_internal_lookup = self._is_internal_event(
@@ -960,7 +927,7 @@ class ConsentDBService:
         which would cause duplicate toast notifications.
         """
         supabase = self._get_supabase()
-        now_ms = int(datetime.now().timestamp() * 1000)
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         cooldown_ms = cooldown_seconds * 1000
         cutoff_ms = now_ms - cooldown_ms
 
@@ -983,32 +950,46 @@ class ConsentDBService:
     # Audit Log
     # =========================================================================
 
-    async def get_audit_log(
-        self,
-        user_id: str,
-        page: int = 1,
-        limit: int = 50,
-        *,
-        user_ids: Iterable[str] | None = None,
-    ) -> Dict:
+    async def get_audit_log(self, user_id: str, page: int = 1, limit: int = 50) -> Dict:
         """Get paginated audit log for a user."""
         supabase = self._get_supabase()
         offset = (page - 1) * limit
-        now_ms = int(datetime.now().timestamp() * 1000)
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
         # Get paginated results (TableQuery uses .limit/.offset, not .range)
-        query = supabase.table("consent_audit").select("*")
-        query = self._filter_user_id_query(query, user_id, user_ids)
-        response = query.order("issued_at", desc=True).limit(limit).offset(offset).execute()
-
-        # Get total count via separate query (capped at 5000 for display)
-        count_query = supabase.table("consent_audit").select("id,agent_id,action,scope")
-        count_query = self._filter_user_id_query(count_query, user_id, user_ids)
-        count_response = count_query.limit(5000).execute()
-        filtered_rows = [row for row in (response.data or []) if self._is_external_audit_row(row)]
-        total = len(
-            [row for row in (count_response.data or []) if self._is_external_audit_row(row)]
+        response = (
+            supabase.table("consent_audit")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("issued_at", desc=True)
+            .limit(limit)
+            .offset(offset)
+            .execute()
         )
+
+        # Get total count using DB-side count="exact" with filters that mirror
+        # _is_external_audit_row. Internal-only actions and agent_ids are excluded
+        # at query time so no rows need to be fetched just to be counted.
+        _internal_actions = (
+            "OPERATION_PERFORMED",
+            "NOTIFICATION_SENT",
+            "REMINDER_SENT",
+            "NOTIFICATION_OPENED",
+        )
+        _internal_agents = ("self", "agent_kai", "kai")
+        count_response = (
+            supabase.table("consent_audit")
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .not_("action", "in", f"({','.join(_internal_actions)})")
+            .not_("agent_id", "in", f"({','.join(_internal_agents)})")
+            .limit(0)
+            .execute()
+        )
+        total = count_response.count if (
+            hasattr(count_response, "count") and count_response.count is not None
+        ) else 0
+        filtered_rows = [row for row in (response.data or []) if self._is_external_audit_row(row)]
 
         items = []
         for row in filtered_rows:
@@ -1046,7 +1027,7 @@ class ConsentDBService:
 
     async def get_internal_activity_summary(self, user_id: str, limit: int = 8) -> Dict[str, Any]:
         """Return a small self/internal activity summary for a separate investor-facing surface."""
-        now_ms = int(datetime.now().timestamp() * 1000)
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         day_cutoff_ms = now_ms - (24 * 60 * 60 * 1000)
         try:
             supabase = self._get_supabase()
@@ -1215,7 +1196,7 @@ class ConsentDBService:
 
         supabase = self._get_supabase()
 
-        issued_at = int(datetime.now().timestamp() * 1000)
+        issued_at = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         token_id = token_id or f"evt_{issued_at}"
 
         # Prepare metadata as JSON string
@@ -1266,7 +1247,7 @@ class ConsentDBService:
     ) -> int:
         """Insert an internal/self activity event into the internal ledger."""
         supabase = self._get_supabase()
-        issued_at = int(datetime.now().timestamp() * 1000)
+        issued_at = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         token_id = token_id or f"evt_{issued_at}"
         metadata_json = json.dumps(metadata) if metadata else None
 
@@ -1311,7 +1292,7 @@ class ConsentDBService:
         Used by the optional timeout job to emit TIMEOUT events over SSE.
         """
         supabase = self._get_supabase()
-        now_ms = int(datetime.now().timestamp() * 1000)
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         response = (
             supabase.table("consent_audit")
             .select(
@@ -1441,7 +1422,7 @@ class ConsentDBService:
     async def get_pending_notification_candidates(self) -> List[Dict[str, Any]]:
         """Return latest pending requests with enough metadata for reminder scheduling."""
         supabase = self._get_supabase()
-        now_ms = int(datetime.now().timestamp() * 1000)
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         response = (
             supabase.table("consent_audit").select("*").order("issued_at", desc=True).execute()
         )
@@ -1701,8 +1682,8 @@ class ConsentDBService:
         normalized_bundle = self._normalize_wrapped_key_bundle(wrapped_key_bundle)
         if normalized_bundle is None:
             logger.error(
-                "Refusing to store consent export without a wrapped key bundle token=%s",
-                consent_token[:30],
+                "Refusing to store consent export without a wrapped key bundle token_fp=%s",
+                _token_fingerprint(consent_token),
             )
             return False
 
@@ -1731,7 +1712,7 @@ class ConsentDBService:
                 on_conflict="consent_token",
             ).execute()
 
-            logger.info(f"Stored consent export for token: {consent_token[:30]}...")
+            logger.info("Stored consent export for token_fp=%s", _token_fingerprint(consent_token))
             return True
         except Exception as e:
             logger.error(f"Failed to store consent export: {e}")
@@ -1811,7 +1792,7 @@ class ConsentDBService:
         try:
             supabase.table("consent_exports").delete().eq("consent_token", consent_token).execute()
 
-            logger.info(f"Deleted consent export for token: {consent_token[:30]}...")
+            logger.info("Deleted consent export for token_fp=%s", _token_fingerprint(consent_token))
             return True
         except Exception as e:
             logger.error(f"Failed to delete consent export: {e}")
@@ -1834,7 +1815,7 @@ class ConsentDBService:
             logger.warning("Failed to add legacy token to in-memory revoke set: %s", token_id)
 
         await self.delete_consent_export(token_id)
-        revoke_event_token = f"REVOKED_LEGACY_{int(datetime.now().timestamp() * 1000)}"
+        revoke_event_token = f"REVOKED_LEGACY_{int(datetime.now(tz=timezone.utc).timestamp() * 1000)}"
         metadata = {
             "legacy_export_invalidated": True,
             "reason": reason,

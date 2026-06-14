@@ -19,7 +19,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, Path, Query, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
 from api.routes.pkm_routes_shared import (
@@ -71,15 +71,15 @@ router = APIRouter(
 
 
 class WorldModelDomainsResponse(BaseModel):
-    domains: list[dict[str, Any]]
-    count: int
+    domains: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
+    count: int = Field(default=0, ge=0, le=200)
 
 
 class UserWorldModelDomainsResponse(BaseModel):
-    user_id: str
-    domains: list[dict[str, Any]]
-    total_attributes: int = 0
-    last_updated: str | None = None
+    user_id: str = Field(..., max_length=128)
+    domains: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
+    total_attributes: int = Field(default=0, ge=0)
+    last_updated: str | None = Field(None, max_length=64)
 
 
 @router.get("/domains", response_model=WorldModelDomainsResponse)

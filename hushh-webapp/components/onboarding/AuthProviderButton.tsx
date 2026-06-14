@@ -22,6 +22,7 @@ export function AuthProviderButton({
 }: AuthProviderButtonProps) {
   return (
     <Button
+      type="button"
       variant="none"
       effect="glass"
       size="lg"
