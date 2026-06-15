@@ -1702,6 +1702,8 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
                 className="h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]"
                 contentClassName="gap-1.5"
                 aria-label="Search RIA workspace"
+                aria-expanded={open}
+                aria-haspopup="dialog"
                 onClick={() => setOpen(true)}
               >
                 <Search className="h-4 w-4 shrink-0" />

@@ -231,7 +231,9 @@ export function KaiPreferencesWizard(props: {
             <span className="font-medium">
               Step {currentStep} of {total}
             </span>
-            <span className="tabular-nums">{progressValue}%</span>
+            <span className="tabular-nums" aria-hidden="true">
+              {progressValue}%
+            </span>
           </div>
           <Progress value={progressValue} className="h-1 rounded-full bg-muted" />
         </div>
@@ -428,6 +430,7 @@ function RadioCardItem(props: { value: string; label: string }) {
           {props.label}
         </p>
         <div
+          aria-hidden="true"
           className={cn(
             "h-5 w-5 rounded-full border grid place-items-center",
             "border-muted-foreground/30"
