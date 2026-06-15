@@ -373,27 +373,6 @@ function isOneLocationWorkflowNotificationType(
   );
 }
 
-function oneLocationSectionForWorkflowNotificationType(
-  type: OneLocationWorkflowNotificationType,
-): string {
-  switch (type) {
-    case "location_share_created":
-    case "location_access_approved":
-    case "location_share_revoked":
-    case "location_share_expired":
-      return "shared";
-    case "location_access_request":
-      return "approvals";
-    case "location_access_denied":
-    case "location_referral_invite":
-      return "my_requests";
-    case "location_public_invite_submitted":
-      return "public_responses";
-    default:
-      return "activity";
-  }
-}
-
 function oneLocationOwnerLabel(data: Record<string, string>): string {
   return (
     String(data.owner_display_label || "").trim() ||
@@ -712,8 +691,6 @@ export function ConsentNotificationProvider({
         grantId,
         requestId,
         referralId,
-        submissionId,
-        section: oneLocationSectionForWorkflowNotificationType(msgType),
         openGrant: false,
       });
       const created = recordOneLocationWorkflowNotification({

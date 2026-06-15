@@ -461,7 +461,7 @@ describe("OneLocationAgentPage", () => {
     }
   });
 
-  it("scrolls to the workflow section named in a One Location notification href", async () => {
+  it("scrolls to the section named in a One Location notification href", async () => {
     const scrollIntoView = vi.fn();
     const originalScrollIntoView = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = scrollIntoView;

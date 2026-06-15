@@ -8,7 +8,6 @@ export const ONE_LOCATION_NOTIFICATION_OPEN_VALUE = "opened";
 export const ONE_LOCATION_GRANT_ID_PARAM = "grantId";
 export const ONE_LOCATION_REQUEST_ID_PARAM = "requestId";
 export const ONE_LOCATION_REFERRAL_ID_PARAM = "referralId";
-const ONE_LOCATION_SUBMISSION_ID_PARAM = "submissionId";
 const ONE_LOCATION_SECTION_PARAM = "section";
 
 const OPENED_GRANTS_KEY_PREFIX = "one_location_opened_grants_v1";
@@ -160,21 +159,15 @@ export function buildOneLocationWorkflowHref(params: {
   grantId?: string | null;
   requestId?: string | null;
   referralId?: string | null;
-  submissionId?: string | null;
-  section?: string | null;
   openGrant?: boolean;
 }): string {
   const query = new URLSearchParams();
   const grantId = String(params.grantId || "").trim();
   const requestId = String(params.requestId || "").trim();
   const referralId = String(params.referralId || "").trim();
-  const submissionId = String(params.submissionId || "").trim();
-  const section = String(params.section || "").trim();
   if (grantId) query.set(ONE_LOCATION_GRANT_ID_PARAM, grantId);
   if (requestId) query.set(ONE_LOCATION_REQUEST_ID_PARAM, requestId);
   if (referralId) query.set(ONE_LOCATION_REFERRAL_ID_PARAM, referralId);
-  if (submissionId) query.set(ONE_LOCATION_SUBMISSION_ID_PARAM, submissionId);
-  if (section) query.set(ONE_LOCATION_SECTION_PARAM, section);
   if (grantId && params.openGrant) {
     query.set(ONE_LOCATION_NOTIFICATION_OPEN_PARAM, ONE_LOCATION_NOTIFICATION_OPEN_VALUE);
   }
