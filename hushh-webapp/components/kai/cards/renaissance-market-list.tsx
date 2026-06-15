@@ -22,6 +22,7 @@ import {
   SettingsGroup,
   SettingsRow,
 } from "@/components/profile/settings-ui";
+import { marketSettingsGroupClassName } from "@/components/kai/shared/market-surface-theme";
 import {
   Pagination,
   PaginationContent,
@@ -310,7 +311,7 @@ export function RiaPicksList({
 
   if (!rows.length) {
     return (
-      <SettingsGroup>
+      <SettingsGroup className={marketSettingsGroupClassName}>
         <div className="px-4 py-4 text-sm text-muted-foreground">
           The default list is unavailable at the moment.
         </div>
@@ -320,7 +321,7 @@ export function RiaPicksList({
 
   return (
     <div className="space-y-4 sm:mx-auto sm:w-full sm:max-w-[1040px]">
-      <SettingsGroup>
+      <SettingsGroup className={marketSettingsGroupClassName}>
         <div className="space-y-3 px-4 py-3 sm:px-4">
           {useAdaptiveSurfaceControls ? (
             <>
@@ -637,8 +638,8 @@ export function RiaPicksList({
                   className={cn(
                     "group relative isolate flex w-full gap-3 text-left transition-colors",
                     isMobile
-                      ? "items-start overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-3 py-3 shadow-[var(--shadow-xs)] hover:bg-[color:var(--app-card-surface-default-solid)] active:bg-[color:var(--app-card-surface-default-solid)]"
-                      : "items-center overflow-hidden border-t border-border/55 px-4 py-2.5 hover:bg-foreground/[0.04] active:bg-foreground/[0.06] first:border-t-0"
+                      ? "items-start overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-3 py-3 shadow-[var(--shadow-xs)] backdrop-blur-[16px] hover:bg-[color:var(--app-card-surface-default-solid)] active:bg-[color:var(--app-card-surface-default-solid)]"
+                      : "items-center overflow-hidden border-t border-white/45 px-4 py-3 hover:bg-white/24 active:bg-white/34 first:border-t-0 dark:border-white/10 dark:hover:bg-white/6 dark:active:bg-white/8"
                   )}
                 >
                   <div className="shrink-0">
@@ -867,7 +868,11 @@ export function RiaPicksList({
               </div>
             </SurfaceInset>
 
-            <SettingsGroup eyebrow="Context" title="Market snapshot and conviction">
+            <SettingsGroup
+              eyebrow="Context"
+              title="Market snapshot and conviction"
+              className={marketSettingsGroupClassName}
+            >
               <SettingsRow
                 title="Market cap"
                 description="Current capitalization snapshot from the latest available quote."
@@ -893,7 +898,11 @@ export function RiaPicksList({
               />
             </SettingsGroup>
 
-            <SettingsGroup eyebrow="Thesis" title="Why this name is in the list">
+            <SettingsGroup
+              eyebrow="Thesis"
+              title="Why this name is in the list"
+              className={marketSettingsGroupClassName}
+            >
               <div className="px-4 py-4 text-sm leading-7 text-foreground/90">
                 {selectedRow.investment_thesis ||
                   "Renaissance thesis is unavailable for this name right now."}

@@ -36,6 +36,7 @@ import {
   type AgentTriggerBounds,
   type AgentTriggerPosition,
 } from "@/lib/agent/agent-popover-layout";
+import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { ROUTES, isRiaActionBarRoute } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 
@@ -305,7 +306,9 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
     useAgentPopover();
   const isLegacyAgentRoute = pathname === ROUTES.AGENT;
   const canShowAgent = isAuthenticated && !isLegacyAgentRoute;
-  const useRiaActionBarTrigger = isRiaActionBarRoute(pathname);
+  const chromeState = getKaiChromeState(pathname);
+  const useEmbeddedAgentTrigger =
+    isRiaActionBarRoute(pathname) || !chromeState.hideCommandBar;
   const isCollapsing = motionState === "closing";
   const surfaceVisible = expanded || motionState !== "idle";
   const isFullscreen = sizeMode === "fullscreen";
@@ -418,7 +421,7 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
   }, []);
 
   useLayoutEffect(() => {
-    if (!canShowAgent || useRiaActionBarTrigger) return;
+    if (!canShowAgent || useEmbeddedAgentTrigger) return;
     clampStoredTriggerPosition();
 
     window.addEventListener("resize", clampStoredTriggerPosition);
@@ -427,7 +430,7 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
       window.removeEventListener("resize", clampStoredTriggerPosition);
       window.removeEventListener("orientationchange", clampStoredTriggerPosition);
     };
-  }, [canShowAgent, clampStoredTriggerPosition, useRiaActionBarTrigger]);
+  }, [canShowAgent, clampStoredTriggerPosition, useEmbeddedAgentTrigger]);
 
   useEffect(() => {
     if (!triggerPosition) return;
@@ -584,7 +587,7 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
         </div>
       ) : null}
 
-      {!useRiaActionBarTrigger ? (
+      {!useEmbeddedAgentTrigger ? (
         <Button
           ref={triggerRef}
           type="button"

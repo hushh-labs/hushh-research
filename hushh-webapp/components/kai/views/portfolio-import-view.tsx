@@ -155,12 +155,12 @@ export function PortfolioImportView({
     <div className="mx-auto w-full space-y-3.5 pt-3 pb-6" style={APP_MEASURE_STYLES.reading}>
       {/* Header */}
       <div className="space-y-2 text-center">
-        <h1 className="text-[34px] font-bold tracking-tight leading-[1.08]">
+        <h1 className="text-[34px] font-medium tracking-normal leading-[1.06] sm:text-[40px]">
           Your money
           <br />
-          <span className="hushh-gradient-text">Your options</span>
+          <span>Your options</span>
         </h1>
-        <p className="text-[17px] font-medium text-muted-foreground leading-snug">
+        <p className="text-[17px] font-normal text-muted-foreground leading-[1.42]">
           Let Kai analyze your holdings for precise advice
         </p>
       </div>
@@ -208,7 +208,7 @@ export function PortfolioImportView({
             variant="blue-gradient"
             effect="fill"
             size="lg"
-            className="w-full border-none font-black shadow-xl"
+            className="w-full rounded-full border-none font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
             disabled={!onConnectPlaid || isUploading || isPreloadingSchema || isConnectingPlaid || plaidConfigured === false}
             onClick={handleConnectPlaid}
             icon={{
@@ -308,7 +308,7 @@ export function PortfolioImportView({
             variant="morphy"
             effect="fill"
             size="default"
-            className="w-full font-black shadow-xl border-none"
+            className="w-full rounded-full border-none font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
             onClick={handleContinue}
             disabled={isUploading || isPreloadingSchema || !selectedFile}
             icon={{
@@ -338,7 +338,7 @@ export function PortfolioImportView({
             variant="blue-gradient"
             effect="fill"
             size="lg"
-            className="w-full border-none font-black shadow-xl"
+            className="w-full rounded-full border-none font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
             onClick={handlePreloadSchema}
             disabled={isUploading || isPreloadingSchema}
             icon={{

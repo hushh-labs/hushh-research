@@ -56,7 +56,10 @@ export function AgentVoiceWaveInput({
           )}
           <span>{label}</span>
         </div>
-        <div className="mt-2 flex h-8 items-center gap-1 overflow-hidden">
+        <div
+          className="mt-2 flex h-8 items-center gap-1 overflow-hidden"
+          aria-hidden="true"
+        >
           {WAVE_BARS.map((index) => {
             const phase = Math.sin(index * 0.85);
             const scale = muted ? 0.12 : activeLevel * (0.7 + Math.abs(phase) * 0.8);

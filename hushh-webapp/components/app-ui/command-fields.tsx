@@ -167,6 +167,7 @@ export function CommandPickerField<T = unknown>({
         </button>
         {allowClear && value ? (
           <Button
+            type="button"
             variant="none"
             effect="fade"
             size="sm"
@@ -174,7 +175,7 @@ export function CommandPickerField<T = unknown>({
             className="h-10 rounded-[14px] px-3"
             aria-label="Clear selection"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </Button>
         ) : null}
       </div>
@@ -340,6 +341,7 @@ export function PopupTextEditorField({
 
           <DialogFooter className="border-t border-black/10 px-5 py-4 dark:border-white/10">
             <Button
+              type="button"
               variant="none"
               effect="fade"
               size="sm"
@@ -352,6 +354,7 @@ export function PopupTextEditorField({
               Cancel
             </Button>
             <Button
+              type="button"
               variant="blue-gradient"
               effect="fill"
               size="sm"

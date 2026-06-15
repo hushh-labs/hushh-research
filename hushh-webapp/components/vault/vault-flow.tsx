@@ -34,6 +34,7 @@ import { User } from "firebase/auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { useHostname } from "@/lib/hooks/use-hostname";
 import type { GeneratedVaultKeyMode } from "@/lib/services/vault-bootstrap-service";
 import { VaultMethodService, type VaultMethod } from "@/lib/services/vault-method-service";
 import { VaultMethodPromptLocalService } from "@/lib/services/vault-method-prompt-local-service";
@@ -101,9 +102,10 @@ export function VaultFlow({
     preferPassphraseUnlockForAutomation(nativeTestConfig);
   const skipGeneratedUnlockForAutomation =
     shouldSkipGeneratedVaultUnlockForAutomation();
+  const hostname = useHostname();
   const currentRpId = resolvePasskeyRpId({
     isNative: Capacitor.isNativePlatform(),
-    hostname: typeof window !== "undefined" ? window.location.hostname : null,
+    hostname: hostname,
   });
 
   const { unlockVault } = useVault();

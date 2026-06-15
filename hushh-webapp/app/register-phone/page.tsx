@@ -17,7 +17,7 @@ import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-manda
 const FLOW_SHELL_STYLE = {
   "--page-top-local-offset": "0px",
   "--phone-mandate-safe-pt":
-    "calc(var(--app-safe-area-top-effective, env(safe-area-inset-top, 0px)) + clamp(1.25rem, 4vh, 3rem))",
+    "calc(var(--app-safe-area-top-effective, env(safe-area-inset-top, 0px)) + 2rem)",
   "--phone-mandate-safe-pb":
     "calc(var(--app-safe-area-bottom-effective, env(safe-area-inset-bottom, 0px)) + 2.5rem)",
 } as CSSProperties;
@@ -126,11 +126,11 @@ function PhoneMandatePageContent() {
         dataState="loaded"
       />
       <div className="mx-auto w-full max-w-[28rem]">
-        <div className="space-y-3">
-          <h1 className="max-w-[18rem] text-[clamp(2.5rem,9vw,3.5rem)] font-black leading-[0.94] tracking-tight text-foreground">
+        <div className="space-y-2.5 text-center">
+          <h1 className="mx-auto max-w-[23rem] text-[34px] font-medium leading-[1.06] tracking-normal text-foreground sm:text-[40px]">
             Verify your phone number
           </h1>
-          <p className="max-w-sm text-[15px] leading-7 text-muted-foreground">
+          <p className="mx-auto max-w-sm text-[17px] leading-[1.42] text-muted-foreground">
             Add your phone number to continue.
           </p>
         </div>
@@ -142,7 +142,7 @@ function PhoneMandatePageContent() {
           onCompleted={continueToNextRoute}
           onContinueExisting={continueToNextRoute}
           confirmLabel="Verify and continue"
-          className="mt-8 gap-5"
+          className="mt-10 min-h-[25rem] gap-5"
         />
 
         <div id="recaptcha-container" className="mt-6 min-h-0" />

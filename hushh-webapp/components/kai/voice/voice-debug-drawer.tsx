@@ -269,6 +269,7 @@ export function VoiceDebugDrawer({
       }
     >
       <div
+        id="voice-debug-panel"
         className={cn(
           "pointer-events-auto overflow-hidden rounded-2xl border border-border/70 bg-background/95 shadow-2xl backdrop-blur transition-all duration-200",
           drawerOpen
@@ -393,6 +394,8 @@ export function VoiceDebugDrawer({
         <div className="pointer-events-auto mt-2 flex justify-center sm:justify-end">
           <button
             type="button"
+            aria-expanded={drawerOpen}
+            aria-controls="voice-debug-panel"
             className="inline-flex h-9 items-center gap-2 rounded-full border border-border/70 bg-background/95 px-3 text-xs font-semibold text-foreground shadow-md backdrop-blur hover:bg-muted"
             onClick={() => setDrawerOpen((v) => !v)}
           >
