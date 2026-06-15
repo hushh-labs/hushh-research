@@ -15,7 +15,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, Save, Loader2, Undo2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Save, Loader2, Undo2, type LucideProps } from "lucide-react";
 import { Kbd } from "@/components/ui/kbd";
 
 import { toast } from "sonner";
@@ -134,7 +134,7 @@ function deriveRiskBucket(holdings: Holding[]): string {
   return "conservative";
 }
 
-const SpinningLoader = (props: any) => (
+const SpinningLoader = (props: LucideProps) => (
   <Loader2 {...props} className={cn(props.className, "animate-spin")} />
 );
 
