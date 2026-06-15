@@ -1123,7 +1123,7 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByText(/No ready KAI members yet/)).toBeTruthy();
     expect(screen.getByText(/No setup blockers/)).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: /Create public link/i }),
+      screen.getByRole("button", { name: /Create request link/i }),
     ).toBeTruthy();
   });
 
