@@ -17,7 +17,9 @@ export async function DELETE(request: NextRequest) {
     }
 
     const backendUrl = `${BACKEND_URL}/api/account/delete`;
-    console.log(`[API] Proxying account deletion to: ${backendUrl}`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[API] Proxying account deletion to: ${backendUrl}`);
+    }
 
     const response = await fetch(backendUrl, {
       method: "DELETE",
@@ -29,7 +31,9 @@ export async function DELETE(request: NextRequest) {
     });
 
     const responseText = await response.text();
-    console.log(`[API] Backend response status: ${response.status}`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[API] Backend response status: ${response.status}`);
+    }
 
     if (!response.ok) {
       console.error("[API] Backend error:", responseText);
