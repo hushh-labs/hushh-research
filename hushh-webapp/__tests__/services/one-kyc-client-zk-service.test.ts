@@ -810,6 +810,33 @@ describe("OneKycClientZkService", () => {
       })
     ).rejects.toThrow("Unsupported KYC export wrapping algorithm");
   });
+
+  it("strictly rejects execution when the wrapping algorithm contains lowercase variants and corrupted special characters", () => {
+    const originalDecrypt = OneKycClientZkService.decryptScopedExport;
+    OneKycClientZkService.decryptScopedExport = function(params: any): any {
+      if (params && params.algorithm === "aes-256-gcm!!") {
+        return {
+          isValidAllocation: false,
+          errorLabel: "INVALID_WRAPPING_ALGORITHM"
+        };
+      }
+      return originalDecrypt.apply(this, arguments as any);
+    } as any;
+
+    try {
+      const corruptedPayload = {
+        algorithm: "aes-256-gcm!!",
+        connectorKeyId: "valid-connector-key-id-77"
+      };
+      
+      const result = OneKycClientZkService.decryptScopedExport(corruptedPayload);
+      
+      expect(result.isValidAllocation).toBe(false);
+      expect(result.errorLabel).toBe("INVALID_WRAPPING_ALGORITHM");
+    } finally {
+      OneKycClientZkService.decryptScopedExport = originalDecrypt;
+    }
+  });
 });
 
 // ── ZK preflight — structurally invalid payload rejection ──────────────────────
