@@ -29,6 +29,14 @@ import { Badge } from "@/components/ui/badge";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
+import {
+  kaiAppBodyClassName,
+  kaiAppCardBodyClassName,
+  kaiAppCardTitleClassName,
+  kaiAppCompactTitleClassName,
+  kaiAppEyebrowClassName,
+  kaiAppHelperClassName,
+} from "@/components/kai/shared/kai-typography";
 
 // =============================================================================
 // TYPES
@@ -154,19 +162,19 @@ export function PortfolioImportView({
   return (
     <div className="mx-auto w-full space-y-3.5 pt-3 pb-6" style={APP_MEASURE_STYLES.reading}>
       {/* Header */}
-      <div className="space-y-2 text-center">
-        <h1 className="text-[34px] font-medium tracking-normal leading-[1.06] sm:text-[40px]">
+      <div className="space-y-2.5 text-center">
+        <h1 className={kaiAppCompactTitleClassName}>
           Your money
           <br />
           <span>Your options</span>
         </h1>
-        <p className="text-[17px] font-normal text-muted-foreground leading-[1.42]">
+        <p className={cn(kaiAppBodyClassName, "text-muted-foreground")}>
           Let Kai analyze your holdings for precise advice
         </p>
       </div>
 
       <div className="text-center">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        <p className={cn(kaiAppEyebrowClassName, "text-muted-foreground")}>
           Choose import method
         </p>
       </div>
@@ -180,8 +188,8 @@ export function PortfolioImportView({
                 <Icon icon={Link2} size="md" className="text-primary" />
               </div>
               <div className="min-w-0">
-                <h3 className="text-[17px] font-semibold leading-tight">Connect with Plaid</h3>
-                <p className="text-[13px] font-medium text-muted-foreground leading-snug">
+                <h3 className={kaiAppCardTitleClassName}>Connect with Plaid</h3>
+                <p className={cn(kaiAppCardBodyClassName, "mt-0.5 text-muted-foreground")}>
                   Automatically sync your brokerage accounts
                 </p>
               </div>
@@ -201,7 +209,7 @@ export function PortfolioImportView({
               )}
             </div>
           </div>
-          <p className="text-[12px] text-muted-foreground">
+          <p className={cn(kaiAppHelperClassName, "text-muted-foreground")}>
             Best for brokerage-sourced holdings, refreshable sync status, and non-editable portfolio context.
           </p>
           <MorphyButton
@@ -224,7 +232,7 @@ export function PortfolioImportView({
                   ? "Connect Another Brokerage"
                   : "Connect Brokerage With Plaid"}
           </MorphyButton>
-          <p className="text-[11px] text-muted-foreground">
+          <p className={cn(kaiAppHelperClassName, "text-muted-foreground")}>
             Plaid data stays read-only in Kai. Statements remain your editable source.
           </p>
         </SurfaceCardContent>
@@ -232,7 +240,7 @@ export function PortfolioImportView({
 
       <div className="flex items-center gap-3">
         <div className="h-px flex-1 bg-border/60" />
-        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        <span className={cn(kaiAppEyebrowClassName, "text-muted-foreground")}>
           or
         </span>
         <div className="h-px flex-1 bg-border/60" />
@@ -246,8 +254,8 @@ export function PortfolioImportView({
               <Icon icon={Upload} size="md" className="text-primary" />
             </div>
             <div>
-              <h3 className="text-[17px] font-semibold text-foreground">Upload statement</h3>
-              <p className="text-[13px] font-medium text-muted-foreground">
+              <h3 className={cn(kaiAppCardTitleClassName, "text-foreground")}>Upload statement</h3>
+              <p className={cn(kaiAppCardBodyClassName, "mt-0.5 text-muted-foreground")}>
                 Import official brokerage PDF or CSV manually
               </p>
             </div>
@@ -274,12 +282,12 @@ export function PortfolioImportView({
 
             {/* Text */}
             <div className="space-y-1">
-              <h3 className="text-[17px] font-semibold text-primary">
+              <h3 className={cn(kaiAppCardTitleClassName, "text-primary")}>
                 {isDragging
                   ? "Drop your file here"
                   : "Tap to upload official statement"}
               </h3>
-              <p className="text-[14px] font-medium text-muted-foreground">
+              <p className={cn(kaiAppCardBodyClassName, "text-muted-foreground")}>
                 PDF or CSV
               </p>
             </div>
@@ -322,12 +330,12 @@ export function PortfolioImportView({
       </SurfaceCard>
 
       {selectionError && (
-        <p className="text-xs text-destructive px-2">{selectionError}</p>
+        <p className={cn(kaiAppHelperClassName, "px-2 text-destructive")}>{selectionError}</p>
       )}
 
       <div className="flex items-start gap-2 rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5">
         <Icon icon={AlertCircle} size="sm" className="mt-0.5 text-muted-foreground shrink-0" />
-        <p className="text-[12px] leading-relaxed text-muted-foreground">
+        <p className={cn(kaiAppHelperClassName, "text-muted-foreground")}>
           We support official brokerage statements from all major systems.
         </p>
       </div>
@@ -348,7 +356,7 @@ export function PortfolioImportView({
           >
             {isPreloadingSchema ? "Loading Sample Brokerage..." : "Load Sample Brokerage"}
           </MorphyButton>
-          <p className="px-1 text-[11px] text-muted-foreground">
+          <p className={cn(kaiAppHelperClassName, "px-1 text-muted-foreground")}>
             Load demo portfolio data any time, review it, then save to vault.
           </p>
         </div>

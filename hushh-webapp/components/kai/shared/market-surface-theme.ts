@@ -1,6 +1,11 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import {
+  kaiAppDisplayTitleClassName,
+  kaiAppEyebrowClassName,
+  kaiAppSectionTitleClassName,
+} from "@/components/kai/shared/kai-typography";
 
 export const marketSurfaceVariablesClassName = cn(
   "[--app-card-surface-default-solid:rgba(255,255,255,0.68)]",
@@ -18,13 +23,13 @@ export const marketSurfaceVariablesClassName = cn(
 );
 
 export const kaiPreviewEyebrowClassName =
-  "text-[11px] font-medium uppercase tracking-[0.16em]";
+  kaiAppEyebrowClassName;
 
 export const kaiPreviewPageTitleClassName =
-  "font-sans !text-[34px] !font-medium !leading-[1.06] !tracking-normal text-[color:var(--one-fg)] sm:!text-[40px]";
+  cn("font-sans text-[color:var(--one-fg)]", kaiAppDisplayTitleClassName);
 
 export const kaiPreviewSectionTitleClassName =
-  "flex min-w-0 items-center gap-2.5 !text-[22px] !font-medium !leading-[1.08] !tracking-normal text-[color:var(--one-fg)] sm:!text-[24px]";
+  cn("flex min-w-0 items-center gap-2.5 text-[color:var(--one-fg)]", kaiAppSectionTitleClassName);
 
 export const kaiPreviewDockFrameClassName =
   "pointer-events-none fixed inset-x-0 bottom-0 z-30 mx-auto w-full max-w-[560px] px-4 pb-[calc(10px+env(safe-area-inset-bottom))] sm:px-6";

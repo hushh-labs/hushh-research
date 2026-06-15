@@ -102,16 +102,16 @@ export function IntroStep({
             role="heading"
             aria-level={1}
             aria-label="Meet One, Your Personal Financial Advisor"
-            className="relative mt-3 text-[40px] font-medium leading-[1.04] tracking-normal text-[#1d1d1f] dark:text-[#f5f5f7]"
+            className="relative mt-2.5 text-[38px] font-medium leading-[1.05] tracking-normal text-[#1d1d1f] sm:text-[40px] dark:text-[#f5f5f7]"
           >
             Meet One.
           </div>
-          <p className="relative mt-3 text-[19px] font-normal leading-[1.34] tracking-normal text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]">
+          <p className="relative mt-3 text-[17px] font-normal leading-[1.42] tracking-normal text-[rgba(0,0,0,0.56)] sm:text-[18px] dark:text-[rgba(245,245,247,0.60)]">
             Your personal financial advisor.
           </p>
         </section>
 
-        <div className="flex min-h-0 flex-1 items-center py-7">
+        <div className="flex min-h-0 flex-1 items-center py-6">
           <div className="relative w-full">
             <div className="relative z-10 mx-auto flex w-full max-w-[340px] flex-col gap-5">
               {INTRO_FEATURES.map((feature) => (
