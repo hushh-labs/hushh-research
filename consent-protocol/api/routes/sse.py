@@ -66,7 +66,13 @@ def _ensure_consent_sse_enabled() -> None:
 def _authorize_sse_user(user_id: str, authorization: Optional[str]) -> None:
     firebase_uid = verify_firebase_bearer(authorization)
     if firebase_uid != user_id:
-        raise HTTPException(status_code=403, detail="User ID mismatch")
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error_code": "USER_ID_MISMATCH",
+                "message": "Authenticated user does not match the requested user_id.",
+            },
+        )
 
 
 def _payload_map(value: object | None) -> dict[str, object]:

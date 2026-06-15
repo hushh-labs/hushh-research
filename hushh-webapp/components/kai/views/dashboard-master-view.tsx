@@ -2649,13 +2649,13 @@ export function DashboardMasterView({
           isDeletingStatementSnapshot={isDeletingStatementSnapshot}
         />
         <SurfaceCard>
-          <SurfaceCardContent className="space-y-3 p-6">
+          <SurfaceCardContent className="flex min-h-[13rem] flex-col items-center justify-center gap-3 p-6 text-center">
             <p className="text-sm font-semibold">No active portfolio source is ready yet.</p>
-            <p className="text-sm text-muted-foreground">
+            <p className="max-w-md text-sm text-muted-foreground">
               Import a statement for an editable source, or connect Plaid for read-only brokerage data.
             </p>
             {plaidConfigured !== false ? (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap justify-center gap-2">
                 <MorphyButton
                   variant="blue-gradient"
                   effect="fill"

@@ -72,13 +72,15 @@ function ActionRow(props: {
       type="button"
       onClick={props.onClick}
       disabled={props.disabled}
+      aria-busy={props.busy}
+      aria-label={`${props.title}: ${props.description}`}
       className={cn(
         "w-full rounded-2xl border border-border/70 bg-background/65 p-4 text-left transition",
         "hover:bg-background/85 disabled:cursor-not-allowed disabled:opacity-60"
       )}
     >
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 rounded-xl border border-border/60 bg-background/80 p-2 text-foreground">
+        <div aria-hidden="true" className="mt-0.5 rounded-xl border border-border/60 bg-background/80 p-2 text-foreground">
           {props.busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />}
         </div>
         <div className="min-w-0">

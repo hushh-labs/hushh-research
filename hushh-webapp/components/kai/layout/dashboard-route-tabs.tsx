@@ -361,12 +361,14 @@ export function DashboardRouteTabs({ embedded = false }: DashboardRouteTabsProps
 
   const tabsBody = (
     <>
-      <div className="relative grid grid-cols-3 items-center border-b border-border/70 px-1">
+      <div role="tablist" className="relative grid grid-cols-3 items-center border-b border-border/70 px-1">
         {KAI_ROUTE_TABS.map((tab) => (
           <button
             key={tab.id}
             type="button"
+            role="tab"
             onClick={() => handleTabChange(tab.id)}
+            aria-selected={tab.id === activeTab}
             className={cn(
               "relative z-[1] h-8 text-sm font-semibold transition-colors duration-200",
               tab.id === activeTab

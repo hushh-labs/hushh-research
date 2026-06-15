@@ -395,11 +395,11 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
           accent="sky"
           actions={
             <>
-              <Button variant="none" effect="fade" onClick={() => router.push(ROUTES.KAI_INVESTMENTS)}>
+              <Button type="button" variant="none" effect="fade" onClick={() => router.push(ROUTES.KAI_INVESTMENTS)}>
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Back to investments
               </Button>
-              <Button variant="none" effect="fade" onClick={() => void reload()}>
+              <Button type="button" variant="none" effect="fade" onClick={() => void reload()}>
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Refresh
               </Button>
@@ -421,9 +421,9 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
           <SurfaceCard>
             <SurfaceCardContent className="space-y-4 p-4 sm:p-5">
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label htmlFor="funding-trade-input-1" className="space-y-1 text-xs text-muted-foreground">
                   Linked funding account
-                  <select
+                  <select id="funding-trade-input-1"
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={selectedFundingAccountId}
                     onChange={(event) => setSelectedFundingAccountId(event.target.value)}
@@ -441,9 +441,9 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
                   </select>
                 </label>
 
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label htmlFor="funding-trade-input-2" className="space-y-1 text-xs text-muted-foreground">
                   Alpaca brokerage destination
-                  <select
+                  <select id="funding-trade-input-2"
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={selectedBrokerageAccountId}
                     onChange={(event) => setSelectedBrokerageAccountId(event.target.value)}
@@ -461,9 +461,9 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
                   </select>
                 </label>
 
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label htmlFor="funding-trade-input-3" className="space-y-1 text-xs text-muted-foreground">
                   Stock ticker
-                  <input
+                  <input id="funding-trade-input-3"
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={symbolInput}
                     onChange={(event) => setSymbolInput(event.target.value.toUpperCase())}
@@ -471,9 +471,9 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
                   />
                 </label>
 
-                <label className="space-y-1 text-xs text-muted-foreground">
+                <label htmlFor="funding-trade-input-4" className="space-y-1 text-xs text-muted-foreground">
                   Notional amount (USD)
-                  <input
+                  <input id="funding-trade-input-4"
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={amountInput}
                     onChange={(event) => setAmountInput(event.target.value)}
@@ -482,9 +482,9 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
                   />
                 </label>
 
-                <label className="space-y-1 text-xs text-muted-foreground sm:col-span-2">
+                <label htmlFor="funding-trade-input-5" className="space-y-1 text-xs text-muted-foreground sm:col-span-2">
                   Legal name on funding account
-                  <input
+                  <input id="funding-trade-input-5"
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     value={legalNameInput}
                     onChange={(event) => setLegalNameInput(event.target.value)}
@@ -494,7 +494,7 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <Button
+                <Button type="button"
                   variant="none"
                   effect="fade"
                   disabled={isLinkingFunding}
@@ -507,7 +507,7 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
                   )}
                   {fundingItem ? "Manage funding account" : "Connect funding account"}
                 </Button>
-                <Button
+                <Button type="button"
                   variant="none"
                   effect="fade"
                   disabled={isLinkingBrokerage}
@@ -520,7 +520,7 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
                   )}
                   {brokerageOptions.length ? "Manage brokerage account" : "Connect brokerage account"}
                 </Button>
-                <Button
+                <Button type="button"
                   variant="blue-gradient"
                   effect="fill"
                   disabled={isSubmitting}
@@ -582,7 +582,7 @@ export function FundingTradeView({ userId, vaultOwnerToken }: FundingTradeViewPr
                       ) : null}
                       {intentId ? (
                         <div className="mt-2">
-                          <Button
+                          <Button type="button"
                             variant="none"
                             effect="fade"
                             size="sm"
