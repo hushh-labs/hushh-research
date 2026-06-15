@@ -1,25 +1,18 @@
 "use client";
 
+import Image from "next/image";
 import { Card } from "@/lib/morphy-ux/card";
-import { Icon } from "@/lib/morphy-ux/ui";
-import { CheckCircle, PlusCircle, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const ANALYSIS_ROWS = [
   {
-    label: "COMPANY STRENGTH",
-    text: "Record vehicle deliveries and expanding margins",
-    icon: CheckCircle,
+    text: "Record deliveries and expanding margins",
   },
   {
-    label: "MARKET TREND",
-    text: "Strong upward momentum and institutional backing",
-    icon: TrendingUp,
+    text: "Strong momentum and institutional backing",
   },
   {
-    label: "PRICE VALUE",
     text: "Attractive entry point for long-term growth",
-    icon: PlusCircle,
   },
 ] as const;
 
@@ -32,42 +25,69 @@ export function DecisionPreviewCompact() {
       showRipple={false}
       className="h-full w-full"
     >
-      <div className="morphy-theme-content p-5">
-        <div className="rounded-2xl border border-background/70 bg-background/55 p-5">
-          <div className="mb-5 flex items-center justify-between border-b border-border/70 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="grid h-9 w-9 place-items-center rounded-full bg-black text-[11px] font-extrabold text-white dark:bg-white dark:text-black">
-                TSLA
-              </div>
-              <p className="text-[19px] font-bold tracking-tight">TSLA</p>
+      <div className="morphy-theme-content flex h-full flex-col p-6">
+        <div className="flex h-full flex-col">
+          <div className="flex items-center gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <TeslaLogoChip />
+              <span className="min-w-0">
+                <p className="text-[1.25rem] font-semibold leading-tight tracking-normal text-[#1d1d1f] dark:text-[#f5f5f7]">
+                  Tesla
+                </p>
+                <p className="mt-0.5 font-mono text-[11.5px] tracking-[0.08em] text-muted-foreground">
+                  TSLA · NASDAQ
+                </p>
+              </span>
             </div>
-            <span className="rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-xs font-semibold text-muted-foreground">
-              Analysis
+            <span className="ml-auto shrink-0 text-right">
+              <p className="text-[1.125rem] font-semibold leading-tight tabular-nums text-[#1d1d1f] dark:text-[#f5f5f7]">
+                $248.50
+              </p>
+              <span className="mt-1 inline-flex rounded-full bg-[#34c759]/10 px-[9px] py-1 text-[12px] font-semibold text-[#1f9d55] dark:bg-[#30d158]/16 dark:text-[#30d158]">
+                ▲ 5.2%
+              </span>
             </span>
           </div>
 
-          <div className="space-y-4">
-            {ANALYSIS_ROWS.map((item) => (
-              <div key={item.label} className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                    {item.label}
-                  </p>
-                  <p className="mt-0.5 text-sm font-medium leading-tight">{item.text}</p>
-                </div>
-                <Icon icon={item.icon} size="lg" className="shrink-0 text-[var(--tone-orange)]" />
+          <div className="flex flex-1 flex-col justify-center py-5">
+            <div className="space-y-1">
+              <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Recommendation
+              </p>
+              <div className="flex items-end justify-between gap-4">
+                <p className="text-[3rem] font-semibold leading-none tracking-normal text-[#1d1d1f] dark:text-[#f5f5f7]">
+                  Buy
+                </p>
+                <span className="mb-1 rounded-full bg-[#34c759]/10 px-3 py-1.5 text-[12px] font-semibold text-[#1f9d55] dark:bg-[#30d158]/16 dark:text-[#30d158]">
+                  High conviction
+                </span>
               </div>
-            ))}
+              <p className="text-[13px] font-medium text-muted-foreground">
+                Horizon 12+ months
+              </p>
+            </div>
+
+            <div className="mt-6 space-y-3.5">
+              {ANALYSIS_ROWS.map((item) => (
+                <div key={item.text} className="flex items-start gap-3">
+                  <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#34c759] dark:bg-[#30d158]" />
+                  <span className="min-w-0 text-[14px] font-medium leading-snug text-[#1d1d1f] dark:text-[#f5f5f7]">
+                    {item.text}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
 
-          <div className="mt-6 border-t border-border/70 pt-5">
-            <div className="mb-3 flex w-full gap-2">
-              <ActionPill active label="BUY" />
-              <ActionPill label="HOLD" />
-              <ActionPill label="SELL" />
+          <div>
+            <div className="grid grid-cols-3 gap-2">
+              <ActionPill active label="Buy" />
+              <ActionPill label="Hold" />
+              <ActionPill label="Sell" />
             </div>
-            <p className="text-center text-[13px] font-medium text-muted-foreground">
-              Conviction: High · Horizon: 12+ months
+
+            <p className="mt-3 text-center text-[12.5px] text-muted-foreground">
+              Clear signal, no noise.
             </p>
           </div>
         </div>
@@ -80,13 +100,28 @@ function ActionPill({ label, active = false }: { label: string; active?: boolean
   return (
     <div
       className={cn(
-        "flex-1 rounded-xl px-2 py-2.5 text-center text-[13px] font-semibold",
+        "flex-1 rounded-[14px] px-2 py-3 text-center text-[14px] font-semibold",
         active
-          ? "bg-emerald-500 text-white dark:bg-emerald-400 dark:text-black"
-          : "border border-border/70 bg-muted/45 text-muted-foreground"
+          ? "bg-[#34c759] text-white shadow-[0_12px_26px_-14px_rgba(52,199,89,0.62)] dark:bg-[#30d158] dark:text-black"
+          : "bg-[#f5f5f7] text-muted-foreground dark:bg-white/10"
       )}
     >
       {label}
     </div>
+  );
+}
+
+function TeslaLogoChip() {
+  return (
+    <span className="grid h-[46px] w-[46px] shrink-0 place-items-center rounded-[13px] bg-red-500/10 text-red-500">
+      <Image
+        src="/logos/tesla.svg"
+        alt="Tesla logo"
+        width={30}
+        height={30}
+        unoptimized
+        className="h-[30px] w-[30px] object-contain"
+      />
+    </span>
   );
 }

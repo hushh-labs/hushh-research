@@ -73,6 +73,14 @@ function formatEventDate(entry: ConsentCenterEntry) {
   return date.toLocaleString();
 }
 
+function getEventIsoDate(entry: ConsentCenterEntry): string | null {
+  const value = entry.issued_at || entry.expires_at;
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
 function entryKey(entry: ConsentCenterEntry, index: number) {
   return [
     entry.kind,
@@ -163,11 +171,14 @@ export function ConsentAuditTimeline({
             const type = resolveEventType(entry);
             const selected =
               selectedId === entry.id || selectedId === entry.request_id;
+            const isoDate = getEventIsoDate(entry);
             return (
               <button
                 key={entryKey(entry, index)}
                 type="button"
                 onClick={() => onSelect(entry)}
+                aria-pressed={selected}
+                aria-label={`${resolveCounterpartLabel(entry)}, ${type} consent, ${formatEventDate(entry)}`}
                 className={cn(
                   "group relative w-full rounded-[var(--app-card-radius-compact)] border px-4 py-3 text-left transition-colors",
                   selected
@@ -186,7 +197,11 @@ export function ConsentAuditTimeline({
                           {resolveCounterpartLabel(entry)}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {formatEventDate(entry)}
+                          {isoDate ? (
+                            <time dateTime={isoDate}>{formatEventDate(entry)}</time>
+                          ) : (
+                            formatEventDate(entry)
+                          )}
                         </p>
                       </div>
                       <Badge className={cn("capitalize", TYPE_STYLES[type])}>

@@ -32,6 +32,10 @@ function isGmailPath(path: string): boolean {
   return path === "gmail" || path.startsWith("gmail/");
 }
 
+function isBinaryTtsPath(path: string): boolean {
+  return path === "voice/tts" || path === "agent/voice/tts";
+}
+
 function isUpstreamTimeoutError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const normalizedMessage = error.message.toLowerCase();
@@ -260,7 +264,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       });
     }
 
-    if (path === "voice/tts") {
+    if (isBinaryTtsPath(path)) {
       console.log(`[Kai API] request_id=${requestId} binary_pass_through=true path=${path}`);
       return withRequestIdResponse(requestId, response);
     }

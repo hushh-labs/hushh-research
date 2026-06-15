@@ -128,9 +128,10 @@ async def require_vault_owner_consent_header(
 
     valid, reason, token_obj = await validate_token_with_db(token, ConsentScope.VAULT_OWNER)
     if not valid or token_obj is None:
+        logger.warning("db_proxy.token_invalid reason=%s", reason)
         raise HTTPException(
             status_code=401,
-            detail=f"Invalid token: {reason}",
+            detail="Invalid or expired consent token.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -725,10 +726,10 @@ async def validate_vault_owner_token(consent_token: str, user_id: str) -> None:
     valid, reason, token_obj = await validate_token_with_db(consent_token, ConsentScope.VAULT_OWNER)
 
     if not valid:
-        logger.warning(f"Invalid consent token: {reason}")
+        logger.warning("db_proxy.validate_vault_owner_token.invalid reason=%s", reason)
         raise HTTPException(
             status_code=401,
-            detail=f"Invalid consent token: {reason}",
+            detail="Invalid or expired consent token.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

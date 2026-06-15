@@ -669,7 +669,7 @@ export function ConsentCenterView({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button
+            <Button type="button"
               variant="none"
               effect="fade"
               size="sm"
@@ -783,7 +783,7 @@ export function ConsentCenterView({
                             </SelectContent>
                           </Select>
                         ) : null}
-                        <Button
+                        <Button type="button"
                           variant="none"
                           effect="fade"
                           size="sm"
@@ -800,7 +800,7 @@ export function ConsentCenterView({
           ) : null}
 
           <div className="flex flex-wrap gap-2">
-            <Button
+            <Button type="button"
               size="sm"
               onClick={() =>
                 void handleApproveBundle(
@@ -822,7 +822,7 @@ export function ConsentCenterView({
             >
               Approve bundle
             </Button>
-            <Button
+            <Button type="button"
               variant="none"
               effect="fade"
               size="sm"
@@ -992,7 +992,7 @@ export function ConsentCenterView({
                     ))}
                   </SelectContent>
                 </Select>
-                <Button
+                <Button type="button"
                   size="sm"
                   onClick={() =>
                     void handleApprove(
@@ -1002,7 +1002,7 @@ export function ConsentCenterView({
                 >
                   Approve
                 </Button>
-                <Button
+                <Button type="button"
                   variant="none"
                   effect="fade"
                   size="sm"
@@ -1014,7 +1014,7 @@ export function ConsentCenterView({
             ) : null}
 
             {entry.kind === "active_grant" && entry.scope ? (
-              <Button
+              <Button type="button"
                 variant="none"
                 effect="fade"
                 size="sm"
@@ -1025,7 +1025,7 @@ export function ConsentCenterView({
             ) : null}
 
             {canDisconnectRelationship ? (
-              <Button
+              <Button type="button"
                 variant="none"
                 effect="fade"
                 size="sm"
@@ -1033,7 +1033,7 @@ export function ConsentCenterView({
                 disabled={disconnectKey === disconnectingCounterpartKey}
               >
                 {disconnectKey === disconnectingCounterpartKey ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
                 ) : null}
                 Disconnect
               </Button>
@@ -1129,7 +1129,7 @@ export function ConsentCenterView({
             icon={BellRing}
             actions={
               notificationState.deliveryMode !== "push_active" ? (
-                <Button
+                <Button type="button"
                   variant="none"
                   effect="fade"
                   size="sm"
@@ -1137,9 +1137,9 @@ export function ConsentCenterView({
                   onClick={() => notificationState.retryPushRegistration()}
                 >
                   {notificationState.isRetryingPushRegistration ? (
-                    <Loader2 className="size-4 animate-spin" />
+                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                   ) : (
-                    <RefreshCw className="size-4" />
+                    <RefreshCw className="size-4" aria-hidden="true" />
                   )}
                   Retry push registration
                 </Button>
@@ -1342,7 +1342,7 @@ export function ConsentCenterView({
     return (
       <div className={cn("space-y-5", className)}>
         <div className="flex justify-end">
-            <Button
+            <Button type="button"
               variant="none"
               effect="fade"
               size="sm"
@@ -1380,7 +1380,7 @@ export function ConsentCenterView({
           icon={ClipboardList}
           accent="consent"
           actions={
-            <Button
+            <Button type="button"
               variant="none"
               effect="fade"
               size="default"

@@ -6,14 +6,11 @@ import {
   Carousel,
   CarouselContent,
   CarouselItem,
-  CarouselNext,
-  CarouselPrevious,
 } from "@/components/ui/carousel";
+import { ChevronLeft } from "lucide-react";
 import { Button } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
-import { ChevronRight } from "lucide-react";
-import { Icon } from "@/lib/morphy-ux/ui";
 import { prefersReducedMotion, getGsap } from "@/lib/morphy-ux/gsap";
 import { ensureMorphyGsapReady, getMorphyEaseName } from "@/lib/morphy-ux/gsap-init";
 import { getMotionCssVars } from "@/lib/morphy-ux/motion";
@@ -34,23 +31,21 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
   const slides: Slide[] = useMemo(
     () => [
       {
-        title: "Verified without",
-        accent: "friction",
-        subtitle:
-          "Secure identity verification — fully compliant and completed in minutes.",
+        title: "Verified in",
+        accent: "minutes",
+        subtitle: "Your identity, confirmed securely.",
         preview: <KycPreviewCompact />,
       },
       {
         title: KAI_EXPERIENCE_CONTRACT.portfolioClarity.carouselTitle,
         accent: KAI_EXPERIENCE_CONTRACT.portfolioClarity.carouselAccent,
-        subtitle: "Performance, allocation, and risk — organized in one place.",
+        subtitle: "Value and today's movers, always up to date.",
         preview: <PortfolioPreviewCompact />,
       },
       {
         title: KAI_EXPERIENCE_CONTRACT.decisionConviction.carouselTitle,
         accent: KAI_EXPERIENCE_CONTRACT.decisionConviction.carouselAccent,
-        subtitle:
-          "Every decision is backed by structured analysis and aligned to your risk profile.",
+        subtitle: "Clear calls, the moment they matter.",
         preview: <DecisionPreviewCompact />,
       },
     ],
@@ -172,6 +167,10 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
     api?.scrollNext();
   }
 
+  function handleBack() {
+    api?.scrollPrev();
+  }
+
   return (
     <main
       ref={mountRef}
@@ -181,34 +180,46 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
     >
       <div className="w-full min-h-[100dvh] px-4 pt-[calc(16px+var(--app-safe-area-top-effective,0px))] pb-[var(--app-screen-footer-pad)]">
         <div className="relative mx-auto flex h-full w-full flex-col">
-          <div className="z-10 flex justify-end" style={{ paddingRight: "4rem" }}>
-            <Button
-              variant="blue-gradient"
-              effect="fade"
-              size="default"
-              showRipple
+          <div className="z-10 flex h-10 items-center justify-between px-0 sm:px-1">
+            <button
+              type="button"
+              aria-label="Back"
+              aria-hidden={selectedIndex === 0}
+              tabIndex={selectedIndex > 0 ? 0 : -1}
+              className={cn(
+                "grid h-9 w-9 place-items-center rounded-full border border-black/10 bg-[#f5f5f7] text-[#1d1d1f] transition-[opacity,transform,color,background-color] active:scale-90 dark:border-white/10 dark:bg-white/10 dark:text-[#f5f5f7]",
+                selectedIndex > 0
+                  ? "pointer-events-auto opacity-100"
+                  : "pointer-events-none opacity-0"
+              )}
+              onClick={handleBack}
+            >
+              <ChevronLeft className="h-[17px] w-[17px]" strokeWidth={2.2} />
+            </button>
+            <button
+              type="button"
+              className="min-h-10 rounded-full px-4 text-[15px] font-medium tracking-normal text-muted-foreground transition-colors hover:text-foreground"
               onClick={completeAndContinue}
             >
               Skip
-              <Icon icon={ChevronRight} size="sm" className="ml-1" />
-            </Button>
+            </button>
           </div>
 
           <div
             ref={headerRef}
             className={cn(
-              "w-full mx-auto text-center flex flex-col justify-end gap-3",
+              "w-full mx-auto text-center flex flex-col justify-end gap-2",
               // Keep copy + spacing responsive without clipping on larger screens.
-              "min-h-[clamp(148px,20vh,220px)] pt-5",
+              "min-h-[clamp(132px,18vh,190px)] pt-5",
               "sm:max-w-lg"
             )}
           >
-            <h2 className="text-[clamp(2rem,5.6vw,3.2rem)] font-black tracking-tight leading-[1.08]">
-              {slides[displayIndex]?.title}
+            <h2 className="text-[32px] font-medium tracking-normal leading-[1.06] text-[#1d1d1f] sm:text-[40px] dark:text-[#f5f5f7]">
+              {slides[displayIndex]?.title}{" "}
               <br />
-              <span className="hushh-gradient-text">{slides[displayIndex]?.accent}</span>
+              <span>{slides[displayIndex]?.accent}</span>
             </h2>
-            <p className="mx-auto max-w-[19rem] text-[clamp(0.95rem,2.2vw,1.05rem)] text-muted-foreground leading-relaxed">
+            <p className="mx-auto max-w-[20rem] text-[16px] text-[rgba(0,0,0,0.56)] leading-[1.45] sm:text-[17px] dark:text-[rgba(245,245,247,0.60)]">
               {slides[displayIndex]?.subtitle}
             </p>
           </div>
@@ -218,24 +229,27 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
               opts={{ align: "center", containScroll: "trimSnaps" }}
               setApi={setApi}
               className="w-full"
+              aria-label="Onboarding feature preview"
             >
               <CarouselContent className="items-center -ml-0">
                 {slides.map((slide, idx) => (
                   <CarouselItem
                     key={idx}
+                    aria-label={`Slide ${idx + 1} of ${slides.length}`}
                     aria-current={idx === selectedIndex ? "step" : undefined}
                     className="basis-full pl-0 flex items-center justify-center"
                   >
                     <div className="flex w-full min-h-[clamp(24rem,50vh,31rem)] items-center justify-center px-4 sm:px-6 md:px-8 py-3">
-                      <div className="h-[clamp(31rem,58vh,35rem)] w-full max-w-[22rem] sm:max-w-[24rem] md:max-w-[25rem] lg:max-w-[26rem] xl:max-w-[27rem]">
+                      <div
+                        aria-hidden="true"
+                        className="h-[clamp(31rem,58vh,35rem)] w-full max-w-[22rem] sm:max-w-[24rem] md:max-w-[25rem] lg:max-w-[26rem] xl:max-w-[27rem]"
+                      >
                         {slide.preview}
                       </div>
                     </div>
                   </CarouselItem>
                 ))}
               </CarouselContent>
-              <CarouselPrevious aria-label="Previous slide" className="left-2 border border-[var(--morphy-primary-start)]/25 bg-gradient-to-r from-[var(--morphy-primary-start)]/14 to-[var(--morphy-primary-end)]/14 text-[var(--morphy-primary-start)] backdrop-blur-sm transition-colors hover:from-[var(--morphy-primary-start)]/20 hover:to-[var(--morphy-primary-end)]/20 disabled:border-border/60 disabled:bg-muted/70 disabled:text-muted-foreground disabled:opacity-100" />
-              <CarouselNext aria-label="Next slide" className="right-2 border border-[var(--morphy-primary-start)]/25 bg-gradient-to-r from-[var(--morphy-primary-start)]/14 to-[var(--morphy-primary-end)]/14 text-[var(--morphy-primary-start)] backdrop-blur-sm transition-colors hover:from-[var(--morphy-primary-start)]/20 hover:to-[var(--morphy-primary-end)]/20 disabled:border-border/60 disabled:bg-muted/70 disabled:text-muted-foreground disabled:opacity-100" />
             </Carousel>
           </div>
 
@@ -245,12 +259,11 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
             <Button
               size="lg"
               fullWidth
-              className="mx-auto w-full max-w-md"
+              className="mx-auto h-[52px] w-full max-w-md rounded-full bg-[#0066cc] text-[17px] font-medium tracking-normal text-white shadow-none hover:bg-[#0071e3]"
               onClick={handlePrimary}
               showRipple
             >
-              {isLast ? "Continue" : "Next"}
-              <Icon icon={ChevronRight} size="md" className="ml-2" />
+              {isLast ? "Sign in" : "Next"}
             </Button>
           </div>
         </div>
@@ -262,14 +275,22 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
 function Dots(props: { count: number; activeIndex: number }) {
   return (
     <div className="flex items-center justify-center gap-2">
+      <span
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {`Slide ${props.activeIndex + 1} of ${props.count}`}
+      </span>
       {Array.from({ length: props.count }).map((_, i) => (
         <span
           key={i}
           className={cn(
-            "h-2 w-2 rounded-full transition-colors",
+            "h-[7px] rounded-full transition-[width,background-color]",
             i === props.activeIndex
-              ? "bg-[var(--morphy-primary-start)]"
-              : "bg-[var(--morphy-primary-start)]/20"
+              ? "w-6 bg-[#0071e3]"
+              : "w-[7px] bg-black/10 dark:bg-white/15"
           )}
           aria-hidden
         />

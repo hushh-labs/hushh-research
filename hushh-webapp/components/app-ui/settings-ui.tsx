@@ -123,10 +123,10 @@ export function SettingsGroup({
             <div
               role="heading"
               aria-level={embedded ? 3 : 2}
-              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty text-[15px] font-semibold leading-tight tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[16px]"
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty text-[12px] font-medium uppercase leading-tight tracking-[0.14em] text-muted-foreground [overflow-wrap:anywhere]"
             >
               {eyebrow ? (
-                <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground sm:text-[11px]">
+                <span className="text-[10px] font-medium uppercase tracking-[0.22em] text-muted-foreground sm:text-[11px]">
                   {eyebrow}
                 </span>
               ) : null}
@@ -220,14 +220,14 @@ export function SettingsRow({
       <div className="min-w-0 flex-1 space-y-0.5">
         <div
           className={cn(
-            "text-[13px] font-medium tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[14px]",
+            "text-[14px] font-medium tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[15px]",
             tone === "destructive" && "text-destructive"
           )}
         >
           {title}
         </div>
         {description ? (
-          <div className="text-[11px] leading-[1.45] text-muted-foreground [overflow-wrap:anywhere] sm:text-[12px]">
+          <div className="text-[12px] leading-[1.45] text-muted-foreground [overflow-wrap:anywhere] sm:text-[13px]">
             {description}
           </div>
         ) : null}
@@ -399,7 +399,7 @@ export function SettingsDetailPanel({
           }}
         >
           <DrawerHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-3 text-left sm:px-5 sm:py-4">
-            <DrawerTitle className="text-base font-semibold tracking-tight">
+            <DrawerTitle className="text-base font-medium tracking-normal">
               {title}
             </DrawerTitle>
             <DrawerDescription
@@ -434,7 +434,7 @@ export function SettingsDetailPanel({
         }}
       >
         <DialogHeader className="sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-6 py-4 text-left">
-          <DialogTitle className="text-base font-semibold tracking-tight">
+          <DialogTitle className="text-base font-medium tracking-normal">
             {title}
           </DialogTitle>
           <DialogDescription

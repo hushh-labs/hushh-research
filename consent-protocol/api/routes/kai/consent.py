@@ -2,17 +2,33 @@
 """
 Kai Consent Endpoints
 
+Attach point: api/routes/kai/consent.py
+
 Handles Kai-specific consent grants for analysis operations.
 
 Only PKM scopes are used (attr.{domain}.*, agent.kai.analyze).
 
 SECURITY: All consent grant endpoints require Firebase authentication.
 The authenticated user can only grant consent for their own data.
+
+Scope-item length guard (CWE-400 / CWE-209):
+  ``GrantConsentRequest.scopes`` capped the *count* of items (max_length=20)
+  but left each scope *string* unbounded.  A caller could send a single
+  megabyte-scale scope string that:
+    1. Reaches ``ConsentScope(scope_str)`` (raises ValueError — never stored).
+    2. Is echoed verbatim in ``detail=f"Invalid scope: {scope_str}"`` (CWE-209)
+       and written to the error log.
+
+  Fix: annotate each list element with ``Field(max_length=128)``.  All
+  legitimate ConsentScope values are well under 64 characters.  Pydantic
+  returns HTTP 422 before the loop body runs.  The error-detail message is
+  replaced with a static opaque string so user-supplied text is never
+  reflected back.
 """
 
 import logging
 import uuid
-from typing import Dict, List
+from typing import Annotated, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -34,7 +50,9 @@ router = APIRouter()
 
 class GrantConsentRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
-    scopes: List[str] = Field(
+    # Each scope string is capped at 128 chars (all real ConsentScope values
+    # are under 64 chars).  The list itself is capped at 20 items.
+    scopes: List[Annotated[str, Field(min_length=1, max_length=128)]] = Field(
         default_factory=lambda: ["attr.financial.*", "agent.kai.analyze"],
         max_length=20,
     )
@@ -93,7 +111,9 @@ async def grant_consent(
 
         except Exception as e:
             logger.error("Failed to issue token for scope %s: %s", scope_str, e)
-            raise HTTPException(status_code=400, detail=f"Invalid scope: {scope_str}")
+            # Use a static detail string: echoing scope_str would reflect
+            # caller-supplied content in the response body (CWE-209).
+            raise HTTPException(status_code=400, detail="Invalid or unsupported scope")
 
     if not tokens:
         raise HTTPException(status_code=400, detail="No valid scopes provided")

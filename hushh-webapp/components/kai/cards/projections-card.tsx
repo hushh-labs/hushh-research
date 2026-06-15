@@ -1,33 +1,13 @@
-// components/kai/cards/projections-card.tsx
-
-/**
- * Projections Card - Income projections and Required Minimum Distribution
- *
- * Features:
- * - Monthly income projections chart (next 12 months)
- * - Required Minimum Distribution (MRD/RMD) tracking
- * - Progress bar for MRD completion
- * - Responsive and mobile-friendly
- */
-
 "use client";
 
 import { useMemo } from "react";
-import { TrendingUp, Calendar, AlertCircle, CheckCircle2 } from "lucide-react";
+import { TrendingUp, Calendar } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Icon } from "@/lib/morphy-ux/ui";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-} from "recharts";
+import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 // =============================================================================
 // TYPES
@@ -53,262 +33,109 @@ export interface ProjectionsAndMRD {
 interface ProjectionsCardProps {
   projections?: ProjectionsAndMRD;
   className?: string;
+  isLoading?: boolean;
 }
 
 // =============================================================================
-// HELPER FUNCTIONS
+// HELPERS
 // =============================================================================
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
-}
+const formatCurrency = (val: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(val);
 
-function formatCurrencyCompact(value: number): string {
-  if (value >= 1000000) {
-    return `$${(value / 1000000).toFixed(1)}M`;
-  }
-  if (value >= 1000) {
-    return `$${(value / 1000).toFixed(0)}K`;
-  }
-  return `$${value.toFixed(0)}`;
-}
+const formatCompact = (val: number) =>
+  val >= 1000000 ? `$${(val / 1000000).toFixed(1)}M` : val >= 1000 ? `$${(val / 1000).toFixed(0)}K` : `$${val.toFixed(0)}`;
 
 // =============================================================================
-// CUSTOM TOOLTIP
+// COMPONENTS
 // =============================================================================
 
-interface TooltipProps {
-  active?: boolean;
-  payload?: Array<{ value: number; payload: MonthlyProjection }>;
-}
-
-function CustomTooltip({ active, payload }: TooltipProps) {
-  if (!active || !payload || !payload.length || !payload[0]) return null;
-
-  const data = payload[0].payload;
-  return (
-    <div className="bg-popover border border-border rounded-lg shadow-lg p-3">
-      <p className="text-xs text-muted-foreground">{data.month}</p>
-      <p className="text-sm font-semibold">
-        {formatCurrency(data.projected_income)}
-      </p>
-    </div>
-  );
-}
-
-// =============================================================================
-// MRD SECTION
-// =============================================================================
-
-interface MRDSectionProps {
-  mrd: MRDEstimate;
-}
-
-function MRDSection({ mrd }: MRDSectionProps) {
-  const percentComplete =
-    mrd.required_amount > 0
-      ? Math.min(100, (mrd.amount_taken / mrd.required_amount) * 100)
-      : 0;
-
+function MRDSection({ mrd }: { mrd: MRDEstimate }) {
+  const percent = Math.min(100, (mrd.amount_taken / mrd.required_amount) * 100);
   const isComplete = mrd.remaining <= 0;
-  const isNearDeadline = !isComplete && percentComplete < 50;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4 pt-4 border-t border-border">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Icon icon={Calendar} size="sm" className="text-muted-foreground" />
-          <span className="text-sm font-medium">
-            {mrd.year} Required Minimum Distribution
-          </span>
+          <span className="text-sm font-medium">{mrd.year} RMD Goal</span>
         </div>
-        {isComplete ? (
-          <Badge
-            variant="outline"
-            className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30"
-          >
-            <Icon icon={CheckCircle2} size={12} className="mr-1" />
-            Complete
-          </Badge>
-        ) : isNearDeadline ? (
-          <Badge
-            variant="outline"
-            className="bg-orange-500/10 text-orange-600 border-orange-500/30"
-          >
-            <Icon icon={AlertCircle} size={12} className="mr-1" />
-            Action Needed
-          </Badge>
-        ) : (
-          <Badge variant="outline">In Progress</Badge>
-        )}
+        <Badge variant={isComplete ? "default" : "secondary"}>
+          {isComplete ? "Goal Met" : `${percent.toFixed(0)}%`}
+        </Badge>
       </div>
-
-      <div className="space-y-2">
-        <div className="flex justify-between text-xs text-muted-foreground">
-          <span>Progress</span>
-          <span>{percentComplete.toFixed(0)}%</span>
-        </div>
-        <Progress value={percentComplete} className="h-2" />
-      </div>
-
-      <div className="grid grid-cols-3 gap-4 pt-2">
-        <div>
-          <p className="text-xs text-muted-foreground">Required</p>
-          <p className="text-sm font-semibold">
-            {formatCurrency(mrd.required_amount)}
-          </p>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Taken</p>
-          <p className="text-sm font-semibold text-emerald-500">
-            {formatCurrency(mrd.amount_taken)}
-          </p>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Remaining</p>
-          <p
-            className={cn(
-              "text-sm font-semibold",
-              mrd.remaining > 0 ? "text-orange-500" : "text-emerald-500"
-            )}
-          >
-            {formatCurrency(mrd.remaining)}
-          </p>
-        </div>
+      <Progress value={percent} className="h-2" aria-label="RMD Progress" />
+      <div className="grid grid-cols-2 gap-4 text-xs">
+        <div className="text-muted-foreground">Required: {formatCurrency(mrd.required_amount)}</div>
+        <div className="font-semibold text-right">Remaining: {formatCurrency(mrd.remaining)}</div>
       </div>
     </div>
   );
 }
 
-// =============================================================================
-// MAIN COMPONENT
-// =============================================================================
+export function ProjectionsCard({ projections, className, isLoading }: ProjectionsCardProps) {
+  const { estimated_cash_flow: cashFlow, mrd_estimate: mrd } = projections || {};
 
-export function ProjectionsCard({
-  projections,
-  className,
-}: ProjectionsCardProps) {
-  const hasProjections =
-    projections?.estimated_cash_flow &&
-    projections.estimated_cash_flow.length > 0;
-  const hasMRD = projections?.mrd_estimate;
+  const stats = useMemo(() => {
+    if (!cashFlow?.length) return { total: 0, avg: 0, trend: 0 };
+    const total = cashFlow.reduce((sum, p) => sum + p.projected_income, 0);
+    const avg = total / cashFlow.length;
+    const first = cashFlow[0]?.projected_income ?? 0;
+    const last = cashFlow[cashFlow.length - 1]?.projected_income ?? 0;
+    const trend = first !== 0 ? ((last - first) / first) * 100 : 0;
+    return { total, avg, trend };
+  }, [cashFlow]);
 
-  // Calculate total projected income (deps aligned with React Compiler inference)
-  const totalProjectedIncome = useMemo(() => {
-    if (!projections?.estimated_cash_flow) return 0;
-    return projections.estimated_cash_flow.reduce(
-      (sum, p) => sum + (p.projected_income || 0),
-      0
-    );
-  }, [projections]);
-
-  // Calculate average monthly income (deps aligned with React Compiler inference)
-  const avgMonthlyIncome = useMemo(() => {
-    if (!projections?.estimated_cash_flow?.length) return 0;
-    return totalProjectedIncome / projections.estimated_cash_flow.length;
-  }, [projections, totalProjectedIncome]);
-
-  if (!hasProjections && !hasMRD) {
-    return null;
-  }
+  if (isLoading) return <Card className={cn("h-48 animate-pulse", className)} />;
+  if (!cashFlow?.length && !mrd) return null;
 
   return (
-    <Card className={cn("w-full", className)}>
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Icon icon={TrendingUp} size="md" className="text-primary" />
-            <CardTitle className="text-base">Projections & MRD</CardTitle>
-          </div>
-          {hasProjections && (
-            <Badge variant="secondary" className="text-xs">
-              {projections!.estimated_cash_flow!.length} months
-            </Badge>
-          )}
+    <Card className={cn("w-full transition-all duration-300 hover:border-primary/20", className)}>
+      <CardHeader className="pb-2 flex flex-row items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Icon icon={TrendingUp} size="md" className="text-primary" />
+          <CardTitle className="text-base">Projections & RMD</CardTitle>
         </div>
+        {stats.trend !== 0 && (
+          <Badge variant={stats.trend > 0 ? "default" : "destructive"}>
+            {stats.trend > 0 ? "+" : ""}{stats.trend.toFixed(1)}%
+          </Badge>
+        )}
       </CardHeader>
 
       <CardContent className="space-y-6">
-        {/* Income Projections Chart */}
-        {hasProjections && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">
-                Projected Monthly Income
-              </span>
-              <div className="text-right">
-                <p className="text-xs text-muted-foreground">
-                  Avg: {formatCurrency(avgMonthlyIncome)}/mo
-                </p>
+        {cashFlow && cashFlow.length > 0 && (
+          <div className="space-y-4">
+            <div className="flex justify-between items-end">
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Total Forecast</p>
+                <p className="text-2xl font-bold">{formatCurrency(stats.total)}</p>
               </div>
+              <p className="text-sm text-emerald-600 font-medium">Avg: {formatCompact(stats.avg)}/mo</p>
             </div>
 
-            <div className="h-[160px] w-full">
+            <div className="h-[140px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={projections!.estimated_cash_flow}
-                  margin={{ top: 5, right: 5, left: 5, bottom: 5 }}
-                >
-                  <XAxis
-                    dataKey="month"
-                    tick={{ fontSize: 10 }}
-                    tickLine={false}
-                    axisLine={false}
-                    interval="preserveStartEnd"
-                    tickFormatter={(value) => {
-                      // Extract just the month abbreviation
-                      const parts = value.split(" ");
-                      return parts[0]?.substring(0, 3) || value;
-                    }}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 10 }}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={formatCurrencyCompact}
-                    width={45}
-                  />
-                  <Tooltip cursor={false} content={<CustomTooltip />} />
+                <BarChart data={cashFlow}>
+                  <XAxis dataKey="month" hide />
+                  <Tooltip cursor={{ fill: 'transparent' }} content={({ payload }) => (
+                    <div className="bg-background border p-2 text-xs rounded shadow-md">
+                      {payload?.[0]?.payload.month}: {formatCurrency(payload?.[0]?.value as number)}
+                    </div>
+                  )} />
                   <Bar dataKey="projected_income" radius={[4, 4, 0, 0]}>
-                    {projections!.estimated_cash_flow!.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={
-                          entry.projected_income >= avgMonthlyIncome
-                            ? "hsl(var(--primary))"
-                            : "hsl(var(--muted-foreground) / 0.3)"
-                        }
-                      />
+                    {cashFlow.map((entry, i) => (
+                      <Cell key={i} fill={entry.projected_income >= stats.avg ? "hsl(var(--primary))" : "hsl(var(--muted))"} />
                     ))}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
-
-            {/* Total projected */}
-            <div className="flex justify-between items-center pt-2 border-t border-border">
-              <span className="text-sm text-muted-foreground">
-                Total Projected Income
-              </span>
-              <span className="text-sm font-semibold">
-                {formatCurrency(totalProjectedIncome)}
-              </span>
-            </div>
           </div>
         )}
 
-        {/* Divider if both sections present */}
-        {hasProjections && hasMRD && (
-          <div className="border-t border-border" />
-        )}
-
-        {/* MRD Section */}
-        {hasMRD && <MRDSection mrd={projections!.mrd_estimate!} />}
+        {mrd && <MRDSection mrd={mrd} />}
       </CardContent>
     </Card>
   );

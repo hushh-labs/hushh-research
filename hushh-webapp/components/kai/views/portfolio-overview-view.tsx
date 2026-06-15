@@ -79,32 +79,44 @@ export function PortfolioOverviewView({
   };
 
   const riskColors: Record<string, string> = {
-    conservative: "text-emerald-500",
-    balanced: "text-amber-500",
-    aggressive: "text-red-500",
+    conservative: "text-green-600 dark:text-green-300",
+    balanced: "text-orange-600 dark:text-orange-300",
+    aggressive: "text-red-600 dark:text-red-300",
   };
+  const kpiIconClassName =
+    "rounded-2xl border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 text-muted-foreground shadow-[var(--shadow-xs)]";
+  const kpiLabelClassName =
+    "text-[11px] font-medium uppercase tracking-normal text-muted-foreground";
+  const kpiValueClassName =
+    "text-2xl font-semibold tracking-normal text-foreground sm:text-[1.7rem]";
+  const actionCardClassName =
+    "flex h-full min-h-[132px] flex-col items-start gap-3 rounded-[var(--app-card-radius-compact)] border border-transparent bg-[color:var(--app-card-surface-compact)] p-5 text-left shadow-[var(--shadow-xs)] transition-[background-color,box-shadow,transform] duration-200 hover:bg-[color:var(--app-card-surface-default-solid)] hover:shadow-[var(--app-card-shadow-standard)] hover:-translate-y-0.5";
 
   return (
-    <div className="w-full space-y-6">
+    <div className="w-full space-y-5">
       {/* Header */}
-      <div className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">Portfolio Overview</h1>
-        <p className="text-muted-foreground">
+      <div className="space-y-1.5">
+        <h1 className="text-[1.7rem] font-semibold leading-tight tracking-normal text-foreground sm:text-3xl">
+          Portfolio Overview
+        </h1>
+        <p className="text-sm leading-6 text-muted-foreground">
           Your investment portfolio at a glance
         </p>
       </div>
 
       {/* KPI Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
         {/* Holdings Count */}
         <SurfaceCard>
-          <SurfaceCardContent className="p-6">
-            <div className="flex items-center justify-between mb-2">
-              <Icon icon={PieChart} size="md" className="text-primary" />
-              <span className="text-xs text-muted-foreground">Holdings</span>
+          <SurfaceCardContent className="p-5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className={kpiIconClassName}>
+                <Icon icon={PieChart} size="sm" className="text-blue-600 dark:text-blue-300" />
+              </span>
+              <span className={kpiLabelClassName}>Holdings</span>
             </div>
-            <p className="text-3xl font-bold">{holdingsCount}</p>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className={kpiValueClassName}>{holdingsCount}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
               Tracked positions
             </p>
           </SurfaceCardContent>
@@ -112,17 +124,19 @@ export function PortfolioOverviewView({
 
         {/* Portfolio Value */}
         <SurfaceCard>
-          <SurfaceCardContent className="p-6">
-            <div className="flex items-center justify-between mb-2">
-              <Icon icon={DollarSign} size="md" className="text-primary" />
-              <span className="text-xs text-muted-foreground">Value Range</span>
+          <SurfaceCardContent className="p-5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className={kpiIconClassName}>
+                <Icon icon={DollarSign} size="sm" className="text-green-600 dark:text-green-300" />
+              </span>
+              <span className={kpiLabelClassName}>Value Range</span>
             </div>
-            <p className="text-2xl font-bold">
+            <p className={kpiValueClassName}>
               {portfolioValue
                 ? valueBucketLabels[portfolioValue] || portfolioValue
                 : "N/A"}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="mt-1 text-xs text-muted-foreground">
               Estimated range
             </p>
           </SurfaceCardContent>
@@ -130,18 +144,20 @@ export function PortfolioOverviewView({
 
         {/* Performance */}
         <SurfaceCard>
-          <SurfaceCardContent className="p-6">
-            <div className="flex items-center justify-between mb-2">
-              <Icon icon={Activity} size="md" className="text-primary" />
-              <span className="text-xs text-muted-foreground">Performance</span>
+          <SurfaceCardContent className="p-5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className={kpiIconClassName}>
+                <Icon icon={Activity} size="sm" className="text-orange-600 dark:text-orange-300" />
+              </span>
+              <span className={kpiLabelClassName}>Performance</span>
             </div>
             <p
               className={cn(
-                "text-3xl font-bold",
+                kpiValueClassName,
                 totalGainLossPct !== undefined
                   ? totalGainLossPct >= 0
-                    ? "text-emerald-500"
-                    : "text-red-500"
+                    ? "!text-green-600 dark:!text-green-300"
+                    : "!text-red-600 dark:!text-red-300"
                   : ""
               )}
             >
@@ -149,7 +165,7 @@ export function PortfolioOverviewView({
                 ? `${totalGainLossPct >= 0 ? "+" : ""}${totalGainLossPct.toFixed(1)}%`
                 : "N/A"}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="mt-1 text-xs text-muted-foreground">
               Total gain/loss
             </p>
           </SurfaceCardContent>
@@ -157,15 +173,17 @@ export function PortfolioOverviewView({
 
         {/* Risk Profile */}
         <SurfaceCard>
-          <SurfaceCardContent className="p-6">
-            <div className="flex items-center justify-between mb-2">
-              <Icon icon={BarChart3} size="md" className="text-primary" />
-              <span className="text-xs text-muted-foreground">Risk Profile</span>
+          <SurfaceCardContent className="p-5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className={kpiIconClassName}>
+                <Icon icon={BarChart3} size="sm" className="text-purple-600 dark:text-purple-300" />
+              </span>
+              <span className={kpiLabelClassName}>Risk Profile</span>
             </div>
-            <p className={cn("text-2xl font-bold capitalize", riskColors[riskProfile])}>
+            <p className={cn(kpiValueClassName, "capitalize", riskColors[riskProfile])}>
               {riskProfile}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="mt-1 text-xs text-muted-foreground">
               Investment style
             </p>
           </SurfaceCardContent>
@@ -175,21 +193,21 @@ export function PortfolioOverviewView({
       {/* Winners/Losers Card */}
       {(winnersCount > 0 || losersCount > 0) && (
         <SurfaceCard>
-          <SurfaceCardContent className="p-6">
+          <SurfaceCardContent className="p-5">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <Icon icon={TrendingUp} size="md" className="text-emerald-500" />
+              <div className="flex items-center gap-3">
+                <Icon icon={TrendingUp} size="md" className="text-green-600 dark:text-green-300" />
                 <div>
-                  <p className="text-2xl font-bold">{winnersCount}</p>
-                  <p className="text-sm text-muted-foreground">Winners</p>
+                  <p className="text-2xl font-semibold tracking-normal">{winnersCount}</p>
+                  <p className="text-xs text-muted-foreground">Winners</p>
                 </div>
               </div>
               <div className="h-12 w-px bg-border" />
-              <div className="flex items-center gap-4">
-                <Icon icon={TrendingDown} size="md" className="text-red-500" />
+              <div className="flex items-center gap-3">
+                <Icon icon={TrendingDown} size="md" className="text-red-600 dark:text-red-300" />
                 <div>
-                  <p className="text-2xl font-bold">{losersCount}</p>
-                  <p className="text-sm text-muted-foreground">Losers</p>
+                  <p className="text-2xl font-semibold tracking-normal">{losersCount}</p>
+                  <p className="text-xs text-muted-foreground">Losers</p>
                 </div>
               </div>
             </div>
@@ -200,19 +218,19 @@ export function PortfolioOverviewView({
       {/* Quick Actions */}
       <SurfaceCard>
         <SurfaceCardHeader>
-          <SurfaceCardTitle className="text-lg">Quick Actions</SurfaceCardTitle>
+          <SurfaceCardTitle>Quick Actions</SurfaceCardTitle>
           <SurfaceCardDescription>
             Common tasks for managing your portfolio
           </SurfaceCardDescription>
         </SurfaceCardHeader>
         <SurfaceCardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
             {/* Review Losers */}
             {losersCount > 0 && onReviewLosers && (
               <MorphyButton
                 variant="none"
                 effect="fade"
-                className="flex h-auto flex-col items-start gap-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] p-6 text-left shadow-[var(--shadow-xs)] transition-[background-color,border-color,box-shadow] duration-200 hover:border-[color:var(--app-card-border-strong)] hover:bg-[var(--app-card-surface-default)] hover:shadow-[var(--app-card-shadow-standard)]"
+                className={actionCardClassName}
                 onClick={onReviewLosers}
                 icon={{
                   icon: AlertTriangle,
@@ -232,7 +250,7 @@ export function PortfolioOverviewView({
               <MorphyButton
                 variant="none"
                 effect="fade"
-                className="flex h-auto flex-col items-start gap-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] p-6 text-left shadow-[var(--shadow-xs)] transition-[background-color,border-color,box-shadow] duration-200 hover:border-[color:var(--app-card-border-strong)] hover:bg-[var(--app-card-surface-default)] hover:shadow-[var(--app-card-shadow-standard)]"
+                className={actionCardClassName}
                 onClick={() => onAnalyzeStock()}
                 icon={{
                   icon: BarChart3,
@@ -252,7 +270,7 @@ export function PortfolioOverviewView({
               <MorphyButton
                 variant="none"
                 effect="fade"
-                className="flex h-auto flex-col items-start gap-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] p-6 text-left shadow-[var(--shadow-xs)] transition-[background-color,border-color,box-shadow] duration-200 hover:border-[color:var(--app-card-border-strong)] hover:bg-[var(--app-card-surface-default)] hover:shadow-[var(--app-card-shadow-standard)]"
+                className={actionCardClassName}
                 onClick={onImportNew}
                 icon={{
                   icon: Upload,
@@ -272,7 +290,7 @@ export function PortfolioOverviewView({
               <MorphyButton
                 variant="none"
                 effect="fade"
-                className="flex h-auto flex-col items-start gap-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] p-6 text-left shadow-[var(--shadow-xs)] transition-[background-color,border-color,box-shadow] duration-200 hover:border-[color:var(--app-card-border-strong)] hover:bg-[var(--app-card-surface-default)] hover:shadow-[var(--app-card-shadow-standard)]"
+                className={actionCardClassName}
                 onClick={onSettings}
                 icon={{
                   icon: Settings,
@@ -294,12 +312,12 @@ export function PortfolioOverviewView({
 
       {/* Info Card */}
       <SurfaceCard tone="feature">
-        <SurfaceCardContent className="p-6">
+        <SurfaceCardContent className="p-5">
           <div className="flex items-start gap-3">
             <Icon icon={Activity} size="md" className="text-primary mt-0.5 shrink-0" />
             <div>
-              <h4 className="font-semibold mb-1">About Your Portfolio</h4>
-              <p className="text-sm text-muted-foreground">
+              <h4 className="mb-1 text-sm font-semibold tracking-normal">About Your Portfolio</h4>
+              <p className="text-sm leading-6 text-muted-foreground">
                 Kai tracks your portfolio using encrypted data in your personal vault.
                 All analysis happens with your privacy intact. Holdings data is organized
                 into the financial domain of your Personal Knowledge Model.
