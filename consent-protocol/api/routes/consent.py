@@ -320,6 +320,20 @@ class RefreshExportFailureRequest(BaseModel):
     lastError: str | None = Field(default=None, max_length=2000)
 
 
+class VaultOwnerTokenRequest(BaseModel):
+    """Validated body for issuing the vault-owner session token."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    userId: str = Field(min_length=1, max_length=128, pattern=r"^\S+$")
+
+
+def _verify_vault_owner_firebase_bearer(authorization: str | None) -> str:
+    """Route-owned Firebase tolerance for vault-owner token issuance only."""
+
+    return verify_firebase_bearer(authorization, retry_token_used_too_early=True)
+
+
 @router.get("/pending")
 async def get_pending_consents(
     userId: str = Query(..., max_length=128),
@@ -1138,7 +1152,10 @@ async def disconnect_relationship(
 
 
 @router.post("/vault-owner-token")
-async def issue_vault_owner_token(request: Request):
+async def issue_vault_owner_token(
+    payload: VaultOwnerTokenRequest,
+    authorization: str | None = Header(None, description="Bearer Firebase ID token"),
+):
     """
     Issue VAULT_OWNER consent token for authenticated user.
 
@@ -1157,19 +1174,8 @@ async def issue_vault_owner_token(request: Request):
     - All access logged for compliance
     """
     try:
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            raise HTTPException(
-                status_code=401, detail="Missing Authorization header with Firebase ID token"
-            )
-        # Verify request body
-        body = await request.json()
-        user_id = body.get("userId")
-
-        if not user_id:
-            raise HTTPException(status_code=400, detail="userId is required")
-
-        firebase_uid = verify_firebase_bearer(auth_header)
+        user_id = payload.userId
+        firebase_uid = _verify_vault_owner_firebase_bearer(authorization)
 
         # Ensure user is requesting token for their own vault
         if firebase_uid != user_id:

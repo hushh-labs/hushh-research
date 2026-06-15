@@ -398,6 +398,87 @@ def test_pending_lookup_resolves_cross_linked_request_ids(monkeypatch):
     assert item["metadata"]["connector_public_key"] == "public-key"
 
 
+def test_vault_owner_token_uses_consent_route_firebase_retry_opt_in(monkeypatch):
+    """Vault-owner issuance owns the Firebase clock-skew tolerance at consent.py."""
+
+    fake_db = _FakeConsentDBService()
+    issued: dict[str, object] = {}
+    verifier_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(consent, "ConsentDBService", lambda: fake_db)
+
+    def _issue_token(**kwargs):
+        issued.update(kwargs)
+        return SimpleNamespace(token="vault-owner-token", expires_at=123456789)  # noqa: S106
+
+    def _verify_firebase(authorization, *, retry_token_used_too_early=False):
+        verifier_calls.append(
+            {
+                "authorization": authorization,
+                "retry_token_used_too_early": retry_token_used_too_early,
+            }
+        )
+        return "investor_1"
+
+    monkeypatch.setattr(consent, "issue_token", _issue_token)
+    monkeypatch.setattr(consent, "verify_firebase_bearer", _verify_firebase)
+
+    client = TestClient(_build_app())
+
+    response = client.post(
+        "/api/consent/vault-owner-token",
+        json={"userId": "investor_1"},
+        headers={"Authorization": "Bearer firebase-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["token"] == "vault-owner-token"  # noqa: S105
+    assert issued["user_id"] == "investor_1"
+    assert issued["scope"] == consent.ConsentScope.VAULT_OWNER
+    assert verifier_calls == [
+        {
+            "authorization": "Bearer firebase-token",
+            "retry_token_used_too_early": True,
+        }
+    ]
+
+
+def test_vault_owner_token_rejects_bad_user_id_before_firebase(monkeypatch):
+    def _unexpected_verify(*_args, **_kwargs):
+        raise AssertionError("invalid route payload should not verify Firebase")
+
+    monkeypatch.setattr(consent, "verify_firebase_bearer", _unexpected_verify)
+
+    client = TestClient(_build_app())
+
+    response = client.post(
+        "/api/consent/vault-owner-token",
+        json={"userId": "u" * 129},
+        headers={"Authorization": "Bearer firebase-token"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_vault_owner_token_user_mismatch_remains_forbidden(monkeypatch):
+    monkeypatch.setattr(
+        consent,
+        "verify_firebase_bearer",
+        lambda _authorization, **_kwargs: "other_user",
+    )
+
+    client = TestClient(_build_app())
+
+    response = client.post(
+        "/api/consent/vault-owner-token",
+        json={"userId": "investor_1"},
+        headers={"Authorization": "Bearer firebase-token"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Cannot issue VAULT_OWNER token for another user"
+
+
 def test_deny_consent_records_event(monkeypatch):
     """Investor denies a pending consent request."""
     fake_db = _FakeConsentDBService()
