@@ -1,0 +1,56 @@
+# Cloud Build TAG-TRIGGER config for on-demand PRODUCTION deploys (Option C).
+#
+# Wired to a Cloud Build *tag trigger* matching `prod-*` on project hushh-pda.
+# Pushing a git tag like:
+#   git tag prod-<full-sha> && git push origin prod-<full-sha>
+# fires this build inside GCP — NO GitHub Actions runner, NO Actions minutes.
+#
+# The trigger runs AS the prod deployer SA, so the orchestrator uses
+# --no-impersonate. The prod orchestrator path requires the confirm token, which
+# we pass explicitly here because cutting a `prod-*` tag IS the deliberate
+# confirmation (immutable, auditable, human-initiated).
+
+steps:
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+
+        TAG="${TAG_NAME:-}"
+        if [[ -z "$TAG" ]]; then
+          echo "No TAG_NAME provided; this config is for tag triggers only." >&2
+          exit 1
+        fi
+        DEPLOY_SHA="${TAG#prod-}"
+        if [[ "$DEPLOY_SHA" == "$TAG" || -z "$DEPLOY_SHA" ]]; then
+          echo "Tag '$TAG' is not in the expected 'prod-<sha>' form." >&2
+          exit 1
+        fi
+        echo "==> PROD tag deploy: tag=$TAG sha=$DEPLOY_SHA"
+
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        export PATH="$HOME/.local/bin:$PATH"
+        curl -fsSL \
+          https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
+          -o /usr/local/bin/cloud-sql-proxy
+        chmod +x /usr/local/bin/cloud-sql-proxy
+        chmod +x deploy/cloud-build-deploy.sh
+
+        deploy/cloud-build-deploy.sh \
+          --env prod \
+          --sha "$DEPLOY_SHA" \
+          --scope "${_SCOPE}" \
+          --no-impersonate \
+          --confirm-production "deploy production"
+    id: "prod-tag-deploy"
+
+timeout: "2400s"
+
+substitutions:
+  _SCOPE: "all"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: "E2_HIGHCPU_8"

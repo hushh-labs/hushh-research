@@ -1,12 +1,42 @@
 # Deploying hushh-research (UAT & Production)
 
-> **TL;DR for agents (Claude Code, Codex, Hermes):** Deploys run on **GCP Cloud
-> Build**, NOT GitHub Actions. There is **no** "deploy from the agent runner"
-> path — the build always happens inside GCP. UAT and production are
-> **on-demand only**: they deploy when a human explicitly asks, never
-> automatically on push to `main`.
+> **TL;DR for agents (Claude Code on the web, Codex, Hermes):** Deploys run on
+> **GCP Cloud Build**, NOT GitHub Actions, and consume **zero GitHub Actions
+> minutes**. UAT and production are **on-demand only** — they deploy when a
+> human/agent deliberately cuts a deploy **git tag**, never automatically on
+> push to `main`.
 
-## The one command
+## Preferred path: deploy by git tag (no credentials needed)
+
+This is how Claude Code on the web deploys. It needs **only its existing git
+push access** — no GCP key, no service-account JSON, no bearer token.
+
+```bash
+# Deploy a specific green main SHA to UAT:
+git tag uat-<full-sha> && git push origin uat-<full-sha>
+
+# Deploy to PRODUCTION (cutting the prod- tag IS the confirmation):
+git tag prod-<full-sha> && git push origin prod-<full-sha>
+```
+
+A Cloud Build **tag trigger** (`uat-*` on `hushh-pda-uat`, `prod-*` on
+`hushh-pda`) sees the tag, checks out that SHA, and runs the full deploy
+orchestration **inside GCP** as the deployer SA. No GitHub-hosted runner is
+involved, so Actions spending limits never block a deploy.
+
+Why this is safe and clean:
+- **No secret in the sandbox** — the only capability used is git push, which
+  Claude Code already has.
+- **Immutable audit trail** — every deploy is a tag (`uat-<sha>` / `prod-<sha>`).
+- **On-demand only** — verified: no workflow listens on `on: push: tags:`, so a
+  tag push costs 0 Actions minutes and only the Cloud Build trigger reacts.
+- Watch progress: GCP Console → Cloud Build → History (project `hushh-pda-uat`
+  / `hushh-pda`).
+
+## Alternative: the one command (operator with gcloud)
+
+For a human authenticated with gcloud (holds `serviceAccountTokenCreator` on the
+deployer SA), the same orchestration can be run directly:
 
 ```bash
 # UAT — latest green main:

@@ -1,0 +1,57 @@
+# Cloud Build TAG-TRIGGER config for on-demand UAT deploys (Option C).
+#
+# Wired to a Cloud Build *tag trigger* matching `uat-*`. Pushing a git tag like
+#   git tag uat-<full-sha> && git push origin uat-<full-sha>
+# fires this build entirely inside GCP — NO GitHub Actions runner, NO Actions
+# minutes (verified: no workflow listens on `on: push: tags:`).
+#
+# The trigger runs AS the deployer SA, so the orchestrator uses --no-impersonate.
+# The tag name carries the deploy SHA: uat-<sha>. We strip the `uat-` prefix.
+#
+# On-demand only: a deploy happens solely when a human/agent cuts a `uat-*` tag.
+
+steps:
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+
+        # TAG_NAME is provided by the tag trigger, e.g. "uat-a944a4b4a1eb..."
+        TAG="${TAG_NAME:-}"
+        if [[ -z "$TAG" ]]; then
+          echo "No TAG_NAME provided; this config is for tag triggers only." >&2
+          exit 1
+        fi
+        DEPLOY_SHA="${TAG#uat-}"
+        if [[ "$DEPLOY_SHA" == "$TAG" || -z "$DEPLOY_SHA" ]]; then
+          echo "Tag '$TAG' is not in the expected 'uat-<sha>' form." >&2
+          exit 1
+        fi
+        echo "==> UAT tag deploy: tag=$TAG sha=$DEPLOY_SHA"
+
+        # Tooling the orchestrator needs.
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        export PATH="$HOME/.local/bin:$PATH"
+        curl -fsSL \
+          https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
+          -o /usr/local/bin/cloud-sql-proxy
+        chmod +x /usr/local/bin/cloud-sql-proxy
+        chmod +x deploy/cloud-build-deploy.sh
+
+        deploy/cloud-build-deploy.sh \
+          --env uat \
+          --sha "$DEPLOY_SHA" \
+          --scope "${_SCOPE}" \
+          --no-impersonate
+    id: "uat-tag-deploy"
+
+timeout: "2400s"
+
+substitutions:
+  _SCOPE: "all"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: "E2_HIGHCPU_8"
