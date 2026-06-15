@@ -15,12 +15,22 @@ def create_trust_link(
     to_agent: AgentID,
     scope: ConsentScope,
     signed_by_user: UserID,
+    session_id: str = "",
     expires_in_ms: int = DEFAULT_TRUST_LINK_EXPIRY_MS,
 ) -> TrustLink:
+    """Create a signed TrustLink bound to a specific session context.
+
+    session_id is included in the HMAC so a signature from Stream A
+    cannot be replayed on Stream B. Callers should pass a unique
+    session_id per connection.
+
+    Cross-stream replay fix: Discord discussion 2025-05-17
+      signature = HMAC(key, from|to|scope|created|expires|user|session_id)
+    """
     created_at = int(time.time() * 1000)
     expires_at = created_at + expires_in_ms
 
-    raw = f"{from_agent}|{to_agent}|{scope}|{created_at}|{expires_at}|{signed_by_user}"
+    raw = f"{from_agent}|{to_agent}|{scope}|{created_at}|{expires_at}|{signed_by_user}|{session_id}"
     signature = _sign(raw)
 
     return TrustLink(
@@ -31,6 +41,7 @@ def create_trust_link(
         expires_at=expires_at,
         signed_by_user=signed_by_user,
         signature=signature,
+        session_id=session_id,
     )
 
 
@@ -38,11 +49,17 @@ def create_trust_link(
 
 
 def verify_trust_link(link: TrustLink) -> bool:
+    """Verify a TrustLink signature and expiry.
+
+    Reconstructs HMAC using the session_id stored in the link.
+    A signature from Stream A will not verify on Stream B
+    even if all other fields are identical.
+    """
     now = int(time.time() * 1000)
     if now > link.expires_at:
         return False
 
-    raw = f"{link.from_agent}|{link.to_agent}|{link.scope}|{link.created_at}|{link.expires_at}|{link.signed_by_user}"
+    raw = f"{link.from_agent}|{link.to_agent}|{link.scope}|{link.created_at}|{link.expires_at}|{link.signed_by_user}|{link.session_id}"
     expected_sig = _sign(raw)
 
     return hmac.compare_digest(link.signature, expected_sig)
@@ -59,4 +76,8 @@ def is_trusted_for_scope(link: TrustLink, required_scope: ConsentScope) -> bool:
 
 
 def _sign(input_string: str) -> str:
-    return hmac.new(APP_SIGNING_KEY.encode(), input_string.encode(), hashlib.sha256).hexdigest()
+    return hmac.new(
+        APP_SIGNING_KEY.encode(),
+        input_string.encode(),
+        hashlib.sha256,
+    ).hexdigest()
