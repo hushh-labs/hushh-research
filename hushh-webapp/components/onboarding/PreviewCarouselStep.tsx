@@ -275,6 +275,14 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
 function Dots(props: { count: number; activeIndex: number }) {
   return (
     <div className="flex items-center justify-center gap-2">
+      <span
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {`Slide ${props.activeIndex + 1} of ${props.count}`}
+      </span>
       {Array.from({ length: props.count }).map((_, i) => (
         <span
           key={i}

@@ -55,6 +55,7 @@ export function AgentVoiceFloatingIndicator({
       title={label}
     >
       <span
+        aria-hidden="true"
         className={cn(
           "flex h-7 w-7 items-center justify-center rounded-full bg-primary/15 text-primary",
           status === "error" && "bg-destructive/10 text-destructive"

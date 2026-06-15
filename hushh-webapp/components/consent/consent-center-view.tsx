@@ -1033,7 +1033,7 @@ export function ConsentCenterView({
                 disabled={disconnectKey === disconnectingCounterpartKey}
               >
                 {disconnectKey === disconnectingCounterpartKey ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
                 ) : null}
                 Disconnect
               </Button>
@@ -1137,9 +1137,9 @@ export function ConsentCenterView({
                   onClick={() => notificationState.retryPushRegistration()}
                 >
                   {notificationState.isRetryingPushRegistration ? (
-                    <Loader2 className="size-4 animate-spin" />
+                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                   ) : (
-                    <RefreshCw className="size-4" />
+                    <RefreshCw className="size-4" aria-hidden="true" />
                   )}
                   Retry push registration
                 </Button>
