@@ -4141,7 +4141,7 @@ function ProfilePageContent() {
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 max-w-full space-y-1.5">
-            <h1 className="text-2xl font-semibold leading-tight tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[2rem]">
+            <h1 className="text-[28px] font-medium leading-[1.08] tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[34px]">
               {user.displayName || "User"}
             </h1>
             <div

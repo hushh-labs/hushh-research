@@ -1246,10 +1246,10 @@ md-ripple.morphy-md-ripple {
   opacity: 1;
   background: linear-gradient(
     to top,
-    rgba(245, 245, 247, 0.17) 0%,
-    rgba(245, 245, 247, 0.13) 42%,
-    rgba(245, 245, 247, 0.07) 70%,
-    rgba(245, 245, 247, 0.024) 90%,
+    var(--app-bar-bottom-fade-strong, rgba(245, 245, 247, 0.17)) 0%,
+    var(--app-bar-bottom-fade-medium, rgba(245, 245, 247, 0.13)) 42%,
+    var(--app-bar-bottom-fade-soft, rgba(245, 245, 247, 0.07)) 70%,
+    var(--app-bar-bottom-fade-trace, rgba(245, 245, 247, 0.024)) 90%,
     transparent 100%
   );
 }
@@ -1257,10 +1257,10 @@ md-ripple.morphy-md-ripple {
 .dark .bar-glass-bottom::after {
   background: linear-gradient(
     to top,
-    rgba(28, 28, 30, 0.18) 0%,
-    rgba(28, 28, 30, 0.14) 42%,
-    rgba(28, 28, 30, 0.08) 70%,
-    rgba(28, 28, 30, 0.03) 90%,
+    var(--app-bar-bottom-fade-strong, rgba(28, 28, 30, 0.18)) 0%,
+    var(--app-bar-bottom-fade-medium, rgba(28, 28, 30, 0.14)) 42%,
+    var(--app-bar-bottom-fade-soft, rgba(28, 28, 30, 0.08)) 70%,
+    var(--app-bar-bottom-fade-trace, rgba(28, 28, 30, 0.03)) 90%,
     transparent 100%
   );
 }

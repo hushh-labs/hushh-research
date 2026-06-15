@@ -1672,7 +1672,7 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
     <>
       <div
         className={cn(
-          "fixed inset-x-0 z-[136] flex justify-center px-4 pointer-events-none",
+          "fixed inset-x-0 z-[121] flex justify-center px-4 pointer-events-none",
         )}
         style={{
           bottom: isRiaSurface
@@ -1740,29 +1740,29 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
               </ShellActionSurface>
             </div>
           ) : (
-            <div className="relative flex h-[58px] w-full justify-end">
-              <ShellActionSurface
-                variant="icon"
-                wrapperClassName="pointer-events-auto absolute bottom-[72px] right-1"
-                className="grid h-[50px] w-[50px] place-items-center"
-                contentClassName="h-full w-full"
-                aria-label="Talk to Kai"
-                disabled={!agentPopover}
-                onClick={() => agentPopover?.openAgent()}
-              >
-                <span className="grid h-[30px] w-[30px] place-items-center rounded-[9px] bg-[#0071e3] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
-                  <X className="h-[15px] w-[15px] rotate-45" strokeWidth={2} />
-                </span>
-              </ShellActionSurface>
-              <ShellActionSurface
-                variant="icon"
-                wrapperClassName="pointer-events-auto"
-                className="grid h-[58px] w-[58px] place-items-center text-muted-foreground"
-                aria-label="Search"
-                onClick={() => setOpen(true)}
-              >
-                <Search className="h-5 w-5" strokeWidth={2.2} />
-              </ShellActionSurface>
+            <div className="relative flex h-[58px] w-full items-center justify-end">
+              <div className="ml-auto flex h-[58px] w-[124px] items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="pointer-events-auto grid h-[58px] w-[58px] place-items-center rounded-full transition-transform duration-200 ease-out hover:scale-[1.03] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Talk to Kai"
+                  disabled={!agentPopover}
+                  onClick={() => agentPopover?.openAgent()}
+                >
+                  <span className="grid h-[38px] w-[38px] place-items-center rounded-[13px] bg-[#0071e3] text-white shadow-[0_10px_24px_-16px_rgba(0,113,227,0.75),inset_0_1px_0_rgba(255,255,255,0.35)]">
+                    <X className="h-[17px] w-[17px] rotate-45" strokeWidth={2} />
+                  </span>
+                </button>
+                <ShellActionSurface
+                  variant="icon"
+                  wrapperClassName="pointer-events-auto"
+                  className="grid h-[58px] w-[58px] place-items-center text-muted-foreground"
+                  aria-label="Search"
+                  onClick={() => setOpen(true)}
+                >
+                  <Search className="h-5 w-5" strokeWidth={2.2} />
+                </ShellActionSurface>
+              </div>
               <div className="hidden">
                 <VoiceAmbientSearchSurface
                   mode={ambientMode}

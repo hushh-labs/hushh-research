@@ -33,6 +33,14 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/morphy-ux/ui";
+import {
+  kaiAppBodyClassName,
+  kaiAppCardBodyClassName,
+  kaiAppCardTitleClassName,
+  kaiAppCompactTitleClassName,
+  kaiAppEyebrowClassName,
+  kaiAppHelperClassName,
+} from "@/components/kai/shared/kai-typography";
 
 // =============================================================================
 // TYPES
@@ -86,20 +94,20 @@ export function PortfolioOverviewView({
   const kpiIconClassName =
     "rounded-2xl border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 text-muted-foreground shadow-[var(--shadow-xs)]";
   const kpiLabelClassName =
-    "text-[11px] font-medium uppercase tracking-normal text-muted-foreground";
+    cn(kaiAppEyebrowClassName, "text-muted-foreground");
   const kpiValueClassName =
-    "text-2xl font-semibold tracking-normal text-foreground sm:text-[1.7rem]";
+    "text-[26px] font-medium leading-none tracking-normal text-foreground sm:text-[30px]";
   const actionCardClassName =
     "flex h-full min-h-[132px] flex-col items-start gap-3 rounded-[var(--app-card-radius-compact)] border border-transparent bg-[color:var(--app-card-surface-compact)] p-5 text-left shadow-[var(--shadow-xs)] transition-[background-color,box-shadow,transform] duration-200 hover:bg-[color:var(--app-card-surface-default-solid)] hover:shadow-[var(--app-card-shadow-standard)] hover:-translate-y-0.5";
 
   return (
     <div className="w-full space-y-5">
       {/* Header */}
-      <div className="space-y-1.5">
-        <h1 className="text-[1.7rem] font-semibold leading-tight tracking-normal text-foreground sm:text-3xl">
+      <div className="space-y-2">
+        <h1 className={cn(kaiAppCompactTitleClassName, "text-foreground")}>
           Portfolio Overview
         </h1>
-        <p className="text-sm leading-6 text-muted-foreground">
+        <p className={cn(kaiAppBodyClassName, "text-muted-foreground")}>
           Your investment portfolio at a glance
         </p>
       </div>
@@ -116,7 +124,7 @@ export function PortfolioOverviewView({
               <span className={kpiLabelClassName}>Holdings</span>
             </div>
             <p className={kpiValueClassName}>{holdingsCount}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className={cn(kaiAppHelperClassName, "mt-1 text-muted-foreground")}>
               Tracked positions
             </p>
           </SurfaceCardContent>
@@ -136,7 +144,7 @@ export function PortfolioOverviewView({
                 ? valueBucketLabels[portfolioValue] || portfolioValue
                 : "N/A"}
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className={cn(kaiAppHelperClassName, "mt-1 text-muted-foreground")}>
               Estimated range
             </p>
           </SurfaceCardContent>
@@ -165,7 +173,7 @@ export function PortfolioOverviewView({
                 ? `${totalGainLossPct >= 0 ? "+" : ""}${totalGainLossPct.toFixed(1)}%`
                 : "N/A"}
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className={cn(kaiAppHelperClassName, "mt-1 text-muted-foreground")}>
               Total gain/loss
             </p>
           </SurfaceCardContent>
@@ -183,7 +191,7 @@ export function PortfolioOverviewView({
             <p className={cn(kpiValueClassName, "capitalize", riskColors[riskProfile])}>
               {riskProfile}
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className={cn(kaiAppHelperClassName, "mt-1 text-muted-foreground")}>
               Investment style
             </p>
           </SurfaceCardContent>
@@ -198,16 +206,16 @@ export function PortfolioOverviewView({
               <div className="flex items-center gap-3">
                 <Icon icon={TrendingUp} size="md" className="text-green-600 dark:text-green-300" />
                 <div>
-                  <p className="text-2xl font-semibold tracking-normal">{winnersCount}</p>
-                  <p className="text-xs text-muted-foreground">Winners</p>
+                  <p className="text-[26px] font-medium leading-none tracking-normal">{winnersCount}</p>
+                  <p className={cn(kaiAppHelperClassName, "mt-1 text-muted-foreground")}>Winners</p>
                 </div>
               </div>
               <div className="h-12 w-px bg-border" />
               <div className="flex items-center gap-3">
                 <Icon icon={TrendingDown} size="md" className="text-red-600 dark:text-red-300" />
                 <div>
-                  <p className="text-2xl font-semibold tracking-normal">{losersCount}</p>
-                  <p className="text-xs text-muted-foreground">Losers</p>
+                  <p className="text-[26px] font-medium leading-none tracking-normal">{losersCount}</p>
+                  <p className={cn(kaiAppHelperClassName, "mt-1 text-muted-foreground")}>Losers</p>
                 </div>
               </div>
             </div>
@@ -238,8 +246,8 @@ export function PortfolioOverviewView({
                 }}
               >
                 <div className="w-full text-left">
-                  <h4 className="font-semibold mb-1">Review Losers</h4>
-                  <p className="text-xs text-muted-foreground">
+                  <h4 className={cn(kaiAppCardTitleClassName, "mb-1")}>Review Losers</h4>
+                  <p className={cn(kaiAppHelperClassName, "text-muted-foreground")}>
                     {losersCount} position{losersCount > 1 ? "s" : ""} need attention
                   </p>
                 </div>
@@ -258,8 +266,8 @@ export function PortfolioOverviewView({
                 }}
               >
                 <div className="w-full text-left">
-                  <h4 className="font-semibold mb-1">Analyze Stock</h4>
-                  <p className="text-xs text-muted-foreground">
+                  <h4 className={cn(kaiAppCardTitleClassName, "mb-1")}>Analyze Stock</h4>
+                  <p className={cn(kaiAppHelperClassName, "text-muted-foreground")}>
                     Get Kai's investment analysis
                   </p>
                 </div>
@@ -278,8 +286,8 @@ export function PortfolioOverviewView({
                 }}
               >
                 <div className="w-full text-left">
-                  <h4 className="font-semibold mb-1">Import New</h4>
-                  <p className="text-xs text-muted-foreground">
+                  <h4 className={cn(kaiAppCardTitleClassName, "mb-1")}>Import New</h4>
+                  <p className={cn(kaiAppHelperClassName, "text-muted-foreground")}>
                     Update with latest statement
                   </p>
                 </div>
@@ -298,8 +306,8 @@ export function PortfolioOverviewView({
                 }}
               >
                 <div className="w-full text-left">
-                  <h4 className="font-semibold mb-1">Settings</h4>
-                  <p className="text-xs text-muted-foreground">
+                  <h4 className={cn(kaiAppCardTitleClassName, "mb-1")}>Settings</h4>
+                  <p className={cn(kaiAppHelperClassName, "text-muted-foreground")}>
                     Risk profile & preferences
                   </p>
                 </div>
@@ -316,8 +324,8 @@ export function PortfolioOverviewView({
           <div className="flex items-start gap-3">
             <Icon icon={Activity} size="md" className="text-primary mt-0.5 shrink-0" />
             <div>
-              <h4 className="mb-1 text-sm font-semibold tracking-normal">About Your Portfolio</h4>
-              <p className="text-sm leading-6 text-muted-foreground">
+              <h4 className={cn(kaiAppCardTitleClassName, "mb-1 text-foreground")}>About Your Portfolio</h4>
+              <p className={cn(kaiAppCardBodyClassName, "text-muted-foreground")}>
                 Kai tracks your portfolio using encrypted data in your personal vault.
                 All analysis happens with your privacy intact. Holdings data is organized
                 into the financial domain of your Personal Knowledge Model.

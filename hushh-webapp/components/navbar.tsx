@@ -270,7 +270,7 @@ export const Navbar = () => {
           hideBottomChrome && "pointer-events-none"
         )}
       >
-        <div className="min-w-0 pointer-events-auto" style={{ width: "calc(100% - 68px)" }}>
+        <div className="min-w-0 pointer-events-auto" style={{ width: "calc(100% - 132px)" }}>
           <SegmentedPill
             ref={pillRef}
             size="compact"
