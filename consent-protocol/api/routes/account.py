@@ -26,6 +26,7 @@ import os
 import re
 import secrets
 from typing import Any, Literal
+from mcp_modules.log_redaction import redact_log_value
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
@@ -512,7 +513,7 @@ async def delete_account(
     """
     user_id = token_data["user_id"]
     target = payload.target if payload else "both"
-    logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
+    logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", redact_log_value(user_id), target)
     verified_phone_number: str | None = None
     if target == "both":
         try:
@@ -522,7 +523,7 @@ async def delete_account(
         except Exception as exc:
             logger.warning(
                 "Could not prefetch verified phone before account deletion user=%s error=%s",
-                user_id,
+                redact_log_value(user_id),
                 type(exc).__name__,
             )
 
@@ -532,7 +533,7 @@ async def delete_account(
     if not result["success"]:
         # SECURITY: do not reflect the internal error string in the HTTP response.
         # The service-layer error may include persona names, DB state, or persona IDs.
-        logger.error("account.delete_failed user=%s error=%s", user_id, result.get("error"))
+        logger.error("account.delete_failed user=%s error=%s", redact_log_value(user_id), result.get("error"))
         raise HTTPException(status_code=500, detail="Account deletion failed")
 
     if target == "both" and result.get("account_deleted") is True:
@@ -560,7 +561,7 @@ async def export_account_data(token_data: dict = Depends(require_vault_owner_tok
     Requires VAULT_OWNER token.
     """
     user_id = token_data["user_id"]
-    logger.info("Account export requested for user %s", user_id)
+    logger.info("Account export requested for user %s", redact_log_value(user_id))
 
     service = AccountService()
     result = await service.export_data(user_id)
