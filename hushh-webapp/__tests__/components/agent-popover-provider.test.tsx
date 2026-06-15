@@ -69,7 +69,7 @@ describe("AgentPopoverProvider floating trigger", () => {
   let getBoundingClientRectSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    navigationMock.pathname = "/profile";
+    navigationMock.pathname = "/login";
     window.localStorage.clear();
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
@@ -251,6 +251,22 @@ describe("AgentPopoverProvider floating trigger", () => {
 
   it("does not render a duplicate floating trigger on Kai command-bar routes", () => {
     navigationMock.pathname = "/kai";
+
+    render(
+      <div>
+        <div data-tour-id="kai-command-bar" />
+        <div aria-label="Main navigation" />
+        <AgentPopoverProvider>
+          <main />
+        </AgentPopoverProvider>
+      </div>
+    );
+
+    expect(screen.queryByRole("button", { name: "Open Agent" })).toBeNull();
+  });
+
+  it("does not render a duplicate floating trigger on Profile command-bar routes", () => {
+    navigationMock.pathname = "/profile";
 
     render(
       <div>

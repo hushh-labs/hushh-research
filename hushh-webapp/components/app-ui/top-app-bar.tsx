@@ -22,11 +22,9 @@ import {
   ArrowLeft,
   Bell,
   BriefcaseBusiness,
-  ChartColumnIncreasing,
   Check,
   ChevronDown,
   Code2,
-  Compass,
   type LucideIcon,
   Loader2,
   LogOut,
@@ -157,19 +155,8 @@ function getTopBarTitle(
   }
 
   if (isScrolled) {
-    if (pathname === ROUTES.KAI_HOME) {
-      return {
-        label: "Market",
-        icon: ChartColumnIncreasing,
-        interactive: false as const,
-      };
-    }
-    if (pathname === ROUTES.MARKETPLACE) {
-      return {
-        label: "Search people",
-        icon: Compass,
-        interactive: false as const,
-      };
+    if (pathname === ROUTES.KAI_HOME || pathname === ROUTES.MARKETPLACE) {
+      return null;
     }
   }
 
