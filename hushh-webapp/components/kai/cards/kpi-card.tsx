@@ -109,7 +109,7 @@ export function KPICard({
         {/* Header with icon and title - Icon followed by Title */}
         <div className="flex items-center gap-2.5 mb-2">
           {icon && (
-            <div className={cn("text-primary shrink-0", styles.icon)}>
+            <div className={cn("text-primary shrink-0", styles.icon)} aria-hidden="true">
               {icon}
             </div>
           )}
@@ -119,7 +119,12 @@ export function KPICard({
         </div>
 
         {/* Value */}
-        <p className={cn("font-black tracking-tighter leading-tight", styles.value)}>{value}</p>
+        <p
+          className={cn("font-black tracking-tighter leading-tight", styles.value)}
+          aria-label={`${title}: ${value}`}
+        >
+          {value}
+        </p>
 
         {/* Optional one-line description */}
         {description && (
@@ -131,7 +136,7 @@ export function KPICard({
         {/* Change indicator */}
         {change !== undefined && (
           <div className={cn("flex items-center gap-1 mt-1.5", styles.change, trendColor)}>
-            <TrendIcon className="w-3.5 h-3.5" />
+            <TrendIcon className="w-3.5 h-3.5" aria-hidden="true" />
             <span className="font-bold">
               {isPositive && !isNeutral ? "+" : ""}
               {change.toFixed(2)}%

@@ -10,7 +10,7 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { Bot, Mic, Search, X } from "lucide-react";
+import { Bot, MessageCircle, Mic, Search, X } from "lucide-react";
 
 import {
   KaiCommandPalette,
@@ -1702,6 +1702,8 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
                 className="h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]"
                 contentClassName="gap-1.5"
                 aria-label="Search RIA workspace"
+                aria-expanded={open}
+                aria-haspopup="dialog"
                 onClick={() => setOpen(true)}
               >
                 <Search className="h-4 w-4 shrink-0" />
@@ -1740,8 +1742,8 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
               </ShellActionSurface>
             </div>
           ) : (
-            <div className="relative flex h-[124px] w-full items-end justify-end">
-              <div className="ml-auto flex h-[124px] w-[58px] flex-col items-center justify-end gap-2">
+            <div className="relative flex h-[112px] w-full items-end justify-end">
+              <div className="ml-auto flex h-[112px] w-[58px] flex-col items-center justify-end gap-1.5">
                 <button
                   type="button"
                   className="pointer-events-auto grid h-[58px] w-[58px] place-items-center rounded-full transition-transform duration-200 ease-out hover:scale-[1.03] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-50"
@@ -1749,8 +1751,8 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
                   disabled={!agentPopover}
                   onClick={() => agentPopover?.openAgent()}
                 >
-                  <span className="grid h-[38px] w-[38px] place-items-center rounded-[13px] bg-[#0071e3] text-white shadow-[0_10px_24px_-16px_rgba(0,113,227,0.75),inset_0_1px_0_rgba(255,255,255,0.35)]">
-                    <Bot className="h-[17px] w-[17px]" strokeWidth={2} />
+                  <span className="grid h-[40px] w-[40px] place-items-center rounded-[14px] bg-[#0071e3] text-white shadow-[0_10px_24px_-16px_rgba(0,113,227,0.75),inset_0_1px_0_rgba(255,255,255,0.36)]">
+                    <MessageCircle className="h-[18px] w-[18px]" strokeWidth={2.15} />
                   </span>
                 </button>
                 <ShellActionSurface

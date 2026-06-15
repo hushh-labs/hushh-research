@@ -15,6 +15,8 @@ const { mockOpenAgent } = vi.hoisted(() => ({
 vi.mock("lucide-react", () => ({
   Bot: () => createElement("span", { "data-testid": "bot-icon" }),
   Bug: () => null,
+  MessageCircle: () =>
+    createElement("span", { "data-testid": "message-circle-icon" }),
   Mic: () => createElement("span", { "data-testid": "mic-icon" }),
   Search: () => createElement("span", { "data-testid": "search-icon" }),
   X: () => createElement("span", { "data-testid": "x-icon" }),

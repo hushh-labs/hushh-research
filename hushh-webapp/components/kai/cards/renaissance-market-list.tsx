@@ -401,6 +401,8 @@ export function RiaPicksList({
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
                         placeholder="Search symbol, company, sector, or thesis"
+                        autoComplete="off"
+                        autoCorrect="off"
                         spellCheck={false}
                         className="h-10 rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] pl-9 shadow-[var(--shadow-xs)]"
                       />
@@ -545,6 +547,8 @@ export function RiaPicksList({
                       value={query}
                       onChange={(event) => setQuery(event.target.value)}
                       placeholder="Search symbol, company, sector, or thesis"
+                      autoComplete="off"
+                      autoCorrect="off"
                       spellCheck={false}
                       className="h-10 rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] pl-9 shadow-[var(--shadow-xs)]"
                     />
