@@ -8,8 +8,8 @@ export const ONE_LOCATION_NOTIFICATION_OPEN_VALUE = "opened";
 export const ONE_LOCATION_GRANT_ID_PARAM = "grantId";
 export const ONE_LOCATION_REQUEST_ID_PARAM = "requestId";
 export const ONE_LOCATION_REFERRAL_ID_PARAM = "referralId";
-export const ONE_LOCATION_SUBMISSION_ID_PARAM = "submissionId";
-export const ONE_LOCATION_SECTION_PARAM = "section";
+const ONE_LOCATION_SUBMISSION_ID_PARAM = "submissionId";
+const ONE_LOCATION_SECTION_PARAM = "section";
 
 const OPENED_GRANTS_KEY_PREFIX = "one_location_opened_grants_v1";
 const LOCATION_SHARE_TASK_KIND = "one_location_share";
@@ -24,14 +24,6 @@ export type OneLocationWorkflowNotificationType =
   | "location_access_denied"
   | "location_referral_invite"
   | "location_public_invite_submitted";
-
-export type OneLocationNotificationSection =
-  | "people"
-  | "approvals"
-  | "shared"
-  | "my_requests"
-  | "public_responses"
-  | "activity";
 
 const WORKFLOW_COPY: Record<
   OneLocationWorkflowNotificationType,
@@ -169,7 +161,7 @@ export function buildOneLocationWorkflowHref(params: {
   requestId?: string | null;
   referralId?: string | null;
   submissionId?: string | null;
-  section?: OneLocationNotificationSection | null;
+  section?: string | null;
   openGrant?: boolean;
 }): string {
   const query = new URLSearchParams();
@@ -188,28 +180,6 @@ export function buildOneLocationWorkflowHref(params: {
   }
   const suffix = query.toString();
   return suffix ? `/one/location?${suffix}` : "/one/location";
-}
-
-export function oneLocationSectionForWorkflowNotificationType(
-  type: OneLocationWorkflowNotificationType,
-): OneLocationNotificationSection {
-  switch (type) {
-    case "location_share_created":
-    case "location_access_approved":
-    case "location_share_revoked":
-    case "location_share_expired":
-      return "shared";
-    case "location_access_request":
-      return "approvals";
-    case "location_access_denied":
-      return "my_requests";
-    case "location_public_invite_submitted":
-      return "public_responses";
-    case "location_referral_invite":
-      return "my_requests";
-    default:
-      return "activity";
-  }
 }
 
 export function locationShareNotificationDescription(ownerLabel?: string | null): string {

@@ -76,10 +76,8 @@ import {
   ONE_LOCATION_GRANT_OPENED_EVENT,
   ONE_LOCATION_NOTIFICATION_OPEN_PARAM,
   ONE_LOCATION_NOTIFICATION_OPEN_VALUE,
-  ONE_LOCATION_SECTION_PARAM,
   playOneLocationNotificationSound,
   recordOneLocationShareNotification,
-  type OneLocationNotificationSection,
 } from "@/lib/one-location/notifications";
 import { OneLocationService } from "@/lib/one-location/service";
 import { OneLocationActivityDashboard } from "@/components/one-location/activity-dashboard";
@@ -116,6 +114,7 @@ const DURATION_OPTIONS = [
 const LIVE_LOCATION_UPDATE_INTERVAL_MS = 20_000;
 const LIVE_LOCATION_STALE_THRESHOLD_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS * 3;
 const FOREGROUND_RETRY_DELAYS_MS = [450, 900] as const;
+const ONE_LOCATION_SECTION_QUERY_PARAM = "section";
 
 type BusyState =
   | "load"
@@ -1431,8 +1430,8 @@ function OneLocationAgentPageContent() {
   useEffect(() => {
     if (!auth.userId) return;
     const section = String(
-      searchParams.get(ONE_LOCATION_SECTION_PARAM) || "",
-    ).trim() as OneLocationNotificationSection | "";
+      searchParams.get(ONE_LOCATION_SECTION_QUERY_PARAM) || "",
+    ).trim();
     if (!section || openedNotificationSectionRef.current === section) return;
 
     const target =
