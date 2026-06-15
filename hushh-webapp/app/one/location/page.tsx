@@ -1729,7 +1729,7 @@ function OneLocationAgentPageContent() {
         }
       } catch (error) {
         console.warn(
-          "[OneLocationAgent] Foreground live update skipped:",
+          "[OneLocationAgent] Foreground location update skipped:",
           error,
         );
       } finally {
@@ -2001,7 +2001,7 @@ function OneLocationAgentPageContent() {
         copied_to_clipboard: Boolean(navigator.clipboard && url),
         active_invite_count: activePublicInvites.length + 1,
       });
-      toast.success("Public live-location link created and copied.");
+      toast.success("Public location link created and copied.");
       await refresh();
     } catch (error) {
       trackEvent("one_location_public_link_created", {
@@ -2012,7 +2012,7 @@ function OneLocationAgentPageContent() {
         active_invite_count: activePublicInvites.length,
       });
       toast.error(
-        oneLocationErrorMessage(error, "Could not create public live-location link."),
+        oneLocationErrorMessage(error, "Could not create public location link."),
       );
     } finally {
       setBusy(null);
@@ -2023,16 +2023,16 @@ function OneLocationAgentPageContent() {
     if (!publicInviteUrl) return;
     try {
       await navigator.clipboard.writeText(publicInviteUrl);
-      toast.success("Public live-location link copied.");
+      toast.success("Public location link copied.");
     } catch {
-      toast.error("Could not copy the public live-location link.");
+      toast.error("Could not copy the public location link.");
     }
   }, [publicInviteUrl]);
 
   const handleSharePublicInvite = useCallback(async () => {
     if (!publicInviteUrl) return;
     const text =
-      "View my One Location live update here after entering your details.";
+      "View my One Location location update here after entering your details.";
     try {
       if (navigator.share) {
         await navigator.share({
@@ -2043,7 +2043,7 @@ function OneLocationAgentPageContent() {
         return;
       }
       await navigator.clipboard.writeText(publicInviteUrl);
-      toast.success("Public live-location link copied.");
+      toast.success("Public location link copied.");
     } catch (error) {
       if ((error as Error)?.name === "AbortError") return;
       toast.error("Could not open the share sheet.");
@@ -2089,7 +2089,7 @@ function OneLocationAgentPageContent() {
         toast.success("Invite link copied.");
         return;
       }
-      toast.info("Create a public live-location link, then share it with your contacts.");
+      toast.info("Create a public location link, then share it with your contacts.");
     } catch (error) {
       if ((error as Error)?.name === "AbortError") return;
       trackEvent("one_location_public_link_created", {
@@ -2121,13 +2121,13 @@ function OneLocationAgentPageContent() {
           inviteId: invite.id,
         });
         setPublicInviteUrl("");
-        toast.success("Public live-location link revoked.");
+        toast.success("Public location link revoked.");
         await refresh();
       } catch (error) {
         toast.error(
           oneLocationErrorMessage(
             error,
-            "Could not revoke public live-location link.",
+            "Could not revoke public location link.",
           ),
         );
       } finally {
@@ -3140,17 +3140,17 @@ function OneLocationAgentPageContent() {
               </section>
 
               <section className="space-y-2 px-1">
-                {sectionLabel("Create public live link")}
+                {sectionLabel("Create public location link")}
                 <div className={cn(onePanelClassName, "space-y-4 p-3.5")}>
                   <p className="text-[13px] leading-5 text-[#8e8e93] dark:text-white/55">
-                    Share a public live-location link. Visitors enter their
+                    Share a public location link. Visitors enter their
                     details and can view this link's captured location.
                   </p>
                   <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_150px]">
                     <div className={cn(oneInsetClassName, "px-3 py-2 text-sm")}>
                       <span className={oneSecondaryTextClassName}>
                         {publicInviteUrl ||
-                          "Create a fresh public live-location link to copy or share."}
+                          "Create a fresh public location link to copy or share."}
                       </span>
                     </div>
                     <Select
@@ -3208,7 +3208,7 @@ function OneLocationAgentPageContent() {
                         >
                           <div className="min-w-0">
                             <p className="text-[14px] font-semibold text-[#1c1c1e] dark:text-white">
-                              Active public live link
+                              Active public location link
                             </p>
                             <p className="truncate text-[12px] text-[#8e8e93] dark:text-white/55">
                               Public viewing expires{" "}
@@ -3349,7 +3349,7 @@ function OneLocationAgentPageContent() {
                     <EmptyOneState
                       icon={ExternalLink}
                       title="No public responses"
-                      description="People who open your public live-location link appear here."
+                      description="People who open your public location link appear here."
                     />
                   )}
                 </div>

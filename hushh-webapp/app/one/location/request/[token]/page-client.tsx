@@ -73,7 +73,7 @@ function PublicLocationMap({ point }: { point: PlainLocationPoint }) {
     <div className="overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-background">
       <div className="relative h-64 overflow-hidden bg-muted">
         <iframe
-          title="Public live location map"
+          title="Public location map"
           src={googleMapsEmbedUrl(point)}
           loading="lazy"
           referrerPolicy="no-referrer-when-downgrade"
@@ -82,7 +82,7 @@ function PublicLocationMap({ point }: { point: PlainLocationPoint }) {
         />
         <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-2 rounded-full border border-emerald-300/40 bg-emerald-950/75 px-3 py-1.5 text-xs font-semibold text-emerald-50 shadow-lg backdrop-blur-xl">
           <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
-          Public live location
+          Public location
         </div>
       </div>
       <div className="space-y-3 p-3">
@@ -291,7 +291,7 @@ export default function PublicLocationRequestPageClient() {
           ) : submission ? (
             <div className="rounded-[var(--app-card-radius-standard)] border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-6 text-amber-800 dark:text-amber-100">
               This link was opened, but no public location snapshot is attached.
-              Ask the sender to create a fresh public live-location link.
+              Ask the sender to create a fresh public location link.
             </div>
           ) : null}
         </div>

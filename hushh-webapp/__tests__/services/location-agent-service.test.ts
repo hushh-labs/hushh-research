@@ -150,7 +150,7 @@ describe("OneLocationService", () => {
     });
   });
 
-  it("creates public live-location links with an owner-captured snapshot", async () => {
+  it("creates public location links with an owner-captured snapshot", async () => {
     mockApiJson.mockResolvedValueOnce({
       invite: { id: "invite_1", status: "active" },
       publicToken: "token_1",

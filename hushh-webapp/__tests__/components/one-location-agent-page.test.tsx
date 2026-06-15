@@ -294,7 +294,7 @@ function locationActivity() {
         eventType: "location_public_invite_submitted",
         occurredAt: "2026-05-20T07:20:00.000Z",
         title: "Response from Visitor Alpha",
-        detail: "Public live link - May 20, 07:20 UTC",
+        detail: "Public location link - May 20, 07:20 UTC",
       },
     ],
   };
@@ -529,12 +529,12 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("renders a public live-location link control", async () => {
+  it("renders a public location link control", async () => {
     render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
-    expect(screen.getByText("Create public live link")).toBeTruthy();
+    expect(screen.getByText("Create public location link")).toBeTruthy();
     expect(screen.getByText("Create Public Link")).toBeTruthy();
     expect(screen.getByText("Public link responses")).toBeTruthy();
     expect(screen.queryByText(/whatsapp/i)).toBeNull();
@@ -647,7 +647,7 @@ describe("OneLocationAgentPage", () => {
     expect(startLink.getAttribute("href")).toContain("dir_action=navigate");
   });
 
-  it("tracks public live-link creation without leaking location into analytics", async () => {
+  it("tracks public location-link creation without leaking location into analytics", async () => {
     render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
@@ -1060,7 +1060,7 @@ describe("OneLocationAgentPage", () => {
     );
   }, 15_000);
 
-  it("creates a public live-link invite path for contacts who are not KAI users", async () => {
+  it("creates a public location-link invite path for contacts who are not KAI users", async () => {
     render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());

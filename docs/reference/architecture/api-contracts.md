@@ -16,16 +16,16 @@ Founder-language note:
 
 ```
 Firebase Sign-In
-      │
-      ▼
+      â”‚
+      â–¼
 POST /api/consent/vault-owner-token  (Firebase Bearer)
-      │
-      ▼
+      â”‚
+      â–¼
   VAULT_OWNER Token (24h)
-      │
-      ├── All vault/data operations
-      ├── Agent operations
-      └── Can delegate scoped tokens to MCP agents (7d)
+      â”‚
+      â”œâ”€â”€ All vault/data operations
+      â”œâ”€â”€ Agent operations
+      â””â”€â”€ Can delegate scoped tokens to MCP agents (7d)
 ```
 
 | Token Type            | Purpose                            | Duration | Auth Format                    |
@@ -173,10 +173,10 @@ not the product owner for live location.
 | GET | `/api/one/location/state` | VAULT_OWNER Bearer | List verified recipient directory, viewer location-key capabilities, owner grants, received grants, pending requests, and referrals for the authenticated user |
 | GET | `/api/one/location/recipients` | VAULT_OWNER Bearer | List phone-verified users excluding self, with masked labels and active public key metadata only |
 | POST | `/api/one/location/recipient-keys` | VAULT_OWNER Bearer | Register the authenticated user's recipient public key; private key remains device-local |
-| POST | `/api/one/location/public-invites` | VAULT_OWNER Bearer | Create a duration-bounded public live-location link from an owner-captured snapshot; the raw token is returned once and only its hash is stored |
+| POST | `/api/one/location/public-invites` | VAULT_OWNER Bearer | Create a duration-bounded public location link from an owner-captured snapshot; the raw token is returned once and only its hash is stored |
 | GET | `/api/one/location/public-invites/{public_token}` | Public | Resolve public-link metadata only: safe owner label, status, duration, expiry, and whether a public snapshot is available |
 | POST | `/api/one/location/public-invites/{public_token}/submit` | Public | Submit visitor name, phone, and optional message, then return the public location snapshot for the active link without creating a private grant |
-| DELETE | `/api/one/location/public-invites/{invite_id}` | VAULT_OWNER Bearer | Revoke an active public live-location link |
+| DELETE | `/api/one/location/public-invites/{invite_id}` | VAULT_OWNER Bearer | Revoke an active public location link |
 | POST | `/api/one/location/grants` | VAULT_OWNER Bearer | Create a duration-bounded owner-approved grant for one verified recipient identity/key |
 | POST | `/api/one/location/grants/{grant_id}/envelopes` | VAULT_OWNER Bearer | Store the owner-device encrypted latest-location envelope; backend receives ciphertext and metadata only |
 | GET | `/api/one/location/grants/{grant_id}/envelope` | VAULT_OWNER Bearer | Return ciphertext only to the exact approved recipient while grant is active |
@@ -388,8 +388,8 @@ Security invariant:
 
 | Method | Path | Replacement |
 | ------ | ---- | ----------- |
-| POST | `/api/v1/food-data` | `GET /api/pkm/domain-data/{uid}/{discovered_domain}` after runtime domain discovery, or the publishable flow `/api/v1/user-scopes/{uid}` → `/api/v1/request-consent` → `/api/v1/scoped-export` |
-| POST | `/api/v1/professional-data` | `GET /api/pkm/domain-data/{uid}/{discovered_domain}` after runtime domain discovery, or the publishable flow `/api/v1/user-scopes/{uid}` → `/api/v1/request-consent` → `/api/v1/scoped-export` |
+| POST | `/api/v1/food-data` | `GET /api/pkm/domain-data/{uid}/{discovered_domain}` after runtime domain discovery, or the publishable flow `/api/v1/user-scopes/{uid}` â†’ `/api/v1/request-consent` â†’ `/api/v1/scoped-export` |
+| POST | `/api/v1/professional-data` | `GET /api/pkm/domain-data/{uid}/{discovered_domain}` after runtime domain discovery, or the publishable flow `/api/v1/user-scopes/{uid}` â†’ `/api/v1/request-consent` â†’ `/api/v1/scoped-export` |
 | DELETE | `/api/pkm/attributes/{uid}/{domain}/{key}` | Client-side BYOK operation |
 | POST | `/api/kai/decision/store` | `POST /api/pkm/store-domain` with domain=`financial`; first-party flows now attach `write_projections[]` instead of relying on legacy summary inference |
 | GET | `/api/kai/decision/{id}` | `GET /api/kai/decisions/{user_id}` |
@@ -496,44 +496,44 @@ External developers (MCP agents, third-party apps) use the `/api/v1` endpoints:
 ```
 1. GET /api/v1/user-scopes/{user_id}
    Query: ?token=<developer-token>
-   → Returns: { user_id, available_domains, scopes, scope_entries }
+   â†’ Returns: { user_id, available_domains, scopes, scope_entries }
 
 2. If the selected scope entry is `visibility_posture=default_available`
    and `default_projection_ready=true`, POST /api/v1/default-available-export
    Query: ?token=<developer-token>
    Body: { user_id, scope }
-   → Returns: { projection_payload, projection_hash, projection_version }
-   → No consent request is created; an audit event is recorded.
+   â†’ Returns: { projection_payload, projection_hash, projection_version }
+   â†’ No consent request is created; an audit event is recorded.
 
 3. POST /api/v1/request-consent
    Query: ?token=<developer-token>
    Body: { user_id, scope, reason, approval_timeout_minutes, connector_public_key, connector_key_id, connector_wrapping_alg }
-   → Returns: { request_id, status: "pending" } or an immediate reuse payload with
+   â†’ Returns: { request_id, status: "pending" } or an immediate reuse payload with
      { requested_scope, granted_scope, coverage_kind, covered_by_existing_grant }.
-   → If the scope is already default-available, returns { status: "already_available", coverage_kind: "default_available_projection" }.
+   â†’ If the scope is already default-available, returns { status: "already_available", coverage_kind: "default_available_projection" }.
 
-4. User receives FCM notification → approves in app
+4. User receives FCM notification â†’ approves in app
 
 5. POST /api/validate-token
    Body: { token: "<consent-token>" }
-   → Returns: { valid, user_id, scope, expires_at }
+   â†’ Returns: { valid, user_id, scope, expires_at }
 
 6. POST /api/v1/scoped-export?token=<developer-token>
    Body: { consent_token, expected_scope, connector_id, connector_public_key, connector_key_id }
-   → Returns: { encrypted_data, iv, tag, wrapped_key_bundle, export_revision, export_refresh_status }
-   → Connector unwraps and decrypts locally, then narrows to the approved workflow payload before any partner handoff
+   â†’ Returns: { encrypted_data, iv, tag, wrapped_key_bundle, export_revision, export_refresh_status }
+   â†’ Connector unwraps and decrypts locally, then narrows to the approved workflow payload before any partner handoff
 ```
 
 For MCP hosts, the recommended consumption surface is:
 
-`discover_user_domains` → `read_default_available_projection_when_ready` → `request_consent` → `check_consent_status` → `get_encrypted_scoped_export(expected_scope=original_scope)`
+`discover_user_domains` â†’ `read_default_available_projection_when_ready` â†’ `request_consent` â†’ `check_consent_status` â†’ `get_encrypted_scoped_export(expected_scope=original_scope)`
 
 Coverage rules:
 
-- `default_available` + ready projection → read safe projection through `/api/v1/default-available-export`; no consent request
-- broader active grant → narrower ask: reuse immediately
-- narrower active grant → broader ask: requires fresh approval
-- exact duplicate pending request → reuse the existing request_id
+- `default_available` + ready projection â†’ read safe projection through `/api/v1/default-available-export`; no consent request
+- broader active grant â†’ narrower ask: reuse immediately
+- narrower active grant â†’ broader ask: requires fresh approval
+- exact duplicate pending request â†’ reuse the existing request_id
 - broader-token reuse must still return the narrower requested slice when `expected_scope` is supplied
 - partner persistence is not implied by export access; partner CRMs may store consent/audit metadata and narrow approved workflow fields only under explicit purpose, consent, retention, masking/encryption, deletion, and audit policy
 

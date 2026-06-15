@@ -1,7 +1,7 @@
 """One Location Agent routes with bounded path parameters (CWE-400).
 
 Private live-location reads stay authenticated and ciphertext-only. Public
-invite links can expose an owner-captured live-location snapshot after the
+invite links can expose an owner-captured location snapshot after the
 visitor submits required identity details.
 Path parameters (public_token, invite_id, grant_id) are bounded to 128 chars max.
 """

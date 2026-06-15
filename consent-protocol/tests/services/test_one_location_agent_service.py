@@ -1530,7 +1530,7 @@ def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
     assert "Shared with User B" in titles
     assert "Viewed by User B" in titles
     assert "Request from User C" in titles
-    assert "Public live link created" in titles
+    assert "Public location link created" in titles
     assert "Response from User B" in titles
 
     def without_timestamps(value):

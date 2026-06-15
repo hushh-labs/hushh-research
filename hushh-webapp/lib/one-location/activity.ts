@@ -264,7 +264,7 @@ export function buildOneLocationActivityFallback(
       id: `public-link-created:${invite.id}`,
       kind: "public",
       occurredAt: invite.createdAt || invite.updatedAt || invite.expiresAt,
-      title: "Public live link created",
+      title: "Public location link created",
       detail: `${invite.status} - expires ${formatDateTime(invite.expiresAt)}`,
     });
     if (invite.status !== "active") {
@@ -273,7 +273,7 @@ export function buildOneLocationActivityFallback(
         id: `public-link-closed:${invite.id}`,
         kind: "public",
         occurredAt: closedAt,
-        title: "Public live link closed",
+        title: "Public location link closed",
         detail: `${invite.status} - ${formatDateTime(closedAt)}`,
       });
     }

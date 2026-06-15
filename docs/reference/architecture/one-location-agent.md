@@ -78,7 +78,7 @@ reverse geocode, map, notify, or inspect latitude/longitude.
 All private live-location grant, envelope, approval, revocation, and state
 routes require a VAULT_OWNER bearer token. Scope-2 public invite routes are the
 only public exceptions: they resolve safe owner/link metadata and accept visitor
-name/phone/message before returning the owner-captured public live-location
+name/phone/message before returning the owner-captured public location
 snapshot for that active link.
 
 - `actor_identity_cache.phone_verified = true` is eligibility only.
@@ -106,17 +106,17 @@ resolution, and referrals. Tools validate their capability scope per invocation
 and delegate persistence to `OneLocationAgentService`.
 
 The agent refuses public bearer links for private grants, ciphertext, referrals,
-or movement trails. Public live links are intentionally separate: the owner
+or movement trails. Public location links are intentionally separate: the owner
 captures one public snapshot, chooses a duration, and visitors must submit
 identity details before the map is shown.
 
-## Public Live Links
+## Public Location Links
 
-Scope-2 public sharing is a direct public live-location viewer after visitor
+Scope-2 public sharing is a direct public location viewer after visitor
 intake, not an owner-approval request workflow.
 
 1. The authenticated owner captures current GPS location and creates a
-   duration-bounded public live link from `/one/location`.
+   duration-bounded public location link from `/one/location`.
 2. The backend returns the raw token once, stores only its hash, and stores the
    explicit public location snapshot in invite metadata for the active window.
 3. The public page `/one/location/request/{token}` asks the visitor for name, phone,
@@ -171,7 +171,7 @@ revocation, then purged from the database. The runtime runs opportunistic
 cleanup during state/read flows, and hosted environments may call
 `POST /api/one/location/retention/purge?older_than_hours=12` with
 `X-Hushh-Maintenance-Token` backed by the dedicated
-`ONE_LOCATION_RETENTION_TOKEN` for scheduled cleanup. Public live-link
+`ONE_LOCATION_RETENTION_TOKEN` for scheduled cleanup. Public location-link
 invites and submissions follow the same terminal-state retention boundary.
 
 ## Native Contract
@@ -208,7 +208,7 @@ The implementation must prove:
 - expired/revoked grants block reads
 - referrals create requests but no access
 - notification and audit metadata contain no coordinates
-- public live links store token hashes and owner-captured public snapshots only
+- public location links store token hashes and owner-captured public snapshots only
 - web, iOS, and Android have foreground permission parity
 - A/B/C/D flow is covered at service, authenticated API route, and browser
   crypto levels

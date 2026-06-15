@@ -1448,7 +1448,7 @@ class OneLocationAgentService:
         if not isinstance(value, dict):
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_LOCATION_REQUIRED",
-                "Capture your current location before creating a public live-location link.",
+                "Capture your current location before creating a public location link.",
                 status_code=422,
             )
         try:
@@ -1457,13 +1457,13 @@ class OneLocationAgentService:
         except (TypeError, ValueError) as exc:
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_LOCATION_INVALID",
-                "Public live-location links need valid latitude and longitude.",
+                "Public location links need valid latitude and longitude.",
                 status_code=422,
             ) from exc
         if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_LOCATION_INVALID",
-                "Public live-location coordinates are outside the valid range.",
+                "Public location coordinates are outside the valid range.",
                 status_code=422,
             )
         accuracy_raw = value.get("accuracyM", value.get("accuracy_m"))
@@ -1558,7 +1558,7 @@ class OneLocationAgentService:
         detail = {
             "share": "Private sharing",
             "request": "Approval workflow",
-            "public": "Public live link",
+            "public": "Public location link",
         }[kind]
 
         title = "One Location activity"
@@ -1607,9 +1607,9 @@ class OneLocationAgentService:
         elif event_type == "location_referral_invite":
             title = f"Referral added for {recipient_label}"
         elif event_type == "location_public_invite_created":
-            title = "Public live link created"
+            title = "Public location link created"
         elif event_type == "location_public_invite_revoked":
-            title = "Public live link closed"
+            title = "Public location link closed"
         elif event_type == "location_public_invite_submitted":
             title = f"Response from {visitor_label}"
 
@@ -2516,7 +2516,7 @@ class OneLocationAgentService:
         if not invite:
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_CREATE_FAILED",
-                "Could not create the public live-location link.",
+                "Could not create the public location link.",
                 status_code=500,
             )
         self._insert_event(
@@ -2651,7 +2651,7 @@ class OneLocationAgentService:
         if not isinstance(public_location, dict):
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_LOCATION_UNAVAILABLE",
-                "This public location link does not include a live-location snapshot.",
+                "This public location link does not include a location snapshot.",
                 status_code=409,
             )
         display_name = str(visitor_display_name or "").strip()
@@ -2708,7 +2708,7 @@ class OneLocationAgentService:
                 "message": message_value,
                 "metadata_json": _json_param(
                     {
-                        "public_live_location_view": True,
+                        "public_location_view": True,
                         "submitter_fingerprint_hash": submitter_fingerprint_hash,
                     }
                 ),
@@ -2732,14 +2732,14 @@ class OneLocationAgentService:
                 "submission_id": submission["id"],
                 "matched": bool(matched_user_id),
                 "request_created": False,
-                "public_live_location_view": True,
+                "public_location_view": True,
             },
         )
         self._send_metadata_notification(
             user_id=owner_user_id,
             notification_type="location_public_invite_submitted",
             title="Public location viewed",
-            body=f"{display_name[:80]} opened your public live-location link.",
+            body=f"{display_name[:80]} opened your public location link.",
             notification_tag=f"one-location-public-request:{submission['id']}",
             request_url=_one_location_url(
                 submissionId=submission["id"],
@@ -2775,7 +2775,7 @@ class OneLocationAgentService:
         if not row:
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_NOT_FOUND",
-                "Active public live-location link was not found.",
+                "Active public location link was not found.",
                 status_code=404,
             )
         invite = self._public_invite_payload(row) or {}
