@@ -284,6 +284,7 @@ export function PkmDataManagerPanel({
 
       {shouldShowSearch ? (
         <Input
+          type="search"
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
           placeholder="Search saved details"

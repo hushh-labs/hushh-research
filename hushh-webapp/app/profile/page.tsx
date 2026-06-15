@@ -725,6 +725,7 @@ function ProfilePageContent() {
   const [marketplaceOptIn, setMarketplaceOptIn] = useState(false);
   const [loadingMarketplaceOptIn, setLoadingMarketplaceOptIn] = useState(true);
   const [savingMarketplaceOptIn, setSavingMarketplaceOptIn] = useState(false);
+  const [locationContextEnabled, setLocationContextEnabled] = useState(false);
   const [riaOnboardingStatus, setRiaOnboardingStatus] =
     useState<RiaOnboardingStatus | null>(null);
   const [loadingRiaOnboardingStatus, setLoadingRiaOnboardingStatus] =
@@ -2037,6 +2038,15 @@ function ProfilePageContent() {
         voiceAliases: ["access", "sharing", "consent access"],
       },
       {
+        id: "profile_location_context",
+        label: "Location",
+        purpose:
+          "toggles nearby advisors and local market hours on this device.",
+        actionId: "profile.location_context",
+        role: "switch",
+        voiceAliases: ["location", "nearby advisors", "local market hours"],
+      },
+      {
         id: "profile_vault",
         label: vaultSettingsRow.title,
         purpose: vaultSettingsRow.voicePurpose,
@@ -2147,12 +2157,14 @@ function ProfilePageContent() {
           "Account",
           "Vault",
           ...(shouldShowRiaRegulatoryRow ? ["Regulatory profile"] : []),
-          "Personal Data",
+          "Personal data",
           "Access & sharing",
+          "Gmail receipts",
+          "Email",
+          "Location",
           "Preferences",
           "Security",
           "Support & feedback",
-          "Gmail receipts",
           ...(canShowPkmAgentLab ? ["PKM Agent Lab"] : []),
         ];
     const availableActions =
@@ -2187,6 +2199,8 @@ function ProfilePageContent() {
                   "Open Personal Data",
                   "Open Access & sharing",
                   "Open Gmail receipts",
+                  "Open Email",
+                  locationContextEnabled ? "Turn off Location" : "Turn on Location",
                   "Open Support",
                 ];
 
@@ -2218,7 +2232,7 @@ function ProfilePageContent() {
           },
           {
             id: "my-data",
-            title: "Personal Data",
+            title: "Personal data",
             purpose: "Saved details and sharing controls.",
           },
           {
@@ -2240,6 +2254,16 @@ function ProfilePageContent() {
             id: "gmail",
             title: "Gmail receipts",
             purpose: "Receipt sync and Gmail connector state.",
+          },
+          {
+            id: "email",
+            title: "Email",
+            purpose: "Requests and approval drafts.",
+          },
+          {
+            id: "location",
+            title: "Location",
+            purpose: "Nearby advisors and local market hours.",
           },
           {
             id: "support",
@@ -2314,6 +2338,7 @@ function ProfilePageContent() {
         google_email: gmail.status?.google_email || null,
         pkm_agent_lab_available: canShowPkmAgentLab,
         marketplace_opt_in: marketplaceOptIn,
+        location_context_enabled: locationContextEnabled,
         ria_regulatory_profile_visible: shouldShowRiaRegulatoryRow,
         ria_license_number: currentRiaLicenseNumber || null,
         ria_regulator: currentRiaRegulator,
@@ -2337,6 +2362,7 @@ function ProfilePageContent() {
     gmailStatusSummary.title,
     gmail.status?.google_email,
     lastVoiceControlId,
+    locationContextEnabled,
     marketplaceOptIn,
     passphraseDialogOpen,
     pendingConsents,
@@ -4121,7 +4147,7 @@ function ProfilePageContent() {
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 max-w-full space-y-1.5">
-            <h1 className="text-2xl font-semibold leading-tight tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-[2rem]">
+            <h1 className="text-2xl font-semibold leading-tight tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[2rem]">
               {user.displayName || "User"}
             </h1>
             <div
@@ -4175,7 +4201,7 @@ function ProfilePageContent() {
             <SettingsGroup title="Data">
               <SettingsRow
                 icon={Folder}
-                title="Personal Data"
+                title="Personal data"
                 description={
                   vaultAccess.needsVaultCreation
                     ? "Create your vault first."
@@ -4246,6 +4272,30 @@ function ProfilePageContent() {
                   }
                   router.push(ROUTES.ONE_KYC);
                 }}
+              />
+              <SettingsRow
+                icon={MapPin}
+                title="Location"
+                description={
+                  locationContextEnabled
+                    ? "While using the app - every read is receipted."
+                    : "Nearby advisors and local market hours. Off by default."
+                }
+                trailing={
+                  <Switch
+                    checked={locationContextEnabled}
+                    aria-label="Toggle location"
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => event.stopPropagation()}
+                    onCheckedChange={setLocationContextEnabled}
+                  />
+                }
+                voiceControlId="profile_location_context"
+                voiceActionId="profile.location_context"
+                voiceLabel="Location"
+                voicePurpose="Nearby advisors and local market hours."
               />
             </SettingsGroup>
 

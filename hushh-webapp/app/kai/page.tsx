@@ -1,6 +1,6 @@
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
-import { KaiMarketPreviewView } from "@/components/kai/views/kai-market-preview-view";
+import { KaiPreviewRouter } from "@/components/kai/views/kai-preview-router";
 
 export default function KaiPage() {
   return (
@@ -19,7 +19,7 @@ export default function KaiPage() {
         dataState="loaded"
       />
 
-      <KaiMarketPreviewView />
+      <KaiPreviewRouter />
     </>
   );
 }

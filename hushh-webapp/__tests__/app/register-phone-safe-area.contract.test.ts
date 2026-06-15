@@ -17,5 +17,7 @@ describe("/register-phone safe-area shell contract", () => {
     expect(source).toContain("min-h-[100dvh]");
     expect(source).toContain("pt-[var(--phone-mandate-safe-pt)]");
     expect(source).toContain("pb-[var(--phone-mandate-safe-pb)]");
+    expect(source).not.toContain("4vh");
+    expect(source).toContain("min-h-[22rem]");
   });
 });

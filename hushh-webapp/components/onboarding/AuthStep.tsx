@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { getRedirectResult } from "firebase/auth";
 import { Shield } from "lucide-react";
@@ -12,7 +13,7 @@ import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { isAndroid } from "@/lib/capacitor/platform";
-import { BrandMark, Icon } from "@/lib/morphy-ux/ui";
+import { Icon } from "@/lib/morphy-ux/ui";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
@@ -77,6 +78,24 @@ export function AuthStep({
   const [activeLegalDoc, setActiveLegalDoc] = useState<KaiLegalDocumentType | null>(
     null
   );
+  const localReviewerCredentialsAvailable = useMemo(() => {
+    return Boolean(
+      resolveLocalReviewerCredentials(
+        typeof window !== "undefined" ? window.location.hostname : null
+      )
+    );
+  }, []);
+  const isLocalReviewerSurface = useMemo(() => {
+    if (typeof window === "undefined") {
+      return process.env.NODE_ENV !== "production";
+    }
+    const hostname = window.location.hostname.toLowerCase();
+    return (
+      process.env.NODE_ENV !== "production" ||
+      hostname === "localhost" ||
+      hostname === "127.0.0.1"
+    );
+  }, []);
   const openLegalDoc = useCallback((docType: KaiLegalDocumentType) => {
     // Defer open so the originating tap does not get interpreted as outside-interact.
     requestAnimationFrame(() => setActiveLegalDoc(docType));
@@ -500,7 +519,10 @@ export function AuthStep({
       ];
 
   return (
-    <main className="min-h-[100dvh] w-full bg-transparent" data-testid="auth-step-primary">
+    <main
+      className="min-h-[100dvh] w-full bg-[#fbfbfd] text-[#1d1d1f] dark:bg-[#000000] dark:text-[#f5f5f7]"
+      data-testid="auth-step-primary"
+    >
       <NativeTestBeacon
         routeId="/login"
         marker="native-route-login"
@@ -527,39 +549,39 @@ export function AuthStep({
       <div
         className={
           compact
-            ? "mx-auto flex min-h-[100dvh] w-full max-w-md flex-col px-8 pt-[calc(16px+var(--app-safe-area-top-effective,0px))] pb-[var(--app-screen-footer-pad)]"
-            : "mx-auto flex min-h-[100dvh] w-full max-w-md flex-col px-8 pt-10 pb-[var(--app-screen-footer-pad)]"
+            ? "mx-auto flex min-h-[100dvh] w-full max-w-[27rem] flex-col px-6 pt-[calc(28px+var(--app-safe-area-top-effective,0px))] pb-[calc(24px+var(--app-screen-footer-pad))]"
+            : "mx-auto flex min-h-[100dvh] w-full max-w-[27rem] flex-col px-6 pt-[calc(54px+var(--app-safe-area-top-effective,0px))] pb-[calc(28px+var(--app-screen-footer-pad))]"
         }
       >
         <header className="flex-none text-center">
-          <BrandMark size={compact ? "sm" : "md"} unframed className="mx-auto" />
-          {compact ? (
-            <>
-              <h1 className="mt-6 text-[clamp(1.75rem,5.8vw,2.35rem)] font-black tracking-tight leading-[1.12]">
-                Sign in to One
-              </h1>
-              <p className="mx-auto mt-3 max-w-[17.5rem] text-sm leading-relaxed text-muted-foreground">
-                Continue with your preferred provider.
-              </p>
-            </>
-          ) : (
-            <>
-              <h1 className="mt-8 text-[clamp(2.2rem,7vw,3rem)] font-black tracking-tight leading-[1.08]">
-                Meet One,
-                <br />
-                Your Personal
-                <br />
-                Financial Advisor
-              </h1>
-              <p className="mx-auto mt-4 max-w-[17.5rem] text-[17px] leading-relaxed text-muted-foreground">
-                The fastest path to actionable wealth insights.
-              </p>
-            </>
-          )}
+          <Image
+            src="/one-quiet-emoji.png"
+            alt="One"
+            width={compact ? 52 : 58}
+            height={compact ? 52 : 58}
+            priority
+            className="mx-auto h-[52px] w-[52px] object-contain drop-shadow-[0_14px_28px_rgba(0,0,0,0.08)] sm:h-[58px] sm:w-[58px]"
+          />
+          <div
+            role="heading"
+            aria-level={1}
+            className="mt-4 text-[32px] font-semibold leading-[1.1] tracking-normal text-[#1d1d1f] sm:text-[38px] dark:text-[#f5f5f7]"
+          >
+            Sign in to One.
+          </div>
+          <p className="mx-auto mt-3 max-w-[19rem] text-[17px] font-normal leading-[1.42] tracking-normal text-[#6e6e73] dark:text-[#a1a1a6]">
+            Continue to your personal financial advisor.
+          </p>
         </header>
 
-        <section className={compact ? "flex-1 min-h-0 flex items-center pt-6" : "flex-1 min-h-0 flex items-center"}>
-          <div className="mx-auto w-full max-w-[20rem] space-y-3">
+        <section
+          className={
+            compact
+              ? "flex-none pt-14"
+              : "flex-none pt-16"
+          }
+        >
+          <div className="mx-auto w-full max-w-[21.5rem] space-y-3">
             {authOptions.map((option) => (
               <AuthProviderButton
                 key={option.id}
@@ -569,28 +591,30 @@ export function AuthStep({
               />
             ))}
 
-            <p className="pt-1 text-center text-xs text-muted-foreground">
-              After sign-in, Kai requires a verified phone number before you continue.
+            <p className="mx-auto max-w-[18.75rem] pt-2 text-center text-[13px] leading-[1.45] text-[#86868b] dark:text-[#8e8e93]">
+              A verified phone number is required before you continue.
             </p>
 
-            {(reviewModeConfig.enabled || nativeReviewerVisible) && (
+            {(reviewModeConfig.enabled ||
+              nativeReviewerVisible ||
+              localReviewerCredentialsAvailable ||
+              isLocalReviewerSurface) && (
               <AuthProviderButton
                 label="Continue as Reviewer"
                 icon={<Icon icon={Shield} size="md" />}
                 onClick={handleReviewerLogin}
-                className="border-yellow-500/30"
               />
             )}
           </div>
         </section>
 
-        <footer className={compact ? "flex-none pt-4" : "flex-none pt-3"}>
-          <p className="mx-auto max-w-[18.75rem] text-center text-[11px] leading-normal text-muted-foreground/80">
+        <footer className={compact ? "mt-auto flex-none pt-10" : "mt-auto flex-none pt-12"}>
+          <p className="mx-auto max-w-[19.5rem] text-center text-[11px] leading-[1.45] text-[#86868b] dark:text-[#8e8e93]">
             By continuing, you agree to Kai&apos;s{" "}
             <button
               type="button"
               onClick={() => openLegalDoc("terms")}
-              className="font-semibold text-foreground underline underline-offset-2 transition-opacity hover:opacity-70"
+              className="font-semibold text-[#0066cc] transition-opacity hover:opacity-70 dark:text-[#2997ff]"
             >
               Terms
             </button>{" "}
@@ -598,7 +622,7 @@ export function AuthStep({
             <button
               type="button"
               onClick={() => openLegalDoc("privacy")}
-              className="font-semibold text-foreground underline underline-offset-2 transition-opacity hover:opacity-70"
+              className="font-semibold text-[#0066cc] transition-opacity hover:opacity-70 dark:text-[#2997ff]"
             >
               Privacy Policy
             </button>

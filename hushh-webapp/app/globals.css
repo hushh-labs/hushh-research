@@ -107,7 +107,7 @@ a, button, input, select, textarea {
    * Next/font sets these variables at runtime from app/layout.tsx.
    * Keep names semantic so future font swaps only need layout.tsx changes. */
   --font-app-body: system-ui, sans-serif;
-  --font-app-heading: system-ui, sans-serif;
+  --font-app-heading: Inter, "Inter Fallback", system-ui, sans-serif;
   --font-app-mono: ui-monospace, monospace;
 
   /* Runtime CSS variable fallbacks for dynamic primitives/charts. */
@@ -1012,6 +1012,15 @@ html.native-ios {
     line-height: 1.28 !important;
     font-weight: 650 !important;
     letter-spacing: -0.012em;
+  }
+
+  .app-page-shell h1,
+  .app-page-shell [role="heading"][aria-level="1"] {
+    font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
+    font-size: clamp(1.9rem, 4.8vw, 2rem) !important;
+    line-height: 1.08 !important;
+    font-weight: 600 !important;
+    letter-spacing: 0 !important;
   }
 
   /* Global Lucide icon stroke thickness (lucide-react adds `.lucide` on the SVG). */

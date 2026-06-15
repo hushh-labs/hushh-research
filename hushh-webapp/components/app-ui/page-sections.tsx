@@ -194,6 +194,7 @@ export function PageHeader({
                     "text-xs font-semibold uppercase tracking-[0.24em]",
                     styles.eyebrow
                   )}
+                  data-slot="page-header-eyebrow"
                 >
                   {eyebrow}
                 </p>

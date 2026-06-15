@@ -142,6 +142,26 @@ const ALLOCATION_COLOR_PALETTE = [
   "#ec4899",
 ];
 
+const portfolioChipClassName =
+  "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-none shadow-[var(--shadow-xs)]";
+const portfolioChipTones = {
+  blue:
+    "border-blue-500/12 bg-blue-500/[0.08] text-blue-700 dark:border-blue-400/16 dark:bg-blue-400/[0.10] dark:text-blue-200",
+  orange:
+    "border-orange-500/12 bg-orange-500/[0.08] text-orange-700 dark:border-orange-400/16 dark:bg-orange-400/[0.10] dark:text-orange-200",
+  purple:
+    "border-purple-500/12 bg-purple-500/[0.08] text-purple-700 dark:border-purple-400/16 dark:bg-purple-400/[0.10] dark:text-purple-200",
+  green:
+    "border-green-500/12 bg-green-500/[0.08] text-green-700 dark:border-green-400/16 dark:bg-green-400/[0.10] dark:text-green-200",
+} as const;
+
+const portfolioMetricLabelClassName =
+  "text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground";
+const portfolioMetricValueClassName =
+  "mt-1 text-2xl font-semibold tracking-tight sm:text-[1.65rem]";
+const portfolioSummaryPillClassName =
+  "rounded-2xl px-3 py-2 text-[12px] leading-5 text-muted-foreground";
+
 const GENERIC_SECTOR_LABELS = new Set([
   "equity",
   "equities",
@@ -2622,11 +2642,11 @@ export function DashboardMasterView({
     return (
       <div className="w-full space-y-6 pb-6">
         <PageHeader
-          eyebrow="Kai Portfolio"
+          eyebrow="Portfolio"
           title="Portfolio"
-          description="Switch between statement and Plaid sources, connect brokerages, and keep your investable context ready for debate."
+          description="Your holdings, sources, and investing context in one place."
           icon={Building2}
-          accent="default"
+          accent="neutral"
         />
         <PortfolioSourceSwitcher
           activeSource={activeSource}
@@ -2679,13 +2699,13 @@ export function DashboardMasterView({
   }
 
   return (
-    <div className="w-full space-y-8 pb-6">
+    <div className="w-full space-y-6 pb-6">
       <PageHeader
-        eyebrow="Kai Portfolio"
+        eyebrow="Portfolio"
         title="Portfolio"
-        description="Your active source, holdings context, and brokerage connections stay in sync here before you move into investments, debate, or optimization."
+        description="Your active source, holdings, and investing context in one place."
         icon={Building2}
-        accent="default"
+        accent="neutral"
         actions={
           <MorphyButton
             variant="none"
@@ -2736,32 +2756,34 @@ export function DashboardMasterView({
       ) : null}
 
       <SurfaceCard tone="feature">
-        <SurfaceCardContent className="space-y-6 p-6 sm:p-7">
-          <div className="flex flex-col items-center gap-2 text-center">
-            <p className="text-sm font-medium text-muted-foreground">
+        <SurfaceCardContent className="space-y-5 p-5 sm:p-7">
+          <div className="flex flex-col items-center gap-3 text-center">
+            <p className="text-[13px] font-medium text-muted-foreground sm:text-sm">
               {sourceDisplayLabel} portfolio value
             </p>
             <div className="flex flex-wrap justify-center gap-2">
-              <span className="inline-flex items-center rounded-full border border-transparent bg-[var(--app-card-surface-compact)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground shadow-[var(--shadow-xs)]">
+              <span className={cn(portfolioChipClassName, portfolioChipTones.blue)}>
                 Source: {sourceDisplayLabel}
               </span>
-              <span className="inline-flex items-center rounded-full border border-transparent bg-[var(--app-card-surface-compact)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground shadow-[var(--shadow-xs)]">
+              <span className={cn(portfolioChipClassName, portfolioChipTones.orange)}>
                 Risk: {model.hero.portfolioConcentrationLabel.replace(" Concentration", "")}
               </span>
-              <span className="inline-flex items-center rounded-full border border-transparent bg-[var(--app-card-surface-compact)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground shadow-[var(--shadow-xs)]">
+              <span className={cn(portfolioChipClassName, portfolioChipTones.purple)}>
                 Holdings: {model.hero.investableHoldingsCount}
               </span>
               {model.hero.cashPositionsCount > 0 ? (
-                <span className="inline-flex items-center rounded-full border border-transparent bg-[var(--app-card-surface-compact)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground shadow-[var(--shadow-xs)]">
+                <span className={cn(portfolioChipClassName, portfolioChipTones.green)}>
                   Cash Positions: {model.hero.cashPositionsCount}
                 </span>
               ) : null}
             </div>
-            <p className="text-4xl font-black tracking-tight">{formatCurrency(model.hero.totalValue)}</p>
-            <div className="flex items-center justify-center gap-2 text-sm">
+            <p className="text-[2.35rem] font-semibold leading-none tracking-tight text-foreground sm:text-5xl">
+              {formatCurrency(model.hero.totalValue)}
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
               <span
                 className={cn(
-                  "inline-flex items-center font-semibold",
+                  "inline-flex items-center font-semibold tracking-tight",
                   model.hero.netChange >= 0
                     ? "text-emerald-600 dark:text-emerald-400"
                     : "text-rose-600 dark:text-rose-400"
@@ -2780,15 +2802,15 @@ export function DashboardMasterView({
             </div>
           </div>
 
-          <SurfaceInset className="text-center">
-            <p className="text-sm font-semibold">
+          <SurfaceInset className="px-4 py-3 text-center">
+            <p className="text-[13px] font-semibold tracking-tight text-foreground sm:text-sm">
               {isPlaidView
                 ? freshness?.lastSyncedAt
                   ? `Last synced ${new Date(freshness.lastSyncedAt).toLocaleString()}`
                   : "Plaid brokerage snapshot"
                 : model.hero.statementPeriod || "Current statement period"}
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
               {isPlaidView ? (
                 <>
                   {freshness?.itemCount || 0} item{(freshness?.itemCount || 0) === 1 ? "" : "s"} •{" "}
@@ -2803,10 +2825,12 @@ export function DashboardMasterView({
             </p>
           </SurfaceInset>
 
-          <SurfaceInset className="flex flex-col gap-3 text-left sm:flex-row sm:items-center sm:justify-between">
+          <SurfaceInset className="flex flex-col gap-3 px-4 py-3 text-left sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <p className="text-sm font-semibold">Investment preferences</p>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              <p className="text-[13px] font-semibold tracking-tight text-foreground sm:text-sm">
+                Investment preferences
+              </p>
+              <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
                 Risk, time horizon, and volatility settings guide portfolio optimization
                 and debate context from this section.
               </p>
@@ -2822,7 +2846,7 @@ export function DashboardMasterView({
             </MorphyButton>
           </SurfaceInset>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-center">
             <MorphyButton
               variant="blue-gradient"
               effect="fill"
@@ -2879,7 +2903,7 @@ export function DashboardMasterView({
           if (!isDashboardMainTab(value)) return;
           setDashboardMainTab(value);
         }}
-        className="space-y-4"
+        className="space-y-5"
       >
         <SegmentedTabs
           value={dashboardMainTab}
@@ -2895,7 +2919,7 @@ export function DashboardMasterView({
           className="w-full"
         />
 
-        <TabsContent value="overview" className="mt-0 space-y-4">
+        <TabsContent value="overview" className="mt-0 space-y-5">
           <PlaidBrokerageSummarySection
             items={plaidItems}
             onRefreshItem={(itemId) => handleRefreshPlaid(itemId)}
@@ -2962,60 +2986,68 @@ export function DashboardMasterView({
           />
 
           <SurfaceCard>
-            <SurfaceCardHeader className="px-6 pb-2 pt-6 sm:px-7">
-              <SurfaceCardTitle className="text-xs uppercase tracking-widest text-muted-foreground">
+            <SurfaceCardHeader className="px-5 pb-2 pt-5 sm:px-7 sm:pt-6">
+              <SurfaceCardTitle className="text-[15px] font-semibold tracking-tight text-foreground">
                 Investor Snapshot
               </SurfaceCardTitle>
             </SurfaceCardHeader>
-            <SurfaceCardContent className="space-y-4 px-6 pb-6 pt-0 sm:px-7 sm:pb-7">
+            <SurfaceCardContent className="space-y-4 px-5 pb-5 pt-0 sm:px-7 sm:pb-7">
               <div className="grid gap-3 sm:grid-cols-2">
-                <SurfaceInset className="p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <SurfaceInset className="p-4">
+                  <p className={portfolioMetricLabelClassName}>
                     Debate Readiness
                   </p>
-                  <p className="mt-1 text-2xl font-black">{investorSnapshot.readinessScore}</p>
+                  <p className={cn(portfolioMetricValueClassName, "text-blue-600 dark:text-blue-300")}>
+                    {investorSnapshot.readinessScore}
+                  </p>
                   <p className="text-xs text-muted-foreground">Context quality score (0-100)</p>
                 </SurfaceInset>
-                <SurfaceInset className="p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <SurfaceInset className="p-4">
+                  <p className={portfolioMetricLabelClassName}>
                     Optimization Pressure
                   </p>
-                  <p className="mt-1 text-2xl font-black">{formatPercent(investorSnapshot.optimizationPressurePct)}</p>
+                  <p className={cn(portfolioMetricValueClassName, "text-orange-600 dark:text-orange-300")}>
+                    {formatPercent(investorSnapshot.optimizationPressurePct)}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     Portfolio value in losing positions
                   </p>
                 </SurfaceInset>
-                <SurfaceInset className="p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <SurfaceInset className="p-4">
+                  <p className={portfolioMetricLabelClassName}>
                     Top 3 Concentration
                   </p>
-                  <p className="mt-1 text-2xl font-black">{formatPercent(investorSnapshot.top3ConcentrationPct)}</p>
+                  <p className={cn(portfolioMetricValueClassName, "text-purple-600 dark:text-purple-300")}>
+                    {formatPercent(investorSnapshot.top3ConcentrationPct)}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     Largest three holdings share
                   </p>
                 </SurfaceInset>
-                <SurfaceInset className="p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <SurfaceInset className="p-4">
+                  <p className={portfolioMetricLabelClassName}>
                     Estimated Annual Income
                   </p>
-                  <p className="mt-1 text-2xl font-black">{formatCurrency(investorSnapshot.estimatedAnnualIncome)}</p>
+                  <p className={cn(portfolioMetricValueClassName, "text-green-600 dark:text-green-300")}>
+                    {formatCurrency(investorSnapshot.estimatedAnnualIncome)}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     Yield {formatPercent(investorSnapshot.annualYieldPct)}
                   </p>
                 </SurfaceInset>
               </div>
 
-              <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-                <SurfaceInset className="rounded-lg px-3 py-2">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <SurfaceInset className={portfolioSummaryPillClassName}>
                   {investorSnapshot.losersCount} losers / {investorSnapshot.winnersCount} winners
                 </SurfaceInset>
-                <SurfaceInset className="rounded-lg px-3 py-2">
+                <SurfaceInset className={portfolioSummaryPillClassName}>
                   {investorSnapshot.uniqueSectors} sector buckets represented
                 </SurfaceInset>
-                <SurfaceInset className="rounded-lg px-3 py-2">
+                <SurfaceInset className={portfolioSummaryPillClassName}>
                   Cash allocation {formatPercent(investorSnapshot.cashPct)}
                 </SurfaceInset>
-                <SurfaceInset className="rounded-lg px-3 py-2">
+                <SurfaceInset className={portfolioSummaryPillClassName}>
                   Fixed income {formatPercent(investorSnapshot.fixedIncomePct)} / Real assets{" "}
                   {formatPercent(investorSnapshot.realAssetsPct)}
                 </SurfaceInset>
@@ -3024,11 +3056,11 @@ export function DashboardMasterView({
           </SurfaceCard>
         </TabsContent>
 
-        <TabsContent value="holdings" className="mt-0 space-y-4">
+        <TabsContent value="holdings" className="mt-0 space-y-5">
           <SurfaceCard className="min-w-0">
-            <SurfaceCardHeader className="px-6 pb-2 pt-6 sm:px-7">
+            <SurfaceCardHeader className="px-5 pb-2 pt-5 sm:px-7 sm:pt-6">
               <div className="flex items-center justify-between gap-2">
-                <SurfaceCardTitle className="text-xs uppercase tracking-widest text-muted-foreground">
+                <SurfaceCardTitle className="text-[15px] font-semibold tracking-tight text-foreground">
                   {isPlaidView ? "Brokerage Holdings" : "Current Holdings"}
                 </SurfaceCardTitle>
                 {canEditStatement ? (
@@ -3048,43 +3080,43 @@ export function DashboardMasterView({
               </div>
             </SurfaceCardHeader>
 
-            <SurfaceCardContent className="space-y-4 px-6 pb-6 pt-0 sm:px-7 sm:pb-7">
-              <SurfaceInset className="px-3 py-2.5 text-xs text-muted-foreground">
+            <SurfaceCardContent className="space-y-4 px-5 pb-5 pt-0 sm:px-7 sm:pb-7">
+              <SurfaceInset className="px-4 py-3 text-[12px] leading-5 text-muted-foreground">
                 {canEditStatement ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-foreground">Change Summary</span>
-                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">Added: {holdingsChangeSummary.added}</span>
-                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">Edited: {holdingsChangeSummary.edited}</span>
-                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">Deleted: {holdingsChangeSummary.deleted}</span>
+                    <span className={cn(portfolioChipClassName, portfolioChipTones.green)}>Added: {holdingsChangeSummary.added}</span>
+                    <span className={cn(portfolioChipClassName, portfolioChipTones.blue)}>Edited: {holdingsChangeSummary.edited}</span>
+                    <span className={cn(portfolioChipClassName, portfolioChipTones.orange)}>Deleted: {holdingsChangeSummary.deleted}</span>
                   </div>
                 ) : (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-foreground">Plaid Snapshot</span>
-                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
+                    <span className={cn(portfolioChipClassName, portfolioChipTones.blue)}>
                       Sync: {freshness?.syncStatus || "idle"}
                     </span>
-                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
+                    <span className={cn(portfolioChipClassName, portfolioChipTones.purple)}>
                       Items: {freshness?.itemCount || 0}
                     </span>
-                    <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
+                    <span className={cn(portfolioChipClassName, portfolioChipTones.green)}>
                       Accounts: {freshness?.accountCount || 0}
                     </span>
                   </div>
                 )}
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-foreground">Bifurcation</span>
-                  <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
+                  <span className={cn(portfolioChipClassName, portfolioChipTones.blue)}>
                     Equities: {holdingsBifurcation.analyzeEligible}
                   </span>
-                  <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
+                  <span className={cn(portfolioChipClassName, portfolioChipTones.orange)}>
                     Other Assets: {holdingsBifurcation.nonAnalyzable}
                   </span>
-                  <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
+                  <span className={cn(portfolioChipClassName, portfolioChipTones.green)}>
                     Cash: {holdingsBifurcation.cashSweep}
                   </span>
                 </div>
                 {!canEditStatement ? (
-                  <div className="mt-2 rounded-lg border border-dashed border-border/60 bg-muted/40 px-3 py-2 text-xs">
+                  <div className="mt-2 rounded-2xl border border-dashed border-border/60 bg-muted/40 px-3 py-2 text-xs">
                     Plaid holdings are broker-sourced and cannot be edited in Kai.
                   </div>
                 ) : null}
@@ -3127,9 +3159,9 @@ export function DashboardMasterView({
 
         </TabsContent>
 
-        <TabsContent value="deep-dive" className="mt-0 space-y-4">
+        <TabsContent value="deep-dive" className="mt-0 space-y-5">
           <section className="space-y-3">
-            <h2 className="app-section-heading px-1 uppercase tracking-[0.12em] text-muted-foreground">
+            <h2 className="px-1 text-[15px] font-semibold tracking-tight text-foreground">
               Portfolio Insights
             </h2>
             <div className="grid gap-4 lg:grid-cols-2">

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import type { ComponentType, SVGProps } from "react";
 import { Button } from "@/lib/morphy-ux/button";
 
@@ -56,21 +57,21 @@ const INTRO_FEATURES: Array<{
     title: "Verified in minutes",
     subtitle: "Seamless KYC, no paperwork",
     tileClassName:
-      "border-[#d7f8e0] bg-[linear-gradient(135deg,rgba(255,255,255,0.94),rgba(240,253,244,0.72))] text-[#34c759] shadow-[0_12px_28px_rgba(52,199,89,0.10)]",
+      "bg-[#34c759]/10 text-[#1f9d55] shadow-[inset_0_0_0_1px_rgba(52,199,89,0.12)] dark:bg-[#30d158]/16 dark:text-[#30d158]",
   },
   {
     icon: HoldingsBarsIcon,
     title: "Top holdings, at a glance",
     subtitle: "Your portfolio, always live",
     tileClassName:
-      "border-[#e1e2ff] bg-[linear-gradient(135deg,rgba(255,255,255,0.94),rgba(247,247,255,0.76))] text-[#5856d6] shadow-[0_12px_28px_rgba(88,86,214,0.10)]",
+      "bg-[#5856d6]/10 text-[#5856d6] shadow-[inset_0_0_0_1px_rgba(88,86,214,0.12)] dark:bg-[#5e5ce6]/18 dark:text-[#5e5ce6]",
   },
   {
     icon: SignalPulseIcon,
     title: "Buy, sell, hold",
     subtitle: "Clear signals when they matter",
     tileClassName:
-      "border-[#ffe1bd] bg-[linear-gradient(135deg,rgba(255,255,255,0.94),rgba(255,247,237,0.72))] text-[#ff9500] shadow-[0_12px_28px_rgba(255,149,0,0.10)]",
+      "bg-[#ff9500]/12 text-[#c77600] shadow-[inset_0_0_0_1px_rgba(255,149,0,0.14)] dark:bg-[#ff9f0a]/18 dark:text-[#ff9f0a]",
   },
 ];
 
@@ -82,39 +83,49 @@ export function IntroStep({
   onLogin?: () => void;
 }) {
   return (
-    <main className="min-h-[100dvh] w-full bg-[#ffffff] text-[#1d1d1f] dark:bg-[#ffffff] dark:text-[#1d1d1f]">
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col px-6 pt-[calc(28px+var(--app-safe-area-top-effective,0px))]">
+    <main className="min-h-[100dvh] w-full bg-[#ffffff] text-[#1d1d1f] transition-colors duration-300 dark:bg-[#000000] dark:text-[#f5f5f7]">
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col px-6 pt-[calc(42px+var(--app-safe-area-top-effective,0px))]">
         <section className="relative flex flex-none flex-col items-center text-center">
-          <span className="relative text-[54px] leading-none">🤫</span>
+          <Image
+            src="/one-quiet-emoji.png"
+            alt=""
+            width={762}
+            height={766}
+            priority
+            unoptimized
+            aria-hidden="true"
+            draggable={false}
+            className="relative h-[58px] w-[58px] select-none object-contain"
+          />
 
           <div
             role="heading"
             aria-level={1}
             aria-label="Meet One, Your Personal Financial Advisor"
-            className="relative mt-6 text-[38px] font-bold leading-[1.08] tracking-normal text-[#1d1d1f]"
+            className="relative mt-4 text-[42px] font-semibold leading-none tracking-normal text-[#1d1d1f] dark:text-[#f5f5f7]"
           >
             Meet One.
           </div>
-          <p className="relative mt-2.5 text-[21px] font-medium leading-[1.32] tracking-normal text-[#1d1d1f]">
+          <p className="relative mt-3 text-[19px] font-normal leading-[1.34] tracking-normal text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]">
             Your personal financial advisor.
           </p>
         </section>
 
-        <div className="flex min-h-0 flex-1 items-stretch py-6">
+        <div className="flex min-h-0 flex-1 items-center py-7">
           <div className="relative w-full">
-            <div className="relative z-10 mx-auto flex h-full w-full max-w-[332px] flex-col justify-evenly gap-3">
+            <div className="relative z-10 mx-auto flex w-full max-w-[340px] flex-col gap-5">
               {INTRO_FEATURES.map((feature) => (
-                <div key={feature.title} className="grid grid-cols-[46px_minmax(0,1fr)] items-center gap-4">
+                <div key={feature.title} className="grid grid-cols-[48px_minmax(0,1fr)] items-center gap-4">
                   <span
-                    className={`grid h-[46px] w-[46px] place-items-center rounded-[14px] border ${feature.tileClassName}`}
+                    className={`grid h-12 w-12 place-items-center rounded-[16px] border border-black/[0.04] dark:border-white/10 ${feature.tileClassName}`}
                   >
-                    <feature.icon className="h-[23px] w-[23px]" />
+                    <feature.icon className="h-[22px] w-[22px]" />
                   </span>
                   <div className="min-w-0">
-                    <p className="text-[16.5px] font-semibold leading-[1.25] tracking-normal text-[#1d1d1f]">
+                    <p className="text-[17px] font-semibold leading-[1.22] tracking-normal text-[#1d1d1f] dark:text-[#f5f5f7]">
                       {feature.title}
                     </p>
-                    <p className="mt-0.5 text-[14.5px] leading-[1.35] tracking-normal text-[rgba(0,0,0,0.56)]">
+                    <p className="mt-1 text-[14.5px] leading-[1.35] tracking-normal text-[rgba(0,0,0,0.50)] dark:text-[rgba(245,245,247,0.56)]">
                       {feature.subtitle}
                     </p>
                   </div>
@@ -124,9 +135,9 @@ export function IntroStep({
           </div>
         </div>
 
-        <footer className="flex-none pb-[calc(16px+var(--app-safe-area-bottom-effective,0px))]">
+        <footer className="flex-none pb-[calc(18px+var(--app-safe-area-bottom-effective,0px))]">
           <div className="space-y-4">
-            <p className="mx-auto max-w-[35ch] text-center text-sm leading-5 tracking-normal text-[#9a9a9f]">
+            <p className="mx-auto max-w-[34ch] text-center text-[13.5px] leading-5 tracking-normal text-[#86868b] dark:text-[rgba(245,245,247,0.44)]">
               One is consent-first. Your data stays in your vault — nothing is
               shared without your approval.
             </p>
@@ -142,7 +153,7 @@ export function IntroStep({
             {onLogin ? (
               <button
                 type="button"
-                className="mx-auto block min-h-10 px-4 text-[15px] font-semibold tracking-normal text-[#0066cc] transition-colors hover:text-[#0071e3]"
+                className="mx-auto block min-h-10 px-4 text-[15px] font-semibold tracking-normal text-[#0066cc] transition-colors hover:text-[#0071e3] dark:text-[#2997ff] dark:hover:text-[#5eb0ff]"
                 onClick={onLogin}
               >
                 Log in

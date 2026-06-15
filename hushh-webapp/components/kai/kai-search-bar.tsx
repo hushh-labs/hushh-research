@@ -1640,6 +1640,9 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
   const commandBarBottomOffset =
     "calc(var(--app-bottom-inset) + var(--kai-command-bottom-gap, 18px))";
   const visibleCommandBarBottomOffset = `calc(${commandBarBottomOffset} - (${hideBottomChromeProgress} * var(--app-bottom-fixed-ui, 0px)))`;
+  const dockChromeBottomOffset =
+    "calc(max(var(--app-safe-area-bottom-effective), 0.625rem) + var(--app-bottom-chrome-lift, 0px))";
+  const dockChromeTransform = `translate3d(0, calc(${hideBottomChromeProgress} * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)`;
   const isRiaSurface = surfaceVariant === "ria";
   const riaVoiceActive = ambientMode !== "idle";
   const riaVoiceDisabled =
@@ -1672,14 +1675,21 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
           "fixed inset-x-0 z-[136] flex justify-center px-4 pointer-events-none",
         )}
         style={{
-          bottom: visibleCommandBarBottomOffset,
-          transform: `translate3d(0, ${6 * hideBottomChromeProgress}px, 0)`,
+          bottom: isRiaSurface
+            ? visibleCommandBarBottomOffset
+            : dockChromeBottomOffset,
+          transform: isRiaSurface
+            ? `translate3d(0, ${6 * hideBottomChromeProgress}px, 0)`
+            : dockChromeTransform,
           opacity: 1,
         }}
       >
         <div
           ref={barRef}
-          className="pointer-events-auto w-full max-w-[360px] sm:max-w-[392px]"
+          className={cn(
+            "pointer-events-none w-full",
+            isRiaSurface ? "max-w-[360px] sm:max-w-[392px]" : "max-w-[560px]"
+          )}
         >
           {isRiaSurface ? (
             <div
@@ -1730,61 +1740,87 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
               </ShellActionSurface>
             </div>
           ) : (
-            <VoiceAmbientSearchSurface
-              mode={ambientMode}
-              placeholder="Analyze, dashboard, consent with Kai"
-              transcriptPreview={transcriptPreview}
-              stageText={processingStageText}
-              replyText={
-                showSpeakingCompact || showRetryCompact
-                  ? lastReplyText || debouncedSearch
-                  : debouncedSearch
-              }
-              smoothedLevel={smoothedLevel}
-              disabled={disabled}
-              showMic={!micHidden}
-              micDisabled={micDisabled}
-              micDisabledReason={stableMicDisabledReason}
-              showDebug={DEV_VOICE_DEBUG_ENABLED}
-              debugActive={voiceDebugOpen}
-              showSubmit={
-                VOICE_V2_FLAGS.submitDebugVisible &&
-                (showVoiceSheet || realtimeConnecting)
-              }
-              submitEnabled={
-                VOICE_V2_FLAGS.submitDebugVisible && realtimeSessionReady
-              }
-              ttsPlaying={ttsPlaybackState === "playing"}
-              pendingConfirmation={Boolean(
-                showRetryCompact && pendingConfirmation,
-              )}
-              onOpenSearch={() => setOpen(true)}
-              onMicToggle={handleMicTap}
-              onDebugToggle={(event) => {
-                event.stopPropagation();
-                setVoiceDebugOpen((current) => !current);
-              }}
-              onMuteToggle={toggleMuteListening}
-              onSubmit={submitDebugTurn}
-              onEnd={cancelListening}
-              onStopSpeaking={handleStopSpeaking}
-              onReplay={
-                showSpeakingCompact || showRetryCompact ? handleReplay : undefined
-              }
-              onRetry={
-                showRetryCompact && !pendingConfirmation ? handleRetry : undefined
-              }
-              onConfirm={
-                showRetryCompact && pendingConfirmation
-                  ? handleConfirmPending
-                  : undefined
-              }
-              onCancel={
-                showRetryCompact && pendingConfirmation
-                  ? handleCancelPending
-                  : undefined
-              }
-            />
+            <div className="relative flex h-[58px] w-full justify-end">
+              <ShellActionSurface
+                variant="icon"
+                wrapperClassName="pointer-events-auto absolute bottom-[72px] right-1"
+                className="grid h-[50px] w-[50px] place-items-center"
+                contentClassName="h-full w-full"
+                aria-label="Talk to Kai"
+                disabled={!agentPopover}
+                onClick={() => agentPopover?.openAgent()}
+              >
+                <span className="grid h-[30px] w-[30px] place-items-center rounded-[9px] bg-[#0071e3] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
+                  <X className="h-[15px] w-[15px] rotate-45" strokeWidth={2} />
+                </span>
+              </ShellActionSurface>
+              <ShellActionSurface
+                variant="icon"
+                wrapperClassName="pointer-events-auto"
+                className="grid h-[58px] w-[58px] place-items-center text-muted-foreground"
+                aria-label="Search"
+                onClick={() => setOpen(true)}
+              >
+                <Search className="h-5 w-5" strokeWidth={2.2} />
+              </ShellActionSurface>
+              <div className="hidden">
+                <VoiceAmbientSearchSurface
+                  mode={ambientMode}
+                  placeholder="Analyze, dashboard, consent with Kai"
+                  transcriptPreview={transcriptPreview}
+                  stageText={processingStageText}
+                  replyText={
+                    showSpeakingCompact || showRetryCompact
+                      ? lastReplyText || debouncedSearch
+                      : debouncedSearch
+                  }
+                  smoothedLevel={smoothedLevel}
+                  disabled={disabled}
+                  showMic={!micHidden}
+                  micDisabled={micDisabled}
+                  micDisabledReason={stableMicDisabledReason}
+                  showDebug={DEV_VOICE_DEBUG_ENABLED}
+                  debugActive={voiceDebugOpen}
+                  showSubmit={
+                    VOICE_V2_FLAGS.submitDebugVisible &&
+                    (showVoiceSheet || realtimeConnecting)
+                  }
+                  submitEnabled={
+                    VOICE_V2_FLAGS.submitDebugVisible && realtimeSessionReady
+                  }
+                  ttsPlaying={ttsPlaybackState === "playing"}
+                  pendingConfirmation={Boolean(
+                    showRetryCompact && pendingConfirmation,
+                  )}
+                  onOpenSearch={() => setOpen(true)}
+                  onMicToggle={handleMicTap}
+                  onDebugToggle={(event) => {
+                    event.stopPropagation();
+                    setVoiceDebugOpen((current) => !current);
+                  }}
+                  onMuteToggle={toggleMuteListening}
+                  onSubmit={submitDebugTurn}
+                  onEnd={cancelListening}
+                  onStopSpeaking={handleStopSpeaking}
+                  onReplay={
+                    showSpeakingCompact || showRetryCompact ? handleReplay : undefined
+                  }
+                  onRetry={
+                    showRetryCompact && !pendingConfirmation ? handleRetry : undefined
+                  }
+                  onConfirm={
+                    showRetryCompact && pendingConfirmation
+                      ? handleConfirmPending
+                      : undefined
+                  }
+                  onCancel={
+                    showRetryCompact && pendingConfirmation
+                      ? handleCancelPending
+                      : undefined
+                  }
+                />
+              </div>
+            </div>
           )}
           {voiceErrorMessage ? (
             <p className="mt-1 text-center text-[10px] text-destructive">

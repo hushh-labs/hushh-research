@@ -17,7 +17,7 @@ import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-manda
 const FLOW_SHELL_STYLE = {
   "--page-top-local-offset": "0px",
   "--phone-mandate-safe-pt":
-    "calc(var(--app-safe-area-top-effective, env(safe-area-inset-top, 0px)) + clamp(1.25rem, 4vh, 3rem))",
+    "calc(var(--app-safe-area-top-effective, env(safe-area-inset-top, 0px)) + 2rem)",
   "--phone-mandate-safe-pb":
     "calc(var(--app-safe-area-bottom-effective, env(safe-area-inset-bottom, 0px)) + 2.5rem)",
 } as CSSProperties;
@@ -142,7 +142,7 @@ function PhoneMandatePageContent() {
           onCompleted={continueToNextRoute}
           onContinueExisting={continueToNextRoute}
           confirmLabel="Verify and continue"
-          className="mt-8 gap-5"
+          className="mt-8 min-h-[22rem] gap-5"
         />
 
         <div id="recaptcha-container" className="mt-6 min-h-0" />

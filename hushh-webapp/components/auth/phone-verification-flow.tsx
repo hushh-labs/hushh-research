@@ -389,6 +389,9 @@ export function PhoneVerificationFlow({
                   }}
                   onFocus={() => setCountryComboboxOpen(true)}
                   className={`${FLOW_CONTROL_SHELL_CLASS_NAME} w-full`}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
                   showTrigger
                 />
                 <ComboboxContent
