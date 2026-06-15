@@ -302,8 +302,16 @@ function toIndexStripItems(
         (row) => Boolean(row?.label) && !String(row.label).toLowerCase().includes("market status")
       )
     : [];
-  const convertedRows = overviewRows.map((row) => toIndexOverviewMetric(row, row.label)).slice(0, 4);
-  return convertedRows.length ? convertedRows : fallbackMetrics.slice(0, 4);
+  const benchmarkRows = [
+    { label: "S&P 500", match: (label: string) => label.includes("s&p") || label.includes("sp 500") },
+    { label: "NASDAQ 100", match: (label: string) => label.includes("nasdaq") },
+    { label: "DOW 30", match: (label: string) => label.includes("dow") },
+    { label: "Russell 2000", match: (label: string) => label.includes("russell") },
+  ].map(({ label, match }) => {
+    const row = overviewRows.find((candidate) => match(String(candidate.label || "").toLowerCase())) || null;
+    return toIndexOverviewMetric(row, label);
+  });
+  return benchmarkRows.length ? benchmarkRows : fallbackMetrics.slice(0, 4);
 }
 
 function toKaiStripText(
