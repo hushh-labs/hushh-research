@@ -76,8 +76,10 @@ import {
   ONE_LOCATION_GRANT_OPENED_EVENT,
   ONE_LOCATION_NOTIFICATION_OPEN_PARAM,
   ONE_LOCATION_NOTIFICATION_OPEN_VALUE,
+  ONE_LOCATION_SECTION_PARAM,
   playOneLocationNotificationSound,
   recordOneLocationShareNotification,
+  type OneLocationNotificationSection,
 } from "@/lib/one-location/notifications";
 import { OneLocationService } from "@/lib/one-location/service";
 import { OneLocationActivityDashboard } from "@/components/one-location/activity-dashboard";
@@ -1025,8 +1027,14 @@ function OneLocationAgentPageContent() {
     Record<string, PlainLocationPoint>
   >({});
   const [openedGrantTick, setOpenedGrantTick] = useState(0);
+  const peopleSectionRef = useRef<HTMLElement | null>(null);
+  const approvalsSectionRef = useRef<HTMLElement | null>(null);
+  const publicResponsesSectionRef = useRef<HTMLElement | null>(null);
+  const myRequestsSectionRef = useRef<HTMLElement | null>(null);
+  const activitySectionRef = useRef<HTMLDivElement | null>(null);
   const sharedWithSectionRef = useRef<HTMLElement | null>(null);
   const openedNotificationGrantRef = useRef<string | null>(null);
+  const openedNotificationSectionRef = useRef<string | null>(null);
   const refreshInFlightRef = useRef<Promise<void> | null>(null);
   const livePublishInFlightRef = useRef(false);
   const liveViewInFlightRef = useRef(false);
@@ -1418,6 +1426,38 @@ function OneLocationAgentPageContent() {
         });
       });
     }
+  }, [auth.userId, searchParams]);
+
+  useEffect(() => {
+    if (!auth.userId) return;
+    const section = String(
+      searchParams.get(ONE_LOCATION_SECTION_PARAM) || "",
+    ).trim() as OneLocationNotificationSection | "";
+    if (!section || openedNotificationSectionRef.current === section) return;
+
+    const target =
+      section === "people"
+        ? peopleSectionRef.current
+        : section === "approvals"
+          ? approvalsSectionRef.current
+          : section === "shared"
+            ? sharedWithSectionRef.current
+            : section === "my_requests"
+              ? myRequestsSectionRef.current
+              : section === "public_responses"
+                ? publicResponsesSectionRef.current
+                : section === "activity"
+                  ? activitySectionRef.current
+                  : null;
+
+    if (!target) return;
+    openedNotificationSectionRef.current = section;
+    window.requestAnimationFrame(() => {
+      target.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
   }, [auth.userId, searchParams]);
 
   useEffect(() => {
@@ -2448,7 +2488,10 @@ function OneLocationAgentPageContent() {
                 />
               </section>
 
-              <section className="space-y-4 px-1">
+              <section
+                ref={peopleSectionRef}
+                className="scroll-mt-24 space-y-4 px-1"
+              >
                 <SegmentedModeControl
                   value={activeMode}
                   onChange={setActiveMode}
@@ -2960,16 +3003,18 @@ function OneLocationAgentPageContent() {
             </div>
 
             <div className="space-y-6">
-              <OneLocationActivityDashboard
-                activity={locationActivity}
-                range={activityRange}
-                loading={activityLoading}
-                error={activityError}
-                onRangeChange={(value) => {
-                  setActivityRange(value);
-                  setActivitySnapshot(null);
-                }}
-              />
+              <div ref={activitySectionRef} className="scroll-mt-24">
+                <OneLocationActivityDashboard
+                  activity={locationActivity}
+                  range={activityRange}
+                  loading={activityLoading}
+                  error={activityError}
+                  onRangeChange={(value) => {
+                    setActivityRange(value);
+                    setActivitySnapshot(null);
+                  }}
+                />
+              </div>
 
               <section className="space-y-2 px-1">
                 {sectionLabel("People who can see me")}
@@ -3038,7 +3083,10 @@ function OneLocationAgentPageContent() {
                 </div>
               </section>
 
-              <section className="space-y-2 px-1">
+              <section
+                ref={approvalsSectionRef}
+                className="scroll-mt-24 space-y-2 px-1"
+              >
                 {sectionLabel("Approvals", pendingOwnerRequests.length)}
                 <div
                   className={cn(
@@ -3262,7 +3310,10 @@ function OneLocationAgentPageContent() {
                 </div>
               </section>
 
-              <section className="space-y-2 px-1">
+              <section
+                ref={publicResponsesSectionRef}
+                className="scroll-mt-24 space-y-2 px-1"
+              >
                 {sectionLabel("Public link responses")}
                 <div className={onePanelClassName}>
                   {publicSubmissions.length ? (
@@ -3369,7 +3420,10 @@ function OneLocationAgentPageContent() {
               </section>
 
               {requestedByMe.length ? (
-                <section className="space-y-2 px-1">
+                <section
+                  ref={myRequestsSectionRef}
+                  className="scroll-mt-24 space-y-2 px-1"
+                >
                   {sectionLabel("My requests")}
                   <div className={onePanelClassName}>
                     {requestedByMe.map((request) => (

@@ -427,7 +427,7 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryAllByText("Trusted B").length).toBeGreaterThan(0);
     expect(screen.getByText("Professional Network")).toBeTruthy();
     expect(screen.getByText("No approvals waiting. New location requests and pending decisions will appear here.")).toBeTruthy();
-    expect(screen.getByText("No ready KAI members yet. Verified KAI members with location keys will appear here.")).toBeTruthy();
+    expect(screen.getByText("Verified KAI members ready for encrypted sharing.")).toBeTruthy();
     expect(screen.queryByText(/8012|9911/)).toBeNull();
     expect(screen.getByText("Share Encrypted Update")).toBeTruthy();
     expect(mockBootstrapLocationKey).toHaveBeenCalledWith({
@@ -456,6 +456,30 @@ describe("OneLocationAgentPage", () => {
         block: "start",
       }));
       expect(window.localStorage.getItem("one_location_opened_grants_v1:user_a")).toContain("grant_1");
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
+  it("scrolls to the workflow section named in a One Location notification href", async () => {
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+    mockSearchParamsGet.mockImplementation((key: string) => {
+      if (key === "section") return "public_responses";
+      return null;
+    });
+
+    try {
+      render(<OneLocationAgentPage />);
+
+      expect(await screen.findByText("Public link responses")).toBeTruthy();
+      await waitFor(() =>
+        expect(scrollIntoView).toHaveBeenCalledWith({
+          behavior: "smooth",
+          block: "start",
+        }),
+      );
     } finally {
       Element.prototype.scrollIntoView = originalScrollIntoView;
     }

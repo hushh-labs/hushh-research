@@ -72,6 +72,7 @@ import {
   locationShareNotificationDescription,
   locationWorkflowNotificationCopy,
   markOneLocationGrantOpened,
+  oneLocationSectionForWorkflowNotificationType,
   playOneLocationNotificationSound,
   recordOneLocationShareNotification,
   recordOneLocationWorkflowNotification,
@@ -691,6 +692,8 @@ export function ConsentNotificationProvider({
         grantId,
         requestId,
         referralId,
+        submissionId,
+        section: oneLocationSectionForWorkflowNotificationType(msgType),
         openGrant: false,
       });
       const created = recordOneLocationWorkflowNotification({
