@@ -15,14 +15,6 @@ from hushh_mcp.services.one_location_agent_service import (
     _redact_location_metadata,
 )
 
-PUBLIC_LOCATION_SNAPSHOT = {
-    "latitude": 28.6139,
-    "longitude": 77.209,
-    "accuracyM": 18,
-    "capturedAt": "2026-05-20T07:30:00.000Z",
-    "sourcePlatform": "web",
-}
-
 
 def test_location_metadata_redaction_removes_coordinate_like_keys() -> None:
     payload = {
@@ -368,78 +360,6 @@ class FourUserMemoryService(OneLocationAgentService):
                 )
                 if invite["owner_user_id"] == params["user_id"]
             ][:20]
-        if "FROM one_location_share_grants g" in sql and "g.owner_user_id = :user_id" in sql:
-            rows = []
-            for grant in sorted(
-                self.grants.values(),
-                key=lambda item: item["created_at"],
-                reverse=True,
-            ):
-                if grant["owner_user_id"] != params["user_id"]:
-                    continue
-                recipient = self.identities.get(grant["recipient_user_id"], {})
-                rows.append(
-                    {
-                        **grant,
-                        "recipient_display_name": recipient.get("display_name"),
-                        "recipient_phone_number": recipient.get("phone_number"),
-                    }
-                )
-            return rows[:50]
-        if "FROM one_location_share_grants g" in sql and "g.recipient_user_id = :user_id" in sql:
-            rows = []
-            for grant in sorted(
-                self.grants.values(),
-                key=lambda item: item["created_at"],
-                reverse=True,
-            ):
-                if grant["recipient_user_id"] != params["user_id"]:
-                    continue
-                owner = self.identities.get(grant["owner_user_id"], {})
-                rows.append(
-                    {
-                        **grant,
-                        "owner_display_name": owner.get("display_name"),
-                        "owner_phone_number": owner.get("phone_number"),
-                    }
-                )
-            return rows[:50]
-        if "FROM one_location_access_requests req" in sql:
-            rows = []
-            for request in sorted(
-                self.requests.values(),
-                key=lambda item: item["requested_at"],
-                reverse=True,
-            ):
-                if params["user_id"] not in {
-                    request["owner_user_id"],
-                    request["requester_user_id"],
-                }:
-                    continue
-                requester = self.identities.get(request["requester_user_id"], {})
-                rows.append(
-                    {
-                        **request,
-                        "requester_display_name": requester.get("display_name"),
-                        "requester_phone_number": requester.get("phone_number"),
-                    }
-                )
-            return rows[:50]
-        if "FROM one_location_referrals" in sql and "owner_user_id = :user_id" in sql:
-            return [
-                referral
-                for referral in sorted(
-                    self.referrals.values(),
-                    key=lambda item: item["created_at"],
-                    reverse=True,
-                )
-                if params["user_id"]
-                in {
-                    referral["owner_user_id"],
-                    referral["referring_user_id"],
-                    referral["referred_user_id"],
-                }
-            ][:50]
         if "FROM one_location_public_invite_submissions submission" in sql:
             rows = []
             for submission in sorted(
@@ -708,14 +628,6 @@ class FourUserMemoryService(OneLocationAgentService):
             }
             self.keys[(user_id, key_id)] = row
             return row
-        if "FROM one_location_recipient_keys" in sql and "user_id = :user_id" in sql:
-            user_id = params["user_id"]
-            rows = [
-                row
-                for (row_user_id, _), row in self.keys.items()
-                if row_user_id == user_id and row.get("status") == "active"
-            ]
-            return rows[-1] if rows else None
         if "JOIN one_location_recipient_keys k" in sql:
             return self._identity_key_row(
                 params["recipient_user_id"], params.get("recipient_key_id")
@@ -875,7 +787,6 @@ class FourUserMemoryService(OneLocationAgentService):
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
                 "revoked_at": None,
-                "metadata": json.loads(params.get("metadata_json") or "{}"),
             }
             self.public_invites[invite_id] = row
             return row
@@ -1159,24 +1070,6 @@ def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> No
     assert "Can you share your location?" not in encoded
     assert "attr.financial" not in encoded
     assert "private" not in encoded
-
-
-def test_one_location_state_includes_viewer_capabilities() -> None:
-    service = FourUserMemoryService()
-    service.register_recipient_key(
-        user_id="user_a",
-        key_id="key-user-a",
-        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "a", "y": "a"},
-    )
-
-    state = service.list_state(user_id="user_a")
-
-    assert state["viewerCapabilities"] == {
-        "hasLocationRecipientKey": True,
-        "canBootstrapRecipientKey": True,
-        "canShareLocation": True,
-        "canRequestLocation": True,
-    }
 
 
 def test_terminal_location_work_is_deleted_after_twelve_hour_retention() -> None:
@@ -1464,11 +1357,7 @@ def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
         owner_user_id="user_a",
         message="Can you share?",
     )
-    created = service.create_public_invite(
-        owner_user_id="user_a",
-        duration_hours=1,
-        location_snapshot=PUBLIC_LOCATION_SNAPSHOT,
-    )
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
     service.submit_public_invite_request(
         public_token=created["publicToken"],
         visitor_display_name="User B",
@@ -1488,7 +1377,7 @@ def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
     assert "Shared with User B" in titles
     assert "Viewed by User B" in titles
     assert "Request from User C" in titles
-    assert "Public location link created" in titles
+    assert "Request link created" in titles
     assert "Response from User B" in titles
 
     def without_timestamps(value):
@@ -1510,7 +1399,7 @@ def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
     assert "0002" not in serialized
 
 
-def test_public_invite_returns_live_location_after_public_intake_and_keeps_token_hash_only() -> None:
+def test_public_invite_is_request_only_and_token_hash_only() -> None:
     service = FourUserMemoryService()
     service.register_recipient_key(
         user_id="user_b",
@@ -1518,11 +1407,7 @@ def test_public_invite_returns_live_location_after_public_intake_and_keeps_token
         public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
     )
 
-    created = service.create_public_invite(
-        owner_user_id="user_a",
-        duration_hours=1,
-        location_snapshot=PUBLIC_LOCATION_SNAPSHOT,
-    )
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
     token = created["publicToken"]
 
     assert created["publicUrl"].endswith(token)
@@ -1547,11 +1432,11 @@ def test_public_invite_returns_live_location_after_public_intake_and_keeps_token
         message="Please share for pickup.",
     )
 
-    assert submitted["submission"]["status"] == "approved"
-    assert submitted["publicLocation"]["latitude"] == PUBLIC_LOCATION_SNAPSHOT["latitude"]
-    assert submitted["publicLocation"]["longitude"] == PUBLIC_LOCATION_SNAPSHOT["longitude"]
+    assert submitted["submission"]["status"] == "matched_request_pending"
     assert "request" not in submitted
-    assert service.requests == {}
+    assert len(service.requests) == 1
+    assert next(iter(service.requests.values()))["status"] == "pending"
+    assert next(iter(service.requests.values()))["requester_user_id"] == "user_b"
     assert "latitude" not in json.dumps(service.public_submissions, default=str)
     assert "longitude" not in json.dumps(service.notifications, default=str)
     assert token not in json.dumps(service.notifications, default=str)
@@ -1560,13 +1445,9 @@ def test_public_invite_returns_live_location_after_public_intake_and_keeps_token
     }
 
 
-def test_public_invite_submission_without_key_still_views_public_location() -> None:
+def test_public_invite_submission_without_key_never_creates_access() -> None:
     service = FourUserMemoryService()
-    created = service.create_public_invite(
-        owner_user_id="user_a",
-        duration_hours=1,
-        location_snapshot=PUBLIC_LOCATION_SNAPSHOT,
-    )
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
 
     submitted = service.submit_public_invite_request(
         public_token=created["publicToken"],
@@ -1574,8 +1455,7 @@ def test_public_invite_submission_without_key_still_views_public_location() -> N
         phone_number="+1 555 010 0003",
     )
 
-    assert submitted["submission"]["status"] == "approved"
-    assert submitted["publicLocation"]["latitude"] == PUBLIC_LOCATION_SNAPSHOT["latitude"]
+    assert submitted["submission"]["status"] == "identity_pending_key"
     assert "matchedUserId" not in submitted["submission"]
     assert "request" not in submitted
     assert service.requests == {}
@@ -1588,11 +1468,7 @@ def test_public_invite_submission_limits_bound_duplicate_phone_requests() -> Non
         key_id="key-user_b",
         public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
     )
-    created = service.create_public_invite(
-        owner_user_id="user_a",
-        duration_hours=1,
-        location_snapshot=PUBLIC_LOCATION_SNAPSHOT,
-    )
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
 
     service.submit_public_invite_request(
         public_token=created["publicToken"],
@@ -1612,4 +1488,4 @@ def test_public_invite_submission_limits_bound_duplicate_phone_requests() -> Non
     assert duplicate.value.code == "LOCATION_PUBLIC_INVITE_ALREADY_SUBMITTED"
     assert duplicate.value.status_code == 429
     assert len(service.public_submissions) == 1
-    assert service.requests == {}
+    assert len(service.requests) == 1

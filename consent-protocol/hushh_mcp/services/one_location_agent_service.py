@@ -170,10 +170,6 @@ def _json_param(value: dict[str, Any] | list[Any] | None) -> str:
     return json.dumps(_redact_location_metadata(value or {}), separators=(",", ":"))
 
 
-def _json_param_with_public_location(value: dict[str, Any] | None) -> str:
-    return json.dumps(value or {}, separators=(",", ":"))
-
-
 def _contains_plaintext_location_key(value: Any) -> bool:
     if isinstance(value, dict):
         for key, item in value.items():
@@ -443,7 +439,7 @@ class OneLocationAgentService:
                 logger.warning(
                     "one.location.notification_blocked_plaintext_keys type=%s user=%s",
                     notification_type,
-                    redact_log_value(user_id),
+                    user_id,
                 )
                 return
             seen: set[str] = set()
@@ -475,31 +471,9 @@ class OneLocationAgentService:
             logger.warning(
                 "one.location.notification_skipped type=%s user=%s error=%s",
                 notification_type,
-                redact_log_value(user_id),
+                user_id,
                 exc,
             )
-
-    def _send_push_notification(
-        self,
-        *,
-        user_id: str,
-        notification_type: str,
-        title: str,
-        body: str,
-        notification_tag: str | None = None,
-        request_url: str | None = None,
-        data: dict[str, str | None] | None = None,
-    ) -> None:
-        """Compatibility wrapper for metadata-only location workflow pushes."""
-        self._send_metadata_notification(
-            user_id=user_id,
-            notification_type=notification_type,
-            title=title,
-            body=body,
-            notification_tag=notification_tag or f"one-location:{notification_type}",
-            request_url=request_url or "/one/location",
-            data=data or {},
-        )
 
     def _identity_row(self, user_id: str) -> dict[str, Any] | None:
         try:
@@ -513,11 +487,7 @@ class OneLocationAgentService:
                 {"user_id": user_id},
             )
         except Exception as exc:
-            logger.debug(
-                "one.location.identity_lookup_failed user=%s error=%s",
-                redact_log_value(user_id),
-                exc,
-            )
+            logger.debug("one.location.identity_lookup_failed user=%s error=%s", redact_log_value(user_id), exc)
             return None
 
     def _identity_row_by_phone_digits(self, phone_digits: str) -> dict[str, Any] | None:
@@ -1420,15 +1390,12 @@ class OneLocationAgentService:
         if isinstance(metadata, dict):
             safe_label = str(metadata.get("owner_safe_label") or "").strip()
         if public:
-            payload = {
+            return {
                 "status": str(row.get("status") or "active"),
                 "durationHours": float(row.get("duration_hours") or 0),
                 "expiresAt": _iso(row.get("expires_at")),
                 "ownerLabel": safe_label or PUBLIC_INVITE_DEFAULT_OWNER_LABEL,
             }
-            if isinstance(metadata, dict) and metadata.get("publicLocation"):
-                payload["locationAvailable"] = True
-            return payload
         payload = {
             "id": str(row.get("id") or ""),
             "ownerUserId": str(row.get("owner_user_id") or ""),
@@ -1442,52 +1409,6 @@ class OneLocationAgentService:
         if safe_label:
             payload["ownerLabel"] = safe_label
         return payload
-
-    @staticmethod
-    def _public_location_snapshot_payload(value: Any) -> dict[str, Any]:
-        if not isinstance(value, dict):
-            raise OneLocationAgentError(
-                "LOCATION_PUBLIC_LOCATION_REQUIRED",
-                "Capture your current location before creating a public location link.",
-                status_code=422,
-            )
-        try:
-            latitude = float(value.get("latitude"))
-            longitude = float(value.get("longitude"))
-        except (TypeError, ValueError) as exc:
-            raise OneLocationAgentError(
-                "LOCATION_PUBLIC_LOCATION_INVALID",
-                "Public location links need valid latitude and longitude.",
-                status_code=422,
-            ) from exc
-        if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
-            raise OneLocationAgentError(
-                "LOCATION_PUBLIC_LOCATION_INVALID",
-                "Public location coordinates are outside the valid range.",
-                status_code=422,
-            )
-        accuracy_raw = value.get("accuracyM", value.get("accuracy_m"))
-        accuracy_m: float | None = None
-        if accuracy_raw is not None:
-            try:
-                parsed_accuracy = float(accuracy_raw)
-                if parsed_accuracy > 0:
-                    accuracy_m = round(parsed_accuracy, 2)
-            except (TypeError, ValueError):
-                accuracy_m = None
-        captured_at = _parse_datetime(
-            value.get("capturedAt") or value.get("captured_at"),
-            field_name="capturedAt",
-        )
-        return {
-            "latitude": round(latitude, 7),
-            "longitude": round(longitude, 7),
-            "accuracyM": accuracy_m,
-            "capturedAt": _iso(captured_at),
-            "sourcePlatform": normalize_source_platform(
-                value.get("sourcePlatform") or value.get("source_platform")
-            ),
-        }
 
     @staticmethod
     def _public_submission_payload(
@@ -1551,14 +1472,14 @@ class OneLocationAgentService:
         )
         visitor_label = cls._activity_display_label(
             row.get("visitor_display_name"),
-            fallback="Public viewer",
+            fallback="Public request",
         )
         event_id = str(row.get("id") or f"{event_type}:{_iso(occurred_at)}")
         kind = _activity_kind(event_type)
         detail = {
             "share": "Private sharing",
             "request": "Approval workflow",
-            "public": "Public location link",
+            "public": "Request link",
         }[kind]
 
         title = "One Location activity"
@@ -1607,9 +1528,9 @@ class OneLocationAgentService:
         elif event_type == "location_referral_invite":
             title = f"Referral added for {recipient_label}"
         elif event_type == "location_public_invite_created":
-            title = "Public location link created"
+            title = "Request link created"
         elif event_type == "location_public_invite_revoked":
-            title = "Public location link closed"
+            title = "Request link closed"
         elif event_type == "location_public_invite_submitted":
             title = f"Response from {visitor_label}"
 
@@ -1809,7 +1730,7 @@ class OneLocationAgentService:
                     title="Location access expired",
                     body="A location share reached its expiry time.",
                     notification_tag=f"one-location-expired:{grant_id}",
-                    request_url=_one_location_url(grantId=grant_id, section="shared"),
+                    request_url=_one_location_url(grantId=grant_id),
                     data={
                         "grant_id": grant_id,
                         "owner_user_id": owner_user_id,
@@ -2110,34 +2031,6 @@ class OneLocationAgentService:
             recipients=recipients,
         )
 
-    def _viewer_capabilities(self, *, user_id: str) -> dict[str, Any]:
-        has_location_key = False
-        try:
-            row = self._execute_one(
-                """
-                SELECT key_id
-                FROM one_location_recipient_keys
-                WHERE user_id = :user_id
-                  AND status = 'active'
-                ORDER BY created_at DESC
-                LIMIT 1
-                """,
-                {"user_id": user_id},
-            )
-            has_location_key = bool(row and row.get("key_id"))
-        except Exception as exc:
-            logger.debug(
-                "one.location.viewer_capabilities_unavailable user_id=%s error=%s",
-                redact_log_value(user_id),
-                exc,
-            )
-        return {
-            "hasLocationRecipientKey": has_location_key,
-            "canBootstrapRecipientKey": True,
-            "canShareLocation": has_location_key,
-            "canRequestLocation": True,
-        }
-
     def _recipient_key_row(
         self, *, recipient_user_id: str, recipient_key_id: str | None = None
     ) -> dict[str, Any]:
@@ -2255,11 +2148,7 @@ class OneLocationAgentService:
             title="Location shared",
             body=f"{owner_label} shared location access with you.",
             notification_tag=f"one-location-share:{grant['id']}",
-            request_url=_one_location_url(
-                grantId=grant["id"],
-                locationNotification="opened",
-                section="shared",
-            ),
+            request_url=_one_location_url(grantId=grant["id"], locationNotification="opened"),
             data={
                 "grant_id": grant["id"],
                 "owner_user_id": owner_user_id,
@@ -2464,7 +2353,6 @@ class OneLocationAgentService:
         *,
         owner_user_id: str,
         duration_hours: float,
-        location_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not owner_user_id:
             raise OneLocationAgentError(
@@ -2481,7 +2369,6 @@ class OneLocationAgentService:
         raw_token = secrets.token_urlsafe(32)
         token_hash = _hash_public_value(raw_token)
         expires_at = _utcnow() + timedelta(hours=duration)
-        public_location = self._public_location_snapshot_payload(location_snapshot)
         row = self._execute_one(
             """
             INSERT INTO one_location_public_invites (
@@ -2490,7 +2377,7 @@ class OneLocationAgentService:
             )
             VALUES (
               :owner_user_id, :public_code_hash, 'active', :duration_hours,
-              :expires_at, NOW(), NOW(), CAST(:metadata_json AS JSONB)
+              :expires_at, NOW(), NOW(), '{}'::jsonb
             )
             RETURNING *
             """,
@@ -2499,27 +2386,20 @@ class OneLocationAgentService:
                 "public_code_hash": token_hash,
                 "duration_hours": duration,
                 "expires_at": expires_at,
-                "metadata_json": _json_param_with_public_location(
-                    {"publicLocation": public_location}
-                ),
             },
         )
         invite = self._public_invite_payload(row)
         if not invite:
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_CREATE_FAILED",
-                "Could not create the public location link.",
+                "Could not create the public request link.",
                 status_code=500,
             )
         self._insert_event(
             owner_user_id=owner_user_id,
             actor_user_id=owner_user_id,
             event_type="location_public_invite_created",
-            metadata={
-                "invite_id": invite["id"],
-                "duration_hours": duration,
-                "location_snapshot": "attached",
-            },
+            metadata={"invite_id": invite["id"], "duration_hours": duration},
         )
         return {
             "invite": invite,
@@ -2532,7 +2412,7 @@ class OneLocationAgentService:
         if len(normalized_token) < 16:
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_INVALID",
-                "This public link is invalid.",
+                "This request link is invalid.",
                 status_code=404,
             )
         row = self._execute_one(
@@ -2548,7 +2428,7 @@ class OneLocationAgentService:
         if not row or str(row.get("status") or "") != "active":
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_NOT_ACTIVE",
-                "This public link is no longer active.",
+                "This request link is no longer active.",
                 status_code=410 if row else 404,
             )
         return row
@@ -2602,7 +2482,7 @@ class OneLocationAgentService:
         if total_submissions >= PUBLIC_INVITE_MAX_SUBMISSIONS_PER_TOKEN:
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_SUBMISSION_LIMIT",
-                "This public link has reached its submission limit.",
+                "This request link has reached its submission limit.",
                 status_code=429,
             )
         if (
@@ -2636,16 +2516,6 @@ class OneLocationAgentService:
     ) -> dict[str, Any]:
         invite_row = self._public_invite_row_for_token(public_token=public_token)
         invite = self._public_invite_payload(invite_row) or {}
-        invite_metadata = _loads_json(invite_row.get("metadata")) or {}
-        public_location = (
-            invite_metadata.get("publicLocation") if isinstance(invite_metadata, dict) else None
-        )
-        if not isinstance(public_location, dict):
-            raise OneLocationAgentError(
-                "LOCATION_PUBLIC_LOCATION_UNAVAILABLE",
-                "This public location link does not include a location snapshot.",
-                status_code=409,
-            )
         display_name = str(visitor_display_name or "").strip()
         if len(display_name) < 2:
             raise OneLocationAgentError(
@@ -2670,9 +2540,23 @@ class OneLocationAgentService:
         owner_user_id = invite["ownerUserId"]
         matched_identity = self._identity_row_by_phone_digits(phone_digits)
         matched_user_id = str(matched_identity.get("user_id") or "") if matched_identity else None
-        status_value = "approved"
+        status_value = "pending_identity"
+        request: dict[str, Any] | None = None
         if matched_user_id == owner_user_id:
             matched_user_id = None
+        if matched_user_id:
+            try:
+                request = self.request_access(
+                    requester_user_id=matched_user_id,
+                    owner_user_id=owner_user_id,
+                    message=message_value or f"Public request from {display_name}",
+                    notify_owner=False,
+                )
+                status_value = "matched_request_pending"
+            except OneLocationAgentError as exc:
+                if exc.code != "LOCATION_RECIPIENT_UNAVAILABLE":
+                    raise
+                status_value = "identity_pending_key"
         row = self._execute_one(
             """
             INSERT INTO one_location_public_invite_submissions (
@@ -2695,12 +2579,12 @@ class OneLocationAgentService:
                 "visitor_phone_hash": visitor_phone_hash,
                 "visitor_phone_last4": phone_digits[-4:],
                 "matched_user_id": matched_user_id,
-                "request_id": None,
+                "request_id": request["id"] if request else None,
                 "status": status_value,
                 "message": message_value,
                 "metadata_json": _json_param(
                     {
-                        "public_location_view": True,
+                        "intake_only": True,
                         "submitter_fingerprint_hash": submitter_fingerprint_hash,
                     }
                 ),
@@ -2717,40 +2601,34 @@ class OneLocationAgentService:
             owner_user_id=owner_user_id,
             actor_user_id=matched_user_id,
             recipient_user_id=matched_user_id,
-            request_id=None,
+            request_id=request["id"] if request else None,
             event_type="location_public_invite_submitted",
             metadata={
                 "invite_id": invite["id"],
                 "submission_id": submission["id"],
                 "matched": bool(matched_user_id),
-                "request_created": False,
-                "public_location_view": True,
+                "request_created": bool(request),
+                "intake_only": True,
             },
         )
         self._send_metadata_notification(
             user_id=owner_user_id,
             notification_type="location_public_invite_submitted",
-            title="Public location viewed",
-            body=f"{display_name[:80]} opened your public location link.",
+            title="Public location request",
+            body=f"{display_name[:80]} requested location access from your link.",
             notification_tag=f"one-location-public-request:{submission['id']}",
-            request_url=_one_location_url(
-                submissionId=submission["id"],
-                section="public_responses",
-            ),
+            request_url=_one_location_url(requestId=request["id"] if request else None),
             data={
                 "submission_id": submission["id"],
                 "invite_id": invite["id"],
-                "request_id": None,
+                "request_id": request["id"] if request else None,
                 "visitor_display_label": display_name[:80],
                 "visitor_masked_phone": _mask_phone(phone_digits),
                 "matched_user_id": matched_user_id,
                 "status": status_value,
             },
         )
-        return {
-            "submission": self._public_submission_payload(row, public=True),
-            "publicLocation": public_location,
-        }
+        return {"submission": self._public_submission_payload(row, public=True)}
 
     def revoke_public_invite(self, *, owner_user_id: str, invite_id: str) -> dict[str, Any]:
         row = self._execute_one(
@@ -2767,7 +2645,7 @@ class OneLocationAgentService:
         if not row:
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_NOT_FOUND",
-                "Active public location link was not found.",
+                "Active public request link was not found.",
                 status_code=404,
             )
         invite = self._public_invite_payload(row) or {}
@@ -2862,7 +2740,6 @@ class OneLocationAgentService:
         )
         return {
             "recipients": recipients,
-            "viewerCapabilities": self._viewer_capabilities(user_id=user_id),
             "ownerGrants": [
                 payload for row in owner_grants if (payload := self._grant_payload(row))
             ],
@@ -2916,7 +2793,7 @@ class OneLocationAgentService:
             title="Location access revoked",
             body=f"{owner_label} removed your location access.",
             notification_tag=f"one-location-revoked:{grant_id}",
-            request_url=_one_location_url(grantId=grant_id, section="shared"),
+            request_url=_one_location_url(grantId=grant_id),
             data={
                 "grant_id": grant_id,
                 "owner_user_id": owner_user_id,
@@ -3017,7 +2894,7 @@ class OneLocationAgentService:
                 title="Location access request",
                 body=f"{requester_label} is asking to view your location.",
                 notification_tag=f"one-location-request:{request['id']}",
-                request_url=_one_location_url(requestId=request["id"], section="approvals"),
+                request_url=_one_location_url(requestId=request["id"]),
                 data={
                     "request_id": request["id"],
                     "requester_user_id": requester_user_id,
@@ -3090,12 +2967,7 @@ class OneLocationAgentService:
             title="Location request approved",
             body=f"{owner_label} approved your location request.",
             notification_tag=f"one-location-approved:{request_id}",
-            request_url=_one_location_url(
-                requestId=request_id,
-                grantId=grant["id"],
-                locationNotification="opened",
-                section="shared",
-            ),
+            request_url=_one_location_url(requestId=request_id, grantId=grant["id"]),
             data={
                 "request_id": request_id,
                 "grant_id": grant["id"],
@@ -3142,7 +3014,7 @@ class OneLocationAgentService:
             title="Location request denied",
             body=f"{owner_label} denied your location request.",
             notification_tag=f"one-location-denied:{request_id}",
-            request_url=_one_location_url(requestId=request_id, section="my_requests"),
+            request_url=_one_location_url(requestId=request_id),
             data={
                 "request_id": request_id,
                 "owner_user_id": owner_user_id,
@@ -3230,9 +3102,7 @@ class OneLocationAgentService:
                 body=f"{referring_label} referred you into a location request.",
                 notification_tag=f"one-location-referral:{referral_payload['id']}",
                 request_url=_one_location_url(
-                    requestId=request["id"],
-                    referralId=referral_payload["id"],
-                    section="my_requests",
+                    requestId=request["id"], referralId=referral_payload["id"]
                 ),
                 data={
                     "request_id": request["id"],
