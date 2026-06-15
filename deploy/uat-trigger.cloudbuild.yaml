@@ -1,0 +1,45 @@
+# Manual (on-demand) Cloud Build config for UAT deploys.
+#
+# This is intended to back a MANUAL Cloud Build trigger (gcloud builds triggers
+# create manual ...), NOT a push trigger. UAT must never auto-deploy on commit.
+#
+# It runs the same orchestrator the operator runs locally, entirely inside GCP.
+# The trigger's service account must be the UAT deployer SA (or have equivalent
+# run.admin / cloudsql.client / secretmanager / storage / artifactregistry +
+# actAs on the runtime SAs).
+#
+# Substitutions:
+#   _DEPLOY_SHA  : exact green main SHA to deploy (required for reproducibility)
+#   _SCOPE       : all | backend | frontend (default all)
+
+steps:
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        # Install uv (needed by the orchestrator to build the ops venv).
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        export PATH="$HOME/.local/bin:$PATH"
+        # Install the Cloud SQL Auth Proxy for the migration step.
+        curl -fsSL \
+          https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
+          -o /usr/local/bin/cloud-sql-proxy
+        chmod +x /usr/local/bin/cloud-sql-proxy
+        chmod +x deploy/cloud-build-deploy.sh
+        # In-build the active identity already IS the trigger SA, so the
+        # orchestrator does not need to impersonate. Run with --no-impersonate
+        # semantics by exporting the deployer SA as the active account is implicit.
+        deploy/cloud-build-deploy.sh --env uat --sha "${_DEPLOY_SHA}" --scope "${_SCOPE}" --no-impersonate
+    id: "uat-ondemand-deploy"
+
+timeout: "2400s"
+
+substitutions:
+  _DEPLOY_SHA: ""
+  _SCOPE: "all"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: "E2_HIGHCPU_8"
