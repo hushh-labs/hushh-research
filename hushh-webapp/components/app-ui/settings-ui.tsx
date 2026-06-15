@@ -214,7 +214,7 @@ export function SettingsRow({
             tone === "destructive" && "bg-destructive/10 text-destructive"
           )}
         >
-          <Icon icon={icon} size="md" />
+          <Icon icon={icon} size="md" aria-hidden="true" />
         </span>
       ) : null}
       <div className="min-w-0 flex-1 space-y-0.5">
@@ -245,6 +245,7 @@ export function SettingsRow({
       {trailing}
       {chevron ? (
         <ChevronRight
+          aria-hidden="true"
           className={cn(
             "h-4 w-4 shrink-0 text-muted-foreground/90 transition-transform",
             isInteractive && "group-hover:translate-x-0.5"
