@@ -65,13 +65,6 @@ export class OneLocationService {
     return HushhLocation.getPermissionState();
   }
 
-  static async openLocationSettings() {
-    if (typeof HushhLocation.openLocationSettings !== "function") {
-      return { opened: false };
-    }
-    return HushhLocation.openLocationSettings();
-  }
-
   static async captureCurrentPosition(): Promise<PlainLocationPoint> {
     return HushhLocation.getCurrentPosition({
       enableHighAccuracy: true,
@@ -122,7 +115,6 @@ export class OneLocationService {
   static async createPublicInvite(params: {
     vaultOwnerToken: string;
     durationHours: number;
-    locationSnapshot: PlainLocationPoint;
   }): Promise<{
     invite: OneLocationPublicInvite;
     publicToken: string;
@@ -133,10 +125,7 @@ export class OneLocationService {
       {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
-        body: JSON.stringify({
-          durationHours: params.durationHours,
-          locationSnapshot: params.locationSnapshot,
-        }),
+        body: JSON.stringify({ durationHours: params.durationHours }),
       },
       1,
     );
@@ -159,7 +148,6 @@ export class OneLocationService {
     message?: string;
   }): Promise<{
     submission: OneLocationPublicInviteSubmission;
-    publicLocation?: PlainLocationPoint | null;
     request?: OneLocationAccessRequest | null;
   }> {
     return apiJsonWithRetry(

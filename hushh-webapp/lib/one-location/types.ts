@@ -191,7 +191,6 @@ export type OneLocationPublicInvite = {
   createdAt?: string | null;
   updatedAt?: string | null;
   revokedAt?: string | null;
-  locationAvailable?: boolean;
 };
 
 export type OneLocationPublicInviteSubmission = {

@@ -529,14 +529,14 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("renders a public location link control", async () => {
+  it("renders a public request-link control that does not promise public location", async () => {
     render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
-    expect(screen.getByText("Create public location link")).toBeTruthy();
-    expect(screen.getByText("Create Public Link")).toBeTruthy();
+    expect(screen.getByText("Create request link")).toBeTruthy();
     expect(screen.getByText("Public link responses")).toBeTruthy();
+    expect(screen.queryByText(/public live-location link/i)).toBeNull();
     expect(screen.queryByText(/whatsapp/i)).toBeNull();
   });
 
@@ -647,25 +647,19 @@ describe("OneLocationAgentPage", () => {
     expect(startLink.getAttribute("href")).toContain("dir_action=navigate");
   });
 
-  it("tracks public location-link creation without leaking location into analytics", async () => {
+  it("tracks public request-link creation without location or identity payloads", async () => {
     render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(
-      screen.getByRole("button", { name: /Create public link/i }),
+      screen.getByRole("button", { name: /Create request link/i }),
     );
 
     await waitFor(() => expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1));
-    expect(mockCreatePublicInvite).toHaveBeenCalledWith(
-      expect.objectContaining({
-        durationHours: 1,
-        locationSnapshot: expect.objectContaining({
-          latitude: 28.6139,
-          longitude: 77.209,
-        }),
-        vaultOwnerToken: "vault-token",
-      }),
-    );
+    expect(mockCreatePublicInvite).toHaveBeenCalledWith({
+      vaultOwnerToken: "vault-token",
+      durationHours: 1,
+    });
     expect(mockTrackEvent).toHaveBeenCalledWith(
       "one_location_public_link_created",
       expect.objectContaining({
@@ -1067,16 +1061,10 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Invite Contacts/i }));
 
     await waitFor(() => expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1));
-    expect(mockCreatePublicInvite).toHaveBeenCalledWith(
-      expect.objectContaining({
-        vaultOwnerToken: "vault-token",
-        durationHours: 1,
-        locationSnapshot: expect.objectContaining({
-          latitude: 28.6139,
-          longitude: 77.209,
-        }),
-      }),
-    );
+    expect(mockCreatePublicInvite).toHaveBeenCalledWith({
+      vaultOwnerToken: "vault-token",
+      durationHours: 1,
+    });
     expect(JSON.stringify(mockTrackEvent.mock.calls)).not.toMatch(
       /8012|9911|latitude|longitude|28\.6139|77\.209/u,
     );
