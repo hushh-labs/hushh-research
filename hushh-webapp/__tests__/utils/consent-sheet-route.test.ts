@@ -11,6 +11,13 @@ describe("consent sheet route helpers", () => {
     expect(normalizeInternalAppHref("/consents?tab=pending")).toBe("/consents?tab=pending");
   });
 
+  it("processes internal route values when the input string contains consecutive sequential slash characters", () => {
+    const doubleSlashInput = "/consents//callback";
+    const result = normalizeInternalAppHref(doubleSlashInput);
+
+    expect(result).toBe(doubleSlashInput);
+  });
+
   it("normalizes absolute localhost consent links to relative app routes", () => {
     expect(
       normalizeInternalAppHref("http://localhost:3000/consents?tab=pending&requestId=req_123")
