@@ -6,32 +6,36 @@
 # fires this build inside GCP — NO GitHub Actions runner, NO Actions minutes.
 #
 # The trigger runs AS the prod deployer SA, so the orchestrator uses
-# --no-impersonate. The prod orchestrator path requires the confirm token, which
-# we pass explicitly here because cutting a `prod-*` tag IS the deliberate
-# confirmation (immutable, auditable, human-initiated).
+# --no-impersonate. Cutting a `prod-*` tag IS the deliberate confirmation, so we
+# pass the confirm token explicitly.
+#
+# NOTE: bash variables use $$ so Cloud Build does not resolve them as build
+# substitutions. $TAG_NAME (built-in trigger value) is passed via env.
 
 steps:
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
+    env:
+      - "TAG_NAME=$TAG_NAME"
     args:
       - "-c"
       - |
         set -euo pipefail
 
-        TAG="${TAG_NAME:-}"
-        if [[ -z "$TAG" ]]; then
+        TAG="$${TAG_NAME:-}"
+        if [[ -z "$$TAG" ]]; then
           echo "No TAG_NAME provided; this config is for tag triggers only." >&2
           exit 1
         fi
-        DEPLOY_SHA="${TAG#prod-}"
-        if [[ "$DEPLOY_SHA" == "$TAG" || -z "$DEPLOY_SHA" ]]; then
-          echo "Tag '$TAG' is not in the expected 'prod-<sha>' form." >&2
+        DEPLOY_SHA="$${TAG#prod-}"
+        if [[ "$$DEPLOY_SHA" == "$$TAG" || -z "$$DEPLOY_SHA" ]]; then
+          echo "Tag '$$TAG' is not in the expected 'prod-<sha>' form." >&2
           exit 1
         fi
-        echo "==> PROD tag deploy: tag=$TAG sha=$DEPLOY_SHA"
+        echo "==> PROD tag deploy: tag=$$TAG sha=$$DEPLOY_SHA"
 
         curl -LsSf https://astral.sh/uv/install.sh | sh
-        export PATH="$HOME/.local/bin:$PATH"
+        export PATH="$$HOME/.local/bin:$$PATH"
         curl -fsSL \
           https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
           -o /usr/local/bin/cloud-sql-proxy
@@ -40,7 +44,7 @@ steps:
 
         deploy/cloud-build-deploy.sh \
           --env prod \
-          --sha "$DEPLOY_SHA" \
+          --sha "$$DEPLOY_SHA" \
           --scope "${_SCOPE}" \
           --no-impersonate \
           --confirm-production "deploy production"

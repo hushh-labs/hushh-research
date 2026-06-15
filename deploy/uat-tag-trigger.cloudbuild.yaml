@@ -8,32 +8,34 @@
 # The trigger runs AS the deployer SA, so the orchestrator uses --no-impersonate.
 # The tag name carries the deploy SHA: uat-<sha>. We strip the `uat-` prefix.
 #
-# On-demand only: a deploy happens solely when a human/agent cuts a `uat-*` tag.
+# NOTE: bash variables are written with $$ so Cloud Build does not try to resolve
+# them as build substitutions. $TAG_NAME is passed via env (it is a built-in
+# trigger value) so the script reads it as a normal shell var.
 
 steps:
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
+    env:
+      - "TAG_NAME=$TAG_NAME"
     args:
       - "-c"
       - |
         set -euo pipefail
 
-        # TAG_NAME is provided by the tag trigger, e.g. "uat-a944a4b4a1eb..."
-        TAG="${TAG_NAME:-}"
-        if [[ -z "$TAG" ]]; then
+        TAG="$${TAG_NAME:-}"
+        if [[ -z "$$TAG" ]]; then
           echo "No TAG_NAME provided; this config is for tag triggers only." >&2
           exit 1
         fi
-        DEPLOY_SHA="${TAG#uat-}"
-        if [[ "$DEPLOY_SHA" == "$TAG" || -z "$DEPLOY_SHA" ]]; then
-          echo "Tag '$TAG' is not in the expected 'uat-<sha>' form." >&2
+        DEPLOY_SHA="$${TAG#uat-}"
+        if [[ "$$DEPLOY_SHA" == "$$TAG" || -z "$$DEPLOY_SHA" ]]; then
+          echo "Tag '$$TAG' is not in the expected 'uat-<sha>' form." >&2
           exit 1
         fi
-        echo "==> UAT tag deploy: tag=$TAG sha=$DEPLOY_SHA"
+        echo "==> UAT tag deploy: tag=$$TAG sha=$$DEPLOY_SHA"
 
-        # Tooling the orchestrator needs.
         curl -LsSf https://astral.sh/uv/install.sh | sh
-        export PATH="$HOME/.local/bin:$PATH"
+        export PATH="$$HOME/.local/bin:$$PATH"
         curl -fsSL \
           https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
           -o /usr/local/bin/cloud-sql-proxy
@@ -42,7 +44,7 @@ steps:
 
         deploy/cloud-build-deploy.sh \
           --env uat \
-          --sha "$DEPLOY_SHA" \
+          --sha "$$DEPLOY_SHA" \
           --scope "${_SCOPE}" \
           --no-impersonate
     id: "uat-tag-deploy"
