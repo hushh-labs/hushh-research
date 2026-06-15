@@ -1198,10 +1198,10 @@ export default function MarketplacePage() {
           <RiaSurface className="space-y-3 p-4">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
                   Contacts
                 </p>
-                <h3 className="mt-1 line-clamp-1 text-base font-semibold tracking-tight text-foreground">
+                <h3 className="mt-1 line-clamp-1 text-base font-medium tracking-normal text-foreground">
                   Already on Hushh
                 </h3>
               </div>
@@ -1229,7 +1229,7 @@ export default function MarketplacePage() {
                     className="h-11 w-11 rounded-2xl"
                   />
                   <span className="min-w-0 flex-1">
-                    <span className="block line-clamp-1 text-sm font-semibold text-foreground">
+                    <span className="block line-clamp-1 text-sm font-medium text-foreground">
                       {match.display_name}
                     </span>
                     <span className="block line-clamp-1 text-xs text-muted-foreground">
@@ -1278,7 +1278,7 @@ export default function MarketplacePage() {
                       <ProfileAvatar kind={swipeCard.kind} label={swipeCard.title} className="h-20 w-20 shrink-0 rounded-[24px]" />
                       <div className="min-w-0 space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-2xl font-semibold tracking-tight text-foreground sm:text-[2.1rem]">
+                          <h3 className="text-[28px] font-medium tracking-normal text-foreground sm:text-[34px]">
                             {swipeCard.title}
                           </h3>
                           {swipeCard.isTestProfile ? (
@@ -1373,7 +1373,7 @@ export default function MarketplacePage() {
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center gap-4 px-6 py-14 text-center">
-              <h3 className="text-xl font-semibold tracking-tight text-foreground">
+              <h3 className="text-xl font-medium tracking-normal text-foreground">
                 {investorDeckComplete ? "Deck complete" : "That&apos;s everyone for now"}
               </h3>
               <p className="max-w-xl text-sm leading-6 text-muted-foreground">
@@ -1417,7 +1417,7 @@ export default function MarketplacePage() {
                   <ProfileAvatar kind={item.kind} label={item.title} />
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-lg font-semibold tracking-tight text-foreground">
+                      <h3 className="text-lg font-medium tracking-normal text-foreground">
                         {item.title}
                       </h3>
                       {item.isTestProfile ? (
@@ -1492,7 +1492,7 @@ export default function MarketplacePage() {
 
           {!loading && activeCards.length === 0 ? (
             <RiaSurface className="col-span-full p-6 text-center">
-              <h3 className="text-lg font-semibold tracking-tight text-foreground">No profiles</h3>
+              <h3 className="text-lg font-medium tracking-normal text-foreground">No profiles</h3>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
                 Try a broader search.
               </p>

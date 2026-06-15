@@ -102,7 +102,7 @@ export function IntroStep({
             role="heading"
             aria-level={1}
             aria-label="Meet One, Your Personal Financial Advisor"
-            className="relative mt-4 text-[42px] font-semibold leading-none tracking-normal text-[#1d1d1f] dark:text-[#f5f5f7]"
+            className="relative mt-3 text-[40px] font-medium leading-[1.04] tracking-normal text-[#1d1d1f] dark:text-[#f5f5f7]"
           >
             Meet One.
           </div>
@@ -117,12 +117,12 @@ export function IntroStep({
               {INTRO_FEATURES.map((feature) => (
                 <div key={feature.title} className="grid grid-cols-[48px_minmax(0,1fr)] items-center gap-4">
                   <span
-                    className={`grid h-12 w-12 place-items-center rounded-[16px] border border-black/[0.04] dark:border-white/10 ${feature.tileClassName}`}
+                    className={`grid h-12 w-12 place-items-center rounded-full border border-black/[0.04] dark:border-white/10 ${feature.tileClassName}`}
                   >
                     <feature.icon className="h-[22px] w-[22px]" />
                   </span>
                   <div className="min-w-0">
-                    <p className="text-[17px] font-semibold leading-[1.22] tracking-normal text-[#1d1d1f] dark:text-[#f5f5f7]">
+                    <p className="text-[17px] font-medium leading-[1.22] tracking-normal text-[#1d1d1f] dark:text-[#f5f5f7]">
                       {feature.title}
                     </p>
                     <p className="mt-1 text-[14.5px] leading-[1.35] tracking-normal text-[rgba(0,0,0,0.50)] dark:text-[rgba(245,245,247,0.56)]">
@@ -146,14 +146,14 @@ export function IntroStep({
               fullWidth
               onClick={onNext}
               showRipple
-              className="h-[50px] rounded-full bg-[#0071e3] text-[17px] font-semibold tracking-normal text-white shadow-none hover:bg-[#0077ed]"
+              className="h-[50px] rounded-full bg-[#0066cc] text-[17px] font-medium tracking-normal text-white shadow-none hover:bg-[#0071e3]"
             >
               Get started
             </Button>
             {onLogin ? (
               <button
                 type="button"
-                className="mx-auto block min-h-10 px-4 text-[15px] font-semibold tracking-normal text-[#0066cc] transition-colors hover:text-[#0071e3] dark:text-[#2997ff] dark:hover:text-[#5eb0ff]"
+                className="mx-auto block min-h-10 px-4 text-[15px] font-medium tracking-normal text-[#0066cc] transition-colors hover:text-[#0071e3] dark:text-[#2997ff] dark:hover:text-[#5eb0ff]"
                 onClick={onLogin}
               >
                 Log in

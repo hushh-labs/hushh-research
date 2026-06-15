@@ -34,10 +34,10 @@ import { trackEvent } from "@/lib/observability/client";
 const E164_PHONE_PATTERN = /^\+[1-9]\d{7,14}$/;
 const DEFAULT_COUNTRY_VALUE = "US";
 const FLOW_CONTROL_SHELL_CLASS_NAME =
-  "h-12 overflow-hidden rounded-[var(--radius-md)] border-black/10 bg-background/80 shadow-xs dark:border-white/10 dark:bg-input/30";
+  "h-12 overflow-hidden rounded-[18px] border-black/10 bg-background/80 shadow-xs dark:border-white/10 dark:bg-input/30";
 const FLOW_CONTROL_CLASS_NAME =
   "h-full rounded-[inherit] border-0 bg-transparent px-4 text-base shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent md:text-sm";
-const FLOW_SURFACE_RADIUS_CLASS_NAME = "rounded-[var(--radius-md)]";
+const FLOW_SURFACE_RADIUS_CLASS_NAME = "rounded-[18px]";
 
 export type PhoneVerificationFlowMode = "link" | "replace";
 

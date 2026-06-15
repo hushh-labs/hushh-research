@@ -3,8 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
 
+const navigationMock = vi.hoisted(() => ({
+  pathname: "/profile",
+}));
+
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/kai",
+  usePathname: () => navigationMock.pathname,
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -65,6 +69,7 @@ describe("AgentPopoverProvider floating trigger", () => {
   let getBoundingClientRectSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    navigationMock.pathname = "/profile";
     window.localStorage.clear();
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
@@ -242,5 +247,21 @@ describe("AgentPopoverProvider floating trigger", () => {
     await waitFor(() => {
       expect(trigger.style.top).toBe("104px");
     });
+  });
+
+  it("does not render a duplicate floating trigger on Kai command-bar routes", () => {
+    navigationMock.pathname = "/kai";
+
+    render(
+      <div>
+        <div data-tour-id="kai-command-bar" />
+        <div aria-label="Main navigation" />
+        <AgentPopoverProvider>
+          <main />
+        </AgentPopoverProvider>
+      </div>
+    );
+
+    expect(screen.queryByRole("button", { name: "Open Agent" })).toBeNull();
   });
 });

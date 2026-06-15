@@ -41,6 +41,7 @@ import {
 } from "@/components/kai/cards/market-overview-grid";
 import {
   kaiPreviewDockActiveItemClassName,
+  kaiPreviewDockFrameClassName,
   kaiPreviewDockItemClassName,
   kaiPreviewDockSurfaceClassName,
   kaiPreviewEyebrowClassName,
@@ -156,15 +157,20 @@ const oneMarketRootClassName = cn(
   "relative isolate mx-auto flex min-h-screen w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
   "bg-[color:var(--one-bg)] font-sans text-[color:var(--one-fg)] antialiased",
   "[--one-bg:#ffffff] [--one-card:#ffffff] [--one-surface:#f2f2f7]",
+  "dark:[--one-bg:#000000] dark:[--one-card:#1c1c1e] dark:[--one-surface:#1c1c1e]",
   "[--one-hairline:rgba(0,0,0,0.08)] [--one-line:rgba(0,0,0,0.06)]",
+  "dark:[--one-hairline:rgba(255,255,255,0.14)] dark:[--one-line:rgba(255,255,255,0.10)]",
   "[--one-fg:#1d1d1f] [--one-fg2:rgba(0,0,0,0.55)] [--one-fg3:rgba(0,0,0,0.42)]",
+  "dark:[--one-fg:#f5f5f7] dark:[--one-fg2:rgba(245,245,247,0.64)] dark:[--one-fg3:rgba(245,245,247,0.46)]",
   "[--one-blue:#0071e3] [--one-link:#0066cc]",
+  "dark:[--one-blue:#0a84ff] dark:[--one-link:#2997ff]",
   "[--one-up:#34c759] [--one-up-t:rgba(52,199,89,0.12)]",
   "[--one-down:#ff3b30] [--one-down-t:rgba(255,59,48,0.10)]",
   "[--one-indigo:#5856d6] [--one-indigo-t:rgba(88,86,214,0.12)]",
   "[--one-orange:#ff9500] [--one-orange-t:rgba(255,149,0,0.14)]",
   "[--one-teal:#30b0c7] [--one-teal-t:rgba(48,176,199,0.13)]",
   "[--one-glass-fill:linear-gradient(135deg,rgba(255,255,255,0.45),rgba(255,255,255,0.16))]",
+  "dark:[--one-glass-fill:linear-gradient(135deg,rgba(44,44,46,0.86),rgba(28,28,30,0.62))]",
   "[--one-glass-float:0_16px_38px_-20px_rgba(0,0,0,0.28),0_4px_12px_-8px_rgba(0,0,0,0.10)]",
   "[--one-gutter:clamp(18px,4vw,32px)]"
 );
@@ -901,7 +907,7 @@ function OneMarketDock({
     }
   };
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 mx-auto w-full max-w-[560px] px-4 pb-[calc(10px+env(safe-area-inset-bottom))] sm:px-6 before:pointer-events-none before:absolute before:inset-x-[-18px] before:bottom-[-10px] before:h-[126px] before:bg-[linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,0.88)_34%,rgba(255,255,255,0.98))] before:backdrop-blur-[8px] [&>*]:relative [&>*]:z-[1]">
+    <div className={kaiPreviewDockFrameClassName}>
       <div className="relative flex items-end gap-2.5 sm:gap-3">
         {searchOpen ? (
           <>
@@ -2143,6 +2149,14 @@ export function KaiMarketPreviewView() {
               background: #ffffff !important;
             }
 
+            html.dark:has([data-one-market-preview="true"]),
+            html.dark:has([data-one-market-preview="true"]) body,
+            html.dark:has([data-one-market-preview="true"]) body main,
+            html.dark:has([data-one-market-preview="true"]) body [data-top-content-anchor="true"],
+            html.dark:has([data-one-market-preview="true"]) body [class*="overflow-y-auto"][class*="touch-pan-y"] {
+              background: #000000 !important;
+            }
+
             nextjs-portal,
             [aria-label="Open consent inbox"] {
               display: none !important;
@@ -2152,12 +2166,12 @@ export function KaiMarketPreviewView() {
       ) : null}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 -z-20 bg-white"
+        className="pointer-events-none absolute inset-0 -z-20 bg-[color:var(--one-bg)]"
       />
       <div
         className={cn(
           oneMarketGlassClassName,
-          "pointer-events-none fixed inset-x-0 top-0 z-30 mx-auto flex h-[50px] max-w-[1080px] items-center justify-center border-b border-[color:var(--one-hairline)] bg-white/85 text-[17px] font-semibold text-[color:var(--one-fg)] transition duration-300",
+          "pointer-events-none fixed inset-x-0 top-0 z-30 mx-auto flex h-[50px] max-w-[1080px] items-center justify-center bg-[color:var(--one-bg)] text-[17px] font-medium text-[color:var(--one-fg)] transition duration-300",
           topbarVisible ? "translate-y-0 opacity-100" : "-translate-y-2 opacity-0"
         )}
       >
@@ -2175,7 +2189,7 @@ export function KaiMarketPreviewView() {
               <div className={kaiPreviewPageTitleClassName} role="heading" aria-level={1}>
                 Market
               </div>
-              <p className="max-w-[32ch] text-[14px] leading-snug text-[color:var(--one-fg2)]">
+              <p className="max-w-[34ch] text-[17px] leading-[1.42] text-[color:var(--one-fg2)]">
                 Track the market and your watchlist.
               </p>
             </div>
@@ -2196,7 +2210,7 @@ export function KaiMarketPreviewView() {
               event.preventDefault();
               handleMarketSearchSubmit();
             }}
-            className="mt-[18px] flex h-[46px] items-center gap-2.5 rounded-xl bg-[color:var(--one-surface)] px-3.5"
+            className="mt-5 flex h-12 items-center gap-2.5 rounded-[16px] bg-[color:var(--one-surface)] px-4"
           >
             <Search className="h-[17px] w-[17px] shrink-0 text-[color:var(--one-fg3)]" />
             <input

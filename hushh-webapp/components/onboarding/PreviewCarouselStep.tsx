@@ -198,7 +198,7 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
             </button>
             <button
               type="button"
-              className="min-h-10 rounded-full px-4 text-[15px] font-semibold tracking-normal text-muted-foreground transition-colors hover:text-foreground"
+              className="min-h-10 rounded-full px-4 text-[15px] font-medium tracking-normal text-muted-foreground transition-colors hover:text-foreground"
               onClick={completeAndContinue}
             >
               Skip
@@ -214,12 +214,12 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
               "sm:max-w-lg"
             )}
           >
-            <h2 className="text-[clamp(1.65rem,4.7vw,2.65rem)] font-bold tracking-normal leading-[1.04] text-[#1d1d1f] dark:text-[#f5f5f7]">
+            <h2 className="text-[32px] font-medium tracking-normal leading-[1.06] text-[#1d1d1f] sm:text-[40px] dark:text-[#f5f5f7]">
               {slides[displayIndex]?.title}{" "}
               <br />
               <span>{slides[displayIndex]?.accent}</span>
             </h2>
-            <p className="mx-auto max-w-[20rem] text-[clamp(0.92rem,2.1vw,1.02rem)] text-[rgba(0,0,0,0.56)] leading-relaxed dark:text-[rgba(245,245,247,0.60)]">
+            <p className="mx-auto max-w-[20rem] text-[16px] text-[rgba(0,0,0,0.56)] leading-[1.45] sm:text-[17px] dark:text-[rgba(245,245,247,0.60)]">
               {slides[displayIndex]?.subtitle}
             </p>
           </div>
@@ -259,7 +259,7 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
             <Button
               size="lg"
               fullWidth
-              className="mx-auto h-[52px] w-full max-w-md rounded-full bg-[#0071e3] text-[17px] font-semibold tracking-normal text-white shadow-none hover:bg-[#0077ed]"
+              className="mx-auto h-[52px] w-full max-w-md rounded-full bg-[#0066cc] text-[17px] font-medium tracking-normal text-white shadow-none hover:bg-[#0071e3]"
               onClick={handlePrimary}
               showRipple
             >
