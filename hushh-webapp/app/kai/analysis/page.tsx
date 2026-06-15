@@ -1079,18 +1079,18 @@ function KaiAnalysisPageContent() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-3">
                   <SymbolAvatar symbol={activeTicker} name={activeTicker} size="lg" />
-                  <h1 className="text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">
+                  <h1 className="text-[28px] font-medium tracking-normal text-foreground sm:text-[34px]">
                     {activeTicker}
                   </h1>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold tabular-nums text-muted-foreground sm:text-base">
+                  <span className="text-sm font-medium tabular-nums text-muted-foreground sm:text-base">
                     {headerPriceLabel}
                   </span>
                   {headerChangePct !== null ? (
                     <span
                       className={cn(
-                        "rounded px-1.5 py-0.5 text-xs font-semibold tabular-nums",
+                        "rounded px-1.5 py-0.5 text-xs font-medium tabular-nums",
                         headerChangePct >= 0
                           ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                           : "bg-rose-500/10 text-rose-600 dark:text-rose-400"

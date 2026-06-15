@@ -240,7 +240,7 @@ export function Providers({ children }: ProvidersProps) {
   }, [routeLayoutMode, signedInShellContentOffset.mode, signedInShellContentOffset.style, topShellRouteProfile.id, topShellRouteStyle]);
 
   return (
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <ObservabilityRouteObserver />
       <StepProgressProvider>
         <StatusBarManager />
@@ -285,10 +285,18 @@ export function Providers({ children }: ProvidersProps) {
                                         transform:
                                           "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
                                         "--bottom-chrome-progress": String(hideBottomChromeGlassProgress),
-                                        "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.72)",
-                                        "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.72)",
+                                        "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.16)",
+                                        "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.22)",
+                                        "--app-bar-glass-blur": "0px",
                                         "--app-bar-shadow": "none",
-                                        "--app-bar-mask-overscan": "14px",
+                                        "--app-bar-mask-overscan": "6px",
+                                        "--app-bar-bottom-fade-strong":
+                                          "color-mix(in oklab, var(--background) 6%, transparent)",
+                                        "--app-bar-bottom-fade-medium":
+                                          "color-mix(in oklab, var(--background) 4%, transparent)",
+                                        "--app-bar-bottom-fade-soft":
+                                          "color-mix(in oklab, var(--background) 1.8%, transparent)",
+                                        "--app-bar-bottom-fade-trace": "transparent",
                                       } as CSSProperties
                                     }
                                   />
@@ -361,10 +369,18 @@ export function Providers({ children }: ProvidersProps) {
                                         transform:
                                           "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance)), 0)",
                                         "--bottom-chrome-progress": String(hideBottomChromeGlassProgress),
-                                        "--app-bar-glass-bg-light": "rgba(245, 245, 247, 0.72)",
-                                        "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.72)",
+                                        "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.16)",
+                                        "--app-bar-glass-bg-dark": "rgba(28, 28, 30, 0.22)",
+                                        "--app-bar-glass-blur": "0px",
                                         "--app-bar-shadow": "none",
-                                        "--app-bar-mask-overscan": "14px",
+                                        "--app-bar-mask-overscan": "6px",
+                                        "--app-bar-bottom-fade-strong":
+                                          "color-mix(in oklab, var(--background) 6%, transparent)",
+                                        "--app-bar-bottom-fade-medium":
+                                          "color-mix(in oklab, var(--background) 4%, transparent)",
+                                        "--app-bar-bottom-fade-soft":
+                                          "color-mix(in oklab, var(--background) 1.8%, transparent)",
+                                        "--app-bar-bottom-fade-trace": "transparent",
                                       } as CSSProperties
                                     }
                                   />
