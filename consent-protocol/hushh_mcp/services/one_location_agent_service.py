@@ -2089,7 +2089,6 @@ class OneLocationAgentService:
               a.user_id, a.display_name, a.phone_number, a.phone_verified,
               k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
             FROM actor_identity_cache a
-            LEFT JOIN marketplace_public_profiles mp ON mp.user_id = a.user_id
             LEFT JOIN LATERAL (
               SELECT key_id, public_key_jwk, algorithm, created_at
               FROM one_location_recipient_keys
@@ -2100,13 +2099,6 @@ class OneLocationAgentService:
             ) k ON TRUE
             WHERE a.phone_verified = TRUE
               AND a.user_id <> :owner_user_id
-              AND (
-                mp.user_id IS NULL
-                OR (
-                  COALESCE(mp.exposure_enabled, TRUE) = TRUE
-                  AND COALESCE(mp.visibility_posture, 'default_available') <> 'private'
-                )
-              )
             ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
             LIMIT :limit
             """,

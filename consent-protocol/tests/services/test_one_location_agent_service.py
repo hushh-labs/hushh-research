@@ -111,9 +111,6 @@ def test_verified_recipient_directory_filters_self_and_requires_phone_verified()
     assert service.list_verified_recipients(owner_user_id="owner") == []
     assert "a.phone_verified = TRUE" in service.sql
     assert "a.user_id <> :owner_user_id" in service.sql
-    assert "LEFT JOIN marketplace_public_profiles mp" in service.sql
-    assert "COALESCE(mp.exposure_enabled, TRUE) = TRUE" in service.sql
-    assert "COALESCE(mp.visibility_posture, 'default_available') <> 'private'" in service.sql
     assert "ORDER BY COALESCE" in service.sql
     assert service.params["owner_user_id"] == "owner"
 
@@ -256,13 +253,6 @@ class FourUserMemoryService(OneLocationAgentService):
             rows = []
             for user_id, identity in self.identities.items():
                 if user_id == owner or not identity["phone_verified"]:
-                    continue
-                marketplace_profile = self.marketplace_profiles.get(user_id)
-                if marketplace_profile and (
-                    marketplace_profile.get("exposure_enabled") is False
-                    or str(marketplace_profile.get("visibility_posture") or "").lower()
-                    == "private"
-                ):
                     continue
                 key = self._active_key(user_id)
                 rows.append(
@@ -985,38 +975,6 @@ def encrypted_envelope(key_id: str, ciphertext: str = "ciphertext") -> dict:
         "sourcePlatform": "web",
         "metadata": {"plaintext": False},
     }
-
-
-def test_verified_recipients_exclude_private_marketplace_profiles() -> None:
-    service = FourUserMemoryService()
-    now = datetime.now(timezone.utc)
-
-    for user_id in ("user_b", "user_c"):
-        service.register_recipient_key(
-            user_id=user_id,
-            key_id=f"key-{user_id}",
-            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
-        )
-
-    service.marketplace_profiles["user_b"] = {
-        "user_id": "user_b",
-        "profile_type": "investor",
-        "headline": "Hidden investor",
-        "strategy_summary": "Private profile",
-        "verification_badge": "Verified investor",
-        "metadata": {},
-        "is_discoverable": False,
-        "exposure_enabled": False,
-        "visibility_posture": "private",
-        "created_at": now,
-        "updated_at": now,
-    }
-
-    recipients = service.list_verified_recipients(owner_user_id="user_a")
-    recipient_ids = {recipient["userId"] for recipient in recipients}
-
-    assert "user_b" not in recipient_ids
-    assert "user_c" in recipient_ids
 
 
 def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> None:

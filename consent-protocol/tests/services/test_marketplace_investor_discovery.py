@@ -21,8 +21,6 @@ class _FakeMarketplaceConn:
             assert "ANY($5::text[])" in query
             assert "($3::text IS NULL" in query
             assert "$4::boolean = FALSE" in query
-            assert "mp.exposure_enabled = TRUE" in query
-            assert "mp.visibility_posture <> 'private'" in query
             assert "LIMIT $2::integer" in query
             assert args[1] == 5
             assert args[3] is True
@@ -43,8 +41,6 @@ class _FakeMarketplaceConn:
                     "curation_tier": "qualified",
                     "quality_score": 91,
                     "is_test_profile": False,
-                    "exposure_enabled": True,
-                    "visibility_posture": "default_available",
                 }
             ]
         if "FROM investor_profiles" in query:
@@ -187,8 +183,6 @@ class _FakeMarketplaceDeckConn:
         if "FROM actor_profiles" in query:
             assert "NOT (('hushh_user:' || ap.user_id) = ANY" in query
             assert "ANY($5::text[])" in query
-            assert "mp.exposure_enabled = TRUE" in query
-            assert "mp.visibility_posture <> 'private'" in query
             assert "LIMIT $2::integer" in query
             assert args[1] == 12
             assert args[3] is True
@@ -236,8 +230,6 @@ class _FakeMarketplaceDeckConn:
             assert "ANY($4::text[])" in query
             assert "($2::text IS NULL" in query
             assert "$3::boolean = FALSE" in query
-            assert "mp.exposure_enabled = TRUE" in query
-            assert "mp.visibility_posture <> 'private'" in query
             assert len(args) == 4
             return 0
         if "FROM investor_profiles" in query:
@@ -281,8 +273,6 @@ def test_marketplace_investors_returns_qualified_hushh_and_public_sec_profiles(m
         assert hushh_item["curation_tier"] == "qualified"
         assert hushh_item["quality_score"] == 91
         assert hushh_item["actions"] == ["connect", "view_more"]
-        assert hushh_item["exposure_enabled"] is True
-        assert hushh_item["visibility_posture"] == "default_available"
 
         public_item = items[1]
         assert public_item["id"] == "public_sec:42"
@@ -294,8 +284,6 @@ def test_marketplace_investors_returns_qualified_hushh_and_public_sec_profiles(m
         assert public_item["curation_tier"] == "showcase"
         assert public_item["quality_score"] == 95
         assert public_item["actions"] == ["shortlist", "view_more"]
-        assert public_item["exposure_enabled"] is True
-        assert public_item["visibility_posture"] == "public"
         assert public_item["headline"] == "Managing Partner at Public Capital Partners"
         assert public_item["location_hint"] == "Kirkland, WA 98033"
         assert public_item["evidence"]["confidence"] == "official_public_records"

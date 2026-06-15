@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 
 import { AppPageContentRegion, AppPageHeaderRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
-import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsDetailPanel } from "@/components/profile/settings-ui";
 import {
@@ -48,7 +47,7 @@ import {
   ConsentCenterService,
   type ConsentCenterEntry,
 } from "@/lib/services/consent-center-service";
-import { hasLocalContactMatchFixture, loadContactMatches } from "@/lib/connect/service";
+import { buildMarketplaceContactLookups } from "@/lib/marketplace/contact-matching";
 import {
   isIAMSchemaNotReadyError,
   RiaService,
@@ -59,8 +58,6 @@ import {
   type RiaClientAccess,
 } from "@/lib/services/ria-service";
 import { cn } from "@/lib/utils";
-
-// ─── Types (local) ────────────────────────────────────────────────────────────
 
 type DiscoveryView = "swipe" | "list";
 type SelectedProfile =
@@ -77,13 +74,8 @@ type DiscoveryCard = {
   canConnect: boolean;
   isTestProfile?: boolean;
   verificationStatus?: string | null;
-  /** Visibility fields for Connect domain layer (safe defaults if backend not yet returning them) */
-  visibilityPosture?: string | null;
-  exposureEnabled?: boolean | null;
   profile: MarketplaceRia | MarketplaceInvestor;
 };
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function connectionBadgeLabel(status?: string | null) {
   switch (String(status).toLowerCase()) {
@@ -106,41 +98,6 @@ function isConnectableAdvisor(status?: string | null) {
   return ["active", "verified", "finra_verified"].includes(
     String(status || "").toLowerCase()
   );
-}
-
-function isProfileVisibilityDiscoverable(options: {
-  isTestProfile?: boolean | null;
-  visibilityPosture?: string | null;
-  exposureEnabled?: boolean | null;
-}): boolean {
-  if (options.isTestProfile) return true;
-  if (options.exposureEnabled === false) return false;
-  if (String(options.visibilityPosture || "").toLowerCase() === "private") return false;
-  return true;
-}
-
-/**
- * Defensive visibility filter — excludes cards marked as private.
- * Uses the Connect domain layer's visibility logic without breaking any existing card data.
- * Marketplace RIA/investor results are already backend-filtered; this is a safety net.
- */
-function isCardDiscoverable(card: DiscoveryCard): boolean {
-  // Test profiles are always allowed through (gated by allowTestProfiles flag separately)
-  if (card.isTestProfile) return true;
-  // exposure_enabled=false → not discoverable
-  if (card.exposureEnabled === false) return false;
-  // private posture → not discoverable
-  if (String(card.visibilityPosture || "").toLowerCase() === "private") return false;
-  return true;
-}
-
-function isContactMatchDiscoverable(match: MarketplaceContactMatch): boolean {
-  const profile = match.profile as (MarketplaceRia | MarketplaceInvestor | undefined);
-  return isProfileVisibilityDiscoverable({
-    isTestProfile: profile?.is_test_profile,
-    visibilityPosture: profile?.visibility_posture,
-    exposureEnabled: profile?.exposure_enabled,
-  });
 }
 
 function ProfileAvatar({
@@ -216,23 +173,7 @@ function formatEvidenceForms(forms?: Array<{ form?: string | null; last_filed_at
     .join(" · ");
 }
 
-// ─── Page ──────────────────────────────────────────────────────────────────────
-
 export default function MarketplacePage() {
-  const [hasMounted, setHasMounted] = useState(false);
-
-  useEffect(() => {
-    setHasMounted(true);
-  }, []);
-
-  if (!hasMounted) {
-    return <HushhLoader label="Checking session..." />;
-  }
-
-  return <MarketplacePageClient />;
-}
-
-function MarketplacePageClient() {
   const router = useRouter();
   const { user } = useAuth();
   const { personaState } = usePersonaState();
@@ -723,7 +664,7 @@ function MarketplacePageClient() {
         isConnectableAdvisor(ria.verification_status) &&
         connectionState !== "Connected" &&
         connectionState !== "Pending";
-      const card: DiscoveryCard = {
+      return {
         id: ria.id,
         kind: "ria" as const,
         title: ria.display_name,
@@ -738,12 +679,8 @@ function MarketplacePageClient() {
         canConnect,
         isTestProfile: false,
         verificationStatus: ria.verification_status,
-        // Visibility fields — will be populated when backend adds them
-        visibilityPosture: (ria as unknown as Record<string, unknown>).visibility_posture as string | null ?? null,
-        exposureEnabled: (ria as unknown as Record<string, unknown>).exposure_enabled as boolean | null ?? null,
         profile: ria,
       };
-      return card;
     });
   }, [advisorConnectionMap, currentPersona, rias]);
 
@@ -762,7 +699,7 @@ function MarketplacePageClient() {
         isMarketplaceInvestorConnectable(investor) &&
         connectionState !== "Connected" &&
         connectionState !== "Pending";
-      const card: DiscoveryCard = {
+      return {
         id: investorId,
         kind: "investor" as const,
         title: investor.display_name,
@@ -776,35 +713,26 @@ function MarketplacePageClient() {
           .join(" · ") || "Qualified discovery profile",
         canConnect,
         isTestProfile: Boolean(investor.is_test_profile || (userId && isKaiTestProfileUser(userId))),
-        // Visibility fields — will be populated when backend adds them
-        visibilityPosture: (investor as unknown as Record<string, unknown>).visibility_posture as string | null ?? null,
-        exposureEnabled: (investor as unknown as Record<string, unknown>).exposure_enabled as boolean | null ?? null,
         profile: investor,
       };
-      return card;
     });
   }, [currentPersona, investors, relationshipMap]);
 
   const directoryCards = useMemo<DiscoveryCard[]>(() => {
     const base = directoryKind === "rias" ? advisorCards : investorCards;
-    // Apply visibility filter (safety net — backend already filters but we add a defensive layer)
-    const visible = base.filter(isCardDiscoverable);
     if (directoryKind === "rias") {
-      return [...visible, ...injectedTestCards];
+      return [...base, ...injectedTestCards];
     }
-    return injectedKaiTestInvestor ? [injectedKaiTestInvestor, ...visible] : visible;
+    return injectedKaiTestInvestor ? [injectedKaiTestInvestor, ...base] : base;
   }, [advisorCards, directoryKind, injectedKaiTestInvestor, injectedTestCards, investorCards]);
-
   const searchCards = useMemo<DiscoveryCard[]>(() => {
-    const base = [
-      ...advisorCards.filter(isCardDiscoverable),
+    return [
+      ...advisorCards,
       ...injectedTestCards,
       ...(injectedKaiTestInvestor ? [injectedKaiTestInvestor] : []),
-      ...investorCards.filter(isCardDiscoverable),
+      ...investorCards,
     ];
-    return base;
   }, [advisorCards, injectedKaiTestInvestor, injectedTestCards, investorCards]);
-
   const activeCards = view === "list" ? searchCards : directoryCards;
   const passedIds = directoryKind === "rias" ? passedRiaIds : passedInvestorIds;
   const shuffledSwipeCards = useMemo(() => {
@@ -883,8 +811,7 @@ function MarketplacePageClient() {
   const connectionsRoute = buildMarketplaceConnectionsRoute({ tab: "active" });
 
   const matchContacts = useCallback(async () => {
-    const canUseLocalContactFixture = hasLocalContactMatchFixture();
-    if (!user && !canUseLocalContactFixture) {
+    if (!user) {
       toast.error("Sign in required", {
         description: "Connect needs your signed-in account before matching contacts.",
       });
@@ -893,21 +820,22 @@ function MarketplacePageClient() {
     try {
       setContactMatchLoading(true);
       setContactMatchError(null);
-      const idToken = user ? await user.getIdToken() : "";
-      const result = await loadContactMatches(idToken, { limit: 500 });
-      if (result.error) {
-        throw new Error(result.error);
+      const lookupResult = await buildMarketplaceContactLookups({ limit: 500 });
+      if (lookupResult.lookups.length === 0) {
+        setContactMatches([]);
+        setContactScanSummary("No phone numbers found in contacts.");
+        return;
       }
-      const visibleMatches = result.matches.filter(isContactMatchDiscoverable);
-      setContactMatches(visibleMatches);
+      const idToken = await user.getIdToken();
+      const matches = await RiaService.matchMarketplaceContacts(idToken, {
+        phone_lookups: lookupResult.lookups.map(({ hash, last4 }) => ({ hash, last4 })),
+        limit: 50,
+      });
+      setContactMatches(matches);
       setContactScanSummary(
-        visibleMatches.length > 0
-          ? `${visibleMatches.length} discoverable match${visibleMatches.length === 1 ? "" : "es"} from ${result.totalContacts} contacts.`
-          : result.totalContacts > 0
-            ? `No discoverable Hushh matches from ${result.totalContacts} contacts.`
-            : "No phone numbers or emails found in contacts."
+        `${matches.length} match${matches.length === 1 ? "" : "es"} from ${lookupResult.totalContacts} contacts.`
       );
-      if (visibleMatches.length === 0) {
+      if (matches.length === 0) {
         toast.info("No Hushh contacts found", {
           description: "Search is still available across public profiles.",
         });
@@ -1306,6 +1234,7 @@ function MarketplacePageClient() {
                     </span>
                     <span className="block line-clamp-1 text-xs text-muted-foreground">
                       {match.kind === "ria" ? "RIA" : "Investor"}
+                      {match.phone_last4 ? ` · ${match.phone_last4}` : ""}
                     </span>
                   </span>
                 </button>

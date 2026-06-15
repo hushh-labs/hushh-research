@@ -29,15 +29,8 @@ class MarketplaceContactLookup(BaseModel):
     last4: str = Field(..., min_length=2, max_length=4, pattern=r"^\d{2,4}$")
 
 
-class MarketplaceEmailContactLookup(BaseModel):
-    hash: str = Field(..., min_length=64, max_length=64, pattern=r"^[a-fA-F0-9]{64}$")
-
-
 class MarketplaceContactMatchRequest(BaseModel):
     phone_lookups: list[MarketplaceContactLookup] = Field(default_factory=list, max_length=1000)
-    email_lookups: list[MarketplaceEmailContactLookup] = Field(
-        default_factory=list, max_length=1000
-    )
     limit: int = Field(default=50, ge=1, le=100)
 
 
@@ -171,8 +164,7 @@ async def match_marketplace_contacts(
     try:
         items = await service.match_marketplace_contacts(
             firebase_uid,
-            phone_lookups=[item.model_dump() for item in payload.phone_lookups],
-            email_lookups=[item.model_dump() for item in payload.email_lookups],
+            phone_lookups=[item.dict() for item in payload.phone_lookups],
             limit=payload.limit,
         )
         return {"items": items}
