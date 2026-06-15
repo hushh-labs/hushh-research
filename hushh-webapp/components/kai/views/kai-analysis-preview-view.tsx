@@ -26,6 +26,7 @@ import {
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import {
   kaiPreviewDockActiveItemClassName,
+  kaiPreviewDockFrameClassName,
   kaiPreviewDockItemClassName,
   kaiPreviewDockSurfaceClassName,
   kaiPreviewEyebrowClassName,
@@ -41,9 +42,13 @@ const analysisRootClassName = cn(
   "relative isolate mx-auto flex min-h-screen w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
   "bg-[color:var(--one-bg)] font-sans text-[color:var(--one-fg)] antialiased",
   "[--one-bg:#ffffff] [--one-card:#ffffff] [--one-surface:#f2f2f7]",
+  "dark:[--one-bg:#000000] dark:[--one-card:#1c1c1e] dark:[--one-surface:#1c1c1e]",
   "[--one-hairline:rgba(0,0,0,0.08)] [--one-line:rgba(0,0,0,0.06)]",
+  "dark:[--one-hairline:rgba(255,255,255,0.14)] dark:[--one-line:rgba(255,255,255,0.10)]",
   "[--one-fg:#1d1d1f] [--one-fg2:rgba(0,0,0,0.55)] [--one-fg3:rgba(0,0,0,0.42)]",
+  "dark:[--one-fg:#f5f5f7] dark:[--one-fg2:rgba(245,245,247,0.64)] dark:[--one-fg3:rgba(245,245,247,0.46)]",
   "[--one-blue:#0071e3] [--one-link:#0066cc] [--one-blue-t:rgba(0,113,227,0.10)]",
+  "dark:[--one-blue:#0a84ff] dark:[--one-link:#2997ff] dark:[--one-blue-t:rgba(10,132,255,0.18)]",
   "[--one-up:#34c759] [--one-up-t:rgba(52,199,89,0.12)]",
   "[--one-down:#ff3b30] [--one-down-t:rgba(255,59,48,0.10)]",
   "[--one-indigo:#5856d6] [--one-indigo-t:rgba(88,86,214,0.12)]",
@@ -51,8 +56,9 @@ const analysisRootClassName = cn(
   "[--one-teal:#30b0c7] [--one-teal-t:rgba(48,176,199,0.13)]",
   "[--one-purple:#af52de] [--one-purple-t:rgba(175,82,222,0.12)]",
   "[--one-glass-fill:linear-gradient(135deg,rgba(255,255,255,0.45),rgba(255,255,255,0.16))]",
+  "dark:[--one-glass-fill:linear-gradient(135deg,rgba(44,44,46,0.86),rgba(28,28,30,0.62))]",
   "[--one-glass-float:0_16px_38px_-20px_rgba(0,0,0,0.28),0_4px_12px_-8px_rgba(0,0,0,0.10)]",
-  "[--one-gutter:clamp(16px,4.6vw,22px)]"
+  "[--one-gutter:clamp(18px,5vw,32px)]"
 );
 
 const analysisGlassClassName = cn(
@@ -346,7 +352,7 @@ function AnalysisDock({ onKaiOpen }: { onKaiOpen: () => void }) {
   };
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 mx-auto w-full max-w-[560px] px-4 pb-[calc(10px+env(safe-area-inset-bottom))] sm:px-6 before:pointer-events-none before:absolute before:inset-x-[-18px] before:bottom-[-10px] before:h-[126px] before:bg-[linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,0.88)_34%,rgba(255,255,255,0.98))] before:backdrop-blur-[8px] [&>*]:relative [&>*]:z-[1]">
+    <div className={kaiPreviewDockFrameClassName}>
       <div className="relative flex items-end gap-2.5 sm:gap-3">
         {searchOpen ? (
           <>
@@ -627,16 +633,24 @@ export function KaiAnalysisPreviewView() {
             background: #ffffff !important;
           }
 
+          html.dark:has([data-one-analysis-preview="true"]),
+          html.dark:has([data-one-analysis-preview="true"]) body,
+          html.dark:has([data-one-analysis-preview="true"]) body main,
+          html.dark:has([data-one-analysis-preview="true"]) body [data-top-content-anchor="true"],
+          html.dark:has([data-one-analysis-preview="true"]) body [class*="overflow-y-auto"][class*="touch-pan-y"] {
+            background: #000000 !important;
+          }
+
           nextjs-portal,
           [aria-label="Open consent inbox"] {
             display: none !important;
           }
         `}
       </style>
-      <div aria-hidden className="pointer-events-none absolute inset-0 -z-20 bg-white" />
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-20 bg-[color:var(--one-bg)]" />
 
-      <div className="mx-auto flex min-h-screen w-full max-w-[440px] flex-col">
-        <main className="min-h-0 flex-1 overflow-y-auto px-5 pb-[calc(190px+env(safe-area-inset-bottom))] pt-3 sm:px-[22px]">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1080px] flex-col">
+        <main className="min-h-0 flex-1 overflow-y-auto px-[var(--one-gutter)] pb-[calc(190px+env(safe-area-inset-bottom))] pt-5 sm:pt-7">
           <header className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <span className={cn(kaiPreviewEyebrowClassName, "text-[color:var(--one-fg3)]")}>
@@ -645,7 +659,7 @@ export function KaiAnalysisPreviewView() {
               <div className={cn("mt-1.5", kaiPreviewPageTitleClassName)} role="heading" aria-level={1}>
                 Analysis
               </div>
-              <p className="mt-2 max-w-[32ch] text-[14px] leading-snug text-[color:var(--one-fg2)]">
+              <p className="mt-2 max-w-[34ch] text-[17px] leading-[1.42] text-[color:var(--one-fg2)]">
                 How your portfolio is performing.
               </p>
             </div>
@@ -668,7 +682,7 @@ export function KaiAnalysisPreviewView() {
                 openAnalysisHref(`/kai/analysis?preview=analysis&q=${encodeURIComponent(query)}`);
               }
             }}
-            className="mt-3 flex h-11 items-center gap-2.5 rounded-xl bg-[color:var(--one-surface)] px-3.5"
+            className="mt-5 flex h-12 items-center gap-2.5 rounded-[16px] bg-[color:var(--one-surface)] px-4"
           >
             <Search className="h-[17px] w-[17px] shrink-0 text-[color:var(--one-fg3)]" />
             <input
@@ -687,7 +701,7 @@ export function KaiAnalysisPreviewView() {
             </button>
           </form>
 
-          <div className="mt-3.5 flex items-start justify-between gap-3">
+          <div className="mt-5 flex items-start justify-between gap-3">
             <div>
               <p className="text-[13px] font-medium text-[color:var(--one-fg2)]">Portfolio value</p>
               <p className="mt-1 text-[38px] font-semibold leading-none tracking-normal text-[color:var(--one-fg)] tabular-nums">
@@ -745,7 +759,7 @@ export function KaiAnalysisPreviewView() {
 
           <section className="mt-8">
             <SectionHeader title="Returns" icon={TrendingUp} tone="indigo" />
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
               <StatCard label="Total return" value="+$18,420" sub="+14.8% - 1Y" tone="up" />
               <StatCard label="Today" value="+$579" sub="+0.41%" tone="up" />
               <StatCard label="CAGR" value="12.6%" sub="Since inception" />
@@ -765,7 +779,7 @@ export function KaiAnalysisPreviewView() {
               <div className="mt-2 h-[7px] overflow-hidden rounded-full bg-[color:var(--one-surface)]">
                 <span className="block h-full w-[62%] rounded-full bg-[color:var(--one-orange)]" />
               </div>
-              <div className="mt-3.5 grid grid-cols-2 gap-2.5">
+              <div className="mt-3.5 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
                 <StatCard label="Risk profile" value="Moderate" sub="64 / 22 / 14 mix" />
                 <StatCard label="Beta" value="1.18" sub="vs S&P 500" />
                 <StatCard label="Volatility" value="14.2%" sub="1Y annualised" />

@@ -143,7 +143,7 @@ const ALLOCATION_COLOR_PALETTE = [
 ];
 
 const portfolioChipClassName =
-  "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-none shadow-[var(--shadow-xs)]";
+  "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium leading-none shadow-[var(--shadow-xs)]";
 const portfolioChipTones = {
   blue:
     "border-blue-500/12 bg-blue-500/[0.08] text-blue-700 dark:border-blue-400/16 dark:bg-blue-400/[0.10] dark:text-blue-200",
@@ -156,9 +156,9 @@ const portfolioChipTones = {
 } as const;
 
 const portfolioMetricLabelClassName =
-  "text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground";
+  "text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground";
 const portfolioMetricValueClassName =
-  "mt-1 text-2xl font-semibold tracking-tight sm:text-[1.65rem]";
+  "mt-1 text-2xl font-medium tracking-normal sm:text-[1.65rem]";
 const portfolioSummaryPillClassName =
   "rounded-2xl px-3 py-2 text-[12px] leading-5 text-muted-foreground";
 
@@ -2777,13 +2777,13 @@ export function DashboardMasterView({
                 </span>
               ) : null}
             </div>
-            <p className="text-[2.35rem] font-semibold leading-none tracking-tight text-foreground sm:text-5xl">
+            <p className="text-[2.35rem] font-medium leading-none tracking-normal text-foreground sm:text-5xl">
               {formatCurrency(model.hero.totalValue)}
             </p>
             <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
               <span
                 className={cn(
-                  "inline-flex items-center font-semibold tracking-tight",
+                  "inline-flex items-center font-medium tracking-normal",
                   model.hero.netChange >= 0
                     ? "text-emerald-600 dark:text-emerald-400"
                     : "text-rose-600 dark:text-rose-400"
@@ -2803,7 +2803,7 @@ export function DashboardMasterView({
           </div>
 
           <SurfaceInset className="px-4 py-3 text-center">
-            <p className="text-[13px] font-semibold tracking-tight text-foreground sm:text-sm">
+            <p className="text-[13px] font-medium tracking-normal text-foreground sm:text-sm">
               {isPlaidView
                 ? freshness?.lastSyncedAt
                   ? `Last synced ${new Date(freshness.lastSyncedAt).toLocaleString()}`
@@ -2819,7 +2819,7 @@ export function DashboardMasterView({
               ) : (
                 <>
                   Beginning Balance:{" "}
-                  <span className="font-semibold text-foreground">{formatCurrency(model.hero.beginningValue)}</span>
+                  <span className="font-medium text-foreground">{formatCurrency(model.hero.beginningValue)}</span>
                 </>
               )}
             </p>
@@ -2827,7 +2827,7 @@ export function DashboardMasterView({
 
           <SurfaceInset className="flex flex-col gap-3 px-4 py-3 text-left sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <p className="text-[13px] font-semibold tracking-tight text-foreground sm:text-sm">
+              <p className="text-[13px] font-medium tracking-normal text-foreground sm:text-sm">
                 Investment preferences
               </p>
               <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
@@ -2987,7 +2987,7 @@ export function DashboardMasterView({
 
           <SurfaceCard>
             <SurfaceCardHeader className="px-5 pb-2 pt-5 sm:px-7 sm:pt-6">
-              <SurfaceCardTitle className="text-[15px] font-semibold tracking-tight text-foreground">
+              <SurfaceCardTitle className="text-[15px] font-medium tracking-normal text-foreground">
                 Investor Snapshot
               </SurfaceCardTitle>
             </SurfaceCardHeader>
@@ -3060,7 +3060,7 @@ export function DashboardMasterView({
           <SurfaceCard className="min-w-0">
             <SurfaceCardHeader className="px-5 pb-2 pt-5 sm:px-7 sm:pt-6">
               <div className="flex items-center justify-between gap-2">
-                <SurfaceCardTitle className="text-[15px] font-semibold tracking-tight text-foreground">
+                <SurfaceCardTitle className="text-[15px] font-medium tracking-normal text-foreground">
                   {isPlaidView ? "Brokerage Holdings" : "Current Holdings"}
                 </SurfaceCardTitle>
                 {canEditStatement ? (
@@ -3161,7 +3161,7 @@ export function DashboardMasterView({
 
         <TabsContent value="deep-dive" className="mt-0 space-y-5">
           <section className="space-y-3">
-            <h2 className="px-1 text-[15px] font-semibold tracking-tight text-foreground">
+            <h2 className="px-1 text-[15px] font-medium tracking-normal text-foreground">
               Portfolio Insights
             </h2>
             <div className="grid gap-4 lg:grid-cols-2">

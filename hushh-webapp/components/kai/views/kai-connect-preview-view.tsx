@@ -27,6 +27,7 @@ import {
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import {
   kaiPreviewDockActiveItemClassName,
+  kaiPreviewDockFrameClassName,
   kaiPreviewDockItemClassName,
   kaiPreviewDockSurfaceClassName,
   kaiPreviewEyebrowClassName,
@@ -198,9 +199,13 @@ const connectRootClassName = cn(
   "relative isolate mx-auto flex min-h-screen w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
   "bg-[color:var(--one-bg)] font-sans text-[color:var(--one-fg)] antialiased",
   "[--one-bg:#ffffff] [--one-card:#ffffff] [--one-surface:#f2f2f7]",
+  "dark:[--one-bg:#000000] dark:[--one-card:#1c1c1e] dark:[--one-surface:#1c1c1e]",
   "[--one-hairline:rgba(0,0,0,0.08)] [--one-line:rgba(0,0,0,0.06)]",
+  "dark:[--one-hairline:rgba(255,255,255,0.14)] dark:[--one-line:rgba(255,255,255,0.10)]",
   "[--one-fg:#1d1d1f] [--one-fg2:rgba(0,0,0,0.55)] [--one-fg3:rgba(0,0,0,0.42)]",
+  "dark:[--one-fg:#f5f5f7] dark:[--one-fg2:rgba(245,245,247,0.64)] dark:[--one-fg3:rgba(245,245,247,0.46)]",
   "[--one-blue:#0071e3] [--one-link:#0066cc] [--one-blue-t:rgba(0,113,227,0.10)]",
+  "dark:[--one-blue:#0a84ff] dark:[--one-link:#2997ff] dark:[--one-blue-t:rgba(10,132,255,0.18)]",
   "[--one-up:#34c759] [--one-up-t:rgba(52,199,89,0.12)]",
   "[--one-down:#ff3b30] [--one-down-t:rgba(255,59,48,0.10)]",
   "[--one-indigo:#5856d6] [--one-indigo-t:rgba(88,86,214,0.12)]",
@@ -208,8 +213,9 @@ const connectRootClassName = cn(
   "[--one-teal:#30b0c7] [--one-teal-t:rgba(48,176,199,0.13)]",
   "[--one-purple:#af52de] [--one-purple-t:rgba(175,82,222,0.12)]",
   "[--one-glass-fill:linear-gradient(135deg,rgba(255,255,255,0.45),rgba(255,255,255,0.16))]",
+  "dark:[--one-glass-fill:linear-gradient(135deg,rgba(44,44,46,0.86),rgba(28,28,30,0.62))]",
   "[--one-glass-float:0_16px_38px_-20px_rgba(0,0,0,0.28),0_4px_12px_-8px_rgba(0,0,0,0.10)]",
-  "[--one-gutter:clamp(16px,4.6vw,22px)]"
+  "[--one-gutter:clamp(18px,5vw,32px)]"
 );
 
 const connectGlassClassName = cn(
@@ -343,7 +349,7 @@ function ConnectDock({
   };
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 mx-auto w-full max-w-[560px] px-4 pb-[calc(10px+env(safe-area-inset-bottom))] sm:px-6 before:pointer-events-none before:absolute before:inset-x-[-18px] before:bottom-[-10px] before:h-[126px] before:bg-[linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,0.88)_34%,rgba(255,255,255,0.98))] before:backdrop-blur-[8px] [&>*]:relative [&>*]:z-[1]">
+    <div className={kaiPreviewDockFrameClassName}>
       <div className="relative flex items-end gap-2.5 sm:gap-3">
         {searchOpen ? (
           <>
@@ -780,16 +786,24 @@ export function KaiConnectPreviewView() {
             background: #ffffff !important;
           }
 
+          html.dark:has([data-one-connect-preview="true"]),
+          html.dark:has([data-one-connect-preview="true"]) body,
+          html.dark:has([data-one-connect-preview="true"]) body main,
+          html.dark:has([data-one-connect-preview="true"]) body [data-top-content-anchor="true"],
+          html.dark:has([data-one-connect-preview="true"]) body [class*="overflow-y-auto"][class*="touch-pan-y"] {
+            background: #000000 !important;
+          }
+
           nextjs-portal,
           [aria-label="Open consent inbox"] {
             display: none !important;
           }
         `}
       </style>
-      <div aria-hidden className="pointer-events-none absolute inset-0 -z-20 bg-white" />
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-20 bg-[color:var(--one-bg)]" />
 
-      <div className="mx-auto flex min-h-screen w-full max-w-[440px] flex-col">
-        <main className="min-h-0 flex-1 overflow-y-auto px-5 pb-[calc(190px+env(safe-area-inset-bottom))] pt-4 sm:px-[22px]">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1080px] flex-col">
+        <main className="min-h-0 flex-1 overflow-y-auto px-[var(--one-gutter)] pb-[calc(190px+env(safe-area-inset-bottom))] pt-5 sm:pt-7">
           <header className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <span className={cn(kaiPreviewEyebrowClassName, "text-[color:var(--one-fg3)]")}>
@@ -798,7 +812,7 @@ export function KaiConnectPreviewView() {
               <div className={cn("mt-1.5", kaiPreviewPageTitleClassName)} role="heading" aria-level={1}>
                 Connect
               </div>
-              <p className="mt-2 max-w-[30ch] text-[14px] leading-snug text-[color:var(--one-fg2)]">
+              <p className="mt-2 max-w-[34ch] text-[17px] leading-[1.42] text-[color:var(--one-fg2)]">
                 Find a registered advisor. Connect with consent.
               </p>
             </div>
@@ -815,7 +829,7 @@ export function KaiConnectPreviewView() {
 
           <form
             onSubmit={(event) => event.preventDefault()}
-            className="mt-3.5 flex h-11 items-center gap-2.5 rounded-xl bg-[color:var(--one-surface)] px-3.5"
+            className="mt-5 flex h-12 items-center gap-2.5 rounded-[16px] bg-[color:var(--one-surface)] px-4"
           >
             <Search className="h-[17px] w-[17px] shrink-0 text-[color:var(--one-fg3)]" />
             <input

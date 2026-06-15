@@ -133,7 +133,7 @@ export function AnalysisView({
             />
 
             <div>
-              <h1 className="text-2xl font-bold tracking-tighter">{result.symbol}</h1>
+              <h1 className="text-[28px] font-medium tracking-normal">{result.symbol}</h1>
               <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Investment Analysis</p>
             </div>
           </div>
@@ -162,7 +162,7 @@ export function AnalysisView({
                 <p className="text-sm text-muted-foreground">Recommendation</p>
                 <p
                   className={cn(
-                    "text-2xl font-bold",
+                    "text-2xl font-medium",
                     getDecisionColor(result.decision)
                   )}
                 >

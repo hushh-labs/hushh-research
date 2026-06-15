@@ -520,7 +520,7 @@ export function AuthStep({
 
   return (
     <main
-      className="min-h-[100dvh] w-full bg-[#fbfbfd] text-[#1d1d1f] dark:bg-[#000000] dark:text-[#f5f5f7]"
+      className="min-h-[100dvh] w-full bg-white text-[#1d1d1f] dark:bg-[#000000] dark:text-[#f5f5f7]"
       data-testid="auth-step-primary"
     >
       <NativeTestBeacon
@@ -549,8 +549,8 @@ export function AuthStep({
       <div
         className={
           compact
-            ? "mx-auto flex min-h-[100dvh] w-full max-w-[27rem] flex-col px-6 pt-[calc(28px+var(--app-safe-area-top-effective,0px))] pb-[calc(24px+var(--app-screen-footer-pad))]"
-            : "mx-auto flex min-h-[100dvh] w-full max-w-[27rem] flex-col px-6 pt-[calc(54px+var(--app-safe-area-top-effective,0px))] pb-[calc(28px+var(--app-screen-footer-pad))]"
+            ? "mx-auto flex min-h-[100dvh] w-full max-w-[27rem] flex-col px-6 pt-[calc(24px+var(--app-safe-area-top-effective,0px))] pb-[calc(24px+var(--app-screen-footer-pad))]"
+            : "mx-auto flex min-h-[100dvh] w-full max-w-[27rem] flex-col px-6 pt-[calc(48px+var(--app-safe-area-top-effective,0px))] pb-[calc(28px+var(--app-screen-footer-pad))]"
         }
       >
         <header className="flex-none text-center">
@@ -565,11 +565,11 @@ export function AuthStep({
           <div
             role="heading"
             aria-level={1}
-            className="mt-4 text-[32px] font-semibold leading-[1.1] tracking-normal text-[#1d1d1f] sm:text-[38px] dark:text-[#f5f5f7]"
+            className="mt-3 text-[34px] font-medium leading-[1.06] tracking-normal text-[#1d1d1f] sm:text-[40px] dark:text-[#f5f5f7]"
           >
             Sign in to One.
           </div>
-          <p className="mx-auto mt-3 max-w-[19rem] text-[17px] font-normal leading-[1.42] tracking-normal text-[#6e6e73] dark:text-[#a1a1a6]">
+          <p className="mx-auto mt-3 max-w-[20rem] text-[17px] font-normal leading-[1.42] tracking-normal text-[#6e6e73] dark:text-[#a1a1a6]">
             Continue to your personal financial advisor.
           </p>
         </header>
@@ -577,8 +577,8 @@ export function AuthStep({
         <section
           className={
             compact
-              ? "flex-none pt-14"
-              : "flex-none pt-16"
+              ? "flex-none pt-11"
+              : "flex-none pt-12"
           }
         >
           <div className="mx-auto w-full max-w-[21.5rem] space-y-3">
@@ -608,7 +608,7 @@ export function AuthStep({
           </div>
         </section>
 
-        <footer className={compact ? "mt-auto flex-none pt-10" : "mt-auto flex-none pt-12"}>
+        <footer className={compact ? "mt-auto flex-none pt-9" : "mt-auto flex-none pt-10"}>
           <p className="mx-auto max-w-[19.5rem] text-center text-[11px] leading-[1.45] text-[#86868b] dark:text-[#8e8e93]">
             By continuing, you agree to Kai&apos;s{" "}
             <button

@@ -18,27 +18,31 @@ export const marketSurfaceVariablesClassName = cn(
 );
 
 export const kaiPreviewEyebrowClassName =
-  "text-[11px] font-medium uppercase tracking-normal";
+  "text-[11px] font-medium uppercase tracking-[0.16em]";
 
 export const kaiPreviewPageTitleClassName =
-  "font-heading !text-[31px] !font-semibold !leading-[1.08] !tracking-normal text-[color:var(--one-fg)] sm:!text-[32px]";
+  "font-sans !text-[34px] !font-medium !leading-[1.06] !tracking-normal text-[color:var(--one-fg)] sm:!text-[40px]";
 
 export const kaiPreviewSectionTitleClassName =
-  "flex min-w-0 items-center gap-2.5 !text-[20px] !font-semibold !leading-[1.12] !tracking-normal text-[color:var(--one-fg)]";
+  "flex min-w-0 items-center gap-2.5 !text-[22px] !font-medium !leading-[1.08] !tracking-normal text-[color:var(--one-fg)] sm:!text-[24px]";
+
+export const kaiPreviewDockFrameClassName =
+  "pointer-events-none fixed inset-x-0 bottom-0 z-30 mx-auto w-full max-w-[560px] px-4 pb-[calc(10px+env(safe-area-inset-bottom))] sm:px-6";
 
 export const kaiPreviewDockSurfaceClassName = cn(
-  "relative overflow-hidden bg-[image:var(--one-glass-fill)] backdrop-blur-[20px] backdrop-saturate-[200%]",
-  "shadow-[var(--one-glass-float),inset_0_1px_0_rgba(255,255,255,0.35),inset_0_-1px_1px_rgba(0,0,0,0.06)]",
-  "before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:p-px before:[background:linear-gradient(135deg,rgba(255,255,255,0.95),transparent_45%,transparent_60%,rgba(255,255,255,0.30))]",
+  "relative overflow-hidden bg-white/[0.82] backdrop-blur-[18px] backdrop-saturate-[180%]",
+  "shadow-[0_14px_36px_-24px_rgba(0,0,0,0.30),0_1px_2px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,0.72)]",
+  "before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:p-px before:[background:linear-gradient(135deg,rgba(255,255,255,0.88),rgba(255,255,255,0.22)_52%,rgba(0,0,0,0.08))]",
   "before:[-webkit-mask:linear-gradient(#000_0_0)_content-box,linear-gradient(#000_0_0)] before:[-webkit-mask-composite:xor] before:[mask-composite:exclude]",
+  "dark:bg-[#1c1c1e]/80 dark:shadow-[0_16px_40px_-22px_rgba(0,0,0,0.78),inset_0_1px_0_rgba(255,255,255,0.12)]",
   "[&>*]:relative [&>*]:z-[1]"
 );
 
 export const kaiPreviewDockItemClassName =
-  "flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-full border-0 bg-transparent px-0 pb-[5px] pt-[6px] text-[10px] font-semibold tracking-normal text-[color:var(--one-fg2)] no-underline transition-[background,color,box-shadow,transform] duration-200 hover:text-[color:var(--one-fg)] active:scale-[0.93]";
+  "flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-full border-0 bg-transparent px-0 pb-[5px] pt-[6px] text-[10px] font-medium tracking-normal text-[color:var(--one-fg2)] no-underline transition-[background,color,box-shadow,transform] duration-200 hover:text-[color:var(--one-fg)] active:scale-[0.93]";
 
 export const kaiPreviewDockActiveItemClassName =
-  "bg-[color:var(--one-card)] text-[color:var(--one-blue)] shadow-[0_2px_10px_rgba(0,0,0,0.14)]";
+  "bg-white text-[color:var(--one-blue)] shadow-[0_10px_26px_-18px_rgba(0,0,0,0.34),0_1px_2px_rgba(0,0,0,0.08)] dark:bg-white/[0.12]";
 
 export const marketCardClassName = cn(
   marketSurfaceVariablesClassName,
