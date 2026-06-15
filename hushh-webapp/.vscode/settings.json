@@ -13,8 +13,5 @@
   
   // TypeScript/JavaScript settings
   "typescript.preferences.includePackageJsonAutoImports": "on",
-  "javascript.preferences.includePackageJsonAutoImports": "on",
-
-  // Android iOS Emulator extension
-  "emulator.emulatorPathWindows": "C:\\Users\\Asus\\AppData\\Local\\Android\\Sdk\\emulator"
+  "javascript.preferences.includePackageJsonAutoImports": "on"
 }
