@@ -306,10 +306,9 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
     useAgentPopover();
   const isLegacyAgentRoute = pathname === ROUTES.AGENT;
   const canShowAgent = isAuthenticated && !isLegacyAgentRoute;
-  const useRiaActionBarTrigger = isRiaActionBarRoute(pathname);
-  const useKaiCommandBarTrigger =
-    pathname.startsWith(ROUTES.KAI_HOME) && !getKaiChromeState(pathname).hideCommandBar;
-  const useEmbeddedAgentTrigger = useRiaActionBarTrigger || useKaiCommandBarTrigger;
+  const chromeState = getKaiChromeState(pathname);
+  const useEmbeddedAgentTrigger =
+    isRiaActionBarRoute(pathname) || !chromeState.hideCommandBar;
   const isCollapsing = motionState === "closing";
   const surfaceVisible = expanded || motionState !== "idle";
   const isFullscreen = sizeMode === "fullscreen";

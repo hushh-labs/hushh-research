@@ -565,11 +565,11 @@ export function AuthStep({
           <div
             role="heading"
             aria-level={1}
-            className="mt-3 text-[34px] font-medium leading-[1.06] tracking-normal text-[#1d1d1f] sm:text-[40px] dark:text-[#f5f5f7]"
+            className="mt-2.5 text-[36px] font-medium leading-[1.06] tracking-normal text-[#1d1d1f] sm:text-[42px] dark:text-[#f5f5f7]"
           >
             Sign in to One.
           </div>
-          <p className="mx-auto mt-3 max-w-[20rem] text-[17px] font-normal leading-[1.42] tracking-normal text-[#6e6e73] dark:text-[#a1a1a6]">
+          <p className="mx-auto mt-3 max-w-[20rem] text-[16px] font-normal leading-[1.45] tracking-normal text-[#6e6e73] sm:text-[17px] dark:text-[#a1a1a6]">
             Continue to your personal financial advisor.
           </p>
         </header>
@@ -608,7 +608,7 @@ export function AuthStep({
           </div>
         </section>
 
-        <footer className={compact ? "mt-auto flex-none pt-9" : "mt-auto flex-none pt-10"}>
+        <footer className={compact ? "mt-auto flex-none pt-8" : "mt-auto flex-none pt-10"}>
           <p className="mx-auto max-w-[19.5rem] text-center text-[11px] leading-[1.45] text-[#86868b] dark:text-[#8e8e93]">
             By continuing, you agree to Kai&apos;s{" "}
             <button
