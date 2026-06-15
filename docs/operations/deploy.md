@@ -26,6 +26,10 @@ flowchart LR
 No GitHub-hosted runner is in this path; the build runs entirely inside GCP
 Cloud Build, so GitHub Actions spending limits never block a deploy.
 
+Canonical visual owner: see [CI & deploy operations](../reference/operations/ci.md)
+and [branch governance](../reference/operations/branch-governance.md) for the
+authoritative pipeline and branch-flow diagrams.
+
 ## Preferred path: deploy by git tag (no credentials needed)
 
 This is how Claude Code on the web deploys. It needs **only its existing git
