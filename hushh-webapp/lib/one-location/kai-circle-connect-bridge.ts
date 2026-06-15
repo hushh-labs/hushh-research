@@ -21,6 +21,10 @@ function hasShareKey(value: {
   return Boolean(value.canReceiveLocation && value.keyId && value.publicKeyJwk);
 }
 
+function isOneLocationRecipientCandidate(candidate: KaiCircleCandidate): boolean {
+  return candidate.sourceTypes.includes("one_location_recipient");
+}
+
 function uniq(values: Array<string | null | undefined>): string[] {
   return Array.from(
     new Set(values.map((value) => String(value || "").trim()).filter(Boolean)),
@@ -74,6 +78,10 @@ function isConnectLocationVisible(connect: ConnectCandidate): boolean {
 
 function fromRecipient(recipient: OneLocationRecipient): KaiCircleCandidate {
   const isShareReady = hasShareKey(recipient);
+  const recommendationTier =
+    recipient.recommendationTier ?? (isShareReady ? "available" : "setup_needed");
+  const recommendationCategory =
+    recipient.recommendationCategory ?? (isShareReady ? "location_ready" : "needs_setup");
   return {
     candidateId: candidateIdForUser(recipient.userId),
     userId: recipient.userId,
@@ -91,8 +99,8 @@ function fromRecipient(recipient: OneLocationRecipient): KaiCircleCandidate {
     isDiscoverable: true,
     recommendationScore: recipient.recommendationScore,
     recommendationRank: recipient.recommendationRank,
-    recommendationTier: recipient.recommendationTier,
-    recommendationCategory: recipient.recommendationCategory,
+    recommendationTier,
+    recommendationCategory,
     recommendationCategoryLabel: recipient.recommendationCategoryLabel,
     recommendationReasons: recipient.recommendationReasons,
     recommendationSummary: recipient.recommendationSummary,
@@ -171,6 +179,7 @@ function fromConnect(connect: ConnectCandidate, viewerCapabilities?: OneLocation
 
 function mergeCandidate(existing: KaiCircleCandidate, incoming: KaiCircleCandidate): KaiCircleCandidate {
   const isShareReady = existing.isShareReady || incoming.isShareReady;
+  const existingIsOneLocationRecipient = isOneLocationRecipientCandidate(existing);
   const sourceTypes = uniq([...existing.sourceTypes, ...incoming.sourceTypes]);
   const score = Math.max(existing.recommendationScore ?? 0, incoming.recommendationScore ?? 0);
   const reasons = [
@@ -197,16 +206,12 @@ function mergeCandidate(existing: KaiCircleCandidate, incoming: KaiCircleCandida
     isShareReady,
     readiness: isShareReady ? "location_ready" : incoming.readiness || existing.readiness,
     recommendationScore: score,
-    recommendationTier:
-      existing.recommendationTier === "setup_needed" && incoming.recommendationTier
-        ? incoming.recommendationTier
-        : existing.recommendationTier ?? incoming.recommendationTier,
-    recommendationCategory:
-      existing.recommendationCategory === "needs_setup" && incoming.recommendationCategory
-        ? incoming.recommendationCategory
-        : existing.recommendationCategory ?? incoming.recommendationCategory,
+    recommendationTier: existing.recommendationTier ?? incoming.recommendationTier,
+    recommendationCategory: existing.recommendationCategory ?? incoming.recommendationCategory,
     recommendationCategoryLabel:
-      existing.recommendationCategoryLabel ?? incoming.recommendationCategoryLabel,
+      existingIsOneLocationRecipient
+        ? existing.recommendationCategoryLabel
+        : existing.recommendationCategoryLabel ?? incoming.recommendationCategoryLabel,
     recommendationReasons: reasons,
     recommendationSummary: existing.recommendationSummary ?? incoming.recommendationSummary,
     trustLevel: existing.trustLevel ?? incoming.trustLevel,
@@ -239,7 +244,8 @@ export function buildKaiCircleCandidates(params: {
     if (!isConnectLocationVisible(connect)) continue;
     const candidate = fromConnect(connect, viewerCapabilities);
     const existing = map.get(candidate.candidateId);
-    map.set(candidate.candidateId, existing ? mergeCandidate(existing, candidate) : candidate);
+    if (!existing) continue;
+    map.set(candidate.candidateId, mergeCandidate(existing, candidate));
   }
 
   return Array.from(map.values())

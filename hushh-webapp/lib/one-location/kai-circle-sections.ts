@@ -83,6 +83,14 @@ export function kaiCircleSectionKey(candidate: KaiCircleCandidate): KaiCircleSec
 
   if (candidate.connectStatus === "pending") return "needs_action";
   if (candidate.connectStatus === "connected") return "trusted_circle";
+  if (candidate.isShareReady) return "location_ready";
+  if (
+    candidate.sourceTypes.includes("one_location_recipient") ||
+    candidate.readiness === "target_setup_needed" ||
+    candidate.readiness === "viewer_setup_needed"
+  ) {
+    return "needs_setup";
+  }
 
   const isProfessional =
     candidate.recommendationCategory === "professional_network" ||
@@ -94,7 +102,6 @@ export function kaiCircleSectionKey(candidate: KaiCircleCandidate): KaiCircleSec
   if (isProfessional) return "professional_network";
 
   if (candidate.sourceTypes.includes("contact_match")) return "connect_matches";
-  if (candidate.isShareReady) return "location_ready";
   return "needs_setup";
 }
 

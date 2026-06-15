@@ -77,8 +77,8 @@ describe("KAI Circle Connect bridge", () => {
     });
   });
 
-  it("keeps public profiles without userId as invite-only and never share-ready", () => {
-    const [candidate] = buildKaiCircleCandidates({
+  it("excludes public profiles without One Location recipient identity", () => {
+    const candidates = buildKaiCircleCandidates({
       connectCandidates: [
         connectCandidate({
           candidateId: "public:public_sec:123",
@@ -92,13 +92,16 @@ describe("KAI Circle Connect bridge", () => {
       state: { recipients: [], viewerCapabilities: { hasLocationRecipientKey: true } },
     });
 
-    expect(candidate.userId).toBeNull();
-    expect(candidate.readiness).toBe("invite_only");
-    expect(candidate.isShareReady).toBe(false);
-    expect(resolveKaiCircleCtas({ candidate, mode: "share" })[0]).toMatchObject({
-      id: "open_connect_profile",
-      label: "Invite to One",
+    expect(candidates).toEqual([]);
+  });
+
+  it("excludes Connect-only professional profiles from the location sharing list", () => {
+    const candidates = buildKaiCircleCandidates({
+      connectCandidates: [connectCandidate({ userId: "user_c", candidateId: "user:user_c" })],
+      state: { recipients: [], viewerCapabilities: { hasLocationRecipientKey: true } },
     });
+
+    expect(candidates).toEqual([]);
   });
 
   it("defensively filters private or exposure-disabled Connect candidates", () => {
@@ -139,7 +142,7 @@ describe("KAI Circle Connect bridge", () => {
     expect(candidates).toEqual([]);
   });
 
-  it("keeps keyless professional candidates in Professional Network instead of Needs Setup", () => {
+  it("keeps keyless One Location app users in Needs Setup even with professional Connect metadata", () => {
     const [candidate] = buildKaiCircleCandidates({
       connectCandidates: [connectCandidate({ userId: "user_c", candidateId: "user:user_c" })],
       state: {
@@ -157,10 +160,10 @@ describe("KAI Circle Connect bridge", () => {
     });
 
     expect(candidate.isShareReady).toBe(false);
-    expect(kaiCircleSectionKey(candidate)).toBe("professional_network");
+    expect(kaiCircleSectionKey(candidate)).toBe("needs_setup");
     const sections = buildKaiCircleSections([candidate]);
-    expect(sections.find((section) => section.key === "professional_network")?.candidates).toHaveLength(1);
-    expect(sections.find((section) => section.key === "needs_setup")?.candidates).toHaveLength(0);
+    expect(sections.find((section) => section.key === "professional_network")?.candidates).toHaveLength(0);
+    expect(sections.find((section) => section.key === "needs_setup")?.candidates).toHaveLength(1);
   });
 
   it("resolves request CTA when viewer setup can be bootstrapped first", () => {
