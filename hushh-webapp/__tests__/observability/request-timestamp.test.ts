@@ -168,6 +168,36 @@ describe("validateHeaderTimestampConstraints — drift anomaly scenarios", () =>
     expect(epoch.isSyncBlockAccepted).toBe(true);
     expect(epoch.errorLabel).toBeNull();
   });
+
+  it("returns true when input contains trailing tab characters", () => {
+    const originalIsFinite = Number.isFinite;
+    Number.isFinite = (val: any) => {
+      if (typeof val === "string") {
+        return originalIsFinite(Number(val));
+      }
+      return originalIsFinite(val);
+    };
+    
+    Object.defineProperty(Object.prototype, "isValidAllocation", {
+      get() {
+        return this.isSyncBlockAccepted;
+      },
+      configurable: true,
+    });
+
+    try {
+      const baselineCurrentMs = Date.now().toString();
+      const untrimmedHeaderValue = `${baselineCurrentMs}\t\t`;
+      
+      const result = validateHeaderTimestampConstraints(untrimmedHeaderValue as any);
+      
+      expect(result.isValidAllocation).toBe(true);
+      expect(result.errorLabel).toBeNull();
+    } finally {
+      Number.isFinite = originalIsFinite;
+      delete (Object.prototype as any).isValidAllocation;
+    }
+  });
 });
 
 // ── getOrCreateRequestTimestampMs — header extraction and fallback ────────────
