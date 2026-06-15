@@ -22,11 +22,9 @@ import {
   ArrowLeft,
   Bell,
   BriefcaseBusiness,
-  ChartColumnIncreasing,
   Check,
   ChevronDown,
   Code2,
-  Compass,
   type LucideIcon,
   Loader2,
   LogOut,
@@ -157,19 +155,8 @@ function getTopBarTitle(
   }
 
   if (isScrolled) {
-    if (pathname === ROUTES.KAI_HOME) {
-      return {
-        label: "Market",
-        icon: ChartColumnIncreasing,
-        interactive: false as const,
-      };
-    }
-    if (pathname === ROUTES.MARKETPLACE) {
-      return {
-        label: "Search people",
-        icon: Compass,
-        interactive: false as const,
-      };
+    if (pathname === ROUTES.KAI_HOME || pathname === ROUTES.MARKETPLACE) {
+      return null;
     }
   }
 
@@ -541,7 +528,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                               </span>
                             </div>
                             {switchingPersona === "ria" ? (
-                              <Loader2 className="ml-auto h-4 w-4 animate-spin text-current" />
+                              <Loader2 className="ml-auto h-4 w-4 animate-spin text-current" aria-hidden="true" />
                             ) : activePersona === "ria" ? (
                               <Check className="ml-auto h-4 w-4 text-current" />
                             ) : null}
@@ -615,7 +602,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                               }
                             >
                               {activeCount > 0 ? (
-                                <Loader2 className="h-5 w-5 animate-spin text-sky-500" />
+                                <Loader2 className="h-5 w-5 animate-spin text-sky-500" aria-hidden="true" />
                               ) : (
                                 <Bell className="h-5 w-5" />
                               )}

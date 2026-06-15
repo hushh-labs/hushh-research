@@ -63,6 +63,20 @@ def _assert_surface(surface: str, repo: str, policy: dict) -> list[str]:
             f"production manual dispatch policy drifted: expected ['kushaltrivedi5'], got {allowed_users}"
         )
 
+    # UAT dispatch authority must equal the merge cohort (main.review_bypass_users).
+    # Invariant: anyone trusted to land code on `main` is trusted to validate that
+    # code in the hosted UAT sandbox -- no more, no less. This keeps the two lists
+    # in lockstep and fails CI if either is widened or narrowed independently
+    # (e.g. a maintainer quietly adding only themselves to UAT dispatch).
+    if surface == "uat":
+        merge_cohort = sorted(set(policy.get("main", {}).get("review_bypass_users") or []))
+        uat_cohort = sorted(set(allowed_users))
+        if uat_cohort != merge_cohort:
+            errors.append(
+                "uat manual dispatch policy drifted from the merge cohort: "
+                f"expected {merge_cohort} (main.review_bypass_users), got {uat_cohort}"
+            )
+
     summary = (
         f"{surface} environment summary: env={env_name}, "
         f"reviewers={reviewers}, can_admins_bypass={payload.get('can_admins_bypass')}, "

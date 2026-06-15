@@ -17,6 +17,7 @@ import { KaiNavTourLocalService } from "@/lib/services/kai-nav-tour-local-servic
 import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
 import { Button } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { useHostname } from "@/lib/hooks/use-hostname";
 import {
   Dialog,
   DialogContent,
@@ -28,7 +29,7 @@ import {
 import { toast } from "sonner";
 
 interface VaultMethodPromptProps {
-  enabled: boolean;
+  enabled?: boolean;
 }
 
 function readableMethod(method: VaultMethod): string {
@@ -46,13 +47,14 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [targetMethod, setTargetMethod] = useState<VaultMethod | null>(null);
+  const hostname = useHostname();
   const currentRpId = useMemo(
     () =>
       resolvePasskeyRpId({
         isNative: Capacitor.isNativePlatform(),
-        hostname: typeof window !== "undefined" ? window.location.hostname : null,
+        hostname: hostname,
       }),
-    []
+    [hostname]
   );
 
   const canEvaluate = enabled && !loading && !!user?.uid && isVaultUnlocked && !!vaultKey;

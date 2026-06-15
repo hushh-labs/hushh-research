@@ -107,7 +107,7 @@ a, button, input, select, textarea {
    * Next/font sets these variables at runtime from app/layout.tsx.
    * Keep names semantic so future font swaps only need layout.tsx changes. */
   --font-app-body: system-ui, sans-serif;
-  --font-app-heading: system-ui, sans-serif;
+  --font-app-heading: Inter, "Inter Fallback", system-ui, sans-serif;
   --font-app-mono: ui-monospace, monospace;
 
   /* Runtime CSS variable fallbacks for dynamic primitives/charts. */
@@ -1014,6 +1014,15 @@ html.native-ios {
     letter-spacing: -0.012em;
   }
 
+  .app-page-shell h1,
+  .app-page-shell [role="heading"][aria-level="1"] {
+    font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
+    font-size: clamp(1.9rem, 4.8vw, 2rem) !important;
+    line-height: 1.08 !important;
+    font-weight: 600 !important;
+    letter-spacing: 0 !important;
+  }
+
   /* Global Lucide icon stroke thickness (lucide-react adds `.lucide` on the SVG). */
   .lucide {
     stroke-width: var(--lucide-stroke-width);
@@ -1237,10 +1246,10 @@ md-ripple.morphy-md-ripple {
   opacity: 1;
   background: linear-gradient(
     to top,
-    rgba(245, 245, 247, 0.17) 0%,
-    rgba(245, 245, 247, 0.13) 42%,
-    rgba(245, 245, 247, 0.07) 70%,
-    rgba(245, 245, 247, 0.024) 90%,
+    var(--app-bar-bottom-fade-strong, rgba(245, 245, 247, 0.17)) 0%,
+    var(--app-bar-bottom-fade-medium, rgba(245, 245, 247, 0.13)) 42%,
+    var(--app-bar-bottom-fade-soft, rgba(245, 245, 247, 0.07)) 70%,
+    var(--app-bar-bottom-fade-trace, rgba(245, 245, 247, 0.024)) 90%,
     transparent 100%
   );
 }
@@ -1248,10 +1257,10 @@ md-ripple.morphy-md-ripple {
 .dark .bar-glass-bottom::after {
   background: linear-gradient(
     to top,
-    rgba(28, 28, 30, 0.18) 0%,
-    rgba(28, 28, 30, 0.14) 42%,
-    rgba(28, 28, 30, 0.08) 70%,
-    rgba(28, 28, 30, 0.03) 90%,
+    var(--app-bar-bottom-fade-strong, rgba(28, 28, 30, 0.18)) 0%,
+    var(--app-bar-bottom-fade-medium, rgba(28, 28, 30, 0.14)) 42%,
+    var(--app-bar-bottom-fade-soft, rgba(28, 28, 30, 0.08)) 70%,
+    var(--app-bar-bottom-fade-trace, rgba(28, 28, 30, 0.03)) 90%,
     transparent 100%
   );
 }

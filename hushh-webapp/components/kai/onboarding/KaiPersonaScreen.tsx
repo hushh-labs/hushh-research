@@ -84,14 +84,15 @@ export function KaiPersonaScreen(props: {
               {cfg.footerTagline}
             </p>
 
-            <Button size="lg" fullWidth onClick={props.onLaunchDashboard} showRipple>
+            <Button type="button" size="lg" fullWidth onClick={props.onLaunchDashboard} showRipple>
               Connect Portfolio
-              <ArrowRight className="ml-2 h-5 w-5" />
+              <ArrowRight className="ml-2 h-5 w-5" aria-hidden="true" />
             </Button>
 
             {props.onEditAnswers && (
               <div className="pt-1">
                 <Button
+                  type="button"
                   variant="blue-gradient"
                   effect="fade"
                   size="lg"

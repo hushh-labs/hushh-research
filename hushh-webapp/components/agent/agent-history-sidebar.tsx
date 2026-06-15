@@ -136,7 +136,7 @@ export function AgentHistorySidebar({
                 aria-label="Expand chat history"
                 title="Expand chat history"
               >
-                <PanelLeftOpen className="h-4 w-4" />
+                <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
               </Button>
               <Button
                 type="button"
@@ -148,7 +148,7 @@ export function AgentHistorySidebar({
                 aria-label="Create new Agent chat"
                 title="New chat"
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-4 w-4" aria-hidden="true" />
               </Button>
             </div>
           ) : (
@@ -162,7 +162,7 @@ export function AgentHistorySidebar({
                 aria-label="Create new Agent chat"
                 title="Create new chat"
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-4 w-4" aria-hidden="true" />
                 <span className="truncate">New chat</span>
               </Button>
               {onToggleCollapsed ? (
@@ -175,7 +175,7 @@ export function AgentHistorySidebar({
                   aria-label="Collapse chat history"
                   title="Collapse chat history"
                 >
-                  <PanelLeftClose className="h-4 w-4" />
+                  <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
                 </Button>
               ) : null}
             </>
@@ -190,7 +190,7 @@ export function AgentHistorySidebar({
               aria-label="Close chat history"
               title="Close chat history"
             >
-              <X className="h-4 w-4" />
+              <X className="h-4 w-4" aria-hidden="true" />
             </Button>
           ) : null}
         </div>
@@ -213,7 +213,11 @@ export function AgentHistorySidebar({
             </div>
           ) : null}
 
-          <div className="space-y-1">
+          <div
+            className="space-y-1"
+            role="list"
+            aria-label="Conversation history"
+          >
             {conversations.map((conversation) => {
               const title = conversationLabel(conversation);
               const active = conversation.id === activeConversationId;
@@ -223,6 +227,7 @@ export function AgentHistorySidebar({
               return (
                 <div
                   key={conversation.id}
+                  role="listitem"
                   className={cn(
                     "group rounded-lg transition-colors",
                     active && "bg-primary/15 text-zinc-50 ring-1 ring-primary/20",
@@ -242,6 +247,9 @@ export function AgentHistorySidebar({
                         autoFocus
                         disabled={pending}
                         aria-label="Rename chat"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
                       />
                       <Button
                         type="submit"
@@ -250,7 +258,7 @@ export function AgentHistorySidebar({
                         disabled={pending || !normalizeTitle(renameValue)}
                         aria-label="Save chat name"
                       >
-                        <Check className="h-3.5 w-3.5" />
+                        <Check className="h-3.5 w-3.5" aria-hidden="true" />
                       </Button>
                       <Button
                         type="button"
@@ -260,7 +268,7 @@ export function AgentHistorySidebar({
                         disabled={pending}
                         aria-label="Cancel rename"
                       >
-                        <X className="h-3.5 w-3.5" />
+                        <X className="h-3.5 w-3.5" aria-hidden="true" />
                       </Button>
                     </form>
                   ) : (
@@ -276,7 +284,7 @@ export function AgentHistorySidebar({
                         aria-current={active ? "page" : undefined}
                         title={title}
                       >
-                        <MessageSquare className="h-4 w-4 shrink-0 opacity-75" />
+                        <MessageSquare className="h-4 w-4 shrink-0 opacity-75" aria-hidden="true" />
                         {collapsed ? null : <span className="truncate">{title}</span>}
                       </button>
                       {collapsed ? null : (
@@ -292,19 +300,19 @@ export function AgentHistorySidebar({
                               onClick={(event) => event.stopPropagation()}
                               aria-label={`Open actions for ${title}`}
                             >
-                              <MoreHorizontal className="h-3.5 w-3.5" />
+                              <MoreHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" sideOffset={6} className="z-[520]">
                             <DropdownMenuItem onSelect={() => startRename(conversation)}>
-                              <Pencil className="h-4 w-4" />
+                              <Pencil className="h-4 w-4" aria-hidden="true" />
                               Rename chat
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               variant="destructive"
                               onSelect={() => setDeleteTarget(conversation)}
                             >
-                              <Trash2 className="h-4 w-4" />
+                              <Trash2 className="h-4 w-4" aria-hidden="true" />
                               Delete chat
                             </DropdownMenuItem>
                           </DropdownMenuContent>

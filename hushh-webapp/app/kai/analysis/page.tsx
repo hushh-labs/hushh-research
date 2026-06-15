@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { BarChart3, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -18,6 +18,7 @@ import { SurfaceCard, SurfaceCardContent, SurfaceStack } from "@/components/app-
 import { DebateStreamView, type AgentState } from "@/components/kai/debate-stream-view";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { AnalysisHistoryDashboard } from "@/components/kai/views/analysis-history-dashboard";
+import { KaiAnalysisPreviewView } from "@/components/kai/views/kai-analysis-preview-view";
 import { AnalysisSummaryView } from "@/components/kai/views/analysis-summary-view";
 import { HistoryDetailView } from "@/components/kai/views/history-detail-view";
 import { StockComparisonPreview } from "@/components/kai/cards/stock-comparison-preview";
@@ -53,6 +54,7 @@ import {
 import { deriveAnalysisRouteIntent } from "@/lib/kai/analysis-route-intent";
 import { getStockContext } from "@/lib/services/kai-service";
 import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
+import { isLocalAnalysisPreviewRequest } from "@/components/kai/shared/local-market-preview";
 import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
@@ -133,7 +135,13 @@ function KaiAnalysisPageContent() {
   } = useVoiceSurfaceControlTracking();
 
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
+  const localAnalysisPreview = isLocalAnalysisPreviewRequest({
+    pathname,
+    searchParams,
+    hostname: typeof window === "undefined" ? null : window.location.hostname,
+  });
 
   const { user, userId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
@@ -974,6 +982,10 @@ function KaiAnalysisPageContent() {
     []
   );
 
+  if (localAnalysisPreview) {
+    return <KaiAnalysisPreviewView />;
+  }
+
   if (!user || !userId) {
     return (
       <AppPageShell as="div" width="standard" className="flex min-h-96 items-center justify-center">
@@ -1067,18 +1079,18 @@ function KaiAnalysisPageContent() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-3">
                   <SymbolAvatar symbol={activeTicker} name={activeTicker} size="lg" />
-                  <h1 className="text-2xl font-black tracking-tighter text-foreground sm:text-3xl">
+                  <h1 className="text-[28px] font-medium tracking-normal text-foreground sm:text-[34px]">
                     {activeTicker}
                   </h1>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold tabular-nums text-muted-foreground sm:text-base">
+                  <span className="text-sm font-medium tabular-nums text-muted-foreground sm:text-base">
                     {headerPriceLabel}
                   </span>
                   {headerChangePct !== null ? (
                     <span
                       className={cn(
-                        "rounded px-1.5 py-0.5 text-xs font-semibold tabular-nums",
+                        "rounded px-1.5 py-0.5 text-xs font-medium tabular-nums",
                         headerChangePct >= 0
                           ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                           : "bg-rose-500/10 text-rose-600 dark:text-rose-400"

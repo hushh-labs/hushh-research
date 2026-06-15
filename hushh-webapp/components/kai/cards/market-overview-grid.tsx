@@ -9,7 +9,10 @@ import {
 } from "lucide-react";
 
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
-import { marketCardClassName } from "@/components/kai/shared/market-surface-theme";
+import {
+  marketCardClassName,
+  marketInsetClassName,
+} from "@/components/kai/shared/market-surface-theme";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
@@ -68,7 +71,7 @@ export function MarketOverviewGrid({
   }
 
   return (
-    <div className="grid grid-cols-2 gap-2.5 sm:gap-3 xl:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
       {metrics.map((metric) => {
         const actionable = Boolean(metric.detailPanel && onMetricSelect);
 
@@ -82,41 +85,42 @@ export function MarketOverviewGrid({
               actionable && "shadow-[var(--app-card-shadow-standard)]"
             )}
           >
-            <SurfaceCardContent className="flex h-full min-h-[96px] flex-col justify-between p-3.5 sm:min-h-[104px] sm:p-4">
+            <SurfaceCardContent className="flex h-full min-h-[124px] flex-col justify-between p-4 sm:min-h-[134px] sm:p-5">
               <div className="flex items-start gap-3">
                 <div className="flex items-start gap-3">
                   <span
                     className={cn(
-                      "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl border shadow-sm sm:h-9 sm:w-9",
+                      marketInsetClassName,
+                      "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full sm:h-10 sm:w-10",
                       metric.tone === "positive" &&
-                        "border-emerald-500/18 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+                        "border-[#34c759]/25 bg-[#34c759]/12 text-[#248a3d] dark:text-[#30d158]",
                       metric.tone === "negative" &&
-                        "border-rose-500/18 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+                        "border-[#ff3b30]/25 bg-[#ff3b30]/12 text-[#d70015] dark:text-[#ff453a]",
                       metric.tone === "warning" &&
-                        "border-amber-500/18 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+                        "border-[#ff9500]/25 bg-[#ff9500]/14 text-[#a05a00] dark:text-[#ffd60a]",
                       metric.tone === "neutral" &&
-                        "border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-muted-foreground"
+                        "border-[#0071e3]/18 bg-[#0071e3]/10 text-[#0071e3] dark:text-[#0a84ff]"
                     )}
                   >
                     <Icon icon={metric.icon || FALLBACK_ICON[metric.tone]} size="sm" />
                   </span>
                   <div className="min-w-0">
-                    <span className="text-xs font-semibold leading-5 text-muted-foreground">
+                    <span className="text-xs font-medium leading-5 text-muted-foreground">
                       {metric.label}
                     </span>
                   </div>
                 </div>
               </div>
               <div className="space-y-1.5">
-                <p className="text-base font-semibold leading-none tracking-tight text-foreground sm:text-lg">
+                <p className="text-xl font-semibold leading-none tracking-tight text-foreground sm:text-2xl">
                   {metric.value}
                 </p>
                 <p
                   className={cn(
                     "text-xs font-medium",
-                    metric.tone === "positive" && "text-emerald-600 dark:text-emerald-400",
-                    metric.tone === "negative" && "text-rose-600 dark:text-rose-400",
-                    metric.tone === "warning" && "text-orange-600 dark:text-orange-400",
+                    metric.tone === "positive" && "text-[#248a3d] dark:text-[#30d158]",
+                    metric.tone === "negative" && "text-[#d70015] dark:text-[#ff453a]",
+                    metric.tone === "warning" && "text-[#a05a00] dark:text-[#ffd60a]",
                     metric.tone === "neutral" && "text-muted-foreground"
                   )}
                 >
