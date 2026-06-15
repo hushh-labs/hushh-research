@@ -1109,13 +1109,13 @@ export default function MarketplacePage() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className="space-y-4 pb-24 pt-0">
-        <div className="sticky top-[calc(var(--top-shell-reserved-height)+4px)] z-20">
-          <div className="flex items-center justify-between gap-2 px-1">
+        <div className="sticky top-[calc(var(--top-shell-reserved-height)+6px)] z-[115] rounded-[28px] bg-background/90 p-1.5 shadow-[var(--app-card-shadow-standard)] backdrop-blur-[var(--blur-standard)]">
+          <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 className={cn(
-                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground shadow-[var(--app-card-shadow-standard)] transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95",
+                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95",
                   searchOpen && "bg-primary/10 text-primary"
                 )}
                 aria-label="Toggle search"
@@ -1127,7 +1127,7 @@ export default function MarketplacePage() {
                 variant="none"
                 effect="fade"
                 size="sm"
-                className="h-10 rounded-full bg-card px-3 shadow-[var(--app-card-shadow-standard)]"
+                className="h-10 rounded-full bg-card px-3"
                 onClick={() => void matchContacts()}
                 disabled={contactMatchLoading}
               >
@@ -1135,7 +1135,7 @@ export default function MarketplacePage() {
               </Button>
               <button
                 type="button"
-                className="grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground shadow-[var(--app-card-shadow-standard)] transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95"
+                className="grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95"
                 aria-label={directoryKind === "investors" ? "Refresh deck" : "Restart deck"}
                 onClick={resetSwipeDeck}
               >
@@ -1147,7 +1147,7 @@ export default function MarketplacePage() {
               <button
                 type="button"
                 className={cn(
-                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground shadow-[var(--app-card-shadow-standard)] transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95",
+                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95",
                   view === "swipe" && "bg-primary/10 text-primary"
                 )}
                 aria-label="Swipe view"
@@ -1158,7 +1158,7 @@ export default function MarketplacePage() {
               <button
                 type="button"
                 className={cn(
-                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground shadow-[var(--app-card-shadow-standard)] transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95",
+                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95",
                   view === "list" && "bg-primary/10 text-primary"
                 )}
                 aria-label="List view"
@@ -1170,14 +1170,14 @@ export default function MarketplacePage() {
           </div>
 
           {searchOpen ? (
-            <div className="mt-2 px-1">
+            <div className="mt-2">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder={searchPlaceholder}
-                  className="min-h-11 rounded-2xl border-0 bg-card pl-10 text-sm shadow-[var(--app-card-shadow-standard)]"
+                  className="min-h-11 rounded-[22px] border-0 bg-card pl-10 text-sm"
                 />
               </div>
               {contactScanSummary || contactMatchError ? (
@@ -1201,7 +1201,7 @@ export default function MarketplacePage() {
                 <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
                   Contacts
                 </p>
-                <h3 className="mt-1 line-clamp-1 text-base font-medium tracking-normal text-foreground">
+                <h3 className="mt-1 line-clamp-1 text-[15px] font-semibold leading-snug tracking-normal text-foreground">
                   Already on Hushh
                 </h3>
               </div>
@@ -1278,7 +1278,7 @@ export default function MarketplacePage() {
                       <ProfileAvatar kind={swipeCard.kind} label={swipeCard.title} className="h-20 w-20 shrink-0 rounded-[24px]" />
                       <div className="min-w-0 space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-[28px] font-medium tracking-normal text-foreground sm:text-[34px]">
+                          <h3 className="text-[22px] font-semibold leading-tight tracking-normal text-foreground sm:text-[24px]">
                             {swipeCard.title}
                           </h3>
                           {swipeCard.isTestProfile ? (
@@ -1293,13 +1293,13 @@ export default function MarketplacePage() {
                             </span>
                           ) : null}
                         </div>
-                        <p className="text-sm leading-6 text-foreground/86 sm:text-base">{swipeCard.headline}</p>
+                        <p className="text-[14px] leading-[1.45] text-foreground/78">{swipeCard.headline}</p>
                       </div>
                     </div>
 
                     <div className="rounded-[var(--radius-md)] bg-background/50 p-4 dark:bg-white/5">
-                      <p className="text-sm leading-6 text-foreground">{swipeCard.summary}</p>
-                      <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                      <p className="text-[14px] leading-[1.5] text-foreground/86">{swipeCard.summary}</p>
+                      <div className="mt-3 flex flex-wrap items-center gap-3 text-[13px] text-muted-foreground">
                         <span className="inline-flex items-center gap-2">
                           {swipeCard.kind === "ria" ? (
                             <Building2 className="h-4 w-4" />
@@ -1373,7 +1373,7 @@ export default function MarketplacePage() {
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center gap-4 px-6 py-14 text-center">
-              <h3 className="text-xl font-medium tracking-normal text-foreground">
+              <h3 className="text-[18px] font-semibold leading-tight tracking-normal text-foreground">
                 {investorDeckComplete ? "Deck complete" : "That&apos;s everyone for now"}
               </h3>
               <p className="max-w-xl text-sm leading-6 text-muted-foreground">
@@ -1417,7 +1417,7 @@ export default function MarketplacePage() {
                   <ProfileAvatar kind={item.kind} label={item.title} />
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-lg font-medium tracking-normal text-foreground">
+                      <h3 className="text-[17px] font-semibold leading-snug tracking-normal text-foreground">
                         {item.title}
                       </h3>
                       {item.isTestProfile ? (
@@ -1437,13 +1437,13 @@ export default function MarketplacePage() {
                         </span>
                       ) : null}
                     </div>
-                    <p className="text-sm leading-6 text-foreground/84">{item.headline}</p>
+                    <p className="text-[14px] leading-[1.45] text-foreground/78">{item.headline}</p>
                   </div>
                 </div>
 
                 <div className="rounded-[var(--radius-md)] bg-background/50 p-4 dark:bg-white/5">
-                  <p className="text-sm leading-6 text-foreground">{item.summary}</p>
-                  <p className="mt-3 text-sm text-muted-foreground">{item.metaLine}</p>
+                  <p className="text-[14px] leading-[1.5] text-foreground/86">{item.summary}</p>
+                  <p className="mt-3 text-[13px] text-muted-foreground">{item.metaLine}</p>
                 </div>
 
                 <div className="mt-auto grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -1492,7 +1492,7 @@ export default function MarketplacePage() {
 
           {!loading && activeCards.length === 0 ? (
             <RiaSurface className="col-span-full p-6 text-center">
-              <h3 className="text-lg font-medium tracking-normal text-foreground">No profiles</h3>
+              <h3 className="text-[17px] font-semibold leading-snug tracking-normal text-foreground">No profiles</h3>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
                 Try a broader search.
               </p>
