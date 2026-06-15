@@ -6,6 +6,26 @@
 > human/agent deliberately cuts a deploy **git tag**, never automatically on
 > push to `main`.
 
+## Visual Context
+
+```mermaid
+flowchart LR
+  Dev["Operator / Claude Code (web)"] -->|git tag uat-SHA + push| GH["GitHub: hushh-research"]
+  GH -->|tag matches uat-*| CBT["Cloud Build tag trigger (hushh-pda-uat)"]
+  CBT -->|runs as deployer SA| ORCH["deploy/cloud-build-deploy.sh"]
+  ORCH --> S1["1. Gate SHA on main"]
+  S1 --> S2["2. Sync runtime secrets"]
+  S2 --> S3["3. DB migrate + schema gate"]
+  S3 --> S4["4. Build + deploy backend (no-traffic)"]
+  S4 --> S5["5. Build + deploy frontend (no-traffic)"]
+  S5 --> S6["6. Promote traffic 100%"]
+  S6 --> S7["7. Verify health"]
+  S7 --> CR["Cloud Run: consent-protocol + hushh-webapp"]
+```
+
+No GitHub-hosted runner is in this path; the build runs entirely inside GCP
+Cloud Build, so GitHub Actions spending limits never block a deploy.
+
 ## Preferred path: deploy by git tag (no credentials needed)
 
 This is how Claude Code on the web deploys. It needs **only its existing git
@@ -64,7 +84,7 @@ GitHub Actions was only the *orchestrator* that authenticated and called
 as `.github/workflows/deploy-uat.yml`:
 
 1. Resolve + gate the SHA (must be on `main`, CI-green).
-2. Sync runtime secrets (`scripts/ops/sync_backend/frontend_runtime_secrets.py`).
+2. Sync runtime secrets (`scripts/ops/sync_backend_runtime_secrets.py` and `scripts/ops/sync_frontend_runtime_secrets.py`).
 3. Run DB migrations + predeploy schema gate via Cloud SQL Auth Proxy.
 4. Build + deploy backend (`deploy/backend.cloudbuild.yaml`, no-traffic).
 5. Build + deploy frontend (`deploy/frontend.cloudbuild.yaml`, no-traffic).
