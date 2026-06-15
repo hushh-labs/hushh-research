@@ -166,7 +166,7 @@ export function PortfolioImportView({
       </div>
 
       <div className="text-center">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           Choose import method
         </p>
       </div>
@@ -180,8 +180,10 @@ export function PortfolioImportView({
                 <Icon icon={Link2} size="md" className="text-primary" />
               </div>
               <div className="min-w-0">
-                <h3 className="text-[17px] font-semibold leading-tight">Connect with Plaid</h3>
-                <p className="text-[13px] font-medium text-muted-foreground leading-snug">
+                <h3 className="text-[19px] font-semibold leading-tight tracking-normal text-foreground">
+                  Connect with Plaid
+                </h3>
+                <p className="mt-0.5 text-[15px] font-normal leading-[1.35] text-muted-foreground">
                   Automatically sync your brokerage accounts
                 </p>
               </div>
@@ -201,14 +203,14 @@ export function PortfolioImportView({
               )}
             </div>
           </div>
-          <p className="text-[12px] text-muted-foreground">
+          <p className="text-[14px] leading-[1.45] text-muted-foreground">
             Best for brokerage-sourced holdings, refreshable sync status, and non-editable portfolio context.
           </p>
           <MorphyButton
             variant="blue-gradient"
             effect="fill"
             size="lg"
-            className="w-full rounded-full border-none font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
+            className="w-full rounded-full border-none text-[16px] font-semibold shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
             disabled={!onConnectPlaid || isUploading || isPreloadingSchema || isConnectingPlaid || plaidConfigured === false}
             onClick={handleConnectPlaid}
             icon={{
@@ -221,10 +223,10 @@ export function PortfolioImportView({
               : isConnectingPlaid
                 ? "Opening Plaid..."
                 : plaidConnectedInstitutionCount > 0
-                  ? "Connect Another Brokerage"
-                  : "Connect Brokerage With Plaid"}
+                  ? "Connect another brokerage"
+                  : "Connect brokerage with Plaid"}
           </MorphyButton>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-[13px] leading-[1.4] text-muted-foreground">
             Plaid data stays read-only in Kai. Statements remain your editable source.
           </p>
         </SurfaceCardContent>
@@ -232,7 +234,7 @@ export function PortfolioImportView({
 
       <div className="flex items-center gap-3">
         <div className="h-px flex-1 bg-border/60" />
-        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           or
         </span>
         <div className="h-px flex-1 bg-border/60" />
@@ -246,8 +248,10 @@ export function PortfolioImportView({
               <Icon icon={Upload} size="md" className="text-primary" />
             </div>
             <div>
-              <h3 className="text-[17px] font-semibold text-foreground">Upload statement</h3>
-              <p className="text-[13px] font-medium text-muted-foreground">
+              <h3 className="text-[19px] font-semibold leading-tight tracking-normal text-foreground">
+                Upload statement
+              </h3>
+              <p className="mt-0.5 text-[15px] font-normal leading-[1.35] text-muted-foreground">
                 Import official brokerage PDF or CSV manually
               </p>
             </div>
@@ -274,12 +278,12 @@ export function PortfolioImportView({
 
             {/* Text */}
             <div className="space-y-1">
-              <h3 className="text-[17px] font-semibold text-primary">
+              <h3 className="text-[17px] font-semibold leading-snug text-primary">
                 {isDragging
                   ? "Drop your file here"
                   : "Tap to upload official statement"}
               </h3>
-              <p className="text-[14px] font-medium text-muted-foreground">
+              <p className="text-[15px] font-normal text-muted-foreground">
                 PDF or CSV
               </p>
             </div>
@@ -308,7 +312,7 @@ export function PortfolioImportView({
             variant="morphy"
             effect="fill"
             size="default"
-            className="w-full rounded-full border-none font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
+            className="w-full rounded-full border-none text-[16px] font-semibold shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
             onClick={handleContinue}
             disabled={isUploading || isPreloadingSchema || !selectedFile}
             icon={{
@@ -327,7 +331,7 @@ export function PortfolioImportView({
 
       <div className="flex items-start gap-2 rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5">
         <Icon icon={AlertCircle} size="sm" className="mt-0.5 text-muted-foreground shrink-0" />
-        <p className="text-[12px] leading-relaxed text-muted-foreground">
+        <p className="text-[13px] leading-[1.45] text-muted-foreground">
           We support official brokerage statements from all major systems.
         </p>
       </div>
@@ -338,7 +342,7 @@ export function PortfolioImportView({
             variant="blue-gradient"
             effect="fill"
             size="lg"
-            className="w-full rounded-full border-none font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
+            className="w-full rounded-full border-none text-[16px] font-semibold shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
             onClick={handlePreloadSchema}
             disabled={isUploading || isPreloadingSchema}
             icon={{
@@ -346,9 +350,9 @@ export function PortfolioImportView({
               gradient: false,
             }}
           >
-            {isPreloadingSchema ? "Loading Sample Brokerage..." : "Load Sample Brokerage"}
+            {isPreloadingSchema ? "Loading sample brokerage..." : "Load sample brokerage"}
           </MorphyButton>
-          <p className="px-1 text-[11px] text-muted-foreground">
+          <p className="px-1 text-[13px] leading-[1.4] text-muted-foreground">
             Load demo portfolio data any time, review it, then save to vault.
           </p>
         </div>
@@ -361,7 +365,7 @@ export function PortfolioImportView({
           effect="fade"
           onClick={onSkip}
           disabled={isUploading || isPreloadingSchema}
-          className="text-muted-foreground hover:text-foreground text-base"
+          className="text-[15px] font-medium text-muted-foreground hover:text-foreground"
         >
           Skip for now
         </MorphyButton>
