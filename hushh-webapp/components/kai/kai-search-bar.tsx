@@ -1740,18 +1740,18 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
               </ShellActionSurface>
             </div>
           ) : (
-            <div className="relative flex h-[58px] w-full justify-end">
+            <div className="relative flex h-[58px] w-full justify-end gap-2">
               <ShellActionSurface
                 variant="icon"
-                wrapperClassName="pointer-events-auto absolute bottom-[72px] right-1"
-                className="grid h-[50px] w-[50px] place-items-center"
+                wrapperClassName="pointer-events-auto"
+                className="grid h-[58px] w-[58px] place-items-center"
                 contentClassName="h-full w-full"
                 aria-label="Talk to Kai"
                 disabled={!agentPopover}
                 onClick={() => agentPopover?.openAgent()}
               >
-                <span className="grid h-[30px] w-[30px] place-items-center rounded-[9px] bg-[#0071e3] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
-                  <X className="h-[15px] w-[15px] rotate-45" strokeWidth={2} />
+                <span className="grid h-[38px] w-[38px] place-items-center rounded-[13px] bg-[#0071e3] text-white shadow-[0_10px_24px_-16px_rgba(0,113,227,0.75),inset_0_1px_0_rgba(255,255,255,0.35)]">
+                  <X className="h-[17px] w-[17px] rotate-45" strokeWidth={2} />
                 </span>
               </ShellActionSurface>
               <ShellActionSurface

@@ -5,19 +5,13 @@ import {
   BarChart3,
   Bell,
   ChevronRight,
-  CirclePlus,
-  Compass,
-  LineChart,
   MessageCircle,
   Mic,
   PieChart,
   Search,
   Shield,
   Star,
-  Store,
   TrendingUp,
-  UserRound,
-  WalletCards,
   X,
   Zap,
   type LucideIcon,
@@ -25,10 +19,6 @@ import {
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import {
-  kaiPreviewDockActiveItemClassName,
-  kaiPreviewDockFrameClassName,
-  kaiPreviewDockItemClassName,
-  kaiPreviewDockSurfaceClassName,
   kaiPreviewEyebrowClassName,
   kaiPreviewPageTitleClassName,
   kaiPreviewSectionTitleClassName,
@@ -330,116 +320,6 @@ function AllocationSection() {
         </div>
       </div>
     </section>
-  );
-}
-
-function AnalysisDock({ onKaiOpen }: { onKaiOpen: () => void }) {
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const items: Array<{ label: string; href: string; icon: LucideIcon; active?: boolean }> = [
-    { label: "Market", href: "/kai?preview=market", icon: Store },
-    { label: "Portfolio", href: "/kai/portfolio", icon: WalletCards },
-    { label: "Analysis", href: "/kai/analysis?preview=analysis", icon: LineChart, active: true },
-    { label: "Connect", href: "/kai?preview=connect", icon: Compass },
-    { label: "Profile", href: "/profile", icon: UserRound },
-  ];
-
-  const submitSearch = () => {
-    const normalized = query.trim();
-    if (!normalized) return;
-    setSearchOpen(false);
-    openAnalysisHref(`/kai/analysis?preview=analysis&q=${encodeURIComponent(normalized)}`);
-  };
-
-  return (
-    <div className={kaiPreviewDockFrameClassName}>
-      <div className="relative flex items-end gap-2.5 sm:gap-3">
-        {searchOpen ? (
-          <>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                submitSearch();
-              }}
-              className={cn(
-                kaiPreviewDockSurfaceClassName,
-                "pointer-events-auto flex h-[50px] min-w-0 flex-1 items-center gap-[9px] rounded-full px-[15px] pr-2"
-              )}
-            >
-              <Search className="h-5 w-5 shrink-0 text-[color:var(--one-fg3)]" />
-              <input
-                placeholder="Search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="min-w-0 flex-1 bg-transparent text-[14px] text-[color:var(--one-fg)] outline-none placeholder:text-[color:var(--one-fg3)]"
-              />
-              <button
-                type="button"
-                onClick={submitSearch}
-                className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white transition-transform active:scale-[0.92]"
-                aria-label="Voice search"
-              >
-                <Mic className="h-4 w-4" />
-              </button>
-            </form>
-            <button
-              type="button"
-              onClick={() => setSearchOpen(false)}
-              className="pointer-events-auto flex h-[50px] shrink-0 items-center justify-center rounded-full px-1.5 text-[14px] font-semibold text-[color:var(--one-link)]"
-            >
-              Cancel
-            </button>
-          </>
-        ) : (
-          <>
-            <nav
-              className={cn(
-                kaiPreviewDockSurfaceClassName,
-                "pointer-events-auto grid h-[58px] min-w-0 flex-1 grid-cols-5 content-center rounded-full px-1.5"
-              )}
-            >
-              {items.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={item.label}
-                    type="button"
-                    onClick={() => openAnalysisHref(item.href)}
-                    className={cn(
-                      kaiPreviewDockItemClassName,
-                      item.active && kaiPreviewDockActiveItemClassName
-                    )}
-                  >
-                    <Icon className="h-[21px] w-[21px]" strokeWidth={1.8} />
-                    <span className="truncate">{item.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-            <button
-              type="button"
-              onClick={onKaiOpen}
-              className={cn(kaiPreviewDockSurfaceClassName, "pointer-events-auto absolute bottom-[72px] right-1 grid h-[50px] w-[50px] place-items-center rounded-full")}
-              aria-label="Talk to Kai"
-            >
-              <span className="grid h-[30px] w-[30px] place-items-center rounded-[9px] bg-[color:var(--one-blue)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
-                <CirclePlus className="h-[15px] w-[15px]" strokeWidth={2} />
-              </span>
-            </button>
-            <div className="pointer-events-auto flex shrink-0">
-              <button
-                type="button"
-                onClick={() => setSearchOpen(true)}
-                className={cn(kaiPreviewDockSurfaceClassName, "grid h-[58px] w-[58px] place-items-center rounded-full text-[color:var(--one-fg2)] transition-transform active:scale-[0.9]")}
-                aria-label="Search"
-              >
-                <Search className="h-5 w-5" strokeWidth={2.2} />
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -844,7 +724,6 @@ export function KaiAnalysisPreviewView() {
           </section>
         </main>
 
-        <AnalysisDock onKaiOpen={() => setKaiOpen(true)} />
       </div>
 
       {sheetOpen ? (

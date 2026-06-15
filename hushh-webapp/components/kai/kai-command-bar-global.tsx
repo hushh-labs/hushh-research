@@ -127,10 +127,6 @@ function computeAnalyzeEligibilityFromHolding(holding: Record<string, unknown>):
   return false;
 }
 
-function isKaiPreviewChromeOwner(preview: string | null): boolean {
-  return preview === "market" || preview === "analysis" || preview === "connect";
-}
-
 export function KaiCommandBarGlobal() {
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
@@ -163,7 +159,6 @@ export function KaiCommandBarGlobal() {
     AppBackgroundTaskService.getState()
   );
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
-  const previewChromeOwner = isKaiPreviewChromeOwner(searchParams.get("preview"));
   const userId = user?.uid ?? "";
   const [voiceCapabilityState, setVoiceCapabilityState] = useState<{
     status: "idle" | "loading" | "ready" | "error";
@@ -732,7 +727,7 @@ export function KaiCommandBarGlobal() {
     return null;
   }
 
-  if (chromeState.hideCommandBar || previewChromeOwner) {
+  if (chromeState.hideCommandBar) {
     return null;
   }
 
