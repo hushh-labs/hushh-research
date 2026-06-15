@@ -37,7 +37,7 @@ class _BoundedRevocationCache:
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------------
-    # Public interface — drop-in replacement for set[str]
+    # Public interface â€” drop-in replacement for set[str]
     # ------------------------------------------------------------------
 
     def add(self, token_str: str) -> None:
@@ -379,10 +379,10 @@ async def validate_token_with_db(
                 )
                 return False, "Token has been revoked (DB check)", None
     except Exception as e:
-        # DB is unreachable — apply fail-closed policy based on token scope.
+        # DB is unreachable â€” apply fail-closed policy based on token scope.
         # VAULT_OWNER tokens get a short grace period to avoid locking users
         # out of their own vault during brief DB hiccups.
-        # All other scoped tokens fail closed immediately — when revocation
+        # All other scoped tokens fail closed immediately â€” when revocation
         # status cannot be confirmed, access to third-party data is denied.
         is_vault_owner = token_obj is not None and (
             token_obj.scope_str == "vault.owner" or token_obj.scope == ConsentScope.VAULT_OWNER
