@@ -377,6 +377,20 @@ class RefreshExportFailureRequest(BaseModel):
     lastError: str | None = Field(default=None, max_length=2000)
 
 
+class VaultOwnerTokenRequest(BaseModel):
+    """Validated body for issuing the vault-owner session token."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    userId: str = Field(min_length=1, max_length=128, pattern=r"^\S+$")
+
+
+def _verify_vault_owner_firebase_bearer(authorization: str | None) -> str:
+    """Route-owned Firebase tolerance for vault-owner token issuance only."""
+
+    return verify_firebase_bearer(authorization, retry_token_used_too_early=True)
+
+
 @router.get("/pending")
 async def get_pending_consents(
     userId: str = Query(..., min_length=1, max_length=128),
@@ -1414,7 +1428,10 @@ async def issue_trusted_device_vault_owner_token(
 
 
 @router.post("/vault-owner-token")
-async def issue_vault_owner_token(request: Request):
+async def issue_vault_owner_token(
+    payload: VaultOwnerTokenRequest,
+    authorization: str | None = Header(None, description="Bearer Firebase ID token"),
+):
     """
     Issue VAULT_OWNER consent token for authenticated user.
 
