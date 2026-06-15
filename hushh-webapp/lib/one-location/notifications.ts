@@ -8,7 +8,6 @@ export const ONE_LOCATION_NOTIFICATION_OPEN_VALUE = "opened";
 export const ONE_LOCATION_GRANT_ID_PARAM = "grantId";
 export const ONE_LOCATION_REQUEST_ID_PARAM = "requestId";
 export const ONE_LOCATION_REFERRAL_ID_PARAM = "referralId";
-const ONE_LOCATION_SECTION_PARAM = "section";
 
 const OPENED_GRANTS_KEY_PREFIX = "one_location_opened_grants_v1";
 const LOCATION_SHARE_TASK_KIND = "one_location_share";
@@ -58,7 +57,7 @@ const WORKFLOW_COPY: Record<
   },
   location_public_invite_submitted: {
     title: "Public location request",
-    fallbackDescription: "Someone viewed your public location link.",
+    fallbackDescription: "Someone requested location access from your public link.",
   },
 };
 
@@ -151,7 +150,6 @@ export function buildOneLocationNotificationHref(grantId: string): string {
   const params = new URLSearchParams();
   params.set(ONE_LOCATION_GRANT_ID_PARAM, grantId);
   params.set(ONE_LOCATION_NOTIFICATION_OPEN_PARAM, ONE_LOCATION_NOTIFICATION_OPEN_VALUE);
-  params.set(ONE_LOCATION_SECTION_PARAM, "shared");
   return `/one/location?${params.toString()}`;
 }
 
@@ -228,7 +226,7 @@ export function locationWorkflowNotificationCopy(params: {
     case "location_public_invite_submitted":
       return {
         title: copy.title,
-        description: `${visitorLabel} viewed your public location link.`,
+        description: `${visitorLabel} requested location access from your public link.`,
       };
     default:
       return { title: copy.title, description: copy.fallbackDescription };
