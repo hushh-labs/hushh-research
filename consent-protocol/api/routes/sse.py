@@ -12,9 +12,9 @@ import asyncio
 import json
 import logging
 import os
-from typing import Annotated, AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Path, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
 from api.utils.firebase_auth import verify_firebase_bearer
@@ -22,14 +22,11 @@ from hushh_mcp.services.consent_request_links import (
     build_consent_request_path,
     build_consent_request_url,
 )
+from mcp_modules.log_redaction import redact_log_value
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/consent", tags=["SSE"])
-
-# Bounded path-parameter aliases (CWE-400: uncontrolled resource consumption).
-_UserId = Annotated[str, Path(min_length=1, max_length=128)]
-_RequestId = Annotated[str, Path(min_length=1, max_length=128)]
 
 
 def _env_truthy(name: str, fallback: str = "false") -> bool:
@@ -66,13 +63,7 @@ def _ensure_consent_sse_enabled() -> None:
 def _authorize_sse_user(user_id: str, authorization: Optional[str]) -> None:
     firebase_uid = verify_firebase_bearer(authorization)
     if firebase_uid != user_id:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error_code": "USER_ID_MISMATCH",
-                "message": "Authenticated user does not match the requested user_id.",
-            },
-        )
+        raise HTTPException(status_code=403, detail="User ID mismatch")
 
 
 def _payload_map(value: object | None) -> dict[str, object]:
@@ -166,7 +157,7 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
     from api.consent_listener import get_consent_queue
     from hushh_mcp.services.consent_db import ConsentDBService
 
-    logger.info("consent_sse.open user_id=%s", user_id)
+    logger.info("consent_sse.open user_id=%s", redact_log_value(user_id))
     connection_start_ms = int(datetime.now().timestamp() * 1000)
     backfill_window_ms = 2 * 60 * 1000
     after_timestamp_ms = connection_start_ms - backfill_window_ms
@@ -196,7 +187,7 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
 
         while True:
             if await request.is_disconnected():
-                logger.info("consent_sse.disconnected user_id=%s", user_id)
+                logger.info("consent_sse.disconnected user_id=%s", redact_log_value(user_id))
                 break
 
             try:
@@ -222,15 +213,15 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
                 "data": json.dumps(_sse_payload_from_event_payload(data)),
             }
     except asyncio.CancelledError:
-        logger.info("consent_sse.cancelled user_id=%s", user_id)
+        logger.info("consent_sse.cancelled user_id=%s", redact_log_value(user_id))
     except Exception as e:
-        logger.error("consent_sse.error user_id=%s error=%s", user_id, e)
+        logger.error("consent_sse.error user_id=%s error=%s", redact_log_value(user_id), e)
         raise
 
 
 @router.get("/events/{user_id}")
 async def consent_events(
-    user_id: _UserId,
+    user_id: str,
     request: Request,
     authorization: Optional[str] = Header(None, description="Bearer Firebase ID token"),
 ):
@@ -256,7 +247,7 @@ async def consent_events(
 
 
 @router.get("/events/{user_id}/poll/{request_id}")
-async def poll_specific_request(user_id: _UserId, request_id: _RequestId, request: Request):
+async def poll_specific_request(user_id: str, request_id: str, request: Request):
     """Deprecated consent poll endpoint (disabled)."""
     _ = user_id
     _ = request_id
