@@ -29,7 +29,6 @@ import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { activeKaiRouteTabFromPath } from "@/lib/navigation/kai-route-tabs";
 import { activeRiaRouteTabFromPath } from "@/lib/navigation/ria-route-tabs";
-import { useVault } from "@/lib/vault/vault-context";
 
 type InvestorNavKey = "dashboard" | "market" | "connect" | "analysis" | "profile";
 type RiaNavKey = "home" | "clients" | "connect" | "picks" | "profile";
@@ -39,7 +38,6 @@ export const Navbar = () => {
   const pathname = usePathname();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
-  const { isVaultUnlocked } = useVault();
   const { activePersona } = usePersonaState();
   const pendingConsents = useConsentPendingSummaryCount();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
@@ -250,7 +248,7 @@ export const Navbar = () => {
     <nav
       className={cn(
         "fixed inset-x-0 flex justify-center px-4 transform-gpu",
-        isVaultUnlocked ? "z-[120]" : "z-[505]",
+        "z-[120]",
         "pointer-events-none"
       )}
       style={
@@ -265,12 +263,12 @@ export const Navbar = () => {
     >
       <div
         className={cn(
-          "relative flex w-full max-w-[560px] items-end gap-2.5 sm:gap-3",
+          "relative flex w-full max-w-[560px] items-end gap-2",
           "pointer-events-none",
           hideBottomChrome && "pointer-events-none"
         )}
       >
-        <div className="min-w-0 pointer-events-auto" style={{ width: "calc(100% - 68px)" }}>
+        <div className="min-w-0 pointer-events-auto" style={{ width: "calc(100% - 66px)" }}>
           <SegmentedPill
             ref={pillRef}
             size="compact"
@@ -281,9 +279,7 @@ export const Navbar = () => {
             onValueChange={navigateTo}
             ariaLabel="Main navigation"
             className={cn(
-              "relative z-10 w-full chrome-bottom-foreground",
-              "!border-0 !bg-background/80 !backdrop-blur-[var(--blur-standard)]",
-              "dark:!bg-background/90"
+              "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground"
             )}
           />
         </div>

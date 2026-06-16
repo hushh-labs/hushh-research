@@ -1588,11 +1588,11 @@ export function DebateStreamView({
         <div className="relative z-10 mb-4 overflow-hidden rounded-2xl border border-border/50 bg-background/65 px-4 py-3 shadow-sm backdrop-blur-md">
           <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
             <div />
-            <h1 className="justify-self-center text-3xl font-black tracking-tighter text-foreground">
+            <h1 className="justify-self-center text-[34px] font-medium tracking-normal text-foreground">
               {normalizedTicker}
             </h1>
             <div className="justify-self-end flex items-center gap-2">
-              <span className="text-sm font-semibold tabular-nums text-muted-foreground">
+              <span className="text-sm font-medium tabular-nums text-muted-foreground">
                 {headerQuoteLoading && headerPrice === null
                   ? "Loading price..."
                   : formatHeaderPrice(headerPrice)}
@@ -1600,7 +1600,7 @@ export function DebateStreamView({
               {headerChangePct !== null ? (
                 <span
                   className={cn(
-                    "rounded px-1.5 py-0.5 text-xs font-semibold tabular-nums",
+                    "rounded px-1.5 py-0.5 text-xs font-medium tabular-nums",
                     headerChangePct >= 0
                       ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                       : "bg-rose-500/10 text-rose-600 dark:text-rose-400"

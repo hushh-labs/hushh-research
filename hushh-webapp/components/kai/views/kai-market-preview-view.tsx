@@ -9,22 +9,17 @@ import {
   Blocks,
   ChartColumnIncreasing,
   ChevronRight,
-  CirclePlus,
-  Compass,
   Cpu,
   LineChart,
   Loader2,
-  MessageCircle,
   Mic,
   Newspaper,
   Percent,
   Search,
   Sparkles,
-  Store,
+  Star,
   TrendingDown,
   TrendingUp,
-  UserRound,
-  WalletCards,
   X,
   type LucideIcon,
   Zap,
@@ -40,9 +35,6 @@ import {
   type MarketOverviewMetric,
 } from "@/components/kai/cards/market-overview-grid";
 import {
-  kaiPreviewDockActiveItemClassName,
-  kaiPreviewDockItemClassName,
-  kaiPreviewDockSurfaceClassName,
   kaiPreviewEyebrowClassName,
   kaiPreviewPageTitleClassName,
   kaiPreviewSectionTitleClassName,
@@ -156,15 +148,20 @@ const oneMarketRootClassName = cn(
   "relative isolate mx-auto flex min-h-screen w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
   "bg-[color:var(--one-bg)] font-sans text-[color:var(--one-fg)] antialiased",
   "[--one-bg:#ffffff] [--one-card:#ffffff] [--one-surface:#f2f2f7]",
+  "dark:[--one-bg:#000000] dark:[--one-card:#1c1c1e] dark:[--one-surface:#1c1c1e]",
   "[--one-hairline:rgba(0,0,0,0.08)] [--one-line:rgba(0,0,0,0.06)]",
+  "dark:[--one-hairline:rgba(255,255,255,0.14)] dark:[--one-line:rgba(255,255,255,0.10)]",
   "[--one-fg:#1d1d1f] [--one-fg2:rgba(0,0,0,0.55)] [--one-fg3:rgba(0,0,0,0.42)]",
+  "dark:[--one-fg:#f5f5f7] dark:[--one-fg2:rgba(245,245,247,0.64)] dark:[--one-fg3:rgba(245,245,247,0.46)]",
   "[--one-blue:#0071e3] [--one-link:#0066cc]",
+  "dark:[--one-blue:#0a84ff] dark:[--one-link:#2997ff]",
   "[--one-up:#34c759] [--one-up-t:rgba(52,199,89,0.12)]",
   "[--one-down:#ff3b30] [--one-down-t:rgba(255,59,48,0.10)]",
   "[--one-indigo:#5856d6] [--one-indigo-t:rgba(88,86,214,0.12)]",
   "[--one-orange:#ff9500] [--one-orange-t:rgba(255,149,0,0.14)]",
   "[--one-teal:#30b0c7] [--one-teal-t:rgba(48,176,199,0.13)]",
   "[--one-glass-fill:linear-gradient(135deg,rgba(255,255,255,0.45),rgba(255,255,255,0.16))]",
+  "dark:[--one-glass-fill:linear-gradient(135deg,rgba(44,44,46,0.86),rgba(28,28,30,0.62))]",
   "[--one-glass-float:0_16px_38px_-20px_rgba(0,0,0,0.28),0_4px_12px_-8px_rgba(0,0,0,0.10)]",
   "[--one-gutter:clamp(18px,4vw,32px)]"
 );
@@ -296,8 +293,43 @@ function toIndexStripItems(
         (row) => Boolean(row?.label) && !String(row.label).toLowerCase().includes("market status")
       )
     : [];
-  const convertedRows = overviewRows.map((row) => toIndexOverviewMetric(row, row.label)).slice(0, 4);
-  return convertedRows.length ? convertedRows : fallbackMetrics.slice(0, 4);
+
+  const hasUsableOverviewRow = (
+    row: NonNullable<KaiHomeInsightsV2["market_overview"]>[number] | null | undefined
+  ) => {
+    if (!row || row.degraded) return false;
+    if (typeof row.value === "number" && Number.isFinite(row.value)) return true;
+    return typeof row.value === "string" && row.value.trim() !== "" && !isUnavailableText(row.value);
+  };
+
+  const benchmarkRows = [
+    { label: "S&P 500", match: (label: string) => label.includes("s&p") || label.includes("sp 500") },
+    { label: "NASDAQ 100", match: (label: string) => label.includes("nasdaq") },
+    { label: "DOW 30", match: (label: string) => label.includes("dow") },
+    { label: "Russell 2000", match: (label: string) => label.includes("russell") },
+  ]
+    .map(({ label, match }) => {
+      const row = overviewRows.find((candidate) => match(String(candidate.label || "").toLowerCase())) || null;
+      return hasUsableOverviewRow(row) ? toIndexOverviewMetric(row, label) : toIndexOverviewMetric(null, label);
+    });
+
+  const providerRows = overviewRows
+    .filter(hasUsableOverviewRow)
+    .map((row) => toIndexOverviewMetric(row, String(row.label || "Market")));
+  const nonDelayedFallbackRows = fallbackMetrics.filter(
+    (metric) =>
+      !/delayed/i.test(`${metric.value} ${metric.delta}`) &&
+      !/delayed/i.test(metric.detailPanel?.statusLabel || "")
+  );
+  const seen = new Set<string>();
+  return [...benchmarkRows, ...providerRows, ...nonDelayedFallbackRows]
+    .filter((metric) => {
+      const key = metric.id || metric.label.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 4);
 }
 
 function toKaiStripText(
@@ -810,7 +842,7 @@ function OneMarketKaiSheet({
   return (
     <section
       className={cn(
-        "fixed inset-x-0 bottom-0 z-50 mx-auto flex h-[min(92vh,760px)] max-w-[720px] flex-col rounded-t-[28px] bg-white/95 shadow-[0_-18px_50px_-20px_rgba(0,0,0,0.40)] backdrop-blur-[20px] transition-transform duration-300",
+        "fixed inset-x-0 bottom-0 z-[430] mx-auto flex h-[min(92vh,760px)] max-w-[720px] flex-col rounded-t-[28px] bg-white/95 shadow-[0_-18px_50px_-20px_rgba(0,0,0,0.40)] backdrop-blur-[20px] transition-transform duration-300",
         open ? "translate-y-0" : "translate-y-[105%]"
       )}
       aria-label="Kai agent"
@@ -819,7 +851,7 @@ function OneMarketKaiSheet({
       <div className="mx-auto mt-2.5 h-[5px] w-9 rounded-full bg-[color:var(--one-fg3)] opacity-35" />
       <header className="flex items-center gap-3 border-b border-[color:var(--one-line)] px-[18px] pb-3 pt-3">
         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.30)]">
-          <MessageCircle className="h-4 w-4" />
+          <Star className="h-4 w-4 fill-current" />
         </span>
         <span className="min-w-0 flex-1">
           <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">Kai</b>
@@ -866,129 +898,6 @@ function OneMarketKaiSheet({
         </button>
       </div>
     </section>
-  );
-}
-
-function OneMarketDock({
-  searchOpen,
-  searchQuery,
-  onSearchOpen,
-  onSearchClose,
-  onSearchQueryChange,
-  onSearchSubmit,
-  onKaiOpen,
-}: {
-  searchOpen: boolean;
-  searchQuery: string;
-  onSearchOpen: () => void;
-  onSearchClose: () => void;
-  onSearchQueryChange: (value: string) => void;
-  onSearchSubmit: () => void;
-  onKaiOpen: () => void;
-}) {
-  const items: Array<{ label: string; href: string; icon: LucideIcon; active?: boolean }> = [
-    { label: "Market", href: "/kai", icon: Store, active: true },
-    { label: "Portfolio", href: "/kai/portfolio", icon: WalletCards },
-    { label: "Analysis", href: "/kai/analysis", icon: LineChart },
-    { label: "Connect", href: "/kai?preview=connect", icon: Compass },
-    { label: "Profile", href: "/profile", icon: UserRound },
-  ];
-  const submitDockSearch = () => {
-    const hasQuery = searchQuery.trim().length > 0;
-    onSearchSubmit();
-    if (hasQuery) {
-      onSearchClose();
-    }
-  };
-  return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 mx-auto w-full max-w-[560px] px-4 pb-[calc(10px+env(safe-area-inset-bottom))] sm:px-6 before:pointer-events-none before:absolute before:inset-x-[-18px] before:bottom-[-10px] before:h-[126px] before:bg-[linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,0.88)_34%,rgba(255,255,255,0.98))] before:backdrop-blur-[8px] [&>*]:relative [&>*]:z-[1]">
-      <div className="relative flex items-end gap-2.5 sm:gap-3">
-        {searchOpen ? (
-          <>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                submitDockSearch();
-              }}
-              className={cn(
-                kaiPreviewDockSurfaceClassName,
-                "pointer-events-auto flex h-[50px] min-w-0 flex-1 items-center gap-[9px] rounded-full px-[15px] pr-2"
-              )}
-            >
-              <Search className="h-5 w-5 shrink-0 text-[color:var(--one-fg3)]" />
-              <input
-                placeholder="Search"
-                value={searchQuery}
-                onChange={(event) => onSearchQueryChange(event.target.value)}
-                className="min-w-0 flex-1 bg-transparent text-[14px] text-[color:var(--one-fg)] outline-none placeholder:text-[color:var(--one-fg3)]"
-              />
-              <button
-                type="button"
-                onClick={submitDockSearch}
-                className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white transition-transform active:scale-[0.92]"
-                aria-label="Voice search"
-              >
-                <Mic className="h-4 w-4" />
-              </button>
-            </form>
-            <button
-              type="button"
-              onClick={onSearchClose}
-              className="pointer-events-auto flex h-[50px] shrink-0 items-center justify-center rounded-full px-1.5 text-[14px] font-semibold text-[color:var(--one-link)]"
-            >
-              Cancel
-            </button>
-          </>
-        ) : (
-          <>
-            <nav
-              className={cn(
-                kaiPreviewDockSurfaceClassName,
-                "pointer-events-auto grid h-[58px] min-w-0 flex-1 grid-cols-5 content-center rounded-full px-1.5"
-              )}
-            >
-              {items.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={item.label}
-                    type="button"
-                    onClick={() => openOneMarketHref(item.href)}
-                    className={cn(
-                      kaiPreviewDockItemClassName,
-                      item.active && kaiPreviewDockActiveItemClassName
-                    )}
-                  >
-                    <Icon className="h-[21px] w-[21px]" strokeWidth={1.8} />
-                    <span className="truncate">{item.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-            <button
-              type="button"
-              onClick={onKaiOpen}
-              className={cn(kaiPreviewDockSurfaceClassName, "pointer-events-auto absolute bottom-[72px] right-1 grid h-[50px] w-[50px] place-items-center rounded-full")}
-              aria-label="Talk to Kai"
-            >
-              <span className="grid h-[30px] w-[30px] place-items-center rounded-[9px] bg-[color:var(--one-blue)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
-                <CirclePlus className="h-[15px] w-[15px]" strokeWidth={2} />
-              </span>
-            </button>
-            <div className="pointer-events-auto flex shrink-0">
-              <button
-                type="button"
-                onClick={onSearchOpen}
-                className={cn(kaiPreviewDockSurfaceClassName, "grid h-[58px] w-[58px] place-items-center rounded-full text-[color:var(--one-fg2)] transition-transform active:scale-[0.9]")}
-                aria-label="Search"
-              >
-                <Search className="h-5 w-5" strokeWidth={2.2} />
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -1841,10 +1750,8 @@ export function KaiMarketPreviewView() {
   const displayError = usingLocalPreviewFallback ? null : error;
   const [selectedOverviewMetricId, setSelectedOverviewMetricId] = useState<string | null>(null);
   const [moverTab, setMoverTab] = useState<OneMarketMoverTab>("gain");
-  const [topbarVisible, setTopbarVisible] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [kaiSheetOpen, setKaiSheetOpen] = useState(false);
-  const [dockSearchOpen, setDockSearchOpen] = useState(false);
   const [marketSearchQuery, setMarketSearchQuery] = useState("");
   const {
     activeControlId: activeVoiceControlId,
@@ -2101,21 +2008,9 @@ export function KaiMarketPreviewView() {
     setKaiSheetOpen(false);
   }, []);
 
-  useEffect(() => {
-    const updateTopbar = () => {
-      setTopbarVisible(window.scrollY > 64);
-    };
-    updateTopbar();
-    window.addEventListener("scroll", updateTopbar, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", updateTopbar);
-    };
-  }, []);
-
   const handleMarketSearchSubmit = useCallback(() => {
     const query = marketSearchQuery.trim();
     if (!query) {
-      setDockSearchOpen(true);
       return;
     }
     const normalizedQuery = query.length <= 6 ? query.toUpperCase() : query;
@@ -2143,6 +2038,14 @@ export function KaiMarketPreviewView() {
               background: #ffffff !important;
             }
 
+            html.dark:has([data-one-market-preview="true"]),
+            html.dark:has([data-one-market-preview="true"]) body,
+            html.dark:has([data-one-market-preview="true"]) body main,
+            html.dark:has([data-one-market-preview="true"]) body [data-top-content-anchor="true"],
+            html.dark:has([data-one-market-preview="true"]) body [class*="overflow-y-auto"][class*="touch-pan-y"] {
+              background: #000000 !important;
+            }
+
             nextjs-portal,
             [aria-label="Open consent inbox"] {
               display: none !important;
@@ -2152,18 +2055,8 @@ export function KaiMarketPreviewView() {
       ) : null}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 -z-20 bg-white"
+        className="pointer-events-none absolute inset-0 -z-20 bg-[color:var(--one-bg)]"
       />
-      <div
-        className={cn(
-          oneMarketGlassClassName,
-          "pointer-events-none fixed inset-x-0 top-0 z-30 mx-auto flex h-[50px] max-w-[1080px] items-center justify-center border-b border-[color:var(--one-hairline)] bg-white/85 text-[17px] font-semibold text-[color:var(--one-fg)] transition duration-300",
-          topbarVisible ? "translate-y-0 opacity-100" : "-translate-y-2 opacity-0"
-        )}
-      >
-        Market
-      </div>
-
       <div className="flex-1 pb-[calc(148px+env(safe-area-inset-bottom))] pt-0">
         <header className="mx-auto w-full max-w-[1080px] px-[var(--one-gutter)] pt-4">
           <div className="flex items-start justify-between">
@@ -2175,7 +2068,7 @@ export function KaiMarketPreviewView() {
               <div className={kaiPreviewPageTitleClassName} role="heading" aria-level={1}>
                 Market
               </div>
-              <p className="max-w-[32ch] text-[14px] leading-snug text-[color:var(--one-fg2)]">
+              <p className="max-w-[34ch] text-[17px] leading-[1.42] text-[color:var(--one-fg2)]">
                 Track the market and your watchlist.
               </p>
             </div>
@@ -2196,7 +2089,7 @@ export function KaiMarketPreviewView() {
               event.preventDefault();
               handleMarketSearchSubmit();
             }}
-            className="mt-[18px] flex h-[46px] items-center gap-2.5 rounded-xl bg-[color:var(--one-surface)] px-3.5"
+            className="mt-5 flex h-12 items-center gap-2.5 rounded-[16px] bg-[color:var(--one-surface)] px-4"
           >
             <Search className="h-[17px] w-[17px] shrink-0 text-[color:var(--one-fg3)]" />
             <input
@@ -2221,7 +2114,7 @@ export function KaiMarketPreviewView() {
             className={cn(oneMarketGlassClassName, "mt-[22px] flex w-full items-center gap-[11px] rounded-2xl px-4 py-3.5 text-left transition-transform active:scale-[0.99]")}
           >
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.30)]">
-              <MessageCircle className="h-4 w-4" />
+              <Star className="h-4 w-4 fill-current" />
             </span>
             <span className="min-w-0 flex-1 text-[13px] leading-snug text-[color:var(--one-fg)]">
               <b className="font-semibold">Kai:</b> {kaiStripText}
@@ -2316,16 +2209,6 @@ export function KaiMarketPreviewView() {
           </>
         ) : null}
       </div>
-
-      <OneMarketDock
-        searchOpen={dockSearchOpen}
-        searchQuery={marketSearchQuery}
-        onSearchOpen={() => setDockSearchOpen(true)}
-        onSearchClose={() => setDockSearchOpen(false)}
-        onSearchQueryChange={setMarketSearchQuery}
-        onSearchSubmit={handleMarketSearchSubmit}
-        onKaiOpen={() => setKaiSheetOpen(true)}
-      />
 
       {shellOverlayOpen ? (
         <button

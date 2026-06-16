@@ -12,7 +12,7 @@ const shellActionSurfaceVariants = cva(
     variants: {
       variant: {
         icon: "h-10 w-10 items-center justify-center hover:scale-[1.035] hover:bg-[color:var(--app-shell-surface-bg-hover)] active:scale-[0.965]",
-        pill: "min-h-10 min-w-0 max-w-full items-center justify-center gap-1.5 px-3 py-1.5 text-[14px] font-semibold tracking-tight hover:bg-[color:var(--app-shell-surface-bg-hover)] sm:gap-2 sm:px-4 sm:text-base",
+        pill: "min-h-10 min-w-0 max-w-full items-center justify-center gap-1.5 px-3 py-1.5 text-[14px] font-medium tracking-normal hover:bg-[color:var(--app-shell-surface-bg-hover)] sm:gap-2 sm:px-4 sm:text-base",
       },
     },
     defaultVariants: {

@@ -1246,10 +1246,10 @@ md-ripple.morphy-md-ripple {
   opacity: 1;
   background: linear-gradient(
     to top,
-    rgba(245, 245, 247, 0.17) 0%,
-    rgba(245, 245, 247, 0.13) 42%,
-    rgba(245, 245, 247, 0.07) 70%,
-    rgba(245, 245, 247, 0.024) 90%,
+    var(--app-bar-bottom-fade-strong, rgba(245, 245, 247, 0.17)) 0%,
+    var(--app-bar-bottom-fade-medium, rgba(245, 245, 247, 0.13)) 42%,
+    var(--app-bar-bottom-fade-soft, rgba(245, 245, 247, 0.07)) 70%,
+    var(--app-bar-bottom-fade-trace, rgba(245, 245, 247, 0.024)) 90%,
     transparent 100%
   );
 }
@@ -1257,10 +1257,10 @@ md-ripple.morphy-md-ripple {
 .dark .bar-glass-bottom::after {
   background: linear-gradient(
     to top,
-    rgba(28, 28, 30, 0.18) 0%,
-    rgba(28, 28, 30, 0.14) 42%,
-    rgba(28, 28, 30, 0.08) 70%,
-    rgba(28, 28, 30, 0.03) 90%,
+    var(--app-bar-bottom-fade-strong, rgba(28, 28, 30, 0.18)) 0%,
+    var(--app-bar-bottom-fade-medium, rgba(28, 28, 30, 0.14)) 42%,
+    var(--app-bar-bottom-fade-soft, rgba(28, 28, 30, 0.08)) 70%,
+    var(--app-bar-bottom-fade-trace, rgba(28, 28, 30, 0.03)) 90%,
     transparent 100%
   );
 }
@@ -1280,6 +1280,41 @@ md-ripple.morphy-md-ripple {
   background-color: rgba(28, 28, 30, 0.8);
   border: none;
   box-shadow: 0 11px 34px 0 var(--theme-color-boxShadow);
+}
+
+.kai-bottom-nav-pill {
+  color: rgb(255 255 255);
+  border: 1px solid rgb(255 255 255 / 0.12) !important;
+  background:
+    linear-gradient(180deg, rgb(47 47 50 / 0.9), rgb(17 17 19 / 0.86)) !important;
+  box-shadow:
+    0 16px 38px -22px rgb(0 0 0 / 0.85),
+    inset 0 1px 0 rgb(255 255 255 / 0.16),
+    inset 0 -1px 0 rgb(0 0 0 / 0.32) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+}
+
+.kai-bottom-nav-pill [data-segment-indicator] {
+  background:
+    radial-gradient(circle at 50% 35%, rgb(255 255 255 / 0.18), transparent 64%),
+    linear-gradient(180deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0.06)) !important;
+  box-shadow:
+    0 10px 24px -18px rgb(255 255 255 / 0.42),
+    inset 0 1px 0 rgb(255 255 255 / 0.18) !important;
+}
+
+.kai-bottom-nav-pill [role="radio"] {
+  color: rgb(255 255 255 / 0.82) !important;
+}
+
+.kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
+  color: rgb(41 171 255) !important;
+  font-weight: 700;
+}
+
+.kai-bottom-nav-pill [role="radio"] svg {
+  stroke-width: 2.35;
 }
 
 /* Carousel edge glass (left/right): use to hint adjacent slides while keeping center crisp. */
