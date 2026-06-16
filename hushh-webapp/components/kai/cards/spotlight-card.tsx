@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { LineChart } from "@/components/icons";
 
@@ -12,7 +13,7 @@ import { cn } from "@/lib/utils";
 
 type SpotlightDecision = "BUY" | "HOLD" | "WATCH" | "REDUCE";
 
-export function SpotlightCard(props: {
+interface SpotlightCardProps {
   symbol: string;
   companyName?: string | null;
   title: string;
@@ -23,26 +24,35 @@ export function SpotlightCard(props: {
   context: string;
   contextHref?: string | null;
   fallbackHref?: string | null;
-}) {
+  compact?: boolean; // New Feature: Compact mode
+}
+
+// Decision mapping for better maintenance
+const DECISION_STYLES: Record<SpotlightDecision, string> = {
+  BUY: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  HOLD: "bg-blue-500/10 text-blue-700 dark:text-blue-300",
+  WATCH: "bg-blue-500/10 text-blue-700 dark:text-blue-300",
+  REDUCE: "bg-orange-500/10 text-orange-700 dark:text-orange-300",
+};
+
+export function SpotlightCard({ compact = false, ...props }: SpotlightCardProps) {
   const router = useRouter();
-  const decisionTone =
-    props.decision === "BUY"
-      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-      : props.decision === "WATCH"
-        ? "bg-blue-500/10 text-blue-700 dark:text-blue-300"
-      : props.decision === "HOLD"
-        ? "bg-blue-500/10 text-blue-700 dark:text-blue-300"
-        : "bg-orange-500/10 text-orange-700 dark:text-orange-300";
 
   const primaryHref = props.contextHref || props.fallbackHref || null;
   const isExternal = Boolean(props.contextHref);
+
+  const decisionStyle = useMemo(() => DECISION_STYLES[props.decision], [props.decision]);
+
+  const handleNavigation = () => {
+    if (!primaryHref) return;
+    isExternal ? openExternalUrl(primaryHref) : router.push(primaryHref);
+  };
 
   return (
     <MorphyCard
       preset="surface"
       variant="none"
       effect="glass"
-      showRipple={false}
       glassAccent="soft"
       className={cn(
         "group relative isolate !overflow-hidden !gap-0 !py-0 rounded-[24px] transition-[border-color,box-shadow,background-color] duration-150 ease-out",
@@ -114,8 +124,18 @@ export function SpotlightCard(props: {
               {props.context}
             </span>
           </div>
+
+          <p className={cn("text-sm font-medium leading-relaxed", compact ? "line-clamp-2" : "")}>{props.summary}</p>
+
+          <div className="flex items-center justify-between border-t border-border/40 pt-3 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2">
+              <Icon icon={LineChart} size="sm" />
+              <span className="line-clamp-1">{props.context}</span>
+            </div>
+            {primaryHref && <Icon icon={ArrowRight} size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity" />}
+          </div>
         </MorphyCardContent>
-        {primaryHref ? <MaterialRipple variant="none" effect="fade" className="z-10" /> : null}
+        {primaryHref && <MaterialRipple variant="none" className="z-10" />}
       </button>
     </MorphyCard>
   );
