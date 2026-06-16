@@ -17,6 +17,12 @@ describe("consent sheet route helpers", () => {
     ).toBe("/consents?tab=pending&requestId=req_123");
   });
 
+  it("evaluates string routing targets accurately when parsing local addresses featuring explicit numerical port dividers", () => {
+    expect(normalizeInternalAppHref("http://localhost:8080/consents/dashboard")).toBe(
+      "/consents/dashboard"
+    );
+  });
+
   it("normalizes Email Helper workflow links to internal app routes", () => {
     expect(
       normalizeInternalAppHref("http://localhost:3000/one/kyc?workflowId=wf_123")
