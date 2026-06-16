@@ -32,11 +32,15 @@ import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import {
   kaiAppBodyClassName,
   kaiAppCardBodyClassName,
-  kaiAppCardTitleClassName,
   kaiAppCompactTitleClassName,
   kaiAppEyebrowClassName,
   kaiAppHelperClassName,
 } from "@/components/kai/shared/kai-typography";
+
+const importCardTitleClassName =
+  "text-[22px] font-medium leading-[1.12] tracking-normal text-foreground sm:text-[24px]";
+const importDropzoneTitleClassName =
+  "text-[16px] font-medium leading-[1.24] tracking-normal sm:text-[17px]";
 
 // =============================================================================
 // TYPES
@@ -163,7 +167,7 @@ export function PortfolioImportView({
     <div className="mx-auto w-full space-y-3.5 pt-3 pb-6" style={APP_MEASURE_STYLES.reading}>
       {/* Header */}
       <div className="space-y-2.5 text-center">
-        <h1 className={kaiAppCompactTitleClassName}>
+        <h1 className={cn(kaiAppCompactTitleClassName, "text-foreground")}>
           Your money
           <br />
           <span>Your options</span>
@@ -188,7 +192,7 @@ export function PortfolioImportView({
                 <Icon icon={Link2} size="md" className="text-primary" />
               </div>
               <div className="min-w-0">
-                <h3 className={kaiAppCardTitleClassName}>Connect with Plaid</h3>
+                <h3 className={importCardTitleClassName}>Connect with Plaid</h3>
                 <p className={cn(kaiAppCardBodyClassName, "mt-0.5 text-muted-foreground")}>
                   Automatically sync your brokerage accounts
                 </p>
@@ -254,7 +258,7 @@ export function PortfolioImportView({
               <Icon icon={Upload} size="md" className="text-primary" />
             </div>
             <div>
-              <h3 className={cn(kaiAppCardTitleClassName, "text-foreground")}>Upload statement</h3>
+              <h3 className={importCardTitleClassName}>Upload statement</h3>
               <p className={cn(kaiAppCardBodyClassName, "mt-0.5 text-muted-foreground")}>
                 Import official brokerage PDF or CSV manually
               </p>
@@ -282,7 +286,7 @@ export function PortfolioImportView({
 
             {/* Text */}
             <div className="space-y-1">
-              <h3 className={cn(kaiAppCardTitleClassName, "text-primary")}>
+              <h3 className={cn(importDropzoneTitleClassName, "text-primary")}>
                 {isDragging
                   ? "Drop your file here"
                   : "Tap to upload official statement"}

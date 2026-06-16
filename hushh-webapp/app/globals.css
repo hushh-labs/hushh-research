@@ -1284,16 +1284,17 @@ md-ripple.morphy-md-ripple {
 
 .kai-bottom-nav-pill {
   color: rgb(29 29 31);
-  border: 1px solid rgb(255 255 255 / 0.72) !important;
+  border: 1px solid rgb(255 255 255 / 0.78) !important;
   background:
-    linear-gradient(180deg, rgb(255 255 255 / 0.88), rgb(245 245 247 / 0.76)) !important;
+    radial-gradient(circle at 50% 0%, rgb(255 255 255 / 0.96), transparent 54%),
+    linear-gradient(180deg, rgb(255 255 255 / 0.9), rgb(246 246 248 / 0.76)) !important;
   box-shadow:
-    0 18px 44px -26px rgb(0 0 0 / 0.34),
-    0 2px 8px -6px rgb(0 0 0 / 0.18),
+    0 18px 42px -28px rgb(0 0 0 / 0.34),
+    0 2px 10px -8px rgb(0 0 0 / 0.22),
     inset 0 1px 0 rgb(255 255 255 / 0.9),
     inset 0 -1px 0 rgb(0 0 0 / 0.06) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(26px) saturate(190%);
+  backdrop-filter: blur(26px) saturate(190%);
 }
 
 .dark .kai-bottom-nav-pill {
@@ -1309,11 +1310,12 @@ md-ripple.morphy-md-ripple {
 
 .kai-bottom-nav-pill [data-segment-indicator] {
   background:
-    radial-gradient(circle at 50% 35%, rgb(255 255 255 / 0.95), transparent 64%),
-    linear-gradient(180deg, rgb(255 255 255 / 0.94), rgb(255 255 255 / 0.74)) !important;
+    radial-gradient(circle at 50% 16%, rgb(255 255 255 / 0.98), transparent 58%),
+    linear-gradient(180deg, rgb(255 255 255 / 0.96), rgb(255 255 255 / 0.7)) !important;
   box-shadow:
-    0 11px 24px -18px rgb(0 0 0 / 0.42),
-    inset 0 1px 0 rgb(255 255 255 / 0.92) !important;
+    0 12px 25px -19px rgb(0 0 0 / 0.48),
+    0 1px 4px -3px rgb(0 0 0 / 0.18),
+    inset 0 1px 0 rgb(255 255 255 / 0.94) !important;
 }
 
 .dark .kai-bottom-nav-pill [data-segment-indicator] {
@@ -1326,10 +1328,10 @@ md-ripple.morphy-md-ripple {
 }
 
 .kai-bottom-nav-pill [role="radio"] {
-  color: rgb(60 60 67 / 0.78) !important;
+  color: rgb(60 60 67 / 0.7) !important;
   min-height: 48px;
-  gap: 0.24rem !important;
-  padding: 0.4rem 0.25rem 0.44rem !important;
+  gap: 0.22rem !important;
+  padding: 0.38rem 0.2rem 0.42rem !important;
   letter-spacing: 0;
 }
 
@@ -1347,28 +1349,34 @@ md-ripple.morphy-md-ripple {
 }
 
 .kai-bottom-nav-pill [role="radio"] svg {
-  width: 18px;
-  height: 18px;
-  opacity: 0.9;
-  stroke-width: 1.9;
+  width: 20px;
+  height: 20px;
+  opacity: 0.84;
+  stroke-width: 1.72;
+  filter: drop-shadow(0 0.5px 0 rgb(255 255 255 / 0.6));
+  transform: translateY(0);
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] svg {
   opacity: 1;
-  stroke-width: 2;
+  stroke-width: 2.08;
+  filter: drop-shadow(0 3px 8px rgb(0 113 227 / 0.2));
+  transform: translateY(-0.5px);
 }
 
 .kai-bottom-nav-pill [role="radio"] > span:last-of-type {
   max-width: 100%;
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 500;
   line-height: 1;
   letter-spacing: 0;
   text-wrap: nowrap;
+  opacity: 0.92;
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] > span:last-of-type {
   font-weight: 600;
+  opacity: 1;
 }
 
 .kai-bottom-search-action {
