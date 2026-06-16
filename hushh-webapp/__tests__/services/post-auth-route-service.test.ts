@@ -864,7 +864,7 @@ describe("PostAuthRouteService", () => {
     ).resolves.toBe(ROUTES.ONE_LOCATION);
   });
 
-  it("skips the phone mandate for localhost UAT sessions", async () => {
+  it("does not bypass the phone mandate for localhost UAT sessions", async () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,

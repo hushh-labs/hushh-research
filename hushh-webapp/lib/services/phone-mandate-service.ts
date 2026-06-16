@@ -18,9 +18,8 @@ export function hasVerifiedPhoneNumber(phoneNumber?: string | null): boolean {
 }
 
 export function shouldBypassPhoneMandateForLocalhost(hostname?: string | null): boolean {
-  const appEnvironment = resolveAppEnvironment();
   return (
-    (appEnvironment === "development" || appEnvironment === "uat") &&
+    resolveAppEnvironment() === "development" &&
     LOCAL_PHONE_MANDATE_BYPASS_HOSTS.has(normalizeHostname(hostname))
   );
 }

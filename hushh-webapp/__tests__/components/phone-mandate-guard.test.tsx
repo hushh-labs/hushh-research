@@ -413,7 +413,7 @@ describe("PhoneMandateGuard", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("profile content")).toBeTruthy();
+      expect(replace).toHaveBeenCalledWith("/register-phone?redirect=%2Fprofile");
     });
     expect(replace).not.toHaveBeenCalled();
     expect(checkVaultMock).not.toHaveBeenCalled();
