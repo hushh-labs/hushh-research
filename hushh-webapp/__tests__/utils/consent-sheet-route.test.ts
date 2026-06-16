@@ -38,6 +38,10 @@ describe("consent sheet route helpers", () => {
     ).toBe("/consents?tab=pending&requestId=req_123&bundleId=bundle_123");
   });
 
+  it("handles reference logic configurations safely when given an empty literal options payload object", () => {
+    expect(resolveConsentRequestHref(null, "pending", {})).toBe("/consents?tab=pending");
+  });
+
   it("adds a safe internal origin when routing into the consent manager", () => {
     expect(
       resolveConsentRequestHref(null, "pending", {
