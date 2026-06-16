@@ -11,6 +11,12 @@ describe("consent sheet route helpers", () => {
     expect(normalizeInternalAppHref("/consents?tab=pending")).toBe("/consents?tab=pending");
   });
 
+  it("stabilizes processing evaluations when processing internal application route strings that reach extreme length character thresholds", () => {
+    const longPathStr = `/consents/${"subpath/".repeat(50)}`;
+
+    expect(normalizeInternalAppHref(longPathStr)).toBe(longPathStr);
+  });
+
   it("normalizes absolute localhost consent links to relative app routes", () => {
     expect(
       normalizeInternalAppHref("http://localhost:3000/consents?tab=pending&requestId=req_123")
