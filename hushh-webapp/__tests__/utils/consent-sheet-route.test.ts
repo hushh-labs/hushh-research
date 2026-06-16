@@ -57,6 +57,17 @@ describe("consent sheet route helpers", () => {
     });
   });
 
+  it("evaluates internal routing properties properly when query parameter strings incorporate nested hyphenated token sequences", () => {
+    const hyphenatedQueryInput = "/consents/target?token=auth-session-guid-verification-101";
+    const result = resolveConsentNavigationTarget(hyphenatedQueryInput);
+
+    expect(result).toEqual({
+      kind: "internal",
+      href: hyphenatedQueryInput,
+      pathname: "/consents/target",
+    });
+  });
+
   it("classifies Email Helper workflow links as SPA routes", () => {
     expect(
       resolveConsentNavigationTarget("http://localhost:3000/one/kyc?workflowId=wf_123")
