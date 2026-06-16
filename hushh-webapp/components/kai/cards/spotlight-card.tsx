@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { LineChart } from "@/components/icons";
 
@@ -35,13 +34,24 @@ const DECISION_STYLES: Record<SpotlightDecision, string> = {
   REDUCE: "bg-orange-500/10 text-orange-700 dark:text-orange-300",
 };
 
-export function SpotlightCard({ compact = false, ...props }: SpotlightCardProps) {
+export function SpotlightCard({
+  symbol,
+  companyName,
+  title,
+  price,
+  decision,
+  summary,
+  context,
+  contextHref,
+  fallbackHref,
+  compact = false,
+}: SpotlightCardProps) {
   const router = useRouter();
 
-  const primaryHref = props.contextHref || props.fallbackHref || null;
-  const isExternal = Boolean(props.contextHref);
+  const primaryHref = contextHref || fallbackHref || null;
+  const isExternal = Boolean(contextHref);
 
-  const decisionStyle = useMemo(() => DECISION_STYLES[props.decision], [props.decision]);
+  const decisionStyle = DECISION_STYLES[decision as SpotlightDecision];
 
   const handleNavigation = () => {
     if (!primaryHref) return;
@@ -125,12 +135,12 @@ export function SpotlightCard({ compact = false, ...props }: SpotlightCardProps)
             </span>
           </div>
 
-          <p className={cn("text-sm font-medium leading-relaxed", compact ? "line-clamp-2" : "")}>{props.summary}</p>
+          <p className={cn("text-sm font-medium leading-relaxed", compact ? "line-clamp-2" : "")}>{summary}</p>
 
           <div className="flex items-center justify-between border-t border-border/40 pt-3 text-xs text-muted-foreground">
             <div className="flex items-center gap-2">
               <Icon icon={LineChart} size="sm" />
-              <span className="line-clamp-1">{props.context}</span>
+              <span className="line-clamp-1">{context}</span>
             </div>
             {primaryHref && <Icon icon={ArrowRight} size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity" />}
           </div>
