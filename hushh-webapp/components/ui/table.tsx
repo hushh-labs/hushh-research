@@ -35,9 +35,8 @@ function TableHead({ className, sortable, ...props }: React.ComponentProps<"th">
       data-slot="table-head"
       scope="col"
       className={cn(
-        "text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap",
+        "text-foreground h-10 px-2 text-left align-middle font-medium whitespace-normal sm:whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
         sortable && "cursor-pointer select-none hover:text-primary transition-colors",
-        "[&:has([role=checkbox])]:pr-0",
         className
       )}
       {...props}
@@ -51,7 +50,7 @@ function TableRow({ className, selected, ...props }: React.ComponentProps<"tr"> 
       data-slot="table-row"
       data-state={selected ? "selected" : undefined}
       className={cn(
-        "border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted/70",
+        "border-b transition-colors hover:bg-foreground/[0.04] data-[state=selected]:bg-foreground/[0.05]",
         className
       )}
       {...props}
@@ -72,7 +71,10 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
   return (
     <td
       data-slot="table-cell"
-      className={cn("p-2 align-middle [&:has([role=checkbox])]:pr-0", className)}
+      className={cn(
+        "p-2 align-middle whitespace-normal break-words sm:whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        className
+      )}
       {...props}
     />
   );
@@ -80,7 +82,7 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
 
 // TableFooter and TableCaption remain standard but are re-exported
 function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
-  return <tfoot data-slot="table-footer" className={cn("bg-muted/50 font-medium", className)} {...props} />;
+  return <tfoot data-slot="table-footer" className={cn("bg-muted/50 border-t font-medium [&>tr]:last:border-b-0", className)} {...props} />;
 }
 
 function TableCaption({ className, ...props }: React.ComponentProps<"caption">) {
@@ -96,4 +98,4 @@ export {
   TableRow,
   TableCell,
   TableCaption,
-};
+};
