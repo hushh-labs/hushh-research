@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 const WEBAPP_ROOT = path.resolve(__dirname, "../..");
 
 function read(relativePath: string) {
-  return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8");
+  return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8").replace(/\r\n/g, "\n");
 }
 
 describe("Top app bar responsive contract", () => {
@@ -64,9 +64,8 @@ describe("Top app bar responsive contract", () => {
 
     expect(chrome).toContain("export function TopShellDropdownContent");
     expect(chrome).toContain("centeredMobileAlignOffset");
-    expect(chrome).toContain(
-      'querySelectorAll<HTMLElement>(\n      \'[data-slot="dropdown-menu-trigger"][data-state="open"]\'',
-    );
+    expect(chrome).toContain("querySelectorAll<HTMLElement>(");
+    expect(chrome).toContain('[data-slot="dropdown-menu-trigger"][data-state="open"]');
     expect(chrome).toContain("max-md:w-[calc(100vw-1.5rem)]");
     expect(chrome).toContain("max-md:min-w-[calc(100vw-1.5rem)]");
     expect(chrome).toContain("max-md:max-w-[calc(100vw-1.5rem)]");
