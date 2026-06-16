@@ -62,4 +62,26 @@ describe("PermissionGate", () => {
       "/consents"
     );
   });
+ it("keeps locked permission guidance visible for missing vault access", () => {
+  mockUseVault.mockReturnValue({
+    isVaultUnlocked: false,
+    vaultOwnerToken: null,
+  });
+
+  render(
+    <PermissionGate permission="portfolio_valuation">
+      <button type="button">Connect Portfolio</button>
+    </PermissionGate>
+  );
+
+  expect(screen.getByTestId("permission-locked-state")).toBeTruthy();
+
+  expect(
+    screen.getByText("Vault permission required")
+  ).toBeTruthy();
+
+  expect(
+    screen.getByRole("link", { name: "Review permissions" })
+  ).toBeTruthy();
+});
 });
