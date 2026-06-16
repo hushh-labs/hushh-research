@@ -103,21 +103,13 @@ function signalTone(signal: RenaissanceSignal): {
   };
 }
 
-function VerdictIcon({
-  signal,
-  className,
-}: {
-  signal: RenaissanceSignal;
-  className?: string;
-}) {
-  if (signal === "CONSTRUCTIVE") {
-    return <TrendingUp className={cn("h-5 w-5", className)} />;
-  }
-  if (signal === "CAUTION") {
-    return <TrendingDown className={cn("h-5 w-5", className)} />;
-  }
-  return <Minus className={cn("h-5 w-5", className)} />;
-}
+export function RenaissanceVerdictCard({ row }: { row: KaiHomeRenaissanceItem }) {
+  const signalType = useMemo<RenaissanceSignal>(() => {
+    const bias = String(row.recommendation_bias || "").trim().toUpperCase();
+    if (["BUY", "STRONG_BUY", "BULLISH", "HOLD_TO_BUY"].includes(bias)) return "CONSTRUCTIVE";
+    if (["REDUCE", "SELL", "BEARISH"].includes(bias)) return "CAUTION";
+    return "WATCHLIST";
+  }, [row.recommendation_bias]);
 
 export function RenaissanceVerdictCard({
   row,
