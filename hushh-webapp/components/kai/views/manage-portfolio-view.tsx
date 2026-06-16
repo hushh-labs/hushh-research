@@ -580,7 +580,7 @@ export function ManagePortfolioView() {
             </Button>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-3" data-testid="holdings-list">
             {holdings.length > 0 ? (
               <>
                 {holdings
@@ -744,6 +744,7 @@ export function ManagePortfolioView() {
               variant="morphy"
               effect="fill"
               className="w-full h-12 text-sm font-black rounded-xl border-none shadow-xl"
+              data-testid="portfolio-save-btn"
               icon={{ 
                 icon: isSaving ? SpinningLoader : Save,
                 gradient: false 
