@@ -62,4 +62,9 @@ describe("resolveAppEnvironment", () => {
 
     expect(resolveAppEnvironment()).toBe("development");
   });
+  it("maps UAT to uat", () => {
+    process.env.NEXT_PUBLIC_APP_ENV = "UAT";
+
+    expect(resolveAppEnvironment()).toBe("uat");
+  });
 });
