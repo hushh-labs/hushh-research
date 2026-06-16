@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ColumnDef } from "@tanstack/react-table";
 
@@ -78,6 +78,32 @@ describe("DataTable", () => {
     expect(screen.getByText("Row 3")).toBeTruthy();
     expect(screen.queryByText("No results.")).toBeNull();
   });
+
+  it("shows the empty results state when search matches no rows", async () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={makeRows(3)}
+        enableSearch
+        searchKey="name"
+        searchPlaceholder="Search rows"
+        initialPageSize={8}
+        pageSizeOptions={[8, 16, 24]}
+      />
+    );
+
+    const search = screen.getByPlaceholderText("Search rows");
+
+    fireEvent.change(search, { target: { value: "missing row" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("No results found.")).toBeTruthy();
+    });
+    expect(screen.queryByText("Row 1")).toBeNull();
+    expect(screen.queryByText("Row 2")).toBeNull();
+    expect(screen.queryByText("Row 3")).toBeNull();
+  });
+
   it("preserves accessible search input behavior", () => {
     render(
       <DataTable
