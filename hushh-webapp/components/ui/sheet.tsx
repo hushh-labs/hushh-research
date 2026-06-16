@@ -1,9 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { XIcon } from "lucide-react"
-import { Dialog as SheetPrimitive } from "radix-ui"
-
+import { XIcon, Loader2 } from "lucide-react"
+import * as SheetPrimitive from "@radix-ui/react-dialog"
 import { cn } from "@/lib/utils"
 
 function Sheet({
@@ -39,7 +38,7 @@ function SheetOverlay({
     <SheetPrimitive.Overlay
       data-slot="sheet-overlay"
       className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[711] bg-transparent touch-none",
+        "fixed inset-0 z-[711] bg-black/20 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
         className
       )}
       {...props}
@@ -52,17 +51,15 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  loading = false,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
+  loading?: boolean
 }) {
   return (
     <SheetPortal>
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 z-[710] bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)]"
-      />
       <SheetOverlay />
       <SheetPrimitive.Content
         data-slot="sheet-content"
@@ -80,11 +77,18 @@ function SheetContent({
         )}
         {...props}
       >
+        {loading && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+            <Loader2 className="size-8 animate-spin text-primary" />
+          </div>
+        )}
         {children}
         {showCloseButton && (
-          <SheetPrimitive.Close className="ring-offset-background focus:ring-ring absolute top-4 right-4 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
+          <SheetPrimitive.Close
+            className="ring-offset-background focus:ring-ring absolute top-4 right-4 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none"
+            aria-label="Close"
+          >
             <XIcon className="size-4" />
-            <span className="sr-only">Close</span>
           </SheetPrimitive.Close>
         )}
       </SheetPrimitive.Content>
