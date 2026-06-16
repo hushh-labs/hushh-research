@@ -7,11 +7,11 @@ import React, { useEffect, useMemo, type CSSProperties } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ChartSpline,
+  ChartCandlestick,
+  CircleUserRound,
   Compass,
   FileSpreadsheet,
   House,
-  Landmark,
-  UserRound,
   Users,
   WalletCards,
 } from "lucide-react";
@@ -126,7 +126,7 @@ export const Navbar = () => {
             {
               value: "profile",
               label: "Profile",
-              icon: UserRound,
+              icon: CircleUserRound,
               badge: pendingConsents > 0 ? pendingConsents : undefined,
               dataTourId: "nav-profile",
             },
@@ -135,7 +135,7 @@ export const Navbar = () => {
             {
               value: "market",
               label: "Market",
-              icon: Landmark,
+              icon: ChartCandlestick,
               dataTourId: "nav-market",
             },
             {
@@ -159,7 +159,7 @@ export const Navbar = () => {
             {
               value: "profile",
               label: "Profile",
-              icon: UserRound,
+              icon: CircleUserRound,
               badge: pendingConsents > 0 ? pendingConsents : undefined,
               dataTourId: "nav-profile",
             },
