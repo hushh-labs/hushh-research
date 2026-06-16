@@ -57,6 +57,17 @@ describe("consent sheet route helpers", () => {
     });
   });
 
+  it("interprets structural query keys properly when the input target incorporates bracket-notation array layouts", () => {
+    const bracketArrayInput = "/consents/verify?permissions[]=read&permissions[]=share";
+    const result = resolveConsentNavigationTarget(bracketArrayInput);
+
+    expect(result).toEqual({
+      kind: "internal",
+      href: bracketArrayInput,
+      pathname: "/consents/verify",
+    });
+  });
+
   it("classifies Email Helper workflow links as SPA routes", () => {
     expect(
       resolveConsentNavigationTarget("http://localhost:3000/one/kyc?workflowId=wf_123")
