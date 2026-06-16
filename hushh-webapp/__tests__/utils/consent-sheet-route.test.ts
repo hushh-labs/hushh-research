@@ -38,6 +38,17 @@ describe("consent sheet route helpers", () => {
     ).toBe("/consents?tab=pending&requestId=req_123&bundleId=bundle_123");
   });
 
+  it("calculates reference link layouts successfully when properties include explicit numerical primitives as configuration options", () => {
+    const configurationWithNumbers = {
+      requestId: 86400,
+      bundleId: 44,
+    } as any;
+
+    expect(resolveConsentRequestHref(null, "pending", configurationWithNumbers)).toBe(
+      "/consents?tab=pending&requestId=86400&bundleId=44"
+    );
+  });
+
   it("adds a safe internal origin when routing into the consent manager", () => {
     expect(
       resolveConsentRequestHref(null, "pending", {
