@@ -565,6 +565,7 @@ export function KaiAnalysisPreviewView() {
             <Search className="h-[17px] w-[17px] shrink-0 text-[color:var(--one-fg3)]" />
             <input
               type="text"
+              autoComplete="off"
               placeholder="Analyze any stock"
               value={stockQuery}
               onChange={(event) => setStockQuery(event.target.value)}
