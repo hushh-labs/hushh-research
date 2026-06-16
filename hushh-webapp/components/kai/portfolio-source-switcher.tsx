@@ -180,7 +180,7 @@ export function PortfolioSourceSwitcher({
                 data-voice-control-id="delete_imported_data"
               >
                 {isDeletingPortfolio ? (
-                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden="true" />
                 ) : (
                   <Trash2 className="mr-2 h-3.5 w-3.5" />
                 )}
@@ -233,7 +233,7 @@ export function PortfolioSourceSwitcher({
                   data-voice-control-id="delete_statement_snapshot"
                 >
                   {isDeletingStatementSnapshot ? (
-                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden="true" />
                   ) : (
                     <Trash2 className="mr-2 h-3.5 w-3.5" />
                   )}
