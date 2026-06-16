@@ -24,6 +24,17 @@ function request(headers: Record<string, string> = {}) {
 }
 
 describe("GET /api/account/export proxy", () => {
+  it("returns a stable missing authorization response without calling the backend", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    const response = await route.GET(request());
+    const payload = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(payload).toEqual({ error: "Missing Authorization header" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("does not expose raw backend error text", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("raw database failure with table names", { status: 500 })
