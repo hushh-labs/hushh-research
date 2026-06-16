@@ -104,7 +104,7 @@ function signalTone(signal: RenaissanceSignal): {
 }
 
 export function RenaissanceVerdictCard({ row }: { row: KaiHomeRenaissanceItem }) {
-  const signalType = useMemo<RenaissanceSignal>(() => {
+  const signalType = useMemo(() => {
     const bias = String(row.recommendation_bias || "").trim().toUpperCase();
     if (["BUY", "STRONG_BUY", "BULLISH", "HOLD_TO_BUY"].includes(bias)) return "CONSTRUCTIVE";
     if (["REDUCE", "SELL", "BEARISH"].includes(bias)) return "CAUTION";
