@@ -39,9 +39,9 @@ import { cn } from "@/lib/utils";
 const E164_PHONE_PATTERN = /^\+[1-9]\d{7,14}$/;
 const DEFAULT_COUNTRY_VALUE = "US";
 const FLOW_CONTROL_SHELL_CLASS_NAME =
-  "h-12 overflow-hidden rounded-[18px] border-black/10 bg-background/80 shadow-xs dark:border-white/10 dark:bg-input/30";
+  "h-12 overflow-hidden rounded-[18px] border-black/10 bg-[#f5f5f7]/92 shadow-xs dark:border-white/10 dark:bg-white/[0.08]";
 const FLOW_CONTROL_CLASS_NAME =
-  "h-full rounded-[inherit] border-0 bg-transparent px-4 text-base shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent md:text-sm";
+  "h-full rounded-[inherit] border-0 bg-transparent px-4 text-[16px] font-normal shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent md:text-[15px]";
 const FLOW_SURFACE_RADIUS_CLASS_NAME = "rounded-[18px]";
 
 export type PhoneVerificationFlowMode = "link" | "replace";
@@ -370,10 +370,6 @@ export function PhoneVerificationFlow({
                 open={countryComboboxOpen}
                 onOpenChange={(open) => {
                   setCountryComboboxOpen(open);
-                  if (open) {
-                    setCountryQuery("");
-                    return;
-                  }
                   setCountryQuery(
                     getCountryOptionLabel(selectedCountryOption ?? COUNTRY_PHONE_OPTIONS[0]!)
                   );
@@ -392,7 +388,10 @@ export function PhoneVerificationFlow({
                       setCountryComboboxOpen(true);
                     }
                   }}
-                  onFocus={() => setCountryComboboxOpen(true)}
+                  onFocus={(event: React.FocusEvent<HTMLInputElement>) => {
+                    setCountryComboboxOpen(true);
+                    event.currentTarget.select();
+                  }}
                   className={`${FLOW_CONTROL_SHELL_CLASS_NAME} w-full`}
                   autoComplete="off"
                   autoCorrect="off"
@@ -443,7 +442,7 @@ export function PhoneVerificationFlow({
             </Field>
           </FieldGroup>
 
-          <FieldDescription className="text-[15px] font-normal leading-[1.45] text-muted-foreground">
+          <FieldDescription className="text-[15px] font-normal leading-[1.45] text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]">
             {helperText ||
               "Choose your country code and enter your phone number. We’ll send you a verification code."}
           </FieldDescription>
@@ -474,7 +473,7 @@ export function PhoneVerificationFlow({
       ) : (
         <>
           <div
-            className={`${FLOW_SURFACE_RADIUS_CLASS_NAME} border border-black/5 bg-neutral-50 p-5 dark:bg-neutral-900/60`}
+            className={`${FLOW_SURFACE_RADIUS_CLASS_NAME} border border-black/5 bg-[#f5f5f7]/85 p-5 dark:border-white/10 dark:bg-white/[0.08]`}
           >
             <p className={cn(kaiAppCardTitleClassName, "text-foreground")}>Verification code sent</p>
             <p className={cn(kaiAppHelperClassName, "mt-2 text-muted-foreground")}>

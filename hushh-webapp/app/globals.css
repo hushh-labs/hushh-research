@@ -1327,6 +1327,10 @@ md-ripple.morphy-md-ripple {
 
 .kai-bottom-nav-pill [role="radio"] {
   color: rgb(60 60 67 / 0.78) !important;
+  min-height: 48px;
+  gap: 0.24rem !important;
+  padding: 0.4rem 0.25rem 0.44rem !important;
+  letter-spacing: 0;
 }
 
 .dark .kai-bottom-nav-pill [role="radio"] {
@@ -1335,7 +1339,7 @@ md-ripple.morphy-md-ripple {
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
   color: rgb(0 113 227) !important;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .dark .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
@@ -1343,7 +1347,28 @@ md-ripple.morphy-md-ripple {
 }
 
 .kai-bottom-nav-pill [role="radio"] svg {
-  stroke-width: 2.35;
+  width: 18px;
+  height: 18px;
+  opacity: 0.9;
+  stroke-width: 1.9;
+}
+
+.kai-bottom-nav-pill [role="radio"][aria-checked="true"] svg {
+  opacity: 1;
+  stroke-width: 2;
+}
+
+.kai-bottom-nav-pill [role="radio"] > span:last-of-type {
+  max-width: 100%;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0;
+  text-wrap: nowrap;
+}
+
+.kai-bottom-nav-pill [role="radio"][aria-checked="true"] > span:last-of-type {
+  font-weight: 600;
 }
 
 .kai-bottom-search-action {

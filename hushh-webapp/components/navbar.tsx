@@ -6,14 +6,14 @@
 import React, { useEffect, useMemo, type CSSProperties } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  BriefcaseBusiness,
+  ChartSpline,
   Compass,
   FileSpreadsheet,
-  LayoutDashboard,
-  LineChart,
-  Store,
-  User,
+  House,
+  Landmark,
+  UserRound,
   Users,
+  WalletCards,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -91,6 +91,7 @@ export const Navbar = () => {
     }
   }, [pathname]);
   const hideNavbar =
+    pathname?.startsWith(ROUTES.PHONE_MANDATE) ||
     pathname?.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
     pathname === ROUTES.DEVELOPERS;
 
@@ -101,7 +102,7 @@ export const Navbar = () => {
             {
               value: "home",
               label: "Home",
-              icon: BriefcaseBusiness,
+              icon: House,
               dataTourId: "nav-ria-home",
             },
             {
@@ -125,7 +126,7 @@ export const Navbar = () => {
             {
               value: "profile",
               label: "Profile",
-              icon: User,
+              icon: UserRound,
               badge: pendingConsents > 0 ? pendingConsents : undefined,
               dataTourId: "nav-profile",
             },
@@ -134,19 +135,19 @@ export const Navbar = () => {
             {
               value: "market",
               label: "Market",
-              icon: Store,
+              icon: Landmark,
               dataTourId: "nav-market",
             },
             {
               value: "dashboard",
               label: "Portfolio",
-              icon: LayoutDashboard,
+              icon: WalletCards,
               dataTourId: "nav-portfolio",
             },
             {
               value: "analysis",
               label: "Analysis",
-              icon: LineChart,
+              icon: ChartSpline,
               dataTourId: "nav-analysis",
             },
             {
@@ -158,7 +159,7 @@ export const Navbar = () => {
             {
               value: "profile",
               label: "Profile",
-              icon: User,
+              icon: UserRound,
               badge: pendingConsents > 0 ? pendingConsents : undefined,
               dataTourId: "nav-profile",
             },

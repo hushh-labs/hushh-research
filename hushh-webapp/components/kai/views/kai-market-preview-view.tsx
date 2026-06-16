@@ -7,12 +7,12 @@ import {
   AlertTriangle,
   Bell,
   Blocks,
+  Bot,
   ChartColumnIncreasing,
   ChevronRight,
   Cpu,
   LineChart,
   Loader2,
-  MessageCircle,
   Mic,
   Newspaper,
   Percent,
@@ -852,7 +852,7 @@ function OneMarketKaiSheet({
       <div className="mx-auto mt-2.5 h-[5px] w-9 rounded-full bg-[color:var(--one-fg3)] opacity-35" />
       <header className="flex items-center gap-3 border-b border-[color:var(--one-line)] px-[18px] pb-3 pt-3">
         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.30)]">
-          <MessageCircle className="h-4 w-4" />
+          <Bot className="h-4 w-4" />
         </span>
         <span className="min-w-0 flex-1">
           <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">Kai</b>
@@ -2126,7 +2126,7 @@ export function KaiMarketPreviewView() {
             className={cn(oneMarketGlassClassName, "mt-[22px] flex w-full items-center gap-[11px] rounded-2xl px-4 py-3.5 text-left transition-transform active:scale-[0.99]")}
           >
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.30)]">
-              <MessageCircle className="h-4 w-4" />
+              <Bot className="h-4 w-4" />
             </span>
             <span className="min-w-0 flex-1 text-[13px] leading-snug text-[color:var(--one-fg)]">
               <b className="font-semibold">Kai:</b> {kaiStripText}

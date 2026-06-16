@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { type CSSProperties, Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -17,7 +18,7 @@ import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-manda
 const FLOW_SHELL_STYLE = {
   "--page-top-local-offset": "0px",
   "--phone-mandate-safe-pt":
-    "calc(var(--app-safe-area-top-effective, env(safe-area-inset-top, 0px)) + 2rem)",
+    "calc(var(--app-safe-area-top-effective, env(safe-area-inset-top, 0px)) + 3rem)",
   "--phone-mandate-safe-pb":
     "calc(var(--app-safe-area-bottom-effective, env(safe-area-inset-bottom, 0px)) + 2.5rem)",
 } as CSSProperties;
@@ -125,15 +126,30 @@ function PhoneMandatePageContent() {
         authState="authenticated"
         dataState="loaded"
       />
-      <div className="mx-auto w-full max-w-[28rem]">
-        <div className="space-y-2.5 text-center">
-          <h1 className="mx-auto max-w-[23rem] text-[34px] font-medium leading-[1.06] tracking-normal text-foreground sm:text-[40px]">
+      <div className="mx-auto w-full max-w-[27rem]">
+        <header className="flex-none text-center">
+          <Image
+            src="/one-quiet-emoji.png"
+            alt=""
+            width={52}
+            height={52}
+            priority
+            aria-hidden="true"
+            draggable={false}
+            className="mx-auto h-[52px] w-[52px] select-none object-contain drop-shadow-[0_14px_28px_rgba(0,0,0,0.08)]"
+          />
+          <div
+            role="heading"
+            aria-level={1}
+            aria-label="Verify your phone number"
+            className="mt-2.5 text-[38px] font-medium leading-[1.05] tracking-normal text-[#1d1d1f] sm:text-[40px] dark:text-[#f5f5f7]"
+          >
             Verify your phone number
-          </h1>
-          <p className="mx-auto max-w-sm text-[17px] leading-[1.42] text-muted-foreground">
+          </div>
+          <p className="mx-auto mt-3 max-w-[20rem] text-[17px] font-normal leading-[1.42] tracking-normal text-[rgba(0,0,0,0.56)] sm:text-[18px] dark:text-[rgba(245,245,247,0.60)]">
             Add your phone number to continue.
           </p>
-        </div>
+        </header>
         <PhoneVerificationFlow
           mode="link"
           currentPhoneNumber={phoneNumber}

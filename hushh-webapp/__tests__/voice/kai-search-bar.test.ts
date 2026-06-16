@@ -440,6 +440,25 @@ describe("kai-search-bar helpers", () => {
     expect(mockOpenAgent).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps Kai voice inside the integrated search surface", () => {
+    vi.useRealTimers();
+
+    render(
+      createElement(KaiSearchBar, {
+        onSelectAction: vi.fn(),
+        onVoiceResponse: vi.fn(),
+        userId: "user_1",
+        vaultOwnerToken: "vault_token",
+      }),
+    );
+
+    expect(screen.getByTestId("voice-ambient-search-surface")).toBeTruthy();
+    expect(screen.getByLabelText("Toggle voice microphone")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Start Kai voice" }),
+    ).toBeNull();
+  });
+
   it("acquires on explicit mic tap and releases on cancel", async () => {
     vi.useRealTimers();
     render(

@@ -557,19 +557,20 @@ export function AuthStep({
           <Image
             src="/one-quiet-emoji.png"
             alt="One"
-            width={compact ? 52 : 58}
-            height={compact ? 52 : 58}
+            width={52}
+            height={52}
             priority
-            className="mx-auto h-[52px] w-[52px] object-contain drop-shadow-[0_14px_28px_rgba(0,0,0,0.08)] sm:h-[58px] sm:w-[58px]"
+            className="mx-auto h-[52px] w-[52px] object-contain drop-shadow-[0_14px_28px_rgba(0,0,0,0.08)]"
           />
           <div
             role="heading"
             aria-level={1}
-            className="mt-2.5 text-[36px] font-medium leading-[1.06] tracking-normal text-[#1d1d1f] sm:text-[42px] dark:text-[#f5f5f7]"
+            aria-label="Sign in to One"
+            className="mt-2.5 text-[38px] font-medium leading-[1.05] tracking-normal text-[#1d1d1f] sm:text-[40px] dark:text-[#f5f5f7]"
           >
             Sign in to One.
           </div>
-          <p className="mx-auto mt-3 max-w-[20rem] text-[16px] font-normal leading-[1.45] tracking-normal text-[#6e6e73] sm:text-[17px] dark:text-[#a1a1a6]">
+          <p className="mx-auto mt-3 max-w-[20rem] text-[17px] font-normal leading-[1.42] tracking-normal text-[rgba(0,0,0,0.56)] sm:text-[18px] dark:text-[rgba(245,245,247,0.60)]">
             Continue to your personal financial advisor.
           </p>
         </header>
