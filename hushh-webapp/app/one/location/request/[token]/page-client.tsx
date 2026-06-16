@@ -175,6 +175,8 @@ export default function PublicLocationRequestPageClient() {
                 maxLength={120}
               />
               <Input
+                type="tel"
+                autoComplete="tel"
                 value={phoneNumber}
                 onChange={(event) => setPhoneNumber(event.target.value)}
                 placeholder="Phone number"
