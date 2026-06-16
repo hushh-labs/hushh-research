@@ -1953,6 +1953,28 @@ class OneLocationAgentService:
             ),
         )
 
+    def _send_push_notification(
+        self,
+        *,
+        user_id: str,
+        notification_type: str,
+        title: str,
+        body: str,
+        notification_tag: str | None = None,
+        request_url: str | None = None,
+        data: dict[str, str | None] | None = None,
+    ) -> None:
+        """Compatibility wrapper for metadata-only location workflow pushes."""
+        self._send_metadata_notification(
+            user_id=user_id,
+            notification_type=notification_type,
+            title=title,
+            body=body,
+            notification_tag=notification_tag or f"one-location:{notification_type}",
+            request_url=request_url or "/one/location",
+            data=data or {},
+        )
+
     def _identity_row(self, user_id: str) -> dict[str, Any] | None:
         try:
             return self._execute_one(
