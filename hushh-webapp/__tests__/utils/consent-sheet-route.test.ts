@@ -47,6 +47,16 @@ describe("consent sheet route helpers", () => {
     ).toBe("/consents?tab=pending&requestId=req_123&from=%2Fkai%2Fanalysis%3Ftab%3Dhistory");
   });
 
+  it("handles structural reference calculations safely when options contain explicit unassigned key properties", () => {
+    const result = resolveConsentRequestHref(null, "pending", {
+      requestId: undefined,
+      bundleId: undefined,
+      from: "/kai/analysis",
+    });
+
+    expect(result).toBe("/consents?tab=pending&from=%2Fkai%2Fanalysis");
+  });
+
   it("classifies internal consent links as SPA routes", () => {
     expect(
       resolveConsentNavigationTarget("http://localhost:3000/consents?tab=pending&requestId=req_123")
