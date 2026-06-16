@@ -549,8 +549,8 @@ export default function PortfolioHealthPage() {
 
   useEffect(() => {
     const abortStream = () => abortControllerRef.current?.abort();
-    window.addEventListener("beforeunload", abortStream);
-    window.addEventListener("pagehide", abortStream);
+    addEventListener("beforeunload", abortStream);
+    addEventListener("pagehide", abortStream);
 
     let visibilityTimeout: ReturnType<typeof setTimeout> | undefined;
     const handleVisibility = () => {
@@ -565,8 +565,8 @@ export default function PortfolioHealthPage() {
 
     return () => {
       abortStream();
-      window.removeEventListener("beforeunload", abortStream);
-      window.removeEventListener("pagehide", abortStream);
+      removeEventListener("beforeunload", abortStream);
+      removeEventListener("pagehide", abortStream);
       document.removeEventListener("visibilitychange", handleVisibility);
       if (visibilityTimeout) {
         clearTimeout(visibilityTimeout);
