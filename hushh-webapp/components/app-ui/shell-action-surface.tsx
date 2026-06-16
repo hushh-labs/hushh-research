@@ -81,6 +81,7 @@ export const ShellActionSurface = React.forwardRef<
       </button>
       {badge ? (
         <span
+          aria-hidden="true"
           className={cn(
             "pointer-events-none absolute right-0 top-0 z-20 translate-x-[24%] -translate-y-[22%]",
             badgeClassName

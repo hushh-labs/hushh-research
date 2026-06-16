@@ -574,7 +574,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                         renderTrigger={({ pendingCount }) => (
                           <ShellActionSurface
                             variant="icon"
-                            aria-label="Open consent inbox"
+                            aria-label={pendingCount > 0 ? `Open consent inbox, ${pendingCount} pending` : "Open consent inbox"}
                             badge={
                               pendingCount > 0 ? (
                                 <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-semibold leading-none text-white shadow-[0_8px_18px_rgba(14,165,233,0.32)] ring-2 ring-white/90 dark:ring-[#111113]">
@@ -593,7 +593,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                           renderTrigger={({ activeCount, badgeCount }) => (
                             <ShellActionSurface
                               variant="icon"
-                              aria-label="Notifications"
+                              aria-label={badgeCount > 0 ? `Notifications, ${badgeCount} unread` : "Notifications"}
                               badge={
                                 badgeCount > 0 ? (
                                   <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-sky-500 px-1 text-[10px] font-semibold leading-none text-white shadow-[0_8px_18px_rgba(14,165,233,0.32)] ring-2 ring-white/90 dark:ring-[#111113]">
