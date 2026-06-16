@@ -67,6 +67,17 @@ describe("consent sheet route helpers", () => {
     });
   });
 
+  it("handles navigation target processing constraints when the sub-path string features a percent-encoded space character sequence", () => {
+    const encodedPathInput = "/consents/user%20verification/callback";
+    const result = resolveConsentNavigationTarget(encodedPathInput);
+
+    expect(result).toEqual({
+      kind: "internal",
+      href: encodedPathInput,
+      pathname: "/consents/user%20verification/callback",
+    });
+  });
+
   it("keeps external consent review links as external navigation", () => {
     expect(
       resolveConsentNavigationTarget("https://example.com/disclosures/request-123")
