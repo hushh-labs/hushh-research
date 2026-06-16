@@ -10,7 +10,7 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { Bot, Sparkles, Mic, Search, X } from "lucide-react";
+import { Bot, MessageCircle, Mic, Search, X } from "lucide-react";
 
 import {
   KaiCommandPalette,
@@ -1751,14 +1751,14 @@ const debouncedSearch = useDebouncedValue(finalTranscript, 500);
                   disabled={!agentPopover}
                   onClick={() => agentPopover?.openAgent()}
                 >
-                  <span className="grid h-[40px] w-[40px] place-items-center rounded-[14px] bg-[#0071e3] text-white shadow-[0_10px_24px_-16px_rgba(0,113,227,0.75),inset_0_1px_0_rgba(255,255,255,0.36)]">
-                    <Sparkles className="h-[18px] w-[18px]" strokeWidth={2.15} />
+                  <span className="kai-bottom-agent-action grid h-[40px] w-[40px] place-items-center rounded-[14px]">
+                    <MessageCircle className="h-[18px] w-[18px]" strokeWidth={2.15} />
                   </span>
                 </button>
                 <ShellActionSurface
                   variant="icon"
                   wrapperClassName="pointer-events-auto"
-                  className="grid h-[58px] w-[58px] place-items-center !border-white/10 !bg-[#151515]/90 !bg-none !text-white shadow-[0_14px_34px_-18px_rgba(0,0,0,0.8),inset_0_1px_0_rgba(255,255,255,0.16)] backdrop-blur-2xl"
+                  className="kai-bottom-search-action grid h-[58px] w-[58px] place-items-center"
                   aria-label="Search"
                   onClick={() => setOpen(true)}
                 >

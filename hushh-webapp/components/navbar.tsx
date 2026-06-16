@@ -29,6 +29,7 @@ import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { activeKaiRouteTabFromPath } from "@/lib/navigation/kai-route-tabs";
 import { activeRiaRouteTabFromPath } from "@/lib/navigation/ria-route-tabs";
+import { useVault } from "@/lib/vault/vault-context";
 
 type InvestorNavKey = "dashboard" | "market" | "connect" | "analysis" | "profile";
 type RiaNavKey = "home" | "clients" | "connect" | "picks" | "profile";
@@ -38,6 +39,7 @@ export const Navbar = () => {
   const pathname = usePathname();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
+  const { isVaultUnlocked } = useVault();
   const { activePersona } = usePersonaState();
   const pendingConsents = useConsentPendingSummaryCount();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
@@ -248,7 +250,7 @@ export const Navbar = () => {
     <nav
       className={cn(
         "fixed inset-x-0 flex justify-center px-4 transform-gpu",
-        "z-[120]",
+        isVaultUnlocked ? "z-[120]" : "z-[505]",
         "pointer-events-none"
       )}
       style={

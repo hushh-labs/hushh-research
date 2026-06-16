@@ -1283,19 +1283,40 @@ md-ripple.morphy-md-ripple {
 }
 
 .kai-bottom-nav-pill {
-  color: rgb(255 255 255);
-  border: 1px solid rgb(255 255 255 / 0.12) !important;
+  color: rgb(29 29 31);
+  border: 1px solid rgb(255 255 255 / 0.72) !important;
   background:
-    linear-gradient(180deg, rgb(47 47 50 / 0.9), rgb(17 17 19 / 0.86)) !important;
+    linear-gradient(180deg, rgb(255 255 255 / 0.88), rgb(245 245 247 / 0.76)) !important;
   box-shadow:
-    0 16px 38px -22px rgb(0 0 0 / 0.85),
-    inset 0 1px 0 rgb(255 255 255 / 0.16),
-    inset 0 -1px 0 rgb(0 0 0 / 0.32) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
-  backdrop-filter: blur(24px) saturate(160%);
+    0 18px 44px -26px rgb(0 0 0 / 0.34),
+    0 2px 8px -6px rgb(0 0 0 / 0.18),
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    inset 0 -1px 0 rgb(0 0 0 / 0.06) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+}
+
+.dark .kai-bottom-nav-pill {
+  color: rgb(255 255 255);
+  border-color: rgb(255 255 255 / 0.18) !important;
+  background:
+    linear-gradient(180deg, rgb(72 72 74 / 0.72), rgb(44 44 46 / 0.68)) !important;
+  box-shadow:
+    0 16px 38px -22px rgb(0 0 0 / 0.62),
+    inset 0 1px 0 rgb(255 255 255 / 0.2),
+    inset 0 -1px 0 rgb(0 0 0 / 0.18) !important;
 }
 
 .kai-bottom-nav-pill [data-segment-indicator] {
+  background:
+    radial-gradient(circle at 50% 35%, rgb(255 255 255 / 0.95), transparent 64%),
+    linear-gradient(180deg, rgb(255 255 255 / 0.94), rgb(255 255 255 / 0.74)) !important;
+  box-shadow:
+    0 11px 24px -18px rgb(0 0 0 / 0.42),
+    inset 0 1px 0 rgb(255 255 255 / 0.92) !important;
+}
+
+.dark .kai-bottom-nav-pill [data-segment-indicator] {
   background:
     radial-gradient(circle at 50% 35%, rgb(255 255 255 / 0.18), transparent 64%),
     linear-gradient(180deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0.06)) !important;
@@ -1305,16 +1326,62 @@ md-ripple.morphy-md-ripple {
 }
 
 .kai-bottom-nav-pill [role="radio"] {
+  color: rgb(60 60 67 / 0.78) !important;
+}
+
+.dark .kai-bottom-nav-pill [role="radio"] {
   color: rgb(255 255 255 / 0.82) !important;
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
-  color: rgb(41 171 255) !important;
+  color: rgb(0 113 227) !important;
   font-weight: 700;
+}
+
+.dark .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
+  color: rgb(41 171 255) !important;
 }
 
 .kai-bottom-nav-pill [role="radio"] svg {
   stroke-width: 2.35;
+}
+
+.kai-bottom-search-action {
+  color: rgb(29 29 31) !important;
+  border-color: rgb(255 255 255 / 0.74) !important;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.92), rgb(245 245 247 / 0.8)) !important;
+  box-shadow:
+    0 18px 42px -24px rgb(0 0 0 / 0.32),
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    inset 0 -1px 0 rgb(0 0 0 / 0.06) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+}
+
+.dark .kai-bottom-search-action {
+  color: rgb(255 255 255) !important;
+  border-color: rgb(255 255 255 / 0.18) !important;
+  background:
+    linear-gradient(180deg, rgb(72 72 74 / 0.72), rgb(44 44 46 / 0.68)) !important;
+  box-shadow:
+    0 14px 34px -18px rgb(0 0 0 / 0.62),
+    inset 0 1px 0 rgb(255 255 255 / 0.2) !important;
+}
+
+.kai-bottom-agent-action {
+  background: rgb(0 113 227) !important;
+  color: rgb(255 255 255);
+  box-shadow:
+    0 12px 26px -18px rgb(0 113 227 / 0.75),
+    inset 0 1px 0 rgb(255 255 255 / 0.36);
+}
+
+.dark .kai-bottom-agent-action {
+  background: rgb(10 132 255) !important;
+  box-shadow:
+    0 12px 28px -18px rgb(10 132 255 / 0.86),
+    inset 0 1px 0 rgb(255 255 255 / 0.34);
 }
 
 /* Carousel edge glass (left/right): use to hint adjacent slides while keeping center crisp. */
