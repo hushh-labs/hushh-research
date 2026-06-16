@@ -178,6 +178,46 @@ describe("useDebouncedValue", () => {
     expect(onDebounced).toHaveBeenLastCalledWith(10);
   });
 
+  it("debounces boolean value transitions", () => {
+    const onDebounced = vi.fn();
+    const { getByTestId, rerender } = render(
+      <Harness value={false} delayMs={100} onDebounced={onDebounced} />
+    );
+    onDebounced.mockClear();
+
+    rerender(<Harness value={true} delayMs={100} onDebounced={onDebounced} />);
+    act(() => {
+      vi.advanceTimersByTime(99);
+    });
+
+    expect(onDebounced).not.toHaveBeenCalled();
+    expect(getByTestId("value").textContent).toBe("false");
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
+    expect(onDebounced).toHaveBeenCalledTimes(1);
+    expect(onDebounced).toHaveBeenLastCalledWith(true);
+    expect(getByTestId("value").textContent).toBe("true");
+    onDebounced.mockClear();
+
+    rerender(<Harness value={false} delayMs={100} onDebounced={onDebounced} />);
+    act(() => {
+      vi.advanceTimersByTime(99);
+    });
+
+    expect(onDebounced).not.toHaveBeenCalled();
+    expect(getByTestId("value").textContent).toBe("true");
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
+    expect(onDebounced).toHaveBeenCalledTimes(1);
+    expect(onDebounced).toHaveBeenLastCalledWith(false);
+  });
+
   it("works for non-primitive values, comparing by reference", () => {
     const onDebounced = vi.fn();
     const initial = { count: 0 };
