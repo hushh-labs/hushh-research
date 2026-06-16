@@ -307,7 +307,7 @@ function KaiOnboardingPageContent() {
     return (
       <div
         data-top-content-anchor="true"
-        className="mx-auto flex min-h-[calc(100dvh_-_var(--top-content-pad))] w-full max-w-5xl items-start px-5 pb-8 pt-[calc(var(--top-content-pad)_+_0.25rem)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
+        className="mx-auto flex min-h-[calc(100dvh_-_var(--top-content-pad))] w-full max-w-[46rem] items-start px-5 pb-8 pt-[calc(var(--top-content-pad)_+_0.25rem)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
       >
         <NativeTestBeacon
           routeId="/kai/onboarding"
@@ -315,25 +315,25 @@ function KaiOnboardingPageContent() {
           authState={user ? "authenticated" : "pending"}
           dataState="loaded"
         />
-        <div className="w-full space-y-8">
-          <div className="mx-auto max-w-[48rem] space-y-3 text-center">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/75">
+        <div className="w-full space-y-6">
+          <div className="mx-auto max-w-[36rem] space-y-3 text-center">
+            <p className="text-[10.5px] font-medium uppercase tracking-[0.16em] text-primary/75">
               Choose your starting path
             </p>
             <div
               role="heading"
               aria-level={1}
-              className="text-[38px] font-normal leading-[1.04] tracking-normal text-foreground sm:text-[46px] lg:text-[52px]"
+              className="text-[34px] font-medium leading-[1.06] tracking-normal text-foreground sm:text-[40px]"
             >
               Start as an investor or set up RIA first
             </div>
-            <p className="mx-auto max-w-[35rem] text-[17px] leading-[1.45] text-muted-foreground sm:text-[18px]">
+            <p className="mx-auto max-w-[31rem] text-[16px] leading-[1.45] text-muted-foreground sm:text-[17px]">
               You can add the other profile later from Profile. This choice only sets the first
               workflow we open right now.
             </p>
           </div>
 
-          <div className="grid items-stretch gap-4 md:grid-cols-2">
+          <div className="mx-auto grid w-full max-w-[40rem] items-stretch gap-3.5">
             <Card
               preset="hero"
               variant="none"
@@ -368,25 +368,25 @@ function KaiOnboardingPageContent() {
                     setSaving(false);
                   }
                 }}
-                className="flex h-full min-h-[228px] w-full flex-col justify-between gap-6 p-6 text-left sm:p-7"
+                className="flex h-full min-h-[168px] w-full flex-col justify-between gap-5 p-5 text-left sm:p-6"
               >
-                <div className="space-y-3.5">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/75">
+                <div className="space-y-2.5">
+                  <p className="text-[10.5px] font-medium uppercase tracking-[0.16em] text-primary/75">
                     Investor
                   </p>
                   <div
                     role="heading"
                     aria-level={2}
-                    className="text-[28px] font-normal leading-[1.08] tracking-normal text-foreground sm:text-[32px]"
+                    className="text-[24px] font-medium leading-[1.12] tracking-normal text-foreground sm:text-[26px]"
                   >
                     Continue as Investor
                   </div>
-                  <p className="max-w-[28rem] text-[16px] leading-[1.5] text-muted-foreground">
+                  <p className="max-w-[31rem] text-[15px] leading-[1.45] text-muted-foreground sm:text-[16px]">
                     Answer your risk and preference questions, then connect accounts and start using
                     Kai.
                   </p>
                 </div>
-                <span className="inline-flex w-fit items-center rounded-full bg-primary px-4 py-2 text-[14px] font-semibold text-primary-foreground shadow-[0_12px_26px_-18px_rgba(0,113,227,0.75)]">
+                <span className="inline-flex h-10 w-fit items-center rounded-full bg-primary px-4 text-[14px] font-medium text-primary-foreground shadow-[0_12px_26px_-18px_rgba(0,113,227,0.75)]">
                   Open investor setup
                 </span>
               </button>
@@ -424,20 +424,20 @@ function KaiOnboardingPageContent() {
                     setSaving(false);
                   }
                 }}
-                className="flex h-full min-h-[228px] w-full flex-col justify-between gap-6 p-6 text-left disabled:cursor-not-allowed sm:p-7"
+                className="flex h-full min-h-[168px] w-full flex-col justify-between gap-5 p-5 text-left disabled:cursor-not-allowed sm:p-6"
               >
-                <div className="space-y-3.5">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/75">
+                <div className="space-y-2.5">
+                  <p className="text-[10.5px] font-medium uppercase tracking-[0.16em] text-primary/75">
                     RIA
                   </p>
                   <div
                     role="heading"
                     aria-level={2}
-                    className="text-[28px] font-normal leading-[1.08] tracking-normal text-foreground sm:text-[32px]"
+                    className="text-[24px] font-medium leading-[1.12] tracking-normal text-foreground sm:text-[26px]"
                   >
                     Continue as RIA
                   </div>
-                  <p className="max-w-[28rem] text-[16px] leading-[1.5] text-muted-foreground">
+                  <p className="max-w-[31rem] text-[15px] leading-[1.45] text-muted-foreground sm:text-[16px]">
                     Set up your advisor identity, verification, firm details, and marketplace trust
                     profile before sending consent requests.
                   </p>
@@ -447,7 +447,7 @@ function KaiOnboardingPageContent() {
                     </p>
                   ) : null}
                 </div>
-                <span className="inline-flex w-fit items-center rounded-full bg-primary px-4 py-2 text-[14px] font-semibold text-primary-foreground shadow-[0_12px_26px_-18px_rgba(0,113,227,0.75)]">
+                <span className="inline-flex h-10 w-fit items-center rounded-full bg-primary px-4 text-[14px] font-medium text-primary-foreground shadow-[0_12px_26px_-18px_rgba(0,113,227,0.75)]">
                   Open advisor setup
                 </span>
               </button>

@@ -38,9 +38,9 @@ import {
 } from "@/components/kai/shared/kai-typography";
 
 const importCardTitleClassName =
-  "text-[22px] font-medium leading-[1.12] tracking-normal text-foreground sm:text-[24px]";
+  "!text-[22px] !font-medium !leading-[1.12] !tracking-normal text-foreground sm:!text-[24px]";
 const importDropzoneTitleClassName =
-  "text-[16px] font-medium leading-[1.24] tracking-normal sm:text-[17px]";
+  "!text-[16px] !font-medium !leading-[1.24] !tracking-normal sm:!text-[17px]";
 
 // =============================================================================
 // TYPES
@@ -219,8 +219,8 @@ export function PortfolioImportView({
           <MorphyButton
             variant="blue-gradient"
             effect="fill"
-            size="lg"
-            className="w-full rounded-full border-none font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
+            size="default"
+            className="h-12 w-full rounded-full border-none text-[16px] font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
             disabled={!onConnectPlaid || isUploading || isPreloadingSchema || isConnectingPlaid || plaidConfigured === false}
             onClick={handleConnectPlaid}
             icon={{
@@ -320,7 +320,7 @@ export function PortfolioImportView({
             variant="morphy"
             effect="fill"
             size="default"
-            className="w-full rounded-full border-none font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
+            className="h-12 w-full rounded-full border-none text-[16px] font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
             onClick={handleContinue}
             disabled={isUploading || isPreloadingSchema || !selectedFile}
             icon={{
@@ -349,8 +349,8 @@ export function PortfolioImportView({
           <MorphyButton
             variant="blue-gradient"
             effect="fill"
-            size="lg"
-            className="w-full rounded-full border-none font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
+            size="default"
+            className="h-12 w-full rounded-full border-none text-[16px] font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
             onClick={handlePreloadSchema}
             disabled={isUploading || isPreloadingSchema}
             icon={{
@@ -373,7 +373,7 @@ export function PortfolioImportView({
           effect="fade"
           onClick={onSkip}
           disabled={isUploading || isPreloadingSchema}
-          className="text-muted-foreground hover:text-foreground text-base"
+          className="h-11 rounded-full px-5 text-[15px] font-medium text-muted-foreground hover:text-foreground"
         >
           Skip for now
         </MorphyButton>
