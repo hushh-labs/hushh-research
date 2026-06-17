@@ -159,7 +159,7 @@ def evaluate(
 
 
 def _self_test() -> int:
-    allowed = ["kushaltrivedi5", "Jhumma-hushh"]
+    allowed = ["kushaltrivedi5", "ankitkumarsingh1702", "RGlodAkshat", "azfx"]
     paths = list(DEFAULT_PROTECTED_PATHS)
     cases: list[tuple[str, list[str], str, int]] = [
         # name, changed_files, actor, expected_exit
