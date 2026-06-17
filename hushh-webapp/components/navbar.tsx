@@ -32,6 +32,7 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import { activeKaiRouteTabFromPath } from "@/lib/navigation/kai-route-tabs";
 import { activeRiaRouteTabFromPath } from "@/lib/navigation/ria-route-tabs";
 import { useVault } from "@/lib/vault/vault-context";
+import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 
 type InvestorNavKey = "dashboard" | "market" | "connect" | "analysis" | "profile";
 type RiaNavKey = "home" | "clients" | "connect" | "picks" | "profile";
@@ -42,6 +43,7 @@ export const Navbar = () => {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
+  const agentPopover = useOptionalAgentPopover();
   const { activePersona } = usePersonaState();
   const pendingConsents = useConsentPendingSummaryCount();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
@@ -93,9 +95,12 @@ export const Navbar = () => {
     }
   }, [pathname]);
   const hideNavbar =
+    pathname === ROUTES.AGENT ||
     pathname?.startsWith(ROUTES.PHONE_MANDATE) ||
     pathname?.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
     pathname === ROUTES.DEVELOPERS;
+  const agentWindowOpen =
+    agentPopover?.expanded || agentPopover?.motionState === "opening";
 
   const navOptions = useMemo<SegmentedPillOption[]>(
     () =>
@@ -169,7 +174,7 @@ export const Navbar = () => {
     [activePersona, pendingConsents]
   );
 
-  if (hideNavbar) {
+  if (hideNavbar || agentWindowOpen) {
     return null;
   }
 

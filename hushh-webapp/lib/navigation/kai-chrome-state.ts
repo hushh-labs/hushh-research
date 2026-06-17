@@ -36,6 +36,7 @@ export function getKaiChromeState(
   const hideCommandBar =
     useOnboardingChrome ||
     path === ROUTES.HOME ||
+    path === ROUTES.AGENT ||
     path.startsWith(ROUTES.LOGIN) ||
     path.startsWith(ROUTES.PHONE_MANDATE) ||
     path.startsWith(ROUTES.LOGOUT) ||
