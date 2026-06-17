@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,19 +9,28 @@ const scriptSource = fs.readFileSync(
 );
 
 describe("audit-cache-coherence Windows path support", () => {
+  it("keeps the real cache-coherence audit entrypoint passing", () => {
+    const output = execFileSync(
+      process.execPath,
+      ["scripts/architecture/audit-cache-coherence.mjs", "--check"],
+      { cwd: process.cwd(), encoding: "utf8" }
+    );
+
+    expect(output).toContain("Cache coherence manifest is current");
+  });
+
   it("normalizes separators before matching page files", () => {
-    expect(scriptSource).toContain('return filePath.replaceAll("\\\\", "/");');
-    expect(scriptSource).toContain('return toForwardSlash(filePath).endsWith("/page.tsx");');
+    expect(scriptSource).toContain('filePath.replaceAll("\\\\", "/").endsWith("/page.tsx")');
   });
 
   it("normalizes relative page paths before deriving routes", () => {
-    expect(scriptSource).toContain("function routeFromRelativePageFile(relativePath)");
-    expect(scriptSource).toMatch(/toForwardSlash\(relativePath\)\.replace\(/);
+    expect(scriptSource).toContain(
+      'path.relative(path.join(appRoot, "app"), filePath).replaceAll("\\\\", "/")'
+    );
   });
 
-  it("keeps cache-coherence helpers private to the script", () => {
-    expect(scriptSource).not.toMatch(
-      /export function (toForwardSlash|isPageFilePath|routeFromRelativePageFile|routeFromPageFile)/
-    );
+  it("does not add exported or module-level helper surface", () => {
+    expect(scriptSource).not.toMatch(/\bexport\s+(function|const|let|var)\b/);
+    expect(scriptSource).not.toContain("module.exports");
   });
 });
