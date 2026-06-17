@@ -5306,6 +5306,7 @@ describe("OneLocationAgentPage", () => {
     });
 
     render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
@@ -5613,6 +5614,7 @@ describe("OneLocationAgentPage", () => {
     mockGetState.mockImplementationOnce(() => new Promise(() => undefined));
 
     render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
 
     expect(
       await screen.findByRole("heading", { name: "Location" }),
@@ -8331,6 +8333,7 @@ describe("OneLocationAgentPage", () => {
     });
 
     render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openLocationPermissionsStep();
