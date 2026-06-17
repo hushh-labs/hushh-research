@@ -15,11 +15,15 @@ export function AccessibilityStatusAnnouncer({
 
   // Small debounce to ensure screen readers register the new text
   React.useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     if (message) {
-      const timer = setTimeout(() => setDebouncedMessage(message), 50);
-      return () => clearTimeout(timer);
+      timer = setTimeout(() => setDebouncedMessage(message), 50);
+    } else {
+      setDebouncedMessage("");
     }
-    setDebouncedMessage("");
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
   }, [message]);
 
   if (!debouncedMessage) return null;
