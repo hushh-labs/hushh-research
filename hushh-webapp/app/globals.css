@@ -1330,8 +1330,8 @@ md-ripple.morphy-md-ripple {
 .kai-bottom-nav-pill [role="radio"] {
   color: rgb(60 60 67 / 0.7) !important;
   min-height: 48px;
-  gap: 0.22rem !important;
-  padding: 0.38rem 0.2rem 0.42rem !important;
+  gap: 0.2rem !important;
+  padding: 0.4rem 0.2rem 0.44rem !important;
   letter-spacing: 0;
 }
 
@@ -1341,7 +1341,7 @@ md-ripple.morphy-md-ripple {
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
   color: rgb(0 113 227) !important;
-  font-weight: 600;
+  font-weight: 590;
 }
 
 .dark .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
@@ -1349,25 +1349,39 @@ md-ripple.morphy-md-ripple {
 }
 
 .kai-bottom-nav-pill [role="radio"] svg {
-  width: 20px;
-  height: 20px;
-  opacity: 0.84;
-  stroke-width: 1.72;
-  filter: drop-shadow(0 0.5px 0 rgb(255 255 255 / 0.6));
+  width: 19px;
+  height: 19px;
+  opacity: 0.88;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.48;
+  filter: drop-shadow(0 0.5px 0 rgb(255 255 255 / 0.68));
   transform: translateY(0);
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] svg {
   opacity: 1;
-  stroke-width: 2.08;
-  filter: drop-shadow(0 3px 8px rgb(0 113 227 / 0.2));
+  stroke-width: 1.82;
+  filter:
+    drop-shadow(0 0.5px 0 rgb(255 255 255 / 0.72))
+    drop-shadow(0 4px 10px rgb(0 113 227 / 0.18));
   transform: translateY(-0.5px);
+}
+
+.dark .kai-bottom-nav-pill [role="radio"] svg {
+  filter: drop-shadow(0 0.5px 0 rgb(255 255 255 / 0.12));
+}
+
+.dark .kai-bottom-nav-pill [role="radio"][aria-checked="true"] svg {
+  filter:
+    drop-shadow(0 0.5px 0 rgb(255 255 255 / 0.16))
+    drop-shadow(0 4px 12px rgb(41 171 255 / 0.2));
 }
 
 .kai-bottom-nav-pill [role="radio"] > span:last-of-type {
   max-width: 100%;
   font-size: 9.5px;
-  font-weight: 500;
+  font-weight: 510;
   line-height: 1;
   letter-spacing: 0;
   text-wrap: nowrap;
@@ -1375,7 +1389,7 @@ md-ripple.morphy-md-ripple {
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] > span:last-of-type {
-  font-weight: 600;
+  font-weight: 590;
   opacity: 1;
 }
 
