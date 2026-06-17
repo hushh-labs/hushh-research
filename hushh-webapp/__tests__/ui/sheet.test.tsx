@@ -31,6 +31,7 @@ describe("SheetContent", () => {
       </Sheet>,
     );
 
+    expect(screen.getByText("Test sheet")).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: /close/i }),
     ).toBeNull();
