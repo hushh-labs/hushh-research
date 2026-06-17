@@ -911,6 +911,34 @@ export class AuthService {
     }
   }
 
+  private static async nativeGoogleSignInWithHushhAuth(): Promise<AuthResult> {
+    this.debugLog("🤖 [AuthService] Calling HushhAuth.signIn()...");
+
+    const result = await HushhAuth.signIn();
+
+    if (!result.user || !result.idToken) {
+      throw new Error("Invalid HushhAuth native Google response");
+    }
+
+    const user = auth.currentUser || this.createUserFromNative(result.user, result.idToken);
+
+    return {
+      user,
+      idToken: result.idToken,
+      accessToken: result.accessToken,
+    };
+  }
+
+  private static isUserCancelledAuth(error: unknown): boolean {
+    const code =
+      typeof error === "object" && error !== null && "code" in error
+        ? String((error as { code?: unknown }).code ?? "")
+        : "";
+    const message = error instanceof Error ? error.message : String(error);
+
+    return code === "USER_CANCELLED" || /cancel/i.test(message);
+  }
+
   /**
    * Create a User-like object from native Firebase user information
    */
