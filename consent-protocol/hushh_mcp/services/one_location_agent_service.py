@@ -5750,11 +5750,7 @@ class OneLocationAgentService:
             title=notification_title,
             body=notification_body,
             notification_tag=f"one-location-share:{grant['id']}",
-            request_url=_one_location_url(
-                grantId=grant["id"],
-                locationNotification="opened",
-                section="shared",
-            ),
+            request_url=_one_location_url(grantId=grant["id"], locationNotification="opened"),
             data={
                 "grant_id": grant["id"],
                 "owner_user_id": owner_user_id,
@@ -8680,11 +8676,7 @@ class OneLocationAgentService:
                 else f"{display_name[:80]} requested location access from your link."
             ),
             notification_tag=f"one-location-public-request:{submission['id']}",
-            request_url=_one_location_url(
-                requestId=request["id"] if request else None,
-                submissionId=submission["id"],
-                section="public_responses",
-            ),
+            request_url=_one_location_url(requestId=request["id"] if request else None),
             data={
                 "submission_id": submission["id"],
                 "invite_id": invite["id"],
@@ -11098,12 +11090,7 @@ class OneLocationAgentService:
             title=("More location time approved" if was_extension else "Location request approved"),
             body=approved_body,
             notification_tag=f"one-location-approved:{request_id}",
-            request_url=_one_location_url(
-                requestId=request_id,
-                grantId=grant["id"],
-                locationNotification="opened",
-                section="shared",
-            ),
+            request_url=_one_location_url(requestId=request_id, grantId=grant["id"]),
             data={
                 "request_id": request_id,
                 "grant_id": grant["id"],
@@ -11204,7 +11191,7 @@ class OneLocationAgentService:
                 else f"{owner_label} denied your location request."
             ),
             notification_tag=f"one-location-denied:{request_id}",
-            request_url=_one_location_url(requestId=request_id, section="my_requests"),
+            request_url=_one_location_url(requestId=request_id),
             data={
                 "request_id": request_id,
                 "owner_user_id": owner_user_id,

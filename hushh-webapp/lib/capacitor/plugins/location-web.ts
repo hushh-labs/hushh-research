@@ -90,6 +90,13 @@ export class HushhLocationWeb implements HushhLocationPlugin {
     return { opened: false, sourcePlatform: "web" };
   }
 
+  async openLocationSettings(): Promise<{
+    opened: boolean;
+    sourcePlatform: "web";
+  }> {
+    return { opened: false, sourcePlatform: "web" };
+  }
+
   async getCurrentPosition(options?: {
     enableHighAccuracy?: boolean;
     timeoutMs?: number;

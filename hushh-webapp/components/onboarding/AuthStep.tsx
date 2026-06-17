@@ -390,7 +390,7 @@ export function AuthStep({
         });
       }
       debugLog("[AuthStep] User authenticated, navigating to:", redirectPath);
-      void resolveAndNavigate(user.uid, undefined, user.phoneNumber);
+      void resolveAndNavigate(user.uid, undefined, user.phoneNumber, user);
     }
   }, [
     redirectPath,
