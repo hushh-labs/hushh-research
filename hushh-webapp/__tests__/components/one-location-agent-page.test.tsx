@@ -313,6 +313,7 @@ describe("OneLocationAgentPage", () => {
     vi.clearAllMocks();
     Element.prototype.scrollIntoView = vi.fn();
     window.localStorage.clear();
+    window.localStorage.setItem("one_location_onboarding_v1:user_a", "done");
     mockSearchParamsGet.mockReturnValue(null);
     mockUseRequireAuth.mockReturnValue({
       loading: false,
@@ -489,7 +490,8 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText("Verify your phone number first")).toBeNull();
   });
 
-  it("prompts for foreground location permission on first verified page load", async () => {
+  it("shows the location onboarding before requesting foreground permission", async () => {
+    window.localStorage.removeItem("one_location_onboarding_v1:user_a");
     mockGetState.mockResolvedValueOnce({
       ...locationState(),
       ownerGrants: [],
@@ -517,7 +519,27 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    expect(
+      await screen.findByRole("heading", {
+        name: "Experience location sharing with One.",
+      }),
+    ).toBeTruthy();
+    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      await screen.findByRole("heading", { name: "Keep your map live" }),
+    ).toBeTruthy();
+    expect(screen.getByText("You can pause sharing anytime")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1));
+    expect(
+      await screen.findByRole("heading", { name: "One Location Agent" }),
+    ).toBeTruthy();
+    expect(window.localStorage.getItem("one_location_onboarding_v1:user_a")).toBe(
+      "done",
+    );
   });
 
   it("renders One Network recommendation metadata without phone-derived labels", async () => {

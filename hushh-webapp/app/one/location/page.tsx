@@ -42,6 +42,7 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -127,6 +128,7 @@ const SHOW_LOCATION_ACTIVITY_SECTION = false;
 const SHOW_OWNER_GRANTS_SECTION = false;
 const SHOW_PUBLIC_RESPONSES_SECTION = false;
 const SHOW_REFERRAL_SECTION = false;
+const ONE_LOCATION_ONBOARDING_STORAGE_PREFIX = "one_location_onboarding_v1";
 
 type BusyState =
   | "load"
@@ -155,6 +157,9 @@ type OneLocationDurationBucket = "15m" | "30m" | "1h" | "4h" | "24h" | "custom";
 type OneLocationForegroundOperation = "publish" | "view";
 type OneLocationForegroundTrigger = "manual" | "foreground_interval";
 type OneLocationFocusTarget = OneLocationNotificationSection;
+type OneLocationOnboardingStep = "intro" | "permission";
+type OneLocationOnboardingGate = "checking" | "show" | "hidden";
+type OneLocationNativeTestConfig = ComponentProps<typeof NativeTestBeacon>;
 type OneLocationBackoffBucket =
   | "none"
   | "lt_500ms"
@@ -1129,6 +1134,240 @@ function OneLocationInitialSkeleton() {
   );
 }
 
+function oneLocationOnboardingStorageKey(userId: string): string {
+  return `${ONE_LOCATION_ONBOARDING_STORAGE_PREFIX}:${userId}`;
+}
+
+function readOneLocationOnboardingDismissed(userId: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const value = window.localStorage.getItem(
+      oneLocationOnboardingStorageKey(userId),
+    );
+    return value === "done" || value === "skipped";
+  } catch {
+    return false;
+  }
+}
+
+function writeOneLocationOnboardingDismissed(
+  userId: string,
+  status: "done" | "skipped",
+) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(oneLocationOnboardingStorageKey(userId), status);
+  } catch {
+    // Non-blocking: private browsing or storage restrictions should not trap users.
+  }
+}
+
+function OneLocationIntroMapIllustration() {
+  return (
+    <div
+      className="relative aspect-square w-[min(290px,78vw,42dvh)] overflow-hidden rounded-[32px] bg-[#efece5] shadow-[0_26px_54px_-14px_rgba(40,34,22,0.24),0_6px_16px_rgba(0,0,0,0.06)] dark:bg-[#1d2229] dark:shadow-[0_26px_54px_-14px_rgba(0,0,0,0.65),0_6px_16px_rgba(0,0,0,0.28)]"
+      aria-hidden="true"
+    >
+      <svg
+        width="100%"
+        height="100%"
+        viewBox="0 0 300 300"
+        preserveAspectRatio="xMidYMid slice"
+        focusable="false"
+      >
+        <rect width="300" height="300" className="fill-[#efece5] dark:fill-[#1d2229]" />
+        <path
+          d="M0 198 Q44 182 86 198 T172 204 L172 300 L0 300 Z"
+          className="fill-[#d3e7c4] dark:fill-[#243f2d]"
+        />
+        <path
+          d="M214 0 Q248 42 300 38 L300 0 Z"
+          className="fill-[#c2dcf4] dark:fill-[#20374f]"
+        />
+        <circle cx="58" cy="54" r="30" className="fill-[#d3e7c4] dark:fill-[#274633]" />
+        <path
+          d="M-20 116 L320 88"
+          className="stroke-[#e6e0d4] dark:stroke-[#2c333c]"
+          strokeWidth="17"
+          fill="none"
+        />
+        <path
+          d="M150 -20 L172 320"
+          className="stroke-[#e6e0d4] dark:stroke-[#2c333c]"
+          strokeWidth="17"
+          fill="none"
+        />
+        <path
+          d="M-20 224 L320 202"
+          className="stroke-[#e6e0d4] dark:stroke-[#2c333c]"
+          strokeWidth="12"
+          fill="none"
+        />
+        <path
+          d="M-20 116 L320 88"
+          className="stroke-[#fbfaf6] dark:stroke-[#11161c]"
+          strokeWidth="11.5"
+          fill="none"
+        />
+        <path
+          d="M150 -20 L172 320"
+          className="stroke-[#fbfaf6] dark:stroke-[#11161c]"
+          strokeWidth="11.5"
+          fill="none"
+        />
+        <path
+          d="M-20 224 L320 202"
+          className="stroke-[#fbfaf6] dark:stroke-[#11161c]"
+          strokeWidth="7.5"
+          fill="none"
+        />
+        <rect x="38" y="128" width="44" height="38" rx="6" className="fill-[#e8e2d6] dark:fill-[#29313a]" />
+        <rect x="90" y="132" width="40" height="34" rx="6" className="fill-[#e8e2d6] dark:fill-[#29313a]" />
+        <rect x="198" y="124" width="52" height="46" rx="6" className="fill-[#e8e2d6] dark:fill-[#29313a]" />
+        <rect x="40" y="250" width="48" height="40" rx="6" className="fill-[#e8e2d6] dark:fill-[#29313a]" />
+      </svg>
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(110%_80%_at_28%_4%,rgba(255,255,255,0.55),rgba(255,255,255,0)_58%)] dark:bg-[radial-gradient(110%_80%_at_28%_4%,rgba(255,255,255,0.09),rgba(255,255,255,0)_58%)]" />
+      <div className="absolute left-[18%] top-[27%] flex flex-col items-center">
+        <span className="flex h-[50px] w-[50px] items-center justify-center rounded-full border-[3px] border-white bg-[#34c759] text-[19px] font-semibold text-white shadow-[0_6px_15px_rgba(0,0,0,0.16),0_1px_3px_rgba(0,0,0,0.1)]">
+          M
+        </span>
+        <span className="-mt-0.5 h-0 w-0 border-l-[6px] border-r-[6px] border-t-[9px] border-l-transparent border-r-transparent border-t-white" />
+      </div>
+      <div className="absolute left-[45%] top-[47%] flex -translate-x-1/2 -translate-y-1/2 items-center justify-center">
+        <span className="absolute h-20 w-20 rounded-full bg-[#0071e3]/12 dark:bg-[#0a84ff]/18" />
+        <span className="absolute h-[30px] w-[30px] animate-ping rounded-full bg-[#0071e3]/35" />
+        <span className="relative h-[22px] w-[22px] rounded-full border-[3px] border-white bg-[#0071e3] shadow-[0_2px_8px_rgba(0,113,227,0.55),0_1px_3px_rgba(0,0,0,0.25)]" />
+      </div>
+      <div className="absolute bottom-[29%] right-[21%] flex flex-col items-center">
+        <span className="flex h-11 w-11 items-center justify-center rounded-full border-[3px] border-white bg-[#ff3b30] text-[16px] font-semibold text-white shadow-[0_6px_15px_rgba(0,0,0,0.16),0_1px_3px_rgba(0,0,0,0.1)]">
+          E
+        </span>
+        <span className="-mt-0.5 h-0 w-0 border-l-[6px] border-r-[6px] border-t-[9px] border-l-transparent border-r-transparent border-t-white" />
+      </div>
+      <div className="absolute bottom-[16%] left-[29%] flex flex-col items-center">
+        <span className="flex h-[42px] w-[42px] items-center justify-center rounded-full border-[3px] border-white bg-[#ff9f0a] text-[15px] font-semibold text-white shadow-[0_6px_15px_rgba(0,0,0,0.16),0_1px_3px_rgba(0,0,0,0.1)]">
+          J
+        </span>
+        <span className="-mt-0.5 h-0 w-0 border-l-[6px] border-r-[6px] border-t-[9px] border-l-transparent border-r-transparent border-t-white" />
+      </div>
+      <div className="pointer-events-none absolute inset-0 rounded-[32px] shadow-[inset_0_0_60px_rgba(70,60,40,0.09),inset_0_0_0_1px_rgba(255,255,255,0.35)] dark:shadow-[inset_0_0_60px_rgba(0,0,0,0.28),inset_0_0_0_1px_rgba(255,255,255,0.08)]" />
+    </div>
+  );
+}
+
+function OneLocationPermissionGlyph() {
+  return (
+    <div
+      className="flex h-24 w-24 items-center justify-center rounded-full bg-[#0071e3] text-[#0071e3] shadow-[0_0_64px_10px_rgba(0,113,227,0.34),0_16px_34px_rgba(0,113,227,0.34)] dark:bg-[#0a84ff] dark:text-[#0a84ff] dark:shadow-[0_0_70px_10px_rgba(10,132,255,0.42),0_18px_38px_rgba(10,132,255,0.32)]"
+      aria-hidden="true"
+    >
+      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" focusable="false">
+        <path
+          d="M12 21s7-6.3 7-11.5A7 7 0 0 0 5 9.5C5 14.7 12 21 12 21Z"
+          fill="#fff"
+        />
+        <circle cx="12" cy="9.5" r="2.7" fill="currentColor" />
+      </svg>
+    </div>
+  );
+}
+
+function OneLocationOnboardingFlow({
+  step,
+  busy,
+  nativeTest,
+  onContinueIntro,
+  onRequestPermission,
+  onSkip,
+}: {
+  step: OneLocationOnboardingStep;
+  busy: boolean;
+  nativeTest: OneLocationNativeTestConfig;
+  onContinueIntro: () => void;
+  onRequestPermission: () => void;
+  onSkip: () => void;
+}) {
+  const isPermissionStep = step === "permission";
+
+  return (
+    <main className="min-h-dvh w-full bg-white text-[#1d1d1f] dark:bg-[#050506] dark:text-white">
+      <NativeTestBeacon {...nativeTest} />
+      <div className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col overflow-hidden bg-white dark:bg-[#050506]">
+        <div className="h-[calc(env(safe-area-inset-top,0px)+24px)] shrink-0" />
+        <section className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-[clamp(24px,7vw,34px)] py-3 [-webkit-overflow-scrolling:touch]">
+          <div
+            key={step}
+            className="flex w-full flex-col items-center text-center animate-in fade-in slide-in-from-right-4 duration-300 motion-reduce:animate-none"
+          >
+            {isPermissionStep ? <OneLocationPermissionGlyph /> : <OneLocationIntroMapIllustration />}
+
+            <h1
+              className={cn(
+                "mt-8 max-w-[350px] text-center text-[34px] font-bold leading-[1.08] text-[#1d1d1f] sm:text-[36px] dark:text-white",
+                isPermissionStep && "max-w-[340px] text-[32px] leading-[1.1] sm:text-[34px]",
+              )}
+            >
+              {isPermissionStep
+                ? "Keep your map live"
+                : "Experience location sharing with One."}
+            </h1>
+
+            {isPermissionStep ? (
+              <>
+                <p className="mt-3 max-w-[340px] text-[17px] font-normal leading-[1.5] text-[#6e6e73] dark:text-white/62">
+                  Choose{" "}
+                  <strong className="font-semibold text-[#1d1d1f] dark:text-white">
+                    Allow Always
+                  </strong>{" "}
+                  so the map and alerts keep working. Only your Circle ever sees
+                  you.
+                </p>
+                <div className="mt-6 inline-flex max-w-full items-center gap-2.5 rounded-full bg-[#f5f5f7] px-4 py-2.5 text-[14px] text-[#6e6e73] dark:bg-white/[0.08] dark:text-white/62">
+                  <Clock3 className="h-[18px] w-[18px] shrink-0 text-[#34c759]" aria-hidden="true" />
+                  <span className="min-w-0 truncate">You can pause sharing anytime</span>
+                </div>
+              </>
+            ) : (
+              <p className="mt-3 max-w-[310px] text-[18px] leading-[1.4] text-[#6e6e73] dark:text-white/62">
+                Never text "where are you?" again.
+              </p>
+            )}
+          </div>
+        </section>
+        <footer className="flex shrink-0 flex-col items-center gap-3.5 px-[clamp(24px,7vw,34px)] pb-2 pt-2">
+          <Button
+            type="button"
+            onClick={isPermissionStep ? onRequestPermission : onContinueIntro}
+            disabled={busy}
+            className="h-[54px] w-full rounded-full bg-[#0071e3] text-[17px] font-semibold text-white shadow-[0_8px_22px_rgba(0,113,227,0.28)] hover:bg-[#006fe6] dark:bg-[#0a84ff] dark:hover:bg-[#0077ed]"
+          >
+            {busy ? (
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" aria-hidden="true" />
+            ) : null}
+            Continue
+          </Button>
+
+          {isPermissionStep ? (
+            <button
+              type="button"
+              onClick={onSkip}
+              disabled={busy}
+              className="h-6 rounded-full px-3 text-[14.5px] font-medium text-[#86868b] transition-colors hover:text-[#1d1d1f] disabled:opacity-50 dark:text-white/45 dark:hover:text-white"
+            >
+              Not now
+            </button>
+          ) : (
+            <p className="min-h-6 text-center text-[13px] text-[#86868b] dark:text-white/45">
+              Private - shared only with your Circle.
+            </p>
+          )}
+        </footer>
+        <div className="h-[calc(env(safe-area-inset-bottom,0px)+22px)] shrink-0" />
+      </div>
+    </main>
+  );
+}
+
 function OneLocationAgentPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1138,6 +1377,11 @@ function OneLocationAgentPageContent() {
   const [permission, setPermission] =
     useState<HushhLocationPermissionState | null>(null);
   const [busy, setBusy] = useState<BusyState>(null);
+  const [locationOnboardingGate, setLocationOnboardingGate] =
+    useState<OneLocationOnboardingGate>("checking");
+  const [locationOnboardingStep, setLocationOnboardingStep] =
+    useState<OneLocationOnboardingStep>("intro");
+  const [locationOnboardingBusy, setLocationOnboardingBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<ShareMode>("share");
   const [shareReviewOpen, setShareReviewOpen] = useState(false);
@@ -1175,8 +1419,6 @@ function OneLocationAgentPageContent() {
   const [focusedSection, setFocusedSection] =
     useState<OneLocationFocusTarget | null>(null);
   const refreshInFlightRef = useRef<Promise<void> | null>(null);
-  const permissionPromptInFlightRef = useRef(false);
-  const locationLandingPromptUserRef = useRef<string | null>(null);
   const peopleSectionRef = useRef<HTMLElement | null>(null);
   const approvalsSectionRef = useRef<HTMLElement | null>(null);
   const sharedSectionRef = useRef<HTMLElement | null>(null);
@@ -1740,46 +1982,36 @@ function OneLocationAgentPageContent() {
   }, [auth.loading, refresh]);
 
   useEffect(() => {
-    if (
-      !auth.userId ||
-      !state ||
-      locationLandingPromptUserRef.current === auth.userId ||
-      permissionPromptInFlightRef.current
-    ) {
+    if (!auth.userId || auth.loading || loadError) {
+      setLocationOnboardingGate("hidden");
       return;
     }
-    const canRequestNativePrompt =
-      !permission ||
-      permission.state === "prompt" ||
-      permission.state === "denied";
-    if (!canRequestNativePrompt || isLocationServicesDisabled(permission)) {
+    if (!state) {
+      setLocationOnboardingGate("checking");
+      return;
+    }
+    if (permission?.state === "granted") {
+      writeOneLocationOnboardingDismissed(auth.userId, "done");
+      setLocationOnboardingGate("hidden");
+      return;
+    }
+    if (readOneLocationOnboardingDismissed(auth.userId)) {
+      setLocationOnboardingGate("hidden");
       return;
     }
 
-    let cancelled = false;
-    locationLandingPromptUserRef.current = auth.userId;
-    permissionPromptInFlightRef.current = true;
-    const promptForForegroundLocation = async () => {
-      try {
-        await ensureForegroundLocationReady({
-          capturePoint: false,
-          autoOpenSettings: false,
-          requestNativePrompt: true,
-        });
-      } finally {
-        if (!cancelled) {
-          permissionPromptInFlightRef.current = false;
-        }
-      }
-    };
-
-    void promptForForegroundLocation();
-
-    return () => {
-      cancelled = true;
-      permissionPromptInFlightRef.current = false;
-    };
-  }, [auth.userId, ensureForegroundLocationReady, permission, state]);
+    if (locationOnboardingGate !== "show") {
+      setLocationOnboardingStep("intro");
+    }
+    setLocationOnboardingGate("show");
+  }, [
+    auth.loading,
+    auth.userId,
+    loadError,
+    locationOnboardingGate,
+    permission?.state,
+    state,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -2917,23 +3149,84 @@ function OneLocationAgentPageContent() {
     }
   }, [ensureForegroundLocationReady]);
 
+  const dismissLocationOnboarding = useCallback(
+    (status: "done" | "skipped") => {
+      if (auth.userId) {
+        writeOneLocationOnboardingDismissed(auth.userId, status);
+      }
+      setLocationOnboardingGate("hidden");
+      setLocationOnboardingBusy(false);
+    },
+    [auth.userId],
+  );
+
+  const handleContinueLocationOnboardingIntro = useCallback(() => {
+    setLocationOnboardingStep("permission");
+  }, []);
+
+  const handleSkipLocationOnboarding = useCallback(() => {
+    dismissLocationOnboarding("skipped");
+  }, [dismissLocationOnboarding]);
+
+  const handleLocationOnboardingPermission = useCallback(async () => {
+    if (locationOnboardingBusy) return;
+    setLocationOnboardingBusy(true);
+    try {
+      const result = await ensureForegroundLocationReady({
+        capturePoint: false,
+        autoOpenSettings: false,
+        requestNativePrompt: true,
+      });
+      const nextPermission = await refreshLocationPermission();
+      if (result.ready || nextPermission.state === "granted") {
+        dismissLocationOnboarding("done");
+      }
+    } finally {
+      setLocationOnboardingBusy(false);
+    }
+  }, [
+    dismissLocationOnboarding,
+    ensureForegroundLocationReady,
+    locationOnboardingBusy,
+    refreshLocationPermission,
+  ]);
+
+  const nativeTestConfig: OneLocationNativeTestConfig = {
+    routeId: "/one/location",
+    marker: "native-route-one-location",
+    authState: auth.loading
+      ? "pending"
+      : auth.isAuthenticated
+        ? "authenticated"
+        : "anonymous",
+    dataState,
+    errorCode: loadError ? "one_location_unavailable" : null,
+    errorMessage: loadError,
+  };
+
+  const showLocationOnboarding =
+    locationOnboardingGate === "show" &&
+    !showInitialSkeleton &&
+    !loadError &&
+    Boolean(auth.userId && state);
+
+  if (showLocationOnboarding) {
+    return (
+      <OneLocationOnboardingFlow
+        step={locationOnboardingStep}
+        busy={locationOnboardingBusy}
+        nativeTest={nativeTestConfig}
+        onContinueIntro={handleContinueLocationOnboardingIntro}
+        onRequestPermission={handleLocationOnboardingPermission}
+        onSkip={handleSkipLocationOnboarding}
+      />
+    );
+  }
+
   return (
     <AppPageShell
       width="standard"
-      nativeTest={{
-        routeId: "/one/location",
-        marker: "native-route-one-location",
-        authState: auth.loading
-          ? "pending"
-          : auth.isAuthenticated
-            ? "authenticated"
-            : "anonymous",
-        dataState,
-        errorCode: loadError
-          ? "one_location_unavailable"
-          : null,
-        errorMessage: loadError,
-      }}
+      nativeTest={nativeTestConfig}
     >
       <AppPageHeaderRegion className="mx-auto w-full max-w-[1120px] min-w-0 overflow-hidden">
         <div className="flex flex-col gap-4 px-1 pt-3 sm:flex-row sm:items-end sm:justify-between">
