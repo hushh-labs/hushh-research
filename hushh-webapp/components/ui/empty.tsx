@@ -54,4 +54,15 @@ const EmptyAction = ({ className, ...props }: React.ComponentProps<"div">) => (
   <div data-slot="empty-action" className={cn("mt-4 flex gap-2", className)} {...props} />
 );
 
-export { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyAction, EmptyMedia };
+const EmptyContent = ({ className, ...props }: React.ComponentProps<"div">) => (
+  <div
+    data-slot="empty-content"
+    className={cn(
+      "flex w-full max-w-sm min-w-0 flex-col items-center gap-3 sm:gap-4 text-sm text-balance",
+      className
+    )}
+    {...props}
+  />
+);
+
+export { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent, EmptyAction, EmptyMedia };
