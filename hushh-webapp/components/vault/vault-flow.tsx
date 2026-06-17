@@ -2006,7 +2006,7 @@ export function VaultFlow({
                   >
                     {isUnlocking ? (
                       <>
-                        <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" /> Unlocking...
+                        <Icon aria-hidden="true" icon={Loader2} size="sm" className="mr-2 animate-spin" /> Unlocking...
                       </>
                     ) : (
                       "Unlock"
@@ -2098,7 +2098,7 @@ export function VaultFlow({
                 >
                   {isUnlocking ? (
                     <>
-                      <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" /> Unlocking...
+                      <Icon aria-hidden="true" icon={Loader2} size="sm" className="mr-2 animate-spin" /> Unlocking...
                     </>
                   ) : (
                     "Unlock"
@@ -2197,7 +2197,7 @@ export function VaultFlow({
                 >
                   {isUnlocking ? (
                     <>
-                      <Icon icon={Loader2} size="md" className="mr-2 animate-spin" />
+                      <Icon aria-hidden="true" icon={Loader2} size="md" className="mr-2 animate-spin" />
                       Enabling...
                     </>
                   ) : (
