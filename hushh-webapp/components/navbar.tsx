@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
-import { ThemeToggleCompact } from "@/components/theme-toggle";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
