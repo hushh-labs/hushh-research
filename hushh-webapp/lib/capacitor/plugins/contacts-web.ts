@@ -1,4 +1,5 @@
 import type {
+  HushhContactRecord,
   HushhContactsPermissionState,
   HushhContactsPlugin,
   HushhContactsReadResult,
