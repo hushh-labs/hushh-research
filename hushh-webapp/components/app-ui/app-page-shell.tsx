@@ -1,24 +1,46 @@
-"use client"; // Kept "use client" because of data-attributes/events
+"use client";
 
-import { forwardRef, type ElementType, type ComponentPropsWithoutRef } from "react";
-import { NativeTestBeacon, type NativeTestAuthState, type NativeTestDataState } from "@/components/app-ui/native-test-beacon";
+import { forwardRef, type ElementType, type ComponentPropsWithoutRef, type CSSProperties, type Ref, type ReactNode } from "react";
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { cn } from "@/lib/utils";
 
 export type AppPageShellWidth = "reading" | "standard" | "expanded" | "narrow" | "content" | "wide" | "profile";
 export type AppPageDensity = "compact" | "comfortable";
 
-const WIDTH_CLASSES: Record<AppPageShellWidth, string> = {
+export const APP_SHELL_MAX_WIDTHS: Record<AppPageShellWidth, string> = {
   reading: "max-w-[54rem]", narrow: "max-w-[54rem]", profile: "max-w-[54rem]",
   standard: "max-w-[90rem]", content: "max-w-[90rem]",
   expanded: "max-w-[96rem]", wide: "max-w-[96rem]",
 };
+
+const WIDTH_CLASSES = APP_SHELL_MAX_WIDTHS;
 
 const DENSITY_CLASSES: Record<AppPageDensity, string> = {
   compact: "px-4 sm:px-6",
   comfortable: "px-6 sm:px-12",
 };
 
-export const AppPageShell = forwardRef(function AppPageShell<T extends ElementType = "main">({
+export const APP_SHELL_FRAME_CLASSNAME =
+  "mx-auto w-full px-[var(--page-inline-gutter-standard)]";
+
+export const APP_SHELL_FRAME_STYLE: CSSProperties = {
+  maxWidth: "90rem",
+};
+
+export const APP_MEASURE_STYLES: Record<"reading" | "standard" | "expanded", CSSProperties> = {
+  reading: { maxWidth: "54rem" },
+  standard: { maxWidth: "90rem" },
+  expanded: { maxWidth: "96rem" },
+} as const;
+
+type AppPageShellProps<T extends ElementType> = {
+  as?: T;
+  width?: AppPageShellWidth;
+  density?: AppPageDensity;
+  nativeTest?: any;
+} & ComponentPropsWithoutRef<T>;
+
+const AppPageShellInner = <T extends ElementType = "main">({
   as,
   width = "standard",
   density = "compact",
@@ -26,12 +48,7 @@ export const AppPageShell = forwardRef(function AppPageShell<T extends ElementTy
   className,
   children,
   ...props
-}: {
-  as?: T;
-  width?: AppPageShellWidth;
-  density?: AppPageDensity;
-  nativeTest?: any; // Simplified for brevity
-} & ComponentPropsWithoutRef<T>, ref: any) {
+}: AppPageShellProps<T>, ref: any) => {
   const Component = as ?? "main";
 
   return (
@@ -50,7 +67,11 @@ export const AppPageShell = forwardRef(function AppPageShell<T extends ElementTy
       {children}
     </Component>
   );
-});
+};
+
+export const AppPageShell = forwardRef(AppPageShellInner) as <T extends ElementType = "main">(
+  props: AppPageShellProps<T> & { ref?: Ref<any> }
+) => ReactNode;
 
 // Helper for cleaner region composition
 export const AppPageHeaderRegion = ({ className, ...props }: ComponentPropsWithoutRef<"div">) => (
