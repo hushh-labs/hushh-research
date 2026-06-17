@@ -5,7 +5,11 @@ import {
   CACHE_TTL,
 } from "@/lib/services/cache-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
-import { normalizeConsentResponse } from "@/src/lib/consent/normalizeConsent";
+import {
+  normalizeConsentResponse,
+  type RawConsentResponse,
+  type NormalizedConsentState,
+} from "@/src/lib/consent/normalizeConsent";
 
 export const CONSENT_CENTER_PAGE_SIZE = 20;
 
@@ -288,13 +292,14 @@ function normalizeConsentEntry(entry: ConsentCenterEntry): ConsentCenterEntry {
   }
   // ── End override matrix ───────────────────────────────────────────────────
 
-  const normalized = normalizeConsentResponse({
+  const rawPayload: RawConsentResponse = {
     active: entry.active,
     granted: entry.granted,
     status: entry.status,
     permissions: entry.existing_granted_scopes || undefined,
     scopes: entry.scope ? [entry.scope] : undefined,
-  });
+  };
+  const normalized: NormalizedConsentState = normalizeConsentResponse(rawPayload);
   if (normalized.isGranted && !["approved", "active", "granted"].includes(entry.status)) {
     return { ...entry, status: entry.kind === "active_grant" ? "active" : "approved" };
   }
