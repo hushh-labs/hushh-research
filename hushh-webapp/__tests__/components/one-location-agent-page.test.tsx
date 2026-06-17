@@ -8313,7 +8313,8 @@ describe("OneLocationAgentPage", () => {
     const shareButton = screen.getByRole("button", {
       name: /Start sharing/i,
     }) as HTMLButtonElement;
-    expect(shareButton.disabled).toBe(true);
+    fireEvent.click(shareButton);
+    await waitFor(() => expect(mockCaptureCurrentPosition).not.toHaveBeenCalled());
     expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 
