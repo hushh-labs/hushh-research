@@ -26,10 +26,10 @@ import os
 import re
 import secrets
 from typing import Any, Literal
-from mcp_modules.log_redaction import redact_log_value
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
+from mcp_modules.log_redaction import redact_log_value
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
