@@ -495,10 +495,9 @@ export function VaultFlow({
     preferPassphraseUnlockForAutomation(nativeTestConfig);
   const skipGeneratedUnlockForAutomation =
     shouldSkipGeneratedVaultUnlockForAutomation();
-  const hostname = useHostname();
   const currentRpId = resolvePasskeyRpId({
     isNative: Capacitor.isNativePlatform(),
-    hostname: hostname,
+    hostname: typeof window !== "undefined" ? window.location.hostname : null,
   });
 
   const { isVaultUnlocked, unlockVault } = useVault();
@@ -936,7 +935,11 @@ export function VaultFlow({
     } catch (err: any) {
       if (!isCurrentAttempt(attempt)) return;
       console.error("Create vault error:", err);
-      toast.error(err.message || "We could not create your Vault. Please try again.");
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "We could not create your Vault. Please try again."
+      );
     } finally {
       createPassphraseAttemptRef.current = false;
       finishAttempt(attempt);

@@ -58,6 +58,7 @@ function PaginationLink({
           variant: isActive ? "outline" : "ghost",
           size,
         }),
+        "aria-disabled:pointer-events-none aria-disabled:opacity-50",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         className
       )}
@@ -84,7 +85,7 @@ function PaginationPrevious({
           : undefined
       }
     >
-      <ChevronLeftIcon />
+      <ChevronLeftIcon aria-hidden="true" />
       <span className="hidden sm:block">Previous</span>
     </PaginationLink>
   )
@@ -109,7 +110,7 @@ function PaginationNext({
       }
     >
       <span className="hidden sm:block">Next</span>
-      <ChevronRightIcon />
+      <ChevronRightIcon aria-hidden="true" />
     </PaginationLink>
   )
 }

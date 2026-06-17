@@ -42,6 +42,14 @@ PUBLIC_LOCATION_SNAPSHOT = {
     "sourcePlatform": "web",
 }
 
+PUBLIC_LOCATION_SNAPSHOT = {
+    "latitude": 28.6139,
+    "longitude": 77.209,
+    "accuracyM": 18,
+    "capturedAt": "2026-05-20T07:30:00.000Z",
+    "sourcePlatform": "web",
+}
+
 
 def test_location_metadata_redaction_removes_coordinate_like_keys() -> None:
     payload = {

@@ -26,6 +26,10 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {
+  kaiAppHeroBodyClassName,
+  kaiAppHeroTitleClassName,
+} from "@/components/kai/shared/kai-typography";
+import {
   isOnboardingFlowActiveCookieEnabled,
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
@@ -390,7 +394,7 @@ export function AuthStep({
         });
       }
       debugLog("[AuthStep] User authenticated, navigating to:", redirectPath);
-      void resolveAndNavigate(user.uid, undefined, user.phoneNumber);
+      void resolveAndNavigate(user.uid, undefined, user.phoneNumber, user);
     }
   }, [
     redirectPath,

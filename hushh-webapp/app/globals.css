@@ -5849,6 +5849,16 @@ html.kb-open.kb-resizes [data-agent-dock-chat] [data-bottom-shell-navigation-slo
   transform: none;
 }
 
+.dark .kai-bottom-nav-pill [role="radio"] svg {
+  filter: drop-shadow(0 0.5px 0 rgb(255 255 255 / 0.12));
+}
+
+.dark .kai-bottom-nav-pill [role="radio"][aria-checked="true"] svg {
+  filter:
+    drop-shadow(0 0.5px 0 rgb(255 255 255 / 0.16))
+    drop-shadow(0 4px 12px rgb(41 171 255 / 0.2));
+}
+
 .kai-bottom-nav-pill [role="radio"] > span:last-of-type {
   max-width: 100%;
   font-size: var(--ios-account-tab-label-size, var(--type-tab-label-size));
