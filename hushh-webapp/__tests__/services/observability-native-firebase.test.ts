@@ -50,4 +50,27 @@ describe("native Firebase analytics adapter", () => {
       },
     });
   });
+
+  it("ignores inherited metadata before forwarding native Firebase params", async () => {
+    const payload = Object.create({
+      user_id: "inherited-user",
+      email: "inherited@example.com",
+    }) as Record<string, string | number | boolean | null>;
+
+    payload.env = "uat";
+    payload.event_category = "system";
+    payload.blocking_loader_shown = true;
+
+    await nativeFirebaseAdapter.track("growth_funnel_step_completed", payload);
+
+    expect(logEventMock).toHaveBeenCalledTimes(1);
+    expect(logEventMock).toHaveBeenCalledWith({
+      name: "growth_funnel_step_completed",
+      params: {
+        env: "uat",
+        event_category: "system",
+        blocking_loader_shown: "true",
+      },
+    });
+  });
 });

@@ -16,16 +16,18 @@ function getFirebaseAnalyticsModule() {
   return firebaseAnalyticsModulePromise;
 }
 
+const hasOwnProperty = Object.prototype.hasOwnProperty;
+
 function toFirebaseParams(payload: Record<string, PrimitiveEventValue>) {
   const params: Record<string, string | number> = {};
 
-  for (const [key, value] of Object.entries(payload)) {
+  for (const key in payload) {
+    if (!hasOwnProperty.call(payload, key)) continue;
+
+    const value = payload[key];
     if (value === null || value === undefined) continue;
-    if (typeof value === "boolean") {
-      params[key] = value ? "true" : "false";
-      continue;
-    }
-    params[key] = value;
+
+    params[key] = typeof value === "boolean" ? (value ? "true" : "false") : value;
   }
 
   return params;
