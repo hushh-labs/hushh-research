@@ -84,7 +84,7 @@ function PaginationPrevious({
           : undefined
       }
     >
-      <ChevronLeftIcon />
+      <ChevronLeftIcon aria-hidden="true" />
       <span className="hidden sm:block">Previous</span>
     </PaginationLink>
   )
@@ -109,7 +109,7 @@ function PaginationNext({
       }
     >
       <span className="hidden sm:block">Next</span>
-      <ChevronRightIcon />
+      <ChevronRightIcon aria-hidden="true" />
     </PaginationLink>
   )
 }
