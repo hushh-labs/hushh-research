@@ -206,6 +206,7 @@ export function PageHeader({
   titleRole = "page",
   titleVisuallyHidden = false,
   className,
+  id,
   testId = "page-header",
 }: {
   eyebrow?: string;
@@ -225,12 +226,14 @@ export function PageHeader({
   accent?: SectionAccent;
   titleRole?: "page" | "agent";
   className?: string;
+  id?: string;
   testId?: string;
 }) {
   const styles = ACCENT_STYLES[accent];
   const TitleComponent = titleRole === "agent" ? AgentTitle : PageTitle;
   return (
     <header
+      id={id}
       className={cn("space-y-[var(--page-header-stack-gap)]", className)}
       data-ui-role={titleRole === "agent" ? "agent-hero" : "page-header"}
       data-slot="page-header"
