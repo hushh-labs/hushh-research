@@ -41,6 +41,12 @@ import { Card } from "@/lib/morphy-ux/card";
 import { Button } from "@/lib/morphy-ux/button";
 import { AlertTriangle } from "lucide-react";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
+import {
+  kaiAppBodyClassName,
+  kaiAppCardTitleClassName,
+  kaiAppDisplayTitleClassName,
+  kaiAppEyebrowClassName,
+} from "@/components/kai/shared/kai-typography";
 
 type Stage = "loading" | "entry" | "wizard" | "persona";
 type OnboardingSource = "pre_vault" | "vault";
@@ -315,19 +321,19 @@ function KaiOnboardingPageContent() {
           authState={user ? "authenticated" : "pending"}
           dataState="loaded"
         />
-        <div className="w-full space-y-6">
-          <div className="mx-auto max-w-[36rem] space-y-3 text-center">
-            <p className="text-[10.5px] font-medium uppercase tracking-[0.16em] text-primary/75">
+        <div className="w-full space-y-8">
+          <div className="mx-auto max-w-[48rem] space-y-3 text-center">
+            <p className={`${kaiAppEyebrowClassName} text-primary/75`}>
               Choose your starting path
             </p>
             <div
               role="heading"
               aria-level={1}
-              className="text-[34px] font-medium leading-[1.06] tracking-normal text-foreground sm:text-[40px]"
+              className={`${kaiAppDisplayTitleClassName} text-foreground`}
             >
               Start as an investor or set up RIA first
             </div>
-            <p className="mx-auto max-w-[31rem] text-[16px] leading-[1.45] text-muted-foreground sm:text-[17px]">
+            <p className={`mx-auto max-w-[35rem] ${kaiAppBodyClassName} text-muted-foreground`}>
               You can add the other profile later from Profile. This choice only sets the first
               workflow we open right now.
             </p>
@@ -377,11 +383,11 @@ function KaiOnboardingPageContent() {
                   <div
                     role="heading"
                     aria-level={2}
-                    className="text-[24px] font-medium leading-[1.12] tracking-normal text-foreground sm:text-[26px]"
+                    className={`${kaiAppCardTitleClassName} text-foreground`}
                   >
                     Continue as Investor
                   </div>
-                  <p className="max-w-[31rem] text-[15px] leading-[1.45] text-muted-foreground sm:text-[16px]">
+                  <p className="max-w-[28rem] text-[14px] font-normal leading-[1.45] tracking-normal text-muted-foreground">
                     Answer your risk and preference questions, then connect accounts and start using
                     Kai.
                   </p>
@@ -433,11 +439,11 @@ function KaiOnboardingPageContent() {
                   <div
                     role="heading"
                     aria-level={2}
-                    className="text-[24px] font-medium leading-[1.12] tracking-normal text-foreground sm:text-[26px]"
+                    className={`${kaiAppCardTitleClassName} text-foreground`}
                   >
                     Continue as RIA
                   </div>
-                  <p className="max-w-[31rem] text-[15px] leading-[1.45] text-muted-foreground sm:text-[16px]">
+                  <p className="max-w-[28rem] text-[14px] font-normal leading-[1.45] tracking-normal text-muted-foreground">
                     Set up your advisor identity, verification, firm details, and marketplace trust
                     profile before sending consent requests.
                   </p>

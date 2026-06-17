@@ -113,14 +113,14 @@ export function KPICard({
               {icon}
             </div>
           )}
-          <span className={cn("text-muted-foreground uppercase font-black tracking-widest leading-none", styles.title)}>
+          <span className={cn("text-muted-foreground uppercase font-semibold tracking-widest leading-none", styles.title)}>
             {title}
           </span>
         </div>
 
         {/* Value */}
         <p
-          className={cn("font-black tracking-tighter leading-tight", styles.value)}
+          className={cn("font-semibold tracking-tighter leading-tight", styles.value)}
           aria-label={`${title}: ${value}`}
         >
           {value}

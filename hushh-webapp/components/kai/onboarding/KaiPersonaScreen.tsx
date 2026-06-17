@@ -5,6 +5,10 @@ import { ArrowRight, Shield, Target, TrendingUp, type LucideIcon } from "lucide-
 import type { RiskProfile } from "@/lib/services/kai-profile-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
+import {
+  kaiAppBodyClassName,
+  kaiAppDisplayTitleClassName,
+} from "@/components/kai/shared/kai-typography";
 
 const PERSONA_CONFIG: Record<
   RiskProfile,
@@ -74,10 +78,10 @@ export function KaiPersonaScreen(props: {
               <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 {cfg.pill}
               </p>
-              <h1 className="text-balance text-[clamp(2rem,4.2vw,2.75rem)] font-normal leading-[1.06] tracking-normal text-foreground">
+              <h1 className={`text-balance ${kaiAppDisplayTitleClassName} text-foreground`}>
                 {cfg.title}
               </h1>
-              <p className="mx-auto max-w-[30rem] text-[16px] leading-[1.5] text-muted-foreground">
+              <p className={`mx-auto max-w-[30rem] ${kaiAppBodyClassName} text-muted-foreground`}>
                 {cfg.support}
               </p>
             </div>

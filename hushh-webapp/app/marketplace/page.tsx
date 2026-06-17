@@ -1417,7 +1417,7 @@ export default function MarketplacePage() {
                   <ProfileAvatar kind={item.kind} label={item.title} />
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-[17px] font-semibold leading-snug tracking-normal text-foreground">
+                      <h3 className="text-[15.5px] font-medium leading-[1.24] tracking-normal text-foreground sm:text-[16px]">
                         {item.title}
                       </h3>
                       {item.isTestProfile ? (
@@ -1437,12 +1437,12 @@ export default function MarketplacePage() {
                         </span>
                       ) : null}
                     </div>
-                    <p className="text-[14px] leading-[1.45] text-foreground/78">{item.headline}</p>
+                    <p className="text-[14px] font-normal leading-[1.45] tracking-normal text-foreground/72">{item.headline}</p>
                   </div>
                 </div>
 
                 <div className="flex-1 rounded-[var(--radius-md)] bg-background/50 p-4 dark:bg-white/5">
-                  <p className="text-[14px] leading-[1.5] text-foreground/86">{item.summary}</p>
+                  <p className="text-[14px] font-normal leading-[1.45] tracking-normal text-foreground/82">{item.summary}</p>
                   <p className="mt-3 text-[13px] text-muted-foreground">{item.metaLine}</p>
                 </div>
 

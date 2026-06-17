@@ -584,7 +584,7 @@ export function KaiAnalysisPreviewView() {
           <div className="mt-5 flex items-start justify-between gap-3">
             <div>
               <p className="text-[13px] font-medium text-[color:var(--one-fg2)]">Portfolio value</p>
-              <p className="mt-1 text-[38px] font-semibold leading-none tracking-normal text-[color:var(--one-fg)] tabular-nums">
+              <p className="mt-1 text-[30px] font-medium leading-none tracking-normal text-[color:var(--one-fg)] tabular-nums sm:text-[34px]">
                 {rangeMeta.value}
               </p>
             </div>

@@ -3,6 +3,10 @@
 import Image from "next/image";
 import type { ComponentType, SVGProps } from "react";
 import { Button } from "@/lib/morphy-ux/button";
+import {
+  kaiAppHeroBodyClassName,
+  kaiAppHeroTitleClassName,
+} from "@/components/kai/shared/kai-typography";
 
 function ShieldBadgeIcon(props: SVGProps<SVGSVGElement>) {
   return (
@@ -102,11 +106,11 @@ export function IntroStep({
             role="heading"
             aria-level={1}
             aria-label="Meet One, Your Personal Financial Advisor"
-            className="relative mt-2.5 text-[38px] font-medium leading-[1.05] tracking-normal text-[#1d1d1f] sm:text-[40px] dark:text-[#f5f5f7]"
+            className={`relative mt-2.5 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
           >
             Meet One.
           </div>
-          <p className="relative mt-3 text-[17px] font-normal leading-[1.42] tracking-normal text-[rgba(0,0,0,0.56)] sm:text-[18px] dark:text-[rgba(245,245,247,0.60)]">
+          <p className={`relative mt-3 ${kaiAppHeroBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
             Your personal financial advisor.
           </p>
         </section>

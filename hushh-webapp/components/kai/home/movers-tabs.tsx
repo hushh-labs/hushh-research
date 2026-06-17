@@ -60,7 +60,7 @@ export function MoversTabs({ movers }: MoversTabsProps) {
   return (
     <Card variant="none" effect="glass" preset="compact">
       <CardContent className="space-y-3 p-4">
-        <p className="text-sm font-black tracking-tight">Market Movers</p>
+        <p className="text-sm font-semibold tracking-tight">Market Movers</p>
 
         <div className="flex gap-2 overflow-x-auto pb-1">
           {TABS.map((item) => (

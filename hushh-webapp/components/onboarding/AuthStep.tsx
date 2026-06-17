@@ -19,6 +19,10 @@ import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { AuthLegalDialog } from "@/components/onboarding/AuthLegalDialog";
 import {
+  kaiAppHeroBodyClassName,
+  kaiAppHeroTitleClassName,
+} from "@/components/kai/shared/kai-typography";
+import {
   isOnboardingFlowActiveCookieEnabled,
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
@@ -566,11 +570,11 @@ export function AuthStep({
             role="heading"
             aria-level={1}
             aria-label="Sign in to One"
-            className="mt-2.5 text-[38px] font-medium leading-[1.05] tracking-normal text-[#1d1d1f] sm:text-[40px] dark:text-[#f5f5f7]"
+            className={`mt-2.5 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
           >
             Sign in to One.
           </div>
-          <p className="mx-auto mt-3 max-w-[20rem] text-[17px] font-normal leading-[1.42] tracking-normal text-[rgba(0,0,0,0.56)] sm:text-[18px] dark:text-[rgba(245,245,247,0.60)]">
+          <p className={`mx-auto mt-3 max-w-[20rem] ${kaiAppHeroBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
             Continue to your personal financial advisor.
           </p>
         </header>

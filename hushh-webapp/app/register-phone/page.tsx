@@ -9,6 +9,10 @@ import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
+import {
+  kaiAppHeroBodyClassName,
+  kaiAppHeroTitleClassName,
+} from "@/components/kai/shared/kai-typography";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { ROUTES } from "@/lib/navigation/routes";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
@@ -142,11 +146,11 @@ function PhoneMandatePageContent() {
             role="heading"
             aria-level={1}
             aria-label="Verify your phone number"
-            className="mt-2.5 text-[38px] font-medium leading-[1.05] tracking-normal text-[#1d1d1f] sm:text-[40px] dark:text-[#f5f5f7]"
+            className={`mt-2.5 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
           >
             Verify your phone number
           </div>
-          <p className="mx-auto mt-3 max-w-[20rem] text-[17px] font-normal leading-[1.42] tracking-normal text-[rgba(0,0,0,0.56)] sm:text-[18px] dark:text-[rgba(245,245,247,0.60)]">
+          <p className={`mx-auto mt-3 max-w-[20rem] ${kaiAppHeroBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
             Add your phone number to continue.
           </p>
         </header>

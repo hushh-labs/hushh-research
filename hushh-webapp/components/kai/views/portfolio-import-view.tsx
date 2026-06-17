@@ -32,15 +32,17 @@ import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import {
   kaiAppBodyClassName,
   kaiAppCardBodyClassName,
+  kaiAppCardTitleClassName,
   kaiAppCompactTitleClassName,
   kaiAppEyebrowClassName,
   kaiAppHelperClassName,
+  kaiAppSectionTitleClassName,
 } from "@/components/kai/shared/kai-typography";
 
 const importCardTitleClassName =
-  "!text-[22px] !font-medium !leading-[1.12] !tracking-normal text-foreground sm:!text-[24px]";
+  cn(kaiAppSectionTitleClassName, "text-foreground");
 const importDropzoneTitleClassName =
-  "!text-[16px] !font-medium !leading-[1.24] !tracking-normal sm:!text-[17px]";
+  cn(kaiAppCardTitleClassName, "text-foreground");
 
 // =============================================================================
 // TYPES

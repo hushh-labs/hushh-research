@@ -381,11 +381,11 @@ export function AnalysisSummaryView({
 
       {showHeader ? (
         <div className="flex items-center gap-4 px-1">
-          <div className="grid h-14 w-14 place-items-center rounded-full bg-black text-lg font-black text-white dark:bg-white dark:text-black">
+          <div className="grid h-14 w-14 place-items-center rounded-full bg-black text-lg font-semibold text-white dark:bg-white dark:text-black">
             {entry.ticker.slice(0, 1)}
           </div>
           <div>
-            <h2 className="text-2xl font-black tracking-tight leading-tight">{entry.ticker} Insight</h2>
+            <h2 className="text-[20px] font-medium leading-tight tracking-normal sm:text-[22px]">{entry.ticker} Insight</h2>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className="font-mono text-sm text-muted-foreground">{priceLabel}</span>
               {todayChangePct !== null ? (

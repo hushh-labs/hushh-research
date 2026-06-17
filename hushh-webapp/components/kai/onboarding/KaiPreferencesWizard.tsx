@@ -23,6 +23,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  kaiAppDisplayTitleClassName,
+  kaiAppSectionTitleClassName,
+} from "@/components/kai/shared/kai-typography";
 
 type WizardAnswers = {
   investment_horizon: InvestmentHorizon | null;
@@ -267,8 +271,8 @@ export function KaiPreferencesWizard(props: {
                 className={cn(
                   "tracking-normal text-balance text-foreground",
                   isPageLayout
-                    ? "text-[clamp(1.65rem,2.25vw,2.05rem)] font-medium leading-[1.12]"
-                    : "text-[clamp(0.95rem,2.8vw,1.2rem)] leading-[1.3] font-semibold"
+                    ? kaiAppDisplayTitleClassName
+                    : kaiAppSectionTitleClassName
                 )}
               >
                 {activeQuestion.prompt}

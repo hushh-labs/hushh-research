@@ -27,7 +27,7 @@ export function SectorRotationCard({ rows }: SectorRotationCardProps) {
   return (
     <Card variant="none" effect="glass" preset="compact">
       <CardContent className="space-y-3 p-4">
-        <p className="text-sm font-black tracking-tight">Sector Rotation</p>
+        <p className="text-sm font-semibold tracking-tight">Sector Rotation</p>
         <div className="space-y-2">
           {rows.slice(0, 6).map((row) => {
             const pct = typeof row.change_pct === "number" ? row.change_pct : 0;
