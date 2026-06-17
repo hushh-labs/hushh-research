@@ -41,6 +41,12 @@ import { Card } from "@/lib/morphy-ux/card";
 import { Button } from "@/lib/morphy-ux/button";
 import { AlertTriangle } from "lucide-react";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
+import {
+  kaiAppBodyClassName,
+  kaiAppCardTitleClassName,
+  kaiAppDisplayTitleClassName,
+  kaiAppEyebrowClassName,
+} from "@/components/kai/shared/kai-typography";
 
 type Stage = "loading" | "entry" | "wizard" | "persona";
 type OnboardingSource = "pre_vault" | "vault";
@@ -307,7 +313,7 @@ function KaiOnboardingPageContent() {
     return (
       <div
         data-top-content-anchor="true"
-        className="mx-auto flex min-h-[calc(100dvh_-_var(--top-content-pad))] w-full max-w-6xl items-start px-5 pb-8 pt-[calc(var(--top-content-pad)_+_1rem)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
+        className="mx-auto flex min-h-[calc(100dvh_-_var(--top-content-pad))] w-full max-w-5xl items-start px-5 pb-8 pt-[calc(var(--top-content-pad)_+_0.25rem)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
       >
         <NativeTestBeacon
           routeId="/kai/onboarding"
@@ -315,28 +321,32 @@ function KaiOnboardingPageContent() {
           authState={user ? "authenticated" : "pending"}
           dataState="loaded"
         />
-        <div className="w-full space-y-6">
-          <div className="text-center space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">
+        <div className="w-full space-y-8">
+          <div className="mx-auto max-w-[48rem] space-y-3 text-center">
+            <p className={`${kaiAppEyebrowClassName} text-primary/75`}>
               Choose your starting path
             </p>
-            <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+            <div
+              role="heading"
+              aria-level={1}
+              className={`${kaiAppDisplayTitleClassName} text-foreground`}
+            >
               Start as an investor or set up RIA first
-            </h1>
-            <p className="mx-auto max-w-2xl text-sm leading-7 text-muted-foreground">
+            </div>
+            <p className={`mx-auto max-w-[35rem] ${kaiAppBodyClassName} text-muted-foreground`}>
               You can add the other profile later from Profile. This choice only sets the first
               workflow we open right now.
             </p>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid items-stretch gap-4 md:grid-cols-2">
             <Card
               preset="hero"
               variant="none"
               effect="glass"
               showRipple
               interactive={!saving}
-              className="transition-[border-color,background-color,box-shadow] enabled:hover:!border-primary/40"
+              className="transition-[border-color,background-color,box-shadow,transform] enabled:hover:!-translate-y-0.5 enabled:hover:!border-primary/30"
             >
               <button
                 type="button"
@@ -364,18 +374,27 @@ function KaiOnboardingPageContent() {
                     setSaving(false);
                   }
                 }}
-                className="w-full p-6 text-left"
+                className="flex h-full min-h-[228px] w-full flex-col justify-between gap-6 p-6 text-left sm:p-7"
               >
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary/80">
-                  Investor
-                </p>
-                <h2 className="mt-3 text-2xl font-semibold text-foreground">
-                  Build your Kai profile first
-                </h2>
-                <p className="mt-3 text-sm leading-7 text-muted-foreground">
-                  Answer your risk and preference questions, then connect accounts and start using
-                  Kai.
-                </p>
+                <div className="space-y-3.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/75">
+                    Investor
+                  </p>
+                  <div
+                    role="heading"
+                    aria-level={2}
+                    className={`${kaiAppCardTitleClassName} text-foreground`}
+                  >
+                    Continue as Investor
+                  </div>
+                  <p className="max-w-[28rem] text-[14px] font-normal leading-[1.45] tracking-normal text-muted-foreground">
+                    Answer your risk and preference questions, then connect accounts and start using
+                    Kai.
+                  </p>
+                </div>
+                <span className="inline-flex w-fit items-center rounded-full bg-primary px-4 py-2 text-[14px] font-semibold text-primary-foreground shadow-[0_12px_26px_-18px_rgba(0,113,227,0.75)]">
+                  Open investor setup
+                </span>
               </button>
             </Card>
 
@@ -385,7 +404,7 @@ function KaiOnboardingPageContent() {
               effect="glass"
               showRipple
               interactive={!saving && riaCapability !== "disabled"}
-              className="transition-[border-color,background-color,box-shadow] enabled:hover:!border-primary/40 disabled:opacity-60"
+              className="transition-[border-color,background-color,box-shadow,transform] enabled:hover:!-translate-y-0.5 enabled:hover:!border-primary/30 disabled:opacity-60"
             >
               <button
                 type="button"
@@ -411,23 +430,32 @@ function KaiOnboardingPageContent() {
                     setSaving(false);
                   }
                 }}
-                className="w-full p-6 text-left disabled:cursor-not-allowed"
+                className="flex h-full min-h-[228px] w-full flex-col justify-between gap-6 p-6 text-left disabled:cursor-not-allowed sm:p-7"
               >
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary/80">
-                  RIA
-                </p>
-                <h2 className="mt-3 text-2xl font-semibold text-foreground">
-                  Verify the advisor workspace
-                </h2>
-                <p className="mt-3 text-sm leading-7 text-muted-foreground">
-                  Set up your advisor identity, verification, firm details, and marketplace trust
-                  profile before sending consent requests.
-                </p>
-                {riaCapability === "disabled" ? (
-                  <p className="mt-4 text-xs font-medium text-muted-foreground">
-                    RIA mode is unavailable in this environment until IAM is active.
+                <div className="space-y-3.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/75">
+                    RIA
                   </p>
-                ) : null}
+                  <div
+                    role="heading"
+                    aria-level={2}
+                    className={`${kaiAppCardTitleClassName} text-foreground`}
+                  >
+                    Continue as RIA
+                  </div>
+                  <p className="max-w-[28rem] text-[14px] font-normal leading-[1.45] tracking-normal text-muted-foreground">
+                    Set up your advisor identity, verification, firm details, and marketplace trust
+                    profile before sending consent requests.
+                  </p>
+                  {riaCapability === "disabled" ? (
+                    <p className="text-xs font-medium text-muted-foreground">
+                      RIA mode is unavailable in this environment until IAM is active.
+                    </p>
+                  ) : null}
+                </div>
+                <span className="inline-flex w-fit items-center rounded-full bg-primary px-4 py-2 text-[14px] font-semibold text-primary-foreground shadow-[0_12px_26px_-18px_rgba(0,113,227,0.75)]">
+                  Open advisor setup
+                </span>
               </button>
             </Card>
           </div>

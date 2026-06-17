@@ -15,6 +15,14 @@ from hushh_mcp.services.one_location_agent_service import (
     _redact_location_metadata,
 )
 
+PUBLIC_LOCATION_SNAPSHOT = {
+    "latitude": 28.6139,
+    "longitude": 77.209,
+    "accuracyM": 18,
+    "capturedAt": "2026-05-20T07:30:00.000Z",
+    "sourcePlatform": "web",
+}
+
 
 def test_location_metadata_redaction_removes_coordinate_like_keys() -> None:
     payload = {
@@ -787,6 +795,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
                 "revoked_at": None,
+                "metadata": json.loads(params.get("metadata_json") or "{}"),
             }
             self.public_invites[invite_id] = row
             return row
@@ -1443,6 +1452,42 @@ def test_public_invite_is_request_only_and_token_hash_only() -> None:
     assert {item["notification_type"] for item in service.notifications} >= {
         "location_public_invite_submitted"
     }
+
+
+def test_public_invite_with_snapshot_returns_location_after_intake_without_private_request() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+
+    created = service.create_public_invite(
+        owner_user_id="user_a",
+        duration_hours=1,
+        location_snapshot=PUBLIC_LOCATION_SNAPSHOT,
+    )
+    token = created["publicToken"]
+
+    resolved = service.resolve_public_invite(public_token=token)
+    assert resolved["invite"]["locationAvailable"] is True
+    assert "latitude" not in json.dumps(resolved)
+    assert "longitude" not in json.dumps(resolved)
+
+    submitted = service.submit_public_invite_request(
+        public_token=token,
+        visitor_display_name="User B",
+        phone_number="+1 555 010 0002",
+        message="For pickup.",
+    )
+
+    assert submitted["submission"]["status"] == "approved"
+    assert submitted["publicLocation"]["latitude"] == PUBLIC_LOCATION_SNAPSHOT["latitude"]
+    assert submitted["publicLocation"]["longitude"] == PUBLIC_LOCATION_SNAPSHOT["longitude"]
+    assert service.requests == {}
+    assert "latitude" not in json.dumps(service.public_submissions, default=str)
+    assert "longitude" not in json.dumps(service.notifications, default=str)
+    assert token not in json.dumps(service.notifications, default=str)
 
 
 def test_public_invite_submission_without_key_never_creates_access() -> None:

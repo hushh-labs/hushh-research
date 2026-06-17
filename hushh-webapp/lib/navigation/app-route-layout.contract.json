@@ -17,7 +17,7 @@
     "mode": "standard",
     "shellVerification": {
       "file": "components/agent/agent-screen.tsx",
-      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader"]
+      "includes": ["AppPageShell", "AppPageContentRegion", "AgentChatWorkspace"]
     }
   },
   {

@@ -22,8 +22,31 @@ function formatDateTime(value?: string | null): string {
   }).format(date);
 }
 
-function safeLabel(value?: string | null, fallback = "KAI member"): string {
-  return String(value || "").trim() || fallback;
+function looksLikeInternalIdentifier(value: string): boolean {
+  const label = value.trim();
+  if (!label) return false;
+  if (
+    /^(actor|grant|invite|key|location|one_location|recipient|referral|request|submission|user)[_-]/i.test(
+      label,
+    )
+  ) {
+    return true;
+  }
+  if (/^[0-9a-f]{24,}$/i.test(label) || /^[0-9a-f-]{32,}$/i.test(label)) {
+    return true;
+  }
+  return (
+    /^[A-Za-z0-9_-]{16,}$/.test(label) &&
+    /[A-Z]/.test(label) &&
+    /[a-z]/.test(label) &&
+    /\d/.test(label)
+  );
+}
+
+function safeLabel(value?: string | null, fallback = "One user"): string {
+  const label = String(value || "").trim();
+  if (!label || looksLikeInternalIdentifier(label)) return fallback;
+  return label;
 }
 
 function grantCounterpartyLabel(grant: OneLocationGrant): string {
@@ -151,7 +174,7 @@ export function buildOneLocationActivityFallback(
       safeLabel(recipient.displayName),
     ]),
   );
-  const labelForUser = (userId?: string | null, fallback = "KAI member") =>
+  const labelForUser = (userId?: string | null, fallback = "One user") =>
     safeLabel(userId ? recipientLabels.get(userId) : null, fallback);
   const events: OneLocationActivityEvent[] = [];
   const addEvent = ({

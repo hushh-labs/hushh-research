@@ -86,11 +86,6 @@ export function PhoneMandateGuard({
       return;
     }
 
-    if (firebasePhoneVerified) {
-      setBackendPhoneVerified(true);
-      return;
-    }
-
     let cancelled = false;
 
     const loadIdentityState = async () => {
@@ -102,7 +97,7 @@ export function PhoneMandateGuard({
       } catch (error) {
         console.warn("[PhoneMandateGuard] Failed to check account phone claim:", error);
         if (!cancelled) {
-          setBackendPhoneVerified(false);
+          setBackendPhoneVerified(firebasePhoneVerified);
         }
       }
     };

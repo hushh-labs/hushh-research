@@ -22,11 +22,9 @@ import {
   ArrowLeft,
   Bell,
   BriefcaseBusiness,
-  ChartColumnIncreasing,
   Check,
   ChevronDown,
   Code2,
-  Compass,
   type LucideIcon,
   Loader2,
   LogOut,
@@ -157,19 +155,8 @@ function getTopBarTitle(
   }
 
   if (isScrolled) {
-    if (pathname === ROUTES.KAI_HOME) {
-      return {
-        label: "Market",
-        icon: ChartColumnIncreasing,
-        interactive: false as const,
-      };
-    }
-    if (pathname === ROUTES.MARKETPLACE) {
-      return {
-        label: "Search people",
-        icon: Compass,
-        interactive: false as const,
-      };
+    if (pathname === ROUTES.KAI_HOME || pathname === ROUTES.MARKETPLACE) {
+      return null;
     }
   }
 
@@ -223,6 +210,7 @@ interface TopAppBarProps {
 export function TopAppBar({ className }: TopAppBarProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
     usePersonaState();
@@ -578,7 +566,7 @@ export function TopAppBar({ className }: TopAppBarProps) {
                   data-testid="top-app-bar-actions"
                   className="pointer-events-auto flex flex-nowrap items-center justify-end gap-1.5 sm:gap-2 pr-[env(safe-area-inset-right)]"
                 >
-                  {showOnboardingActions ? (
+                  {!isAuthenticated ? null : showOnboardingActions ? (
                     <OnboardingRouteActions />
                   ) : (
                     <>

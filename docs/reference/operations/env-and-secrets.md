@@ -192,8 +192,14 @@ Used by:
 | `AGENT_GEMINI_MODEL` | `hushh_mcp/services/agent_chat_service.py` | No | Optional Agent text chat model override. Defaults to stable `gemini-2.5-pro`. |
 | `AGENT_GEMINI_VOICE_ENABLED` | `api/routes/kai/agent_voice.py` | No | Agent chained voice kill switch. Defaults enabled; set `false`, `0`, `off`, `disabled`, or `no` to disable Gemini STT/TTS adapters. |
 | `AGENT_GEMINI_STT_MODEL` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice STT model override. Defaults to `gemini-2.5-flash`. |
+| `AGENT_GEMINI_STT_TIMEOUT_SECONDS` | `hushh_mcp/services/agent_voice_service.py` | No | Optional server-side Agent voice STT Gemini timeout. Defaults to `30`. |
 | `AGENT_GEMINI_TTS_MODEL` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice TTS model override. Defaults to `gemini-2.5-flash-preview-tts`. |
 | `AGENT_GEMINI_TTS_VOICE` | `hushh_mcp/services/agent_voice_service.py` | No | Optional backend default Agent TTS voice. Defaults to `Sulafat`; frontend profile setting can pass a per-device voice. |
+| `AGENT_GEMINI_TTS_TIMEOUT_SECONDS` | `hushh_mcp/services/agent_voice_service.py` | No | Optional server-side Agent voice TTS Gemini timeout per attempt. Defaults to `45`. |
+| `AGENT_GEMINI_TTS_MAX_ATTEMPTS` | `hushh_mcp/services/agent_voice_service.py` | No | Optional Agent voice TTS retry cap. Defaults to `2`; bounded from `1` to `4`. |
+| `HUSHH_KAI_AGENT_VOICE_STT_TIMEOUT_MS` | `hushh-webapp/app/api/kai/[...path]/route.ts` | No | Optional Next.js Kai proxy timeout for Agent voice STT uploads. Defaults to `35000`. |
+| `HUSHH_KAI_AGENT_VOICE_TTS_TIMEOUT_MS` | `hushh-webapp/app/api/kai/[...path]/route.ts` | No | Optional Next.js Kai proxy timeout for Agent voice TTS. Defaults to `45000`. |
+| `HUSHH_KAI_AGENT_CHAT_STREAM_TIMEOUT_MS` | `hushh-webapp/app/api/kai/[...path]/route.ts` | No | Optional Next.js Kai proxy timeout for Agent chat SSE streams. Defaults to `120000`. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | Cloud Run env (Gemini SDK) | No | Set in deploy, not in .env |
 | `CONSENT_SSE_ENABLED` | `api/routes/sse.py` | No | Default off in production unless explicitly enabled |
 | `SYNC_REMOTE_ENABLED` | deploy env (`deploy/backend.cloudbuild.yaml`) | No | Legacy deploy flag; currently not read by backend code |
@@ -243,8 +249,14 @@ Used by:
 | `AGENT_GEMINI_MODEL` | No | No | Local: `.env`; Prod: Cloud Run env | Optional; defaults to `gemini-2.5-pro`. |
 | `AGENT_GEMINI_VOICE_ENABLED` | No | No | Local: `.env`; Prod: Cloud Run env | Agent chained voice backend kill switch. Defaults enabled. |
 | `AGENT_GEMINI_STT_MODEL` | No | No | Local: `.env`; Prod: Cloud Run env | Optional Agent voice STT model override. Defaults to `gemini-2.5-flash`. |
+| `AGENT_GEMINI_STT_TIMEOUT_SECONDS` | No | No | Local: `.env`; Prod: Cloud Run env | Optional server-side Agent voice STT timeout. Defaults to `30`. |
 | `AGENT_GEMINI_TTS_MODEL` | No | No | Local: `.env`; Prod: Cloud Run env | Optional Agent voice TTS model override. Defaults to `gemini-2.5-flash-preview-tts`. |
 | `AGENT_GEMINI_TTS_VOICE` | No | No | Local: `.env`; Prod: Cloud Run env | Optional backend default Agent TTS voice. Defaults to `Sulafat`. |
+| `AGENT_GEMINI_TTS_TIMEOUT_SECONDS` | No | No | Local: `.env`; Prod: Cloud Run env | Optional server-side Agent voice TTS timeout. Defaults to `45`. |
+| `AGENT_GEMINI_TTS_MAX_ATTEMPTS` | No | No | Local: `.env`; Prod: Cloud Run env | Optional Agent voice TTS retry cap. Defaults to `2`. |
+| `HUSHH_KAI_AGENT_VOICE_STT_TIMEOUT_MS` | No | No | Local: `hushh-webapp/.env.local`; Frontend runtime env | Optional Next.js proxy timeout for Agent voice STT uploads. Defaults to `35000`. |
+| `HUSHH_KAI_AGENT_VOICE_TTS_TIMEOUT_MS` | No | No | Local: `hushh-webapp/.env.local`; Frontend runtime env | Optional Next.js proxy timeout for Agent voice TTS. Defaults to `45000`. |
+| `HUSHH_KAI_AGENT_CHAT_STREAM_TIMEOUT_MS` | No | No | Local: `hushh-webapp/.env.local`; Frontend runtime env | Optional Next.js proxy timeout for Agent chat SSE streams. Defaults to `120000`. |
 | `GMAIL_OAUTH_CLIENT_ID` | Yes (Gmail sync) | Yes | Local: `.env`; Hosted: Secret Manager | Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_CLIENT_SECRET` | Yes (Gmail sync) | Yes | Local: `.env`; Hosted: Secret Manager | Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_REDIRECT_URI` | Yes (Gmail sync) | Yes | Local: `.env`; Hosted: Secret Manager | Same key name across local, UAT, and production. |

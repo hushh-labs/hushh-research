@@ -443,9 +443,8 @@ export class AgentVoiceClient {
     try {
       this.recorder = new MediaRecorder(this.stream, options);
     } catch (error) {
-      this.processingUtterance = false;
-      this.stopNativeRecognition(true);
-      this.handlers.onError?.(getAgentVoiceStartErrorMessage(error));
+      this.recorder = null;
+      this.failRecorderStart(error);
       return;
     }
     this.recorder.addEventListener("dataavailable", (event) => {
@@ -459,6 +458,13 @@ export class AgentVoiceClient {
     });
     this.recorder.start(RECORDER_TIMESLICE_MS);
     this.handlers.onStatus?.("listening");
+  }
+
+  private failRecorderStart(error: unknown): void {
+    this.processingUtterance = false;
+    this.stopNativeRecognition(true);
+    this.handlers.onError?.(getAgentVoiceStartErrorMessage(error));
+    void this.stop();
   }
 
   private stopRecorder(submit: boolean): void {
