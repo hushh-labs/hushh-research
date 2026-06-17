@@ -2373,10 +2373,10 @@ async def analyze_stream_generator(
             terminal=True,
         )
     except Exception as e:
-        logger.exception(f"[Kai Stream] Error during analysis: {e}")
+        logger.exception("[Kai Stream] Error during analysis: %s", e)
         yield create_event(
             "error",
-            {"code": "ANALYZE_STREAM_FAILED", "message": str(e), "ticker": ticker},
+            {"code": "ANALYZE_STREAM_FAILED", "message": "Analysis failed. Please try again.", "ticker": ticker},
             terminal=True,
         )
     finally:

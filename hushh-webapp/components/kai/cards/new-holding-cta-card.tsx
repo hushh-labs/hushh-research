@@ -16,7 +16,7 @@ export function NewHoldingCtaCard({ onAddHolding, onImportStatement }: NewHoldin
     <Card variant="none" effect="glass" preset="default">
       <CardContent className="space-y-4 p-5">
         <div className="space-y-1">
-          <h4 className="text-sm font-black">New Holding Entry</h4>
+          <h4 className="text-sm font-semibold">New Holding Entry</h4>
           <p className="text-xs text-muted-foreground">
             Use Manage Portfolio for full edits, or import another statement for bulk updates.
           </p>

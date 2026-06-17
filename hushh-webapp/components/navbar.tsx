@@ -6,14 +6,16 @@
 import React, { useEffect, useMemo, type CSSProperties } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  ChartSpline,
+  BriefcaseBusiness,
+  ChartNoAxesColumnIncreasing,
+  ChartNoAxesCombined,
+  CircleUserRound,
   Compass,
   FileSpreadsheet,
   House,
-  Landmark,
+  Network,
   UserRound,
   Users,
-  WalletCards,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -30,6 +32,7 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import { activeKaiRouteTabFromPath } from "@/lib/navigation/kai-route-tabs";
 import { activeRiaRouteTabFromPath } from "@/lib/navigation/ria-route-tabs";
 import { useVault } from "@/lib/vault/vault-context";
+import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 
 type InvestorNavKey = "dashboard" | "market" | "connect" | "analysis" | "profile";
 type RiaNavKey = "home" | "clients" | "connect" | "picks" | "profile";
@@ -40,6 +43,7 @@ export const Navbar = () => {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
+  const agentPopover = useOptionalAgentPopover();
   const { activePersona } = usePersonaState();
   const pendingConsents = useConsentPendingSummaryCount();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
@@ -91,9 +95,13 @@ export const Navbar = () => {
     }
   }, [pathname]);
   const hideNavbar =
+    pathname === ROUTES.AGENT ||
     pathname?.startsWith(ROUTES.PHONE_MANDATE) ||
+    (isAuthenticated && chromeState.hideBottomNav) ||
     pathname?.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
     pathname === ROUTES.DEVELOPERS;
+  const agentWindowOpen =
+    agentPopover?.expanded || agentPopover?.motionState === "opening";
 
   const navOptions = useMemo<SegmentedPillOption[]>(
     () =>
@@ -126,7 +134,7 @@ export const Navbar = () => {
             {
               value: "profile",
               label: "Profile",
-              icon: UserRound,
+              icon: CircleUserRound,
               badge: pendingConsents > 0 ? pendingConsents : undefined,
               dataTourId: "nav-profile",
             },
@@ -135,25 +143,25 @@ export const Navbar = () => {
             {
               value: "market",
               label: "Market",
-              icon: Landmark,
+              icon: ChartNoAxesColumnIncreasing,
               dataTourId: "nav-market",
             },
             {
               value: "dashboard",
               label: "Portfolio",
-              icon: WalletCards,
+              icon: BriefcaseBusiness,
               dataTourId: "nav-portfolio",
             },
             {
               value: "analysis",
               label: "Analysis",
-              icon: ChartSpline,
+              icon: ChartNoAxesCombined,
               dataTourId: "nav-analysis",
             },
             {
               value: "connect",
               label: "Connect",
-              icon: Compass,
+              icon: Network,
               dataTourId: "nav-connect",
             },
             {
@@ -167,7 +175,7 @@ export const Navbar = () => {
     [activePersona, pendingConsents]
   );
 
-  if (hideNavbar) {
+  if (hideNavbar || agentWindowOpen) {
     return null;
   }
 

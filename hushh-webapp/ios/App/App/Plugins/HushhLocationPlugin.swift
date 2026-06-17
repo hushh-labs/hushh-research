@@ -1,6 +1,7 @@
 import Foundation
 import Capacitor
 import CoreLocation
+import UIKit
 
 /**
  * HushhLocationPlugin - foreground-only one-shot location capture.
@@ -15,6 +16,7 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     public let jsName = "HushhLocation"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getPermissionState", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "openLocationSettings", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getCurrentPosition", returnType: CAPPluginReturnPromise)
     ]
 
@@ -28,6 +30,22 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
 
     @objc func getPermissionState(_ call: CAPPluginCall) {
         call.resolve(permissionPayload())
+    }
+
+    @objc func openLocationSettings(_ call: CAPPluginCall) {
+        guard let settingsUrl = URL(string: UIApplication.openSettingsURLString) else {
+            call.reject("Location settings are unavailable on this device.")
+            return
+        }
+
+        DispatchQueue.main.async {
+            UIApplication.shared.open(settingsUrl, options: [:]) { opened in
+                call.resolve([
+                    "opened": opened,
+                    "sourcePlatform": "ios"
+                ])
+            }
+        }
     }
 
     @objc func getCurrentPosition(_ call: CAPPluginCall) {
@@ -59,10 +77,11 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     }
 
     private func permissionPayload() -> [String: Any] {
+        let locationServicesEnabled = CLLocationManager.locationServicesEnabled()
         let state: String
         switch manager.authorizationStatus {
         case .authorizedAlways, .authorizedWhenInUse:
-            state = "granted"
+            state = locationServicesEnabled ? "granted" : "unavailable"
         case .notDetermined:
             state = "prompt"
         case .denied:
@@ -83,7 +102,8 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         return [
             "state": state,
             "precise": precise as Any,
-            "background": "foreground-only"
+            "background": "foreground-only",
+            "locationServicesEnabled": locationServicesEnabled
         ]
     }
 

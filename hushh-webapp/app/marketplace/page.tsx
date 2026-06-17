@@ -1109,7 +1109,7 @@ export default function MarketplacePage() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className="space-y-4 pb-24 pt-0">
-        <div className="sticky top-[calc(var(--top-shell-reserved-height)+6px)] z-[115] rounded-[28px] bg-background/90 p-1.5 shadow-[var(--app-card-shadow-standard)] backdrop-blur-[var(--blur-standard)]">
+        <div className="rounded-[28px] bg-background/90 p-1.5 shadow-[var(--app-card-shadow-standard)] backdrop-blur-[var(--blur-standard)]">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <button
@@ -1411,13 +1411,13 @@ export default function MarketplacePage() {
             return (
               <RiaSurface
                 key={`${item.kind}-${item.id}`}
-                className="grid h-full grid-rows-[auto_1fr_auto] gap-4 rounded-[28px] p-4 sm:p-5"
+                className="flex h-full min-h-[286px] flex-col gap-4 rounded-[28px] p-4 sm:p-5"
               >
                 <div className="flex items-start gap-4">
                   <ProfileAvatar kind={item.kind} label={item.title} />
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-[17px] font-semibold leading-snug tracking-normal text-foreground">
+                      <h3 className="text-[15.5px] font-medium leading-[1.24] tracking-normal text-foreground sm:text-[16px]">
                         {item.title}
                       </h3>
                       {item.isTestProfile ? (
@@ -1437,21 +1437,21 @@ export default function MarketplacePage() {
                         </span>
                       ) : null}
                     </div>
-                    <p className="text-[14px] leading-[1.45] text-foreground/78">{item.headline}</p>
+                    <p className="text-[14px] font-normal leading-[1.45] tracking-normal text-foreground/72">{item.headline}</p>
                   </div>
                 </div>
 
-                <div className="rounded-[var(--radius-md)] bg-background/50 p-4 dark:bg-white/5">
-                  <p className="text-[14px] leading-[1.5] text-foreground/86">{item.summary}</p>
+                <div className="flex-1 rounded-[var(--radius-md)] bg-background/50 p-4 dark:bg-white/5">
+                  <p className="text-[14px] font-normal leading-[1.45] tracking-normal text-foreground/82">{item.summary}</p>
                   <p className="mt-3 text-[13px] text-muted-foreground">{item.metaLine}</p>
                 </div>
 
-                <div className="mt-auto grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="mt-auto grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2">
                   <Button
                     variant="blue-gradient"
                     effect="fill"
                     size="sm"
-                    className="justify-center"
+                    className="min-w-0 justify-center"
                     onClick={() => performPrimaryCardAction(item)}
                     disabled={
                       (Boolean(userId) && actionLoadingUserId === userId) ||
@@ -1479,7 +1479,7 @@ export default function MarketplacePage() {
                     variant="none"
                     effect="fade"
                     size="sm"
-                    className="justify-center"
+                    className="min-w-0 justify-center"
                     onClick={() => openDiscoveryProfile(item)}
                   >
                     View details

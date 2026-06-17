@@ -407,6 +407,7 @@ function KaiSheet({
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
+            autoComplete="off"
             placeholder="Message Kai..."
             className="w-full bg-transparent text-[14px] text-[color:var(--one-fg)] outline-none placeholder:text-[color:var(--one-fg3)]"
           />
@@ -567,6 +568,7 @@ export function KaiAnalysisPreviewView() {
             <Search className="h-[17px] w-[17px] shrink-0 text-[color:var(--one-fg3)]" />
             <input
               type="text"
+              autoComplete="off"
               placeholder="Analyze any stock"
               value={stockQuery}
               onChange={(event) => setStockQuery(event.target.value)}
@@ -584,7 +586,7 @@ export function KaiAnalysisPreviewView() {
           <div className="mt-5 flex items-start justify-between gap-3">
             <div>
               <p className="text-[13px] font-medium text-[color:var(--one-fg2)]">Portfolio value</p>
-              <p className="mt-1 text-[38px] font-semibold leading-none tracking-normal text-[color:var(--one-fg)] tabular-nums">
+              <p className="mt-1 text-[30px] font-medium leading-none tracking-normal text-[color:var(--one-fg)] tabular-nums sm:text-[34px]">
                 {rangeMeta.value}
               </p>
             </div>

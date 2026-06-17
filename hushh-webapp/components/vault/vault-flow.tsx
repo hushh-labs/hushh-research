@@ -34,7 +34,6 @@ import { User } from "firebase/auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { useHostname } from "@/lib/hooks/use-hostname";
 import type { GeneratedVaultKeyMode } from "@/lib/services/vault-bootstrap-service";
 import { VaultMethodService, type VaultMethod } from "@/lib/services/vault-method-service";
 import { VaultMethodPromptLocalService } from "@/lib/services/vault-method-prompt-local-service";
@@ -102,10 +101,9 @@ export function VaultFlow({
     preferPassphraseUnlockForAutomation(nativeTestConfig);
   const skipGeneratedUnlockForAutomation =
     shouldSkipGeneratedVaultUnlockForAutomation();
-  const hostname = useHostname();
   const currentRpId = resolvePasskeyRpId({
     isNative: Capacitor.isNativePlatform(),
-    hostname: hostname,
+    hostname: typeof window !== "undefined" ? window.location.hostname : null,
   });
 
   const { unlockVault } = useVault();
@@ -318,9 +316,13 @@ export function VaultFlow({
       VaultService.setVaultCheckCache(user.uid, true);
       setRecoveryKey(vaultData.recoveryKey);
       setStep("recovery"); // Show recovery key dialog
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Create vault error:", err);
-      toast.error(err.message || "We could not create your Vault. Please try again.");
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "We could not create your Vault. Please try again."
+      );
     } finally {
       setIsUnlocking(false);
     }
@@ -362,7 +364,7 @@ export function VaultFlow({
         setError(message);
         toast.error(message);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Unlock error:", err);
       const message = toInvestorVaultUnlockError(err);
       setError(message);
@@ -481,7 +483,7 @@ export function VaultFlow({
 
       await VaultService.assertVaultKeyMatchesState(vaultData, decryptedKey);
       await finalizeUnlock(decryptedKey);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Generated vault unlock failed:", err);
       const message = toInvestorVaultUnlockError(err);
       setError(message);
@@ -1058,10 +1060,12 @@ export function VaultFlow({
                           ? "Passkey unlock enabled."
                           : "Biometric unlock enabled."
                       );
-                    } catch (err: any) {
+                    } catch (err: unknown) {
                       console.error("Quick unlock enable failed:", err);
                       toast.error(
-                        err?.message || "Couldn't enable quick unlock right now."
+                        err instanceof Error
+                          ? err.message
+                          : "Couldn't enable quick unlock right now."
                       );
                     } finally {
                       setIsUnlocking(false);
