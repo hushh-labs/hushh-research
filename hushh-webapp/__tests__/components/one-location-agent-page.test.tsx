@@ -10,6 +10,7 @@ const {
   mockDecryptLocationEnvelope,
   mockRegisterKey,
   mockGetPermissionState,
+  mockOpenLocationSettings,
   mockCaptureCurrentPosition,
   mockCreateGrant,
   mockStoreEnvelope,
@@ -32,6 +33,7 @@ const {
   mockDecryptLocationEnvelope: vi.fn(),
   mockRegisterKey: vi.fn(),
   mockGetPermissionState: vi.fn(),
+  mockOpenLocationSettings: vi.fn(),
   mockCaptureCurrentPosition: vi.fn(),
   mockCreateGrant: vi.fn(),
   mockStoreEnvelope: vi.fn(),
@@ -85,6 +87,7 @@ vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
     registerRecipientKey: mockRegisterKey,
     getPermissionState: mockGetPermissionState,
+    openLocationSettings: mockOpenLocationSettings,
     getActivity: mockGetActivity,
     getState: mockGetState,
     createGrant: mockCreateGrant,
@@ -111,15 +114,33 @@ vi.mock("@/lib/services/account-identity-service", () => ({
   },
 }));
 
-vi.mock("sonner", () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-  },
-}));
+vi.mock("sonner", () => {
+  const toast = vi.fn();
+  return {
+    toast: Object.assign(toast, {
+      success: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      dismiss: vi.fn(),
+    }),
+  };
+});
 
-import { OneLocationAgentPageContent } from "@/app/one/location/page";
+import OneLocationAgentPage from "@/app/one/location/page";
+
+if (!window.localStorage) {
+  const localStorageStore = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      clear: () => localStorageStore.clear(),
+      getItem: (key: string) => localStorageStore.get(key) ?? null,
+      removeItem: (key: string) => localStorageStore.delete(key),
+      setItem: (key: string, value: string) =>
+        localStorageStore.set(key, String(value)),
+    },
+  });
+}
 
 function locationState() {
   return {
@@ -290,6 +311,7 @@ function locationActivity() {
 describe("OneLocationAgentPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
     window.localStorage.clear();
     mockSearchParamsGet.mockReturnValue(null);
     mockUseRequireAuth.mockReturnValue({
@@ -312,6 +334,11 @@ describe("OneLocationAgentPage", () => {
       state: "granted",
       precise: true,
       background: "foreground-only",
+      locationServicesEnabled: true,
+    });
+    mockOpenLocationSettings.mockResolvedValue({
+      opened: true,
+      sourcePlatform: "android",
     });
     mockCaptureCurrentPosition.mockResolvedValue({
       latitude: 28.6139,
@@ -373,7 +400,10 @@ describe("OneLocationAgentPage", () => {
     });
     mockGetState.mockResolvedValue(locationState());
     mockGetActivity.mockResolvedValue(locationActivity());
-    mockSyncCurrentUser.mockResolvedValue({ user_id: "user_a" });
+    mockSyncCurrentUser.mockResolvedValue({
+      user_id: "user_a",
+      phone_verified: true,
+    });
     mockSyncOneLocationContactSignals.mockResolvedValue({
       matches: [],
       matchedUserIds: [],
@@ -384,7 +414,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("renders the One-owned encrypted location control surface", async () => {
-    render(<OneLocationAgentPageContent />);
+    render(<OneLocationAgentPage />);
 
     expect(
       await screen.findByRole("heading", { name: "One Location Agent" }),
@@ -398,9 +428,11 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
     expect(screen.queryByText("Advisor meetup")).toBeNull();
     expect(screen.queryAllByText("Trusted B").length).toBeGreaterThan(0);
-    expect(screen.getByText("Professional Network")).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: /Professional Network/ }),
+    ).toBeTruthy();
     expect(screen.getByText("No approvals waiting. New location requests and pending decisions will appear here.")).toBeTruthy();
-    expect(screen.getByText("No ready KAI members yet. Verified KAI members with location keys will appear here.")).toBeTruthy();
+    expect(screen.getByText("No ready One users yet. One users with location keys will appear here.")).toBeTruthy();
     expect(screen.queryByText(/8012|9911/)).toBeNull();
     expect(screen.getByText("Share Encrypted Update")).toBeTruthy();
     expect(mockRegisterKey).toHaveBeenCalledWith({
@@ -412,12 +444,106 @@ describe("OneLocationAgentPage", () => {
     expect(mockSyncCurrentUser).toHaveBeenCalledWith({ uid: "user_a" });
   });
 
-  it("renders KAI Circle recommendation metadata without phone-derived labels", async () => {
-    render(<OneLocationAgentPageContent />);
+  it("opens the section guided tour and lets the user skip it", async () => {
+    render(<OneLocationAgentPage />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(
+      screen.getByRole("button", { name: /Show onboarding tour/i }),
+    );
+
+    expect(
+      await screen.findByRole("dialog", { name: /One Location guided tour/i }),
+    ).toBeTruthy();
+    expect(screen.getByText("Check location readiness")).toBeTruthy();
+    expect(screen.getByText(/Highlighting: Device readiness/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Skip$/i }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: /One Location guided tour/i }),
+      ).toBeNull(),
+    );
+  });
+
+  it("previews my live location without creating a share, request, or public link", async () => {
+    mockGetState.mockResolvedValueOnce({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [],
+    });
+
+    render(<OneLocationAgentPage />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    expect(screen.getByText("My live location")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Show my location/i }),
+    );
+
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1));
+    const mapPreview = await screen.findByTitle("Live location map preview");
+    expect(mapPreview.getAttribute("src")).toContain(
+      "https://www.google.com/maps?q=28.613900%2C77.209000",
+    );
+    expect(screen.getByText(/This preview stays on this device/i)).toBeTruthy();
+    expect(mockCreateGrant).not.toHaveBeenCalled();
+    expect(mockRequestAccess).not.toHaveBeenCalled();
+    expect(mockCreatePublicInvite).not.toHaveBeenCalled();
+  });
+
+  it("loads One Location setup without requiring backend phone verification", async () => {
+    mockSyncCurrentUser.mockResolvedValueOnce({
+      user_id: "user_a",
+      display_name: "Test User",
+      phone_verified: false,
+    });
+
+    render(<OneLocationAgentPage />);
+
+    await waitFor(() => expect(mockEnsureKey).toHaveBeenCalledWith("user_a"));
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    expect(screen.queryByText("Verify your phone number first")).toBeNull();
+  });
+
+  it("prompts for foreground location permission on first verified page load", async () => {
+    mockGetState.mockResolvedValueOnce({
+      ...locationState(),
+      ownerGrants: [],
+    });
+    mockGetPermissionState
+      .mockResolvedValueOnce({
+        state: "prompt",
+        precise: null,
+        background: "foreground-only",
+        locationServicesEnabled: true,
+      })
+      .mockResolvedValueOnce({
+        state: "prompt",
+        precise: null,
+        background: "foreground-only",
+        locationServicesEnabled: true,
+      })
+      .mockResolvedValueOnce({
+        state: "granted",
+        precise: true,
+        background: "foreground-only",
+        locationServicesEnabled: true,
+      });
+
+    render(<OneLocationAgentPage />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1));
+  });
+
+  it("renders One Network recommendation metadata without phone-derived labels", async () => {
+    render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
-    expect(screen.getByRole("heading", { name: "KAI Circle" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "One Network" })).toBeTruthy();
     expect(screen.getAllByText("Trusted Circle").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Recent share history").length).toBeGreaterThan(
       0,
@@ -425,7 +551,7 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByText("Recently shared location with you")).toBeTruthy();
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
 
-    fireEvent.change(screen.getByPlaceholderText("Search KAI Circle..."), {
+    fireEvent.change(screen.getByPlaceholderText("Search One Network..."), {
       target: { value: "advisor" },
     });
 
@@ -443,7 +569,7 @@ describe("OneLocationAgentPage", () => {
       }),
     );
 
-    const { container } = render(<OneLocationAgentPageContent />);
+    const { container } = render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockRegisterKey).toHaveBeenCalled());
     expect(
@@ -456,19 +582,19 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("renders a public request-link control that does not promise public location", async () => {
-    render(<OneLocationAgentPageContent />);
+  it("renders a public location link control", async () => {
+    render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
-    expect(screen.getByText("Create request link")).toBeTruthy();
+    expect(screen.getByText("Create public link")).toBeTruthy();
     expect(screen.getByText("Public link responses")).toBeTruthy();
-    expect(screen.queryByText(/public live-location link/i)).toBeNull();
+    expect(screen.getByText(/Share a public location link/i)).toBeTruthy();
     expect(screen.queryByText(/whatsapp/i)).toBeNull();
   });
 
   it("renders activity history from the One Location activity API without phone-derived labels", async () => {
-    render(<OneLocationAgentPageContent />);
+    render(<OneLocationAgentPage />);
 
     await waitFor(() =>
       expect(mockGetActivity).toHaveBeenCalledWith({
@@ -540,7 +666,7 @@ describe("OneLocationAgentPage", () => {
       sourcePlatform: "web",
     });
 
-    render(<OneLocationAgentPageContent />);
+    render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await waitFor(() => expect(mockViewEnvelope).toHaveBeenCalled());
@@ -574,15 +700,29 @@ describe("OneLocationAgentPage", () => {
     expect(startLink.getAttribute("href")).toContain("dir_action=navigate");
   });
 
-  it("tracks public request-link creation without location or identity payloads", async () => {
-    render(<OneLocationAgentPageContent />);
+  it("tracks public location link creation without analytics identity payloads", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
+    render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(
-      screen.getByRole("button", { name: /Create request link/i }),
+      screen.getByRole("button", { name: /Create public link/i }),
     );
 
     await waitFor(() => expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1));
+    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(mockCreatePublicInvite).toHaveBeenCalledWith({
+      vaultOwnerToken: "vault-token",
+      durationHours: 1,
+      locationSnapshot: expect.objectContaining({
+        latitude: 28.6139,
+        longitude: 77.209,
+      }),
+    });
     expect(mockTrackEvent).toHaveBeenCalledWith(
       "one_location_public_link_created",
       expect.objectContaining({
@@ -604,14 +744,14 @@ describe("OneLocationAgentPage", () => {
       ownerGrants: [],
     });
 
-    render(<OneLocationAgentPageContent />);
+    render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(
       screen.getByRole("button", { name: /Review Share/i }),
     );
     expect(
-      screen.getByRole("region", { name: "Share safety review" }),
+      await screen.findByRole("region", { name: "Share safety review" }),
     ).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: /Confirm & Share Location/i }),
@@ -670,10 +810,13 @@ describe("OneLocationAgentPage", () => {
       )
       .mockResolvedValueOnce({});
 
-    render(<OneLocationAgentPageContent />);
+    render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Review Share/i }));
+    expect(
+      await screen.findByRole("region", { name: "Share safety review" }),
+    ).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: /Confirm & Share Location/i }),
     );
@@ -744,13 +887,13 @@ describe("OneLocationAgentPage", () => {
       }),
     );
 
-    render(<OneLocationAgentPageContent />);
+    render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     expect(await screen.findByText(/1 person selected/i)).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", {
-        name: /Select Investor D from KAI Circle/i,
+        name: /Select Investor D from One Network/i,
       }),
     );
     expect(await screen.findByText(/2 people selected/i)).toBeTruthy();
@@ -758,6 +901,9 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /Review Share/i }),
     );
+    expect(
+      await screen.findByRole("region", { name: "Share safety review" }),
+    ).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: /Confirm & Share Location/i }),
     );
@@ -804,12 +950,12 @@ describe("OneLocationAgentPage", () => {
       ownerGrants: [],
     });
 
-    render(<OneLocationAgentPageContent />);
+    render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(
       screen.getByRole("button", {
-        name: /Select Advisor C from KAI Circle/i,
+        name: /Select Advisor C from One Network/i,
       }),
     );
 
@@ -829,7 +975,7 @@ describe("OneLocationAgentPage", () => {
       ownerGrants: [],
     });
 
-    render(<OneLocationAgentPageContent />);
+    render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "request" }));
@@ -856,19 +1002,43 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it("renders my requests with safe labels instead of raw owner ids", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      requests: [
+        {
+          id: "request_1",
+          ownerUserId: "user_b",
+          requesterUserId: "user_a",
+          status: "pending",
+          requestedAt: "2026-05-20T07:30:00.000Z",
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    expect(screen.getByText("My requests")).toBeTruthy();
+    expect(screen.getAllByText("Trusted B").length).toBeGreaterThan(0);
+    expect(screen.queryByText("user_b")).toBeNull();
+    expect(screen.queryByText("request_1")).toBeNull();
+  });
+
   it("fans out approval-first requests to multiple selected owners without coordinates", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
     });
 
-    render(<OneLocationAgentPageContent />);
+    render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "request" }));
     fireEvent.click(
       screen.getByRole("button", {
-        name: /Select Investor D from KAI Circle/i,
+        name: /Select Investor D from One Network/i,
       }),
     );
     expect(await screen.findByText(/2 people selected/i)).toBeTruthy();
@@ -915,7 +1085,7 @@ describe("OneLocationAgentPage", () => {
       sourcePlatform: "ios",
     });
 
-    render(<OneLocationAgentPageContent />);
+    render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Sync Contacts/i }));
@@ -941,8 +1111,8 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("creates an approval-first invite path for contacts who are not KAI users", async () => {
-    render(<OneLocationAgentPageContent />);
+  it("creates an approval-first invite path for contacts who are not One users", async () => {
+    render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Invite Contacts/i }));
@@ -951,6 +1121,10 @@ describe("OneLocationAgentPage", () => {
     expect(mockCreatePublicInvite).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
       durationHours: 1,
+      locationSnapshot: expect.objectContaining({
+        latitude: 28.6139,
+        longitude: 77.209,
+      }),
     });
     expect(JSON.stringify(mockTrackEvent.mock.calls)).not.toMatch(
       /8012|9911|latitude|longitude|28\.6139|77\.209/u,
@@ -958,7 +1132,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("revokes an active grant from the visible owner list", async () => {
-    render(<OneLocationAgentPageContent />);
+    render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(
@@ -977,13 +1151,14 @@ describe("OneLocationAgentPage", () => {
       state: "denied",
       precise: false,
       background: "unavailable",
+      locationServicesEnabled: true,
     });
     mockGetState.mockResolvedValueOnce({
       ...locationState(),
       ownerGrants: [],
     });
 
-    render(<OneLocationAgentPageContent />);
+    render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     const shareButton = screen.getByRole("button", {
@@ -993,24 +1168,50 @@ describe("OneLocationAgentPage", () => {
     expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 
-  it("keeps KAI Circle section empty states visible when no candidates exist", async () => {
+  it("blocks sharing and opens settings when phone location services are off", async () => {
+    mockGetPermissionState.mockResolvedValue({
+      state: "unavailable",
+      precise: false,
+      background: "foreground-only",
+      locationServicesEnabled: false,
+    });
+    mockGetState.mockResolvedValueOnce({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
+    render(<OneLocationAgentPage />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    expect(await screen.findByText("Turn on phone Location")).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Open Location Settings/i }),
+    );
+
+    await waitFor(() => expect(mockOpenLocationSettings).toHaveBeenCalled());
+    expect(mockCreateGrant).not.toHaveBeenCalled();
+    expect(mockStoreEnvelope).not.toHaveBeenCalled();
+  });
+
+  it("keeps One Network section empty states visible when no candidates exist", async () => {
     mockGetState.mockResolvedValueOnce({
       ...locationState(),
       recipients: [],
       ownerGrants: [],
     });
 
-    render(<OneLocationAgentPageContent />);
+    render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    expect(screen.getByText("KAI Circle is empty")).toBeTruthy();
+    expect(screen.getByText("One Network is empty")).toBeTruthy();
     expect(screen.getByText(/No approvals waiting/)).toBeTruthy();
     expect(screen.getByText(/No trusted matches yet/)).toBeTruthy();
     expect(screen.getByText(/No professional signals yet/)).toBeTruthy();
-    expect(screen.getByText(/No ready KAI members yet/)).toBeTruthy();
+    expect(screen.getByText(/No ready One users yet/)).toBeTruthy();
     expect(screen.getByText(/No setup blockers/)).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: /Create request link/i }),
+      screen.getByRole("button", { name: /Create public link/i }),
     ).toBeTruthy();
   });
 
@@ -1020,7 +1221,7 @@ describe("OneLocationAgentPage", () => {
       vaultOwnerToken: null,
     });
 
-    render(<OneLocationAgentPageContent />);
+    render(<OneLocationAgentPage />);
 
     expect(
       await screen.findByText(

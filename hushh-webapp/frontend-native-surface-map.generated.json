@@ -311,9 +311,8 @@
         "shell_verification_file": "components/agent/agent-screen.tsx",
         "shell_verification_includes": [
           "AppPageShell",
-          "AppPageHeaderRegion",
           "AppPageContentRegion",
-          "PageHeader"
+          "AgentChatWorkspace"
         ]
       },
       "native": {

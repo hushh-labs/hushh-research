@@ -45,6 +45,8 @@ export function FocusTimerWidget() {
         className={`pointer-events-auto origin-bottom-left transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] flex flex-col bg-background/80 backdrop-blur-2xl border shadow-2xl rounded-2xl w-[300px] overflow-hidden ${
           isOpen ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-95 translate-y-4 pointer-events-none"
         }`}
+        aria-hidden={!isOpen}
+        inert={!isOpen}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
           <div className="flex items-center gap-2">
@@ -56,6 +58,7 @@ export function FocusTimerWidget() {
             size="icon" 
             className="h-7 w-7 rounded-full text-muted-foreground hover:text-foreground" 
             onClick={() => setIsOpen(false)}
+            aria-label="Close Focus Timer"
           >
             <X className="w-4 h-4" />
           </Button>
@@ -143,6 +146,9 @@ export function FocusTimerWidget() {
         size="icon"
         onClick={() => setIsOpen(!isOpen)}
         className={`pointer-events-auto h-12 w-12 rounded-full shadow-lg border transition-all duration-300 ${isOpen ? "rotate-90 scale-90 opacity-0" : "hover:scale-105"}`}
+        aria-label="Open Focus Timer"
+        aria-hidden={isOpen}
+        tabIndex={isOpen ? -1 : 0}
         title="Open Focus Timer"
       >
         <Timer className="w-5 h-5" />

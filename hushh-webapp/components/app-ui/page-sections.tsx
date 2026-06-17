@@ -145,6 +145,7 @@ export function PageHeader({
   leading,
   accent = "default",
   className,
+  id,
   testId = "page-header",
 }: {
   eyebrow?: string;
@@ -157,11 +158,13 @@ export function PageHeader({
   leading?: ReactNode;
   accent?: SectionAccent;
   className?: string;
+  id?: string;
   testId?: string;
 }) {
   const styles = ACCENT_STYLES[accent];
   return (
     <header
+      id={id}
       className={cn("space-y-[var(--page-header-stack-gap)]", className)}
       data-slot="page-header"
       data-page-primary="true"
@@ -191,7 +194,7 @@ export function PageHeader({
               {eyebrow ? (
                 <p
                   className={cn(
-                    "text-xs font-semibold uppercase tracking-[0.24em]",
+                    "text-xs font-medium uppercase tracking-[0.16em]",
                     styles.eyebrow
                   )}
                   data-slot="page-header-eyebrow"
@@ -199,7 +202,7 @@ export function PageHeader({
                   {eyebrow}
                 </p>
               ) : null}
-              <h1 className="text-[clamp(1.28rem,3vw,1.75rem)] font-semibold tracking-tight leading-[1.1] text-foreground">
+              <h1 className="text-[28px] font-medium tracking-normal leading-[1.08] text-foreground sm:text-[34px]">
                 {title}
               </h1>
               {description && !descriptionFullWidth ? (
@@ -287,14 +290,14 @@ export function SectionHeader({
           >
             <div className="min-w-0 flex-1 space-y-[var(--section-header-copy-gap)]">
               {eyebrow ? (
-                <p className={cn("text-xs font-semibold uppercase tracking-[0.2em]", styles.eyebrow)}>
+                <p className={cn("text-xs font-medium uppercase tracking-[0.16em]", styles.eyebrow)}>
                   {eyebrow}
                 </p>
               ) : null}
               <div
                 role="heading"
                 aria-level={2}
-                className="text-[15px] font-semibold leading-tight tracking-tight text-foreground sm:text-[16px]"
+                className="text-[15px] font-medium leading-tight tracking-normal text-foreground sm:text-[16px]"
               >
                 {title}
               </div>

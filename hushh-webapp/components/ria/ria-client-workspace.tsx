@@ -728,11 +728,11 @@ export function RiaClientWorkspace({
                         {availableScopeOptions.map((scope) => {
                           const checked = selectedScopes.includes(scope.scope);
                           return (
-                            <label htmlFor="ria-client-input-1"
+                            <label htmlFor={`ria-scope-${scope.scope}`}
                               key={scope.scope}
                               className="flex items-start gap-3 rounded-[20px] border border-border/60 bg-background/70 px-4 py-3"
                             >
-                              <Checkbox id="ria-client-input-1"
+                              <Checkbox id={`ria-scope-${scope.scope}`}
                                 checked={checked}
                                 onCheckedChange={(next) => {
                                   const shouldCheck = Boolean(next);
@@ -764,11 +764,11 @@ export function RiaClientWorkspace({
                           activeAccountBranches.map((branch) => {
                             const checked = selectedAccountIds.includes(branch.branch_id);
                             return (
-                              <label htmlFor="ria-client-input-2"
+                              <label htmlFor={`ria-branch-${branch.branch_id}`}
                                 key={branch.branch_id}
                                 className="flex items-start gap-3 px-4 py-3"
                               >
-                                <Checkbox id="ria-client-input-2"
+                                <Checkbox id={`ria-branch-${branch.branch_id}`}
                                   checked={checked}
                                   onCheckedChange={(next) => {
                                     const shouldCheck = Boolean(next);

@@ -99,6 +99,18 @@ Kill switch:
 
 Both flags default to enabled when unset.
 
+Timeouts and retries:
+
+- Browser Agent STT uses a short abortable client timeout for responsiveness.
+- The Next.js Kai proxy also bounds Agent voice requests with
+  `HUSHH_KAI_AGENT_VOICE_STT_TIMEOUT_MS` and
+  `HUSHH_KAI_AGENT_VOICE_TTS_TIMEOUT_MS`, and forwards client aborts upstream so
+  cancelled turns do not keep backend Gemini work running.
+- Backend Gemini STT/TTS calls are bounded by
+  `AGENT_GEMINI_STT_TIMEOUT_SECONDS` and
+  `AGENT_GEMINI_TTS_TIMEOUT_SECONDS`.
+- TTS retries are capped by `AGENT_GEMINI_TTS_MAX_ATTEMPTS`.
+
 ## OpenAI Realtime Runtime
 
 The existing OpenAI realtime voice path remains untouched. Its routes, session

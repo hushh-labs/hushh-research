@@ -58,6 +58,7 @@ function HomeContent() {
             userId: user.uid,
             redirectPath: ROUTES.KAI_HOME,
             idToken,
+            hostname: typeof window === "undefined" ? null : window.location.hostname,
           });
           if (!cancelled) {
             router.push(nextPath);

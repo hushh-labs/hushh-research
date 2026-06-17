@@ -3,6 +3,7 @@ package com.hushh.app.plugins.HushhLocation
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
@@ -10,6 +11,7 @@ import android.location.LocationManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import androidx.core.content.ContextCompat
 import com.getcapacitor.JSObject
 import com.getcapacitor.PermissionState
@@ -50,6 +52,22 @@ class HushhLocationPlugin : Plugin() {
     }
 
     @PluginMethod
+    fun openLocationSettings(call: PluginCall) {
+        try {
+            val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            call.resolve(
+                JSObject()
+                    .put("opened", true)
+                    .put("sourcePlatform", "android")
+            )
+        } catch (error: Exception) {
+            call.reject("Could not open location settings: ${error.message}")
+        }
+    }
+
+    @PluginMethod
     fun getCurrentPosition(call: PluginCall) {
         if (getPermissionState("location") != PermissionState.GRANTED) {
             requestPermissionForAlias("location", call, "locationPermissionCallback")
@@ -70,15 +88,29 @@ class HushhLocationPlugin : Plugin() {
     private fun permissionPayload(): JSObject {
         val fineGranted = hasAndroidPermission(Manifest.permission.ACCESS_FINE_LOCATION)
         val coarseGranted = hasAndroidPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
-        val state = if (fineGranted || coarseGranted) "granted" else "prompt"
+        val permissionState = getPermissionState("location")
+        val locationServicesEnabled = locationServicesEnabled()
+        val state = when {
+            (fineGranted || coarseGranted) && !locationServicesEnabled -> "unavailable"
+            fineGranted || coarseGranted -> "granted"
+            permissionState == PermissionState.DENIED -> "denied"
+            else -> "prompt"
+        }
         return JSObject()
             .put("state", state)
             .put("precise", fineGranted)
             .put("background", "foreground-only")
+            .put("locationServicesEnabled", locationServicesEnabled)
     }
 
     private fun hasAndroidPermission(permission: String): Boolean {
         return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun locationServicesEnabled(): Boolean {
+        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        return listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+            .any { provider -> locationManager.isProviderEnabled(provider) }
     }
 
     @SuppressLint("MissingPermission")

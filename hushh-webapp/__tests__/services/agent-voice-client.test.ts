@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
@@ -7,6 +7,7 @@ vi.mock("@/lib/services/api-service", () => ({
 }));
 
 import {
+  AgentVoiceClient,
   getAgentVoiceEndSilenceThresholdMs,
   getAgentVoiceStartErrorMessage,
   shouldConfirmAgentVoiceTranscript,
@@ -17,6 +18,10 @@ import { ApiService } from "@/lib/services/api-service";
 describe("agent voice client", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("posts audio to the Agent voice STT route through ApiService", async () => {
@@ -105,5 +110,38 @@ describe("agent voice client", () => {
   it("uses a shorter end-of-speech window after established speech", () => {
     expect(getAgentVoiceEndSilenceThresholdMs(250)).toBe(1200);
     expect(getAgentVoiceEndSilenceThresholdMs(900)).toBe(850);
+  });
+
+  it("tears down capture when MediaRecorder cannot start", async () => {
+    const stop = vi.fn();
+    const stream = {
+      getTracks: () => [{ stop }],
+      getAudioTracks: () => [{ enabled: true }],
+    } as unknown as MediaStream;
+    const MediaRecorderMock = vi.fn(function MockMediaRecorder() {
+      throw new DOMException("busy", "NotReadableError");
+    });
+    Object.assign(MediaRecorderMock, {
+      isTypeSupported: vi.fn(() => false),
+    });
+    vi.stubGlobal("MediaRecorder", MediaRecorderMock);
+    vi.stubGlobal("navigator", {
+      mediaDevices: {
+        getUserMedia: vi.fn().mockResolvedValue(stream),
+      },
+    });
+    const client = new AgentVoiceClient();
+    const errors: string[] = [];
+    const statuses: string[] = [];
+
+    await client.start({
+      onError: (message) => errors.push(message),
+      onStatus: (status) => statuses.push(status),
+    });
+
+    expect(client.isActive).toBe(false);
+    expect(stop).toHaveBeenCalled();
+    expect(errors).toEqual(["The microphone is already in use or could not be started."]);
+    expect(statuses.at(-1)).toBe("idle");
   });
 });

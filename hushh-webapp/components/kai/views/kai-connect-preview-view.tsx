@@ -3,39 +3,29 @@
 import { useMemo, useState, type ReactNode } from "react";
 import {
   Bell,
+  Bot,
   Building2,
   Check,
   CheckCircle2,
   ChevronRight,
-  CirclePlus,
-  Compass,
-  LineChart,
-  MessageCircle,
   Mic,
   Minus,
   Search,
   ShieldCheck,
   Star,
-  Store,
-  UserRound,
   UsersRound,
-  WalletCards,
   X,
   type LucideIcon,
 } from "lucide-react";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import {
-  kaiPreviewDockActiveItemClassName,
-  kaiPreviewDockItemClassName,
-  kaiPreviewDockSurfaceClassName,
   kaiPreviewEyebrowClassName,
   kaiPreviewPageTitleClassName,
   kaiPreviewSectionTitleClassName,
   marketSurfaceVariablesClassName,
 } from "@/components/kai/shared/market-surface-theme";
 import { cn } from "@/lib/utils";
-import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 type ConnectTone = "indigo" | "teal" | "orange" | "purple" | "blue";
 type DirectoryMode = "advisors" | "firms";
@@ -198,9 +188,13 @@ const connectRootClassName = cn(
   "relative isolate mx-auto flex min-h-screen w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
   "bg-[color:var(--one-bg)] font-sans text-[color:var(--one-fg)] antialiased",
   "[--one-bg:#ffffff] [--one-card:#ffffff] [--one-surface:#f2f2f7]",
+  "dark:[--one-bg:#000000] dark:[--one-card:#1c1c1e] dark:[--one-surface:#1c1c1e]",
   "[--one-hairline:rgba(0,0,0,0.08)] [--one-line:rgba(0,0,0,0.06)]",
+  "dark:[--one-hairline:rgba(255,255,255,0.14)] dark:[--one-line:rgba(255,255,255,0.10)]",
   "[--one-fg:#1d1d1f] [--one-fg2:rgba(0,0,0,0.55)] [--one-fg3:rgba(0,0,0,0.42)]",
+  "dark:[--one-fg:#f5f5f7] dark:[--one-fg2:rgba(245,245,247,0.64)] dark:[--one-fg3:rgba(245,245,247,0.46)]",
   "[--one-blue:#0071e3] [--one-link:#0066cc] [--one-blue-t:rgba(0,113,227,0.10)]",
+  "dark:[--one-blue:#0a84ff] dark:[--one-link:#2997ff] dark:[--one-blue-t:rgba(10,132,255,0.18)]",
   "[--one-up:#34c759] [--one-up-t:rgba(52,199,89,0.12)]",
   "[--one-down:#ff3b30] [--one-down-t:rgba(255,59,48,0.10)]",
   "[--one-indigo:#5856d6] [--one-indigo-t:rgba(88,86,214,0.12)]",
@@ -208,8 +202,9 @@ const connectRootClassName = cn(
   "[--one-teal:#30b0c7] [--one-teal-t:rgba(48,176,199,0.13)]",
   "[--one-purple:#af52de] [--one-purple-t:rgba(175,82,222,0.12)]",
   "[--one-glass-fill:linear-gradient(135deg,rgba(255,255,255,0.45),rgba(255,255,255,0.16))]",
+  "dark:[--one-glass-fill:linear-gradient(135deg,rgba(44,44,46,0.86),rgba(28,28,30,0.62))]",
   "[--one-glass-float:0_16px_38px_-20px_rgba(0,0,0,0.28),0_4px_12px_-8px_rgba(0,0,0,0.10)]",
-  "[--one-gutter:clamp(16px,4.6vw,22px)]"
+  "[--one-gutter:clamp(18px,5vw,32px)]"
 );
 
 const connectGlassClassName = cn(
@@ -217,10 +212,6 @@ const connectGlassClassName = cn(
   "shadow-[var(--one-glass-float),inset_0_1px_0_rgba(255,255,255,0.35),inset_0_-1px_1px_rgba(0,0,0,0.06)]",
   "ring-1 ring-white/55"
 );
-
-function openConnectHref(href: string) {
-  requestInternalAppNavigation({ href, scroll: false });
-}
 
 function toneClassName(tone: ConnectTone): string {
   if (tone === "teal") return "bg-[color:var(--one-teal-t)] text-[color:var(--one-teal)]";
@@ -318,128 +309,6 @@ function AdvisorRow({
   );
 }
 
-function ConnectDock({
-  searchQuery,
-  onSearchQueryChange,
-  onKaiOpen,
-}: {
-  searchQuery: string;
-  onSearchQueryChange: (value: string) => void;
-  onKaiOpen: () => void;
-}) {
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [draft, setDraft] = useState(searchQuery);
-  const items: Array<{ label: string; href: string; icon: LucideIcon; active?: boolean }> = [
-    { label: "Market", href: "/kai?preview=market", icon: Store },
-    { label: "Portfolio", href: "/kai/portfolio", icon: WalletCards },
-    { label: "Analysis", href: "/kai/analysis?preview=analysis", icon: LineChart },
-    { label: "Connect", href: "/kai?preview=connect", icon: Compass, active: true },
-    { label: "Profile", href: "/profile", icon: UserRound },
-  ];
-
-  const submitSearch = () => {
-    onSearchQueryChange(draft.trim());
-    setSearchOpen(false);
-  };
-
-  return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 mx-auto w-full max-w-[560px] px-4 pb-[calc(10px+env(safe-area-inset-bottom))] sm:px-6 before:pointer-events-none before:absolute before:inset-x-[-18px] before:bottom-[-10px] before:h-[126px] before:bg-[linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,0.88)_34%,rgba(255,255,255,0.98))] before:backdrop-blur-[8px] [&>*]:relative [&>*]:z-[1]">
-      <div className="relative flex items-end gap-2.5 sm:gap-3">
-        {searchOpen ? (
-          <>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                submitSearch();
-              }}
-              className={cn(
-                kaiPreviewDockSurfaceClassName,
-                "pointer-events-auto flex h-[50px] min-w-0 flex-1 items-center gap-[9px] rounded-full px-[15px] pr-2"
-              )}
-            >
-              <Search className="h-5 w-5 shrink-0 text-[color:var(--one-fg3)]" />
-              <input
-                placeholder="Search"
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                className="min-w-0 flex-1 bg-transparent text-[14px] text-[color:var(--one-fg)] outline-none placeholder:text-[color:var(--one-fg3)]"
-              />
-              <button
-                type="button"
-                onClick={submitSearch}
-                className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white transition-transform active:scale-[0.92]"
-                aria-label="Voice search"
-              >
-                <Mic className="h-4 w-4" />
-              </button>
-            </form>
-            <button
-              type="button"
-              onClick={() => {
-                setSearchOpen(false);
-                setDraft(searchQuery);
-              }}
-              className="pointer-events-auto flex h-[50px] shrink-0 items-center justify-center rounded-full px-1.5 text-[14px] font-semibold text-[color:var(--one-link)]"
-            >
-              Cancel
-            </button>
-          </>
-        ) : (
-          <>
-            <nav
-              className={cn(
-                kaiPreviewDockSurfaceClassName,
-                "pointer-events-auto grid h-[58px] min-w-0 flex-1 grid-cols-5 content-center rounded-full px-1.5"
-              )}
-            >
-              {items.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={item.label}
-                    type="button"
-                    onClick={() => openConnectHref(item.href)}
-                    className={cn(
-                      kaiPreviewDockItemClassName,
-                      item.active && kaiPreviewDockActiveItemClassName
-                    )}
-                  >
-                    <Icon className="h-[21px] w-[21px]" strokeWidth={1.8} />
-                    <span className="truncate">{item.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-            <button
-              type="button"
-              onClick={onKaiOpen}
-              className={cn(kaiPreviewDockSurfaceClassName, "pointer-events-auto absolute bottom-[72px] right-1 grid h-[50px] w-[50px] place-items-center rounded-full")}
-              aria-label="Talk to Kai"
-            >
-              <span className="grid h-[30px] w-[30px] place-items-center rounded-[9px] bg-[color:var(--one-blue)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
-                <CirclePlus className="h-[15px] w-[15px]" strokeWidth={2} />
-              </span>
-            </button>
-            <div className="pointer-events-auto flex shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  setDraft(searchQuery);
-                  setSearchOpen(true);
-                }}
-                className={cn(kaiPreviewDockSurfaceClassName, "grid h-[58px] w-[58px] place-items-center rounded-full text-[color:var(--one-fg2)] transition-transform active:scale-[0.9]")}
-                aria-label="Search"
-              >
-                <Search className="h-5 w-5" strokeWidth={2.2} />
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function KaiSheet({
   open,
   onClose,
@@ -472,7 +341,7 @@ function KaiSheet({
       <div className="mx-auto mt-[9px] h-[5px] w-9 rounded-full bg-[color:var(--one-fg3)]/35" />
       <header className="flex items-center gap-[11px] border-b border-[color:var(--one-line)] px-[18px] pb-3 pt-3">
         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white">
-          <MessageCircle className="h-4 w-4" />
+          <Bot className="h-4 w-4" />
         </span>
         <span className="min-w-0 flex-1">
           <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">Kai</b>
@@ -780,16 +649,24 @@ export function KaiConnectPreviewView() {
             background: #ffffff !important;
           }
 
+          html.dark:has([data-one-connect-preview="true"]),
+          html.dark:has([data-one-connect-preview="true"]) body,
+          html.dark:has([data-one-connect-preview="true"]) body main,
+          html.dark:has([data-one-connect-preview="true"]) body [data-top-content-anchor="true"],
+          html.dark:has([data-one-connect-preview="true"]) body [class*="overflow-y-auto"][class*="touch-pan-y"] {
+            background: #000000 !important;
+          }
+
           nextjs-portal,
           [aria-label="Open consent inbox"] {
             display: none !important;
           }
         `}
       </style>
-      <div aria-hidden className="pointer-events-none absolute inset-0 -z-20 bg-white" />
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-20 bg-[color:var(--one-bg)]" />
 
-      <div className="mx-auto flex min-h-screen w-full max-w-[440px] flex-col">
-        <main className="min-h-0 flex-1 overflow-y-auto px-5 pb-[calc(190px+env(safe-area-inset-bottom))] pt-4 sm:px-[22px]">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1080px] flex-col">
+        <main className="min-h-0 flex-1 overflow-y-auto px-[var(--one-gutter)] pb-[calc(190px+env(safe-area-inset-bottom))] pt-5 sm:pt-7">
           <header className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <span className={cn(kaiPreviewEyebrowClassName, "text-[color:var(--one-fg3)]")}>
@@ -798,7 +675,7 @@ export function KaiConnectPreviewView() {
               <div className={cn("mt-1.5", kaiPreviewPageTitleClassName)} role="heading" aria-level={1}>
                 Connect
               </div>
-              <p className="mt-2 max-w-[30ch] text-[14px] leading-snug text-[color:var(--one-fg2)]">
+              <p className="mt-2 max-w-[34ch] text-[17px] leading-[1.42] text-[color:var(--one-fg2)]">
                 Find a registered advisor. Connect with consent.
               </p>
             </div>
@@ -815,7 +692,7 @@ export function KaiConnectPreviewView() {
 
           <form
             onSubmit={(event) => event.preventDefault()}
-            className="mt-3.5 flex h-11 items-center gap-2.5 rounded-xl bg-[color:var(--one-surface)] px-3.5"
+            className="mt-5 flex h-12 items-center gap-2.5 rounded-[16px] bg-[color:var(--one-surface)] px-4"
           >
             <Search className="h-[17px] w-[17px] shrink-0 text-[color:var(--one-fg3)]" />
             <input
@@ -833,7 +710,7 @@ export function KaiConnectPreviewView() {
             className={cn(connectGlassClassName, "mt-4 flex w-full items-center gap-[11px] rounded-2xl px-3.5 py-3 text-left transition-transform active:scale-[0.99]")}
           >
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white">
-              <MessageCircle className="h-4 w-4" />
+              <Bot className="h-4 w-4" />
             </span>
             <span className="min-w-0 flex-1 text-[13px] leading-snug text-[color:var(--one-fg)]">
               <b className="font-semibold">Kai:</b> I compared all five against your portfolio - ask me why Emily fits best.
@@ -931,11 +808,6 @@ export function KaiConnectPreviewView() {
           </section>
         </main>
 
-        <ConnectDock
-          searchQuery={searchQuery}
-          onSearchQueryChange={setSearchQuery}
-          onKaiOpen={() => setKaiOpen(true)}
-        />
       </div>
 
       {overlayOpen ? (

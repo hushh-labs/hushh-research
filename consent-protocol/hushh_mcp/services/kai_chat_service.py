@@ -23,7 +23,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Optional
 
@@ -493,25 +493,27 @@ class KaiChatService:
         user_message: str,
         assistant_response: str,
     ) -> None:
-        task = asyncio.create_task(
-            self.attribute_learner.extract_and_store(
-                user_id=user_id,
-                user_message=user_message,
-                assistant_response=assistant_response,
-            ),
-            name=f"attr_learn:{user_id}",
-        )
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.debug("kai_chat.attribute_learning_skipped user_id=%s; no active loop", user_id)
+            return
 
-        def _log_attribute_learning_failure(done: asyncio.Task) -> None:
+        async def _run_attribute_learning() -> None:
             try:
-                done.result()
-            except Exception:
-                logger.exception(
-                    "kai_chat.attribute_learning_failed user_id=%s",
-                    user_id,
+                await self.attribute_learner.extract_and_store(
+                    user_id=user_id,
+                    user_message=user_message,
+                    assistant_response=assistant_response,
                 )
+            except Exception:
+                logger.exception("kai_chat.attribute_learning_failed user_id=%s", user_id)
 
-        task.add_done_callback(_log_attribute_learning_failure)
+        # Retain a strong reference until completion so the loop does not garbage
+        # collect this background extraction mid-execution, and log any failure.
+        task = loop.create_task(_run_attribute_learning(), name=f"attr_learn:{user_id}")
+        _attribute_learning_tasks.add(task)
+        task.add_done_callback(_attribute_learning_tasks.discard)
 
     async def _should_prompt_portfolio(
         self,
@@ -1227,7 +1229,7 @@ REASONING: [2-3 sentences]
             # Store decision as a non-sensitive summary in the PKM index
             saved = False
             try:
-                analyzed_at = datetime.now().isoformat()
+                analyzed_at = datetime.now(UTC).isoformat()
                 ticker_upper = str(ticker or "").upper()
                 await self.pkm_service.update_domain_summary(
                     user_id=user_id,
@@ -1289,6 +1291,13 @@ REASONING: [2-3 sentences]
 
 # Singleton instance
 _kai_chat_service: Optional[KaiChatService] = None
+
+# Strong references to in-flight background attribute learning tasks.
+# asyncio only keeps weak references to tasks created with create_task, so a
+# task that is not referenced elsewhere can be garbage collected before it
+# finishes. Holding the task here until its done callback fires keeps the
+# background attribute extraction alive for its full duration.
+_attribute_learning_tasks: set[asyncio.Task] = set()
 
 
 def get_kai_chat_service() -> KaiChatService:

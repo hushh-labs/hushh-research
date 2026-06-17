@@ -117,21 +117,21 @@ export function AgentHistorySidebar({
     <>
       <aside
         className={cn(
-          "flex min-h-0 shrink-0 flex-col overflow-hidden border-r border-white/10 bg-[#101216] text-zinc-200 transition-[width] duration-200 ease-out",
+          "flex min-h-0 shrink-0 flex-col overflow-hidden border-r border-black/10 bg-white/92 text-[#1d1d1f] shadow-[inset_-1px_0_0_rgba(255,255,255,0.55)] backdrop-blur-xl transition-[width] duration-200 ease-out dark:border-white/10 dark:bg-[#101216] dark:text-zinc-200 dark:shadow-none",
           collapsed ? "w-16" : "w-72",
           className
         )}
         aria-label="Agent chat history"
         data-collapsed={collapsed ? "true" : "false"}
       >
-        <div className="flex items-center gap-2 border-b border-white/10 p-3">
+        <div className="flex items-center gap-2 border-b border-black/10 p-3 dark:border-white/10">
           {collapsed ? (
             <div className="flex w-full flex-col items-center gap-2">
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-10 w-10 rounded-lg border border-white/10 bg-white/[0.04] text-zinc-100 hover:bg-white/[0.08] focus-visible:ring-2 focus-visible:ring-primary/60"
+                className="h-10 w-10 rounded-lg border border-black/10 bg-black/[0.035] text-[rgba(0,0,0,0.62)] hover:bg-black/[0.06] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-100 dark:hover:bg-white/[0.08]"
                 onClick={onToggleCollapsed}
                 aria-label="Expand chat history"
                 title="Expand chat history"
@@ -142,7 +142,7 @@ export function AgentHistorySidebar({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-10 w-10 rounded-lg text-zinc-300 hover:bg-white/[0.07] hover:text-zinc-100 focus-visible:ring-2 focus-visible:ring-primary/60"
+                className="h-10 w-10 rounded-lg text-[rgba(0,0,0,0.54)] hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100"
                 onClick={onCreateNew}
                 disabled={disabled}
                 aria-label="Create new Agent chat"
@@ -156,7 +156,7 @@ export function AgentHistorySidebar({
               <Button
                 type="button"
                 variant="ghost"
-                className="h-11 min-w-0 flex-1 justify-start gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm font-medium text-zinc-100 shadow-sm transition-colors hover:bg-white/[0.08] focus-visible:ring-2 focus-visible:ring-primary/60"
+                className="h-11 min-w-0 flex-1 justify-start gap-2 rounded-lg border border-black/10 bg-black/[0.035] px-3 text-sm font-medium text-[#1d1d1f] shadow-sm shadow-black/[0.03] transition-colors hover:bg-black/[0.06] focus-visible:ring-2 focus-visible:ring-primary/60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-100 dark:shadow-none dark:hover:bg-white/[0.08]"
                 onClick={onCreateNew}
                 disabled={disabled}
                 aria-label="Create new Agent chat"
@@ -170,7 +170,7 @@ export function AgentHistorySidebar({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="hidden h-10 w-10 rounded-lg text-zinc-400 hover:bg-white/[0.07] hover:text-zinc-100 focus-visible:ring-2 focus-visible:ring-primary/60 lg:inline-flex"
+                  className="hidden h-10 w-10 rounded-lg text-[rgba(0,0,0,0.46)] hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 lg:inline-flex"
                   onClick={onToggleCollapsed}
                   aria-label="Collapse chat history"
                   title="Collapse chat history"
@@ -185,7 +185,7 @@ export function AgentHistorySidebar({
               type="button"
               variant="ghost"
               size="icon"
-              className="h-10 w-10 rounded-lg text-zinc-400 hover:bg-white/[0.07] hover:text-zinc-100 lg:hidden"
+              className="h-10 w-10 rounded-lg text-[rgba(0,0,0,0.46)] hover:bg-black/[0.05] hover:text-[#1d1d1f] dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 lg:hidden"
               onClick={onClose}
               aria-label="Close chat history"
               title="Close chat history"
@@ -199,16 +199,16 @@ export function AgentHistorySidebar({
           {collapsed ? (
             <div className="h-4" aria-hidden="true" />
           ) : (
-            <div className="px-2 pb-2 pt-1 text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-500">
+            <div className="px-2 pb-2 pt-1 text-[11px] font-medium uppercase tracking-[0.16em] text-[rgba(0,0,0,0.42)] dark:text-zinc-500">
               Chats
             </div>
           )}
           {loading ? (
-            <div className="h-10 w-full rounded-lg bg-white/[0.05]" />
+            <div className="h-10 w-full rounded-lg bg-black/[0.04] dark:bg-white/[0.05]" />
           ) : null}
 
           {!collapsed && !loading && conversations.length === 0 ? (
-            <div className="grid min-h-24 place-items-center rounded-lg border border-dashed border-white/10 px-3 text-center text-xs text-zinc-500">
+            <div className="grid min-h-24 place-items-center rounded-lg border border-dashed border-black/10 px-3 text-center text-xs text-[rgba(0,0,0,0.46)] dark:border-white/10 dark:text-zinc-500">
               No chats yet
             </div>
           ) : null}
@@ -230,19 +230,19 @@ export function AgentHistorySidebar({
                   role="listitem"
                   className={cn(
                     "group rounded-lg transition-colors",
-                    active && "bg-primary/15 text-zinc-50 ring-1 ring-primary/20",
-                    !active && "text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
+                    active && "bg-primary/10 text-[#1d1d1f] ring-1 ring-primary/20 dark:bg-primary/15 dark:text-zinc-50",
+                    !active && "text-[rgba(0,0,0,0.54)] hover:bg-black/[0.045] hover:text-[#1d1d1f] dark:text-zinc-400 dark:hover:bg-white/[0.06] dark:hover:text-zinc-100"
                   )}
                 >
                   {isRenaming ? (
                     <form
                       onSubmit={submitRename}
-                      className="flex items-center gap-1 rounded-lg bg-[#151820] p-1"
+                      className="flex items-center gap-1 rounded-lg bg-black/[0.04] p-1 dark:bg-[#151820]"
                     >
                       <Input
                         value={renameValue}
                         onChange={(event) => setRenameValue(event.target.value)}
-                        className="h-8 min-w-0 flex-1 border-white/10 bg-black/20 text-sm text-zinc-100"
+                        className="h-8 min-w-0 flex-1 border-black/10 bg-white/90 text-sm text-[#1d1d1f] dark:border-white/10 dark:bg-black/20 dark:text-zinc-100"
                         maxLength={160}
                         autoFocus
                         disabled={pending}
@@ -294,7 +294,7 @@ export function AgentHistorySidebar({
                               type="button"
                               variant="ghost"
                               size="icon-xs"
-                              className="mr-1 text-zinc-500 opacity-0 transition-opacity hover:bg-white/[0.07] hover:text-zinc-100 group-hover:opacity-100 focus-visible:opacity-100"
+                              className="mr-1 text-[rgba(0,0,0,0.42)] opacity-0 transition-opacity hover:bg-black/[0.05] hover:text-[#1d1d1f] group-hover:opacity-100 focus-visible:opacity-100 dark:text-zinc-500 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100"
                               disabled={disabled || pending}
                               onPointerDown={(event) => event.stopPropagation()}
                               onClick={(event) => event.stopPropagation()}
