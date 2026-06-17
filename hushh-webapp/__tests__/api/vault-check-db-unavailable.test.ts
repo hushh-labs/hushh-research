@@ -37,4 +37,15 @@ describe("GET /api/vault/check database unavailable", () => {
     expect(payload.code).toBe("DATABASE_UNAVAILABLE");
     expect(payload.hint).toContain("proxy-aware launcher");
   });
+    it("renders title when description is omitted", () => {
+    render(
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>Title only dialog</DialogTitle>
+        </DialogContent>
+      </Dialog>,
+    );
+
+    expect(screen.getByText("Title only dialog")).toBeTruthy();
+  });
 });
