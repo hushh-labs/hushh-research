@@ -376,7 +376,7 @@ export function StreamingProgressView({
           ) : isError ? (
             <Icon icon={AlertCircle} size="sm" />
           ) : (
-            icon || <Icon icon={Loader2} size="sm" className={cn(isActive && "animate-spin")} />
+            icon || <Icon aria-hidden="true" icon={Loader2} size="sm" className={cn(isActive && "animate-spin")} />
           )}
         </div>
         <span className="text-xs text-muted-foreground">
