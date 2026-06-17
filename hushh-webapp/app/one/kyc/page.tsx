@@ -2251,7 +2251,7 @@ function OneKycWorkspace() {
                     className="w-full sm:w-auto"
                   >
                     {busy === "alias" ? (
-                      <Loader2 className="size-4 animate-spin" />
+                      <Loader2 aria-hidden="true" className="size-4 animate-spin" />
                     ) : (
                       <MailPlus className="size-4" />
                     )}
@@ -2267,7 +2267,7 @@ function OneKycWorkspace() {
                     className="w-full sm:w-auto"
                   >
                     {busy === "alias" ? (
-                      <Loader2 className="size-4 animate-spin" />
+                      <Loader2 aria-hidden="true" className="size-4 animate-spin" />
                     ) : (
                       <BadgeCheck className="size-4" />
                     )}
