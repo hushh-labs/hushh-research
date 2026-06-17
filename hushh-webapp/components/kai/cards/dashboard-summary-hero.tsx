@@ -111,7 +111,7 @@ export function DashboardSummaryHero({
               ))}
             </div>
 
-            <h2 className="text-[34px] font-medium leading-tight tracking-normal">
+            <h2 className="text-[28px] font-medium leading-tight tracking-normal sm:text-[32px]">
               {formatCurrency(totalValue)}
             </h2>
 
