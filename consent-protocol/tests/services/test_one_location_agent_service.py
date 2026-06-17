@@ -1454,7 +1454,7 @@ def test_public_invite_is_request_only_and_token_hash_only() -> None:
     }
 
 
-def test_public_invite_with_snapshot_returns_location_after_intake_without_private_request() -> None:
+def test_public_invite_with_snapshot_returns_location_on_resolve_without_private_request() -> None:
     service = FourUserMemoryService()
     service.register_recipient_key(
         user_id="user_b",
@@ -1471,8 +1471,8 @@ def test_public_invite_with_snapshot_returns_location_after_intake_without_priva
 
     resolved = service.resolve_public_invite(public_token=token)
     assert resolved["invite"]["locationAvailable"] is True
-    assert "latitude" not in json.dumps(resolved)
-    assert "longitude" not in json.dumps(resolved)
+    assert resolved["publicLocation"]["latitude"] == PUBLIC_LOCATION_SNAPSHOT["latitude"]
+    assert resolved["publicLocation"]["longitude"] == PUBLIC_LOCATION_SNAPSHOT["longitude"]
 
     submitted = service.submit_public_invite_request(
         public_token=token,

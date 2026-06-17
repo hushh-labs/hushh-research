@@ -513,7 +513,11 @@ class OneLocationAgentService:
                 {"user_id": user_id},
             )
         except Exception as exc:
-            logger.debug("one.location.identity_lookup_failed user=%s error=%s", redact_log_value(user_id), exc)
+            logger.debug(
+                "one.location.identity_lookup_failed user=%s error=%s",
+                redact_log_value(user_id),
+                exc,
+            )
             return None
 
     def _identity_row_by_phone_digits(self, phone_digits: str) -> dict[str, Any] | None:
@@ -2527,7 +2531,12 @@ class OneLocationAgentService:
     def resolve_public_invite(self, *, public_token: str) -> dict[str, Any]:
         row = self._public_invite_row_for_token(public_token=public_token)
         invite = self._public_invite_payload(row, public=True)
-        return {"invite": invite}
+        result = {"invite": invite}
+        metadata = _loads_json(row.get("metadata")) or {}
+        public_location = metadata.get("publicLocation") if isinstance(metadata, dict) else None
+        if isinstance(public_location, dict):
+            result["publicLocation"] = self._public_location_snapshot_payload(public_location)
+        return result
 
     def _check_public_submission_limits(
         self,

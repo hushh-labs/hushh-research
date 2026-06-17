@@ -14,11 +14,12 @@ import type { LucideIcon } from "lucide-react";
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Clock3,
   ContactRound,
   Copy,
   ExternalLink,
-  KeyRound,
   Loader2,
   LocateFixed,
   MapPin,
@@ -30,7 +31,6 @@ import {
   Search,
   Send,
   ShieldCheck,
-  Sparkles,
   UserRoundCheck,
   UsersRound,
   X,
@@ -90,12 +90,6 @@ import {
   type OneLocationContactSignalResult,
 } from "@/lib/one-location/contact-signals";
 import { OneLocationActivityDashboard } from "@/components/one-location/activity-dashboard";
-import {
-  OneLocationOnboardingOverlay,
-  useOneLocationOnboarding,
-  type OneLocationTourStepId,
-  type OneLocationTourTargets,
-} from "@/components/one-location/onboarding-overlay";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
 import type {
   OneLocationAccessRequest,
@@ -126,6 +120,13 @@ const DURATION_OPTIONS = [
 const LIVE_LOCATION_UPDATE_INTERVAL_MS = 20_000;
 const LIVE_LOCATION_STALE_THRESHOLD_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS * 3;
 const FOREGROUND_RETRY_DELAYS_MS = [450, 900] as const;
+const ONE_NETWORK_PREVIEW_LIMIT = 3;
+const ONE_LOCATION_SHARE_TITLE = "Join my One Location circle";
+const ONE_LOCATION_PUBLIC_SHARE_COPY = "Join my One Location circle";
+const SHOW_LOCATION_ACTIVITY_SECTION = false;
+const SHOW_OWNER_GRANTS_SECTION = false;
+const SHOW_PUBLIC_RESPONSES_SECTION = false;
+const SHOW_REFERRAL_SECTION = false;
 
 type BusyState =
   | "load"
@@ -144,20 +145,6 @@ type BusyState =
   | "publicInvite"
   | "publicRevoke"
   | null;
-
-type KaiCircleSectionKey =
-  | "needs_action"
-  | "trusted_circle"
-  | "professional_network"
-  | "location_ready"
-  | "needs_setup";
-
-type KaiCircleSection = {
-  key: KaiCircleSectionKey;
-  title: string;
-  description: string;
-  recipients: OneLocationRecipient[];
-};
 
 type OneLocationSelectionSurface =
   | "quick_circle"
@@ -438,120 +425,6 @@ function peopleCountLabel(count: number): string {
   return count === 1 ? "1 person" : `${count} people`;
 }
 
-const KAI_CIRCLE_SECTION_META: Record<
-  KaiCircleSectionKey,
-  Pick<KaiCircleSection, "title" | "description">
-> = {
-  needs_action: {
-    title: "Needs your approval",
-    description: "Requests and people waiting on a decision.",
-  },
-  trusted_circle: {
-    title: "Trusted Circle",
-    description: "People with active sharing, history, or referrals.",
-  },
-  professional_network: {
-    title: "Professional Network",
-    description: "RIA, investor, advisor, and marketplace signals.",
-  },
-  location_ready: {
-    title: "Location-ready One users",
-    description: "One users ready for private sharing.",
-  },
-  needs_setup: {
-    title: "Needs setup",
-    description: "People who need to open One Location once.",
-  },
-};
-
-const KAI_CIRCLE_SECTION_EMPTY_COPY: Record<
-  KaiCircleSectionKey,
-  { title: string; description: string }
-> = {
-  needs_action: {
-    title: "No approvals waiting",
-    description: "New location requests and pending decisions will appear here.",
-  },
-  trusted_circle: {
-    title: "No trusted matches yet",
-    description:
-      "Active shares, repeat approvals, and referrals will lift people here.",
-  },
-  professional_network: {
-    title: "No professional signals yet",
-    description: "RIA, investor, advisor, and marketplace matches will appear here.",
-  },
-  location_ready: {
-    title: "No ready One users yet",
-    description: "One users with location keys will appear here.",
-  },
-  needs_setup: {
-    title: "No setup blockers",
-    description: "Everyone in this section is ready enough for the current flow.",
-  },
-};
-
-const KAI_CIRCLE_SECTION_ORDER: KaiCircleSectionKey[] = [
-  "needs_action",
-  "trusted_circle",
-  "professional_network",
-  "location_ready",
-  "needs_setup",
-];
-
-function kaiCircleSectionKey(
-  recipient: OneLocationRecipient,
-): KaiCircleSectionKey {
-  switch (recipient.recommendationCategory) {
-    case "needs_action":
-    case "trusted_circle":
-    case "professional_network":
-    case "location_ready":
-    case "needs_setup":
-      return recipient.recommendationCategory;
-  }
-
-  if (!recipient.canReceiveLocation) return "needs_setup";
-  switch (recipient.recommendationTier) {
-    case "needs_action":
-      return "needs_action";
-    case "trusted_circle":
-      return "trusted_circle";
-    case "kai_network":
-      return "professional_network";
-    default:
-      if (
-        recipient.relationshipType ||
-        recipient.profileHeadline ||
-        recipient.verificationBadge
-      ) {
-        return "professional_network";
-      }
-      return "location_ready";
-  }
-}
-
-function buildKaiCircleSections(
-  recipients: OneLocationRecipient[],
-): KaiCircleSection[] {
-  const grouped = new Map<KaiCircleSectionKey, OneLocationRecipient[]>();
-  KAI_CIRCLE_SECTION_ORDER.forEach((key) => grouped.set(key, []));
-
-  recipients.forEach((recipient) => {
-    grouped.get(kaiCircleSectionKey(recipient))?.push(recipient);
-  });
-
-  return KAI_CIRCLE_SECTION_ORDER.map((key) => {
-    const meta = KAI_CIRCLE_SECTION_META[key];
-    return {
-      key,
-      title: meta.title,
-      description: meta.description,
-      recipients: grouped.get(key) ?? [],
-    };
-  });
-}
-
 function oneLocationDurationBucket(value: string): OneLocationDurationBucket {
   switch (value) {
     case "0.25":
@@ -584,48 +457,6 @@ function contactCountBucket(
   if (count <= 50) return "11_50";
   if (count <= 250) return "51_250";
   return "251_plus";
-}
-
-function contactSignalStatusLabel(status: OneLocationContactSignalStatus): string {
-  switch (status) {
-    case "scanning":
-      return "Scanning";
-    case "matched":
-      return "Signal active";
-    case "empty":
-      return "No matches yet";
-    case "unavailable":
-      return "Mobile only";
-    case "denied":
-      return "Permission needed";
-    case "error":
-      return "Needs retry";
-    default:
-      return "Optional signal";
-  }
-}
-
-function contactSignalSummary(state: OneLocationContactSignalState): string {
-  switch (state.status) {
-    case "matched":
-      return `${state.matchedCount} KAI match${
-        state.matchedCount === 1 ? "" : "es"
-      } added as a ranking signal.`;
-    case "empty":
-      return state.totalContacts > 0
-        ? "No One users matched from this scan."
-        : "No contact numbers were available to match.";
-    case "unavailable":
-      return "Open One on iOS or Android to scan contacts.";
-    case "denied":
-      return "Allow contacts to use this optional ranking signal.";
-    case "error":
-      return state.error || "Contact signal could not be refreshed.";
-    case "scanning":
-      return "Checking contacts privately on this device.";
-    default:
-      return "Contacts stay on-device; only hashed lookups are used for matching.";
-  }
 }
 
 function grantCounterpartyLabel(grant: OneLocationGrant): string {
@@ -662,8 +493,16 @@ function publicSubmissionLabel(
 function publicInviteUrlLabel(value: string): string {
   if (!value) return "";
   if (/^https?:\/\//i.test(value)) return value;
-  if (typeof window === "undefined") return value;
-  return new URL(value, window.location.origin).toString();
+  const configuredOrigin = String(process.env.NEXT_PUBLIC_APP_URL || "")
+    .trim()
+    .replace(/\/+$/, "");
+  const origin =
+    /^https?:\/\//i.test(configuredOrigin) ||
+    typeof window === "undefined"
+      ? configuredOrigin
+      : String(window.location.origin || "").trim().replace(/\/+$/, "");
+  if (!/^https?:\/\//i.test(origin)) return value;
+  return new URL(value, origin).toString();
 }
 
 function statusVariant(
@@ -961,7 +800,11 @@ function SkeletonRow({ wide = false }: { wide?: boolean }) {
 type ShareMode = "share" | "request";
 
 const onePanelClassName =
-  "w-full min-w-0 max-w-full overflow-hidden rounded-[20px] border border-black/[0.05] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_30px_rgba(15,23,42,0.05)] dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_38px_rgba(0,0,0,0.28)]";
+  "w-full min-w-0 max-w-full overflow-x-hidden rounded-[20px] border border-black/[0.05] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_30px_rgba(15,23,42,0.05)] dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_38px_rgba(0,0,0,0.28)]";
+const oneScrollablePanelClassName = cn(
+  onePanelClassName,
+  "max-h-[min(70dvh,560px)] overflow-y-auto overscroll-contain [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/20 dark:[&::-webkit-scrollbar-thumb]:bg-white/20",
+);
 const oneInsetClassName =
   "w-full min-w-0 max-w-full overflow-hidden rounded-[14px] border border-black/[0.04] bg-[#f7f7fa] text-[#1c1c1e] dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white";
 const oneSecondaryTextClassName = "text-[#8e8e93] dark:text-white/55";
@@ -1038,47 +881,6 @@ function AvatarBubble({
     >
       {initialsForLabel(label)}
     </span>
-  );
-}
-
-function PromiseCard({
-  icon: Icon,
-  title,
-  description,
-  tone,
-}: {
-  icon: LucideIcon;
-  title: string;
-  description: string;
-  tone: "blue" | "green" | "orange";
-}) {
-  const toneClassName = {
-    blue: "bg-[#eaf3ff] text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]",
-    green:
-      "bg-[#eaf9ef] text-[#2dbd5a] dark:bg-emerald-400/15 dark:text-emerald-200",
-    orange:
-      "bg-[#fff3e6] text-[#ff9500] dark:bg-orange-400/15 dark:text-orange-200",
-  }[tone];
-
-  return (
-    <div className="flex w-full min-w-0 max-w-full items-start gap-3 overflow-hidden rounded-[20px] border border-black/[0.06] bg-white p-4 shadow-[0_2px_12px_rgba(15,23,42,0.06)] sm:gap-4 dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_30px_rgba(0,0,0,0.22)]">
-      <span
-        className={cn(
-          "flex h-11 w-11 shrink-0 items-center justify-center rounded-full",
-          toneClassName,
-        )}
-      >
-        <Icon className="h-5 w-5" aria-hidden="true" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <h3 className="text-[16px] font-bold tracking-tight text-[#1c1c1e] dark:text-white">
-          {title}
-        </h3>
-        <p className="mt-1 break-words text-[14px] font-medium leading-snug text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
-          {description}
-        </p>
-      </div>
-    </div>
   );
 }
 
@@ -1173,6 +975,63 @@ function locationServicesErrorMessage(error: unknown): string {
   return message || "Location is needed before sharing.";
 }
 
+function isShareAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function oneLocationPublicShareMessage(url: string): string {
+  return `${ONE_LOCATION_PUBLIC_SHARE_COPY}\n${url}`;
+}
+
+async function shareOneLocationLink(params: {
+  title: string;
+  text: string;
+  url: string;
+  dialogTitle: string;
+}): Promise<"native-share" | "web-share" | "copied"> {
+  const url = publicInviteUrlLabel(params.url.trim());
+  if (!url) {
+    throw new Error("Create a public location link before sharing.");
+  }
+  const message = oneLocationPublicShareMessage(url);
+
+  const { Capacitor } = await import("@capacitor/core");
+  if (Capacitor.isNativePlatform()) {
+    const { Share } = (await import("@capacitor/share")) as typeof import("@capacitor/share");
+    if (Capacitor.getPlatform() === "android") {
+      await Share.share({
+        title: params.title,
+        text: message,
+        dialogTitle: params.dialogTitle,
+      });
+      return "native-share";
+    }
+    await Share.share({
+      title: params.title,
+      text: params.text,
+      url,
+      dialogTitle: params.dialogTitle,
+    });
+    return "native-share";
+  }
+
+  if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+    await navigator.share({
+      title: params.title,
+      text: params.text,
+      url,
+    });
+    return "web-share";
+  }
+
+  if (typeof navigator !== "undefined" && navigator.clipboard) {
+    await navigator.clipboard.writeText(message);
+    return "copied";
+  }
+
+  throw new Error("Sharing is not supported on this device.");
+}
+
 function readinessCopy(permission: HushhLocationPermissionState | null): {
   title: string;
   description: string;
@@ -1259,15 +1118,11 @@ function OneLocationInitialSkeleton() {
         </SettingsGroup>
       </div>
       <div className="space-y-6">
-        <SettingsGroup eyebrow="Owner" title="People who can see me">
-          <SkeletonRow wide />
-          <SkeletonRow />
-        </SettingsGroup>
-        <SettingsGroup eyebrow="Recipient" title="Shared with me">
-          <SkeletonRow wide />
-        </SettingsGroup>
         <SettingsGroup eyebrow="Approvals" title="Pending requests">
           <SkeletonRow />
+        </SettingsGroup>
+        <SettingsGroup eyebrow="Location" title="Shared with me">
+          <SkeletonRow wide />
         </SettingsGroup>
       </div>
     </div>
@@ -1282,16 +1137,12 @@ function OneLocationAgentPageContent() {
   const [state, setState] = useState<OneLocationState | null>(null);
   const [permission, setPermission] =
     useState<HushhLocationPermissionState | null>(null);
-  const {
-    shouldShow: showOnboarding,
-    dismiss: dismissOnboarding,
-    showTour,
-  } = useOneLocationOnboarding();
   const [busy, setBusy] = useState<BusyState>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<ShareMode>("share");
   const [shareReviewOpen, setShareReviewOpen] = useState(false);
   const [recipientSearch, setRecipientSearch] = useState("");
+  const [oneNetworkListExpanded, setOneNetworkListExpanded] = useState(false);
   const [selectedRecipientId, setSelectedRecipientId] = useState("");
   const [selectedRequestOwnerId, setSelectedRequestOwnerId] = useState("");
   const [selectedRecipientIds, setSelectedRecipientIds] = useState<string[]>(
@@ -1325,23 +1176,16 @@ function OneLocationAgentPageContent() {
     useState<OneLocationFocusTarget | null>(null);
   const refreshInFlightRef = useRef<Promise<void> | null>(null);
   const permissionPromptInFlightRef = useRef(false);
+  const locationLandingPromptUserRef = useRef<string | null>(null);
   const peopleSectionRef = useRef<HTMLElement | null>(null);
   const approvalsSectionRef = useRef<HTMLElement | null>(null);
   const sharedSectionRef = useRef<HTMLElement | null>(null);
   const myRequestsSectionRef = useRef<HTMLElement | null>(null);
   const publicResponsesSectionRef = useRef<HTMLElement | null>(null);
   const activitySectionRef = useRef<HTMLElement | null>(null);
-  const readinessTourRef = useRef<HTMLElement | null>(null);
-  const promisesTourRef = useRef<HTMLElement | null>(null);
-  const oneNetworkTourRef = useRef<HTMLElement | null>(null);
-  const contactSignalTourRef = useRef<HTMLDivElement | null>(null);
-  const shareRequestTourRef = useRef<HTMLDivElement | null>(null);
-  const accessHistoryTourRef = useRef<HTMLDivElement | null>(null);
   const focusClearRef = useRef<number | null>(null);
   const livePublishInFlightRef = useRef(false);
   const liveViewInFlightRef = useRef(false);
-  const [activeTourStep, setActiveTourStep] =
-    useState<OneLocationTourStepId | null>(null);
 
   const recipients = useMemo(
     () => state?.recipients ?? [],
@@ -1370,10 +1214,21 @@ function OneLocationAgentPageContent() {
       recommendationSearchText(recipient).includes(query),
     );
   }, [rankedRecipients, recipientSearch]);
-  const kaiCircleSections = useMemo(
-    () => buildKaiCircleSections(visibleRecipients),
-    [visibleRecipients],
+  const hasMoreVisibleRecipients =
+    visibleRecipients.length > ONE_NETWORK_PREVIEW_LIMIT;
+  const showExpandedOneNetworkList =
+    oneNetworkListExpanded && hasMoreVisibleRecipients;
+  const displayedVisibleRecipients = useMemo(
+    () =>
+      showExpandedOneNetworkList
+        ? visibleRecipients
+        : visibleRecipients.slice(0, ONE_NETWORK_PREVIEW_LIMIT),
+    [showExpandedOneNetworkList, visibleRecipients],
   );
+
+  useEffect(() => {
+    setOneNetworkListExpanded(false);
+  }, [recipientSearch]);
   const selectedShareRecipients = useMemo(
     () => recipientSelectionFromIds(contactSignalRecipients, selectedRecipientIds),
     [contactSignalRecipients, selectedRecipientIds],
@@ -1438,6 +1293,15 @@ function OneLocationAgentPageContent() {
       ),
     [state?.publicInvites],
   );
+  const latestActivePublicInvite = useMemo(() => {
+    const inviteTime = (invite: OneLocationPublicInvite) =>
+      Date.parse(
+        invite.createdAt || invite.updatedAt || invite.expiresAt || "",
+      ) || 0;
+    return [...activePublicInvites].sort(
+      (left, right) => inviteTime(right) - inviteTime(left),
+    )[0] ?? null;
+  }, [activePublicInvites]);
   const publicSubmissions = useMemo(
     () => state?.publicInviteSubmissions ?? [],
     [state?.publicInviteSubmissions],
@@ -1447,19 +1311,6 @@ function OneLocationAgentPageContent() {
     [activityRange, auth.userId, state],
   );
   const locationActivity = activitySnapshot ?? fallbackActivity;
-  const onboardingTourTargets = useMemo<OneLocationTourTargets>(
-    () => ({
-      readiness: readinessTourRef,
-      promises: promisesTourRef,
-      one_network: oneNetworkTourRef,
-      contact_signal: contactSignalTourRef,
-      share_request: shareRequestTourRef,
-      activity: activitySectionRef,
-      access_history: accessHistoryTourRef,
-    }),
-    [],
-  );
-
   const focusOneLocationSection = useCallback(
     (target: OneLocationFocusTarget | null) => {
       if (!target || typeof window === "undefined") return;
@@ -1498,14 +1349,6 @@ function OneLocationAgentPageContent() {
         : "",
     [focusedSection],
   );
-  const tourSectionClassName = useCallback(
-    (target: OneLocationTourStepId) =>
-      activeTourStep === target
-        ? "relative rounded-[22px] ring-2 ring-[#007aff]/50 ring-offset-4 ring-offset-white/80 transition-shadow duration-300 dark:ring-offset-[#111113]/80"
-        : "transition-shadow duration-300",
-    [activeTourStep],
-  );
-
   useEffect(() => {
     if (!auth.userId || !vaultOwnerToken || !state) {
       setActivitySnapshot(null);
@@ -1816,9 +1659,11 @@ function OneLocationAgentPageContent() {
     async (options?: {
       capturePoint?: boolean;
       autoOpenSettings?: boolean;
+      requestNativePrompt?: boolean;
     }): Promise<{ ready: boolean; point?: PlainLocationPoint }> => {
       const shouldCapturePoint = Boolean(options?.capturePoint);
       const shouldOpenSettings = options?.autoOpenSettings !== false;
+      const shouldRequestNativePrompt = options?.requestNativePrompt === true;
       const currentPermission = await refreshLocationPermission();
 
       if (isLocationServicesDisabled(currentPermission)) {
@@ -1830,8 +1675,8 @@ function OneLocationAgentPageContent() {
       }
 
       if (
-        currentPermission.state === "denied" ||
-        currentPermission.state === "restricted"
+        currentPermission.state === "restricted" ||
+        (currentPermission.state === "denied" && !shouldRequestNativePrompt)
       ) {
         toast.error("Allow location permission before sharing.");
         if (shouldOpenSettings) {
@@ -1898,19 +1743,28 @@ function OneLocationAgentPageContent() {
     if (
       !auth.userId ||
       !state ||
-      permission?.state !== "prompt" ||
+      locationLandingPromptUserRef.current === auth.userId ||
       permissionPromptInFlightRef.current
     ) {
       return;
     }
+    const canRequestNativePrompt =
+      !permission ||
+      permission.state === "prompt" ||
+      permission.state === "denied";
+    if (!canRequestNativePrompt || isLocationServicesDisabled(permission)) {
+      return;
+    }
 
     let cancelled = false;
+    locationLandingPromptUserRef.current = auth.userId;
     permissionPromptInFlightRef.current = true;
     const promptForForegroundLocation = async () => {
       try {
         await ensureForegroundLocationReady({
           capturePoint: false,
           autoOpenSettings: false,
+          requestNativePrompt: true,
         });
       } finally {
         if (!cancelled) {
@@ -1925,7 +1779,7 @@ function OneLocationAgentPageContent() {
       cancelled = true;
       permissionPromptInFlightRef.current = false;
     };
-  }, [auth.userId, ensureForegroundLocationReady, permission?.state, state]);
+  }, [auth.userId, ensureForegroundLocationReady, permission, state]);
 
   useEffect(() => {
     return () => {
@@ -2651,21 +2505,18 @@ function OneLocationAgentPageContent() {
 
   const handleSharePublicInvite = useCallback(async () => {
     if (!publicInviteUrl) return;
-    const text =
-      "View my One Location location update here after entering your details.";
     try {
-      if (navigator.share) {
-        await navigator.share({
-          title: "View my location",
-          text,
-          url: publicInviteUrl,
-        });
-        return;
+      const delivery = await shareOneLocationLink({
+        title: ONE_LOCATION_SHARE_TITLE,
+        text: ONE_LOCATION_PUBLIC_SHARE_COPY,
+        url: publicInviteUrl,
+        dialogTitle: "Share to contacts",
+      });
+      if (delivery === "copied") {
+        toast.success("Public location link copied.");
       }
-      await navigator.clipboard.writeText(publicInviteUrl);
-      toast.success("Public location link copied.");
     } catch (error) {
-      if ((error as Error)?.name === "AbortError") return;
+      if (isShareAbortError(error)) return;
       toast.error("Could not open the share sheet.");
     }
   }, [publicInviteUrl]);
@@ -2694,24 +2545,17 @@ function OneLocationAgentPageContent() {
         await refresh();
       }
 
-      const text =
-        "Join my KAI Circle on One Location. You can view my public location update here after entering your details.";
-      if (navigator.share && url) {
-        await navigator.share({
-          title: "Join my One Network",
-          text,
-          url,
-        });
-        return;
-      }
-      if (navigator.clipboard && url) {
-        await navigator.clipboard.writeText(`${text} ${url}`);
+      const delivery = await shareOneLocationLink({
+        title: ONE_LOCATION_SHARE_TITLE,
+        text: ONE_LOCATION_PUBLIC_SHARE_COPY,
+        url,
+        dialogTitle: "Share to contacts",
+      });
+      if (delivery === "copied") {
         toast.success("Invite link copied.");
-        return;
       }
-      toast.info("Create a public location link, then share it with your contacts.");
     } catch (error) {
-      if ((error as Error)?.name === "AbortError") return;
+      if (isShareAbortError(error)) return;
       trackEvent("one_location_public_link_created", {
         route_id: "one_location",
         result: "error",
@@ -3000,7 +2844,13 @@ function OneLocationAgentPageContent() {
         has_permission_warning: permission?.state !== "granted",
         has_professional_signal: shareReadySelectedRecipients.some(
           (recipient) =>
-            kaiCircleSectionKey(recipient) === "professional_network",
+            recipient.recommendationCategory === "professional_network" ||
+            recipient.recommendationTier === "kai_network" ||
+            Boolean(
+              recipient.relationshipType ||
+                recipient.profileHeadline ||
+                recipient.verificationBadge,
+            ),
         ),
         has_setup_warning: Boolean(setupNeededSelectedRecipients.length),
       },
@@ -3104,16 +2954,6 @@ function OneLocationAgentPageContent() {
             <Button
               variant="outline"
               size="sm"
-              onClick={showTour}
-              className="h-9 w-auto rounded-full border-[#007aff]/20 bg-[#eaf3ff] px-3 text-[#007aff] shadow-sm hover:bg-[#daeeff] dark:border-[#0a84ff]/25 dark:bg-[#0a84ff]/10 dark:text-[#76b7ff] dark:hover:bg-[#0a84ff]/15"
-              aria-label="Show onboarding tour"
-            >
-              <Sparkles className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
-              Take Tour
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
               onClick={() => void refresh()}
               disabled={busy === "load"}
               className="h-9 w-full rounded-full border-black/[0.06] bg-white/80 px-3 text-[#1c1c1e] shadow-sm backdrop-blur-xl hover:bg-[#f2f2f7] sm:w-fit dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15"
@@ -3129,7 +2969,7 @@ function OneLocationAgentPageContent() {
         </div>
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion className="mx-auto w-full max-w-[1120px] min-w-0 space-y-6 overflow-hidden pb-36 sm:pb-8">
+      <AppPageContentRegion className="mx-auto w-full max-w-[1120px] min-w-0 space-y-6 overflow-x-hidden pb-10 sm:pb-8">
         {loadError ? (
           <div className="rounded-[20px] border border-[#ff3b30]/30 bg-[#ff3b30]/10 p-4 text-sm text-[#ff3b30] dark:text-[#ff9f9a]">
             {loadError}
@@ -3141,14 +2981,7 @@ function OneLocationAgentPageContent() {
         ) : (
           <div className="grid min-w-0 max-w-full gap-6 xl:grid-cols-[minmax(0,520px)_minmax(0,1fr)] xl:items-start">
             <div className="min-w-0 max-w-full space-y-7">
-              <section
-                ref={readinessTourRef}
-                tabIndex={-1}
-                className={cn(
-                  "min-w-0 max-w-full space-y-2 px-1 outline-none",
-                  tourSectionClassName("readiness"),
-                )}
-              >
+              <section className="min-w-0 max-w-full space-y-2 px-1">
                 {sectionLabel("Device readiness")}
                 <div
                   className={cn(
@@ -3189,9 +3022,6 @@ function OneLocationAgentPageContent() {
                       <h3 className="break-words text-[16px] font-bold tracking-tight [overflow-wrap:anywhere]">
                         {locationReadiness.title}
                       </h3>
-                      <p className="mt-1 break-words text-[13px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
-                        {locationReadiness.description}
-                      </p>
                     </div>
                   </div>
                   {locationReadiness.actionLabel ? (
@@ -3215,40 +3045,21 @@ function OneLocationAgentPageContent() {
                 </div>
 
                 <div className="overflow-hidden rounded-[20px] border border-black/[0.06] bg-white shadow-[0_2px_12px_rgba(15,23,42,0.06)] dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_30px_rgba(0,0,0,0.22)]">
-                  <div className="flex min-w-0 flex-col gap-3 p-3.5 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#eaf3ff] text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]">
-                        <LocateFixed className="h-5 w-5" aria-hidden="true" />
-                      </span>
-                      <div className="min-w-0">
-                        <h3 className="break-words text-[16px] font-bold tracking-tight text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">
-                          My live location
-                        </h3>
-                        <p className="mt-1 break-words text-[13px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
-                          Preview your current GPS location privately before you
-                          share it with anyone.
-                        </p>
-                      </div>
-                    </div>
+                  <div className="p-3.5">
                     <Button
                       type="button"
-                      variant={myLocationPoint ? "outline" : "default"}
+                      variant="default"
                       size="sm"
                       onClick={() => void handleShowMyLiveLocation()}
                       disabled={busy !== null && busy !== "selfLocation"}
-                      className={cn(
-                        "h-10 w-full shrink-0 rounded-full px-4 text-[13px] font-semibold sm:w-auto",
-                        myLocationPoint
-                          ? "border-[#0a84ff]/30 bg-[#0a84ff]/10 text-[#0066cc] hover:bg-[#0a84ff]/15 dark:text-[#76b7ff]"
-                          : "bg-[#007aff] text-white hover:bg-[#006fe6]",
-                      )}
+                      className="h-11 w-full shrink-0 rounded-full bg-[#007aff] px-4 text-[14px] font-semibold text-white hover:bg-[#006fe6]"
                     >
                       {busy === "selfLocation" ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
                       ) : (
                         <LocateFixed className="mr-2 h-4 w-4" aria-hidden="true" />
                       )}
-                      {myLocationPoint ? "Refresh my location" : "Show my location"}
+                      {myLocationPoint ? "Refresh location" : "Show my location"}
                     </Button>
                   </div>
 
@@ -3259,58 +3070,14 @@ function OneLocationAgentPageContent() {
                   ) : null}
 
                   {myLocationPoint ? (
-                    <div className="space-y-2 px-3.5 pb-3.5">
+                    <div className="px-3.5 pb-3.5">
                       <LocalMapPreview point={myLocationPoint} />
-                      <p className="text-[12px] font-medium leading-5 text-[#8e8e93] dark:text-white/55">
-                        This preview stays on this device. It does not create a
-                        private grant, public link, or access request.
-                      </p>
                     </div>
-                  ) : (
-                    <div className="mx-3.5 mb-3.5 rounded-[16px] border border-dashed border-black/[0.08] bg-[#f8f8fb] p-3 text-[13px] font-medium leading-5 text-[#8e8e93] dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-white/55">
-                      This preview stays on this device. It does not create a
-                      private grant, public link, or access request.
-                    </div>
-                  )}
+                  ) : null}
                 </div>
               </section>
 
-              <section
-                ref={promisesTourRef}
-                tabIndex={-1}
-                className={cn(
-                  "min-w-0 max-w-full space-y-3 px-1 outline-none",
-                  tourSectionClassName("promises"),
-                )}
-              >
-                <PromiseCard
-                  icon={LocateFixed}
-                  title="Chosen People"
-                  description="Only selected contacts can see your location."
-                  tone="blue"
-                />
-                <PromiseCard
-                  icon={ShieldCheck}
-                  title="Approval First"
-                  description="Every location request needs approval."
-                  tone="green"
-                />
-                <PromiseCard
-                  icon={KeyRound}
-                  title="Stop Anytime"
-                  description="Change access, set a time limit, or stop sharing anytime."
-                  tone="orange"
-                />
-              </section>
-
-              <section
-                ref={oneNetworkTourRef}
-                tabIndex={-1}
-                className={cn(
-                  "min-w-0 max-w-full space-y-4 px-1 outline-none",
-                  tourSectionClassName("one_network"),
-                )}
-              >
+              <section className="min-w-0 max-w-full space-y-4 px-1">
                 <SegmentedModeControl
                   value={activeMode}
                   onChange={setActiveMode}
@@ -3318,7 +3085,7 @@ function OneLocationAgentPageContent() {
 
                 <div className="min-w-0 max-w-full space-y-2">
                   {sectionLabel("One Network")}
-                  <div className="flex max-w-full gap-4 overflow-x-auto overscroll-x-contain px-1 pb-2 pt-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="flex max-w-full gap-4 overflow-x-auto overscroll-x-contain px-1 pb-2 pt-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/20 dark:[&::-webkit-scrollbar-thumb]:bg-white/20">
                     {rankedRecipients.length ? (
                       rankedRecipients.map((recipient, index) => {
                         const label = displayNameFromRecipient(recipient);
@@ -3401,63 +3168,8 @@ function OneLocationAgentPageContent() {
                     />
                   </div>
 
-                  <div
-                    aria-label="One Network section states"
-                    className="grid min-w-0 max-w-full gap-2 sm:grid-cols-2"
-                  >
-                    {kaiCircleSections.map((section) => {
-                      const emptyCopy =
-                        KAI_CIRCLE_SECTION_EMPTY_COPY[section.key];
-                      return (
-                        <div
-                          key={section.key}
-                          className="min-w-0 max-w-full overflow-hidden rounded-[14px] border border-black/[0.04] bg-white/70 p-3 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.06]"
-                        >
-                          {sectionLabel(section.title, section.recipients.length)}
-                          <p className="mt-1 break-words text-[12px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
-                            {section.recipients.length
-                              ? section.description
-                              : `${emptyCopy.title}. ${emptyCopy.description}`}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div
-                    ref={contactSignalTourRef}
-                    tabIndex={-1}
-                    className={cn(
-                      "min-w-0 max-w-full overflow-hidden rounded-[14px] border border-black/[0.04] bg-white/70 p-3 shadow-sm outline-none dark:border-white/[0.08] dark:bg-white/[0.06]",
-                      tourSectionClassName("contact_signal"),
-                    )}
-                  >
-                    <div className="flex items-start gap-3">
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#eaf9ef] text-[#2dbd5a] dark:bg-emerald-400/15 dark:text-emerald-200">
-                        <ContactRound className="h-4 w-4" aria-hidden="true" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-[14px] font-bold tracking-tight text-[#1c1c1e] dark:text-white">
-                            Mobile contact signal
-                          </h3>
-                          <span className="rounded-full bg-[#f2f2f7] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#636366] dark:bg-white/10 dark:text-white/65">
-                            {contactSignalStatusLabel(contactSignal.status)}
-                          </span>
-                        </div>
-                        <p className="mt-1 break-words text-[12px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
-                          {contactSignalSummary(contactSignal)}
-                        </p>
-                        {contactSignal.status === "matched" ||
-                        contactSignal.status === "empty" ? (
-                          <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8e8e93] dark:text-white/45">
-                            {contactSignal.matchedCount} matched /{" "}
-                            {contactSignal.inviteCandidateCount} invite-ready
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <div className="min-w-0 max-w-full overflow-hidden rounded-[14px] border border-black/[0.04] bg-white/70 p-3 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.06]">
+                    <div className="grid gap-2 sm:grid-cols-2">
                       <ActionButton
                         busy={busy}
                         busyKey="contactSync"
@@ -3482,14 +3194,21 @@ function OneLocationAgentPageContent() {
                         {busy !== "contactInvite" ? (
                           <Send className="mr-2 h-4 w-4" aria-hidden="true" />
                         ) : null}
-                        Invite Contacts
+                        Share to Contacts
                       </ActionButton>
                     </div>
                   </div>
 
-                  <div className={onePanelClassName}>
+                  <div
+                    id="one-network-contact-list"
+                    className={
+                      showExpandedOneNetworkList
+                        ? oneScrollablePanelClassName
+                        : onePanelClassName
+                    }
+                  >
                     {visibleRecipients.length ? (
-                      visibleRecipients.map((recipient, index) => {
+                      displayedVisibleRecipients.map((recipient, index) => {
                         const label = displayNameFromRecipient(recipient);
                         const selected =
                           activeMode === "share"
@@ -3592,14 +3311,33 @@ function OneLocationAgentPageContent() {
                     )}
                   </div>
 
-                  <div
-                    ref={shareRequestTourRef}
-                    tabIndex={-1}
-                    className={cn(
-                      "outline-none",
-                      tourSectionClassName("share_request"),
-                    )}
-                  >
+                  {hasMoreVisibleRecipients ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      aria-controls="one-network-contact-list"
+                      aria-expanded={showExpandedOneNetworkList}
+                      onClick={() =>
+                        setOneNetworkListExpanded((expanded) => !expanded)
+                      }
+                      className="h-9 w-full rounded-full border-black/[0.06] bg-white text-[13px] font-semibold text-[#007aff] shadow-sm hover:bg-[#f2f2f7] dark:border-white/[0.08] dark:bg-white/10 dark:text-[#76b7ff] dark:hover:bg-white/15"
+                    >
+                      {showExpandedOneNetworkList ? (
+                        <ChevronUp className="mr-2 h-4 w-4" aria-hidden="true" />
+                      ) : (
+                        <ChevronDown
+                          className="mr-2 h-4 w-4"
+                          aria-hidden="true"
+                        />
+                      )}
+                      {showExpandedOneNetworkList
+                        ? "Show less"
+                        : `View more (${visibleRecipients.length - ONE_NETWORK_PREVIEW_LIMIT})`}
+                    </Button>
+                  ) : null}
+
+                  <div>
                     {activeMode === "share" ? (
                       <div className="space-y-3">
                       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_160px]">
@@ -3812,105 +3550,101 @@ function OneLocationAgentPageContent() {
               </section>
             </div>
 
-            <div
-              ref={accessHistoryTourRef}
-              tabIndex={-1}
-              className={cn(
-                "min-w-0 max-w-full space-y-6 outline-none",
-                tourSectionClassName("access_history"),
-              )}
-            >
-              <section
-                ref={activitySectionRef}
-                tabIndex={-1}
-                className={cn(
-                  "min-w-0 max-w-full outline-none",
-                  sectionFocusClassName("activity"),
-                  tourSectionClassName("activity"),
-                )}
-              >
-                <OneLocationActivityDashboard
-                  activity={locationActivity}
-                  range={activityRange}
-                  loading={activityLoading}
-                  error={activityError}
-                  onRangeChange={(value) => {
-                    setActivityRange(value);
-                    setActivitySnapshot(null);
-                  }}
-                />
-              </section>
-
-              <section
-                ref={peopleSectionRef}
-                tabIndex={-1}
-                className={cn("min-w-0 max-w-full space-y-2 px-1 outline-none", sectionFocusClassName("people"))}
-              >
-                {sectionLabel("People who can see me")}
-                <div className={onePanelClassName}>
-                  {(state?.ownerGrants ?? []).length ? (
-                    state?.ownerGrants.map((grant, index) => (
-                      <div
-                        key={grant.id}
-                        className="relative flex min-w-0 max-w-full flex-col gap-3 overflow-hidden p-3.5 after:absolute after:bottom-0 after:left-[62px] after:right-0 after:border-b after:border-black/[0.05] sm:flex-row sm:items-center last:after:hidden dark:after:border-white/[0.08]"
-                      >
-                        <AvatarBubble
-                          label={grantCounterpartyLabel(grant)}
-                          index={index}
-                          size="sm"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <h3 className="break-words text-[16px] font-medium tracking-tight text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">
-                            {grantCounterpartyLabel(grant)}
-                          </h3>
-                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                            <Badge variant={statusVariant(grant.status)}>
-                              {grant.status}
-                            </Badge>
-                            <span className="min-w-0 break-words text-[12px] font-medium text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
-                              {expiresLabel(grant)} - {grant.durationHours}h
-                            </span>
-                          </div>
-                        </div>
-                        {grant.status === "active" ? (
-                          <div className="flex w-full shrink-0 justify-end gap-1.5 sm:w-auto">
-                            <Button
-                              aria-label="Update share"
-                              variant="outline"
-                              size="icon"
-                              onClick={() => void handlePublish(grant)}
-                              disabled={busy === "publish"}
-                              className="h-8 w-8 rounded-full border-0 bg-[#f2f2f7] text-[#8e8e93] hover:bg-[#e5e5ea] dark:bg-white/10 dark:text-white/55 dark:hover:bg-white/15"
-                            >
-                              {busy === "publish" ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Pencil className="h-4 w-4" />
-                              )}
-                            </Button>
-                            <Button
-                              aria-label={`Revoke access for ${grantCounterpartyLabel(grant)}`}
-                              variant="outline"
-                              size="icon"
-                              onClick={() => void handleRevoke(grant.id)}
-                              disabled={busy === "revoke"}
-                              className="h-8 w-8 rounded-full border-0 bg-[#ff3b30]/10 text-[#ff3b30] hover:bg-[#ff3b30]/20 dark:bg-[#ff453a]/15 dark:text-[#ff9f9a]"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ) : null}
-                      </div>
-                    ))
-                  ) : (
-                    <EmptyOneState
-                      icon={UsersRound}
-                      title="No active shares"
-                      description="Create one encrypted grant when you need a trusted person to see you."
-                    />
+            <div className="min-w-0 max-w-full space-y-6">
+              {SHOW_LOCATION_ACTIVITY_SECTION ? (
+                <section
+                  ref={activitySectionRef}
+                  tabIndex={-1}
+                  className={cn(
+                    "min-w-0 max-w-full outline-none",
+                    sectionFocusClassName("activity"),
                   )}
-                </div>
-              </section>
+                >
+                  <OneLocationActivityDashboard
+                    activity={locationActivity}
+                    range={activityRange}
+                    loading={activityLoading}
+                    error={activityError}
+                    onRangeChange={(value) => {
+                      setActivityRange(value);
+                      setActivitySnapshot(null);
+                    }}
+                  />
+                </section>
+              ) : null}
+
+              {SHOW_OWNER_GRANTS_SECTION ? (
+                <section
+                  ref={peopleSectionRef}
+                  tabIndex={-1}
+                  className={cn("min-w-0 max-w-full space-y-2 px-1 outline-none", sectionFocusClassName("people"))}
+                >
+                  {sectionLabel("People who can see me")}
+                  <div className={oneScrollablePanelClassName}>
+                    {(state?.ownerGrants ?? []).length ? (
+                      state?.ownerGrants.map((grant, index) => (
+                        <div
+                          key={grant.id}
+                          className="relative flex min-w-0 max-w-full flex-col gap-3 overflow-hidden p-3.5 after:absolute after:bottom-0 after:left-[62px] after:right-0 after:border-b after:border-black/[0.05] sm:flex-row sm:items-center last:after:hidden dark:after:border-white/[0.08]"
+                        >
+                          <AvatarBubble
+                            label={grantCounterpartyLabel(grant)}
+                            index={index}
+                            size="sm"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <h3 className="break-words text-[16px] font-medium tracking-tight text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">
+                              {grantCounterpartyLabel(grant)}
+                            </h3>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                              <Badge variant={statusVariant(grant.status)}>
+                                {grant.status}
+                              </Badge>
+                              <span className="min-w-0 break-words text-[12px] font-medium text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+                                {expiresLabel(grant)} - {grant.durationHours}h
+                              </span>
+                            </div>
+                          </div>
+                          {grant.status === "active" ? (
+                            <div className="flex w-full shrink-0 justify-end gap-1.5 sm:w-auto">
+                              <Button
+                                aria-label="Update share"
+                                variant="outline"
+                                size="icon"
+                                onClick={() => void handlePublish(grant)}
+                                disabled={busy === "publish"}
+                                className="h-8 w-8 rounded-full border-0 bg-[#f2f2f7] text-[#8e8e93] hover:bg-[#e5e5ea] dark:bg-white/10 dark:text-white/55 dark:hover:bg-white/15"
+                              >
+                                {busy === "publish" ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Pencil className="h-4 w-4" />
+                                )}
+                              </Button>
+                              <Button
+                                aria-label={`Revoke access for ${grantCounterpartyLabel(grant)}`}
+                                variant="outline"
+                                size="icon"
+                                onClick={() => void handleRevoke(grant.id)}
+                                disabled={busy === "revoke"}
+                                className="h-8 w-8 rounded-full border-0 bg-[#ff3b30]/10 text-[#ff3b30] hover:bg-[#ff3b30]/20 dark:bg-[#ff453a]/15 dark:text-[#ff9f9a]"
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ))
+                    ) : (
+                      <EmptyOneState
+                        icon={UsersRound}
+                        title="No active shares"
+                        description="Create one encrypted grant when you need a trusted person to see you."
+                      />
+                    )}
+                  </div>
+                </section>
+              ) : null}
 
               <section
                 ref={approvalsSectionRef}
@@ -3920,7 +3654,7 @@ function OneLocationAgentPageContent() {
                 {sectionLabel("Approvals", pendingOwnerRequests.length)}
                 <div
                   className={cn(
-                    onePanelClassName,
+                    oneScrollablePanelClassName,
                     pendingOwnerRequests.length &&
                       "relative before:absolute before:bottom-0 before:left-0 before:top-0 before:w-1 before:bg-[#ff3b30]",
                   )}
@@ -3973,10 +3707,6 @@ function OneLocationAgentPageContent() {
               <section className="min-w-0 max-w-full space-y-2 px-1">
                 {sectionLabel("Create public link")}
                 <div className={cn(onePanelClassName, "space-y-4 p-3.5")}>
-                  <p className="break-words text-[13px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
-                    Share a public location link. Visitors enter their details
-                    and can view this link's captured location.
-                  </p>
                   <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_150px]">
                     <div className={cn(oneInsetClassName, "min-w-0 px-3 py-2 text-sm")}>
                       <span className={cn(oneSecondaryTextClassName, "break-all")}>
@@ -4030,34 +3760,29 @@ function OneLocationAgentPageContent() {
                       Copy
                     </Button>
                   </div>
-                  {activePublicInvites.length ? (
+                  {latestActivePublicInvite ? (
                     <div className="space-y-2">
-                      {activePublicInvites.map((invite) => (
-                        <div
-                          key={invite.id}
-                          className="flex flex-col gap-3 rounded-[14px] bg-[#f2f2f7] p-3 sm:flex-row sm:items-center sm:justify-between dark:bg-white/10"
-                        >
-                          <div className="min-w-0">
-                            <p className="text-[14px] font-semibold text-[#1c1c1e] dark:text-white">
-                              Active public location link
-                            </p>
-                            <p className="break-words text-[12px] text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
-                              Public viewing expires{" "}
-                              {formatDateTime(invite.expiresAt)} -{" "}
-                              {invite.durationHours}h
-                            </p>
-                          </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void handleRevokePublicInvite(invite)}
-                            disabled={busy === "publicRevoke"}
-                            className="w-full rounded-full sm:w-auto"
-                          >
-                            Revoke
-                          </Button>
+                      <div className="flex flex-col gap-3 rounded-[14px] bg-[#f2f2f7] p-3 sm:flex-row sm:items-center sm:justify-between dark:bg-white/10">
+                        <div className="min-w-0">
+                          <p className="text-[14px] font-semibold text-[#1c1c1e] dark:text-white">
+                            Latest active public link
+                          </p>
+                          <p className="break-words text-[12px] text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+                            Expires {formatDateTime(latestActivePublicInvite.expiresAt)}
+                          </p>
                         </div>
-                      ))}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            void handleRevokePublicInvite(latestActivePublicInvite)
+                          }
+                          disabled={busy === "publicRevoke"}
+                          className="w-full rounded-full sm:w-auto"
+                        >
+                          Revoke
+                        </Button>
+                      </div>
                     </div>
                   ) : null}
                 </div>
@@ -4069,7 +3794,7 @@ function OneLocationAgentPageContent() {
                 className={cn("min-w-0 max-w-full space-y-2 px-1 outline-none", sectionFocusClassName("shared"))}
               >
                 {sectionLabel("Shared with me")}
-                <div className={onePanelClassName}>
+                <div className={oneScrollablePanelClassName}>
                   {visibleReceivedGrants.length ? (
                     visibleReceivedGrants.map((grant, index) => {
                       const point = decryptedPoints[grant.id];
@@ -4140,108 +3865,112 @@ function OneLocationAgentPageContent() {
                 </div>
               </section>
 
-              <section
-                ref={publicResponsesSectionRef}
-                tabIndex={-1}
-                className={cn("min-w-0 max-w-full space-y-2 px-1 outline-none", sectionFocusClassName("public_responses"))}
-              >
-                {sectionLabel("Public link responses")}
-                <div className={onePanelClassName}>
-                  {publicSubmissions.length ? (
-                    publicSubmissions.map((submission) => (
-                      <div
-                        key={submission.id}
-                        className="flex min-w-0 max-w-full flex-col gap-3 overflow-hidden p-3.5 sm:flex-row sm:items-center"
-                      >
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f2f2f7] text-[#8e8e93] dark:bg-white/10 dark:text-white/55">
-                          <ExternalLink className="h-[18px] w-[18px]" />
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <h3 className="break-words text-[16px] font-medium text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">
-                            {publicSubmissionLabel(submission)}
-                          </h3>
-                          <p className="break-words text-[12px] text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
-                            {submission.message ||
-                              `Status ${submission.status} - ${formatDateTime(submission.submittedAt)}`}
-                          </p>
-                        </div>
-                        <Badge variant={statusVariant(submission.status)}>
-                          {submission.requestStatus || submission.status}
-                        </Badge>
-                      </div>
-                    ))
-                  ) : (
-                    <EmptyOneState
-                      icon={ExternalLink}
-                      title="No public responses"
-                      description="Responses from your public location link show up here after visitors open it."
-                    />
-                  )}
-                </div>
-              </section>
-
-              <section className="min-w-0 max-w-full space-y-2 px-1">
-                {sectionLabel("Refer someone else")}
-                <div className={cn(onePanelClassName, "p-3.5")}>
-                  {(state?.receivedGrants ?? []).filter(
-                    (grant) => grant.status === "active",
-                  ).length ? (
-                    state?.receivedGrants
-                      .filter((grant) => grant.status === "active")
-                      .map((grant) => (
+              {SHOW_PUBLIC_RESPONSES_SECTION ? (
+                <section
+                  ref={publicResponsesSectionRef}
+                  tabIndex={-1}
+                  className={cn("min-w-0 max-w-full space-y-2 px-1 outline-none", sectionFocusClassName("public_responses"))}
+                >
+                  {sectionLabel("Public link responses")}
+                  <div className={oneScrollablePanelClassName}>
+                    {publicSubmissions.length ? (
+                      publicSubmissions.map((submission) => (
                         <div
-                          key={grant.id}
-                          className="grid min-w-0 max-w-full gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"
+                          key={submission.id}
+                          className="flex min-w-0 max-w-full flex-col gap-3 overflow-hidden p-3.5 sm:flex-row sm:items-center"
                         >
-                          <Select
-                            value={referralTargets[grant.id] || ""}
-                            onValueChange={(value) =>
-                              setReferralTargets((current) => ({
-                                ...current,
-                                [grant.id]: value,
-                              }))
-                            }
-                          >
-                            <SelectTrigger className="h-10 w-full rounded-[12px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]">
-                              <SelectValue placeholder="Select referred person" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {recipients
-                                .filter(
-                                  (recipient) =>
-                                    recipient.userId !== grant.ownerUserId,
-                                )
-                                .map((recipient) => (
-                                  <SelectItem
-                                    key={recipient.userId}
-                                    value={recipient.userId}
-                                  >
-                                    {recipientLabel(recipient)}
-                                  </SelectItem>
-                                ))}
-                            </SelectContent>
-                          </Select>
-                          <ActionButton
-                            busy={busy}
-                            busyKey="refer"
-                            variant="outline"
-                            onClick={() => void handleRefer(grant)}
-                            disabled={!referralTargets[grant.id]}
-                            className="w-full min-w-0 rounded-full sm:w-auto"
-                          >
-                            Refer
-                          </ActionButton>
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f2f2f7] text-[#8e8e93] dark:bg-white/10 dark:text-white/55">
+                            <ExternalLink className="h-[18px] w-[18px]" />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <h3 className="break-words text-[16px] font-medium text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">
+                              {publicSubmissionLabel(submission)}
+                            </h3>
+                            <p className="break-words text-[12px] text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+                              {submission.message ||
+                                `Status ${submission.status} - ${formatDateTime(submission.submittedAt)}`}
+                            </p>
+                          </div>
+                          <Badge variant={statusVariant(submission.status)}>
+                            {submission.requestStatus || submission.status}
+                          </Badge>
                         </div>
                       ))
-                  ) : (
-                    <EmptyOneState
-                      icon={UsersRound}
-                      title="No active received grant"
-                      description="You can refer only from an active share, and the owner still decides."
-                    />
-                  )}
-                </div>
-              </section>
+                    ) : (
+                      <EmptyOneState
+                        icon={ExternalLink}
+                        title="No public responses"
+                        description="Responses from your public location link show up here after visitors open it."
+                      />
+                    )}
+                  </div>
+                </section>
+              ) : null}
+
+              {SHOW_REFERRAL_SECTION ? (
+                <section className="min-w-0 max-w-full space-y-2 px-1">
+                  {sectionLabel("Refer someone else")}
+                  <div className={cn(onePanelClassName, "p-3.5")}>
+                    {(state?.receivedGrants ?? []).filter(
+                      (grant) => grant.status === "active",
+                    ).length ? (
+                      state?.receivedGrants
+                        .filter((grant) => grant.status === "active")
+                        .map((grant) => (
+                          <div
+                            key={grant.id}
+                            className="grid min-w-0 max-w-full gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"
+                          >
+                            <Select
+                              value={referralTargets[grant.id] || ""}
+                              onValueChange={(value) =>
+                                setReferralTargets((current) => ({
+                                  ...current,
+                                  [grant.id]: value,
+                                }))
+                              }
+                            >
+                              <SelectTrigger className="h-10 w-full rounded-[12px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]">
+                                <SelectValue placeholder="Select referred person" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {recipients
+                                  .filter(
+                                    (recipient) =>
+                                      recipient.userId !== grant.ownerUserId,
+                                  )
+                                  .map((recipient) => (
+                                    <SelectItem
+                                      key={recipient.userId}
+                                      value={recipient.userId}
+                                    >
+                                      {recipientLabel(recipient)}
+                                    </SelectItem>
+                                  ))}
+                              </SelectContent>
+                            </Select>
+                            <ActionButton
+                              busy={busy}
+                              busyKey="refer"
+                              variant="outline"
+                              onClick={() => void handleRefer(grant)}
+                              disabled={!referralTargets[grant.id]}
+                              className="w-full min-w-0 rounded-full sm:w-auto"
+                            >
+                              Refer
+                            </ActionButton>
+                          </div>
+                        ))
+                    ) : (
+                      <EmptyOneState
+                        icon={UsersRound}
+                        title="No active received grant"
+                        description="You can refer only from an active share, and the owner still decides."
+                      />
+                    )}
+                  </div>
+                </section>
+              ) : null}
 
               {requestedByMe.length ? (
                 <section
@@ -4250,7 +3979,7 @@ function OneLocationAgentPageContent() {
                   className={cn("min-w-0 max-w-full space-y-2 px-1 outline-none", sectionFocusClassName("my_requests"))}
                 >
                   {sectionLabel("My requests")}
-                  <div className={onePanelClassName}>
+                  <div className={oneScrollablePanelClassName}>
                     {requestedByMe.map((request) => (
                       <div
                         key={request.id}
@@ -4280,14 +4009,6 @@ function OneLocationAgentPageContent() {
           </div>
         )}
       </AppPageContentRegion>
-
-      {showOnboarding && (
-        <OneLocationOnboardingOverlay
-          onDismiss={dismissOnboarding}
-          onStepChange={setActiveTourStep}
-          targets={onboardingTourTargets}
-        />
-      )}
     </AppPageShell>
   );
 }

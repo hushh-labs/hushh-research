@@ -421,18 +421,15 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     expect(
-      await screen.findByRole("heading", { name: "People who can see me" }),
+      await screen.findByRole("heading", { name: "One Network" }),
     ).toBeTruthy();
     expect(
       screen.queryByRole("heading", { name: "Proximity alerts" }),
     ).toBeNull();
     expect(screen.queryByText("Advisor meetup")).toBeNull();
     expect(screen.queryAllByText("Trusted B").length).toBeGreaterThan(0);
-    expect(
-      screen.getByRole("heading", { name: /Professional Network/ }),
-    ).toBeTruthy();
-    expect(screen.getByText("No approvals waiting. New location requests and pending decisions will appear here.")).toBeTruthy();
-    expect(screen.getByText("No ready One users yet. One users with location keys will appear here.")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Create public link" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Shared with me" })).toBeTruthy();
     expect(screen.queryByText(/8012|9911/)).toBeNull();
     expect(screen.getByText("Share Encrypted Update")).toBeTruthy();
     expect(mockRegisterKey).toHaveBeenCalledWith({
@@ -444,27 +441,14 @@ describe("OneLocationAgentPage", () => {
     expect(mockSyncCurrentUser).toHaveBeenCalledWith({ uid: "user_a" });
   });
 
-  it("opens the section guided tour and lets the user skip it", async () => {
+  it("does not render the removed onboarding tour", async () => {
     render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    fireEvent.click(
-      screen.getByRole("button", { name: /Show onboarding tour/i }),
-    );
-
+    expect(screen.queryByRole("button", { name: /Show onboarding tour/i })).toBeNull();
     expect(
-      await screen.findByRole("dialog", { name: /One Location guided tour/i }),
-    ).toBeTruthy();
-    expect(screen.getByText("Check location readiness")).toBeTruthy();
-    expect(screen.getByText(/Highlighting: Device readiness/i)).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: /^Skip$/i }));
-
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("dialog", { name: /One Location guided tour/i }),
-      ).toBeNull(),
-    );
+      screen.queryByRole("dialog", { name: /One Location guided tour/i }),
+    ).toBeNull();
   });
 
   it("previews my live location without creating a share, request, or public link", async () => {
@@ -477,7 +461,6 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    expect(screen.getByText("My live location")).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: /Show my location/i }),
     );
@@ -487,7 +470,6 @@ describe("OneLocationAgentPage", () => {
     expect(mapPreview.getAttribute("src")).toContain(
       "https://www.google.com/maps?q=28.613900%2C77.209000",
     );
-    expect(screen.getByText(/This preview stays on this device/i)).toBeTruthy();
     expect(mockCreateGrant).not.toHaveBeenCalled();
     expect(mockRequestAccess).not.toHaveBeenCalled();
     expect(mockCreatePublicInvite).not.toHaveBeenCalled();
@@ -588,28 +570,17 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
     expect(screen.getByText("Create public link")).toBeTruthy();
-    expect(screen.getByText("Public link responses")).toBeTruthy();
-    expect(screen.getByText(/Share a public location link/i)).toBeTruthy();
+    expect(screen.queryByText("Public link responses")).toBeNull();
+    expect(screen.queryByText(/Share a public location link/i)).toBeNull();
     expect(screen.queryByText(/whatsapp/i)).toBeNull();
   });
 
-  it("renders activity history from the One Location activity API without phone-derived labels", async () => {
+  it("keeps location activity hidden in the compact mobile flow", async () => {
     render(<OneLocationAgentPage />);
 
-    await waitFor(() =>
-      expect(mockGetActivity).toHaveBeenCalledWith({
-        vaultOwnerToken: "vault-token",
-        range: "30d",
-      }),
-    );
-
-    expect(screen.getByRole("heading", { name: "Location activity" })).toBeTruthy();
-    expect(screen.getByText("Activity history")).toBeTruthy();
-    expect(await screen.findByText("Viewed by Trusted B")).toBeTruthy();
-    expect(screen.getByText("Shared with Trusted B")).toBeTruthy();
-    expect(screen.getByText("Request from Advisor C")).toBeTruthy();
-    expect(screen.getByText("Response from Visitor Alpha")).toBeTruthy();
-    expect(screen.getByLabelText(/One Location activity chart/i)).toBeTruthy();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    expect(screen.queryByRole("heading", { name: "Location activity" })).toBeNull();
+    expect(screen.queryByText("Activity history")).toBeNull();
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
   });
 
@@ -1096,7 +1067,6 @@ describe("OneLocationAgentPage", () => {
       }),
     );
     expect(await screen.findByText("In your contacts")).toBeTruthy();
-    expect(screen.getByText(/1 matched \/ 7 invite-ready/i)).toBeTruthy();
     expect(screen.queryByText(/9911|8012|4455/)).toBeNull();
     expect(mockTrackEvent).toHaveBeenCalledWith(
       "one_location_contact_signal_synced",
@@ -1115,7 +1085,7 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: /Invite Contacts/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Share to Contacts/i }));
 
     await waitFor(() => expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1));
     expect(mockCreatePublicInvite).toHaveBeenCalledWith({
@@ -1131,19 +1101,14 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("revokes an active grant from the visible owner list", async () => {
+  it("does not show owner-grant revoke actions in the compact mobile flow", async () => {
     render(<OneLocationAgentPage />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    fireEvent.click(
-      screen.getByRole("button", { name: /Revoke access for Trusted B/i }),
-    );
-
-    await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalledTimes(1));
-    expect(mockRevokeGrant).toHaveBeenCalledWith({
-      vaultOwnerToken: "vault-token",
-      grantId: "grant_1",
-    });
+    expect(
+      screen.queryByRole("button", { name: /Revoke access for Trusted B/i }),
+    ).toBeNull();
+    expect(mockRevokeGrant).not.toHaveBeenCalled();
   });
 
   it("blocks share actions when browser location permission is denied", async () => {
@@ -1164,7 +1129,8 @@ describe("OneLocationAgentPage", () => {
     const shareButton = screen.getByRole("button", {
       name: /Review Share/i,
     }) as HTMLButtonElement;
-    expect(shareButton.disabled).toBe(true);
+    fireEvent.click(shareButton);
+    await waitFor(() => expect(mockCaptureCurrentPosition).not.toHaveBeenCalled());
     expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 
@@ -1205,11 +1171,11 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     expect(screen.getByText("One Network is empty")).toBeTruthy();
-    expect(screen.getByText(/No approvals waiting/)).toBeTruthy();
-    expect(screen.getByText(/No trusted matches yet/)).toBeTruthy();
-    expect(screen.getByText(/No professional signals yet/)).toBeTruthy();
-    expect(screen.getByText(/No ready One users yet/)).toBeTruthy();
-    expect(screen.getByText(/No setup blockers/)).toBeTruthy();
+    expect(screen.queryByText(/No approvals waiting/)).toBeNull();
+    expect(screen.queryByText(/No trusted matches yet/)).toBeNull();
+    expect(screen.queryByText(/No professional signals yet/)).toBeNull();
+    expect(screen.queryByText(/No ready One users yet/)).toBeNull();
+    expect(screen.queryByText(/No setup blockers/)).toBeNull();
     expect(
       screen.getByRole("button", { name: /Create public link/i }),
     ).toBeTruthy();

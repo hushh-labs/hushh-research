@@ -156,11 +156,12 @@ resolve intake.
 ### One Location Agent
 
 One Location Agent is One-owned live-location sharing for trusted people. The
-route family is authenticated and ciphertext-only for all live-location reads.
-Public bearer links that reveal location, server-readable latitude/longitude,
-reverse geocoding, map thumbnails, and movement trails do not belong in this
-contract. Scope-2 public links are request-only: they collect visitor metadata
-and route the workflow back to owner approval; they never reveal live location.
+authenticated route family is ciphertext-only for approved live-location reads.
+Snapshot-backed public links are explicit, duration-bounded bearer links created
+by the owner to show one captured public location directly. Request-only public
+links without an owner-attached snapshot remain metadata-only and route the
+workflow back to owner approval. Public links must not expose private grants,
+ciphertext, movement trails, raw owner identity, or reverse-geocoded enrichment.
 The maintained architecture reference is
 [One Location Agent](./one-location-agent.md).
 
@@ -173,8 +174,8 @@ not the product owner for live location.
 | GET | `/api/one/location/recipients` | VAULT_OWNER Bearer | List phone-verified users excluding self, with masked labels and active public key metadata only |
 | POST | `/api/one/location/recipient-keys` | VAULT_OWNER Bearer | Register the authenticated user's recipient public key; private key remains device-local |
 | POST | `/api/one/location/public-invites` | VAULT_OWNER Bearer | Create a duration-bounded public request link; the raw token is returned once and only its hash is stored |
-| GET | `/api/one/location/public-invites/{public_token}` | Public | Resolve request-link metadata only: safe owner label, status, duration, and expiry |
-| POST | `/api/one/location/public-invites/{public_token}/submit` | Public | Submit visitor name, phone, and optional message as metadata-only request intent; creates an owner approval request only for matched verified/keyed Hussh users; response stays submission-only |
+| GET | `/api/one/location/public-invites/{public_token}` | Public | Resolve safe owner label, status, duration, expiry, and the attached `publicLocation` snapshot when the owner created a public location link |
+| POST | `/api/one/location/public-invites/{public_token}/submit` | Public | Legacy/request-only visitor intake; submit visitor name, phone, and optional message as metadata-only request intent for links without public location snapshots |
 | DELETE | `/api/one/location/public-invites/{invite_id}` | VAULT_OWNER Bearer | Revoke an active public request link |
 | POST | `/api/one/location/grants` | VAULT_OWNER Bearer | Create a duration-bounded owner-approved grant for one verified recipient identity/key |
 | POST | `/api/one/location/grants/{grant_id}/envelopes` | VAULT_OWNER Bearer | Store the owner-device encrypted latest-location envelope; backend receives ciphertext and metadata only |
