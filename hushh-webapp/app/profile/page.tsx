@@ -3447,7 +3447,7 @@ function ProfilePageContent() {
 
         {vaultAccess.hasVault && loadingVaultMethod ? (
           <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
-            <Icon icon={Loader2} size="sm" className="animate-spin" />
+            <Icon aria-hidden="true" icon={Loader2} size="sm" className="animate-spin" />
             Loading vault methods...
           </SurfaceInset>
         ) : null}
@@ -3773,7 +3773,7 @@ function ProfilePageContent() {
           >
             {sendingSupportMessage ? (
               <>
-                <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" />
+                <Icon aria-hidden="true" icon={Loader2} size="sm" className="mr-2 animate-spin" />
                 Sending...
               </>
             ) : (
@@ -3837,7 +3837,7 @@ function ProfilePageContent() {
         >
           {savingFinancialContext ? (
             <>
-              <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" />
+              <Icon aria-hidden="true" icon={Loader2} size="sm" className="mr-2 animate-spin" />
               Saving...
             </>
           ) : (
@@ -4541,6 +4541,7 @@ function ProfilePageContent() {
                 {refreshingRegulatoryProfile ? (
                   <>
                     <Icon
+                      aria-hidden="true"
                       icon={Loader2}
                       size="sm"
                       className="mr-2 animate-spin"
