@@ -289,6 +289,9 @@ export function PkmDataManagerPanel({
           onChange={(event) => setSearchQuery(event.target.value)}
           placeholder="Search saved details"
           aria-label="Search saved details"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           className="h-10"
         />
       ) : null}

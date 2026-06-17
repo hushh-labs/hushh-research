@@ -80,6 +80,11 @@ function normalizeNativeBackendUrl(raw: string): string {
   if (Capacitor.getPlatform() !== "android") {
     return trimmed;
   }
+  if (
+    process.env.NEXT_PUBLIC_ANDROID_LOCAL_BACKEND_MODE === "adb_reverse"
+  ) {
+    return trimmed;
+  }
   const backendHost = hostFromUrl(trimmed);
   if (backendHost === "localhost") {
     return trimmed.replace("localhost", "10.0.2.2");

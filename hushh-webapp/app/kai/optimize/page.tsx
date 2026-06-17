@@ -769,7 +769,7 @@ export default function PortfolioHealthPage() {
                 
                 {/* LEFT COLUMN: Visual Analytics (The Graph) */}
                 <div className="relative p-6 md:p-8 bg-gradient-to-b from-muted/10 to-transparent">
-                  <div className="absolute top-4 left-4 md:top-6 md:left-6 text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/50">
+                  <div className="absolute top-4 left-4 md:top-6 md:left-6 text-[9px] font-semibold uppercase tracking-[0.2em] text-muted-foreground/50">
                     Health Radar
                   </div>
                   
@@ -825,11 +825,11 @@ export default function PortfolioHealthPage() {
                   <div className="flex justify-center gap-6 mt-[-10px]">
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-background/50 border border-border/5 backdrop-blur-sm">
                       <div className="w-2 h-2 rounded-full bg-[var(--color-current)]" />
-                      <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Current</span>
+                      <span className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">Current</span>
                     </div>
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-background/50 border border-border/5 backdrop-blur-sm">
                       <div className="w-2 h-2 rounded-full bg-[var(--color-optimized)]" />
-                      <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Optimized</span>
+                      <span className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">Optimized</span>
                     </div>
                   </div>
                 </div>
@@ -843,21 +843,21 @@ export default function PortfolioHealthPage() {
                       <div className="space-y-4">
                          {/* Header Row */}
                         <div className="flex flex-wrap items-center justify-between gap-3">
-                          <span className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em]">
+                          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.2em]">
                             Alpha Alignment
                           </span>
                           
                           {result.summary.projected_health_score && (
                             <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20">
-                               <span className="text-[9px] font-black uppercase tracking-wider text-emerald-500">Projected Goal</span>
-                               <span className="text-xs font-black text-emerald-500">{result.summary.projected_health_score.toFixed(0)}%</span>
+                               <span className="text-[9px] font-semibold uppercase tracking-wider text-emerald-500">Projected Goal</span>
+                               <span className="text-xs font-semibold text-emerald-500">{result.summary.projected_health_score.toFixed(0)}%</span>
                             </div>
                           )}
                         </div>
 
                         {/* Big Score Row */}
                         <div className="flex items-baseline gap-1">
-                          <span className="text-7xl font-black tracking-tighter text-foreground leading-none">
+                          <span className="text-[32px] font-medium tracking-normal text-foreground leading-none sm:text-[36px]">
                             {result.summary.health_score.toFixed(0)}
                           </span>
                           <span className="text-2xl font-bold text-muted-foreground/40">%</span>
@@ -888,7 +888,7 @@ export default function PortfolioHealthPage() {
 
                   {/* Strategic Insights Module */}
                   <div className="flex-1 flex flex-col justify-end pt-6 border-t border-border/10">
-                    <h4 className="flex items-center gap-2 text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] mb-4">
+                    <h4 className="flex items-center gap-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.2em] mb-4">
                       <Icon icon={ListChecks} size="sm" className="text-primary" />
                       Key Insights
                     </h4>
@@ -925,8 +925,8 @@ export default function PortfolioHealthPage() {
                         <Icon icon={stat.icon} size="md" className="text-primary" />
                       </div>
                       <div className="flex flex-col gap-1">
-                        <span className="text-[10px] text-muted-foreground font-black uppercase tracking-widest">{stat.label}</span>
-                        <span className="text-sm font-black text-foreground">{stat.value}</span>
+                        <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-widest">{stat.label}</span>
+                        <span className="text-sm font-semibold text-foreground">{stat.value}</span>
                       </div>
                     </div>
                   ))}
@@ -938,7 +938,7 @@ export default function PortfolioHealthPage() {
           {sectorData.length > 0 && (
             <SurfaceCard>
               <SurfaceCardHeader className="pb-0">
-                <SurfaceCardTitle className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                <SurfaceCardTitle className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                   <Icon icon={TrendingUp} size={12} className="text-primary" />
                   Sector Concentration Shift
                 </SurfaceCardTitle>
@@ -1012,7 +1012,7 @@ export default function PortfolioHealthPage() {
                  <Icon icon={ShieldCheck} size={128} className="text-foreground" />
                </div>
                <div className="relative z-10">
-                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-primary mb-6 flex items-center gap-2">
+                <h3 className="text-xs font-semibold uppercase tracking-[0.2em] text-primary mb-6 flex items-center gap-2">
                   <Icon icon={Zap} size="sm" />
                   Executive Strategic Summary
                 </h3>
@@ -1034,24 +1034,24 @@ export default function PortfolioHealthPage() {
             <SurfaceCardHeader>
               <div className="flex items-center gap-2">
                 <Icon icon={Zap} size="md" className="text-primary animate-pulse" />
-                <SurfaceCardTitle className="text-sm font-black uppercase tracking-widest">Simulated Alignment Outcome</SurfaceCardTitle>
+                <SurfaceCardTitle className="text-sm font-semibold uppercase tracking-widest">Simulated Alignment Outcome</SurfaceCardTitle>
               </div>
             </SurfaceCardHeader>
             <SurfaceCardContent className="space-y-4">
               <p className="text-sm text-foreground/80 font-medium">
-                By executing these {result.losers.length} adjustments, your portfolio's alpha alignment score is projected to move from <span className="text-red-400 font-black">{typeof result.summary.health_score === 'number' ? result.summary.health_score.toFixed(0) : "0"}</span> to <span className="text-emerald-400 font-black text-lg">{typeof result.summary.projected_health_score === 'number' ? `${result.summary.projected_health_score.toFixed(0)}+` : "92+"}</span>.
+                By executing these {result.losers.length} adjustments, your portfolio's alpha alignment score is projected to move from <span className="text-red-400 font-semibold">{typeof result.summary.health_score === 'number' ? result.summary.health_score.toFixed(0) : "0"}</span> to <span className="text-emerald-400 font-semibold text-lg">{typeof result.summary.projected_health_score === 'number' ? `${result.summary.projected_health_score.toFixed(0)}+` : "92+"}</span>.
               </p>
               <div className="p-5 rounded-3xl bg-background/80 border border-border/10 space-y-4">
-                <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                   <span>Current Fragility</span>
                   <Icon icon={ArrowRight} size={12} />
                   <span>Optimized Resilience</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
-                   <div className="h-14 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-[10px] font-black text-red-500">
+                   <div className="h-14 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-[10px] font-semibold text-red-500">
                      HIGH SPECULATIVE RISK
                    </div>
-                   <div className="h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-[10px] font-black text-emerald-500">
+                   <div className="h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-[10px] font-semibold text-emerald-500">
                      CONVICTION ALPHA DIVERSITY
                    </div>
                 </div>
@@ -1091,7 +1091,7 @@ export default function PortfolioHealthPage() {
                   
                   return (
                     <div key={groupIdx} className="space-y-4">
-                      <div className={cn("flex items-center gap-2 px-3 py-2 rounded-xl border font-black text-[10px] uppercase tracking-widest", group.banner)}>
+                      <div className={cn("flex items-center gap-2 px-3 py-2 rounded-xl border font-semibold text-[10px] uppercase tracking-widest", group.banner)}>
                         <group.icon className={cn("w-3.5 h-3.5", group.iconColor)} />
                         {group.title}
                       </div>
@@ -1099,10 +1099,10 @@ export default function PortfolioHealthPage() {
                       <Table>
                         <TableHeader>
                           <TableRow className="hover:bg-transparent border-white/5">
-                            <TableHead className="w-[100px] text-[10px] uppercase font-black text-muted-foreground">Asset</TableHead>
-                            <TableHead className="text-[10px] uppercase font-black text-muted-foreground">Tier</TableHead>
-                            <TableHead className="text-[10px] uppercase font-black text-muted-foreground text-right">Target Δ</TableHead>
-                            <TableHead className="text-[10px] uppercase font-black text-muted-foreground text-right">Rationale</TableHead>
+                            <TableHead className="w-[100px] text-[10px] uppercase font-semibold text-muted-foreground">Asset</TableHead>
+                            <TableHead className="text-[10px] uppercase font-semibold text-muted-foreground">Tier</TableHead>
+                            <TableHead className="text-[10px] uppercase font-semibold text-muted-foreground text-right">Target Δ</TableHead>
+                            <TableHead className="text-[10px] uppercase font-semibold text-muted-foreground text-right">Rationale</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1113,7 +1113,7 @@ export default function PortfolioHealthPage() {
                               <TableRow key={lIdx} className="group border-white/5 hover:bg-white/5 transition-colors">
                                 <TableCell className="py-4">
                                   <div className="flex flex-col">
-                                    <span className="font-black text-xs text-foreground uppercase">{l.symbol}</span>
+                                    <span className="font-semibold text-xs text-foreground uppercase">{l.symbol}</span>
                                     <span className="text-[9px] text-muted-foreground truncate max-w-[100px] font-medium">{l.name}</span>
                                   </div>
                                 </TableCell>
@@ -1122,7 +1122,7 @@ export default function PortfolioHealthPage() {
                                     <Badge 
                                       variant="outline" 
                                       className={cn(
-                                        "text-[9px] font-black tracking-widest px-1.5 py-0 rounded",
+                                        "text-[9px] font-semibold tracking-widest px-1.5 py-0 rounded",
                                         l.renaissance_tier === "ACE" ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" :
                                         l.renaissance_tier === "KING" ? "bg-blue-500/10 text-blue-500 border-blue-500/20" :
                                         "bg-amber-500/10 text-amber-500 border-amber-500/20"
@@ -1134,7 +1134,7 @@ export default function PortfolioHealthPage() {
                                 </TableCell>
                                 <TableCell className="text-right">
                                   <span className={cn(
-                                    "text-xs font-black",
+                                    "text-xs font-semibold",
                                     group.actionType === "REDUCE" ? "text-red-500" : "text-emerald-500"
                                   )}>
                                     {group.actionType === "REDUCE" ? "–" : "+"}{delta > 0 ? `${delta.toFixed(1)}%` : "N/A"}
@@ -1161,7 +1161,7 @@ export default function PortfolioHealthPage() {
           {result.summary.plans && (
             <SurfaceCard>
               <SurfaceCardHeader className="pb-4">
-                <SurfaceCardTitle className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-muted-foreground">
+                <SurfaceCardTitle className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                   <Icon icon={LayoutDashboard} size="sm" className="text-primary" />
                   Proposed Rebalance Path Scenarios
                 </SurfaceCardTitle>
@@ -1173,7 +1173,7 @@ export default function PortfolioHealthPage() {
                       <TabsTrigger 
                         key={key}
                         value={key} 
-                        className="rounded-xl text-[10px] font-black uppercase tracking-widest data-[state=active]:bg-background data-[state=active]:text-primary transition-all"
+                        className="rounded-xl text-[10px] font-semibold uppercase tracking-widest data-[state=active]:bg-background data-[state=active]:text-primary transition-all"
                       >
                         {key}
                       </TabsTrigger>
@@ -1191,7 +1191,7 @@ export default function PortfolioHealthPage() {
                             <div key={idx} className="flex flex-col md:flex-row md:items-center justify-between p-5 rounded-3xl bg-muted/20 border border-border/20 hover:border-primary/40 transition-all group gap-4 ring-1 ring-transparent hover:ring-primary/10">
                               <div className="flex items-center gap-4">
                                 <div className={cn(
-                                  "w-10 h-10 rounded-2xl flex items-center justify-center font-black text-xs",
+                                  "w-10 h-10 rounded-2xl flex items-center justify-center font-semibold text-xs",
                                   a.action?.toLowerCase() === "exit" ? "bg-red-500/20 text-red-500" :
                                   a.action?.toLowerCase() === "trim" ? "bg-amber-500/20 text-amber-500" :
                                   "bg-emerald-500/20 text-emerald-500"
@@ -1200,8 +1200,8 @@ export default function PortfolioHealthPage() {
                                 </div>
                                 <div className="flex flex-col">
                                   <div className="flex items-center gap-2">
-                                    <span className="text-sm font-black text-foreground uppercase tracking-tight">{a.symbol}</span>
-                                    <Badge variant="outline" className="text-[8px] h-4 font-black px-1.5 opacity-60">{a.action}</Badge>
+                                    <span className="text-sm font-semibold text-foreground uppercase tracking-tight">{a.symbol}</span>
+                                    <Badge variant="outline" className="text-[8px] h-4 font-semibold px-1.5 opacity-60">{a.action}</Badge>
                                   </div>
                                   <span className="text-[10px] font-medium text-muted-foreground line-clamp-1">{a.name || "Portfolio Holding"}</span>
                                 </div>
@@ -1216,7 +1216,7 @@ export default function PortfolioHealthPage() {
                               <div className="flex items-center justify-between md:justify-end gap-6 bg-white/5 md:bg-transparent p-3 md:p-0 rounded-2xl">
                                 {typeof a.current_weight_pct === "number" && (
                                   <div className="flex flex-col items-end">
-                                    <span className="text-[8px] font-black text-muted-foreground uppercase tracking-widest mb-0.5">Transition</span>
+                                    <span className="text-[8px] font-semibold text-muted-foreground uppercase tracking-widest mb-0.5">Transition</span>
                                     <div className="flex items-center gap-2">
                                       <span className="text-xs font-bold text-muted-foreground/60">{a.current_weight_pct.toFixed(1)}%</span>
                                       <Icon
@@ -1224,7 +1224,7 @@ export default function PortfolioHealthPage() {
                                         size={12}
                                         className="text-primary group-hover:translate-x-1 transition-transform"
                                       />
-                                      <span className="text-sm font-black text-foreground">{(a.target_weight_pct ?? a.current_weight_pct).toFixed(1)}%</span>
+                                      <span className="text-sm font-semibold text-foreground">{(a.target_weight_pct ?? a.current_weight_pct).toFixed(1)}%</span>
                                     </div>
                                   </div>
                                 )}
@@ -1247,7 +1247,7 @@ export default function PortfolioHealthPage() {
           <div className="grid gap-6 md:grid-cols-2">
             <SurfaceCard className="opacity-80 transition-opacity hover:opacity-100">
               <SurfaceCardHeader className="py-4">
-                <SurfaceCardTitle className="text-[10px] font-black uppercase tracking-widest">Renaissance Alignment Context</SurfaceCardTitle>
+                <SurfaceCardTitle className="text-[10px] font-semibold uppercase tracking-widest">Renaissance Alignment Context</SurfaceCardTitle>
               </SurfaceCardHeader>
               <SurfaceCardContent className="pb-4">
                 <pre className="whitespace-pre-wrap text-[11px] text-muted-foreground/80 leading-relaxed font-medium">
@@ -1259,7 +1259,7 @@ export default function PortfolioHealthPage() {
             {streamedText && (
               <SurfaceCard accent="sky">
                 <SurfaceCardHeader className="py-4">
-                  <SurfaceCardTitle className="text-[10px] font-black uppercase tracking-widest">
+                  <SurfaceCardTitle className="text-[10px] font-semibold uppercase tracking-widest">
                     Alpha Analysis Runtime Transcript
                   </SurfaceCardTitle>
                 </SurfaceCardHeader>

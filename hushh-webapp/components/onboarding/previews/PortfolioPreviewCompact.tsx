@@ -55,7 +55,7 @@ export function PortfolioPreviewCompact() {
               </span>
             </div>
 
-            <div className="mt-3 text-[38px] font-medium leading-none tracking-normal text-foreground sm:text-[48px]">
+            <div className="mt-3 text-[30px] font-medium leading-none tracking-normal text-foreground sm:text-[34px]">
               $142,893
             </div>
           </div>

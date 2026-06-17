@@ -7,12 +7,14 @@ import React, { useEffect, useMemo, type CSSProperties } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BriefcaseBusiness,
+  ChartNoAxesColumnIncreasing,
+  ChartNoAxesCombined,
+  CircleUserRound,
   Compass,
   FileSpreadsheet,
-  LayoutDashboard,
-  LineChart,
-  Store,
-  User,
+  House,
+  Network,
+  UserRound,
   Users,
 } from "lucide-react";
 
@@ -30,6 +32,7 @@ import { usePersonaState } from "@/lib/persona/persona-context";
 import { activeKaiRouteTabFromPath } from "@/lib/navigation/kai-route-tabs";
 import { activeRiaRouteTabFromPath } from "@/lib/navigation/ria-route-tabs";
 import { useVault } from "@/lib/vault/vault-context";
+import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 
 type InvestorNavKey = "dashboard" | "market" | "connect" | "analysis" | "profile";
 type RiaNavKey = "home" | "clients" | "connect" | "picks" | "profile";
@@ -40,6 +43,7 @@ export const Navbar = () => {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
+  const agentPopover = useOptionalAgentPopover();
   const { activePersona } = usePersonaState();
   const pendingConsents = useConsentPendingSummaryCount();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
@@ -91,8 +95,13 @@ export const Navbar = () => {
     }
   }, [pathname]);
   const hideNavbar =
+    pathname === ROUTES.AGENT ||
+    pathname?.startsWith(ROUTES.PHONE_MANDATE) ||
+    (isAuthenticated && chromeState.hideBottomNav) ||
     pathname?.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
     pathname === ROUTES.DEVELOPERS;
+  const agentWindowOpen =
+    agentPopover?.expanded || agentPopover?.motionState === "opening";
 
   const navOptions = useMemo<SegmentedPillOption[]>(
     () =>
@@ -101,7 +110,7 @@ export const Navbar = () => {
             {
               value: "home",
               label: "Home",
-              icon: BriefcaseBusiness,
+              icon: House,
               dataTourId: "nav-ria-home",
             },
             {
@@ -125,7 +134,7 @@ export const Navbar = () => {
             {
               value: "profile",
               label: "Profile",
-              icon: User,
+              icon: CircleUserRound,
               badge: pendingConsents > 0 ? pendingConsents : undefined,
               dataTourId: "nav-profile",
             },
@@ -134,31 +143,31 @@ export const Navbar = () => {
             {
               value: "market",
               label: "Market",
-              icon: Store,
+              icon: ChartNoAxesColumnIncreasing,
               dataTourId: "nav-market",
             },
             {
               value: "dashboard",
               label: "Portfolio",
-              icon: LayoutDashboard,
+              icon: BriefcaseBusiness,
               dataTourId: "nav-portfolio",
             },
             {
               value: "analysis",
               label: "Analysis",
-              icon: LineChart,
+              icon: ChartNoAxesCombined,
               dataTourId: "nav-analysis",
             },
             {
               value: "connect",
               label: "Connect",
-              icon: Compass,
+              icon: Network,
               dataTourId: "nav-connect",
             },
             {
               value: "profile",
               label: "Profile",
-              icon: User,
+              icon: UserRound,
               badge: pendingConsents > 0 ? pendingConsents : undefined,
               dataTourId: "nav-profile",
             },
@@ -166,7 +175,7 @@ export const Navbar = () => {
     [activePersona, pendingConsents]
   );
 
-  if (hideNavbar) {
+  if (hideNavbar || agentWindowOpen) {
     return null;
   }
 
@@ -265,12 +274,12 @@ export const Navbar = () => {
     >
       <div
         className={cn(
-          "relative flex w-full max-w-[560px] items-end gap-2.5 sm:gap-3",
+          "relative flex w-full max-w-[560px] items-end gap-2",
           "pointer-events-none",
           hideBottomChrome && "pointer-events-none"
         )}
       >
-        <div className="min-w-0 pointer-events-auto" style={{ width: "calc(100% - 132px)" }}>
+        <div className="min-w-0 pointer-events-auto" style={{ width: "calc(100% - 66px)" }}>
           <SegmentedPill
             ref={pillRef}
             size="compact"
@@ -281,9 +290,7 @@ export const Navbar = () => {
             onValueChange={navigateTo}
             ariaLabel="Main navigation"
             className={cn(
-              "relative z-10 w-full chrome-bottom-foreground",
-              "!border-0 !bg-background/80 !backdrop-blur-[var(--blur-standard)]",
-              "dark:!bg-background/90"
+              "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground"
             )}
           />
         </div>

@@ -8,13 +8,33 @@ import { shouldRequirePhoneMandate } from "@/lib/services/phone-mandate-service"
 
 const PRE_VAULT_ROUTE = ROUTES.KAI_ONBOARDING;
 const NO_VAULT_DEFAULT_ROUTE = ROUTES.KAI_HOME;
+const PRIORITY_RETURN_ROUTES = new Set<string>([ROUTES.ONE_LOCATION]);
+
+function isPriorityReturnRoute(path: string): boolean {
+  const normalizedPath = String(path ?? "").trim();
+  const [pathname = ""] = normalizedPath.split(/[?#]/, 1);
+
+  return PRIORITY_RETURN_ROUTES.has(pathname);
+}
 
 function normalizeRedirectPath(path: string | null | undefined): string {
-  if (!path || !path.trim()) return ROUTES.KAI_HOME;
-  if (path === ROUTES.PHONE_MANDATE || path.startsWith(`${ROUTES.PHONE_MANDATE}?`)) {
+  const normalizedPath = String(path ?? "").trim();
+  if (!normalizedPath) return ROUTES.KAI_HOME;
+  if (normalizedPath === ROUTES.PHONE_MANDATE) {
     return ROUTES.KAI_HOME;
   }
-  return path;
+
+  if (normalizedPath.startsWith(`${ROUTES.PHONE_MANDATE}?`)) {
+    const query = normalizedPath.slice(ROUTES.PHONE_MANDATE.length + 1);
+    const nestedRedirect = new URLSearchParams(query).get("redirect");
+    if (nestedRedirect && isPriorityReturnRoute(nestedRedirect)) {
+      return nestedRedirect;
+    }
+
+    return ROUTES.KAI_HOME;
+  }
+
+  return normalizedPath;
 }
 
 export class PostAuthRouteService {
@@ -27,6 +47,7 @@ export class PostAuthRouteService {
     hostname?: string | null;
   }): Promise<string> {
     const fallbackRoute = normalizeRedirectPath(params.redirectPath);
+    const shouldPreservePriorityReturn = isPriorityReturnRoute(fallbackRoute);
     const remoteState = await PreVaultUserStateService.bootstrapState(params.userId);
     const canOverrideWithPersona =
       !params.redirectPath ||
@@ -93,15 +114,21 @@ export class PostAuthRouteService {
       : PRE_VAULT_ROUTE;
 
     if (
+      !shouldPreservePriorityReturn &&
       shouldRequirePhoneMandate({
         phoneNumber: params.phoneNumber,
         phoneVerified: params.phoneVerified,
         hasVault: false,
-        hostname:
-          params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
+        hostname: params.hostname,
       })
     ) {
-      return buildPhoneMandateRoute(resolvedNoVaultRoute);
+      return buildPhoneMandateRoute(
+        resolvedNoVaultRoute
+      );
+    }
+
+    if (shouldPreservePriorityReturn) {
+      return fallbackRoute;
     }
 
     return resolvedNoVaultRoute;

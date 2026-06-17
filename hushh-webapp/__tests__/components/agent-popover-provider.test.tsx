@@ -130,7 +130,8 @@ describe("AgentPopoverProvider floating trigger", () => {
       expect(trigger.style.left).toBe("366px");
       expect(trigger.style.top).toBe("660px");
     });
-    expect(trigger.className).toContain("bg-primary");
+    expect(trigger.className).toContain("bg-white/92");
+    expect(trigger.className).toContain("dark:bg-[#1c1c1e]/90");
   });
 
   it("does not allow dragging the trigger into the command bar", async () => {

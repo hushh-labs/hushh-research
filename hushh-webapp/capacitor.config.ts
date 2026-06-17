@@ -23,6 +23,9 @@ const NORMALIZED_BACKEND_URL = (() => {
   const backendHost = hostFromUrl(normalized);
 
   if (process.env.CAPACITOR_PLATFORM !== "android") return normalized;
+  if (process.env.NEXT_PUBLIC_ANDROID_LOCAL_BACKEND_MODE === "adb_reverse") {
+    return normalized;
+  }
   // Android emulator cannot reach host loopback; use 10.0.2.2
   if (backendHost === "localhost") {
     return normalized.replace("localhost", "10.0.2.2");

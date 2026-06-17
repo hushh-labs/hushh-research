@@ -37,6 +37,10 @@ FINAL_REMINDER_LEAD_MS = 30 * 60 * 1000
 MIN_FINAL_REMINDER_WINDOW_MS = 2 * 60 * 60 * 1000
 
 # Per-user queues for SSE generators (no polling). Key = user_id.
+# Each queue is bounded so a stalled or slow SSE consumer cannot accumulate an
+# unbounded backlog of notifications and exhaust memory. When a queue is full,
+# the oldest pending event is dropped to make room for the newest.
+_CONSENT_NOTIFY_QUEUE_MAXSIZE = 100
 _consent_notify_queues: Dict[str, asyncio.Queue] = {}
 _consent_notify_queues_lock = asyncio.Lock()
 
@@ -117,13 +121,28 @@ async def _push_to_consent_queue(user_id: str, data: Dict[str, Any]) -> None:
         try:
             q.put_nowait(data)
         except asyncio.QueueFull:
-            pass
+            # Queue is full because the SSE consumer is not draining fast
+            # enough. Drop the oldest pending event and enqueue the newest so
+            # the consumer always receives the most recent consent state.
+            try:
+                q.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+            try:
+                q.put_nowait(data)
+            except asyncio.QueueFull:
+                pass
+            logger.warning(
+                "consent notify queue full; dropped oldest event to bound memory"
+            )
 
 
 def get_consent_queue(user_id: str) -> asyncio.Queue:
     """Get or create the asyncio queue for this user (used by SSE generator)."""
     if user_id not in _consent_notify_queues:
-        _consent_notify_queues[user_id] = asyncio.Queue()
+        _consent_notify_queues[user_id] = asyncio.Queue(
+            maxsize=_CONSENT_NOTIFY_QUEUE_MAXSIZE
+        )
     return _consent_notify_queues[user_id]
 
 

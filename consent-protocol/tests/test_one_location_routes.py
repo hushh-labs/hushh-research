@@ -9,7 +9,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.one import location as one_location
-from tests.services.test_one_location_agent_service import FourUserMemoryService, encrypted_envelope
+from tests.services.test_one_location_agent_service import (
+    PUBLIC_LOCATION_SNAPSHOT,
+    FourUserMemoryService,
+    encrypted_envelope,
+)
 
 
 class DatabaseExecutionError(Exception):
@@ -124,8 +128,10 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
     assert activity_payload["summary"]["sharedWithCount"] >= 1
     assert activity_payload["summary"]["viewsCount"] >= 1
     assert any(event["title"] == "Shared with User B" for event in activity_payload["events"])
-    assert "0002" not in json.dumps(activity_payload, default=str)
-    assert "ciphertext" not in json.dumps(activity_payload, default=str)
+    serialized_activity = json.dumps(activity_payload, default=str)
+    assert "latitude" not in serialized_activity
+    assert "longitude" not in serialized_activity
+    assert "ciphertext-for-" not in serialized_activity
 
     current_user["user_id"] = user_b
     view_b_after_revoke = client.get(f"/api/one/location/grants/{grant_b['id']}/envelope")
@@ -216,6 +222,60 @@ def test_public_location_invite_route_creates_request_without_returning_location
     assert "map" not in serialized
     assert "address" not in serialized
     assert "reverse_geocode" not in serialized
+
+
+def test_public_location_invite_route_returns_snapshot_after_visitor_intake(
+    monkeypatch,
+) -> None:
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+
+    _register_key(client, current_user, "user_b")
+    current_user["user_id"] = "user_a"
+
+    invite_response = client.post(
+        "/api/one/location/public-invites",
+        json={
+            "durationHours": 1,
+            "locationSnapshot": PUBLIC_LOCATION_SNAPSHOT,
+        },
+    )
+    assert invite_response.status_code == 200
+    token = invite_response.json()["publicToken"]
+
+    resolve_response = client.get(f"/api/one/location/public-invites/{token}")
+    assert resolve_response.status_code == 200
+    assert resolve_response.json()["invite"]["locationAvailable"] is True
+    assert "latitude" not in json.dumps(resolve_response.json())
+    assert "longitude" not in json.dumps(resolve_response.json())
+
+    submit_response = client.post(
+        f"/api/one/location/public-invites/{token}/submit",
+        json={
+            "visitorDisplayName": "User B",
+            "phoneNumber": "+1 555 010 0002",
+            "message": "For pickup.",
+        },
+    )
+    assert submit_response.status_code == 200
+    payload = submit_response.json()
+    assert payload["submission"]["status"] == "approved"
+    assert payload["publicLocation"]["latitude"] == PUBLIC_LOCATION_SNAPSHOT["latitude"]
+    assert payload["publicLocation"]["longitude"] == PUBLIC_LOCATION_SNAPSHOT["longitude"]
+    assert service.requests == {}
+
+    serialized_private_surfaces = json.dumps(
+        {
+            "resolve": resolve_response.json(),
+            "notifications": service.notifications,
+            "submissions": service.public_submissions,
+        },
+        default=str,
+    )
+    assert "latitude" not in serialized_private_surfaces
+    assert "longitude" not in serialized_private_surfaces
+    assert "ciphertext" not in serialized_private_surfaces
 
 
 def test_one_location_retention_purge_requires_dedicated_token_by_default(

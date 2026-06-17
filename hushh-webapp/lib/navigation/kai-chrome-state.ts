@@ -11,6 +11,7 @@ export interface KaiChromeState {
   onboardingFlowActive: boolean;
   useOnboardingChrome: boolean;
   hideCommandBar: boolean;
+  hideBottomNav: boolean;
 }
 
 function isKaiImportRoute(pathname: string): boolean {
@@ -36,10 +37,13 @@ export function getKaiChromeState(
   const hideCommandBar =
     useOnboardingChrome ||
     path === ROUTES.HOME ||
+    path === ROUTES.AGENT ||
     path.startsWith(ROUTES.LOGIN) ||
+    path.startsWith(ROUTES.PHONE_MANDATE) ||
     path.startsWith(ROUTES.LOGOUT) ||
     path.startsWith(ROUTES.LABS_PROFILE_APPEARANCE) ||
     isRiaOnboardingRoute(path);
+  const hideBottomNav = hideCommandBar;
 
   return {
     isOnboardingRoute,
@@ -47,5 +51,6 @@ export function getKaiChromeState(
     onboardingFlowActive,
     useOnboardingChrome,
     hideCommandBar,
+    hideBottomNav,
   };
 }

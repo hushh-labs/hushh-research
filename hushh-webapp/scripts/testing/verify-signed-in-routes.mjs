@@ -57,8 +57,10 @@ const VIEWPORTS = [
 ];
 const NAVIGATION_TIMEOUT_MS = 120000;
 const CLIENT_NAVIGATION_CONTEXT_KEY = "__hushhSignedInRouteContextProbe";
+const INTERNAL_APP_NAVIGATION_REQUEST_EVENT = "app-internal-navigation-requested";
 const REVIEWER_BOOTSTRAP_ROUTE = "/ria";
 const SAME_SESSION_SHELL_ROUTES = new Set([
+  "/agent",
   "/profile",
   "/profile/pkm-agent-lab",
   "/one/kyc",
@@ -746,6 +748,18 @@ async function openRiaWorkspace(page) {
 
 async function navigateViaShell(page, spec) {
   switch (spec.route) {
+    case "/agent":
+      await page.evaluate((eventName) => {
+        window.dispatchEvent(
+          new CustomEvent(eventName, {
+            detail: {
+              href: "/agent",
+              scroll: false,
+            },
+          })
+        );
+      }, INTERNAL_APP_NAVIGATION_REQUEST_EVENT);
+      return true;
     case "/ria":
       await ensurePersona(page, "ria");
       await clickBottomNav(page, "Home");

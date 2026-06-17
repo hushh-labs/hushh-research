@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { getRedirectResult } from "firebase/auth";
+import { getRedirectResult, type User } from "firebase/auth";
 import { Shield } from "lucide-react";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
@@ -17,7 +17,12 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
+import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { AuthLegalDialog } from "@/components/onboarding/AuthLegalDialog";
+import {
+  kaiAppHeroBodyClassName,
+  kaiAppHeroTitleClassName,
+} from "@/components/kai/shared/kai-typography";
 import {
   isOnboardingFlowActiveCookieEnabled,
   setOnboardingFlowActiveCookie,
@@ -101,8 +106,25 @@ export function AuthStep({
     requestAnimationFrame(() => setActiveLegalDoc(docType));
   }, []);
 
+  const isLocationPhoneVerificationReturn = useMemo(() => {
+    if (redirectPath === ROUTES.ONE_LOCATION) {
+      return true;
+    }
+    if (!redirectPath.startsWith(`${ROUTES.PHONE_MANDATE}?`)) {
+      return false;
+    }
+
+    const query = redirectPath.slice(ROUTES.PHONE_MANDATE.length + 1);
+    return new URLSearchParams(query).get("redirect") === ROUTES.ONE_LOCATION;
+  }, [redirectPath]);
+
   const resolveAndNavigate = useCallback(
-    async (userId: string, idToken?: string, phoneNumber?: string | null) => {
+    async (
+      userId: string,
+      idToken?: string,
+      phoneNumber?: string | null,
+      authenticatedUser?: User | null
+    ) => {
       const navigationKey = `${userId}:${redirectPath || ROUTES.KAI_HOME}`;
       if (lastNavigationKeyRef.current === navigationKey) {
         return;
@@ -118,11 +140,26 @@ export function AuthStep({
         }
         const resolvedIdToken =
           idToken || (user ? await user.getIdToken().catch(() => undefined) : undefined);
+        const routeUser = authenticatedUser ?? user;
+        const identity =
+          routeUser?.uid === userId
+            ? await AccountIdentityService.syncCurrentUser(routeUser).catch((error) => {
+                console.warn("[AuthStep] Failed to sync account identity:", error);
+                return null;
+              })
+            : null;
+        const backendPhoneVerified = identity
+          ? AccountIdentityService.hasVerifiedPhone(identity)
+          : isLocationPhoneVerificationReturn
+            ? false
+            : null;
         const resolvedPath = await PostAuthRouteService.resolveAfterLogin({
           userId,
           redirectPath,
           idToken: resolvedIdToken,
           phoneNumber,
+          phoneVerified: backendPhoneVerified,
+          hostname: typeof window === "undefined" ? null : window.location.hostname,
         });
 
         const resumeImportFlow =
@@ -144,7 +181,7 @@ export function AuthStep({
         router.push(safeFallbackPath);
       }
     },
-    [preserveOnboardingAuditRoute, redirectPath, router, user]
+    [isLocationPhoneVerificationReturn, preserveOnboardingAuditRoute, redirectPath, router, user]
   );
 
   const debugLog = (...args: unknown[]) => {
@@ -203,7 +240,8 @@ export function AuthStep({
           void resolveAndNavigate(
             result.user.uid,
             await result.user.getIdToken(),
-            result.user.phoneNumber
+            result.user.phoneNumber,
+            result.user
           );
         }
       })
@@ -223,7 +261,7 @@ export function AuthStep({
         });
       }
       debugLog("[AuthStep] User authenticated, navigating to:", redirectPath);
-      void resolveAndNavigate(user.uid, undefined, user.phoneNumber);
+      void resolveAndNavigate(user.uid, undefined, user.phoneNumber, user);
     }
   }, [
     redirectPath,
@@ -301,7 +339,8 @@ export function AuthStep({
         await resolveAndNavigate(
           authenticatedUser.uid,
           await authenticatedUser.getIdToken(),
-          authenticatedUser.phoneNumber
+          authenticatedUser.phoneNumber,
+          authenticatedUser
         );
       } else {
         trackEvent("auth_failed", {
@@ -413,7 +452,8 @@ export function AuthStep({
         await resolveAndNavigate(
           authenticatedUser.uid,
           await authenticatedUser.getIdToken(),
-          authenticatedUser.phoneNumber
+          authenticatedUser.phoneNumber,
+          authenticatedUser
         );
       } else {
         debugError("[AuthStep] No user returned from signInWithGoogle");
@@ -465,7 +505,8 @@ export function AuthStep({
         await resolveAndNavigate(
           authenticatedUser.uid,
           await authenticatedUser.getIdToken(),
-          authenticatedUser.phoneNumber
+          authenticatedUser.phoneNumber,
+          authenticatedUser
         );
       } else {
         debugError("[AuthStep] No user returned from signInWithApple");
@@ -557,19 +598,20 @@ export function AuthStep({
           <Image
             src="/one-quiet-emoji.png"
             alt="One"
-            width={compact ? 52 : 58}
-            height={compact ? 52 : 58}
+            width={52}
+            height={52}
             priority
-            className="mx-auto h-[52px] w-[52px] object-contain drop-shadow-[0_14px_28px_rgba(0,0,0,0.08)] sm:h-[58px] sm:w-[58px]"
+            className="mx-auto h-[52px] w-[52px] object-contain drop-shadow-[0_14px_28px_rgba(0,0,0,0.08)]"
           />
           <div
             role="heading"
             aria-level={1}
-            className="mt-2.5 text-[36px] font-medium leading-[1.06] tracking-normal text-[#1d1d1f] sm:text-[42px] dark:text-[#f5f5f7]"
+            aria-label="Sign in to One"
+            className={`mt-2.5 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
           >
             Sign in to One.
           </div>
-          <p className="mx-auto mt-3 max-w-[20rem] text-[16px] font-normal leading-[1.45] tracking-normal text-[#6e6e73] sm:text-[17px] dark:text-[#a1a1a6]">
+          <p className={`mx-auto mt-3 max-w-[20rem] ${kaiAppHeroBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
             Continue to your personal financial advisor.
           </p>
         </header>
