@@ -5,6 +5,7 @@ import {
   normalizeInternalAppHref,
   resolveConsentRequestHref,
 } from "@/lib/consent/consent-sheet-route";
+import { ROUTES } from "@/lib/navigation/routes";
 
 describe("consent sheet route helpers", () => {
   it("keeps internal relative app routes relative", () => {
@@ -38,8 +39,15 @@ describe("consent sheet route helpers", () => {
     ).toBe("/consents?tab=pending&requestId=req_123&bundleId=bundle_123");
   });
 
-  it("handles reference logic configurations safely when given an empty literal options payload object", () => {
-    expect(resolveConsentRequestHref(null, "pending", {})).toBe("/consents?tab=pending");
+  it("returns the canonical consent fallback route for empty notification options", () => {
+    const fallbackHref = `${ROUTES.CONSENTS}?tab=pending`;
+
+    expect(resolveConsentRequestHref(null, "pending", {})).toBe(fallbackHref);
+    expect(resolveConsentNavigationTarget(null, "pending", {})).toEqual({
+      kind: "internal",
+      href: fallbackHref,
+      pathname: ROUTES.CONSENTS,
+    });
   });
 
   it("adds a safe internal origin when routing into the consent manager", () => {
