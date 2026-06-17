@@ -624,6 +624,7 @@ const SHOW_LOCATION_ACTIVITY_SECTION = false;
 const SHOW_OWNER_GRANTS_SECTION = false;
 const SHOW_PUBLIC_RESPONSES_SECTION = false;
 const SHOW_REFERRAL_SECTION = false;
+const ONE_LOCATION_ONBOARDING_STORAGE_PREFIX = "one_location_onboarding_v1";
 
 // The mobile-first redesign hub (Now | People | Links) is the active UI.
 // The legacy compose/activity sections only render as a fallback when the page
@@ -4991,46 +4992,36 @@ export function OneLocationAgentPageContent({
   }, []);
 
   useEffect(() => {
-    if (
-      !auth.userId ||
-      !state ||
-      locationLandingPromptUserRef.current === auth.userId ||
-      permissionPromptInFlightRef.current
-    ) {
+    if (!auth.userId || auth.loading || loadError) {
+      setLocationOnboardingGate("hidden");
       return;
     }
-    const canRequestNativePrompt =
-      !permission ||
-      permission.state === "prompt" ||
-      permission.state === "denied";
-    if (!canRequestNativePrompt || isLocationServicesDisabled(permission)) {
+    if (!state) {
+      setLocationOnboardingGate("checking");
+      return;
+    }
+    if (permission?.state === "granted") {
+      writeOneLocationOnboardingDismissed(auth.userId, "done");
+      setLocationOnboardingGate("hidden");
+      return;
+    }
+    if (readOneLocationOnboardingDismissed(auth.userId)) {
+      setLocationOnboardingGate("hidden");
       return;
     }
 
-    let cancelled = false;
-    locationLandingPromptUserRef.current = auth.userId;
-    permissionPromptInFlightRef.current = true;
-    const promptForForegroundLocation = async () => {
-      try {
-        await ensureForegroundLocationReady({
-          capturePoint: false,
-          autoOpenSettings: false,
-          requestNativePrompt: true,
-        });
-      } finally {
-        if (!cancelled) {
-          permissionPromptInFlightRef.current = false;
-        }
-      }
-    };
-
-    void promptForForegroundLocation();
-
-    return () => {
-      cancelled = true;
-      permissionPromptInFlightRef.current = false;
-    };
-  }, [auth.userId, ensureForegroundLocationReady, permission, state]);
+    if (locationOnboardingGate !== "show") {
+      setLocationOnboardingStep("intro");
+    }
+    setLocationOnboardingGate("show");
+  }, [
+    auth.loading,
+    auth.userId,
+    loadError,
+    locationOnboardingGate,
+    permission?.state,
+    state,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -14998,6 +14989,80 @@ export function OneLocationAgentPageContent({
           {...contactDiscoverabilityConsentDialogProps}
         />
       </AppPageShell>
+    );
+  }
+
+  const dismissLocationOnboarding = useCallback(
+    (status: "done" | "skipped") => {
+      if (auth.userId) {
+        writeOneLocationOnboardingDismissed(auth.userId, status);
+      }
+      setLocationOnboardingGate("hidden");
+      setLocationOnboardingBusy(false);
+    },
+    [auth.userId],
+  );
+
+  const handleContinueLocationOnboardingIntro = useCallback(() => {
+    setLocationOnboardingStep("permission");
+  }, []);
+
+  const handleSkipLocationOnboarding = useCallback(() => {
+    dismissLocationOnboarding("skipped");
+  }, [dismissLocationOnboarding]);
+
+  const handleLocationOnboardingPermission = useCallback(async () => {
+    if (locationOnboardingBusy) return;
+    setLocationOnboardingBusy(true);
+    try {
+      const result = await ensureForegroundLocationReady({
+        capturePoint: false,
+        autoOpenSettings: false,
+        requestNativePrompt: true,
+      });
+      const nextPermission = await refreshLocationPermission();
+      if (result.ready || nextPermission.state === "granted") {
+        dismissLocationOnboarding("done");
+      }
+    } finally {
+      setLocationOnboardingBusy(false);
+    }
+  }, [
+    dismissLocationOnboarding,
+    ensureForegroundLocationReady,
+    locationOnboardingBusy,
+    refreshLocationPermission,
+  ]);
+
+  const nativeTestConfig: OneLocationNativeTestConfig = {
+    routeId: "/one/location",
+    marker: "native-route-one-location",
+    authState: auth.loading
+      ? "pending"
+      : auth.isAuthenticated
+        ? "authenticated"
+        : "anonymous",
+    dataState,
+    errorCode: loadError ? "one_location_unavailable" : null,
+    errorMessage: loadError,
+  };
+
+  const showLocationOnboarding =
+    locationOnboardingGate === "show" &&
+    !showInitialSkeleton &&
+    !loadError &&
+    Boolean(auth.userId && state);
+
+  if (showLocationOnboarding) {
+    return (
+      <OneLocationOnboardingFlow
+        step={locationOnboardingStep}
+        busy={locationOnboardingBusy}
+        nativeTest={nativeTestConfig}
+        onContinueIntro={handleContinueLocationOnboardingIntro}
+        onRequestPermission={handleLocationOnboardingPermission}
+        onSkip={handleSkipLocationOnboarding}
+      />
     );
   }
 
