@@ -58,7 +58,7 @@ describe("GET /api/account/export proxy", () => {
 
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://backend.test/db/account/export",
+     "http://backend.test/api/account/export"
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer HCT:test",
