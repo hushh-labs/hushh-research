@@ -1,4 +1,4 @@
-﻿"""
+"""
 Tests for PII redaction in account deletion and export log statements.
 Covers the fix for user_id leakage in account.py log paths:
 - DELETE ACCOUNT REQUESTED warning
