@@ -192,7 +192,7 @@ export function KaiPreferencesWizard(props: {
       <div
         className={cn(
           isPageLayout
-            ? "mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-screen-footer-pad))] w-full max-w-[44rem] flex-col justify-center"
+            ? "mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-screen-footer-pad))] w-full max-w-[38rem] flex-col justify-center"
             : "w-full max-w-sm mx-auto flex min-h-[calc(100dvh-var(--app-screen-footer-pad))] flex-col",
           !isPageLayout && "min-h-0"
         )}
@@ -200,7 +200,7 @@ export function KaiPreferencesWizard(props: {
         <div
           className={cn(
             isPageLayout
-              ? "rounded-[32px] border border-black/[0.06] bg-white/[0.72] p-5 shadow-[0_24px_80px_-56px_rgba(0,0,0,0.55)] backdrop-blur-2xl sm:p-7 lg:p-8 dark:border-white/10 dark:bg-white/[0.07]"
+              ? "rounded-[30px] border border-black/[0.06] bg-white/[0.78] p-5 shadow-[0_24px_80px_-58px_rgba(0,0,0,0.52)] backdrop-blur-2xl sm:p-7 dark:border-white/10 dark:bg-white/[0.07]"
               : "contents"
           )}
         >
@@ -247,7 +247,7 @@ export function KaiPreferencesWizard(props: {
           <div
             className={cn(
               isPageLayout
-                ? "mx-auto flex w-full max-w-[35rem] flex-col pt-8 sm:pt-10"
+                ? "mx-auto flex w-full max-w-[30rem] flex-col pt-7 sm:pt-8"
                 : "flex flex-1 flex-col pt-5"
             )}
           >
@@ -255,7 +255,7 @@ export function KaiPreferencesWizard(props: {
               <p
                 className={cn(
                   "text-muted-foreground leading-relaxed",
-                  isPageLayout ? "text-[15px] sm:text-[16px]" : "text-xs"
+                  isPageLayout ? "text-[14.5px] sm:text-[15.5px]" : "text-xs"
                 )}
               >
                 No right or wrong answers. We’ll tune Kai to your investing style.
@@ -267,7 +267,7 @@ export function KaiPreferencesWizard(props: {
                 className={cn(
                   "tracking-normal text-balance text-foreground",
                   isPageLayout
-                    ? "text-[clamp(1.85rem,2.6vw,2.35rem)] font-normal leading-[1.1]"
+                    ? "text-[clamp(1.65rem,2.25vw,2.05rem)] font-medium leading-[1.12]"
                     : "text-[clamp(0.95rem,2.8vw,1.2rem)] leading-[1.3] font-semibold"
                 )}
               >
@@ -278,14 +278,14 @@ export function KaiPreferencesWizard(props: {
             <RadioGroup
               value={activeValue ?? ""}
               onValueChange={handleSelect}
-              className={cn(isPageLayout ? "mt-8 gap-2.5 sm:mt-9" : "gap-3")}
+              className={cn(isPageLayout ? "mt-7 gap-2.5 sm:mt-8" : "gap-3")}
             >
               {activeQuestion.options.map((opt) => (
                 <RadioCardItem key={opt.value} value={opt.value} label={opt.label} />
               ))}
             </RadioGroup>
 
-            <div className={cn("space-y-3.5", isPageLayout ? "pt-6" : "mt-auto pt-6")}>
+            <div className={cn("space-y-3", isPageLayout ? "pt-6" : "mt-auto pt-6")}>
               <Button
                 type="button"
                 variant="none"
@@ -297,7 +297,7 @@ export function KaiPreferencesWizard(props: {
                 loading={isSubmitting}
                 showRipple
                 className={cn(
-                  "h-11 rounded-full text-[15px] font-semibold shadow-[0_16px_34px_-24px_rgba(0,113,227,0.85)]",
+                  "h-12 rounded-full text-[15.5px] font-medium shadow-[0_16px_34px_-24px_rgba(0,113,227,0.85)]",
                   canContinue
                     ? "!bg-primary !text-primary-foreground hover:!bg-primary/90"
                     : "!bg-muted !text-muted-foreground shadow-none"
@@ -318,7 +318,7 @@ export function KaiPreferencesWizard(props: {
                   disabled={isSubmitting}
                   loading={isSubmitting}
                   showRipple
-                  className="h-11 rounded-full !bg-primary/10 text-[15px] font-semibold !text-primary shadow-none hover:!bg-primary/15 dark:!bg-primary/15"
+                  className="h-11 rounded-full !bg-primary/10 text-[15px] font-medium !text-primary shadow-none hover:!bg-primary/15 dark:!bg-primary/15"
                 >
                   {isSubmitting ? "Saving..." : "Skip"}
                   {!isSubmitting && <ArrowRight className="ml-2 h-5 w-5" />}
@@ -421,7 +421,7 @@ function RadioCardItem(props: { value: string; label: string }) {
       value={props.value}
       className={cn(
         "group w-full rounded-[18px] border px-4 py-3.5 text-left transition-[background-color,border-color,box-shadow,transform] sm:px-5",
-        "min-h-[58px] focus:outline-hidden focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]/35",
+        "min-h-[56px] focus:outline-hidden focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)]/35",
         "border-black/[0.08] bg-white/68 shadow-[0_10px_30px_-28px_rgba(0,0,0,0.5)] backdrop-blur-xl",
         "hover:-translate-y-0.5 hover:bg-white/86 hover:shadow-[0_16px_38px_-32px_rgba(0,0,0,0.55)]",
         "data-[state=checked]:border-primary/55 data-[state=checked]:bg-primary/[0.08] data-[state=checked]:shadow-[0_16px_38px_-32px_rgba(0,113,227,0.7)]",
@@ -429,7 +429,7 @@ function RadioCardItem(props: { value: string; label: string }) {
       )}
     >
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[15px] font-medium leading-snug text-foreground sm:text-[16px]">
+        <p className="text-[15px] font-medium leading-snug text-foreground">
           {props.label}
         </p>
         <div

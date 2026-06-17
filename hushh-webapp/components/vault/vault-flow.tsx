@@ -640,47 +640,58 @@ export function VaultFlow({
       <Card
         variant="none"
         effect="fill"
-        className="overflow-hidden"
+        className="overflow-hidden rounded-[28px] border border-border/35 bg-background/95 shadow-[0_24px_70px_rgba(15,23,42,0.16)] backdrop-blur-xl dark:bg-background/92"
       >
-        <CardContent className="max-h-[calc(100svh-8rem)] space-y-3 overflow-y-auto p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] sm:max-h-[calc(100svh-10rem)] sm:space-y-4 sm:p-6">
+        <CardContent className="max-h-[calc(100svh-2rem)] space-y-4 overflow-y-auto px-5 py-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] [scrollbar-width:none] sm:max-h-[min(720px,calc(100svh-3rem))] sm:px-7 sm:py-7 [&::-webkit-scrollbar]:hidden">
           {/* Intro / Education Step */}
           {step === "intro" && (
-            <div className="space-y-6 text-center animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="flex justify-center mb-4">
-                <div className="h-20 w-20 rounded-2xl bg-primary/10 flex items-center justify-center">
-                  <Icon icon={Shield} size={40} className="text-primary" />
+            <div className="mx-auto max-w-[22rem] animate-in space-y-5 text-center fade-in slide-in-from-bottom-4 duration-500">
+              <div className="flex justify-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-primary/10 ring-1 ring-primary/10">
+                  <Icon icon={Shield} size={30} className="text-primary" />
                 </div>
               </div>
-              
+               
               <div className="space-y-2">
-                <h3 className="text-2xl font-bold tracking-tight">Secure Your Digital Vault</h3>
-                <p className="text-muted-foreground text-balance max-w-sm mx-auto">
+                <div
+                  role="heading"
+                  aria-level={2}
+                  className="text-[28px] font-medium leading-[1.05] tracking-normal text-foreground sm:text-[30px]"
+                >
+                  Secure Your Digital Vault
+                </div>
+                <p className="mx-auto max-w-[18rem] text-balance text-[16px] leading-[1.5] text-muted-foreground">
                   Hussh uses end-to-end encryption to protect your personal data.
                   Create your passphrase first, then optionally enable faster sign-in.
                 </p>
               </div>
 
-              <div className="text-left bg-muted/50 rounded-xl p-4 space-y-3 text-sm border border-border/50">
+              <div className="space-y-3 rounded-[22px] border border-border/45 bg-muted/35 p-4 text-left text-[15px] leading-[1.45] shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
                 <div className="flex gap-3">
                   <div className="mt-0.5 min-w-[1.25rem] text-primary">
-                     <Icon icon={Check} size="md" />
+                    <Icon icon={Check} size="sm" />
                   </div>
-                  <p><span className="font-semibold block text-foreground">You hold the only key</span> We cannot see your data or reset your password.</p>
+                  <p>
+                    <span className="block font-medium text-foreground">You hold the only key</span>
+                    <span className="text-muted-foreground">We cannot see your data or reset your password.</span>
+                  </p>
                 </div>
                 <div className="flex gap-3">
-                   <div className="mt-0.5 min-w-[1.25rem] text-primary">
-                     <Icon icon={Check} size="md" />
+                  <div className="mt-0.5 min-w-[1.25rem] text-primary">
+                    <Icon icon={Check} size="sm" />
                   </div>
-                  <p><span className="font-semibold block text-foreground">Protected by default</span> Your data stays private and secure.</p>
+                  <p>
+                    <span className="block font-medium text-foreground">Protected by default</span>
+                    <span className="text-muted-foreground">Your data stays private and secure.</span>
+                  </p>
                 </div>
               </div>
 
-              <div className="space-y-2">
               <Button 
                   variant="gradient" 
                   size={ACTION_BUTTON_SIZE}
                   fullWidth
-                  className="group whitespace-normal text-center leading-snug px-4"
+                  className="group h-12 whitespace-normal rounded-full px-4 text-center text-[16px] font-medium leading-snug"
                   onClick={() => {
                     setError(null);
                     setStep("create");
@@ -693,23 +704,29 @@ export function VaultFlow({
                     className="ml-2 transition-transform group-hover:translate-x-1"
                   />
                 </Button>
-
-              </div>
             </div>
           )}
 
           {/* Create Passphrase */}
           {step === "create" && (
-            <div className="space-y-3">
+            <div className="mx-auto max-w-[22rem] space-y-4">
               <div className="text-center">
-                <Icon icon={Lock} size={36} className="mx-auto text-primary mb-3" />
-                <h3 className="text-lg font-semibold sm:text-xl">Create Your Vault Passphrase</h3>
-                <p className="mt-1.5 text-sm text-muted-foreground sm:text-base">
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-[18px] bg-primary/10 ring-1 ring-primary/10">
+                  <Icon icon={Lock} size={24} className="text-primary" />
+                </div>
+                <div
+                  role="heading"
+                  aria-level={2}
+                  className="text-[27px] font-medium leading-[1.08] tracking-normal text-foreground sm:text-[29px]"
+                >
+                  Create Your Vault Passphrase
+                </div>
+                <p className="mx-auto mt-2 max-w-[18rem] text-[15px] leading-[1.45] text-muted-foreground">
                   This passphrase protects your Vault. Keep it private.
                 </p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="passphrase" className="text-sm sm:text-base">Passphrase</Label>
+                <Label htmlFor="passphrase" className="text-[15px] font-medium">Passphrase</Label>
                 <Input
                   id="passphrase"
                   type="password"
@@ -717,18 +734,18 @@ export function VaultFlow({
                   value={passphrase}
                   onChange={(e) => setPassphrase(e.target.value)}
                   autoFocus
-                  className="h-11 px-3 text-base sm:h-12 sm:px-4 sm:text-lg"
+                  className="h-12 rounded-[18px] px-4 text-[16px] shadow-sm"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="confirm" className="text-sm sm:text-base">Confirm Passphrase</Label>
+                <Label htmlFor="confirm" className="text-[15px] font-medium">Confirm Passphrase</Label>
                 <Input
                   id="confirm"
                   type="password"
                   placeholder="Confirm your passphrase"
                   value={confirmPassphrase}
                   onChange={(e) => setConfirmPassphrase(e.target.value)}
-                  className="h-11 px-3 text-base sm:h-12 sm:px-4 sm:text-lg"
+                  className="h-12 rounded-[18px] px-4 text-[16px] shadow-sm"
                 />
                 {createPassphraseHelperText && (
                   <p className="text-xs font-medium text-destructive" role="status">
@@ -736,14 +753,14 @@ export function VaultFlow({
                   </p>
                 )}
               </div>
-              <div className="rounded-xl border border-border/60 bg-muted/20 p-2.5 text-[11px] text-muted-foreground sm:p-3 sm:text-sm">
-                <p className="font-semibold text-foreground">Passphrase requirements</p>
-                <ul className="mt-1 list-disc space-y-0.5 pl-4">
+              <div className="rounded-[20px] border border-border/45 bg-muted/30 p-4 text-[14px] leading-[1.45] text-muted-foreground">
+                <p className="font-medium text-foreground">Passphrase requirements</p>
+                <ul className="mt-2 list-disc space-y-1 pl-4">
                   <li>Minimum 8 characters</li>
                   <li>Use a memorable phrase unique to you</li>
                   <li>Avoid reused passwords from other apps</li>
                 </ul>
-                <p className="mt-1.5 text-[10px] text-muted-foreground sm:mt-2 sm:text-xs">
+                <p className="mt-3 text-[13px] leading-[1.4] text-muted-foreground">
                   You can enable passkey or device unlock later from Profile.
                 </p>
               </div>
@@ -752,7 +769,7 @@ export function VaultFlow({
                 effect="glass"
                 size="default"
                 fullWidth
-                className="mt-2 h-11 text-sm sm:mt-4 sm:h-12 sm:text-base"
+                className="mt-1 h-12 rounded-full text-[16px] font-medium"
                 onClick={handleCreatePassphrase}
                 disabled={isUnlocking || passphrase.length < 8 || passphrase !== confirmPassphrase}
               >
@@ -776,7 +793,13 @@ export function VaultFlow({
                   size={24}
                   className="mx-auto mb-2 text-primary"
                 />
-                <h3 className="text-base font-semibold sm:text-lg">Unlock Your Vault</h3>
+                <div
+                  role="heading"
+                  aria-level={2}
+                  className="text-[20px] font-medium leading-[1.14] tracking-normal text-foreground"
+                >
+                  Unlock Your Vault
+                </div>
                 <p className="mt-1 line-clamp-1 text-xs text-muted-foreground sm:text-sm">
                   {isGeneratedVaultMode
                     ? "Confirm with your device to open Vault"
@@ -814,7 +837,7 @@ export function VaultFlow({
                     effect="glass"
                     size="default"
                     fullWidth
-                    className="h-10 text-sm font-semibold sm:h-11"
+                    className="h-11 rounded-full text-[15px] font-medium"
                     onClick={() => void handleUnlockPassphrase()}
                     disabled={isUnlocking || !passphrase}
                   >
@@ -865,7 +888,7 @@ export function VaultFlow({
                           effect="fade"
                           size="default"
                           fullWidth
-                          className="h-10 px-2 text-xs sm:h-11 sm:text-sm"
+                          className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px]"
                           data-testid="vault-use-passphrase-instead"
                           onClick={() => {
                             setError(null);
@@ -883,7 +906,7 @@ export function VaultFlow({
                           effect="fade"
                           size="default"
                           fullWidth
-                          className="h-10 px-2 text-xs sm:h-11 sm:text-sm"
+                          className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px]"
                           onClick={() => {
                             setError(null);
                             setPassphrase("");
@@ -903,7 +926,7 @@ export function VaultFlow({
                           effect="glass"
                           size="default"
                           fullWidth
-                          className="h-10 px-2 text-xs sm:h-11 sm:text-sm"
+                          className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px]"
                           onClick={() => {
                             setError(null);
                             setStep("recovery");
@@ -925,7 +948,13 @@ export function VaultFlow({
             <div className="space-y-2.5">
               <div className="text-center">
                 <Icon icon={Key} size={24} className="mx-auto mb-2 text-primary" />
-                <h3 className="text-base font-semibold sm:text-lg">Enter Recovery Key</h3>
+                <div
+                  role="heading"
+                  aria-level={2}
+                  className="text-[20px] font-medium leading-[1.14] tracking-normal text-foreground"
+                >
+                  Enter Recovery Key
+                </div>
                 <p className="mt-1 line-clamp-1 text-xs text-muted-foreground sm:text-sm">
                   Enter your recovery key to open Vault
                 </p>
@@ -952,7 +981,7 @@ export function VaultFlow({
                   effect="glass"
                   size="default"
                   fullWidth
-                  className="h-10 text-sm font-semibold sm:h-11"
+                  className="h-11 rounded-full text-[15px] font-medium"
                   onClick={handleRecoveryKeySubmit}
                   disabled={isUnlocking || !recoveryKeyInput}
                 >
@@ -972,7 +1001,7 @@ export function VaultFlow({
                       effect="glass"
                       size="default"
                       fullWidth
-                      className="h-10 px-2 text-xs sm:h-11 sm:text-sm"
+                      className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px]"
                       onClick={() => {
                         setError(null);
                         setUnlockWithPassphraseFallback(true);
@@ -988,7 +1017,7 @@ export function VaultFlow({
                         effect="glass"
                         size="default"
                         fullWidth
-                        className="h-10 px-2 text-xs sm:h-11 sm:text-sm"
+                        className="h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px]"
                         onClick={() => {
                           setError(null);
                           setPassphrase("");
@@ -1020,8 +1049,14 @@ export function VaultFlow({
                   size={36}
                   className="mx-auto mb-3 text-primary"
                 />
-                <h3 className="text-lg font-semibold sm:text-xl">Enable quicker unlock?</h3>
-                <p className="mt-1.5 text-sm text-muted-foreground sm:text-base">
+                <div
+                  role="heading"
+                  aria-level={2}
+                  className="text-[24px] font-medium leading-[1.1] tracking-normal text-foreground"
+                >
+                  Enable quicker unlock?
+                </div>
+                <p className="mt-2 text-[15px] leading-[1.45] text-muted-foreground">
                   You can keep passphrase unlock, or enable{" "}
                   {recommendedQuickMethod === "generated_default_web_prf" ||
                   recommendedQuickMethod === "generated_default_native_passkey_prf"
@@ -1037,7 +1072,7 @@ export function VaultFlow({
                   effect="glass"
                   size="default"
                   fullWidth
-                  className="h-11 text-sm sm:h-12 sm:text-base"
+                  className="h-12 rounded-full text-[16px] font-medium"
                   disabled={isUnlocking || !pendingUnlockKey || !recommendedQuickMethod}
                   onClick={async () => {
                     if (!pendingUnlockKey || !recommendedQuickMethod) return;
@@ -1088,7 +1123,7 @@ export function VaultFlow({
                   effect="fade"
                   size="default"
                   fullWidth
-                  className="h-11 whitespace-normal px-4 text-center text-sm leading-snug sm:h-12 sm:text-base"
+                  className="h-11 whitespace-normal rounded-full px-4 text-center text-[15px] font-medium leading-snug sm:h-12"
                   disabled={isUnlocking || !pendingUnlockKey}
                   onClick={async () => {
                     if (!pendingUnlockKey) return;
@@ -1123,31 +1158,35 @@ export function VaultFlow({
         onOpenChange={() => {}}
       >
         <DialogContent
-          className="z-[520] w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-md"
+          className="z-[520] max-h-[calc(100svh-1rem)] w-[calc(100%-1rem)] overflow-y-auto rounded-[28px] border border-border/35 bg-background/95 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.18)] backdrop-blur-xl sm:max-w-md sm:p-7"
           onPointerDownOutside={(e) => e.preventDefault()}
         >
           <DialogHeader>
-            <div className="flex items-center gap-2">
-              <Icon icon={Key} size="lg" className="text-orange-500" />
-              <DialogTitle>Save Your Recovery Key</DialogTitle>
+            <div className="flex items-center gap-3">
+              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-[16px] bg-orange-500/10 ring-1 ring-orange-500/15">
+                <Icon icon={Key} size="sm" className="text-orange-500" />
+              </div>
+              <DialogTitle className="!text-[22px] !font-medium !leading-[1.12] !tracking-normal">
+                Save Your Recovery Key
+              </DialogTitle>
             </div>
-            <DialogDescription>
+            <DialogDescription className="pt-1 text-[14.5px] leading-[1.45]">
               This is the ONLY way to recover your vault if you forget your
               vault credentials. Store it somewhere safe!
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
-            <Alert className="bg-orange-500/10 border-orange-500/50">
+            <Alert className="rounded-[18px] border-orange-500/30 bg-orange-500/10">
               <Icon icon={AlertCircle} size="sm" className="text-orange-500" />
-              <AlertDescription className="text-orange-700 dark:text-orange-300">
+              <AlertDescription className="text-[13.5px] leading-[1.4] text-orange-700 dark:text-orange-300">
                 Write this down or save it securely. You cannot recover it
                 later!
               </AlertDescription>
             </Alert>
 
-            <div className="p-4 bg-muted rounded-lg border-2 border-dashed">
-              <code className="text-lg font-mono font-bold tracking-wide">
+            <div className="rounded-[18px] border border-dashed border-border bg-muted/45 p-4">
+              <code className="break-all font-mono text-[15px] font-medium leading-[1.5] tracking-normal">
                 {recoveryKey}
               </code>
             </div>
@@ -1155,7 +1194,7 @@ export function VaultFlow({
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button
                 variant="none"
-                className="flex-1 border border-gray-200 dark:border-gray-700 whitespace-normal"
+                className="h-11 flex-1 whitespace-normal rounded-full border border-gray-200 text-[15px] font-medium dark:border-gray-700"
                 onClick={handleCopyRecoveryKey}
               >
                 {copied ? (
@@ -1172,7 +1211,7 @@ export function VaultFlow({
               </Button>
               <Button
                 variant="none"
-                className="flex-1 border border-gray-200 dark:border-gray-700 whitespace-normal"
+                className="h-11 flex-1 whitespace-normal rounded-full border border-gray-200 text-[15px] font-medium dark:border-gray-700"
                 onClick={async () => {
                   const content = `Hussh Recovery Key\n\n${recoveryKey}\n\nStore this file securely. This is the ONLY way to recover your vault if you lose your vault credentials.`;
                   await downloadTextFile(content, "hushh-recovery-key.txt");
@@ -1189,7 +1228,7 @@ export function VaultFlow({
               variant="gradient"
               effect="glass"
               size={ACTION_BUTTON_SIZE}
-              className="w-full whitespace-normal text-center leading-snug h-auto min-h-12 px-4"
+              className="h-12 w-full whitespace-normal rounded-full px-4 text-center text-[16px] font-medium leading-snug"
               onClick={handleRecoveryKeyContinue}
             >
               I've Saved My Recovery Key

@@ -12,6 +12,7 @@ MAX_LOG_STRING_LENGTH = 160
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PHONE_RE = re.compile(r"^\+?[0-9][0-9 .()\-]{6,}$")
+_UID_LIKE_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*[-_])[A-Za-z0-9_-]{8,}$")
 _TOKEN_PREFIXES = ("HCT:", "Bearer ")
 _TOKEN_VALUE_RE = re.compile(r"\b(?:Bearer\s+|HCT:)[A-Za-z0-9._~+/=-]+")
 _QUERY_SECRET_RE = re.compile(
@@ -79,7 +80,11 @@ def _is_sensitive_string(value: str) -> bool:
     stripped = value.strip()
     if stripped.startswith(_TOKEN_PREFIXES):
         return True
-    return bool(_EMAIL_RE.match(stripped) or _PHONE_RE.match(stripped))
+    return bool(
+        _EMAIL_RE.match(stripped)
+        or _PHONE_RE.match(stripped)
+        or _UID_LIKE_RE.match(stripped)
+    )
 
 
 def _redact_sensitive_substrings(value: str) -> str:

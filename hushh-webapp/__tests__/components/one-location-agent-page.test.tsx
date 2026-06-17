@@ -456,14 +456,14 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("renders a public request-link control that does not promise public location", async () => {
+  it("renders a public location link control", async () => {
     render(<OneLocationAgentPageContent />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
-    expect(screen.getByText("Create request link")).toBeTruthy();
+    expect(screen.getByText("Create public link")).toBeTruthy();
     expect(screen.getByText("Public link responses")).toBeTruthy();
-    expect(screen.queryByText(/public live-location link/i)).toBeNull();
+    expect(screen.getByText(/Share a public location link/i)).toBeTruthy();
     expect(screen.queryByText(/whatsapp/i)).toBeNull();
   });
 
@@ -574,15 +574,29 @@ describe("OneLocationAgentPage", () => {
     expect(startLink.getAttribute("href")).toContain("dir_action=navigate");
   });
 
-  it("tracks public request-link creation without location or identity payloads", async () => {
+  it("tracks public location link creation without analytics identity payloads", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
     render(<OneLocationAgentPageContent />);
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     fireEvent.click(
-      screen.getByRole("button", { name: /Create request link/i }),
+      screen.getByRole("button", { name: /Create public link/i }),
     );
 
     await waitFor(() => expect(mockCreatePublicInvite).toHaveBeenCalledTimes(1));
+    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(mockCreatePublicInvite).toHaveBeenCalledWith({
+      vaultOwnerToken: "vault-token",
+      durationHours: 1,
+      locationSnapshot: expect.objectContaining({
+        latitude: 28.6139,
+        longitude: 77.209,
+      }),
+    });
     expect(mockTrackEvent).toHaveBeenCalledWith(
       "one_location_public_link_created",
       expect.objectContaining({
@@ -951,6 +965,10 @@ describe("OneLocationAgentPage", () => {
     expect(mockCreatePublicInvite).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
       durationHours: 1,
+      locationSnapshot: expect.objectContaining({
+        latitude: 28.6139,
+        longitude: 77.209,
+      }),
     });
     expect(JSON.stringify(mockTrackEvent.mock.calls)).not.toMatch(
       /8012|9911|latitude|longitude|28\.6139|77\.209/u,
@@ -1010,7 +1028,7 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByText(/No ready KAI members yet/)).toBeTruthy();
     expect(screen.getByText(/No setup blockers/)).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: /Create request link/i }),
+      screen.getByRole("button", { name: /Create public link/i }),
     ).toBeTruthy();
   });
 

@@ -1999,9 +1999,11 @@ export function OneLocationAgentPageContent() {
     if (!vaultOwnerToken) return;
     setBusy("publicInvite");
     try {
+      const point = await OneLocationService.captureCurrentPosition();
       const response = await OneLocationService.createPublicInvite({
         vaultOwnerToken,
         durationHours: Number(durationHours),
+        locationSnapshot: point,
       });
       const url = publicInviteUrlLabel(response.publicUrl);
       setPublicInviteUrl(url);
@@ -2015,9 +2017,7 @@ export function OneLocationAgentPageContent() {
         copied_to_clipboard: Boolean(navigator.clipboard && url),
         active_invite_count: activePublicInvites.length + 1,
       });
-      toast.success(
-        "Public request link created. You still approve before sharing.",
-      );
+      toast.success("Public location link created and copied.");
       await refresh();
     } catch (error) {
       trackEvent("one_location_public_link_created", {
@@ -2028,7 +2028,7 @@ export function OneLocationAgentPageContent() {
         active_invite_count: activePublicInvites.length,
       });
       toast.error(
-        oneLocationErrorMessage(error, "Could not create public request link."),
+        oneLocationErrorMessage(error, "Could not create public location link."),
       );
     } finally {
       setBusy(null);
@@ -2039,27 +2039,27 @@ export function OneLocationAgentPageContent() {
     if (!publicInviteUrl) return;
     try {
       await navigator.clipboard.writeText(publicInviteUrl);
-      toast.success("Request link copied.");
+      toast.success("Public location link copied.");
     } catch {
-      toast.error("Could not copy the request link.");
+      toast.error("Could not copy the public location link.");
     }
   }, [publicInviteUrl]);
 
   const handleSharePublicInvite = useCallback(async () => {
     if (!publicInviteUrl) return;
     const text =
-      "Please send a One Location request here. I approve before anything is shared.";
+      "View my One Location location update here after entering your details.";
     try {
       if (navigator.share) {
         await navigator.share({
-          title: "Request my location",
+          title: "View my location",
           text,
           url: publicInviteUrl,
         });
         return;
       }
       await navigator.clipboard.writeText(publicInviteUrl);
-      toast.success("Request link copied.");
+      toast.success("Public location link copied.");
     } catch (error) {
       if ((error as Error)?.name === "AbortError") return;
       toast.error("Could not open the share sheet.");
@@ -2072,9 +2072,11 @@ export function OneLocationAgentPageContent() {
     try {
       let url = publicInviteUrl;
       if (!url) {
+        const point = await OneLocationService.captureCurrentPosition();
         const response = await OneLocationService.createPublicInvite({
           vaultOwnerToken,
           durationHours: Number(durationHours),
+          locationSnapshot: point,
         });
         url = publicInviteUrlLabel(response.publicUrl);
         setPublicInviteUrl(url);
@@ -2089,7 +2091,7 @@ export function OneLocationAgentPageContent() {
       }
 
       const text =
-        "Join my KAI Circle on One Location. Send me a request here; I approve before anything is shared.";
+        "Join my KAI Circle on One Location. You can view my public location update here after entering your details.";
       if (navigator.share && url) {
         await navigator.share({
           title: "Join my KAI Circle",
@@ -2103,7 +2105,7 @@ export function OneLocationAgentPageContent() {
         toast.success("Invite link copied.");
         return;
       }
-      toast.info("Create a request link, then share it with your contacts.");
+      toast.info("Create a public location link, then share it with your contacts.");
     } catch (error) {
       if ((error as Error)?.name === "AbortError") return;
       trackEvent("one_location_public_link_created", {
@@ -2135,13 +2137,13 @@ export function OneLocationAgentPageContent() {
           inviteId: invite.id,
         });
         setPublicInviteUrl("");
-        toast.success("Public request link revoked.");
+        toast.success("Public location link revoked.");
         await refresh();
       } catch (error) {
         toast.error(
           oneLocationErrorMessage(
             error,
-            "Could not revoke public request link.",
+            "Could not revoke public location link.",
           ),
         );
       } finally {
@@ -3113,17 +3115,17 @@ export function OneLocationAgentPageContent() {
               </section>
 
               <section className="space-y-2 px-1">
-                {sectionLabel("Create request link")}
+                {sectionLabel("Create public link")}
                 <div className={cn(onePanelClassName, "space-y-4 p-3.5")}>
                   <p className="text-[13px] leading-5 text-[#8e8e93] dark:text-white/55">
-                    Share a request link. It asks for their details and never
-                    shows your location until you approve an encrypted grant.
+                    Share a public location link. Visitors enter their details
+                    and can view this link's captured location.
                   </p>
                   <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_150px]">
                     <div className={cn(oneInsetClassName, "px-3 py-2 text-sm")}>
                       <span className={oneSecondaryTextClassName}>
                         {publicInviteUrl ||
-                          "Create a fresh request link to copy or share."}
+                          "Create a fresh public location link to copy or share."}
                       </span>
                     </div>
                     <Select
@@ -3151,7 +3153,7 @@ export function OneLocationAgentPageContent() {
                       className="rounded-full bg-[#007aff] text-white hover:bg-[#0066ff]"
                     >
                       <ExternalLink className="mr-2 h-4 w-4" />
-                      Create Request Link
+                      Create Public Link
                     </ActionButton>
                     <Button
                       variant="outline"
@@ -3181,10 +3183,10 @@ export function OneLocationAgentPageContent() {
                         >
                           <div className="min-w-0">
                             <p className="text-[14px] font-semibold text-[#1c1c1e] dark:text-white">
-                              Active request link
+                              Active public location link
                             </p>
                             <p className="truncate text-[12px] text-[#8e8e93] dark:text-white/55">
-                              Requests expire{" "}
+                              Public viewing expires{" "}
                               {formatDateTime(invite.expiresAt)} -{" "}
                               {invite.durationHours}h
                             </p>
@@ -3308,7 +3310,7 @@ export function OneLocationAgentPageContent() {
                     <EmptyOneState
                       icon={ExternalLink}
                       title="No public responses"
-                      description="Responses from your request link show up here without exposing your location."
+                      description="Responses from your public location link show up here after visitors open it."
                     />
                   )}
                 </div>

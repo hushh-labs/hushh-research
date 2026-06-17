@@ -349,9 +349,9 @@ export function PhoneVerificationFlow({
         </div>
         <Button
           onClick={() => void onContinueExisting?.()}
-          size="lg"
+          size="default"
           fullWidth
-          className={`mt-6 h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+          className={`mt-6 h-12 text-[16px] font-medium ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
         >
           Continue
         </Button>
@@ -450,21 +450,21 @@ export function PhoneVerificationFlow({
             <Button
               onClick={() => void handleStartVerification(false)}
               loading={busy}
-              size="lg"
+              size="default"
               fullWidth
-              className={`h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+              className={`h-12 text-[16px] font-medium ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Send verification code"}
             </Button>
             {onCancel ? (
               <Button
-                onClick={onCancel}
-                variant="none"
-                effect="fade"
-                fullWidth
-                disabled={busy}
-                className={`h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
-              >
+              onClick={onCancel}
+              variant="none"
+              effect="fade"
+              fullWidth
+              disabled={busy}
+              className={`h-12 text-[15px] font-medium ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+            >
                 Cancel
               </Button>
             ) : null}
@@ -501,9 +501,9 @@ export function PhoneVerificationFlow({
             <Button
               onClick={() => void handleConfirmVerification()}
               loading={busy}
-              size="lg"
+              size="default"
               fullWidth
-              className={`h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+              className={`h-12 text-[16px] font-medium ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : confirmLabel || "Verify and continue"}
             </Button>
@@ -511,10 +511,10 @@ export function PhoneVerificationFlow({
               onClick={() => void handleStartVerification(true)}
               variant="none"
               effect="glass"
-              size="lg"
+              size="default"
               fullWidth
               disabled={busy}
-              className={`h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+              className={`h-12 text-[15px] font-medium ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
             >
               Resend code
             </Button>
@@ -526,7 +526,7 @@ export function PhoneVerificationFlow({
             effect="fade"
             fullWidth
             disabled={busy}
-            className={`h-12 ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
+            className={`h-12 text-[15px] font-medium ${FLOW_SURFACE_RADIUS_CLASS_NAME}`}
           >
             Use a different number
           </Button>
