@@ -97,6 +97,9 @@ export const Navbar = () => {
     pathname === ROUTES.DEVELOPERS;
   const agentWindowOpen =
     agentPopover?.expanded || agentPopover?.motionState === "opening";
+  const portfolioImportSurfaceActive = Boolean(
+    busyOperations["portfolio_import_surface"]
+  );
 
   const navOptions = useMemo<SegmentedPillOption[]>(
     () =>
@@ -170,7 +173,7 @@ export const Navbar = () => {
     [activePersona, pendingConsents]
   );
 
-  if (hideNavbar || agentWindowOpen) {
+  if (hideNavbar || agentWindowOpen || portfolioImportSurfaceActive) {
     return null;
   }
 
