@@ -272,3 +272,22 @@ describe("portfolio normalizer - negative currency boundaries", () => {
     expect(consolidated[0].cost_basis).toBeCloseTo(-0.0001, 8);
   });
 });
+
+describe("portfolio normalizer - padded currency symbol boundaries", () => {
+  it("normalizes leading whitespace and detached currency symbols in numeric fields", () => {
+    const consolidated = consolidateHoldingsBySymbol([
+      {
+        symbol: "PAD",
+        name: "Padded Currency Holding",
+        quantity: "1",
+        market_value: "   $  1,250.50 ",
+        cost_basis: " $   -450 ",
+      },
+    ]);
+
+    expect(consolidated).toHaveLength(1);
+    expect(consolidated[0].quantity).toBe(1);
+    expect(consolidated[0].market_value).toBeCloseTo(1250.5, 8);
+    expect(consolidated[0].cost_basis).toBeCloseTo(-450, 8);
+  });
+});
