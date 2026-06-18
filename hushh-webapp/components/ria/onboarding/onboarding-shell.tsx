@@ -97,7 +97,14 @@ export function OnboardingShell({
             )}
           >
             {saving ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
+              <>
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span className="sr-only">Saving</span>
+                <span aria-hidden="true" className="invisible">
+                  Continue
+                </span>
+                <ArrowRight aria-hidden="true" className="invisible h-4 w-4" />
+              </>
             ) : isLastStep && advisoryAccessReady ? (
               <>
                 Continue to Dashboard
