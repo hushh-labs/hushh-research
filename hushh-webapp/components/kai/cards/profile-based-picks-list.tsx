@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
@@ -74,7 +74,7 @@ export function ProfileBasedPicksList({
         const picks = (response.picks || []).filter((p) => p?.symbol);
         setState({ picks, riskProfile: response.risk_profile || "balanced", loading: false, error: null });
         cache.set(cacheKey, { picks, risk_profile: response.risk_profile }, CACHE_TTL.MEDIUM);
-      } catch (err) {
+      } catch (_err) {
         if (!controller.signal.aborted) {
           setState(prev => ({ ...prev, loading: false, error: "Unable to load picks" }));
         }
