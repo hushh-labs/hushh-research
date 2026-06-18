@@ -2,7 +2,7 @@
 
 import { ReactNode } from "react";
 import { Providers } from "./providers";
-import { FocusTimerWidget } from "@/components/features/focus/focus-timer-widget";
+
 
 interface RootLayoutClientProps {
   children: ReactNode;
@@ -38,6 +38,8 @@ export function RootLayoutClient({
         {children}
         <FocusTimerWidget />
       </Providers>
+      
+      <NetworkStatusIndicator />
     </body>
   );
 }
