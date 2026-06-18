@@ -31,6 +31,7 @@ describe("DrawerContent", () => {
       </Drawer>,
     );
 
+    expect(screen.getByText("Test drawer")).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: /close/i }),
     ).toBeNull();
