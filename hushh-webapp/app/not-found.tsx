@@ -6,7 +6,6 @@ import { Card } from "@/lib/morphy-ux/card";
 import { BrandMark, Icon } from "@/lib/morphy-ux/ui";
 import { ROUTES } from "@/lib/navigation/routes";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
-import { cn } from "@/lib/utils";
 
 export default function AppNotFoundPage() {
   return (
