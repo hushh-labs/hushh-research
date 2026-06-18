@@ -192,7 +192,9 @@ function KaiOnboardingPageContent() {
         // Always return to the questionnaire until the onboarding completion flag is set.
         setStage("wizard");
       } catch (error) {
-        console.warn("[KaiOnboardingPage] Failed to load onboarding:", error);
+        if (process.env.NODE_ENV !== "production") {
+         console.warn("[KaiOnboardingPage] Failed to load onboarding:", error);
+        }
         if (!cancelled) {
           setLoadError("Couldn't load onboarding state. Please retry.");
           setStage("loading");
