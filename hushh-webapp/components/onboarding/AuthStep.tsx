@@ -22,6 +22,7 @@ import {
   kaiAppHeroBodyClassName,
   kaiAppHeroTitleClassName,
 } from "@/components/kai/shared/kai-typography";
+import { OneLockup } from "@/components/app-ui/gold-period";
 import {
   isOnboardingFlowActiveCookieEnabled,
   setOnboardingFlowActiveCookie,
@@ -572,7 +573,7 @@ export function AuthStep({
             aria-label="Sign in to One"
             className={`mt-2.5 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
           >
-            Sign in to One.
+            Sign in to <OneLockup />
           </div>
           <p className={`mx-auto mt-3 max-w-[20rem] ${kaiAppHeroBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
             Continue to your personal financial advisor.
@@ -596,7 +597,7 @@ export function AuthStep({
               />
             ))}
 
-            <p className="mx-auto max-w-[18.75rem] pt-2 text-center text-[13px] leading-[1.45] text-[#86868b] dark:text-[#8e8e93]">
+            <p className="type-footnote mx-auto max-w-[18.75rem] pt-2 text-center text-[#86868b] dark:text-[#8e8e93]">
               A verified phone number is required before you continue.
             </p>
 
@@ -614,7 +615,7 @@ export function AuthStep({
           </section>
 
         <footer className="absolute inset-x-6 bottom-[calc(20px+var(--app-screen-footer-pad))] flex-none">
-          <p className="mx-auto max-w-[19.5rem] text-center text-[11px] leading-[1.45] text-[#86868b] dark:text-[#8e8e93]">
+          <p className="type-footnote mx-auto max-w-[19.5rem] text-center text-[#86868b] dark:text-[#8e8e93]">
             By continuing, you agree to Kai&apos;s{" "}
             <button
               type="button"

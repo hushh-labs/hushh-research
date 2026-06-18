@@ -104,11 +104,58 @@ a, button, input, select, textarea {
 
 :root {
   /* Centralized app typography variables.
-   * Next/font sets these variables at runtime from app/layout.tsx.
-   * Keep names semantic so future font swaps only need layout.tsx changes. */
-  --font-app-body: system-ui, sans-serif;
-  --font-app-heading: Inter, "Inter Fallback", system-ui, sans-serif;
-  --font-app-mono: ui-monospace, monospace;
+   * Foundation v1.0 uses SF through the system stack only.
+   * Do not add @font-face or bundled SF font files. */
+  --font-app-display: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --font-app-body: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --font-app-heading: var(--font-app-display);
+  --font-app-mono: var(--font-app-body);
+
+  --foundation-display-size: clamp(2.125rem, 1.55rem + 2.3vw, 3.5rem);
+  --foundation-display-line: 1.06;
+  --foundation-display-weight: 700;
+  --foundation-display-tracking: -0.022em;
+  --foundation-title1-size: clamp(1.75rem, 1.46rem + 1.2vw, 2.5rem);
+  --foundation-title1-line: 1.107;
+  --foundation-title1-weight: 700;
+  --foundation-title1-tracking: -0.02em;
+  --foundation-title2-size: clamp(1.375rem, 1.25rem + 0.5vw, 1.75rem);
+  --foundation-title2-line: 1.182;
+  --foundation-title2-weight: 600;
+  --foundation-title2-tracking: -0.016em;
+  --foundation-title3-size: clamp(1.25rem, 1.18rem + 0.3vw, 1.375rem);
+  --foundation-title3-line: 1.2;
+  --foundation-title3-weight: 600;
+  --foundation-title3-tracking: -0.012em;
+  --foundation-headline-size: 1.0625rem;
+  --foundation-headline-line: 1.294;
+  --foundation-headline-weight: 600;
+  --foundation-headline-tracking: -0.01em;
+  --foundation-body-size: 1.0625rem;
+  --foundation-body-line: 1.471;
+  --foundation-body-weight: 400;
+  --foundation-body-tracking: 0;
+  --foundation-callout-size: 1rem;
+  --foundation-callout-line: 1.438;
+  --foundation-callout-weight: 400;
+  --foundation-callout-tracking: 0;
+  --foundation-subhead-size: 0.9375rem;
+  --foundation-subhead-line: 1.4;
+  --foundation-subhead-weight: 400;
+  --foundation-subhead-tracking: 0;
+  --foundation-footnote-size: 0.8125rem;
+  --foundation-footnote-line: 1.385;
+  --foundation-footnote-weight: 400;
+  --foundation-footnote-tracking: 0;
+  --foundation-caption-size: 0.75rem;
+  --foundation-caption-line: 1.333;
+  --foundation-caption-weight: 600;
+  --foundation-caption-tracking: 0.158em;
+  --foundation-micro-size: 0.6875rem;
+  --foundation-micro-line: 1.273;
+  --foundation-micro-weight: 600;
+  --foundation-micro-tracking: 0.2em;
+  --foundation-gold: #B8894D;
 
   /* Runtime CSS variable fallbacks for dynamic primitives/charts. */
   --anchor-width: 16rem;
@@ -955,95 +1002,97 @@ html.native-ios {
   h4,
   h5,
   h6 {
-    font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
+    font-family: var(--font-app-display);
   }
 
   h1 {
-    font-size: clamp(1.75rem, 3vw, 2.5rem) !important;
-    line-height: 1.1 !important;
-    font-weight: 600 !important;
-    letter-spacing: 0;
+    font-size: var(--foundation-title1-size) !important;
+    line-height: var(--foundation-title1-line) !important;
+    font-weight: var(--foundation-title1-weight) !important;
+    letter-spacing: var(--foundation-title1-tracking);
   }
 
   h2 {
-    font-size: clamp(1.3rem, 2vw, 1.75rem) !important;
-    line-height: 1.16 !important;
-    font-weight: 550 !important;
-    letter-spacing: 0;
+    font-size: var(--foundation-title2-size) !important;
+    line-height: var(--foundation-title2-line) !important;
+    font-weight: var(--foundation-title2-weight) !important;
+    letter-spacing: var(--foundation-title2-tracking);
   }
 
   h3 {
-    font-size: clamp(1.1rem, 1.55vw, 1.35rem) !important;
-    line-height: 1.2 !important;
-    font-weight: 550 !important;
-    letter-spacing: 0;
+    font-size: var(--foundation-title3-size) !important;
+    line-height: var(--foundation-title3-line) !important;
+    font-weight: var(--foundation-title3-weight) !important;
+    letter-spacing: var(--foundation-title3-tracking);
   }
 
   h4 {
-    font-size: clamp(1rem, 1.25vw, 1.125rem) !important;
-    line-height: 1.24 !important;
-    font-weight: 525 !important;
+    font-size: var(--foundation-headline-size) !important;
+    line-height: var(--foundation-headline-line) !important;
+    font-weight: var(--foundation-headline-weight) !important;
   }
 
   h5 {
-    font-size: clamp(0.95rem, 1.12vw, 1rem) !important;
-    line-height: 1.3 !important;
-    font-weight: 525 !important;
+    font-size: var(--foundation-callout-size) !important;
+    line-height: var(--foundation-callout-line) !important;
+    font-weight: var(--foundation-callout-weight) !important;
   }
 
   h6 {
-    font-size: clamp(0.875rem, 1vw, 0.95rem) !important;
-    line-height: 1.32 !important;
-    font-weight: 525 !important;
+    font-size: var(--foundation-subhead-size) !important;
+    line-height: var(--foundation-subhead-line) !important;
+    font-weight: var(--foundation-subhead-weight) !important;
   }
 
   [data-slot$="title"] {
-    font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
-    font-size: clamp(1.05rem, 1.4vw, 1.2rem) !important;
-    line-height: 1.28 !important;
-    font-weight: 650 !important;
-    letter-spacing: -0.012em;
+    font-family: var(--font-app-display);
+    font-size: var(--foundation-title3-size) !important;
+    line-height: var(--foundation-title3-line) !important;
+    font-weight: var(--foundation-title3-weight) !important;
+    letter-spacing: var(--foundation-title3-tracking);
   }
 
   .app-section-heading,
   [data-section-heading] {
-    font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
-    font-size: clamp(1.05rem, 1.4vw, 1.2rem) !important;
-    line-height: 1.28 !important;
-    font-weight: 650 !important;
-    letter-spacing: -0.012em;
+    font-family: var(--font-app-display);
+    font-size: var(--foundation-title3-size) !important;
+    line-height: var(--foundation-title3-line) !important;
+    font-weight: var(--foundation-title3-weight) !important;
+    letter-spacing: var(--foundation-title3-tracking);
   }
 
   .app-page-shell h1,
   .app-page-shell [role="heading"][aria-level="1"] {
-    font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
-    font-size: clamp(1.75rem, 3.4vw, 2.125rem) !important;
-    line-height: 1.08 !important;
-    font-weight: 500 !important;
-    letter-spacing: 0 !important;
+    font-family: var(--font-app-display);
+    font-size: var(--foundation-title1-size) !important;
+    line-height: var(--foundation-title1-line) !important;
+    font-weight: var(--foundation-title1-weight) !important;
+    letter-spacing: var(--foundation-title1-tracking) !important;
   }
 
   .app-page-shell h2,
   .app-page-shell [role="heading"][aria-level="2"] {
-    font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
-    font-size: clamp(1rem, 1.45vw, 1.25rem) !important;
-    line-height: 1.2 !important;
-    font-weight: 500 !important;
-    letter-spacing: 0 !important;
+    font-family: var(--font-app-display);
+    font-size: var(--foundation-title3-size) !important;
+    line-height: var(--foundation-title3-line) !important;
+    font-weight: var(--foundation-title3-weight) !important;
+    letter-spacing: var(--foundation-title3-tracking) !important;
   }
 
   .app-page-shell h3,
   .app-page-shell [role="heading"][aria-level="3"] {
-    font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
-    font-size: clamp(0.95rem, 1.18vw, 1.0625rem) !important;
-    line-height: 1.25 !important;
-    font-weight: 500 !important;
-    letter-spacing: 0 !important;
+    font-family: var(--font-app-display);
+    font-size: var(--foundation-headline-size) !important;
+    line-height: var(--foundation-headline-line) !important;
+    font-weight: var(--foundation-headline-weight) !important;
+    letter-spacing: var(--foundation-headline-tracking) !important;
   }
 
   .app-page-shell .font-black,
-  .app-page-shell .font-extrabold {
-    font-weight: 600 !important;
+  .app-page-shell .font-extrabold,
+  .font-black,
+  .font-extrabold {
+    font-weight: 700 !important;
   }
 
   /* Global Lucide icon stroke thickness (lucide-react adds `.lucide` on the SVG). */
@@ -2031,6 +2080,116 @@ html.dark body,
 html.dark .morphy-app-bg {
   background-color: #1c1c1e !important;
   background-image: none !important;
+}
+
+.dark {
+  --foundation-gold: #D4A574;
+}
+
+@layer utilities {
+  .type-display,
+  .type-title1,
+  .type-title2,
+  .type-title3 {
+    font-family: var(--font-app-display);
+  }
+
+  .type-headline,
+  .type-body,
+  .type-callout,
+  .type-subhead,
+  .type-footnote,
+  .type-caption,
+  .type-micro {
+    font-family: var(--font-app-body);
+  }
+
+  .type-display {
+    font-size: var(--foundation-display-size);
+    font-weight: var(--foundation-display-weight);
+    line-height: var(--foundation-display-line);
+    letter-spacing: var(--foundation-display-tracking);
+  }
+
+  .type-title1 {
+    font-size: var(--foundation-title1-size);
+    font-weight: var(--foundation-title1-weight);
+    line-height: var(--foundation-title1-line);
+    letter-spacing: var(--foundation-title1-tracking);
+  }
+
+  .type-title2 {
+    font-size: var(--foundation-title2-size);
+    font-weight: var(--foundation-title2-weight);
+    line-height: var(--foundation-title2-line);
+    letter-spacing: var(--foundation-title2-tracking);
+  }
+
+  .type-title3 {
+    font-size: var(--foundation-title3-size);
+    font-weight: var(--foundation-title3-weight);
+    line-height: var(--foundation-title3-line);
+    letter-spacing: var(--foundation-title3-tracking);
+  }
+
+  .type-headline {
+    font-size: var(--foundation-headline-size);
+    font-weight: var(--foundation-headline-weight);
+    line-height: var(--foundation-headline-line);
+    letter-spacing: var(--foundation-headline-tracking);
+  }
+
+  .type-body {
+    font-size: var(--foundation-body-size);
+    font-weight: var(--foundation-body-weight);
+    line-height: var(--foundation-body-line);
+    letter-spacing: var(--foundation-body-tracking);
+  }
+
+  .type-callout {
+    font-size: var(--foundation-callout-size);
+    font-weight: var(--foundation-callout-weight);
+    line-height: var(--foundation-callout-line);
+    letter-spacing: var(--foundation-callout-tracking);
+  }
+
+  .type-subhead {
+    font-size: var(--foundation-subhead-size);
+    font-weight: var(--foundation-subhead-weight);
+    line-height: var(--foundation-subhead-line);
+    letter-spacing: var(--foundation-subhead-tracking);
+  }
+
+  .type-footnote {
+    font-size: var(--foundation-footnote-size);
+    font-weight: var(--foundation-footnote-weight);
+    line-height: var(--foundation-footnote-line);
+    letter-spacing: var(--foundation-footnote-tracking);
+  }
+
+  .type-caption {
+    font-size: var(--foundation-caption-size);
+    font-weight: var(--foundation-caption-weight);
+    line-height: var(--foundation-caption-line);
+    letter-spacing: var(--foundation-caption-tracking);
+    text-transform: uppercase;
+  }
+
+  .type-micro {
+    font-size: var(--foundation-micro-size);
+    font-weight: var(--foundation-micro-weight);
+    line-height: var(--foundation-micro-line);
+    letter-spacing: var(--foundation-micro-tracking);
+    text-transform: uppercase;
+  }
+
+  .type-numeric {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .gold-period {
+    color: var(--foundation-gold);
+  }
 }
 
 @media (hover: hover) {

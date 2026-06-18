@@ -7,6 +7,7 @@ import {
   kaiAppHeroBodyClassName,
   kaiAppHeroTitleClassName,
 } from "@/components/kai/shared/kai-typography";
+import { OneLockup } from "@/components/app-ui/gold-period";
 
 function ShieldBadgeIcon(props: SVGProps<SVGSVGElement>) {
   return (
@@ -108,7 +109,7 @@ export function IntroStep({
             aria-label="Meet One, Your Personal Financial Advisor"
             className={`relative mt-2.5 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
           >
-            Meet One.
+            Meet <OneLockup />
           </div>
           <p className={`relative mt-3 ${kaiAppHeroBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
             Your personal financial advisor.
@@ -129,10 +130,10 @@ export function IntroStep({
                     <feature.icon className="h-[22px] w-[22px]" />
                   </span>
                   <div className="min-w-0">
-                    <p className="text-[16.5px] font-medium leading-[1.22] tracking-normal text-[#1d1d1f] dark:text-[#f5f5f7]">
+                    <p className="type-headline text-[#1d1d1f] dark:text-[#f5f5f7]">
                       {feature.title}
                     </p>
-                    <p className="mt-1 text-[14.5px] leading-[1.35] tracking-normal text-[rgba(0,0,0,0.50)] dark:text-[rgba(245,245,247,0.56)]">
+                    <p className="type-subhead mt-1 text-[rgba(0,0,0,0.50)] dark:text-[rgba(245,245,247,0.56)]">
                       {feature.subtitle}
                     </p>
                   </div>
@@ -144,7 +145,7 @@ export function IntroStep({
 
         <footer className="flex-none pb-[calc(18px+var(--app-safe-area-bottom-effective,0px))]">
           <div className="space-y-4">
-            <p className="mx-auto max-w-[34ch] text-center text-[13.5px] leading-5 tracking-normal text-[#86868b] dark:text-[rgba(245,245,247,0.44)]">
+            <p className="type-footnote mx-auto max-w-[34ch] text-center text-[#86868b] dark:text-[rgba(245,245,247,0.44)]">
               One is consent-first. Your data stays in your vault — nothing is
               shared without your approval.
             </p>
@@ -153,14 +154,14 @@ export function IntroStep({
               fullWidth
               onClick={onNext}
               showRipple
-              className="h-[50px] rounded-full bg-[#0066cc] text-[17px] font-medium tracking-normal text-white shadow-none hover:bg-[#0071e3]"
+              className="type-headline h-[50px] rounded-full bg-[#0066cc] text-white shadow-none hover:bg-[#0071e3]"
             >
               Get started
             </Button>
             {onLogin ? (
               <button
                 type="button"
-                className="mx-auto block min-h-10 px-4 text-[15px] font-medium tracking-normal text-[#0066cc] transition-colors hover:text-[#0071e3] dark:text-[#2997ff] dark:hover:text-[#5eb0ff]"
+                className="type-subhead mx-auto block min-h-10 px-4 text-[#0066cc] transition-colors hover:text-[#0071e3] dark:text-[#2997ff] dark:hover:text-[#5eb0ff]"
                 onClick={onLogin}
               >
                 Log in
