@@ -9,6 +9,7 @@ import {
   useState,
   type MouseEvent,
 } from "react";
+import { useRouter } from "next/navigation";
 import { Bot, Mic, Search, X } from "lucide-react";
 
 import {
@@ -24,6 +25,7 @@ import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provid
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { KAI_COMMAND_BAR_OPEN_EVENT } from "@/lib/navigation/kai-command-bar-events";
+import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { useAmplitudeMeter } from "@/lib/voice/use-amplitude-meter";
@@ -312,6 +314,7 @@ export function KaiSearchBar({
   surfaceVariant = "kai",
   portfolioTickers = [],
 }: KaiSearchBarProps) {
+  const router = useRouter();
   const { getVaultOwnerToken, vaultKey } = useVault();
   const agentPopover = useOptionalAgentPopover();
   const [open, setOpen] = useState(false);
@@ -1662,8 +1665,12 @@ export function KaiSearchBar({
     ],
   );
   const handleAgentClick = useCallback(() => {
-    agentPopover?.openAgent();
-  }, [agentPopover]);
+    if (agentPopover) {
+      agentPopover.openAgent();
+      return;
+    }
+    router.push(ROUTES.AGENT);
+  }, [agentPopover, router]);
 
   return (
     <>
@@ -1694,8 +1701,7 @@ export function KaiSearchBar({
                 type="button"
                 aria-label="Open Agent"
                 onClick={handleAgentClick}
-                disabled={!agentPopover}
-                className="kai-bottom-agent-action pointer-events-auto absolute -top-[54px] right-1 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/30 disabled:pointer-events-none disabled:opacity-50"
+                className="kai-bottom-agent-action pointer-events-auto absolute -top-[54px] right-1 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/30"
               >
                 <Bot className="h-[18px] w-[18px]" strokeWidth={1.9} />
               </button>
@@ -1743,8 +1749,7 @@ export function KaiSearchBar({
                 type="button"
                 aria-label="Open Agent"
                 onClick={handleAgentClick}
-                disabled={!agentPopover}
-                className="kai-bottom-agent-action pointer-events-auto absolute right-[7px] top-0 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/30 disabled:pointer-events-none disabled:opacity-50"
+                className="kai-bottom-agent-action pointer-events-auto absolute right-[7px] top-0 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/30"
               >
                 <Bot className="h-[18px] w-[18px]" strokeWidth={1.9} />
               </button>
@@ -1823,6 +1828,10 @@ export function KaiSearchBar({
         onOpenChange={setOpen}
         onSelectAction={onSelectAction}
         appRuntimeState={appRuntimeState}
+        onVoiceClick={handleRiaVoiceClick}
+        voiceActive={riaVoiceActive}
+        voiceDisabled={riaVoiceDisabled}
+        voiceHidden={voiceVisibilityMode === "hidden"}
         portfolioTickers={portfolioTickers}
       />
 
