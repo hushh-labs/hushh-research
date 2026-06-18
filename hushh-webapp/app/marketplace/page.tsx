@@ -1121,7 +1121,7 @@ export default function MarketplacePage() {
                 aria-label="Toggle search"
                 onClick={() => setSearchOpen((current) => !current)}
               >
-                <Search className="h-4 w-4" />
+                <Search className="h-4 w-4" aria-hidden="true" />
               </button>
               <Button
                 variant="none"
@@ -1139,7 +1139,7 @@ export default function MarketplacePage() {
                 aria-label={directoryKind === "investors" ? "Refresh deck" : "Restart deck"}
                 onClick={resetSwipeDeck}
               >
-                <RotateCcw className="h-4 w-4" />
+                <RotateCcw className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
 
@@ -1153,7 +1153,7 @@ export default function MarketplacePage() {
                 aria-label="Swipe view"
                 onClick={() => setView("swipe")}
               >
-                <ArrowLeftRight className="h-4 w-4" />
+                <ArrowLeftRight className="h-4 w-4" aria-hidden="true" />
               </button>
               <button
                 type="button"
@@ -1164,7 +1164,7 @@ export default function MarketplacePage() {
                 aria-label="List view"
                 onClick={() => setView("list")}
               >
-                <List className="h-4 w-4" />
+                <List className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -1172,7 +1172,7 @@ export default function MarketplacePage() {
           {searchOpen ? (
             <div className="mt-2">
               <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                 <Input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
