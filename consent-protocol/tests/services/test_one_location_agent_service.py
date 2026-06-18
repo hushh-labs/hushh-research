@@ -4901,6 +4901,21 @@ def test_four_user_location_workflow_contract() -> None:
     viewed_c = service.view_latest_envelope(recipient_user_id=user_c, grant_id=grant_c["id"])
     assert viewed_c["envelope"]["ciphertext"] == "ciphertext-for-c"
 
+    approved_c = service.approve_request(
+        owner_user_id=user_a,
+        request_id=direct_request_c["id"],
+        duration_hours=1,
+    )
+    grant_c = approved_c["grant"]
+    assert grant_c["recipientUserId"] == user_c
+    service.store_encrypted_envelope(
+        owner_user_id=user_a,
+        grant_id=grant_c["id"],
+        envelope=encrypted_envelope(f"key-{user_c}", "ciphertext-for-c"),
+    )
+    viewed_c = service.view_latest_envelope(recipient_user_id=user_c, grant_id=grant_c["id"])
+    assert viewed_c["envelope"]["ciphertext"] == "ciphertext-for-c"
+
     referral_response = service.refer_recipient(
         referring_user_id=user_b,
         grant_id=grant_b["id"],
