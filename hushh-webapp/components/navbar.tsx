@@ -6,7 +6,6 @@
 import React, { useEffect, useMemo, type CSSProperties } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  Bot,
   BriefcaseBusiness,
   ChartNoAxesColumnIncreasing,
   Compass,
@@ -292,21 +291,6 @@ export const Navbar = () => {
             )}
           />
         </div>
-        {agentPopover ? (
-          <button
-            type="button"
-            aria-label="Open Agent"
-            title="Open Agent"
-            data-testid="bottom-agent-trigger"
-            onClick={() => agentPopover.openAgent()}
-            className={cn(
-              "pointer-events-auto chrome-bottom-foreground flex h-[58px] w-[58px] shrink-0 items-center justify-center rounded-[22px] border border-black/[0.08] bg-white/92 text-[#1c1c1e] shadow-[0_10px_30px_rgba(15,23,42,0.16)] backdrop-blur-xl transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 dark:border-white/[0.12] dark:bg-[#1c1c1e]/90 dark:text-white dark:shadow-black/30 dark:hover:bg-[#2c2c2e]",
-              hideBottomChrome && "pointer-events-none"
-            )}
-          >
-            <Bot className="h-5 w-5" aria-hidden="true" />
-          </button>
-        ) : null}
       </div>
     </nav>
   );
