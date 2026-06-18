@@ -10,10 +10,10 @@ export const kaiAppHeroBodyClassName =
   "ui-text-row-label";
 
 export const kaiAppHeroTitleClassName =
-  "text-[36px] font-medium leading-[1.06] tracking-normal sm:text-[38px]";
+  "type-display";
 
 export const kaiAppHeroBodyClassName =
-  "text-[16.5px] font-normal leading-[1.42] tracking-normal sm:text-[17.5px]";
+  "type-body";
 
 export const kaiAppDisplayTitleClassName =
   "ui-text-large-page-title";

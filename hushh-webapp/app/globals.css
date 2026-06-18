@@ -6698,6 +6698,116 @@ html[data-accent="gold"].dark {
   }
 }
 
+.dark {
+  --foundation-gold: #D4A574;
+}
+
+@layer utilities {
+  .type-display,
+  .type-title1,
+  .type-title2,
+  .type-title3 {
+    font-family: var(--font-app-display);
+  }
+
+  .type-headline,
+  .type-body,
+  .type-callout,
+  .type-subhead,
+  .type-footnote,
+  .type-caption,
+  .type-micro {
+    font-family: var(--font-app-body);
+  }
+
+  .type-display {
+    font-size: var(--foundation-display-size);
+    font-weight: var(--foundation-display-weight);
+    line-height: var(--foundation-display-line);
+    letter-spacing: var(--foundation-display-tracking);
+  }
+
+  .type-title1 {
+    font-size: var(--foundation-title1-size);
+    font-weight: var(--foundation-title1-weight);
+    line-height: var(--foundation-title1-line);
+    letter-spacing: var(--foundation-title1-tracking);
+  }
+
+  .type-title2 {
+    font-size: var(--foundation-title2-size);
+    font-weight: var(--foundation-title2-weight);
+    line-height: var(--foundation-title2-line);
+    letter-spacing: var(--foundation-title2-tracking);
+  }
+
+  .type-title3 {
+    font-size: var(--foundation-title3-size);
+    font-weight: var(--foundation-title3-weight);
+    line-height: var(--foundation-title3-line);
+    letter-spacing: var(--foundation-title3-tracking);
+  }
+
+  .type-headline {
+    font-size: var(--foundation-headline-size);
+    font-weight: var(--foundation-headline-weight);
+    line-height: var(--foundation-headline-line);
+    letter-spacing: var(--foundation-headline-tracking);
+  }
+
+  .type-body {
+    font-size: var(--foundation-body-size);
+    font-weight: var(--foundation-body-weight);
+    line-height: var(--foundation-body-line);
+    letter-spacing: var(--foundation-body-tracking);
+  }
+
+  .type-callout {
+    font-size: var(--foundation-callout-size);
+    font-weight: var(--foundation-callout-weight);
+    line-height: var(--foundation-callout-line);
+    letter-spacing: var(--foundation-callout-tracking);
+  }
+
+  .type-subhead {
+    font-size: var(--foundation-subhead-size);
+    font-weight: var(--foundation-subhead-weight);
+    line-height: var(--foundation-subhead-line);
+    letter-spacing: var(--foundation-subhead-tracking);
+  }
+
+  .type-footnote {
+    font-size: var(--foundation-footnote-size);
+    font-weight: var(--foundation-footnote-weight);
+    line-height: var(--foundation-footnote-line);
+    letter-spacing: var(--foundation-footnote-tracking);
+  }
+
+  .type-caption {
+    font-size: var(--foundation-caption-size);
+    font-weight: var(--foundation-caption-weight);
+    line-height: var(--foundation-caption-line);
+    letter-spacing: var(--foundation-caption-tracking);
+    text-transform: uppercase;
+  }
+
+  .type-micro {
+    font-size: var(--foundation-micro-size);
+    font-weight: var(--foundation-micro-weight);
+    line-height: var(--foundation-micro-line);
+    letter-spacing: var(--foundation-micro-tracking);
+    text-transform: uppercase;
+  }
+
+  .type-numeric {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .gold-period {
+    color: var(--foundation-gold);
+  }
+}
+
 @media (hover: hover) {
   .segmented-pill-button-accent:hover {
     color: var(--primary);
