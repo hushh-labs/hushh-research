@@ -15249,6 +15249,7 @@ export function OneLocationAgentPageContent({
                   <div className="min-w-0 max-w-full overflow-hidden rounded-[14px] border border-black/[0.04] bg-white/70 p-3 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.06]">
                     <div className="grid gap-2 sm:grid-cols-2">
                       <ActionButton
+                        type="button"
                         busy={busy}
                         busyKey="contactSync"
                         onClick={() => void handleSyncContactSignal()}
@@ -15265,6 +15266,7 @@ export function OneLocationAgentPageContent({
                         Sync Contacts
                       </ActionButton>
                       <ActionButton
+                        type="button"
                         busy={busy}
                         busyKey="contactInvite"
                         onClick={() => void handleShareContactInvite()}
