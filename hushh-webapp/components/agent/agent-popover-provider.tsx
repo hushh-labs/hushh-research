@@ -676,9 +676,9 @@ function AgentPopoverWindowControls({
       title={isFullscreen ? "Restore Agent" : "Maximize Agent"}
     >
         {isFullscreen ? (
-          <Minimize2 className="h-3.5 w-3.5" />
+          <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" />
         ) : (
-          <Maximize2 className="h-3.5 w-3.5" />
+          <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
         )}
       </Button>
       <Button
@@ -690,7 +690,7 @@ function AgentPopoverWindowControls({
         aria-label="Close Agent"
         title="Close Agent"
       >
-        <X className="h-3.5 w-3.5" />
+        <X className="h-3.5 w-3.5" aria-hidden="true" />
       </Button>
     </div>
   );
