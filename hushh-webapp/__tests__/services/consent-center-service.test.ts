@@ -408,3 +408,65 @@ describe("normalizeConsentEntry — local-override precedence matrix", () => {
   });
 });
 // ── End override-precedence proof ─────────────────────────────────────────────
+describe("normalizeConsentEntry - zero-value fallback", () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  const expectZeroValueConsentEntry = (item: unknown) => {
+    expect(item).toMatchObject({
+      id: "zero-value-consent-entry",
+      kind: "history",
+      status: "revoked",
+      active: false,
+      granted: false,
+      action: "deny",
+      counterpart_type: "self",
+      metadata: {
+        fallback_reason: "empty_consent_entry",
+      },
+    });
+    expect(Object.isFrozen(item)).toBe(true);
+    expect(Object.isFrozen((item as { metadata?: unknown }).metadata)).toBe(true);
+  };
+
+  it("returns immutable revoked entries for empty or null consent payloads", async () => {
+    mockApiFetch.mockResolvedValueOnce(listResponse([{}, null, undefined]));
+
+    const { items } = await ConsentCenterService.listEntries({
+      idToken: "tok",
+      userId: "u-1",
+      surface: "active",
+    });
+
+    expect(items).toHaveLength(3);
+    for (const item of items) {
+      expectZeroValueConsentEntry(item);
+    }
+  });
+
+  it("returns an immutable revoked entry for an undefined runtime payload", async () => {
+    mockApiFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        user_id: "u-1",
+        actor: "investor",
+        mode: "consents",
+        surface: "active",
+        query: "",
+        page: 1,
+        limit: 20,
+        total: 1,
+        has_more: false,
+        items: [undefined],
+      }),
+    } as unknown as Response);
+
+    const { items } = await ConsentCenterService.listEntries({
+      idToken: "tok",
+      userId: "u-1",
+      surface: "active",
+    });
+
+    expect(items).toHaveLength(1);
+    expectZeroValueConsentEntry(items[0]);
+  });
+});
