@@ -14,21 +14,20 @@ describe("AppNotFoundPage", () => {
 
     expect(screen.getByText("Page not found")).toBeTruthy();
     expect(
-      screen.getByText("The page you're looking for doesn't exist or may have been moved."),
+      screen.getByText("The content you're looking for is unavailable or has been moved."),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: /go back/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /go home/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^back$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^home$/i })).toBeTruthy();
   });
 
   it("routes home through canonical internal navigation", () => {
     render(<AppNotFoundPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: /go home/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^home$/i }));
 
     expect(BrowserNavigation.requestInternalAppNavigation).toHaveBeenCalledWith({
       href: "/",
       replace: true,
-      scroll: false,
     });
   });
 
@@ -36,7 +35,7 @@ describe("AppNotFoundPage", () => {
     const backSpy = vi.spyOn(window.history, "back").mockImplementation(() => {});
     render(<AppNotFoundPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: /go back/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^back$/i }));
 
     expect(backSpy).toHaveBeenCalled();
     backSpy.mockRestore();
