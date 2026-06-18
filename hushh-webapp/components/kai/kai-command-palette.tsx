@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import {
   Activity,
   Compass,
   History,
+  Mic,
   Search,
   ShieldCheck,
   UserRound,
+  X,
 } from "lucide-react";
 
 import {
@@ -40,6 +42,10 @@ interface KaiCommandPaletteProps {
   onOpenChange: (open: boolean) => void;
   onSelectAction: (selection: KaiCommandPaletteSelection) => void;
   appRuntimeState?: AppRuntimeState;
+  onVoiceClick?: (event: MouseEvent<HTMLButtonElement>) => void;
+  voiceActive?: boolean;
+  voiceDisabled?: boolean;
+  voiceHidden?: boolean;
   portfolioTickers?: Array<{
     symbol: string;
     name?: string;
@@ -147,6 +153,10 @@ export function KaiCommandPalette({
   onOpenChange,
   onSelectAction,
   appRuntimeState,
+  onVoiceClick,
+  voiceActive = false,
+  voiceDisabled = false,
+  voiceHidden = false,
   portfolioTickers = [],
 }: KaiCommandPaletteProps) {
   const [query, setQuery] = useState("");
@@ -388,13 +398,38 @@ export function KaiCommandPalette({
     <CommandDialog
       open={open}
       onOpenChange={onOpenChange}
+      showCloseButton={false}
       className="top-[calc(var(--top-shell-reserved-height,0px)+0.75rem)] max-h-[min(70dvh,32rem)] w-[calc(100%-1rem)] translate-y-0 sm:top-1/2 sm:w-full sm:max-h-none sm:-translate-y-1/2"
     >
-      <CommandInput
-        value={query}
-        onValueChange={setQuery}
-        placeholder="Run Kai command or search ticker..."
-      />
+      <div className="relative">
+        <CommandInput
+          value={query}
+          onValueChange={setQuery}
+          placeholder="Run Kai command or search ticker..."
+          className="pr-24"
+        />
+        <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
+          {!voiceHidden ? (
+            <button
+              type="button"
+              aria-label={voiceActive ? "End Kai voice" : "Start Kai voice"}
+              aria-disabled={voiceDisabled}
+              onClick={onVoiceClick}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/10"
+            >
+              <Mic className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            aria-label="Close command search"
+            onClick={() => onOpenChange(false)}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/10"
+          >
+            <X className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
+          </button>
+        </div>
+      </div>
       <CommandList className="max-h-[min(56dvh,24rem)] sm:max-h-[300px]">
         <CommandEmpty>{commandEmptyMessage}</CommandEmpty>
 

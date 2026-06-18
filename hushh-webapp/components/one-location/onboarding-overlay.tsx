@@ -253,7 +253,7 @@ export function OneLocationOnboardingOverlay({
       {spotlightRect ? (
         <div
           aria-hidden="true"
-          className="absolute rounded-[24px] border border-[#007aff]/65 shadow-[0_0_0_9999px_rgba(12,12,14,0.24),0_0_0_5px_rgba(0,122,255,0.12),0_16px_42px_rgba(0,0,0,0.18)] transition-all duration-300 dark:border-[#76b7ff]/75"
+          className="absolute rounded-[28px] border border-[#007aff]/50 shadow-[0_0_0_9999px_rgba(12,12,14,0.2),0_0_0_5px_rgba(0,122,255,0.1),0_18px_46px_rgba(0,0,0,0.14)] transition-all duration-300 dark:border-[#76b7ff]/65"
           style={{
             height: spotlightRect.height,
             left: spotlightRect.x,
@@ -262,29 +262,29 @@ export function OneLocationOnboardingOverlay({
           }}
         />
       ) : (
-        <div className="absolute inset-0 bg-black/18" />
+        <div className="absolute inset-0 bg-black/14" />
       )}
 
       <div
         ref={panelRef}
         className={cn(
-          "pointer-events-auto absolute bottom-0 left-0 right-0 mx-auto max-h-[calc(100dvh-96px)] w-full max-w-[640px] overflow-y-auto rounded-t-[20px] border border-black/[0.06] bg-white/95 p-3.5 shadow-[0_-8px_28px_rgba(0,0,0,0.16)] backdrop-blur-sm transition-all duration-300 dark:border-white/10 dark:bg-[#1c1c1e]/95",
-          "md:bottom-8 md:left-auto md:right-28 md:w-[360px] md:rounded-[20px] md:shadow-[0_14px_40px_rgba(0,0,0,0.2)]",
+          "pointer-events-auto absolute bottom-0 left-0 right-0 mx-auto max-h-[calc(100dvh-96px)] w-full max-w-[640px] overflow-y-auto rounded-t-[28px] border border-black/[0.05] bg-white/96 p-5 shadow-[0_-10px_34px_rgba(0,0,0,0.14)] backdrop-blur-xl transition-all duration-300 dark:border-white/10 dark:bg-[#1c1c1e]/96",
+          "md:bottom-8 md:left-auto md:right-28 md:w-[400px] md:rounded-[28px] md:p-5 md:shadow-[0_18px_46px_rgba(0,0,0,0.18)]",
           mounted && !exiting
             ? "translate-y-0 opacity-100"
             : "translate-y-8 opacity-0",
         )}
       >
-        <div className="flex items-start justify-between gap-2.5">
-          <div className="flex min-w-0 items-start gap-2.5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#eaf3ff] text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]">
-              <Icon className="h-4 w-4" aria-hidden="true" />
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#eaf3ff] text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]">
+              <Icon className="h-5 w-5" aria-hidden="true" />
             </span>
             <div className="min-w-0">
-              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#007aff] dark:text-[#76b7ff]">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#007aff] dark:text-[#76b7ff]">
                 {currentStep.eyebrow} of {TOUR_STEPS.length}
               </p>
-              <h2 className="mt-1 text-[18px] font-bold leading-tight tracking-tight text-[#1c1c1e] dark:text-white">
+              <h2 className="mt-1.5 text-[22px] font-semibold leading-[1.12] tracking-normal text-[#1c1c1e] dark:text-white">
                 {currentStep.title}
               </h2>
             </div>
@@ -299,15 +299,15 @@ export function OneLocationOnboardingOverlay({
           </button>
         </div>
 
-        <p className="mt-2.5 text-[13px] font-medium leading-5 text-[#636366] dark:text-white/60">
+        <p className="mt-4 text-[14px] leading-6 text-[#6e6e73] dark:text-white/60">
           {currentStep.description}
         </p>
 
-        <div className="mt-3 rounded-[14px] border border-[#007aff]/15 bg-[#eef5ff] px-3 py-2.5 text-[12px] font-semibold text-[#005bb5] dark:border-[#0a84ff]/25 dark:bg-[#0a84ff]/15 dark:text-[#a7d4ff]">
-          Highlighting: {currentStep.targetLabel}
+        <div className="mt-4 rounded-[18px] border border-[#007aff]/12 bg-[#f5f9ff] px-3.5 py-3 text-[13px] font-medium text-[#005bb5] dark:border-[#0a84ff]/25 dark:bg-[#0a84ff]/15 dark:text-[#a7d4ff]">
+          Focus area: {currentStep.targetLabel}
         </div>
 
-        <div className="mt-3 flex items-center gap-1.5" aria-label="Tour progress">
+        <div className="mt-4 flex items-center gap-1.5" aria-label="Tour progress">
           {TOUR_STEPS.map((step, index) => (
             <button
               key={step.id}
@@ -325,12 +325,12 @@ export function OneLocationOnboardingOverlay({
           ))}
         </div>
 
-        <div className="mt-3 grid grid-cols-[40px_minmax(0,1fr)] gap-2 sm:grid-cols-[40px_minmax(0,1fr)_auto]">
+        <div className="mt-4 grid grid-cols-[44px_minmax(0,1fr)] gap-2 sm:grid-cols-[44px_minmax(0,1fr)_auto]">
           <button
             type="button"
             onClick={goPrevious}
             disabled={currentIndex === 0}
-            className="flex h-10 items-center justify-center rounded-[12px] border border-black/[0.06] bg-[#f2f2f7] text-[#1c1c1e] disabled:opacity-40 dark:border-white/[0.08] dark:bg-white/10 dark:text-white"
+            className="flex h-11 items-center justify-center rounded-full border border-black/[0.06] bg-[#f2f2f7] text-[#1c1c1e] disabled:opacity-40 dark:border-white/[0.08] dark:bg-white/10 dark:text-white"
             aria-label="Previous tour step"
           >
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
@@ -339,7 +339,7 @@ export function OneLocationOnboardingOverlay({
             type="button"
             id="one-location-onboarding-next"
             onClick={goNext}
-            className="flex h-10 min-w-0 items-center justify-center gap-2 rounded-[12px] bg-[#007aff] px-4 text-[13px] font-bold text-white shadow-[0_4px_14px_rgba(0,122,255,0.24)] hover:bg-[#006fe6]"
+            className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-full bg-[#007aff] px-4 text-[14px] font-semibold text-white shadow-[0_10px_24px_rgba(0,122,255,0.24)] hover:bg-[#006fe6]"
           >
             {isLast ? (
               <>
@@ -356,7 +356,7 @@ export function OneLocationOnboardingOverlay({
           <button
             type="button"
             onClick={dismiss}
-            className="col-span-2 h-10 rounded-[12px] bg-transparent px-4 text-[13px] font-bold text-[#636366] hover:bg-[#f2f2f7] sm:col-span-1 dark:text-white/55 dark:hover:bg-white/10"
+            className="col-span-2 h-11 rounded-full bg-transparent px-4 text-[14px] font-semibold text-[#636366] hover:bg-[#f2f2f7] sm:col-span-1 dark:text-white/55 dark:hover:bg-white/10"
           >
             Skip
           </button>

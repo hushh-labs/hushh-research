@@ -70,6 +70,12 @@ vi.mock("@/components/kai/voice/voice-debug-drawer", () => ({
   VoiceDebugDrawer: () => null,
 }));
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+  }),
+}));
+
 vi.mock("@/components/app-ui/shell-action-surface", () => ({
   ShellActionSurface: ({
     children,

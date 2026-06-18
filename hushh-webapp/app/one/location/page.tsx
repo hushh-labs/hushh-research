@@ -961,9 +961,9 @@ function SkeletonRow({ wide = false }: { wide?: boolean }) {
 type ShareMode = "share" | "request";
 
 const onePanelClassName =
-  "w-full min-w-0 max-w-full overflow-hidden rounded-[20px] border border-black/[0.05] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_30px_rgba(15,23,42,0.05)] dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_38px_rgba(0,0,0,0.28)]";
+  "w-full min-w-0 max-w-full overflow-hidden rounded-[24px] border border-black/[0.04] bg-white/95 shadow-[0_1px_2px_rgba(0,0,0,0.03),0_14px_34px_rgba(15,23,42,0.06)] backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_38px_rgba(0,0,0,0.24)]";
 const oneInsetClassName =
-  "w-full min-w-0 max-w-full overflow-hidden rounded-[14px] border border-black/[0.04] bg-[#f7f7fa] text-[#1c1c1e] dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white";
+  "w-full min-w-0 max-w-full overflow-hidden rounded-[18px] border border-black/[0.04] bg-[#f7f7fa] text-[#1c1c1e] dark:border-white/[0.08] dark:bg-white/[0.07] dark:text-white";
 const oneSecondaryTextClassName = "text-[#8e8e93] dark:text-white/55";
 
 function sectionLabel(title: string, count?: number) {
@@ -971,7 +971,7 @@ function sectionLabel(title: string, count?: number) {
     <div
       role="heading"
       aria-level={2}
-      className="ml-1 flex min-w-0 max-w-full flex-wrap items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.08em] text-[#8e8e93] dark:text-white/45"
+      className="ml-1 flex min-w-0 max-w-full flex-wrap items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.12em] text-[#8e8e93] dark:text-white/45"
     >
       {title}
       {typeof count === "number" && count > 0 ? (
@@ -1061,7 +1061,7 @@ function PromiseCard({
   }[tone];
 
   return (
-    <div className="flex w-full min-w-0 max-w-full items-start gap-3 overflow-hidden rounded-[20px] border border-black/[0.06] bg-white p-4 shadow-[0_2px_12px_rgba(15,23,42,0.06)] sm:gap-4 dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_30px_rgba(0,0,0,0.22)]">
+    <div className="flex min-h-[112px] w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-[24px] border border-black/[0.04] bg-white/95 p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03),0_14px_34px_rgba(15,23,42,0.06)] backdrop-blur-xl sm:gap-4 dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_30px_rgba(0,0,0,0.22)]">
       <span
         className={cn(
           "flex h-11 w-11 shrink-0 items-center justify-center rounded-full",
@@ -1071,10 +1071,10 @@ function PromiseCard({
         <Icon className="h-5 w-5" aria-hidden="true" />
       </span>
       <div className="min-w-0 flex-1">
-        <h3 className="text-[16px] font-bold tracking-tight text-[#1c1c1e] dark:text-white">
+        <h3 className="text-[16px] font-semibold tracking-normal text-[#1c1c1e] dark:text-white">
           {title}
         </h3>
-        <p className="mt-1 break-words text-[14px] font-medium leading-snug text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+        <p className="mt-1 break-words text-[14px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
           {description}
         </p>
       </div>
@@ -1120,12 +1120,12 @@ function EmptyOneState({
   description: string;
 }) {
   return (
-    <div className="flex min-h-24 min-w-0 max-w-full flex-col items-start gap-3 p-3.5 text-sm sm:flex-row sm:items-center">
+    <div className="flex min-h-24 min-w-0 max-w-full flex-col items-start gap-3 p-4 text-sm sm:flex-row sm:items-center">
       <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f2f2f7] text-[#8e8e93] dark:bg-white/10 dark:text-white/55">
         <Icon className="h-4 w-4" aria-hidden="true" />
       </span>
       <div className="min-w-0 flex-1">
-        <div className="font-semibold text-[#1c1c1e] dark:text-white">
+        <div className="text-[15px] font-semibold text-[#1c1c1e] dark:text-white">
           {title}
         </div>
         <div className="break-words text-[13px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
@@ -3086,16 +3086,16 @@ function OneLocationAgentPageContent() {
       }}
     >
       <AppPageHeaderRegion className="mx-auto w-full max-w-[1120px] min-w-0 overflow-hidden">
-        <div className="flex flex-col gap-4 px-1 pt-3 sm:flex-row sm:items-end sm:justify-between">
-          <header className="max-w-[560px] min-w-0 space-y-2">
-            <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#007aff] dark:text-[#76b7ff]">
-              When it matters most
+        <div className="flex flex-col gap-5 px-1 pt-4 sm:flex-row sm:items-end sm:justify-between">
+          <header className="max-w-[600px] min-w-0 space-y-3">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#007aff] dark:text-[#76b7ff]">
+              One Location
             </span>
-            <h1 className="text-[34px] font-bold leading-[1.2] tracking-tight text-[#1c1c1e] sm:text-[42px] dark:text-white">
+            <h1 className="text-[36px] font-semibold leading-[1.08] tracking-normal text-[#1c1c1e] sm:text-[48px] dark:text-white">
               Your circle, safely connected.
             </h1>
             <h2 className="sr-only">One Location Agent</h2>
-            <p className="max-w-[440px] text-[16px] font-medium leading-snug text-[#8e8e93] dark:text-white/55">
+            <p className="max-w-[500px] text-[17px] leading-7 text-[#6e6e73] dark:text-white/60">
               Share your location with selected contacts, or ask to see theirs
               after they approve.
             </p>
@@ -3152,7 +3152,7 @@ function OneLocationAgentPageContent() {
                 {sectionLabel("Device readiness")}
                 <div
                   className={cn(
-                    "flex min-w-0 max-w-full flex-col gap-3 overflow-hidden rounded-[20px] border p-3.5 shadow-sm sm:flex-row sm:items-center sm:justify-between",
+                    "flex min-w-0 max-w-full flex-col gap-3 overflow-hidden rounded-[24px] border p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03),0_14px_34px_rgba(15,23,42,0.06)] sm:flex-row sm:items-center sm:justify-between",
                     locationReadiness.tone === "ready" &&
                       "border-[#34c759]/25 bg-[#34c759]/10 text-[#1c1c1e] dark:text-white",
                     locationReadiness.tone === "warning" &&
@@ -3186,10 +3186,10 @@ function OneLocationAgentPageContent() {
                       )}
                     </span>
                     <div className="min-w-0">
-                      <h3 className="break-words text-[16px] font-bold tracking-tight [overflow-wrap:anywhere]">
+                      <h3 className="break-words text-[16px] font-semibold tracking-normal [overflow-wrap:anywhere]">
                         {locationReadiness.title}
                       </h3>
-                      <p className="mt-1 break-words text-[13px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+                      <p className="mt-1 break-words text-[14px] leading-5 text-[#6e6e73] [overflow-wrap:anywhere] dark:text-white/60">
                         {locationReadiness.description}
                       </p>
                     </div>
@@ -3214,17 +3214,17 @@ function OneLocationAgentPageContent() {
                   ) : null}
                 </div>
 
-                <div className="overflow-hidden rounded-[20px] border border-black/[0.06] bg-white shadow-[0_2px_12px_rgba(15,23,42,0.06)] dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_30px_rgba(0,0,0,0.22)]">
-                  <div className="flex min-w-0 flex-col gap-3 p-3.5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="overflow-hidden rounded-[24px] border border-black/[0.04] bg-white/95 shadow-[0_1px_2px_rgba(0,0,0,0.03),0_14px_34px_rgba(15,23,42,0.06)] backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_30px_rgba(0,0,0,0.22)]">
+                  <div className="flex min-w-0 flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex min-w-0 items-start gap-3">
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#eaf3ff] text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]">
                         <LocateFixed className="h-5 w-5" aria-hidden="true" />
                       </span>
                       <div className="min-w-0">
-                        <h3 className="break-words text-[16px] font-bold tracking-tight text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">
+                        <h3 className="break-words text-[16px] font-semibold tracking-normal text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">
                           My live location
                         </h3>
-                        <p className="mt-1 break-words text-[13px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+                        <p className="mt-1 break-words text-[14px] leading-5 text-[#6e6e73] [overflow-wrap:anywhere] dark:text-white/60">
                           Preview your current GPS location privately before you
                           share it with anyone.
                         </p>
