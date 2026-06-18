@@ -99,7 +99,7 @@ export function IntroStep({
             unoptimized
             aria-hidden="true"
             draggable={false}
-            className="relative h-12 w-12 select-none object-contain"
+            className="relative h-11 w-11 select-none object-contain"
           />
 
           <div
@@ -115,13 +115,13 @@ export function IntroStep({
           </p>
         </section>
 
-        <div className="flex min-h-0 flex-1 items-center py-6">
+        <div className="flex min-h-0 flex-1 items-center py-7">
           <div className="relative w-full">
             <div className="relative z-10 mx-auto flex w-full max-w-[340px] flex-col gap-4">
               {INTRO_FEATURES.map((feature) => (
                 <div
                   key={feature.title}
-                  className="grid min-h-[64px] grid-cols-[48px_minmax(0,1fr)] items-center gap-4 rounded-[22px]"
+                  className="grid min-h-[68px] grid-cols-[48px_minmax(0,1fr)] items-center gap-4 rounded-[22px]"
                 >
                   <span
                     className={`grid h-12 w-12 place-items-center rounded-full border border-black/[0.04] dark:border-white/10 ${feature.tileClassName}`}
@@ -129,7 +129,7 @@ export function IntroStep({
                     <feature.icon className="h-[22px] w-[22px]" />
                   </span>
                   <div className="min-w-0">
-                    <p className="text-[17px] font-medium leading-[1.22] tracking-normal text-[#1d1d1f] dark:text-[#f5f5f7]">
+                    <p className="text-[16.5px] font-medium leading-[1.22] tracking-normal text-[#1d1d1f] dark:text-[#f5f5f7]">
                       {feature.title}
                     </p>
                     <p className="mt-1 text-[14.5px] leading-[1.35] tracking-normal text-[rgba(0,0,0,0.50)] dark:text-[rgba(245,245,247,0.56)]">

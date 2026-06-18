@@ -1372,10 +1372,10 @@ md-ripple.morphy-md-ripple {
 }
 
 .kai-bottom-nav-pill [role="radio"] svg {
-  width: 19.5px;
-  height: 19.5px;
-  opacity: 0.88;
-  stroke-width: 1.85;
+  width: 18.5px;
+  height: 18.5px;
+  opacity: 0.9;
+  stroke-width: 1.62;
   filter: drop-shadow(0 0.5px 0 rgb(255 255 255 / 0.6));
   transform: translateY(0);
   stroke-linecap: round;
@@ -1384,7 +1384,7 @@ md-ripple.morphy-md-ripple {
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] svg {
   opacity: 1;
-  stroke-width: 2.15;
+  stroke-width: 1.95;
   filter: drop-shadow(0 3px 8px rgb(0 113 227 / 0.24));
   transform: translateY(-0.5px);
 }
@@ -1428,7 +1428,9 @@ md-ripple.morphy-md-ripple {
 }
 
 .kai-bottom-agent-action {
-  background: rgb(0 113 227) !important;
+  background:
+    radial-gradient(circle at 50% 18%, rgb(92 200 255 / 0.9), transparent 54%),
+    linear-gradient(180deg, rgb(0 122 255), rgb(0 102 204)) !important;
   color: rgb(255 255 255);
   box-shadow:
     0 12px 26px -18px rgb(0 113 227 / 0.75),
@@ -1436,16 +1438,19 @@ md-ripple.morphy-md-ripple {
 }
 
 .dark .kai-bottom-agent-action {
-  background: rgb(10 132 255) !important;
+  background:
+    radial-gradient(circle at 50% 18%, rgb(92 200 255 / 0.72), transparent 54%),
+    linear-gradient(180deg, rgb(10 132 255), rgb(0 102 204)) !important;
   box-shadow:
     0 12px 28px -18px rgb(10 132 255 / 0.86),
     inset 0 1px 0 rgb(255 255 255 / 0.34);
 }
 
 body:has([data-one-market-surface="true"]) .bar-glass-top {
-  --app-bar-glass-bg-light: var(--background) !important;
-  --app-bar-glass-bg-dark: rgb(28, 28, 30) !important;
+  --app-bar-glass-bg-light: transparent !important;
+  --app-bar-glass-bg-dark: transparent !important;
   --app-bar-shadow: none !important;
+  opacity: 0;
   --app-bar-fade-top-strong: transparent !important;
   --app-bar-fade-top-medium: transparent !important;
   --app-bar-fade-top-soft: transparent !important;

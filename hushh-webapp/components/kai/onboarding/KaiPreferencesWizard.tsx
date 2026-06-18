@@ -197,7 +197,7 @@ export function KaiPreferencesWizard(props: {
       <div
         className={cn(
           isPageLayout
-            ? "mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-screen-footer-pad))] w-full max-w-[33rem] flex-col justify-center"
+            ? "mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-screen-footer-pad))] w-full max-w-[31rem] flex-col justify-center"
             : "w-full max-w-sm mx-auto flex min-h-[calc(100dvh-var(--app-screen-footer-pad))] flex-col",
           !isPageLayout && "min-h-0"
         )}
@@ -205,7 +205,7 @@ export function KaiPreferencesWizard(props: {
         <div
           className={cn(
             isPageLayout
-              ? "rounded-[26px] border border-black/[0.06] bg-white/[0.82] p-5 shadow-[0_22px_64px_-52px_rgba(0,0,0,0.48)] backdrop-blur-2xl sm:p-6 dark:border-white/10 dark:bg-white/[0.07]"
+              ? "rounded-[26px] border border-black/[0.06] bg-white/[0.82] p-5 shadow-[0_22px_64px_-52px_rgba(0,0,0,0.48)] backdrop-blur-2xl sm:p-5 dark:border-white/10 dark:bg-white/[0.07]"
               : "contents"
           )}
         >
@@ -252,7 +252,7 @@ export function KaiPreferencesWizard(props: {
           <div
             className={cn(
               isPageLayout
-                ? "mx-auto flex w-full max-w-[26rem] flex-col pt-6 sm:pt-7"
+                ? "mx-auto flex w-full max-w-[25rem] flex-col pt-5 sm:pt-6"
                 : "flex flex-1 flex-col pt-5"
             )}
           >
@@ -272,7 +272,7 @@ export function KaiPreferencesWizard(props: {
                 className={cn(
                   "tracking-normal text-balance text-foreground",
                   isPageLayout
-                    ? "text-[28px] font-medium leading-[1.08] sm:text-[30px]"
+                    ? "text-[25px] font-medium leading-[1.12] sm:text-[27px]"
                     : kaiAppSectionTitleClassName
                 )}
               >
@@ -283,7 +283,7 @@ export function KaiPreferencesWizard(props: {
             <RadioGroup
               value={activeValue ?? ""}
               onValueChange={handleSelect}
-              className={cn(isPageLayout ? "mt-7 gap-2.5 sm:mt-8" : "gap-3")}
+              className={cn(isPageLayout ? "mt-6 gap-2.5 sm:mt-7" : "gap-3")}
             >
               {activeQuestion.options.map((opt) => (
                 <RadioCardItem key={opt.value} value={opt.value} label={opt.label} />

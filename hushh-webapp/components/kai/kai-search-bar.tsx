@@ -1643,7 +1643,6 @@ export function KaiSearchBar({
   const riaVoiceActive = ambientMode !== "idle";
   const riaVoiceDisabled =
     !riaVoiceActive && (disabled || micDisabled || voiceVisibilityMode === "hidden");
-  const compactDockExpanded = open || riaVoiceActive;
   const handleRiaVoiceClick = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => {
       if (riaVoiceDisabled) {
@@ -1692,7 +1691,7 @@ export function KaiSearchBar({
           ref={barRef}
           className={cn(
             "pointer-events-none w-full",
-            isRiaSurface ? "max-w-[360px] sm:max-w-[392px]" : "max-w-[560px]"
+            isRiaSurface ? "max-w-[360px] sm:max-w-[392px]" : "max-w-[630px]"
           )}
         >
           {isRiaSurface ? (
@@ -1744,7 +1743,7 @@ export function KaiSearchBar({
               </div>
             </div>
           ) : (
-            <div className="relative flex h-[112px] w-full items-end justify-end">
+            <div className="relative ml-auto flex h-[112px] w-[58px] items-end justify-end">
               <button
                 type="button"
                 aria-label="Open Agent"
@@ -1755,16 +1754,13 @@ export function KaiSearchBar({
               </button>
               <div
                 className={cn(
-                  "ml-auto flex items-end justify-end transition-[width] duration-200 ease-out",
-                  compactDockExpanded
-                    ? "w-[min(15.5rem,calc(100vw-2rem))]"
-                    : "w-[58px]"
+                  "ml-auto flex w-[58px] items-end justify-end"
                 )}
               >
                 <div
                   className={cn(
                     "pointer-events-auto grid rounded-full kai-bottom-search-action p-[5px]",
-                    compactDockExpanded ? "w-full grid-cols-2 gap-1" : "w-[58px] grid-cols-1"
+                    "w-[58px] grid-cols-1"
                   )}
                   data-testid="kai-compact-search-surface"
                   data-mode={ambientMode}
@@ -1786,31 +1782,8 @@ export function KaiSearchBar({
                     )}
                   >
                     <Search className="h-5 w-5 shrink-0" strokeWidth={1.9} />
-                    {compactDockExpanded ? <span className="ml-1.5 truncate">Search</span> : null}
+                    <span className="sr-only">Search</span>
                   </button>
-                  {compactDockExpanded ? (
-                    <button
-                      type="button"
-                      aria-label={riaVoiceActive ? "End Kai voice" : "Start Kai voice"}
-                      aria-disabled={riaVoiceDisabled}
-                      disabled={voiceVisibilityMode === "hidden"}
-                      onClick={handleRiaVoiceClick}
-                      className={cn(
-                        "inline-flex h-11 min-w-0 items-center justify-center rounded-full px-3 text-[13px] font-semibold transition-colors hover:bg-black/[0.045] disabled:cursor-not-allowed dark:hover:bg-white/10",
-                        riaVoiceActive
-                          ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                          : "text-muted-foreground hover:text-foreground",
-                        riaVoiceDisabled && "opacity-60"
-                      )}
-                    >
-                      {riaVoiceActive ? (
-                        <X className="h-5 w-5 shrink-0" strokeWidth={1.9} />
-                      ) : (
-                        <Mic className="h-5 w-5 shrink-0" strokeWidth={1.9} />
-                      )}
-                      <span className="ml-1.5 truncate">Voice</span>
-                    </button>
-                  ) : null}
                 </div>
               </div>
             </div>

@@ -179,7 +179,7 @@ export default function PublicLocationRequestPageClient() {
               <div className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-600 dark:text-amber-300">
                 One Location
               </div>
-              <h1 className="mt-2 text-3xl font-semibold tracking-normal sm:text-4xl">
+              <h1 className="mt-2 text-[28px] font-medium leading-[1.12] tracking-normal sm:text-[32px]">
                 View shared location
               </h1>
               <p className="mt-3 text-sm leading-6 text-muted-foreground">
