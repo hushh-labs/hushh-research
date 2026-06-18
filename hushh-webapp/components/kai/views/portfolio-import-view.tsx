@@ -77,7 +77,9 @@ export function PortfolioImportView({
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectionError, setSelectionError] = useState<string | null>(null);
+  const [submitPending, setSubmitPending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const isSubmittingImport = isUploading || submitPending;
 
   useEffect(() => {
     scrollAppToTop("auto");
@@ -142,9 +144,17 @@ export function PortfolioImportView({
   };
 
   const handleContinue = useCallback(() => {
-    if (!selectedFile || isUploading) return;
-    onFileSelect(selectedFile);
-  }, [selectedFile, isUploading, onFileSelect]);
+    if (!selectedFile || isSubmittingImport) return;
+    setSubmitPending(true);
+    try {
+      void Promise.resolve(onFileSelect(selectedFile)).finally(() => {
+        setSubmitPending(false);
+      });
+    } catch (error) {
+      setSubmitPending(false);
+      throw error;
+    }
+  }, [selectedFile, isSubmittingImport, onFileSelect]);
 
   const handlePreloadSchema = useCallback(() => {
     if (!onPreloadSchema || isUploading || isPreloadingSchema) return;
@@ -271,7 +281,7 @@ export function PortfolioImportView({
               isDragging
                 ? "border-primary bg-primary/8 scale-[1.01]"
                 : "border-border/70 hover:border-primary/50 hover:bg-muted/25",
-              isUploading && "pointer-events-none opacity-50"
+              isSubmittingImport && "pointer-events-none opacity-50"
             )}
             onClick={triggerFileInput}
           >
@@ -293,7 +303,7 @@ export function PortfolioImportView({
             </div>
 
             {/* Selected File Display */}
-            {selectedFile && !isUploading && (
+            {selectedFile && !isSubmittingImport && (
               <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full text-sm">
                 <Icon icon={FileText} size="sm" />
                 <span>{selectedFile.name}</span>
@@ -308,7 +318,7 @@ export function PortfolioImportView({
               accept=".csv,.pdf"
               onChange={handleFileChange}
               className="hidden"
-              disabled={isUploading}
+              disabled={isSubmittingImport}
             />
           </div>
 
@@ -318,13 +328,13 @@ export function PortfolioImportView({
             size="default"
             className="h-11 w-full rounded-full border-none text-[15px] font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
             onClick={handleContinue}
-            disabled={isUploading || isPreloadingSchema || !selectedFile}
+            disabled={isSubmittingImport || isPreloadingSchema || !selectedFile}
             icon={{
-              icon: Upload,
+              icon: isSubmittingImport ? Loader2 : Upload,
               gradient: false,
             }}
           >
-            {isUploading ? "Parsing..." : "Continue"}
+            {isSubmittingImport ? "Parsing..." : "Continue"}
           </MorphyButton>
         </SurfaceCardContent>
       </SurfaceCard>
