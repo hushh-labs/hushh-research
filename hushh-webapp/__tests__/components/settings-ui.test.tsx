@@ -161,4 +161,21 @@ describe("SettingsDetailPanel", () => {
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy();
     expect(screen.getByText("Settings dialog")).toBeTruthy();
   });
+    it("preserves inactive tab accessible state", () => {
+    render(
+      <SettingsSegmentedTabs
+        value="kai"
+        onValueChange={() => {}}
+        options={[
+          { value: "kai", label: "Kai list" },
+          { value: "my", label: "My list" },
+        ]}
+      />,
+    );
+
+    const inactive = screen.getByRole("button", { name: "My list" });
+
+    expect(inactive.getAttribute("data-state")).toBe("inactive");
+    expect(inactive.getAttribute("aria-pressed")).toBe("false");
+  });
 });
