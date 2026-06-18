@@ -15006,30 +15006,36 @@ export function OneLocationAgentPageContent({
     if (locationOnboardingBusy) return;
     setLocationOnboardingBusy(true);
     try {
-      if (permission?.state === "granted" && !isLocationServicesDisabled(permission)) {
-        const nextPermission = await refreshLocationPermission();
-        if (
-          nextPermission.state === "granted" &&
-          !isLocationServicesDisabled(nextPermission)
-        ) {
+      if (permission?.state === "granted") {
+        const refreshedPermission = await refreshLocationPermission();
+        if (!isLocationServicesDisabled(refreshedPermission)) {
           dismissLocationOnboarding();
-          return;
+        } else {
+          toast.error("Turn on phone Location before sharing.");
         }
+        return;
       }
-      const result = await ensureForegroundLocationReady({
-        capturePoint: false,
-        autoOpenSettings: false,
-        requestNativePrompt: true,
-      });
-      const nextPermission = await refreshLocationPermission();
-      if (!result.ready && nextPermission.state !== "granted") return;
+
+      const requestedPermission =
+        await OneLocationService.requestLocationPermission();
+      setPermission(requestedPermission);
+
+      if (requestedPermission.state !== "granted") {
+        toast.error("Allow location permission before sharing.");
+        return;
+      }
+
+      if (isLocationServicesDisabled(requestedPermission)) {
+        toast.error("Turn on phone Location before sharing.");
+        return;
+      }
+
       dismissLocationOnboarding();
     } finally {
       setLocationOnboardingBusy(false);
     }
   }, [
     dismissLocationOnboarding,
-    ensureForegroundLocationReady,
     locationOnboardingBusy,
     permission,
     refreshLocationPermission,

@@ -90,6 +90,23 @@ export class HushhLocationWeb implements HushhLocationPlugin {
     return { opened: false, sourcePlatform: "web" };
   }
 
+  async requestLocationPermission(): Promise<HushhLocationPermissionState> {
+    if (!geolocationAvailable()) {
+      return {
+        state: "unavailable",
+        precise: false,
+        background: "unavailable",
+        locationServicesEnabled: false,
+      };
+    }
+
+    await this.getCurrentPosition({
+      enableHighAccuracy: true,
+      timeoutMs: 15_000,
+    });
+    return this.getPermissionState();
+  }
+
   async openLocationSettings(): Promise<{
     opened: boolean;
     sourcePlatform: "web";
