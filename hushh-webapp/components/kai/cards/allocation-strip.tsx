@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo } from "react";
+import { cn } from "@/lib/utils";
 
-interface AllocationStripProps {
+// 1. Ensure the interface is defined and exported
+export interface AllocationStripProps {
   cashPct?: number;
   equitiesPct?: number;
   bondsPct?: number;
@@ -31,27 +33,14 @@ function normalizeSegments(raw: Segment[]): Segment[] {
 export function AllocationStrip({ cashPct, equitiesPct, bondsPct }: AllocationStripProps) {
   const segments = useMemo(() => {
     const raw: Segment[] = [
-      {
-        label: "Equities",
-        value: clamp(equitiesPct ?? 0),
-        className: "bg-foreground",
-      },
-      {
-        label: "Bonds",
-        value: clamp(bondsPct ?? 0),
-        className: "bg-[var(--brand-500)]",
-      },
-      {
-        label: "Cash",
-        value: clamp(cashPct ?? 0),
-        className: "bg-muted-foreground/30",
-      },
+      { label: "Equities", value: clamp(equitiesPct ?? 0), className: "bg-foreground" },
+      { label: "Bonds", value: clamp(bondsPct ?? 0), className: "bg-[var(--brand-500)]" },
+      { label: "Cash", value: clamp(cashPct ?? 0), className: "bg-muted-foreground/30" },
     ];
 
     const normalized = normalizeSegments(raw);
-    if (normalized.length > 0) return normalized;
-
-    return [
+    // 2. Explicit return to fix the "void" error
+    return normalized.length > 0 ? normalized : [
       { label: "Equities", value: 42, className: "bg-foreground" },
       { label: "Bonds", value: 28, className: "bg-[var(--brand-500)]" },
       { label: "Cash", value: 30, className: "bg-muted-foreground/30" },
@@ -75,7 +64,7 @@ export function AllocationStrip({ cashPct, equitiesPct, bondsPct }: AllocationSt
       <div className="grid grid-cols-3 gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
         {segments.map((segment) => (
           <div key={segment.label} className="flex items-center gap-1.5">
-            <span className={`h-2 w-2 rounded-full ${segment.className}`} />
+            <span className={cn("h-2 w-2 rounded-full", segment.className)} />
             <span>
               {segment.label} {segment.value.toFixed(0)}%
             </span>

@@ -102,6 +102,10 @@ function requireBackendOrigin(params: {
   runtimeKeys: string[];
   localHintKeys: string[];
 }): string {
+  if (process.env.NEXT_PHASE === "phase-production-build") {
+    return "http://build-time-dummy";
+  }
+
   const environment = resolveEnvironment();
   const hosted = isHostedServerRuntime();
   const runtimeOrigin = resolveConfiguredOrigin(params.runtimeKeys);
