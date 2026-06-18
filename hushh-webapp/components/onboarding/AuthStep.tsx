@@ -598,10 +598,10 @@ export function AuthStep({
           <Image
             src="/one-quiet-emoji.png"
             alt="One"
-            width={52}
-            height={52}
+            width={48}
+            height={48}
             priority
-            className="mx-auto h-[52px] w-[52px] object-contain drop-shadow-[0_14px_28px_rgba(0,0,0,0.08)]"
+            className="mx-auto h-12 w-12 object-contain drop-shadow-[0_14px_28px_rgba(0,0,0,0.08)]"
           />
           <div
             role="heading"

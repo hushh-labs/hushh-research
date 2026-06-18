@@ -1354,7 +1354,7 @@ md-ripple.morphy-md-ripple {
   color: rgb(60 60 67 / 0.7) !important;
   min-height: 48px;
   gap: 0.2rem !important;
-  padding: 0.4rem 0.2rem 0.44rem !important;
+  padding: 0.4rem 0.2rem 0.42rem !important;
   letter-spacing: 0;
 }
 
@@ -1364,7 +1364,7 @@ md-ripple.morphy-md-ripple {
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
   color: rgb(0 113 227) !important;
-  font-weight: 590;
+  font-weight: 600;
 }
 
 .dark .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
@@ -1372,39 +1372,27 @@ md-ripple.morphy-md-ripple {
 }
 
 .kai-bottom-nav-pill [role="radio"] svg {
-  width: 19px;
-  height: 19px;
+  width: 19.5px;
+  height: 19.5px;
   opacity: 0.88;
+  stroke-width: 1.85;
+  filter: drop-shadow(0 0.5px 0 rgb(255 255 255 / 0.6));
+  transform: translateY(0);
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 1.48;
-  filter: drop-shadow(0 0.5px 0 rgb(255 255 255 / 0.68));
-  transform: translateY(0);
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] svg {
   opacity: 1;
-  stroke-width: 1.82;
-  filter:
-    drop-shadow(0 0.5px 0 rgb(255 255 255 / 0.72))
-    drop-shadow(0 4px 10px rgb(0 113 227 / 0.18));
+  stroke-width: 2.15;
+  filter: drop-shadow(0 3px 8px rgb(0 113 227 / 0.24));
   transform: translateY(-0.5px);
-}
-
-.dark .kai-bottom-nav-pill [role="radio"] svg {
-  filter: drop-shadow(0 0.5px 0 rgb(255 255 255 / 0.12));
-}
-
-.dark .kai-bottom-nav-pill [role="radio"][aria-checked="true"] svg {
-  filter:
-    drop-shadow(0 0.5px 0 rgb(255 255 255 / 0.16))
-    drop-shadow(0 4px 12px rgb(41 171 255 / 0.2));
 }
 
 .kai-bottom-nav-pill [role="radio"] > span:last-of-type {
   max-width: 100%;
-  font-size: 9.5px;
-  font-weight: 510;
+  font-size: 9.25px;
+  font-weight: 500;
   line-height: 1;
   letter-spacing: 0;
   text-wrap: nowrap;
@@ -1412,7 +1400,7 @@ md-ripple.morphy-md-ripple {
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] > span:last-of-type {
-  font-weight: 590;
+  font-weight: 600;
   opacity: 1;
 }
 
@@ -1452,6 +1440,16 @@ md-ripple.morphy-md-ripple {
   box-shadow:
     0 12px 28px -18px rgb(10 132 255 / 0.86),
     inset 0 1px 0 rgb(255 255 255 / 0.34);
+}
+
+body:has([data-one-market-surface="true"]) .bar-glass-top {
+  --app-bar-glass-bg-light: var(--background) !important;
+  --app-bar-glass-bg-dark: rgb(28, 28, 30) !important;
+  --app-bar-shadow: none !important;
+  --app-bar-fade-top-strong: transparent !important;
+  --app-bar-fade-top-medium: transparent !important;
+  --app-bar-fade-top-soft: transparent !important;
+  --app-bar-fade-top-trace: transparent !important;
 }
 
 /* Carousel edge glass (left/right): use to hint adjacent slides while keeping center crisp. */

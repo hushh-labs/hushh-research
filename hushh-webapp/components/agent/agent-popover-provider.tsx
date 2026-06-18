@@ -304,10 +304,14 @@ function AgentPopoverSurface({ customSize, setCustomSize }: AgentPopoverSurfaceP
   const pathname = usePathname();
   const { expanded, hasOpened, motionState, sizeMode, setSizeMode, openAgent, minimizeAgent } =
     useAgentPopover();
+  const chromeState = getKaiChromeState(pathname);
   const isLegacyAgentRoute = pathname === ROUTES.AGENT;
   const isPhoneMandateRoute = pathname?.startsWith(ROUTES.PHONE_MANDATE);
-  const canShowAgent = isAuthenticated && !isLegacyAgentRoute && !isPhoneMandateRoute;
-  const chromeState = getKaiChromeState(pathname);
+  const canShowAgent =
+    isAuthenticated &&
+    !isLegacyAgentRoute &&
+    !isPhoneMandateRoute &&
+    !chromeState.hideCommandBar;
   const isKaiSurfaceRoute = Boolean(pathname?.startsWith("/kai"));
   const useEmbeddedAgentTrigger =
     isKaiSurfaceRoute || isRiaActionBarRoute(pathname) || !chromeState.hideCommandBar;

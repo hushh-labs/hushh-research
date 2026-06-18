@@ -288,10 +288,10 @@ function AgentWelcomePanel({
           <Sparkles className="h-3.5 w-3.5 text-primary" />
           Kai workspace
         </div>
-        <h2 className="text-4xl font-medium tracking-normal text-[#1d1d1f] sm:text-5xl dark:text-zinc-50">
+        <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground sm:text-[38px]">
           Hi {name}
         </h2>
-        <p className="mt-3 max-w-xl text-base leading-7 text-[rgba(0,0,0,0.56)] sm:text-lg dark:text-zinc-400">
+        <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground sm:text-[17px]">
           Ask Agent about your markets, portfolio, memories, or Hushh workflows.
         </p>
         <div className="mt-8 grid gap-3 sm:grid-cols-3">
@@ -2668,10 +2668,10 @@ export function AgentChatWorkspace({
   return (
     <div
       className={cn(
-        "agent-chat-workspace flex min-h-0 w-full flex-col text-[#1d1d1f] dark:text-zinc-100",
+        "agent-chat-workspace flex min-h-0 w-full flex-col text-foreground",
         isPopover
-          ? "h-full overflow-hidden bg-white dark:bg-[#0d0f13]"
-          : "h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-bottom-fixed-ui,0px)-var(--app-safe-area-bottom-effective,0px))] min-h-[420px] overflow-hidden bg-white dark:bg-[#0b0d10]",
+          ? "h-full overflow-hidden bg-background"
+          : "h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-bottom-fixed-ui,0px)-var(--app-safe-area-bottom-effective,0px))] min-h-[420px] overflow-hidden bg-background",
         className
       )}
       data-agent-chat-workspace={variant}
@@ -2713,14 +2713,14 @@ export function AgentChatWorkspace({
 
         <section
           className={cn(
-            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white dark:bg-[#15171c]",
+            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
             isPopover && "rounded-lg border border-black/10 shadow-sm dark:border-white/10"
           )}
           inert={isHistoryDrawerOpen}
         >
           <div
             className={cn(
-              "flex shrink-0 touch-pan-y items-center justify-between gap-3 border-b border-black/10 bg-white/95 px-3 pt-[var(--app-safe-area-top-effective,0px)] backdrop-blur dark:border-white/10 dark:bg-[#15171c]/95 sm:px-5",
+              "flex shrink-0 touch-pan-y items-center justify-between gap-3 border-b border-border/70 bg-background/92 px-3 pt-[var(--app-safe-area-top-effective,0px)] backdrop-blur sm:px-5",
               isPopover
                 ? "h-14 sm:h-16"
                 : "h-[calc(3.5rem+var(--app-safe-area-top-effective,0px))] sm:h-[calc(4rem+var(--app-safe-area-top-effective,0px))]",
@@ -2750,10 +2750,10 @@ export function AgentChatWorkspace({
                 <Bot className="h-4 w-4" />
               </div>
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold leading-5 text-[#1d1d1f] sm:text-base dark:text-zinc-100">
+                <div className="truncate text-sm font-medium leading-5 text-foreground sm:text-base">
                   Agent
                 </div>
-                <p className="hidden truncate text-xs text-[rgba(0,0,0,0.46)] dark:text-zinc-500 sm:block">
+                <p className="hidden truncate text-xs text-muted-foreground sm:block">
                   Kai workspace
                 </p>
               </div>
@@ -2788,7 +2788,7 @@ export function AgentChatWorkspace({
           >
             <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-6">
               {accessMessage ? (
-                <div className="flex flex-col gap-3 rounded-xl border border-black/10 bg-black/[0.035] px-4 py-4 text-sm text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.03] dark:text-zinc-400 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-muted/35 px-4 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                   <span>{accessMessage}</span>
                   {accessAction ? (
                     <Button
@@ -2890,7 +2890,7 @@ export function AgentChatWorkspace({
           <form
             onSubmit={handleSubmit}
             className={cn(
-              "shrink-0 border-t border-black/10 bg-white/95 px-3 py-3 backdrop-blur dark:border-white/10 dark:bg-[#15171c]/95 sm:px-5",
+              "shrink-0 border-t border-border/70 bg-background/92 px-3 py-3 backdrop-blur sm:px-5",
               !isPopover && "pb-[calc(0.75rem+var(--app-safe-area-bottom-effective,0px))]"
             )}
           >

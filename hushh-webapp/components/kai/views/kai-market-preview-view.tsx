@@ -2034,6 +2034,7 @@ export function KaiMarketPreviewView() {
       as="div"
       width="reading"
       className={oneMarketRootClassName}
+      data-one-market-surface="true"
       data-one-market-preview={localPreviewPayload ? "true" : undefined}
     >
       {localPreviewPayload ? (

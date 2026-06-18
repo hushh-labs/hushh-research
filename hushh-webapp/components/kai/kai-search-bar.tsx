@@ -9,7 +9,7 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { Bot, Mic, Search, X } from "lucide-react";
+import { Mic, Search, X } from "lucide-react";
 
 import {
   KaiCommandPalette,
@@ -20,7 +20,6 @@ import {
 } from "@/components/kai/voice/voice-ambient-search-surface";
 import { VoiceDebugDrawer } from "@/components/kai/voice/voice-debug-drawer";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { KAI_COMMAND_BAR_OPEN_EVENT } from "@/lib/navigation/kai-command-bar-events";
@@ -313,7 +312,6 @@ export function KaiSearchBar({
   portfolioTickers = [],
 }: KaiSearchBarProps) {
   const { getVaultOwnerToken, vaultKey } = useVault();
-  const agentPopover = useOptionalAgentPopover();
   const [open, setOpen] = useState(false);
   const [voiceDebugOpen, setVoiceDebugOpen] = useState(false);
   const [voiceUiState, setVoiceUiState] = useState<VoiceUiState>("idle");
@@ -1687,7 +1685,7 @@ export function KaiSearchBar({
         >
           {isRiaSurface ? (
             <div
-              className="grid grid-cols-3 gap-1.5 rounded-full border border-[color:var(--app-shell-surface-border)] bg-[color:var(--app-shell-surface-bg)] bg-[image:var(--app-shell-surface-fill)] p-1 shadow-[var(--app-shell-surface-shadow)] backdrop-blur-[var(--app-shell-surface-blur)]"
+              className="grid grid-cols-2 gap-1.5 rounded-full border border-[color:var(--app-shell-surface-border)] bg-[color:var(--app-shell-surface-bg)] bg-[image:var(--app-shell-surface-fill)] p-1 shadow-[var(--app-shell-surface-shadow)] backdrop-blur-[var(--app-shell-surface-blur)]"
               data-testid="ria-action-bar"
             >
               <ShellActionSurface
@@ -1722,40 +1720,17 @@ export function KaiSearchBar({
                 )}
                 <span className="truncate">Voice</span>
               </ShellActionSurface>
-              <ShellActionSurface
-                variant="pill"
-                wrapperClassName="w-full"
-                className="h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]"
-                contentClassName="gap-1.5"
-                aria-label="Open Agent"
-                disabled={!agentPopover}
-                onClick={() => agentPopover?.openAgent()}
-              >
-                <Bot className="h-4 w-4 shrink-0" />
-                <span className="truncate">Agent</span>
-              </ShellActionSurface>
             </div>
           ) : (
-            <div className="relative flex h-[114px] w-full items-end justify-end">
+            <div className="relative flex h-[58px] w-full items-end justify-end">
               <div
                 className={cn(
-                  "ml-auto flex flex-col items-end justify-end gap-2 transition-[width] duration-200 ease-out",
+                  "ml-auto flex items-end justify-end transition-[width] duration-200 ease-out",
                   compactDockExpanded
                     ? "w-[min(15.5rem,calc(100vw-2rem))]"
                     : "w-[58px]"
                 )}
               >
-                <button
-                  type="button"
-                  className="pointer-events-auto grid h-12 w-12 place-items-center rounded-full transition-transform duration-200 ease-out hover:scale-[1.03] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-50"
-                  aria-label="Open Kai agent"
-                  disabled={!agentPopover}
-                  onClick={() => agentPopover?.openAgent()}
-                >
-                  <span className="kai-bottom-agent-action grid h-[40px] w-[40px] place-items-center rounded-[14px]">
-                    <Bot className="h-[18px] w-[18px]" strokeWidth={1.95} />
-                  </span>
-                </button>
                 <div
                   className={cn(
                     "pointer-events-auto grid rounded-full kai-bottom-search-action p-[5px]",

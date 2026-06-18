@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
@@ -43,26 +43,6 @@ function makeRect(input: {
     toJSON: () => rect,
   };
   return rect as DOMRect;
-}
-
-function dispatchPointer(
-  element: HTMLElement,
-  type: "pointerdown" | "pointermove" | "pointerup",
-  init: {
-    button?: number;
-    clientX: number;
-    clientY: number;
-    pointerId: number;
-  }
-) {
-  const event = new Event(type, { bubbles: true, cancelable: true });
-  Object.defineProperties(event, {
-    button: { value: init.button ?? 0 },
-    clientX: { value: init.clientX },
-    clientY: { value: init.clientY },
-    pointerId: { value: init.pointerId },
-  });
-  fireEvent(element, event);
 }
 
 describe("AgentPopoverProvider floating trigger", () => {
@@ -113,7 +93,7 @@ describe("AgentPopoverProvider floating trigger", () => {
     getBoundingClientRectSpy.mockRestore();
   });
 
-  it("positions the trigger above the command bar on iPhone-sized viewports", async () => {
+  it("does not render a stray floating trigger when app chrome owns Agent entrypoints", () => {
     render(
       <div>
         <div data-tour-id="kai-command-bar" />
@@ -124,130 +104,7 @@ describe("AgentPopoverProvider floating trigger", () => {
       </div>
     );
 
-    const trigger = screen.getByRole("button", { name: "Open Agent" });
-
-    await waitFor(() => {
-      expect(trigger.style.left).toBe("366px");
-      expect(trigger.style.top).toBe("660px");
-    });
-    expect(trigger.className).toContain("bg-white/92");
-    expect(trigger.className).toContain("dark:bg-[#1c1c1e]/90");
-  });
-
-  it("does not allow dragging the trigger into the command bar", async () => {
-    render(
-      <div>
-        <div data-tour-id="kai-command-bar" />
-        <div aria-label="Main navigation" />
-        <AgentPopoverProvider>
-          <main />
-        </AgentPopoverProvider>
-      </div>
-    );
-
-    const trigger = screen.getByRole("button", { name: "Open Agent" });
-
-    await waitFor(() => {
-      expect(trigger.style.top).toBe("660px");
-    });
-
-    dispatchPointer(trigger, "pointerdown", {
-      button: 0,
-      clientX: 390,
-      clientY: 682,
-      pointerId: 1,
-    });
-    dispatchPointer(trigger, "pointermove", {
-      clientX: 390,
-      clientY: 910,
-      pointerId: 1,
-    });
-    dispatchPointer(trigger, "pointerup", {
-      clientX: 390,
-      clientY: 910,
-      pointerId: 1,
-    });
-
-    expect(trigger.style.top).toBe("660px");
-  });
-
-  it("keeps horizontal drags on the right-side rail", async () => {
-    render(
-      <div>
-        <div data-tour-id="kai-command-bar" />
-        <div aria-label="Main navigation" />
-        <AgentPopoverProvider>
-          <main />
-        </AgentPopoverProvider>
-      </div>
-    );
-
-    const trigger = screen.getByRole("button", { name: "Open Agent" });
-
-    await waitFor(() => {
-      expect(trigger.style.left).toBe("366px");
-    });
-
-    dispatchPointer(trigger, "pointerdown", {
-      button: 0,
-      clientX: 390,
-      clientY: 682,
-      pointerId: 1,
-    });
-    dispatchPointer(trigger, "pointermove", {
-      clientX: 40,
-      clientY: 600,
-      pointerId: 1,
-    });
-    dispatchPointer(trigger, "pointerup", {
-      clientX: 40,
-      clientY: 600,
-      pointerId: 1,
-    });
-
-    await waitFor(() => {
-      expect(trigger.style.left).toBe("366px");
-      expect(trigger.style.top).toBe("578px");
-    });
-  });
-
-  it("does not allow dragging the trigger into the top chrome", async () => {
-    render(
-      <div>
-        <div data-tour-id="kai-command-bar" />
-        <div aria-label="Main navigation" />
-        <AgentPopoverProvider>
-          <main />
-        </AgentPopoverProvider>
-      </div>
-    );
-
-    const trigger = screen.getByRole("button", { name: "Open Agent" });
-
-    await waitFor(() => {
-      expect(trigger.style.top).toBe("660px");
-    });
-
-    dispatchPointer(trigger, "pointerdown", {
-      button: 0,
-      clientX: 390,
-      clientY: 682,
-      pointerId: 1,
-    });
-    dispatchPointer(trigger, "pointermove", {
-      clientX: 390,
-      clientY: 0,
-      pointerId: 1,
-    });
-    dispatchPointer(trigger, "pointerup", {
-      clientX: 390,
-      clientY: 0,
-      pointerId: 1,
-    });
-
-    await waitFor(() => {
-      expect(trigger.style.top).toBe("104px");
-    });
+    expect(screen.queryByRole("button", { name: "Open Agent" })).toBeNull();
   });
 
   it("does not render a duplicate floating trigger on Kai command-bar routes", () => {

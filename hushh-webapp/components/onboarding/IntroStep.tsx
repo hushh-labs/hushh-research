@@ -99,7 +99,7 @@ export function IntroStep({
             unoptimized
             aria-hidden="true"
             draggable={false}
-            className="relative h-[52px] w-[52px] select-none object-contain"
+            className="relative h-12 w-12 select-none object-contain"
           />
 
           <div

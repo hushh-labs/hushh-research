@@ -30,7 +30,6 @@ import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import {
-  kaiAppBodyClassName,
   kaiAppCardBodyClassName,
   kaiAppCardTitleClassName,
   kaiAppCompactTitleClassName,
@@ -166,31 +165,26 @@ export function PortfolioImportView({
   ]);
 
   return (
-    <div className="mx-auto w-full space-y-3.5 pt-3 pb-6" style={APP_MEASURE_STYLES.reading}>
+    <div className="mx-auto w-full space-y-4 pb-6 pt-3" style={APP_MEASURE_STYLES.reading}>
       {/* Header */}
-      <div className="space-y-2.5 text-center">
-        <h1 className={cn(kaiAppCompactTitleClassName, "text-foreground")}>
-          Your money
-          <br />
-          <span>Your options</span>
-        </h1>
-        <p className={cn(kaiAppBodyClassName, "text-muted-foreground")}>
-          Let Kai analyze your holdings for precise advice
-        </p>
-      </div>
-
-      <div className="text-center">
+      <div className="space-y-1.5 text-left">
         <p className={cn(kaiAppEyebrowClassName, "text-muted-foreground")}>
-          Choose import method
+          Getting started
+        </p>
+        <h1 className={cn(kaiAppCompactTitleClassName, "text-foreground")}>
+          Portfolio
+        </h1>
+        <p className={cn(kaiAppCardBodyClassName, "max-w-[32rem] text-muted-foreground sm:!text-[15px]")}>
+          Let Kai analyze your holdings for precise advice
         </p>
       </div>
 
       {/* Plaid integration */}
       <SurfaceCard accent="sky">
         <SurfaceCardContent className="space-y-3 p-4 md:p-5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-12 h-12 rounded-full bg-primary/10 border border-primary/15 flex items-center justify-center shrink-0">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-primary/15 bg-primary/10">
                 <Icon icon={Link2} size="md" className="text-primary" />
               </div>
               <div className="min-w-0">
@@ -200,7 +194,7 @@ export function PortfolioImportView({
                 </p>
               </div>
             </div>
-            <div className="shrink-0 flex flex-col items-end gap-2">
+            <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
               <Badge className="border border-[var(--brand-200)] bg-[var(--brand-50)] text-[var(--brand-700)]">
                 Read-only sync
               </Badge>
@@ -221,8 +215,8 @@ export function PortfolioImportView({
           <MorphyButton
             variant="blue-gradient"
             effect="fill"
-            size="lg"
-            className="w-full rounded-full border-none font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
+            size="default"
+            className="h-11 w-full rounded-full border-none text-[15px] font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
             disabled={!onConnectPlaid || isUploading || isPreloadingSchema || isConnectingPlaid || plaidConfigured === false}
             onClick={handleConnectPlaid}
             icon={{
@@ -256,7 +250,7 @@ export function PortfolioImportView({
       <SurfaceCard>
         <SurfaceCardContent className="space-y-4 p-4 md:p-5">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-full bg-primary/10 border border-primary/15 flex items-center justify-center shrink-0">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-primary/15 bg-primary/10">
               <Icon icon={Upload} size="md" className="text-primary" />
             </div>
             <div>
@@ -273,7 +267,7 @@ export function PortfolioImportView({
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             className={cn(
-              "relative border border-dashed rounded-3xl p-7 transition-all duration-200 text-center cursor-pointer min-h-44 flex flex-col items-center justify-center",
+              "relative flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-[24px] border border-dashed p-6 text-center transition-all duration-200",
               isDragging
                 ? "border-primary bg-primary/8 scale-[1.01]"
                 : "border-border/70 hover:border-primary/50 hover:bg-muted/25",
@@ -282,8 +276,8 @@ export function PortfolioImportView({
             onClick={triggerFileInput}
           >
             {/* Upload Icon */}
-            <div className="mx-auto w-14 h-14 rounded-full bg-primary/10 border border-primary/15 flex items-center justify-center mb-3">
-              <Icon icon={Upload} size={30} className="text-primary" />
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-primary/15 bg-primary/10">
+              <Icon icon={Upload} size={26} className="text-primary" />
             </div>
 
             {/* Text */}
@@ -322,7 +316,7 @@ export function PortfolioImportView({
             variant="morphy"
             effect="fill"
             size="default"
-            className="w-full rounded-full border-none font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
+            className="h-11 w-full rounded-full border-none text-[15px] font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
             onClick={handleContinue}
             disabled={isUploading || isPreloadingSchema || !selectedFile}
             icon={{
@@ -351,8 +345,8 @@ export function PortfolioImportView({
           <MorphyButton
             variant="blue-gradient"
             effect="fill"
-            size="lg"
-            className="w-full rounded-full border-none font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
+            size="default"
+            className="h-11 w-full rounded-full border-none text-[15px] font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
             onClick={handlePreloadSchema}
             disabled={isUploading || isPreloadingSchema}
             icon={{
@@ -375,7 +369,7 @@ export function PortfolioImportView({
           effect="fade"
           onClick={onSkip}
           disabled={isUploading || isPreloadingSchema}
-          className="text-muted-foreground hover:text-foreground text-base"
+          className="h-10 rounded-full px-5 text-[14px] font-medium text-muted-foreground hover:text-foreground"
         >
           Skip for now
         </MorphyButton>

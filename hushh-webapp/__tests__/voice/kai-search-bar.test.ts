@@ -441,10 +441,8 @@ describe("kai-search-bar helpers", () => {
     expect(screen.getByRole("button", { name: "Start RIA voice" }).getAttribute("aria-disabled")).toBe(
       "true",
     );
-
-    fireEvent.click(screen.getByRole("button", { name: "Open Agent" }));
-
-    expect(mockOpenAgent).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Open Agent" })).toBeNull();
+    expect(mockOpenAgent).not.toHaveBeenCalled();
   });
 
   it("keeps Kai voice inside the compact search surface", () => {
