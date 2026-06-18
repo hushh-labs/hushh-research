@@ -27,6 +27,7 @@ from .agent_voice import router as agent_voice_router
 from .analyze import router as analyze_router
 from .chat import router as chat_router
 from .consent import router as consent_router
+from .debate import router as debate_router
 from .decisions import router as decisions_router
 from .gmail import router as gmail_router
 from .health import router as health_router
@@ -118,6 +119,7 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/market/insights/baseline/{user_id}",
     "/market/insights/{user_id}",
     "/stock-preview/{user_id}",
+    "/debate/stream",
 ]
 
 # Include all sub-routers (no prefix since main router has /api/kai)
@@ -137,6 +139,7 @@ kai_router.include_router(decisions_router)
 kai_router.include_router(losers_router)
 kai_router.include_router(market_insights_router)
 kai_router.include_router(support_router)
+kai_router.include_router(debate_router)
 
 # Export for server.py
 router = kai_router

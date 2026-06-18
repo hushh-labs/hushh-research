@@ -39,6 +39,7 @@ export const ROUTE_ID_VALUES = [
   "kai_funding_trade",
   "kai_analysis",
   "kai_optimize",
+  "kai_debate",
   "kai_dashboard_legacy_redirect",
   "unknown",
 ] as const;
@@ -99,6 +100,7 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.KAI_FUNDING_TRADE) return "kai_funding_trade";
   if (pathname === ROUTES.KAI_ANALYSIS) return "kai_analysis";
   if (pathname === ROUTES.KAI_OPTIMIZE) return "kai_optimize";
+  if (pathname === "/debate") return "kai_debate";
   if (pathname === "/kai/dashboard") return "kai_dashboard_legacy_redirect";
 
   if (pathname.startsWith(`${ROUTES.KAI_DASHBOARD}/`)) {
@@ -213,6 +215,10 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
   {
     regex: /^\/api\/kai\/portfolio\/summary\/[^/?]+(?:\?.*)?$/i,
     template: "/api/kai/portfolio/summary/{user_id}",
+  },
+  {
+    regex: /^\/api\/kai\/debate\/stream(?:\?.*)?$/i,
+    template: "/api/kai/debate/stream",
   },
   {
     regex: /^\/api\/kai\/plaid\/status\/[^/?]+(?:\?.*)?$/i,

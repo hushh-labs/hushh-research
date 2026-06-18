@@ -37,6 +37,44 @@
       ]
     },
     {
+      "id": "route.investment_debate",
+      "label": "Start Investment Debate",
+      "meaning": "Opens the Bull vs Bear investment jury dashboard for a specific ticker.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": "kai",
+      "aliases": [
+        "start a debate",
+        "debate tesla stock",
+        "bull vs bear debate",
+        "investment jury"
+      ],
+      "scope": {
+        "routes": [
+          "/debate",
+          "/debate?ticker=[ticker]"
+        ],
+        "screens": [
+          "investment_debate"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "execution_hint": {
+        "status": "wired",
+        "path": "route",
+        "target": "/debate",
+        "params": {
+          "requires_symbol": true
+        }
+      },
+      "map_references": [
+        "hushh-webapp/components/kai/views/debate-dashboard-view.tsx"
+      ]
+    },
+    {
       "id": "route.analysis_history",
       "label": "Open Analysis History",
       "meaning": "Navigates to analysis page history context.",
