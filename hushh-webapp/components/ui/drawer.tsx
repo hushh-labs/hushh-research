@@ -77,7 +77,7 @@ function DrawerContent({
         <DrawerPrimitive.Close
           type="button"
           data-slot="drawer-close"
-          className="ring-offset-background focus:ring-ring absolute top-4 right-4 z-30 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none"
+          className="ring-offset-background focus:ring-ring absolute top-4 right-4 z-30 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:cursor-not-allowed"
         >
           <XIcon className="size-4" aria-hidden="true" />
           <span className="sr-only">Close</span>
