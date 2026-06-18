@@ -106,9 +106,9 @@ export function DataTable<TData, TValue>({
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-  const [searchTerm, setSearchTerm] = React.useState("");
+  const [searchTerm] = React.useState("");
   const [globalFilter, setGlobalFilter] = React.useState("");
-
+const [, startGlobalFilterTransition] = React.useTransition();
   const swipeStartRef = React.useRef<{ x: number; y: number } | null>(null);
 
   React.useEffect(() => {
@@ -257,8 +257,14 @@ export function DataTable<TData, TValue>({
                 autoCorrect="off"
                 autoCapitalize="off"
                 placeholder={searchPlaceholder}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+value={globalFilter ?? ""}
+onChange={(event) => {
+  const nextValue = event.target.value;
+
+  startGlobalFilterTransition(() => {
+    setGlobalFilter(nextValue);
+  });
+}}
                 className="pl-9 cursor-text"
                 aria-label="Search table"
               />
