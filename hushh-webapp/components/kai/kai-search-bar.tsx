@@ -9,7 +9,7 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { Mic, Search, X } from "lucide-react";
+import { Bot, Mic, Search, X } from "lucide-react";
 
 import {
   KaiCommandPalette,
@@ -20,6 +20,7 @@ import {
 } from "@/components/kai/voice/voice-ambient-search-surface";
 import { VoiceDebugDrawer } from "@/components/kai/voice/voice-debug-drawer";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { KAI_COMMAND_BAR_OPEN_EVENT } from "@/lib/navigation/kai-command-bar-events";
@@ -312,6 +313,7 @@ export function KaiSearchBar({
   portfolioTickers = [],
 }: KaiSearchBarProps) {
   const { getVaultOwnerToken, vaultKey } = useVault();
+  const agentPopover = useOptionalAgentPopover();
   const [open, setOpen] = useState(false);
   const [voiceDebugOpen, setVoiceDebugOpen] = useState(false);
   const [voiceUiState, setVoiceUiState] = useState<VoiceUiState>("idle");
@@ -1659,6 +1661,9 @@ export function KaiSearchBar({
       stableMicDisabledReason,
     ],
   );
+  const handleAgentClick = useCallback(() => {
+    agentPopover?.openAgent();
+  }, [agentPopover]);
 
   return (
     <>
@@ -1684,45 +1689,65 @@ export function KaiSearchBar({
           )}
         >
           {isRiaSurface ? (
-            <div
-              className="grid grid-cols-2 gap-1.5 rounded-full border border-[color:var(--app-shell-surface-border)] bg-[color:var(--app-shell-surface-bg)] bg-[image:var(--app-shell-surface-fill)] p-1 shadow-[var(--app-shell-surface-shadow)] backdrop-blur-[var(--app-shell-surface-blur)]"
-              data-testid="ria-action-bar"
-            >
-              <ShellActionSurface
-                variant="pill"
-                wrapperClassName="w-full"
-                className="h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]"
-                contentClassName="gap-1.5"
-                aria-label="Search RIA workspace"
-                aria-expanded={open}
-                aria-haspopup="dialog"
-                onClick={() => setOpen(true)}
+            <div className="relative flex w-full items-end justify-end">
+              <button
+                type="button"
+                aria-label="Open Agent"
+                onClick={handleAgentClick}
+                disabled={!agentPopover}
+                className="kai-bottom-agent-action pointer-events-auto absolute -top-[54px] right-1 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/30 disabled:pointer-events-none disabled:opacity-50"
               >
-                <Search className="h-4 w-4 shrink-0" />
-                <span className="truncate">Search</span>
-              </ShellActionSurface>
-              <ShellActionSurface
-                variant="pill"
-                wrapperClassName="w-full"
-                contentClassName="gap-1.5"
-                aria-label={riaVoiceActive ? "End RIA voice session" : "Start RIA voice"}
-                aria-disabled={riaVoiceDisabled}
-                className={cn(
-                  "h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]",
-                  riaVoiceDisabled && "opacity-60"
-                )}
-                onClick={handleRiaVoiceClick}
+                <Bot className="h-[18px] w-[18px]" strokeWidth={1.9} />
+              </button>
+              <div
+                className="grid w-full grid-cols-2 gap-1.5 rounded-full border border-[color:var(--app-shell-surface-border)] bg-[color:var(--app-shell-surface-bg)] bg-[image:var(--app-shell-surface-fill)] p-1 shadow-[var(--app-shell-surface-shadow)] backdrop-blur-[var(--app-shell-surface-blur)]"
+                data-testid="ria-action-bar"
               >
-                {riaVoiceActive ? (
-                  <X className="h-4 w-4 shrink-0" />
-                ) : (
-                  <Mic className="h-4 w-4 shrink-0" />
-                )}
-                <span className="truncate">Voice</span>
-              </ShellActionSurface>
+                <ShellActionSurface
+                  variant="pill"
+                  wrapperClassName="w-full"
+                  className="h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]"
+                  contentClassName="gap-1.5"
+                  aria-label="Search RIA workspace"
+                  aria-expanded={open}
+                  aria-haspopup="dialog"
+                  onClick={() => setOpen(true)}
+                >
+                  <Search className="h-4 w-4 shrink-0" />
+                  <span className="truncate">Search</span>
+                </ShellActionSurface>
+                <ShellActionSurface
+                  variant="pill"
+                  wrapperClassName="w-full"
+                  contentClassName="gap-1.5"
+                  aria-label={riaVoiceActive ? "End RIA voice session" : "Start RIA voice"}
+                  aria-disabled={riaVoiceDisabled}
+                  className={cn(
+                    "h-10 w-full min-w-0 px-2 text-[12px] sm:text-[13px]",
+                    riaVoiceDisabled && "opacity-60"
+                  )}
+                  onClick={handleRiaVoiceClick}
+                >
+                  {riaVoiceActive ? (
+                    <X className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <Mic className="h-4 w-4 shrink-0" />
+                  )}
+                  <span className="truncate">Voice</span>
+                </ShellActionSurface>
+              </div>
             </div>
           ) : (
-            <div className="relative flex h-[58px] w-full items-end justify-end">
+            <div className="relative flex h-[112px] w-full items-end justify-end">
+              <button
+                type="button"
+                aria-label="Open Agent"
+                onClick={handleAgentClick}
+                disabled={!agentPopover}
+                className="kai-bottom-agent-action pointer-events-auto absolute right-[7px] top-0 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/30 disabled:pointer-events-none disabled:opacity-50"
+              >
+                <Bot className="h-[18px] w-[18px]" strokeWidth={1.9} />
+              </button>
               <div
                 className={cn(
                   "ml-auto flex items-end justify-end transition-[width] duration-200 ease-out",
