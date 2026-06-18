@@ -69,7 +69,7 @@ export function TopShellDropdownContent({
     number | undefined
   >(undefined);
 
-  React.useLayoutEffect(() => {
+  React.useEffect(() => {
     if (!isMobile) {
       setMobileAlignOffset(undefined);
       return;

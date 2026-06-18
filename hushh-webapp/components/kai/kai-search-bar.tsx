@@ -3,7 +3,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1138,7 +1137,7 @@ export function KaiSearchBar({
     stopMeterRef.current = stop;
   }, [stop]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const root = document.documentElement;
     const update = () => {
       const barHeight = barRef.current?.getBoundingClientRect().height ?? 40;
