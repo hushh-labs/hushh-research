@@ -210,16 +210,16 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
             className={cn(
               "w-full mx-auto text-center flex flex-col justify-end gap-2",
               // Keep copy + spacing responsive without clipping on larger screens.
-              "min-h-[clamp(132px,18vh,190px)] pt-5",
+              "min-h-[clamp(118px,16vh,164px)] pt-4",
               "sm:max-w-lg"
             )}
           >
-            <h2 className="text-[32px] font-medium tracking-normal leading-[1.06] text-[#1d1d1f] sm:text-[40px] dark:text-[#f5f5f7]">
+            <h2 className="text-[28px] font-medium tracking-normal leading-[1.08] text-[#1d1d1f] sm:text-[34px] dark:text-[#f5f5f7]">
               {slides[displayIndex]?.title}{" "}
               <br />
               <span>{slides[displayIndex]?.accent}</span>
             </h2>
-            <p className="mx-auto max-w-[20rem] text-[16px] text-[rgba(0,0,0,0.56)] leading-[1.45] sm:text-[17px] dark:text-[rgba(245,245,247,0.60)]">
+            <p className="mx-auto max-w-[20rem] text-[15px] text-[rgba(0,0,0,0.56)] leading-[1.45] sm:text-[16px] dark:text-[rgba(245,245,247,0.60)]">
               {slides[displayIndex]?.subtitle}
             </p>
           </div>
@@ -239,10 +239,10 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
                     aria-current={idx === selectedIndex ? "step" : undefined}
                     className="basis-full pl-0 flex items-center justify-center"
                   >
-                    <div className="flex w-full min-h-[clamp(24rem,50vh,31rem)] items-center justify-center px-4 sm:px-6 md:px-8 py-3">
+                    <div className="flex w-full min-h-[clamp(23rem,48vh,29rem)] items-center justify-center px-4 sm:px-6 md:px-8 py-3">
                       <div
                         aria-hidden="true"
-                        className="h-[clamp(31rem,58vh,35rem)] w-full max-w-[22rem] sm:max-w-[24rem] md:max-w-[25rem] lg:max-w-[26rem] xl:max-w-[27rem]"
+                        className="h-[clamp(29rem,55vh,33rem)] w-full max-w-[22rem] sm:max-w-[23rem] md:max-w-[24rem] lg:max-w-[25rem]"
                       >
                         {slide.preview}
                       </div>

@@ -31,6 +31,7 @@ import {
 import { searchKaiActions } from "@/lib/voice/kai-action-gateway";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { cn } from "@/lib/utils";
 
 export type KaiCommandPaletteSelection = {
   actionId: string;
@@ -406,16 +407,19 @@ export function KaiCommandPalette({
           value={query}
           onValueChange={setQuery}
           placeholder="Run Kai command or search ticker..."
-          className="pr-24"
+          className="pr-28"
         />
-        <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
+        <div className="absolute right-2.5 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
           {!voiceHidden ? (
             <button
               type="button"
               aria-label={voiceActive ? "End Kai voice" : "Start Kai voice"}
               aria-disabled={voiceDisabled}
               onClick={onVoiceClick}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/10"
+              className={cn(
+                "inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/10",
+                voiceActive ? "bg-primary text-primary-foreground hover:bg-primary/90" : "text-muted-foreground"
+              )}
             >
               <Mic className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />
             </button>

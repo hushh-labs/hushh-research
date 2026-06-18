@@ -1346,8 +1346,8 @@ function OneLocationOnboardingFlow({
 
             <h1
               className={cn(
-                "mt-8 max-w-[350px] text-center text-[34px] font-bold leading-[1.08] text-[#1d1d1f] sm:text-[36px] dark:text-white",
-                isPermissionStep && "max-w-[340px] text-[32px] leading-[1.1] sm:text-[34px]",
+                "mt-8 max-w-[340px] text-center text-[28px] font-medium leading-[1.1] text-[#1d1d1f] sm:text-[31px] dark:text-white",
+                isPermissionStep && "max-w-[330px] text-[27px] leading-[1.12] sm:text-[30px]",
               )}
             >
               {isPermissionStep
@@ -1357,7 +1357,7 @@ function OneLocationOnboardingFlow({
 
             {isPermissionStep ? (
               <>
-                <p className="mt-3 max-w-[340px] text-[17px] font-normal leading-[1.5] text-[#6e6e73] dark:text-white/62">
+                <p className="mt-3 max-w-[330px] text-[15.5px] font-normal leading-[1.5] text-[#6e6e73] dark:text-white/62">
                   Choose{" "}
                   <strong className="font-semibold text-[#1d1d1f] dark:text-white">
                     Allow Always
@@ -1371,7 +1371,7 @@ function OneLocationOnboardingFlow({
                 </div>
               </>
             ) : (
-              <p className="mt-3 max-w-[310px] text-[18px] leading-[1.4] text-[#6e6e73] dark:text-white/62">
+              <p className="mt-3 max-w-[310px] text-[15.5px] leading-[1.45] text-[#6e6e73] dark:text-white/62">
                 Never text "where are you?" again.
               </p>
             )}
@@ -3301,10 +3301,10 @@ function OneLocationAgentPageContent() {
       <AppPageHeaderRegion className="mx-auto w-full max-w-[540px] min-w-0 overflow-hidden">
         <div className="flex flex-col gap-4 px-1 pt-3 sm:flex-row sm:items-end sm:justify-between">
           <header className="max-w-[560px] min-w-0 space-y-2">
-            <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#007aff] dark:text-[#76b7ff]">
+            <span className="text-[10.5px] font-medium uppercase tracking-[0.16em] text-[#007aff] dark:text-[#76b7ff]">
               When it matters most
             </span>
-            <h1 className="text-[34px] font-bold leading-[1.2] tracking-tight text-[#1c1c1e] sm:text-[42px] dark:text-white">
+            <h1 className="text-[28px] font-medium leading-[1.12] tracking-normal text-[#1c1c1e] sm:text-[32px] dark:text-white">
               Your circle, safely connected.
             </h1>
             <h2 className="sr-only">One Location Agent</h2>

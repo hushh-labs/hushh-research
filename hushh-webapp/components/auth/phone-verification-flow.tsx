@@ -370,9 +370,11 @@ export function PhoneVerificationFlow({
                 open={countryComboboxOpen}
                 onOpenChange={(open) => {
                   setCountryComboboxOpen(open);
-                  setCountryQuery(
-                    getCountryOptionLabel(selectedCountryOption ?? COUNTRY_PHONE_OPTIONS[0]!)
-                  );
+                  if (!open) {
+                    setCountryQuery(
+                      getCountryOptionLabel(selectedCountryOption ?? COUNTRY_PHONE_OPTIONS[0]!)
+                    );
+                  }
                 }}
                 value={selectedCountry}
                 onValueChange={handleCountrySelection}
@@ -390,6 +392,7 @@ export function PhoneVerificationFlow({
                   }}
                   onFocus={(event: React.FocusEvent<HTMLInputElement>) => {
                     setCountryComboboxOpen(true);
+                    setCountryQuery("");
                     event.currentTarget.select();
                   }}
                   className={`${FLOW_CONTROL_SHELL_CLASS_NAME} w-full`}

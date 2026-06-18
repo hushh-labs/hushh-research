@@ -135,12 +135,12 @@ function PhoneMandatePageContent() {
           <Image
             src="/one-quiet-emoji.png"
             alt=""
-            width={48}
-            height={48}
+            width={44}
+            height={44}
             priority
             aria-hidden="true"
             draggable={false}
-            className="mx-auto h-12 w-12 select-none object-contain drop-shadow-[0_14px_28px_rgba(0,0,0,0.08)]"
+            className="mx-auto h-11 w-11 select-none object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.08)]"
           />
           <div
             role="heading"

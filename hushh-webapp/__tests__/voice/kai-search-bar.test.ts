@@ -24,7 +24,31 @@ vi.mock("lucide-react", () => ({
 }));
 
 vi.mock("@/components/kai/kai-command-palette", () => ({
-  KaiCommandPalette: () => null,
+  KaiCommandPalette: ({
+    open,
+    onVoiceClick,
+    voiceActive,
+    voiceDisabled,
+    voiceHidden,
+  }: {
+    open: boolean;
+    onVoiceClick?: (event: unknown) => void;
+    voiceActive?: boolean;
+    voiceDisabled?: boolean;
+    voiceHidden?: boolean;
+  }) =>
+    open && !voiceHidden
+      ? createElement(
+          "button",
+          {
+            type: "button",
+            "aria-label": voiceActive ? "End Kai voice" : "Start Kai voice",
+            "aria-disabled": voiceDisabled,
+            onClick: onVoiceClick,
+          },
+          "voice",
+        )
+      : null,
 }));
 
 vi.mock("@/components/kai/voice/voice-ambient-search-surface", () => ({
