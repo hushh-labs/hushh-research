@@ -5,7 +5,6 @@ import { BarChart3, Percent, DollarSign, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { Badge } from "@/components/ui/badge";
 
 // =============================================================================
 // TYPES & CONFIG
