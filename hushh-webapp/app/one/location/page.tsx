@@ -4991,11 +4991,15 @@ export function OneLocationAgentPageContent({
   }, []);
 
   useEffect(() => {
-    if (!auth.userId || auth.loading || loadError) {
+    if (auth.loading) {
+      setLocationOnboardingGate("checking");
+      return;
+    }
+    if (!auth.userId || loadError) {
       setLocationOnboardingGate("hidden");
       return;
     }
-    if (!state) {
+    if (!vaultOwnerToken) {
       setLocationOnboardingGate("checking");
       return;
     }
@@ -5013,7 +5017,7 @@ export function OneLocationAgentPageContent({
     auth.userId,
     loadError,
     locationOnboardingGate,
-    state,
+    vaultOwnerToken,
   ]);
 
   useEffect(() => {
@@ -15046,9 +15050,8 @@ export function OneLocationAgentPageContent({
 
   const showLocationOnboarding =
     locationOnboardingGate === "show" &&
-    !showInitialSkeleton &&
     !loadError &&
-    Boolean(auth.userId && state);
+    Boolean(auth.userId && vaultOwnerToken);
 
   if (showLocationOnboarding) {
     return (
