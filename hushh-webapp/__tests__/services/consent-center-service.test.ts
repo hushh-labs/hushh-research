@@ -411,9 +411,9 @@ describe("normalizeConsentEntry — local-override precedence matrix", () => {
 describe("normalizeConsentEntry - zero-value fallback", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  const expectZeroValueConsentEntry = (item: unknown) => {
+  const expectZeroValueConsentEntry = (item: unknown, index: number) => {
     expect(item).toMatchObject({
-      id: "zero-value-consent-entry",
+      id: `zero-value-consent-entry-${index}`,
       kind: "history",
       status: "revoked",
       active: false,
@@ -438,9 +438,13 @@ describe("normalizeConsentEntry - zero-value fallback", () => {
     });
 
     expect(items).toHaveLength(3);
-    for (const item of items) {
-      expectZeroValueConsentEntry(item);
-    }
+    expect(items.map((item) => item.id)).toEqual([
+      "zero-value-consent-entry-0",
+      "zero-value-consent-entry-1",
+      "zero-value-consent-entry-2",
+    ]);
+    expect(new Set(items).size).toBe(items.length);
+    items.forEach((item, index) => expectZeroValueConsentEntry(item, index));
   });
 
   it("returns an immutable revoked entry for an undefined runtime payload", async () => {
@@ -467,6 +471,6 @@ describe("normalizeConsentEntry - zero-value fallback", () => {
     });
 
     expect(items).toHaveLength(1);
-    expectZeroValueConsentEntry(items[0]);
+    expectZeroValueConsentEntry(items[0], 0);
   });
 });
