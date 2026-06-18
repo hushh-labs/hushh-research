@@ -3657,7 +3657,11 @@ function OneLocationAgentPageContent() {
                               <span className="min-w-0 truncate">
                                 {recipientLabel(recipient)}
                               </span>
-                              <X className="h-3.5 w-3.5" aria-hidden="true" />
+                              <X
+                                aria-hidden="true"
+                                focusable="false"
+                                className="h-3.5 w-3.5"
+                              />
                               <span className="sr-only">
                                 Remove {recipientLabel(recipient)}
                               </span>
@@ -3769,7 +3773,11 @@ function OneLocationAgentPageContent() {
                               <span className="min-w-0 truncate">
                                 {recipientLabel(recipient)}
                               </span>
-                              <X className="h-3.5 w-3.5" aria-hidden="true" />
+                              <X
+                                aria-hidden="true"
+                                focusable="false"
+                                className="h-3.5 w-3.5"
+                              />
                               <span className="sr-only">
                                 Remove {recipientLabel(recipient)}
                               </span>
