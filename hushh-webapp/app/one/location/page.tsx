@@ -15002,16 +15002,36 @@ export function OneLocationAgentPageContent({
     dismissLocationOnboarding();
   }, [dismissLocationOnboarding]);
 
+  const openLocationSettingsForOnboarding = useCallback(async () => {
+    await OneLocationService.openLocationSettings().catch(() => null);
+    toast.info("Turn on phone Location, then return to continue.");
+    window.setTimeout(() => void refreshLocationPermission(), 1200);
+  }, [refreshLocationPermission]);
+
+  const openAppSettingsForOnboarding = useCallback(async () => {
+    await OneLocationService.openAppSettings().catch(() => null);
+    toast.info("Allow Location for One in Settings, then return.");
+    window.setTimeout(() => void refreshLocationPermission(), 1200);
+  }, [refreshLocationPermission]);
+
   const handleLocationOnboardingPermission = useCallback(async () => {
     if (locationOnboardingBusy) return;
     setLocationOnboardingBusy(true);
     try {
+      if (
+        permission?.state === "denied" ||
+        permission?.state === "restricted"
+      ) {
+        await openAppSettingsForOnboarding();
+        return;
+      }
+
       if (permission?.state === "granted") {
         const refreshedPermission = await refreshLocationPermission();
         if (!isLocationServicesDisabled(refreshedPermission)) {
           dismissLocationOnboarding();
         } else {
-          toast.error("Turn on phone Location before sharing.");
+          await openLocationSettingsForOnboarding();
         }
         return;
       }
@@ -15020,13 +15040,22 @@ export function OneLocationAgentPageContent({
         await OneLocationService.requestLocationPermission();
       setPermission(requestedPermission);
 
+      if (
+        requestedPermission.locationServicesEnabled === false ||
+        (requestedPermission.state === "unavailable" &&
+          requestedPermission.precise !== false)
+      ) {
+        await openLocationSettingsForOnboarding();
+        return;
+      }
+
       if (requestedPermission.state !== "granted") {
-        toast.error("Allow location permission before sharing.");
+        await openAppSettingsForOnboarding();
         return;
       }
 
       if (isLocationServicesDisabled(requestedPermission)) {
-        toast.error("Turn on phone Location before sharing.");
+        await openLocationSettingsForOnboarding();
         return;
       }
 
@@ -15037,6 +15066,8 @@ export function OneLocationAgentPageContent({
   }, [
     dismissLocationOnboarding,
     locationOnboardingBusy,
+    openAppSettingsForOnboarding,
+    openLocationSettingsForOnboarding,
     permission,
     refreshLocationPermission,
   ]);
@@ -15064,6 +15095,7 @@ export function OneLocationAgentPageContent({
       <OneLocationOnboardingFlow
         step={locationOnboardingStep}
         busy={locationOnboardingBusy}
+        permission={permission}
         nativeTest={nativeTestConfig}
         onContinueIntro={handleContinueLocationOnboardingIntro}
         onRequestPermission={handleLocationOnboardingPermission}

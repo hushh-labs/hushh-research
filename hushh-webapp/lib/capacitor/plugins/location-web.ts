@@ -107,6 +107,13 @@ export class HushhLocationWeb implements HushhLocationPlugin {
     return this.getPermissionState();
   }
 
+  async openAppSettings(): Promise<{
+    opened: boolean;
+    sourcePlatform: "web";
+  }> {
+    return { opened: false, sourcePlatform: "web" };
+  }
+
   async openLocationSettings(): Promise<{
     opened: boolean;
     sourcePlatform: "web";
