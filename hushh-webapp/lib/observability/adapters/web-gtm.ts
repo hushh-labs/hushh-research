@@ -16,6 +16,10 @@ declare global {
   }
 }
 
+function freezeTransportPayload<T extends Record<string, unknown>>(payload: T): T {
+  return Object.freeze(payload);
+}
+
 export const webGtmAdapter: ObservabilityAdapter = {
   name: "web-gtm",
 
@@ -30,11 +34,11 @@ export const webGtmAdapter: ObservabilityAdapter = {
     if (typeof window === "undefined") return;
 
     window.dataLayer = window.dataLayer || [];
-    const transportPayload = {
+    const transportPayload = freezeTransportPayload({
       event: eventName,
       event_source: "observability_v2",
       ...payload,
-    };
+    });
     window.dataLayer.push(transportPayload);
 
     const measurementId = resolveAnalyticsMeasurementId();
@@ -43,11 +47,12 @@ export const webGtmAdapter: ObservabilityAdapter = {
     }
 
     if (typeof window.gtag === "function") {
-      window.gtag("event", eventName, {
+      const gtagPayload = freezeTransportPayload({
         send_to: measurementId,
         event_source: "observability_v2",
         ...payload,
       });
+      window.gtag("event", eventName, gtagPayload);
     }
   },
 };
