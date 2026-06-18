@@ -77,4 +77,20 @@ describe("config", () => {
 
     expect(config.BACKEND_URL).toBe("");
   });
+
+  it("resolves UAT backend url from runtime settings", async () => {
+    const { resolveAppEnvironment } = await import("@/lib/app-env");
+    const { resolveRuntimeBackendUrl } = await import(
+      "@/lib/runtime/settings"
+    );
+
+    vi.mocked(resolveAppEnvironment).mockReturnValue("uat");
+    vi.mocked(resolveRuntimeBackendUrl).mockReturnValue(
+      "https://uat-api.hushh.ai/",
+    );
+
+    const config = await import("@/lib/config");
+
+    expect(config.BACKEND_URL).toBe("https://uat-api.hushh.ai");
+  });
 });
