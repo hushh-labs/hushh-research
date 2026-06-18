@@ -1,44 +1,17 @@
 "use client";
 
+import * as React from "react";
 import { ArrowUpRight, ArrowDownRight, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 
-// =============================================================================
-// HELPERS
-// =============================================================================
-
-const formatCurrency = (value: number | undefined | null) => {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-};
-
-const formatChange = (value: number | undefined | null) => {
-  if (value == null || !Number.isFinite(value)) return "—";
-  const sign = value >= 0 ? "+" : "";
-  return `${sign}${formatCurrency(Math.abs(value))}`;
-};
-
-const normalizeRiskLabel = (value?: string) => {
-  const normalized = value?.trim().toLowerCase();
-  const options: Record<string, string> = {
-    conservative: "Conservative",
-    moderate: "Moderate",
-    aggressive: "Aggressive",
-  };
-  return options[normalized || ""] ?? "Moderate";
-};
-
-// =============================================================================
-// COMPONENT
-// =============================================================================
+// Extracted for performance
+const formatCurrency = (val: number | undefined | null) =>
+  (val != null && Number.isFinite(val))
+    ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(val)
+    : "—";
 
 interface DashboardSummaryHeroProps {
   totalValue?: number | null;
@@ -54,77 +27,68 @@ interface DashboardSummaryHeroProps {
 }
 
 export function DashboardSummaryHero({
-  totalValue,
-  netChange = 0,
-  changePct = 0,
-  holdingsCount = 0,
-  riskLabel,
-  brokerageName,
-  periodLabel = "Past Month",
-  periodRange,
-  beginningBalance,
-  onViewDetails,
+  totalValue, netChange = 0, changePct = 0, holdingsCount = 0,
+  riskLabel, brokerageName, periodLabel = "Past Month",
+  periodRange, beginningBalance, onViewDetails
 }: DashboardSummaryHeroProps) {
+
   const isPositive = (netChange ?? 0) >= 0;
   const isLoading = totalValue === undefined || totalValue === null;
 
-  return (
-    <Card variant="none" effect="glass" preset="hero" glassAccent="soft">
-      <CardContent className="space-y-4 p-5 sm:p-6">
-        {isLoading ? (
-          <div className="flex h-40 animate-pulse items-center justify-center text-muted-foreground">
-            Loading Portfolio...
-          </div>
-        ) : (
-          <div className="space-y-2 text-center">
-            <p className="text-sm font-medium text-muted-foreground">Total portfolio value</p>
+  if (isLoading) {
+    return (
+      <Card className="h-56 animate-pulse flex items-center justify-center bg-muted/20">
+        <span className="text-muted-foreground text-sm font-medium">Analyzing Portfolio...</span>
+      </Card>
+    );
+  }
 
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              {[
-                `Risk: ${normalizeRiskLabel(riskLabel)}`,
-                `${holdingsCount} Holdings`,
-                brokerageName
-              ].filter(Boolean).map((label, i) => (
-                <Badge key={i} variant="outline" className="rounded-full bg-muted/50 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                  {label}
+  return (
+    <Card variant="none" effect="glass" preset="hero" className="overflow-hidden">
+      <CardContent className="p-5 sm:p-6 space-y-5">
+
+        {/* Header/Badges */}
+        <div className="flex flex-col items-center gap-3">
+          <p className="text-sm font-medium text-muted-foreground">Total portfolio value</p>
+          <div className="flex flex-wrap gap-2 justify-center">
+            {[`Risk: ${riskLabel ?? "Moderate"}`, `${holdingsCount} Holdings`, brokerageName]
+              .filter(Boolean)
+              .map((l, i) => (
+                <Badge key={i} variant="outline" className="rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider">
+                  {l}
                 </Badge>
               ))}
-            </div>
-
-            <h2 className="text-[28px] font-medium leading-tight tracking-normal sm:text-[32px]">
-              {formatCurrency(totalValue)}
-            </h2>
-
-            <div className="flex items-center justify-center gap-2 text-sm">
-              <span className={cn("inline-flex items-center font-medium", isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-500 dark:text-rose-400")}>
-                <Icon icon={isPositive ? ArrowUpRight : ArrowDownRight} size="sm" className="mr-1" />
-                {formatChange(netChange)} ({(changePct ?? 0) >= 0 ? "+" : ""}{changePct?.toFixed(2) ?? "0.00"}%)
-              </span>
-              <span className="text-muted-foreground">•</span>
-              <span className="font-medium text-muted-foreground">{periodLabel}</span>
-            </div>
           </div>
-        )}
 
-        {!isLoading && (
-          <div className="rounded-xl border border-border/60 bg-muted/40 p-3 text-center transition-all hover:bg-muted/60">
-            <p className="text-sm font-medium">{periodRange ?? "Current Statement Period"}</p>
+          <h2 className="text-4xl font-semibold tracking-tight">{formatCurrency(totalValue)}</h2>
+
+          {/* Change Indicator */}
+          <div className={cn("flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold",
+            isPositive ? "bg-emerald-500/10 text-emerald-600" : "bg-rose-500/10 text-rose-500")}>
+            <Icon icon={isPositive ? ArrowUpRight : ArrowDownRight} size="sm" />
+            <span>{(netChange ?? 0) >= 0 ? "+" : ""}{(netChange ?? 0).toFixed(2)} ({(changePct ?? 0) >= 0 ? "+" : ""}{(changePct ?? 0).toFixed(2)}%)</span>
+            <span className="opacity-60 font-normal">| {periodLabel}</span>
+          </div>
+        </div>
+
+        {/* Footer Stats */}
+        <div className="bg-muted/30 rounded-xl p-4 border border-border/50">
+          <div className="flex justify-between items-center text-sm">
+            <span className="text-muted-foreground">{periodRange ?? "Current Period"}</span>
             {beginningBalance != null && (
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Starting: <span className="font-semibold text-foreground">{formatCurrency(beginningBalance)}</span>
-              </p>
-            )}
-
-            {onViewDetails && (
-              <button
-                onClick={onViewDetails}
-                className="mt-3 flex w-full items-center justify-center gap-1 text-xs font-semibold text-primary hover:underline"
-              >
-                View Full Analytics <Icon icon={ChevronRight} size="xs" />
-              </button>
+              <div className="flex items-center gap-1">
+                <span className="text-xs opacity-70">Start:</span>
+                <span className="font-semibold">{formatCurrency(beginningBalance)}</span>
+              </div>
             )}
           </div>
-        )}
+
+          {onViewDetails && (
+            <button onClick={onViewDetails} className="mt-4 w-full flex items-center justify-center gap-1 text-xs font-bold text-primary hover:text-primary/80 transition-colors">
+              View Analytics <ChevronRight size={14} />
+            </button>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
