@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from "recharts";
+import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 // 1. Move Interfaces here (or ensure they are imported correctly)
 export interface MonthlyProjection {
@@ -43,9 +43,23 @@ const formatCompact = (val: number) =>
 function MRDSection({ mrd }: { mrd: MRDEstimate }) {
   const percent = Math.min(100, Math.max(0, (mrd.amount_taken / (mrd.required_amount || 1)) * 100));
   const isComplete = mrd.remaining <= 0;
+
   return (
     <div className="space-y-3 pt-4 border-t border-border/50">
-      {/* ... (rest of MRDSection) */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Icon icon={Calendar} size="sm" className="text-muted-foreground" />
+          <span className="text-sm font-medium">{mrd.year} RMD Goal</span>
+        </div>
+        <Badge variant={isComplete ? "default" : "secondary"}>
+          {isComplete ? "Goal Met" : `${percent.toFixed(0)}%`}
+        </Badge>
+      </div>
+      <Progress value={percent} className="h-2" aria-label="RMD Progress" />
+      <div className="grid grid-cols-2 gap-4 text-xs">
+        <div className="text-muted-foreground">Required: {formatCurrency(mrd.required_amount)}</div>
+        <div className="font-semibold text-right">Remaining: {formatCurrency(mrd.remaining)}</div>
+      </div>
     </div>
   );
 }
@@ -73,7 +87,51 @@ export function ProjectionsCard({ projections, className, isLoading }: Projectio
 
   return (
     <Card className={cn("w-full border-border/50", className)}>
-      {/* Component Body remains as previously optimized */}
+      <CardHeader className="pb-2 flex flex-row items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Icon icon={TrendingUp} size="md" className="text-primary" />
+          <CardTitle className="text-base">Projections & RMD</CardTitle>
+        </div>
+        {stats.trend !== 0 && (
+          <Badge variant={stats.trend > 0 ? "default" : "destructive"}>
+            {stats.trend > 0 ? "+" : ""}{stats.trend.toFixed(1)}%
+          </Badge>
+        )}
+      </CardHeader>
+
+      <CardContent className="space-y-6">
+        {cashFlow && cashFlow.length > 0 && (
+          <div className="space-y-4">
+            <div className="flex justify-between items-end">
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Total Forecast</p>
+                <p className="text-2xl font-bold">{formatCurrency(stats.total)}</p>
+              </div>
+              <p className="text-sm text-emerald-600 font-medium">Avg: {formatCompact(stats.avg)}/mo</p>
+            </div>
+
+            <div className="h-[140px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={cashFlow}>
+                  <XAxis dataKey="month" hide />
+                  <Tooltip cursor={{ fill: 'transparent' }} content={({ payload }) => (
+                    <div className="bg-background border p-2 text-xs rounded shadow-md">
+                      {payload?.[0]?.payload.month}: {formatCurrency(payload?.[0]?.value as number)}
+                    </div>
+                  )} />
+                  <Bar dataKey="projected_income" radius={[4, 4, 0, 0]}>
+                    {cashFlow.map((entry, i) => (
+                      <Cell key={i} fill={entry.projected_income >= stats.avg ? "hsl(var(--primary))" : "hsl(var(--muted))"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {mrd && <MRDSection mrd={mrd} />}
+      </CardContent>
     </Card>
   );
 }
