@@ -416,6 +416,15 @@ describe("getErrorMessage", () => {
     expect(getErrorMessage(42)).toBe("42");
   });
 
+  it.each([
+    [Symbol("err"), "Symbol(err)"],
+    [42n, "42"],
+    [false, "false"],
+  ] as const)("stringifies non-string primitive %s without throwing", (input, expected) => {
+    expect(() => getErrorMessage(input)).not.toThrow();
+    expect(getErrorMessage(input)).toBe(expected);
+  });
+
   it("stringifies null", () => {
     expect(getErrorMessage(null)).toBe("null");
   });
