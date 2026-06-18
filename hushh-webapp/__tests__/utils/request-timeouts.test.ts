@@ -260,3 +260,49 @@ describe("resolveSlowRequestTimeoutMs — fringe-input boundary fallbacks", () =
     expect(Number.isInteger(result)).toBe(true);
   });
 });
+
+describe("resolveSlowRequestTimeoutMs - scientific notation overflow boundaries", () => {
+  const SAFE_FLOOR = 75_000;
+
+  afterEach(() => {
+    process.env.NEXT_PUBLIC_APP_ENV = ORIGINAL_APP_ENV;
+    process.env.APP_RUNTIME_PROFILE = ORIGINAL_RUNTIME_PROFILE;
+    process.env.ENVIRONMENT = ORIGINAL_ENVIRONMENT;
+    process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS = ORIGINAL_OVERRIDE;
+  });
+
+  it("normalizes finite scientific notation defaults without returning Infinity", () => {
+    process.env.NEXT_PUBLIC_APP_ENV = "uat";
+    delete process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS;
+
+    const result = resolveSlowRequestTimeoutMs(1.25e5);
+
+    expect(result).toBe(125_000);
+    expect(Number.isFinite(result)).toBe(true);
+    expect(Number.isInteger(result)).toBe(true);
+    expect(result).not.toBe(Infinity);
+  });
+
+  it("falls back safely when scientific notation overflows to Infinity", () => {
+    process.env.NEXT_PUBLIC_APP_ENV = "uat";
+    delete process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS;
+
+    const result = resolveSlowRequestTimeoutMs(1e309);
+
+    expect(result).toBe(SAFE_FLOOR);
+    expect(Number.isFinite(result)).toBe(true);
+    expect(result).not.toBe(Infinity);
+  });
+
+  it("does not let scientific notation override strings expand into unsafe timer values", () => {
+    process.env.NEXT_PUBLIC_APP_ENV = "uat";
+    process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS = "1e309";
+
+    const result = resolveSlowRequestTimeoutMs(Number.MAX_SAFE_INTEGER);
+
+    expect(result).toBe(1);
+    expect(Number.isFinite(result)).toBe(true);
+    expect(Number.isSafeInteger(result)).toBe(true);
+    expect(result).not.toBe(Infinity);
+  });
+});
