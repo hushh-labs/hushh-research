@@ -986,11 +986,18 @@ export default function PortfolioHealthPage() {
                       <Legend 
                         verticalAlign="top" 
                         align="right" 
+                        formatter={(value) => (
+                          <span className="inline-block max-w-[7rem] truncate align-middle">
+                            {value}
+                          </span>
+                        )}
                         wrapperStyle={{
                           fontSize: "10px",
                           fontWeight: "bold",
                           textTransform: "uppercase",
                           letterSpacing: "0.1em",
+                          maxWidth: "100%",
+                          overflow: "hidden",
                           paddingBottom: "20px",
                           color: "var(--muted-foreground)",
                         }} 
