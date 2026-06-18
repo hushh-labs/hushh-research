@@ -247,4 +247,32 @@ describe("observability log redactor — tab-separated value handling", () => {
     expect(output).toContain("profile");
     expect(output).toContain("data");
   });
+
+  it("redacts sensitive TSV fields across consecutive tab delimiters without shifting column indexes", () => {
+    const tsvLogLine = [
+      "2026-06-18T14:00:00.000Z",
+      "multi.tab.user@testorg.com",
+      "",
+      "",
+      "consent_export_failed",
+      "vault_multi_tab_key_003",
+    ].join("\t");
+
+    expect(tsvLogLine).toContain("\t\t\t");
+
+    const redacted = redactObservabilityLog(tsvLogLine);
+    const originalColumns = tsvLogLine.split("\t");
+    const redactedColumns = redacted.split("\t");
+
+    expect(redactedColumns).toHaveLength(originalColumns.length);
+    expect(redactedColumns[0]).toBe("2026-06-18T14:00:00.000Z");
+    expect(redactedColumns[1]).toBe("[REDACTED_EMAIL]");
+    expect(redactedColumns[2]).toBe("");
+    expect(redactedColumns[3]).toBe("");
+    expect(redactedColumns[4]).toBe("consent_export_failed");
+    expect(redactedColumns[5]).toBe("[REDACTED_VAULT_KEY]");
+    expect(redacted).toContain("\t\t\t");
+    expect(redacted).not.toContain("multi.tab.user@testorg.com");
+    expect(redacted).not.toContain("vault_multi_tab_key_003");
+  });
 });
