@@ -93,13 +93,13 @@ export function MarketOverviewGrid({
                       marketInsetClassName,
                       "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full sm:h-10 sm:w-10",
                       metric.tone === "positive" &&
-                        "border-[#34c759]/25 bg-[#34c759]/12 text-[#248a3d] dark:text-[#30d158]",
+                      "border-[#34c759]/25 bg-[#34c759]/12 text-[#248a3d] dark:text-[#30d158]",
                       metric.tone === "negative" &&
-                        "border-[#ff3b30]/25 bg-[#ff3b30]/12 text-[#d70015] dark:text-[#ff453a]",
+                      "border-[#ff3b30]/25 bg-[#ff3b30]/12 text-[#d70015] dark:text-[#ff453a]",
                       metric.tone === "warning" &&
-                        "border-[#ff9500]/25 bg-[#ff9500]/14 text-[#a05a00] dark:text-[#ffd60a]",
+                      "border-[#ff9500]/25 bg-[#ff9500]/14 text-[#a05a00] dark:text-[#ffd60a]",
                       metric.tone === "neutral" &&
-                        "border-[#0071e3]/18 bg-[#0071e3]/10 text-[#0071e3] dark:text-[#0a84ff]"
+                      "border-[#0071e3]/18 bg-[#0071e3]/10 text-[#0071e3] dark:text-[#0a84ff]"
                     )}
                   >
                     <Icon icon={metric.icon || FALLBACK_ICON[metric.tone]} size="sm" />
