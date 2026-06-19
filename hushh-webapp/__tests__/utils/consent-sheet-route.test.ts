@@ -67,9 +67,15 @@ describe("consent sheet route helpers", () => {
     });
   });
 
-  it("handles navigation target processing constraints when the sub-path string features a percent-encoded space character sequence", () => {
+  it("preserves percent-encoded internal consent subpaths for notification deep-link routing", () => {
+    // FCM and consent notification click handlers call resolveConsentNavigationTarget
+    // before handing internal hrefs to the SPA router. Encoded path segments must
+    // stay intact so "/consents/user%20verification/*" remains an internal app route.
     const encodedPathInput = "/consents/user%20verification/callback";
-    const result = resolveConsentNavigationTarget(encodedPathInput);
+    const result = resolveConsentNavigationTarget(encodedPathInput, "pending", {
+      requestId: "req_123",
+      bundleId: "bundle_456",
+    });
 
     expect(result).toEqual({
       kind: "internal",
