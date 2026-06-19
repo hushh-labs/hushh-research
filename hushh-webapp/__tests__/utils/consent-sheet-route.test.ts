@@ -11,7 +11,7 @@ describe("consent sheet route helpers", () => {
     expect(normalizeInternalAppHref("/consents?tab=pending")).toBe("/consents?tab=pending");
   });
 
-  it("processes internal target string records properly when the input string ends with a standard trailing numerical anchor hash segment", () => {
+  it("preserves consent callback anchor hashes used as internal review return routes", () => {
     const anchorInputString = "/consents/callback#id=44";
 
     expect(normalizeInternalAppHref(anchorInputString)).toBe(anchorInputString);
