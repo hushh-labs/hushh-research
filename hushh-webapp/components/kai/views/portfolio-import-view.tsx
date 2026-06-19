@@ -174,7 +174,7 @@ export function PortfolioImportView({
         <h1 className={cn(kaiAppCompactTitleClassName, "text-foreground")}>
           Portfolio
         </h1>
-        <p className={cn(kaiAppCardBodyClassName, "max-w-[32rem] text-muted-foreground sm:!text-[15px]")}>
+        <p className={cn(kaiAppCardBodyClassName, "max-w-[32rem] text-muted-foreground")}>
           Let Kai analyze your holdings for precise advice
         </p>
       </div>
@@ -216,7 +216,7 @@ export function PortfolioImportView({
             variant="blue-gradient"
             effect="fill"
             size="default"
-            className="h-11 w-full rounded-full border-none text-[15px] font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
+            className="type-headline h-11 w-full rounded-full border-none shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
             disabled={!onConnectPlaid || isUploading || isPreloadingSchema || isConnectingPlaid || plaidConfigured === false}
             onClick={handleConnectPlaid}
             icon={{
@@ -294,7 +294,7 @@ export function PortfolioImportView({
 
             {/* Selected File Display */}
             {selectedFile && !isUploading && (
-              <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full text-sm">
+              <div className="type-footnote mt-4 inline-flex items-center gap-2 rounded-full bg-primary/10 px-4 py-2">
                 <Icon icon={FileText} size="sm" />
                 <span>{selectedFile.name}</span>
                 <Icon icon={CheckCircle} size="sm" className="text-green-500" />
@@ -316,7 +316,7 @@ export function PortfolioImportView({
             variant="morphy"
             effect="fill"
             size="default"
-            className="h-11 w-full rounded-full border-none text-[15px] font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
+            className="type-headline h-11 w-full rounded-full border-none shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
             onClick={handleContinue}
             disabled={isUploading || isPreloadingSchema || !selectedFile}
             icon={{
@@ -346,7 +346,7 @@ export function PortfolioImportView({
             variant="blue-gradient"
             effect="fill"
             size="default"
-            className="h-11 w-full rounded-full border-none text-[15px] font-medium shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
+            className="type-headline h-11 w-full rounded-full border-none shadow-[0_10px_30px_-20px_rgba(0,102,204,0.55)]"
             onClick={handlePreloadSchema}
             disabled={isUploading || isPreloadingSchema}
             icon={{
@@ -369,7 +369,7 @@ export function PortfolioImportView({
           effect="fade"
           onClick={onSkip}
           disabled={isUploading || isPreloadingSchema}
-          className="h-10 rounded-full px-5 text-[14px] font-medium text-muted-foreground hover:text-foreground"
+          className="type-subhead h-10 rounded-full px-5 text-muted-foreground hover:text-foreground"
         >
           Skip for now
         </MorphyButton>

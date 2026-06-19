@@ -1680,7 +1680,7 @@ export function KaiSearchBar({
           ref={barRef}
           className={cn(
             "pointer-events-none w-full",
-            isRiaSurface ? "max-w-[360px] sm:max-w-[392px]" : "max-w-[560px]"
+            isRiaSurface ? "max-w-[360px] sm:max-w-[392px]" : "max-w-[548px]"
           )}
         >
           {isRiaSurface ? (
