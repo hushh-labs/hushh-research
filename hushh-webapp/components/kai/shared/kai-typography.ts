@@ -4,25 +4,25 @@ export const kaiAppEyebrowClassName =
   "type-micro";
 
 export const kaiAppHeroTitleClassName =
-  "type-display";
+  "text-[38px] font-medium leading-[1.05] tracking-normal sm:text-[40px]";
 
 export const kaiAppHeroBodyClassName =
-  "type-body";
+  "text-[17px] font-normal leading-[1.42] tracking-normal sm:text-[18px]";
 
 export const kaiAppDisplayTitleClassName =
-  "type-title1";
+  "!text-[36px] !font-medium !leading-[1.06] !tracking-normal sm:!text-[48px]";
 
 export const kaiAppCompactTitleClassName =
-  "type-title1";
+  "!text-[34px] !font-medium !leading-[1.06] !tracking-normal sm:!text-[42px]";
 
 export const kaiAppBodyClassName =
-  "type-body";
+  "!text-[16px] !font-normal !leading-[1.45] !tracking-normal sm:!text-[17px]";
 
 export const kaiAppSectionTitleClassName =
-  "type-title3";
+  "!text-[21px] !font-medium !leading-[1.12] !tracking-normal sm:!text-[24px]";
 
 export const kaiAppCardTitleClassName =
-  "type-headline";
+  "!text-[16.5px] !font-medium !leading-[1.22] !tracking-normal";
 
 export const kaiAppCardBodyClassName =
   "type-subhead";
