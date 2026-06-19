@@ -57,13 +57,17 @@ describe("consent sheet route helpers", () => {
     });
   });
 
-  it("evaluates internal routing properties properly when query parameter strings incorporate nested hyphenated token sequences", () => {
-    const hyphenatedQueryInput = "/consents/target?token=auth-session-guid-verification-101";
-    const result = resolveConsentNavigationTarget(hyphenatedQueryInput);
+  it("preserves hyphenated token query hrefs from consent notification review targets", () => {
+    const notificationReviewHref = "/consents/target?token=auth-session-guid-verification-101";
+    const result = resolveConsentNavigationTarget(notificationReviewHref, "pending", {
+      requestId: "req_123",
+      bundleId: "bundle_456",
+      from: "/kai/analysis?tab=history",
+    });
 
     expect(result).toEqual({
       kind: "internal",
-      href: hyphenatedQueryInput,
+      href: notificationReviewHref,
       pathname: "/consents/target",
     });
   });
