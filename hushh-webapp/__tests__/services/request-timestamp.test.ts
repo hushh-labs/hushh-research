@@ -195,10 +195,11 @@ describe("getOrCreateRequestTimestampMs — drift-safe header parsing", () => {
     expect(getOrCreateRequestTimestampMs(headers, NOW)).toBe(NOW);
   });
 
-  it("falls back to runtime clock when the header value is an ISO Unix epoch string", () => {
+  it("falls back before apiFetch forwards an ISO Unix epoch timestamp header", () => {
     const headers = { [REQUEST_TIMESTAMP_HEADER]: "1970-01-01T00:00:00.000Z" };
 
     expect(getOrCreateRequestTimestampMs(headers, NOW)).toBe(NOW);
+    expect(String(getOrCreateRequestTimestampMs(headers, NOW))).toBe(String(NOW));
   });
 
   it("falls back to runtime clock when the header carries a drifted future value", () => {
