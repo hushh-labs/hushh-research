@@ -1324,7 +1324,7 @@ export default function MarketplacePage() {
                       onClick={passCurrentCard}
                       aria-label="Pass card"
                     >
-                      <X className="h-4 w-4 sm:mr-2" />
+                      <X aria-hidden="true" className="h-4 w-4 sm:mr-2" />
                       <span className="hidden sm:inline">Pass</span>
                     </Button>
                     <Button
@@ -1336,7 +1336,7 @@ export default function MarketplacePage() {
                       aria-label="View profile"
                     >
                       <span className="hidden sm:inline">View</span>
-                      <ArrowUpRight className="h-4 w-4 sm:ml-2" />
+                      <ArrowUpRight aria-hidden="true" className="h-4 w-4 sm:ml-2" />
                     </Button>
                     <Button
                       variant="blue-gradient"
