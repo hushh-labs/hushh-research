@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from api.middleware import require_firebase_auth
-from api.middlewares.rate_limit import limiter
+from api.middlewares.rate_limit import RateLimits, limiter
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
@@ -432,7 +432,9 @@ async def ria_invites(firebase_uid: str = Depends(require_firebase_auth)):
 
 
 @router.post("/invites")
+@limiter.limit(RateLimits.CONSENT_REQUEST)
 async def create_ria_invites(
+    request: Request,
     payload: RIAInviteCreateRequest,
     firebase_uid: str = Depends(_require_ria_verified),
 ):
@@ -473,7 +475,9 @@ async def update_ria_marketplace_discoverability(
 
 
 @router.post("/requests")
+@limiter.limit(RateLimits.CONSENT_REQUEST)
 async def create_ria_request(
+    request: Request,
     payload: RIAConsentRequestCreate,
     firebase_uid: str = Depends(_require_ria_verified),
 ):
@@ -498,7 +502,9 @@ async def create_ria_request(
 
 
 @router.post("/request-bundles")
+@limiter.limit(RateLimits.CONSENT_REQUEST)
 async def create_ria_request_bundle(
+    request: Request,
     payload: RIAConsentBundleCreate,
     firebase_uid: str = Depends(_require_ria_verified),
 ):

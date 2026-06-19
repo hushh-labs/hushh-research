@@ -16,6 +16,7 @@ from api.developer_auth import (
     try_authenticate_developer_principal,
 )
 from api.middleware import require_firebase_auth
+from api.middlewares.rate_limit import RateLimits, limiter
 from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.consent.scope_helpers import get_scope_description, normalize_scope
 from hushh_mcp.consent.token import validate_token_with_db
@@ -956,6 +957,7 @@ async def get_consent_status(
 
 
 @developer_api_router.post("/request-consent")
+@limiter.limit(RateLimits.CONSENT_REQUEST)
 async def request_consent(
     payload: DeveloperConsentRequest,
     request: Request,
@@ -1318,6 +1320,7 @@ async def get_default_available_export(
 
 
 @developer_api_router.post("/scoped-export", response_model=DeveloperScopedExportResponse)
+@limiter.limit(RateLimits.TOKEN_VALIDATION)
 async def get_scoped_export(
     payload: DeveloperScopedExportRequest,
     request: Request,
