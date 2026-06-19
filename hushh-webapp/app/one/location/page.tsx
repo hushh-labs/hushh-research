@@ -15234,7 +15234,10 @@ export function OneLocationAgentPageContent({
                 <div className="flex min-w-0 max-w-full flex-col gap-3">
                   {sectionLabel("One Network")}
                   <div className="relative">
-                    <Search className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-[#8e8e93]" />
+                    <Search
+                      className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-[#8e8e93]"
+                      aria-hidden="true"
+                    />
                     <input
                       value={recipientSearch}
                       onChange={(event) =>
