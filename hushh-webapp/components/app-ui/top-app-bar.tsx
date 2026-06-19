@@ -1426,6 +1426,7 @@ function OnboardingRouteActions() {
 
   return (
     <>
+      <ThemeToggleCompact className={TOP_SHELL_ICON_BUTTON_CLASSNAME} />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <ShellActionSurface variant="icon" aria-label="Account actions">

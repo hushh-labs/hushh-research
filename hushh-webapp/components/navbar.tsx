@@ -77,6 +77,16 @@ function FilledChatCircleIcon(props: PhosphorIconProps) {
 
 const BOTTOM_GAP_PX = 4;
 
+const BOTTOM_NAV_MAX_SLOT_COUNT = 5;
+const BOTTOM_NAV_SLOT_WIDTH_REM = 5.4;
+const BOTTOM_NAV_SEARCH_BUBBLE_WIDTH = "70px";
+const BOTTOM_NAV_EMPTY_GROUP_WIDTH = "58px";
+
+function resolveBottomNavMaxWidth(count: number): string {
+  const slotCount = Math.min(Math.max(count, 1), BOTTOM_NAV_MAX_SLOT_COUNT);
+  return `${slotCount * BOTTOM_NAV_SLOT_WIDTH_REM}rem`;
+}
+
 const BOTTOM_NAV_OPTION_META: Record<
   AppBottomNavKey,
   Omit<SegmentedPillOption, "badge">
@@ -592,7 +602,9 @@ export const Navbar = ({
           )}
           onClick={() => {
             if (busyOperations["portfolio_save"]) {
-              toast.info("Saving to vault. Please wait until encryption completes.");
+              toast.info(
+                "Saving to vault. Please wait until encryption completes.",
+              );
               return;
             }
             openKaiCommandBar();
