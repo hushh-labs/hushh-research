@@ -285,7 +285,7 @@ function AgentWelcomePanel({
     <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-6 sm:py-10">
       <div className="mx-auto w-full max-w-2xl">
         <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.035] px-3 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
-          <Sparkles className="h-3.5 w-3.5 text-primary" />
+          <Sparkles aria-hidden="true" className="h-3.5 w-3.5 text-primary" />
           Kai workspace
         </div>
         <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground sm:text-[38px]">
