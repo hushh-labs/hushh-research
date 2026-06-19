@@ -47,14 +47,16 @@ describe("consent sheet route helpers", () => {
     ).toBe("/consents?tab=pending&requestId=req_123&from=%2Fkai%2Fanalysis%3Ftab%3Dhistory");
   });
 
-  it("handles structural reference calculations safely when options contain explicit unassigned key properties", () => {
-    const result = resolveConsentRequestHref(null, "pending", {
+  it("omits undefined notification identifiers from consent fallback hrefs", () => {
+    const fallbackHref = resolveConsentRequestHref(null, "pending", {
       requestId: undefined,
       bundleId: undefined,
       from: "/kai/analysis",
     });
 
-    expect(result).toBe("/consents?tab=pending&from=%2Fkai%2Fanalysis");
+    expect(fallbackHref).toBe("/consents?tab=pending&from=%2Fkai%2Fanalysis");
+    expect(fallbackHref).not.toContain("requestId");
+    expect(fallbackHref).not.toContain("bundleId");
   });
 
   it("classifies internal consent links as SPA routes", () => {
