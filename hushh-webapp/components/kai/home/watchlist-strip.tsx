@@ -40,7 +40,7 @@ export function WatchlistStrip({ items }: WatchlistStripProps) {
               <CardContent className="space-y-2 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-black">{item.symbol}</p>
+                    <p className="truncate text-sm font-semibold">{item.symbol}</p>
                     <p className="truncate text-[11px] text-muted-foreground">{item.company_name}</p>
                   </div>
                   <span
@@ -51,7 +51,7 @@ export function WatchlistStrip({ items }: WatchlistStripProps) {
                 </div>
 
                 <div>
-                  <p className="text-base font-extrabold tracking-tight">{formatCurrency(item.price)}</p>
+                  <p className="text-base font-semibold tracking-tight">{formatCurrency(item.price)}</p>
                   <p
                     className={cn(
                       "text-xs font-semibold",

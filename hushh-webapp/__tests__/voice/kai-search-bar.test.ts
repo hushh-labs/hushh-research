@@ -265,6 +265,13 @@ const {
   shouldTriggerVoiceBargeIn,
 } = await import("@/components/kai/kai-search-bar");
 
+function openSearchAndStartVoice() {
+  fireEvent.click(
+    screen.getByRole("button", { name: "Open Kai command search" }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Start Kai voice" }));
+}
+
 describe("kai-search-bar helpers", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -434,10 +441,33 @@ describe("kai-search-bar helpers", () => {
     expect(screen.getByRole("button", { name: "Start RIA voice" }).getAttribute("aria-disabled")).toBe(
       "true",
     );
+    expect(screen.queryByRole("button", { name: "Open Agent" })).toBeNull();
+    expect(mockOpenAgent).not.toHaveBeenCalled();
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "Open Agent" }));
+  it("keeps Kai voice inside the compact search surface", () => {
+    vi.useRealTimers();
 
-    expect(mockOpenAgent).toHaveBeenCalledTimes(1);
+    render(
+      createElement(KaiSearchBar, {
+        onSelectAction: vi.fn(),
+        onVoiceResponse: vi.fn(),
+        userId: "user_1",
+        vaultOwnerToken: "vault_token",
+      }),
+    );
+
+    expect(screen.getByTestId("kai-compact-search-surface")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Open Kai command search" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Start Kai voice" })).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Kai command search" }),
+    );
+
+    expect(screen.getByRole("button", { name: "Start Kai voice" })).toBeTruthy();
   });
 
   it("acquires on explicit mic tap and releases on cancel", async () => {
@@ -451,7 +481,7 @@ describe("kai-search-bar helpers", () => {
       }),
     );
 
-    fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
+    openSearchAndStartVoice();
 
     await waitFor(() => {
       expect(acquireMock).toHaveBeenCalledWith(
@@ -464,10 +494,10 @@ describe("kai-search-bar helpers", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("voice-ambient-search-surface")).toBeTruthy();
+      expect(screen.getByTestId("kai-compact-search-surface")).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByText("cancel voice"));
+    fireEvent.click(screen.getByRole("button", { name: "End Kai voice" }));
 
     await waitFor(() => {
       expect(releaseMock).toHaveBeenCalled();
@@ -489,7 +519,7 @@ describe("kai-search-bar helpers", () => {
       }),
     );
 
-    fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
+    openSearchAndStartVoice();
 
     await waitFor(() => {
       expect(acquireMock).toHaveBeenCalled();
@@ -498,7 +528,7 @@ describe("kai-search-bar helpers", () => {
     await waitFor(() => {
       expect(
         screen
-          .getByTestId("voice-ambient-search-surface")
+          .getByTestId("kai-compact-search-surface")
           .getAttribute("data-mode"),
       ).toBe("idle");
       expect(
@@ -531,10 +561,10 @@ describe("kai-search-bar helpers", () => {
       }),
     );
 
-    fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
+    openSearchAndStartVoice();
 
     await waitFor(() => {
-      const surface = screen.getByTestId("voice-ambient-search-surface");
+      const surface = screen.getByTestId("kai-compact-search-surface");
       expect(surface).toBeTruthy();
       expect(surface.getAttribute("data-mode")).toBe("connecting");
       expect(screen.getByTestId("voice-ambient-preview").textContent).toContain(
@@ -571,10 +601,10 @@ describe("kai-search-bar helpers", () => {
       }),
     );
 
-    fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
+    openSearchAndStartVoice();
 
     await waitFor(() => {
-      expect(screen.getByTestId("voice-ambient-search-surface")).toBeTruthy();
+      expect(screen.getByTestId("kai-compact-search-surface")).toBeTruthy();
     });
 
     await act(async () => {
@@ -630,7 +660,7 @@ describe("kai-search-bar helpers", () => {
       });
     });
 
-    fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
+    openSearchAndStartVoice();
 
     await waitFor(() => {
       expect(setMutedMock).toHaveBeenCalledWith(false);
@@ -663,7 +693,7 @@ describe("kai-search-bar helpers", () => {
       }),
     );
 
-    fireEvent.click(screen.getByLabelText("Toggle voice microphone"));
+    openSearchAndStartVoice();
 
     await waitFor(() => {
       expect(acquireMock).toHaveBeenCalled();
@@ -672,7 +702,7 @@ describe("kai-search-bar helpers", () => {
     await waitFor(() => {
       expect(
         screen
-          .getByTestId("voice-ambient-search-surface")
+          .getByTestId("kai-compact-search-surface")
           .getAttribute("data-mode"),
       ).toBe("idle");
       expect(

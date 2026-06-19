@@ -26,7 +26,7 @@ const ACTIVITY_RANGE_OPTIONS: {
 ];
 
 const activityPanelClassName =
-  "overflow-hidden rounded-[20px] border border-black/[0.05] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_30px_rgba(15,23,42,0.05)] dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_38px_rgba(0,0,0,0.28)]";
+  "w-full min-w-0 max-w-full overflow-hidden rounded-[20px] border border-black/[0.05] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_30px_rgba(15,23,42,0.05)] dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_38px_rgba(0,0,0,0.28)]";
 
 function activityRangeLabel(range: OneLocationActivityRange): string {
   return (
@@ -50,7 +50,7 @@ function ActivitySectionLabel({ title }: { title: string }) {
     <div
       role="heading"
       aria-level={2}
-      className="ml-1 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.08em] text-[#8e8e93] dark:text-white/45"
+      className="ml-1 flex min-w-0 max-w-full flex-wrap items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.08em] text-[#8e8e93] dark:text-white/45"
     >
       {title}
     </div>
@@ -67,14 +67,14 @@ function ActivityMetricTile({
   detail: string;
 }) {
   return (
-    <div className="rounded-[14px] border border-black/[0.04] bg-[#f7f7fa] p-3 dark:border-white/[0.08] dark:bg-white/[0.07]">
+    <div className="min-w-0 rounded-[14px] border border-black/[0.04] bg-[#f7f7fa] p-3 dark:border-white/[0.08] dark:bg-white/[0.07]">
       <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8e8e93] dark:text-white/45">
         {label}
       </p>
       <p className="mt-1 text-[24px] font-bold leading-none text-[#1c1c1e] dark:text-white">
         {value}
       </p>
-      <p className="mt-1 text-[11px] font-medium text-[#8e8e93] dark:text-white/55">
+      <p className="mt-1 break-words text-[11px] font-medium text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
         {detail}
       </p>
     </div>
@@ -123,10 +123,10 @@ export function OneLocationActivityDashboard({
   const recentEvents = activity.events.slice(0, 5);
 
   return (
-    <section className="space-y-2 px-1">
+    <section className="min-w-0 max-w-full space-y-2 px-1">
       <ActivitySectionLabel title="Location activity" />
       <div className={cn(activityPanelClassName, "space-y-4 p-3.5")}>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#eaf3ff] text-[#007aff] dark:bg-[#0a84ff]/15 dark:text-[#76b7ff]">
               {loading ? (
@@ -139,7 +139,7 @@ export function OneLocationActivityDashboard({
               <h3 className="text-[15px] font-bold tracking-tight text-[#1c1c1e] dark:text-white">
                 Activity history
               </h3>
-              <p className="mt-1 text-[12px] leading-5 text-[#8e8e93] dark:text-white/55">
+              <p className="mt-1 break-words text-[12px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
                 {error ||
                   `${activityRangeLabel(range)} of shares, requests, views, and link responses.`}
               </p>
@@ -164,7 +164,7 @@ export function OneLocationActivityDashboard({
           </Select>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid min-w-0 gap-2 sm:grid-cols-3">
           <ActivityMetricTile
             label="Shared with"
             value={activity.summary.sharedWithCount}
@@ -190,15 +190,15 @@ export function OneLocationActivityDashboard({
             aria-label={`One Location activity chart for ${activityRangeLabel(
               range,
             )}`}
-            className="rounded-[14px] border border-black/[0.04] bg-white/70 p-3 dark:border-white/[0.08] dark:bg-white/[0.04]"
+            className="min-w-0 max-w-full overflow-hidden rounded-[14px] border border-black/[0.04] bg-white/70 p-3 dark:border-white/[0.08] dark:bg-white/[0.04]"
           >
-            <div className="flex h-32 items-end gap-2">
+            <div className="flex h-32 min-w-0 items-end gap-1.5 sm:gap-2">
               {activity.buckets.map((bucket) => {
                 const height = Math.max(12, (bucket.total / maxBucketTotal) * 100);
                 return (
                   <div
                     key={bucket.key}
-                    className="flex min-w-0 flex-1 flex-col items-center gap-1"
+                    className="flex min-w-0 flex-1 basis-0 flex-col items-center gap-1"
                   >
                     <div className="flex h-24 w-full items-end">
                       <div
@@ -264,11 +264,11 @@ export function OneLocationActivityDashboard({
             <p className="ml-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8e8e93] dark:text-white/45">
               Recent history
             </p>
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               {recentEvents.map((event) => (
                 <div
                   key={event.id}
-                  className="flex items-start gap-3 rounded-[14px] bg-[#f7f7fa] p-3 dark:bg-white/[0.07]"
+                  className="flex min-w-0 items-start gap-3 overflow-hidden rounded-[14px] bg-[#f7f7fa] p-3 dark:bg-white/[0.07]"
                 >
                   <span
                     className={cn(
@@ -279,10 +279,10 @@ export function OneLocationActivityDashboard({
                     <Clock3 className="h-4 w-4" aria-hidden="true" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[14px] font-semibold text-[#1c1c1e] dark:text-white">
+                    <p className="break-words text-[14px] font-semibold text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">
                       {event.title}
                     </p>
-                    <p className="mt-0.5 truncate text-[12px] font-medium text-[#8e8e93] dark:text-white/55">
+                    <p className="mt-0.5 break-words text-[12px] font-medium text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
                       {event.detail}
                     </p>
                   </div>

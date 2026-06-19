@@ -17,4 +17,15 @@ describe("runtime settings", () => {
 
     expect(resolveRuntimeBackendUrl()).toBe("https://runtime.example.com");
   });
+
+  it("returns an empty string when runtime backend urls are empty", async () => {
+    process.env.BACKEND_URL = "";
+    process.env.NEXT_PUBLIC_BACKEND_URL = "   ";
+
+    const { resolveRuntimeBackendUrl: resolveFreshRuntimeBackendUrl } = await import(
+      "@/lib/runtime/settings"
+    );
+
+    expect(resolveFreshRuntimeBackendUrl()).toBe("");
+  });
 });

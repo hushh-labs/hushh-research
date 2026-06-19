@@ -62,4 +62,13 @@ describe("resolveAppEnvironment", () => {
 
     expect(resolveAppEnvironment()).toBe("development");
   });
+
+  it("falls back when NEXT_PUBLIC_APP_ENV is an unknown environment string", async () => {
+    process.env.NEXT_PUBLIC_APP_ENV = "sandbox-preview";
+    process.env.NEXT_PUBLIC_OBSERVABILITY_ENV = "uat";
+
+    const { resolveAppEnvironment: resolveFreshAppEnvironment } = await import("@/lib/app-env");
+
+    expect(resolveFreshAppEnvironment()).toBe("uat");
+  });
 });

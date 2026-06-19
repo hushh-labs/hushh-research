@@ -32,4 +32,7 @@ regexes = [
   # apps/one-mac/docs/threat-model.md.
   '''ai\.hushh\.one\.consent\.wrapping\.v1''',
   '''ai\.hushh\.one\.consent\.data-key\.v1''',
+  # False positive: Pydantic/FastAPI Path max_length constraint value matched
+  # generic-api-key heuristic in test docstring. max_length=<number> is not a secret.
+  '''max_length=\d+''',
 ]

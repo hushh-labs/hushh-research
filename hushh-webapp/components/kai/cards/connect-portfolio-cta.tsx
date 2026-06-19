@@ -12,7 +12,7 @@ export function ConnectPortfolioCta() {
     <SurfaceCard accent="emerald">
       <SurfaceCardContent className="space-y-4 p-6 text-center">
         <div className="space-y-2">
-          <h3 className="text-lg font-black tracking-tight">
+          <h3 className="text-lg font-semibold tracking-tight">
             See insights tailored to your portfolio
           </h3>
           <p className="text-sm text-muted-foreground">

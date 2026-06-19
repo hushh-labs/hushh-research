@@ -428,7 +428,7 @@ export function KaiNavTour() {
             </div>
 
             <div className="space-y-1">
-              <h3 className="text-base font-black">{activeStep.title}</h3>
+              <h3 className="text-base font-semibold">{activeStep.title}</h3>
               <p className="text-sm text-muted-foreground">{activeStep.description}</p>
             </div>
 

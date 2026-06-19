@@ -158,7 +158,7 @@ const portfolioChipTones = {
 const portfolioMetricLabelClassName =
   "text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground";
 const portfolioMetricValueClassName =
-  "mt-1 text-2xl font-medium tracking-normal sm:text-[1.65rem]";
+  "mt-1 text-[1.35rem] font-medium tracking-normal sm:text-[1.5rem]";
 const portfolioSummaryPillClassName =
   "rounded-2xl px-3 py-2 text-[12px] leading-5 text-muted-foreground";
 
@@ -2777,7 +2777,7 @@ export function DashboardMasterView({
                 </span>
               ) : null}
             </div>
-            <p className="text-[2.35rem] font-medium leading-none tracking-normal text-foreground sm:text-5xl">
+            <p className="text-[2rem] font-medium leading-none tracking-normal text-foreground sm:text-[2.5rem]">
               {formatCurrency(model.hero.totalValue)}
             </p>
             <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
