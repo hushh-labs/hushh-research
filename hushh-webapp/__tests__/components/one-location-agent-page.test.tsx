@@ -523,6 +523,10 @@ vi.mock("@/lib/utils/clipboard", () => ({
   copyToClipboard: mockCopyToClipboard,
 }));
 
+vi.mock("@/lib/utils/clipboard", () => ({
+  copyToClipboard: mockCopyToClipboard,
+}));
+
 vi.mock("@/lib/services/account-identity-service", () => ({
   AccountIdentityService: {
     syncCurrentUser: mockSyncCurrentUser,
@@ -6825,7 +6829,7 @@ describe("OneLocationAgentPage", () => {
         selected_count: 1,
         success_count: 1,
         failure_count: 0,
-        has_note: false,
+        has_note: true,
       }),
     );
     // The confirmation is a toast, not a banner. It used to be both, on a
@@ -8333,7 +8337,6 @@ describe("OneLocationAgentPage", () => {
     });
 
     render(<OneLocationAgentPage />);
-    await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openLocationPermissionsStep();
