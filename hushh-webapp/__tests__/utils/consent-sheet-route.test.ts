@@ -57,13 +57,16 @@ describe("consent sheet route helpers", () => {
     });
   });
 
-  it("interprets structural query keys properly when the input target incorporates bracket-notation array layouts", () => {
-    const bracketArrayInput = "/consents/verify?permissions[]=read&permissions[]=share";
-    const result = resolveConsentNavigationTarget(bracketArrayInput);
+  it("preserves bracket-array query hrefs from consent notification review targets", () => {
+    const notificationReviewHref = "/consents/verify?permissions[]=read&permissions[]=share";
+    const result = resolveConsentNavigationTarget(notificationReviewHref, "pending", {
+      requestId: "req_123",
+      from: "/kai/analysis?tab=history",
+    });
 
     expect(result).toEqual({
       kind: "internal",
-      href: bracketArrayInput,
+      href: notificationReviewHref,
       pathname: "/consents/verify",
     });
   });
