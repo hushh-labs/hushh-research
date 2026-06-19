@@ -1,24 +1,8 @@
-\# Git Status Quick Check
+## Visual Map
 
-
-
-\## Visual Context
-
-
-
-Canonical visual owner: docs/development-setup-guide.md
-
-
-
-```text
-
-Working tree
-
-├── Clean
-
-│   └── Safe to switch branches
-
-└── Modified
-
-&#x20;   └── Commit, stash, or restore changes
-
+```mermaid
+flowchart TD
+  A[Check branch] --> B[Check working tree]
+  B --> C[Review diff]
+  C --> D[Commit with signoff]
+  D --> E[Push branch]
