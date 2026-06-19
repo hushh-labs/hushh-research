@@ -20,6 +20,7 @@ const {
   mockRevokeGrant,
   mockRequestAccess,
   mockCreatePublicInvite,
+  mockCreateCircleInvite,
   mockGetActivity,
   mockGetState,
   mockSyncCurrentUser,
@@ -46,6 +47,7 @@ const {
   mockRevokeGrant: vi.fn(),
   mockRequestAccess: vi.fn(),
   mockCreatePublicInvite: vi.fn(),
+  mockCreateCircleInvite: vi.fn(),
   mockGetActivity: vi.fn(),
   mockGetState: vi.fn(),
   mockSyncCurrentUser: vi.fn(),
@@ -108,7 +110,9 @@ vi.mock("@/lib/one-location/service", () => ({
     denyRequest: vi.fn(),
     referRecipient: vi.fn(),
     createPublicInvite: mockCreatePublicInvite,
+    createCircleInvite: mockCreateCircleInvite,
     revokePublicInvite: vi.fn(),
+    revokeCircleInvite: vi.fn(),
   },
 }));
 
@@ -676,12 +680,14 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("renders a public location link control", async () => {
+  it("renders public and private invite controls", async () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
+    expect(screen.getByText("Invite to One Circle")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Create Circle Invite/i })).toBeTruthy();
     expect(screen.getByText("Create public link")).toBeTruthy();
     expect(screen.queryByText("Public link responses")).toBeNull();
     expect(screen.queryByText(/Share a public location link/i)).toBeNull();

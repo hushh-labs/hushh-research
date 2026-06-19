@@ -31,6 +31,7 @@ import {
   Search,
   Send,
   ShieldCheck,
+  UserPlus,
   UserRoundCheck,
   UsersRound,
   X,
@@ -95,6 +96,7 @@ import type {
   OneLocationAccessRequest,
   OneLocationActivityRange,
   OneLocationActivityResponse,
+  OneLocationCircleInvite,
   OneLocationGrant,
   OneLocationPublicInvite,
   OneLocationPublicInviteSubmission,
@@ -124,6 +126,7 @@ const FOREGROUND_RETRY_DELAYS_MS = [450, 900] as const;
 const ONE_NETWORK_PREVIEW_LIMIT = 3;
 const ONE_LOCATION_SHARE_TITLE = "Join my One Location circle";
 const ONE_LOCATION_PUBLIC_SHARE_COPY = "Join my One Location circle";
+const ONE_LOCATION_CIRCLE_SHARE_COPY = "Join my private One Location Circle";
 const SHOW_LOCATION_ACTIVITY_SECTION = false;
 const SHOW_OWNER_GRANTS_SECTION = false;
 const SHOW_PUBLIC_RESPONSES_SECTION = false;
@@ -145,6 +148,8 @@ type BusyState =
   | "contactInvite"
   | "publicInvite"
   | "publicRevoke"
+  | "circleInvite"
+  | "circleRevoke"
   | null;
 
 type OneLocationSelectionSurface =
@@ -983,8 +988,8 @@ function isShareAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
-function oneLocationPublicShareMessage(url: string): string {
-  return `${ONE_LOCATION_PUBLIC_SHARE_COPY}\n${url}`;
+function oneLocationShareMessage(text: string, url: string): string {
+  return `${text}\n${url}`;
 }
 
 async function shareOneLocationLink(params: {
@@ -997,7 +1002,7 @@ async function shareOneLocationLink(params: {
   if (!url) {
     throw new Error("Create a public location link before sharing.");
   }
-  const message = oneLocationPublicShareMessage(url);
+  const message = oneLocationShareMessage(params.text, url);
 
   const { Capacitor } = await import("@capacitor/core");
   if (Capacitor.isNativePlatform()) {
@@ -1465,6 +1470,7 @@ function OneLocationAgentPageContent() {
     Record<string, string>
   >({});
   const [publicInviteUrl, setPublicInviteUrl] = useState("");
+  const [circleInviteUrl, setCircleInviteUrl] = useState("");
   const [myLocationPoint, setMyLocationPoint] =
     useState<PlainLocationPoint | null>(null);
   const [myLocationError, setMyLocationError] = useState<string | null>(null);
@@ -1601,6 +1607,22 @@ function OneLocationAgentPageContent() {
       (left, right) => inviteTime(right) - inviteTime(left),
     )[0] ?? null;
   }, [activePublicInvites]);
+  const activeCircleInvites = useMemo(
+    () =>
+      (state?.circleInvites ?? []).filter(
+        (invite) => invite.status === "active",
+      ),
+    [state?.circleInvites],
+  );
+  const latestActiveCircleInvite = useMemo(() => {
+    const inviteTime = (invite: OneLocationCircleInvite) =>
+      Date.parse(
+        invite.createdAt || invite.updatedAt || invite.expiresAt || "",
+      ) || 0;
+    return [...activeCircleInvites].sort(
+      (left, right) => inviteTime(right) - inviteTime(left),
+    )[0] ?? null;
+  }, [activeCircleInvites]);
   const publicSubmissions = useMemo(
     () => state?.publicInviteSubmissions ?? [],
     [state?.publicInviteSubmissions],
@@ -1813,6 +1835,12 @@ function OneLocationAgentPageContent() {
     },
     [auth.userId, focusOneLocationSection, router],
   );
+
+  useEffect(() => {
+    const circleInviteToken = String(searchParams.get("circleInviteToken") || "").trim();
+    if (!circleInviteToken || !vaultOwnerToken) return;
+    router.push(`/one/location/invite/${encodeURIComponent(circleInviteToken)}`);
+  }, [router, searchParams, vaultOwnerToken]);
 
   const refresh = useCallback(async () => {
     if (!auth.userId) {
@@ -2925,6 +2953,102 @@ function OneLocationAgentPageContent() {
     refresh,
     vaultOwnerToken,
   ]);
+
+  const handleCreateCircleInvite = useCallback(async () => {
+    if (!vaultOwnerToken) return;
+    setBusy("circleInvite");
+    try {
+      const response = await OneLocationService.createCircleInvite({
+        vaultOwnerToken,
+        durationHours: Number(durationHours),
+        message: "Join my private One Location Circle.",
+      });
+      const url = publicInviteUrlLabel(response.inviteUrl);
+      setCircleInviteUrl(url);
+      const copiedToClipboard = url ? await copyToClipboard(url) : false;
+      trackEvent("one_location_circle_invite_created", {
+        route_id: "one_location",
+        result: "success",
+        duration_bucket: oneLocationDurationBucket(durationHours),
+        copied_to_clipboard: copiedToClipboard,
+        active_invite_count: activeCircleInvites.length + 1,
+      });
+      toast.success(
+        copiedToClipboard
+          ? "Circle invite created and copied."
+          : "Circle invite created.",
+      );
+      await refresh();
+    } catch (error) {
+      trackEvent("one_location_circle_invite_created", {
+        route_id: "one_location",
+        result: "error",
+        duration_bucket: oneLocationDurationBucket(durationHours),
+        copied_to_clipboard: false,
+        active_invite_count: activeCircleInvites.length,
+      });
+      toast.error(
+        oneLocationErrorMessage(error, "Could not create Circle invite."),
+      );
+    } finally {
+      setBusy(null);
+    }
+  }, [activeCircleInvites.length, durationHours, refresh, vaultOwnerToken]);
+
+  const handleCopyCircleInvite = useCallback(async () => {
+    if (!circleInviteUrl) return;
+    try {
+      const copiedToClipboard = await copyToClipboard(circleInviteUrl);
+      if (copiedToClipboard) {
+        toast.success("Circle invite copied.");
+      } else {
+        toast.error("Could not copy the Circle invite.");
+      }
+    } catch {
+      toast.error("Could not copy the Circle invite.");
+    }
+  }, [circleInviteUrl]);
+
+  const handleShareCircleInvite = useCallback(async () => {
+    if (!circleInviteUrl) return;
+    try {
+      const delivery = await shareOneLocationLink({
+        title: ONE_LOCATION_SHARE_TITLE,
+        text: ONE_LOCATION_CIRCLE_SHARE_COPY,
+        url: circleInviteUrl,
+        dialogTitle: "Share Circle invite",
+      });
+      if (delivery === "copied") {
+        toast.success("Circle invite copied.");
+      }
+    } catch (error) {
+      if (isShareAbortError(error)) return;
+      toast.error("Could not open the share sheet.");
+    }
+  }, [circleInviteUrl]);
+
+  const handleRevokeCircleInvite = useCallback(
+    async (invite: OneLocationCircleInvite) => {
+      if (!vaultOwnerToken || !invite.id) return;
+      setBusy("circleRevoke");
+      try {
+        await OneLocationService.revokeCircleInvite({
+          vaultOwnerToken,
+          inviteId: invite.id,
+        });
+        setCircleInviteUrl("");
+        toast.success("Circle invite revoked.");
+        await refresh();
+      } catch (error) {
+        toast.error(
+          oneLocationErrorMessage(error, "Could not revoke Circle invite."),
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh, vaultOwnerToken],
+  );
 
   const handleRevokePublicInvite = useCallback(
     async (invite: OneLocationPublicInvite) => {
@@ -4095,6 +4219,99 @@ function OneLocationAgentPageContent() {
                       description="Referral and direct access requests wait here."
                     />
                   )}
+                </div>
+              </section>
+
+              <section className="min-w-0 max-w-full space-y-2 px-1">
+                {sectionLabel("Invite to One Circle")}
+                <div className={cn(onePanelClassName, "space-y-4 p-3.5")}>
+                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_150px]">
+                    <div className={cn(oneInsetClassName, "min-w-0 px-3 py-2 text-sm")}>
+                      {circleInviteUrl ? (
+                        <span
+                          title={circleInviteUrl}
+                          aria-label={`One Location Circle invite ${circleInviteUrl}`}
+                          className="block truncate text-[13px] font-medium text-[#1c1c1e] dark:text-white"
+                        >
+                          {publicInviteUrlPreview(circleInviteUrl)}
+                        </span>
+                      ) : (
+                        <span className={cn(oneSecondaryTextClassName, "block text-[13px] leading-5")}>
+                          Create a private Circle invite. Recipients sign in, unlock vault, and send you an approval request.
+                        </span>
+                      )}
+                    </div>
+                    <Select
+                      value={durationHours}
+                      onValueChange={setDurationHours}
+                    >
+                      <SelectTrigger className="h-10 w-full rounded-[12px] border-black/[0.04] bg-white shadow-sm dark:border-white/[0.08] dark:bg-white/[0.07]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DURATION_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid min-w-0 max-w-full grid-cols-1 gap-2 sm:flex sm:flex-wrap">
+                    <ActionButton
+                      busy={busy}
+                      busyKey="circleInvite"
+                      onClick={() => void handleCreateCircleInvite()}
+                      disabled={!vaultOwnerToken}
+                      className="w-full min-w-0 rounded-full bg-[#007aff] text-white hover:bg-[#0066ff] sm:w-auto"
+                    >
+                      <UserPlus className="mr-2 h-4 w-4" />
+                      Create Circle Invite
+                    </ActionButton>
+                    <Button
+                      variant="outline"
+                      onClick={() => void handleShareCircleInvite()}
+                      disabled={!circleInviteUrl}
+                      className="w-full min-w-0 rounded-full border-black/[0.06] bg-[#f2f2f7] text-[#1c1c1e] hover:bg-white hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
+                    >
+                      <Send className="mr-2 h-4 w-4" />
+                      Share
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => void handleCopyCircleInvite()}
+                      disabled={!circleInviteUrl}
+                      className="w-full min-w-0 rounded-full border-black/[0.06] bg-[#f2f2f7] text-[#1c1c1e] hover:bg-white hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
+                    >
+                      <Copy className="mr-2 h-4 w-4" />
+                      Copy
+                    </Button>
+                  </div>
+                  {latestActiveCircleInvite ? (
+                    <div className="space-y-2">
+                      <div className="flex flex-col gap-3 rounded-[14px] bg-[#f2f2f7] p-3 sm:flex-row sm:items-center sm:justify-between dark:bg-white/10">
+                        <div className="min-w-0">
+                          <p className="text-[14px] font-semibold text-[#1c1c1e] dark:text-white">
+                            Latest active Circle invite
+                          </p>
+                          <p className="break-words text-[12px] text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+                            Expires {formatDateTime(latestActiveCircleInvite.expiresAt)}
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            void handleRevokeCircleInvite(latestActiveCircleInvite)
+                          }
+                          disabled={busy === "circleRevoke"}
+                          className="w-full rounded-full border-black/[0.06] bg-white text-[#1c1c1e] hover:bg-[#f2f2f7] hover:text-[#1c1c1e] sm:w-auto dark:border-white/[0.08] dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:hover:text-white"
+                        >
+                          Revoke
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </section>
 

@@ -102,6 +102,11 @@ owner/link metadata plus the attached public location snapshot.
 - Snapshot-backed public invite resolves do not create grants, requests, or
   recipient-scoped access. Anyone with the active token can view the attached
   public snapshot until expiry or revocation.
+- Circle invites are hash-only private onboarding links. A signed-in visitor
+  must unlock their own vault so the client can bootstrap only that visitor's
+  One Location recipient key. Claiming creates a normal pending access request
+  for owner approval; it never creates a grant, exposes private owner profile
+  data, or requests location permission.
 - Consent/audit records are metadata-only.
 
 Capability scopes:
@@ -191,7 +196,8 @@ cleanup during state/read flows, and hosted environments may call
 `POST /api/one/location/retention/purge?older_than_hours=12` with
 `X-Hushh-Maintenance-Token` backed by the dedicated
 `ONE_LOCATION_RETENTION_TOKEN` for scheduled cleanup. Public request-link
-invites and submissions follow the same terminal-state retention boundary.
+invites, public submissions, and Circle invites follow the same terminal-state
+retention boundary.
 
 ## Native Contract
 

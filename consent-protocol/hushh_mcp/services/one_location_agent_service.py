@@ -88,6 +88,9 @@ ONE_LOCATION_ACTIVITY_EVENT_TYPES = {
     "location_public_invite_created",
     "location_public_invite_revoked",
     "location_public_invite_submitted",
+    "location_circle_invite_created",
+    "location_circle_invite_claimed",
+    "location_circle_invite_revoked",
 }
 ONE_LOCATION_SHARE_ACTIVITY_TYPES = {
     "location_share_created",
@@ -105,6 +108,9 @@ ONE_LOCATION_PUBLIC_ACTIVITY_TYPES = {
     "location_public_invite_created",
     "location_public_invite_revoked",
     "location_public_invite_submitted",
+    "location_circle_invite_created",
+    "location_circle_invite_claimed",
+    "location_circle_invite_revoked",
 }
 
 
@@ -258,6 +264,21 @@ def _public_invite_url(token: str) -> str:
         .rstrip("/")
     )
     path = f"/one/location/request/{token}"
+    return f"{base}{path}" if base else path
+
+
+def _circle_invite_url(token: str) -> str:
+    base = (
+        (
+            os.getenv("NEXT_PUBLIC_APP_URL")
+            or os.getenv("APP_PUBLIC_URL")
+            or os.getenv("FRONTEND_BASE_URL")
+            or ""
+        )
+        .strip()
+        .rstrip("/")
+    )
+    path = f"/one/location/invite/{token}"
     return f"{base}{path}" if base else path
 
 
@@ -1444,6 +1465,45 @@ class OneLocationAgentService:
         return payload
 
     @staticmethod
+    def _circle_invite_payload(
+        row: dict[str, Any] | None, *, public: bool = False
+    ) -> dict[str, Any] | None:
+        if not row:
+            return None
+        metadata = _loads_json(row.get("metadata")) or {}
+        safe_label = ""
+        if isinstance(metadata, dict):
+            safe_label = str(metadata.get("owner_safe_label") or "").strip()
+        message = str(row.get("message") or "").strip() or None
+        if public:
+            payload = {
+                "status": str(row.get("status") or "active"),
+                "durationHours": float(row.get("duration_hours") or 0),
+                "expiresAt": _iso(row.get("expires_at")),
+                "ownerLabel": safe_label or PUBLIC_INVITE_DEFAULT_OWNER_LABEL,
+            }
+            if message:
+                payload["message"] = message
+            return payload
+        payload = {
+            "id": str(row.get("id") or ""),
+            "ownerUserId": str(row.get("owner_user_id") or ""),
+            "status": str(row.get("status") or "active"),
+            "durationHours": float(row.get("duration_hours") or 0),
+            "expiresAt": _iso(row.get("expires_at")),
+            "createdAt": _iso(row.get("created_at")),
+            "updatedAt": _iso(row.get("updated_at")),
+            "revokedAt": _iso(row.get("revoked_at")),
+            "claimedAt": _iso(row.get("claimed_at")),
+            "claimedByUserId": str(row.get("claimed_by_user_id") or "") or None,
+            "requestId": str(row.get("request_id") or "") or None,
+            "message": message,
+        }
+        if safe_label:
+            payload["ownerLabel"] = safe_label
+        return payload
+
+    @staticmethod
     def _public_location_snapshot_payload(value: Any) -> dict[str, Any] | None:
         if value is None:
             return None
@@ -1453,9 +1513,17 @@ class OneLocationAgentService:
                 "Public location links need a valid captured location.",
                 status_code=422,
             )
+        latitude_raw = value.get("latitude")
+        longitude_raw = value.get("longitude")
+        if latitude_raw is None or longitude_raw is None:
+            raise OneLocationAgentError(
+                "LOCATION_PUBLIC_LOCATION_INVALID",
+                "Public location links need valid latitude and longitude.",
+                status_code=422,
+            )
         try:
-            latitude = float(value.get("latitude"))
-            longitude = float(value.get("longitude"))
+            latitude = float(latitude_raw)
+            longitude = float(longitude_raw)
         except (TypeError, ValueError) as exc:
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_LOCATION_INVALID",
@@ -1614,6 +1682,16 @@ class OneLocationAgentService:
             title = "Request link closed"
         elif event_type == "location_public_invite_submitted":
             title = f"Response from {visitor_label}"
+        elif event_type == "location_circle_invite_created":
+            title = "Circle invite created"
+        elif event_type == "location_circle_invite_claimed":
+            title = (
+                f"{actor_label} joined your Circle"
+                if owner_user_id == user_id
+                else f"You joined {owner_label}'s Circle"
+            )
+        elif event_type == "location_circle_invite_revoked":
+            title = "Circle invite closed"
 
         return {
             "id": event_id,
@@ -1919,6 +1997,29 @@ class OneLocationAgentService:
                 )
               LIMIT 500
             ),
+            stale_circle_invites AS (
+              SELECT id
+              FROM one_location_circle_invites
+              WHERE (
+                (
+                  status IN ('claimed', 'expired')
+                  AND COALESCE(claimed_at, updated_at, expires_at, created_at)
+                    <= NOW() - (:hours * INTERVAL '1 hour')
+                )
+                OR (
+                  status = 'revoked'
+                  AND COALESCE(revoked_at, updated_at, expires_at, created_at)
+                    <= NOW() - (:hours * INTERVAL '1 hour')
+                )
+                OR request_id IN (SELECT id FROM stale_requests)
+              )
+              AND (
+                :user_id IS NULL
+                OR owner_user_id = :user_id
+                OR claimed_by_user_id = :user_id
+              )
+              LIMIT 500
+            ),
             deleted_events AS (
               DELETE FROM one_location_events e
               WHERE e.grant_id IN (SELECT id FROM stale_grants)
@@ -1937,6 +2038,16 @@ class OneLocationAgentService:
                      OR e.metadata->>'submission_id' IN (
                        SELECT id::text FROM stale_public_submissions
                      )
+                   )
+                 )
+                 OR (
+                   e.event_type IN (
+                     'location_circle_invite_created',
+                     'location_circle_invite_claimed',
+                     'location_circle_invite_revoked'
+                   )
+                   AND e.metadata->>'invite_id' IN (
+                     SELECT id::text FROM stale_circle_invites
                    )
                  )
               RETURNING id
@@ -1980,6 +2091,12 @@ class OneLocationAgentService:
               WHERE i.id IN (SELECT id FROM stale_public_invites)
                 AND (SELECT COUNT(*) FROM deleted_grants) >= 0
               RETURNING id
+            ),
+            deleted_circle_invites AS (
+              DELETE FROM one_location_circle_invites i
+              WHERE i.id IN (SELECT id FROM stale_circle_invites)
+                AND (SELECT COUNT(*) FROM deleted_public_invites) >= 0
+              RETURNING id
             )
             SELECT
               (SELECT COUNT(*) FROM deleted_grants) AS deleted_grants,
@@ -1987,6 +2104,7 @@ class OneLocationAgentService:
               (SELECT COUNT(*) FROM deleted_requests) AS deleted_requests,
               (SELECT COUNT(*) FROM deleted_referrals) AS deleted_referrals,
               (SELECT COUNT(*) FROM deleted_public_invites) AS deleted_public_invites,
+              (SELECT COUNT(*) FROM deleted_circle_invites) AS deleted_circle_invites,
               (SELECT COUNT(*) FROM deleted_public_submissions) AS deleted_public_submissions,
               (SELECT COUNT(*) FROM deleted_events) AS deleted_events
             """,
@@ -2000,6 +2118,7 @@ class OneLocationAgentService:
             "deleted_requests": int(row.get("deleted_requests") or 0),
             "deleted_referrals": int(row.get("deleted_referrals") or 0),
             "deleted_public_invites": int(row.get("deleted_public_invites") or 0),
+            "deleted_circle_invites": int(row.get("deleted_circle_invites") or 0),
             "deleted_public_submissions": int(row.get("deleted_public_submissions") or 0),
             "deleted_events": int(row.get("deleted_events") or 0),
             "retention_hours": hours,
@@ -2446,6 +2565,24 @@ class OneLocationAgentService:
         )
         return updated or {**row, "status": "expired"}
 
+    def _expire_circle_invite(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not row or str(row.get("status") or "") != "active":
+            return row
+        expires_at = _parse_datetime(row.get("expires_at"), field_name="expires_at")
+        if expires_at > _utcnow():
+            return row
+        updated = self._execute_one(
+            """
+            UPDATE one_location_circle_invites
+            SET status = 'expired', updated_at = NOW()
+            WHERE id = CAST(:invite_id AS UUID)
+              AND status = 'active'
+            RETURNING *
+            """,
+            {"invite_id": str(row.get("id") or "")},
+        )
+        return updated or {**row, "status": "expired"}
+
     def create_public_invite(
         self,
         *,
@@ -2789,6 +2926,193 @@ class OneLocationAgentService:
         )
         return invite
 
+    def create_circle_invite(
+        self,
+        *,
+        owner_user_id: str,
+        duration_hours: float,
+        message: str | None = None,
+    ) -> dict[str, Any]:
+        if not owner_user_id:
+            raise OneLocationAgentError(
+                "LOCATION_AUTH_REQUIRED", "A user is required.", status_code=401
+            )
+        try:
+            duration = normalize_duration_hours(duration_hours)
+        except ValueError as exc:
+            raise OneLocationAgentError(
+                "LOCATION_DURATION_INVALID",
+                str(exc),
+                status_code=422,
+            ) from exc
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = _hash_public_value(raw_token)
+        owner_identity = self._identity_row(owner_user_id)
+        owner_label = _identity_display_label(owner_identity)
+        message_value = (message or "").strip()[:500] or None
+        row = self._execute_one(
+            """
+            INSERT INTO one_location_circle_invites (
+              owner_user_id, invite_code_hash, status, duration_hours,
+              expires_at, message, created_at, updated_at, metadata
+            )
+            VALUES (
+              :owner_user_id, :invite_code_hash, 'active', :duration_hours,
+              :expires_at, :message, NOW(), NOW(), CAST(:metadata_json AS JSONB)
+            )
+            RETURNING *
+            """,
+            {
+                "owner_user_id": owner_user_id,
+                "invite_code_hash": token_hash,
+                "duration_hours": duration,
+                "expires_at": _utcnow() + timedelta(hours=duration),
+                "message": message_value,
+                "metadata_json": _json_param({"owner_safe_label": owner_label}),
+            },
+        )
+        invite = self._circle_invite_payload(row)
+        if not invite:
+            raise OneLocationAgentError(
+                "LOCATION_CIRCLE_INVITE_CREATE_FAILED",
+                "Could not create the One Location Circle invite.",
+                status_code=500,
+            )
+        self._insert_event(
+            owner_user_id=owner_user_id,
+            actor_user_id=owner_user_id,
+            event_type="location_circle_invite_created",
+            metadata={"invite_id": invite["id"], "duration_hours": duration},
+        )
+        return {
+            "invite": invite,
+            "inviteToken": raw_token,
+            "inviteUrl": _circle_invite_url(raw_token),
+        }
+
+    def _circle_invite_row_for_token(self, *, invite_token: str) -> dict[str, Any]:
+        normalized_token = str(invite_token or "").strip()
+        if len(normalized_token) < 16:
+            raise OneLocationAgentError(
+                "LOCATION_CIRCLE_INVITE_INVALID",
+                "This Circle invite link is invalid.",
+                status_code=404,
+            )
+        row = self._execute_one(
+            """
+            SELECT i.*
+            FROM one_location_circle_invites i
+            WHERE i.invite_code_hash = :invite_code_hash
+            LIMIT 1
+            """,
+            {"invite_code_hash": _hash_public_value(normalized_token)},
+        )
+        row = self._expire_circle_invite(row)
+        if not row or str(row.get("status") or "") != "active":
+            raise OneLocationAgentError(
+                "LOCATION_CIRCLE_INVITE_NOT_ACTIVE",
+                "This Circle invite link is no longer active.",
+                status_code=410 if row else 404,
+            )
+        return row
+
+    def resolve_circle_invite(self, *, invite_token: str) -> dict[str, Any]:
+        row = self._circle_invite_row_for_token(invite_token=invite_token)
+        return {"invite": self._circle_invite_payload(row, public=True)}
+
+    def claim_circle_invite(
+        self,
+        *,
+        invite_token: str,
+        claimant_user_id: str,
+        message: str | None = None,
+    ) -> dict[str, Any]:
+        if not claimant_user_id:
+            raise OneLocationAgentError(
+                "LOCATION_AUTH_REQUIRED", "Sign in before joining this Circle.", status_code=401
+            )
+        invite_row = self._circle_invite_row_for_token(invite_token=invite_token)
+        owner_user_id = str(invite_row.get("owner_user_id") or "")
+        if owner_user_id == claimant_user_id:
+            raise OneLocationAgentError(
+                "LOCATION_CIRCLE_INVITE_SELF",
+                "Open your Circle from One Location instead of claiming your own invite.",
+                status_code=422,
+            )
+        invite_id = str(invite_row.get("id") or "")
+        invite_message = str(invite_row.get("message") or "").strip()
+        message_value = (message or "").strip()[:500] or None
+        request = self.request_access(
+            requester_user_id=claimant_user_id,
+            owner_user_id=owner_user_id,
+            message=message_value or invite_message or "Joined from a One Location Circle invite.",
+            notify_owner=True,
+            require_requester_key_material=True,
+        )
+        row = self._execute_one(
+            """
+            UPDATE one_location_circle_invites
+            SET status = 'claimed',
+                claimed_by_user_id = :claimant_user_id,
+                request_id = CAST(:request_id AS UUID),
+                claimed_at = NOW(),
+                updated_at = NOW()
+            WHERE id = CAST(:invite_id AS UUID)
+              AND owner_user_id = :owner_user_id
+              AND status = 'active'
+            RETURNING *
+            """,
+            {
+                "invite_id": invite_id,
+                "owner_user_id": owner_user_id,
+                "claimant_user_id": claimant_user_id,
+                "request_id": request["id"],
+            },
+        )
+        if not row:
+            raise OneLocationAgentError(
+                "LOCATION_CIRCLE_INVITE_NOT_ACTIVE",
+                "This Circle invite link is no longer active.",
+                status_code=410,
+            )
+        invite = self._circle_invite_payload(row) or {}
+        self._insert_event(
+            owner_user_id=owner_user_id,
+            actor_user_id=claimant_user_id,
+            recipient_user_id=claimant_user_id,
+            request_id=request["id"],
+            event_type="location_circle_invite_claimed",
+            metadata={"invite_id": invite_id, "request_id": request["id"]},
+        )
+        return {"invite": invite, "request": request}
+
+    def revoke_circle_invite(self, *, owner_user_id: str, invite_id: str) -> dict[str, Any]:
+        row = self._execute_one(
+            """
+            UPDATE one_location_circle_invites
+            SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+            WHERE id = CAST(:invite_id AS UUID)
+              AND owner_user_id = :owner_user_id
+              AND status = 'active'
+            RETURNING *
+            """,
+            {"owner_user_id": owner_user_id, "invite_id": invite_id},
+        )
+        if not row:
+            raise OneLocationAgentError(
+                "LOCATION_CIRCLE_INVITE_NOT_FOUND",
+                "Active Circle invite was not found.",
+                status_code=404,
+            )
+        invite = self._circle_invite_payload(row) or {}
+        self._insert_event(
+            owner_user_id=owner_user_id,
+            actor_user_id=owner_user_id,
+            event_type="location_circle_invite_revoked",
+            metadata={"invite_id": invite_id},
+        )
+        return invite
+
     def list_state(self, *, user_id: str) -> dict[str, Any]:
         self._expire_stale_grants(user_id)
         recipients = self.list_verified_recipients(owner_user_id=user_id)
@@ -2856,6 +3180,17 @@ class OneLocationAgentService:
             """,
             {"user_id": user_id},
         )
+        circle_invites = self._execute_many(
+            """
+            SELECT *
+            FROM one_location_circle_invites
+            WHERE owner_user_id = :user_id
+               OR claimed_by_user_id = :user_id
+            ORDER BY created_at DESC
+            LIMIT 20
+            """,
+            {"user_id": user_id},
+        )
         public_submissions = self._execute_many(
             """
             SELECT
@@ -2884,6 +3219,11 @@ class OneLocationAgentService:
                 payload
                 for row in public_invites
                 if (payload := self._public_invite_payload(self._expire_public_invite(row)))
+            ],
+            "circleInvites": [
+                payload
+                for row in circle_invites
+                if (payload := self._circle_invite_payload(self._expire_circle_invite(row)))
             ],
             "publicInviteSubmissions": [
                 payload

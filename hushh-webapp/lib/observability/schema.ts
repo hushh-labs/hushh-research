@@ -193,6 +193,13 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "copied_to_clipboard",
     "active_invite_count",
   ],
+  one_location_circle_invite_created: [
+    ...BASE_ALLOWED_KEYS,
+    "result",
+    "duration_bucket",
+    "copied_to_clipboard",
+    "active_invite_count",
+  ],
   one_location_recommendation_selected: [
     ...BASE_ALLOWED_KEYS,
     "action",

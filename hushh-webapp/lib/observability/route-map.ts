@@ -24,6 +24,7 @@ export const ROUTE_ID_VALUES = [
   "one_kyc",
   "one_location",
   "one_location_public_request",
+  "one_location_circle_invite",
   "portfolio_shared",
   "ria_home",
   "ria_onboarding",
@@ -92,6 +93,7 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.ONE_KYC) return "one_kyc";
   if (pathname === ROUTES.ONE_LOCATION) return "one_location";
   if (pathname.startsWith("/one/location/request/")) return "one_location_public_request";
+  if (pathname.startsWith("/one/location/invite/")) return "one_location_circle_invite";
   if (pathname === "/portfolio/shared") return "portfolio_shared";
   if (pathname === ROUTES.RIA_HOME) return "ria_home";
   if (pathname === ROUTES.RIA_ONBOARDING) return "ria_onboarding";

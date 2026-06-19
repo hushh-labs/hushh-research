@@ -177,6 +177,10 @@ not the product owner for live location.
 | GET | `/api/one/location/public-invites/{public_token}` | Public | Resolve safe owner label, status, duration, expiry, and the attached `publicLocation` snapshot when the owner created a public location link |
 | POST | `/api/one/location/public-invites/{public_token}/submit` | Public | Legacy/request-only visitor intake; submit visitor name, phone, and optional message as metadata-only request intent for links without public location snapshots |
 | DELETE | `/api/one/location/public-invites/{invite_id}` | VAULT_OWNER Bearer | Revoke an active public request link |
+| POST | `/api/one/location/circle-invites` | VAULT_OWNER Bearer | Create a hash-only private One Location Circle invite link; claiming never grants access directly |
+| GET | `/api/one/location/circle-invites/{public_token}` | Public | Resolve safe owner label, status, duration, expiry, and optional owner message for a Circle invite |
+| POST | `/api/one/location/circle-invites/{public_token}/claim` | VAULT_OWNER Bearer | Claim a Circle invite after sign-in/vault unlock; creates a normal pending location access request for owner approval |
+| DELETE | `/api/one/location/circle-invites/{invite_id}` | VAULT_OWNER Bearer | Revoke an active Circle invite |
 | POST | `/api/one/location/grants` | VAULT_OWNER Bearer | Create a duration-bounded owner-approved grant for one verified recipient identity/key |
 | POST | `/api/one/location/grants/{grant_id}/envelopes` | VAULT_OWNER Bearer | Store the owner-device encrypted latest-location envelope; backend receives ciphertext and metadata only |
 | GET | `/api/one/location/grants/{grant_id}/envelope` | VAULT_OWNER Bearer | Return ciphertext only to the exact approved recipient while grant is active |
@@ -185,7 +189,7 @@ not the product owner for live location.
 | POST | `/api/one/location/requests/{request_id}/approve` | VAULT_OWNER Bearer | Owner approves request and creates a fresh recipient grant |
 | POST | `/api/one/location/requests/{request_id}/deny` | VAULT_OWNER Bearer | Owner denies pending request |
 | POST | `/api/one/location/grants/{grant_id}/refer` | VAULT_OWNER Bearer | Recipient refers another verified user into a request flow; no access is forwarded |
-| POST | `/api/one/location/retention/purge?older_than_hours=12` | `X-Hushh-Maintenance-Token` backed by dedicated `ONE_LOCATION_RETENTION_TOKEN` | Delete terminal expired/revoked location grants, ciphertext envelopes, terminal requests, referrals, public request-link submissions, and related events after the retention window |
+| POST | `/api/one/location/retention/purge?older_than_hours=12` | `X-Hushh-Maintenance-Token` backed by dedicated `ONE_LOCATION_RETENTION_TOKEN` | Delete terminal expired/revoked location grants, ciphertext envelopes, terminal requests, referrals, public request-link submissions, Circle invites, and related events after the retention window |
 
 ### VAULT_OWNER (Consent-Gated)
 

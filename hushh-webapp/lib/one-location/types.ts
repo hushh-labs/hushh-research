@@ -216,6 +216,22 @@ export type OneLocationPublicInviteSubmission = {
   resolvedAt?: string | null;
 };
 
+export type OneLocationCircleInvite = {
+  id?: string;
+  ownerUserId?: string | null;
+  ownerLabel?: string | null;
+  status: "active" | "claimed" | "expired" | "revoked" | string;
+  durationHours: number;
+  expiresAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  revokedAt?: string | null;
+  claimedAt?: string | null;
+  claimedByUserId?: string | null;
+  requestId?: string | null;
+  message?: string | null;
+};
+
 export type OneLocationState = {
   recipients: OneLocationRecipient[];
   kaiCircleCandidates?: KaiCircleCandidate[];
@@ -225,6 +241,7 @@ export type OneLocationState = {
   requests: OneLocationAccessRequest[];
   referrals: OneLocationReferral[];
   publicInvites: OneLocationPublicInvite[];
+  circleInvites?: OneLocationCircleInvite[];
   publicInviteSubmissions: OneLocationPublicInviteSubmission[];
   capabilityScopes: string[];
 };

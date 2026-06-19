@@ -44,7 +44,8 @@
     "064_one_location_public_invites.sql",
     "065_one_location_retention_indexes.sql",
     "066_marketplace_visibility_posture.sql",
-    "067_connected_systems.sql"
+    "067_connected_systems.sql",
+    "068_one_location_circle_invites.sql"
   ],
   "groups": {
     "iam": [
@@ -75,7 +76,8 @@
       "064_one_location_public_invites.sql",
       "065_one_location_retention_indexes.sql",
       "066_marketplace_visibility_posture.sql",
-      "067_connected_systems.sql"
+      "067_connected_systems.sql",
+      "068_one_location_circle_invites.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

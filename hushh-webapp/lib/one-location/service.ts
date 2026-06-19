@@ -4,6 +4,7 @@ import type {
   OneLocationAccessRequest,
   OneLocationActivityRange,
   OneLocationActivityResponse,
+  OneLocationCircleInvite,
   OneLocationEncryptedEnvelope,
   OneLocationGrant,
   OneLocationPublicInvite,
@@ -189,6 +190,72 @@ export class OneLocationService {
   }): Promise<OneLocationPublicInvite> {
     const response = await apiJson<{ invite: OneLocationPublicInvite }>(
       `/api/one/location/public-invites/${encodeURIComponent(params.inviteId)}`,
+      {
+        method: "DELETE",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+      },
+    );
+    return response.invite;
+  }
+
+  static async createCircleInvite(params: {
+    vaultOwnerToken: string;
+    durationHours: number;
+    message?: string;
+  }): Promise<{
+    invite: OneLocationCircleInvite;
+    inviteToken: string;
+    inviteUrl: string;
+  }> {
+    return apiJsonWithRetry(
+      "/api/one/location/circle-invites",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          durationHours: params.durationHours,
+          message: params.message,
+        }),
+      },
+      1,
+    );
+  }
+
+  static async resolveCircleInvite(inviteToken: string): Promise<{
+    invite: OneLocationCircleInvite;
+  }> {
+    return apiJsonWithRetry(
+      `/api/one/location/circle-invites/${encodeURIComponent(inviteToken)}`,
+      {},
+      1,
+    );
+  }
+
+  static async claimCircleInvite(params: {
+    vaultOwnerToken: string;
+    inviteToken: string;
+    message?: string;
+  }): Promise<{
+    invite: OneLocationCircleInvite;
+    request: OneLocationAccessRequest;
+  }> {
+    return apiJsonWithRetry(
+      `/api/one/location/circle-invites/${encodeURIComponent(params.inviteToken)}/claim`,
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ message: params.message }),
+      },
+      1,
+    );
+  }
+
+  static async revokeCircleInvite(params: {
+    vaultOwnerToken: string;
+    inviteId: string;
+  }): Promise<OneLocationCircleInvite> {
+    const response = await apiJson<{ invite: OneLocationCircleInvite }>(
+      `/api/one/location/circle-invites/${encodeURIComponent(params.inviteId)}`,
       {
         method: "DELETE",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
