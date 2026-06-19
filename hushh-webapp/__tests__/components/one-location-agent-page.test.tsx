@@ -8333,7 +8333,6 @@ describe("OneLocationAgentPage", () => {
     });
 
     render(<OneLocationAgentPage />);
-    await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openLocationPermissionsStep();
