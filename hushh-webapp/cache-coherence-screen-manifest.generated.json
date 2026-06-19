@@ -524,8 +524,7 @@
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService user/session invalidation",
       "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
+        "static render"
       ],
       "readiness_kpis": [
         "route_readiness_completed",
@@ -545,7 +544,7 @@
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
-        "hushh_loader": true,
+        "hushh_loader": false,
         "sse_or_streaming": false,
         "native_beacon": true
       },

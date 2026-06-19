@@ -486,6 +486,7 @@ export const Navbar = ({
         transitionMode: "contextual",
       });
     }
+    if (action.type === "route") router.push(action.href);
   };
 
   const nativeNavigation = useNativeNavigation({
@@ -543,6 +544,8 @@ export const Navbar = ({
           "pointer-events-none mx-auto flex justify-center",
           BOTTOM_CHROME_COLUMN_CLASSNAME,
         )}
+        style={{ width: bottomNavGroupWidth }}
+        ref={pillRef}
       >
         <div
           className={cn(
@@ -578,6 +581,25 @@ export const Navbar = ({
             />
           </div>}
         </div>
+        <button
+          type="button"
+          aria-label="Search"
+          className={cn(
+            "pointer-events-auto relative z-20 inline-flex h-[58px] w-[58px] shrink-0 items-center justify-center overflow-hidden rounded-full",
+            "border border-white/50 bg-background/80 text-foreground/70 shadow-[0_11px_34px_0_var(--theme-color-boxShadow)] backdrop-blur-[var(--blur-standard)]",
+            "transition-[color,transform,background-color] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+            "hover:bg-background/90 hover:text-primary active:scale-[0.985] chrome-bottom-foreground",
+          )}
+          onClick={() => {
+            if (busyOperations["portfolio_save"]) {
+              toast.info("Saving to vault. Please wait until encryption completes.");
+              return;
+            }
+            openKaiCommandBar();
+          }}
+        >
+          <Icon icon={SearchIcon} size="md" className="shrink-0" />
+        </button>
       </div>
     </nav>
   );
