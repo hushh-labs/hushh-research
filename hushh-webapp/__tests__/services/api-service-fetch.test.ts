@@ -296,4 +296,18 @@ describe("ApiService.apiFetch", () => {
     expect(payload.phone_verified).toBe(true);
     expect(payload.identity?.source).toBe("uat_test_phone_claim");
   });
+   it("normalizes blank request timestamp headers before fetch", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response("{}", { status: 200 }));
+
+    await ApiService.apiFetch("/test", {
+      headers: {
+        [REQUEST_TIMESTAMP_HEADER]: "   ",
+      },
+    });
+
+    const [, fetchOptions] = vi.mocked(global.fetch).mock.calls[0];
+    const headers = fetchOptions.headers as Record<string, string>;
+
+    expect(headers[REQUEST_TIMESTAMP_HEADER]).toBe("0");
+  });
 });
