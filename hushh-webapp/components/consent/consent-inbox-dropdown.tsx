@@ -286,7 +286,7 @@ export function ConsentInboxDropdown({
                         {entrySummary(entry)}
                       </p>
                     </div>
-                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                    <span className="min-w-[4.75rem] shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
                       {formatRelative(entry.expires_at) ||
                         entry.counterpart_email ||
                         entry.counterpart_secondary_label ||
