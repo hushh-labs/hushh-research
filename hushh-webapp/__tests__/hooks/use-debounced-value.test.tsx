@@ -194,4 +194,27 @@ describe("useDebouncedValue", () => {
 
     expect(onDebounced).toHaveBeenLastCalledWith(next);
   });
+
+  it("debounces null value transitions", () => {
+    const onDebounced = vi.fn();
+    const { rerender } = render(
+      <Harness<string | null> value="ready" delayMs={200} onDebounced={onDebounced} />
+    );
+    onDebounced.mockClear();
+
+    rerender(
+      <Harness<string | null> value={null} delayMs={200} onDebounced={onDebounced} />
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(199);
+    });
+    expect(onDebounced).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(onDebounced).toHaveBeenCalledTimes(1);
+    expect(onDebounced).toHaveBeenLastCalledWith(null);
+  });
 });
