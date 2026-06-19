@@ -40,6 +40,7 @@ function collectAppPageRoutes(dir: string, root: string = dir): string[] {
 
 describe("observability route map", () => {
   it("maps canonical app routes to stable route IDs", () => {
+    expect(resolveRouteId("/")).toBe("landing");
     expect(resolveRouteId("/kai")).toBe("kai_home");
     expect(resolveRouteId("/kai/dashboard")).toBe("kai_dashboard_legacy_redirect");
     expect(resolveRouteId("/kai/dashboard/analysis")).toBe("kai_dashboard_legacy_redirect");
