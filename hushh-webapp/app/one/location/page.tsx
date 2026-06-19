@@ -3888,9 +3888,9 @@ function OneLocationAgentPageContent() {
                               className="h-8 w-8 rounded-full border-0 bg-[#f2f2f7] text-[#8e8e93] hover:bg-[#e5e5ea] dark:bg-white/10 dark:text-white/55 dark:hover:bg-white/15"
                             >
                               {busy === "publish" ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
                               ) : (
-                                <Pencil className="h-4 w-4" />
+                                <Pencil aria-hidden="true" className="h-4 w-4" />
                               )}
                             </Button>
                             <Button
@@ -3901,7 +3901,7 @@ function OneLocationAgentPageContent() {
                               disabled={busy === "revoke"}
                               className="h-8 w-8 rounded-full border-0 bg-[#ff3b30]/10 text-[#ff3b30] hover:bg-[#ff3b30]/20 dark:bg-[#ff453a]/15 dark:text-[#ff9f9a]"
                             >
-                              <X className="h-4 w-4" />
+                              <X aria-hidden="true" className="h-4 w-4" />
                             </Button>
                           </div>
                         ) : null}
@@ -4111,9 +4111,9 @@ function OneLocationAgentPageContent() {
                                 className="w-full rounded-full border-black/[0.06] bg-[#f2f2f7] sm:w-auto dark:border-white/[0.08] dark:bg-white/10"
                               >
                                 {busy === "view" ? (
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" />
                                 ) : (
-                                  <ShieldCheck className="mr-2 h-4 w-4" />
+                                  <ShieldCheck aria-hidden="true" className="mr-2 h-4 w-4" />
                                 )}
                                 View
                               </Button>
