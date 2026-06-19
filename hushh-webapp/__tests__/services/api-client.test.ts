@@ -146,6 +146,14 @@ describe("apiJson", () => {
     } satisfies Partial<ApiError>);
   });
 });
+  it("falls back to the status code when message field is empty", async () => {
+    mockApiFetch.mockResolvedValueOnce(jsonResponse({ message: "" }, 400));
+
+    await expect(apiJson("/api/test")).rejects.toMatchObject({
+      message: "Request failed: 400",
+      status: 400,
+    } satisfies Partial<ApiError>);
+  });
 
 // ---------------------------------------------------------------------------
 // apiJson — response size boundary enforcement (CWE-400)
