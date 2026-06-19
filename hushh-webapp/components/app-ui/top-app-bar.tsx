@@ -226,6 +226,20 @@ function normalizeTopBarPathname(pathname: string): string {
   return withSlash.endsWith("/") ? withSlash.slice(0, -1) : withSlash;
 }
 
+function pathnameFromTopShellHref(href: string): string {
+  const rawHref = String(href || "").trim();
+  if (!rawHref) return "";
+  try {
+    return normalizeTopBarPathname(new URL(rawHref, "https://one.hushh.local").pathname);
+  } catch {
+    return normalizeTopBarPathname(rawHref);
+  }
+}
+
+function shouldReplaceTopShellBackNavigation(pathname: string, backHref: string): boolean {
+  return pathnameFromTopShellHref(pathname) === pathnameFromTopShellHref(backHref);
+}
+
 function roleSwitcherLabel(activePersona: Persona): string {
   return activePersona === "ria" ? "Advisor" : "Investor";
 }

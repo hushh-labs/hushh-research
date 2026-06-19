@@ -4744,6 +4744,30 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/onboarding",
+      "page_file": "app/one/onboarding/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "flow",
+        "exemption_reason": "Fullscreen onboarding flow owns its own shell and safe-area spacing.",
+        "shell_verification_file": null,
+        "shell_verification_includes": []
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "route-local-check-required"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/pkm",
       "page_file": "app/one/pkm/page.tsx",
       "physical_page_exists": true,

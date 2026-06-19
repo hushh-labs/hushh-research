@@ -5428,13 +5428,13 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   );
 }
 
-/* Shared frosted surface for persistent chrome (tabs / bottom nav / command bar). */
+/* Shared flat glass surface for persistent chrome (tabs / bottom nav / command bar). */
 .chrome-glass-surface {
-  background-color: rgba(245, 245, 247, 0.8);
+  background-color: rgba(245, 245, 247, 0.84);
   border: none;
-  box-shadow: 0 11px 34px 0 var(--theme-color-boxShadow);
-  -webkit-backdrop-filter: blur(var(--blur-standard)) saturate(150%);
-  backdrop-filter: blur(var(--blur-standard)) saturate(150%);
+  box-shadow: 0 10px 26px -18px rgb(0 0 0 / 0.28);
+  -webkit-backdrop-filter: blur(var(--blur-standard)) saturate(112%);
+  backdrop-filter: blur(var(--blur-standard)) saturate(112%);
   transform: translate3d(0, 0, 0);
   will-change: transform;
 }
@@ -5442,7 +5442,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 .dark .chrome-glass-surface {
   background-color: color-mix(in oklab, var(--background) 80%, transparent);
   border: none;
-  box-shadow: 0 11px 34px 0 var(--theme-color-boxShadow);
+  box-shadow: 0 10px 26px -18px rgb(0 0 0 / 0.58);
 }
 
 /* Persistent bottom chrome uses two distinct, shared-material pills: the

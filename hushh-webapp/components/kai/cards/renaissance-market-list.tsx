@@ -767,10 +767,7 @@ export function RiaPicksList({
         )}
 
         {filteredRows.length > pageSize ? (
-          <div
-            className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4"
-            data-no-route-swipe
-          >
+          <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
             <div className="space-y-1">
               <p className="text-xs leading-5 text-muted-foreground">
                 Page {page} of {totalPages}

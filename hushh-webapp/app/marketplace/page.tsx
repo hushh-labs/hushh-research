@@ -968,7 +968,7 @@ export default function MarketplacePage() {
       toast.success("Connection request sent. The investor can review it in their pending connections.");
       router.push(buildMarketplaceConnectionsRoute({ tab: "pending" }));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send connection request");
+      toast.error(error instanceof Error ? error.message : "Failed to send information request");
     } finally {
       setActionLoadingUserId(null);
     }
@@ -987,7 +987,7 @@ export default function MarketplacePage() {
       toast.success("Connection request sent. The advisor can review it in their pending connections.");
       router.push(buildMarketplaceConnectionsRoute({ tab: "pending" }));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to send connection request");
+      toast.error(error instanceof Error ? error.message : "Failed to send information request");
     } finally {
       setActionLoadingUserId(null);
     }
@@ -1797,8 +1797,8 @@ export default function MarketplacePage() {
                     {selectedInjectedRia
                       ? "Demo"
                       : actionLoadingUserId === selectedAdvisor.user_id
-                        ? "Connecting..."
-                        : "Request advisory"}
+                        ? "Requesting..."
+                        : "Request RIA info"}
                   </Button>
                 ) : null}
                 {selectedAdvisor.disclosures_url ? (
@@ -1944,9 +1944,9 @@ export default function MarketplacePage() {
                     ? "Open workspace"
                     : Boolean(selectedInvestorUserId) &&
                         actionLoadingUserId === selectedInvestorUserId
-                      ? "Connecting..."
+                      ? "Requesting..."
                       : selectedInvestorConnectable
-                        ? "Send request"
+                        ? "Request info"
                         : selectedInvestorShortlistable
                           ? selectedInvestorIsShortlisted
                             ? "Saved lead"

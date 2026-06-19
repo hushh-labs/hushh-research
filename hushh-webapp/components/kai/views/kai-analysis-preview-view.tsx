@@ -26,6 +26,7 @@ import {
 } from "@/components/kai/shared/market-surface-theme";
 import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
+import { ROUTES } from "@/lib/navigation/routes";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 const analysisRootClassName = cn(
