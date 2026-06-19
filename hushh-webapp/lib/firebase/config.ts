@@ -7,7 +7,7 @@
  */
 
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth, RecaptchaVerifier } from "firebase/auth";
+import { getAuth, RecaptchaVerifier, type Auth } from "firebase/auth";
 import { resolveAnalyticsMeasurementId } from "@/lib/observability/env";
 
 const firebaseMeasurementId = resolveAnalyticsMeasurementId();
@@ -33,7 +33,17 @@ if (
 
 // Initialize Firebase (singleton pattern for Next.js)
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-const auth = getAuth(app);
+
+let auth: Auth;
+if (process.env.NEXT_PHASE === "phase-production-build") {
+  auth = {
+    settings: {},
+    currentUser: null,
+    onAuthStateChanged: (() => () => {}) as any,
+  } as unknown as Auth;
+} else {
+  auth = getAuth(app);
+}
 
 const disablePhoneAuthAppVerificationForTesting =
   process.env.NEXT_PUBLIC_APP_ENV === "development" &&

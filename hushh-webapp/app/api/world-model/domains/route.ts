@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 // app/api/world-model/domains/route.ts
 /**
  * World Model Domains API Route (Web Proxy)
