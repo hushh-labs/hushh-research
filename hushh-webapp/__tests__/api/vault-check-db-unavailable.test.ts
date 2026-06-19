@@ -37,4 +37,16 @@ describe("GET /api/vault/check database unavailable", () => {
     expect(payload.code).toBe("DATABASE_UNAVAILABLE");
     expect(payload.hint).toContain("proxy-aware launcher");
   });
+  it("rejects missing userId before backend work", async () => {
+  global.fetch = vi.fn();
+
+  const route = await import("../../app/api/vault/check/route");
+  const request = new NextRequest("http://localhost:3000/api/vault/check");
+  const response = await route.GET(request);
+  const payload = await response.json();
+
+  expect(response.status).toBe(400);
+ expect(payload.error).toBe("userId required");
+  expect(global.fetch).not.toHaveBeenCalled();
+});
 });
