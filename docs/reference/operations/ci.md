@@ -7,11 +7,13 @@
 flowchart TB
   subgraph dev["Developer lanes"]
     feat["Feature / hotfix / developer branches"]
-    pr["Pull request to main"]
+    pr["Pull request to integration/pr-train"]
     prci["PR Validation<br/>medium-depth, path-filtered"]
   end
 
   subgraph integration["Integration lane"]
+    train["integration/pr-train"]
+    promote["promotion PR<br/>integration/pr-train -> main"]
     freshness["Main Freshness Gate"]
     status["CI Status Gate"]
     queueci["Queue Validation<br/>authoritative pre-merge"]
@@ -26,9 +28,9 @@ flowchart TB
     prod["Deploy to Production<br/>manual SHA dispatch"]
   end
 
-  feat --> pr --> prci
-  prci --> freshness
-  prci --> status
+  feat --> pr --> prci --> train --> promote
+  promote --> freshness
+  promote --> status
   freshness --> queue
   status --> queue
   queue --> queueci --> main --> smoke --> green
@@ -305,13 +307,14 @@ Practical maintainer rule:
 
 ## Branch Lanes
 
-1. `main` is the only integration branch for day-to-day development.
-2. A successful `Main Post-Merge Smoke` run produces the only deployable source of truth: the green `main` SHA.
-3. UAT deploys only by an explicit manual dispatch of that green `main` SHA through `.github/workflows/deploy-uat.yml`.
-4. Manual UAT dispatch is limited to `kushaltrivedi5`, `Akash-292`, `RGlodAkshat`, and `ankitkumarsingh1702`.
-5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only `kushaltrivedi5` may trigger it.
-6. Manual UAT or production redeploys must use a SHA that is reachable from `origin/main` and already green in post-merge smoke.
-7. Feature or hotfix branches never deploy directly; they merge through `main`.
+1. `integration/pr-train` is the normal integration branch for day-to-day feature/fix/docs work.
+2. `main` receives normal changes only from a promotion PR whose head is `integration/pr-train`; standing maintainer, release, or community branches are not allowed as alternate `main` heads.
+3. A successful `Main Post-Merge Smoke` run produces the only deployable source of truth: the green `main` SHA.
+4. UAT deploys only by an explicit manual dispatch of that green `main` SHA through `.github/workflows/deploy-uat.yml`.
+5. Manual UAT dispatch is limited to the maintainer cohort configured in `config/ci-governance.json`.
+6. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only `kushaltrivedi5` may trigger it.
+7. Manual UAT or production redeploys must use a SHA that is reachable from `origin/main` and already green in post-merge smoke.
+8. Feature or hotfix branches never deploy directly; normal work merges through `integration/pr-train`, then the train promotes to `main`.
 
 Deploy to UAT is expected to behave as a closed-loop release lane:
 

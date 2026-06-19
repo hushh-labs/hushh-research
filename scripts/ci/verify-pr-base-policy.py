@@ -39,15 +39,21 @@ def evaluate(policy: dict[str, Any], *, base_ref: str, head_ref: str) -> tuple[b
     main_branch = str(branch_flow.get("promotion_branch") or "main")
     train_branch = str(branch_flow.get("train_branch") or "integration/pr-train")
     allowed_main_heads = set(branch_flow.get("main_allowed_head_branches") or [train_branch])
+    if allowed_main_heads != {train_branch}:
+        allowed = ", ".join(sorted(allowed_main_heads))
+        return (
+            False,
+            f"Branch policy misconfigured: only {train_branch} may open normal "
+            f"promotion PRs into {main_branch}; configured heads: {allowed}.",
+        )
 
     if not base_ref:
         return False, "PR base ref is missing; cannot enforce branch target policy."
     if base_ref == main_branch and head_ref not in allowed_main_heads:
-        allowed = ", ".join(sorted(allowed_main_heads))
         return (
             False,
-            f"Direct PRs into {main_branch} are blocked. Target {train_branch}, "
-            f"or promote {allowed} into {main_branch}.",
+            f"Direct PRs into {main_branch} are blocked. Target {train_branch}; "
+            f"only {train_branch} may promote into {main_branch}.",
         )
     return True, f"PR base policy passed for head={head_ref or '<unknown>'} base={base_ref}."
 

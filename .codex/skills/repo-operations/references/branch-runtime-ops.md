@@ -45,13 +45,18 @@ push safety, local runtime terminals, deploy cadence, and UAT release gates.
 ## Merge, Deploy, And UAT
 
 1. `merge to main` means land and monitor through `Main Post-Merge Smoke` only.
-2. `deploy to UAT` is separate: land on `main`, identify the green SHA,
+2. Normal feature/fix/docs work lands in `integration/pr-train` first, then
+   `integration/pr-train` promotes to `main`; do not use standing maintainer,
+   release, or community branches as alternate `main` heads.
+3. Maintainer bypass authority can waive review or queue mechanics when policy
+   explicitly allows it, but it does not change the normal promotion head.
+4. `deploy to UAT` is separate: land on `main`, identify the green SHA,
    dispatch UAT deploy for that SHA, and monitor terminal status.
-3. Monitor `PR Validation`, `Queue Validation`, `Main Post-Merge Smoke`,
+5. Monitor `PR Validation`, `Queue Validation`, `Main Post-Merge Smoke`,
    `Deploy to UAT`, and RCA-triggered release authority runs until terminal.
-4. Core runs in `queued`, `in_progress`, or `requested` state mean the task is
+6. Core runs in `queued`, `in_progress`, or `requested` state mean the task is
    not complete.
-5. For UAT runtime failures, start with the repo RCA command and classify
+7. For UAT runtime failures, start with the repo RCA command and classify
    secret drift, runtime mounts, DB drift, and semantic breakage before editing.
 
 ## DB Release Gate

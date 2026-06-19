@@ -16,7 +16,7 @@ flowchart LR
   green --> prod
 ```
 
-This repo now runs on a dedicated PR-train branch, a protected promotion branch, and SHA-based environment deployment:
+This repo runs on a dedicated PR-train branch, a queue-governed `main` promotion lane, and SHA-based environment deployment:
 
 | Lane | Purpose | Default policy |
 |---|---|---|
@@ -25,12 +25,14 @@ This repo now runs on a dedicated PR-train branch, a protected promotion branch,
 | UAT | Hosted validation environment | Manual deploy of an exact green `main` SHA |
 | Production | Live user traffic | Manual deploy of an approved green `main` SHA |
 
+No standing maintainer, community, or release-named branch may be added as a second allowed head into `main`. Maintainer bypass authority can waive review/queue mechanics when policy explicitly allows it, but it does not change the required head branch: normal promotion is `integration/pr-train -> main`.
+
 ## Working Rules
 
 1. Start all maintainer/developer branches from the current `integration/pr-train` unless an isolated `main` hotfix is explicitly required.
 2. Contributor PRs may still be opened to `main` for a familiar GitHub intake experience; maintainers or automation retarget normal intake to `integration/pr-train` before review, approval, queue, merge, maintainer patch, or harvest.
 3. Merge all normal feature/fix/docs work into `integration/pr-train`.
-4. Promote `integration/pr-train` into `main` through a PR after the train is green and ancestry-clean.
+4. Promote `integration/pr-train` into `main` through a PR after the train is green and ancestry-clean; use merge queue by default and do not substitute a named maintainer branch for the train.
 5. Do not merge direct feature, contributor, or agent PRs into `main`; CI blocks them unless the head branch is `integration/pr-train`.
 6. Continue follow-up fixes on the active development branch by default; do not create extra temporary branches for routine polish, validation follow-up, or same-lane fixes.
 7. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
@@ -191,7 +193,7 @@ who can deploy is never a routine, self-mergeable change.
 7. Block branch deletion.
 8. Require at least 1 independent PR approval on `main`; CI status plus merge queue remain required merge gates.
 9. Use review bypass plus the dedicated `Allowed Maintainers to Approve` team for the sanctioned maintainer bypass cohort only; do not rely on overlapping push restrictions.
-10. Keep ordinary development off `main`; only promote from `integration/pr-train` except explicit emergency hotfixes.
+10. Keep ordinary development off `main`; only promote from `integration/pr-train` except explicit emergency hotfixes with a written operator decision and immediate back-sync.
 
 Current operating note:
 
@@ -207,7 +209,8 @@ Current operating note:
 - the sanctioned review-bypass cohort is intentional policy and should not be reported as governance drift when it matches `config/ci-governance.json`
 - if an admin needs to proceed on a green PR, verify whether the live ruleset allows queue entry; do not assume approval is implicitly satisfied
 - bypass actors may waive review through branch protection and bypass queue through the dedicated owner team path
-- direct pushes to `main` are not the default bypass model; the preferred path is a green `integration/pr-train` promotion PR plus bypass merge when justified
+- direct pushes to `main` are not the default bypass model; the preferred path is a green `integration/pr-train` promotion PR through merge queue, with bypass used only for the approval/queue mechanics when justified
+- do not create or reuse a standing `maintainer/*`, `release/*`, or community branch as an allowed `main` head; that widens release authority and can carry unrelated commits
 - CI should still gate the landing decision; bypass is for review policy, not for skipping validation
 
 ### Retired release branches
