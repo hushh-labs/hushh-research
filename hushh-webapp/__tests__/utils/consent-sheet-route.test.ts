@@ -38,13 +38,19 @@ describe("consent sheet route helpers", () => {
     ).toBe("/consents?tab=pending&requestId=req_123&bundleId=bundle_123");
   });
 
-  it("calculates reference link layouts successfully when properties include explicit numerical primitives as configuration options", () => {
-    const configurationWithNumbers = {
+  it("stringifies numeric request identifiers when building notification fallback consent hrefs", () => {
+    const nativeNotificationOptions = {
       requestId: 86400,
       bundleId: 44,
-    } as any;
+    } satisfies Record<string, unknown>;
 
-    expect(resolveConsentRequestHref(null, "pending", configurationWithNumbers)).toBe(
+    expect(
+      resolveConsentRequestHref(
+        null,
+        "pending",
+        nativeNotificationOptions as Parameters<typeof resolveConsentRequestHref>[2],
+      ),
+    ).toBe(
       "/consents?tab=pending&requestId=86400&bundleId=44"
     );
   });
