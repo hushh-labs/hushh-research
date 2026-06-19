@@ -55,8 +55,14 @@ export function RenaissanceVerdictCard({ row }: { row: KaiHomeRenaissanceItem })
   const config = SIGNAL_CONFIG[signalType];
 
   const summary = useMemo(() => {
+    const company = row.company_name || row.symbol || "This company";
     const fcf = typeof row.fcf_billions === "number" ? `$${row.fcf_billions.toFixed(row.fcf_billions >= 10 ? 0 : 1)}B` : null;
-    return `${row.company_name || row.symbol || "This company"} has a ${signalType.toLowerCase()} bias${fcf ? ` with ${fcf} in free cash flow` : ""}.`;
+
+    let text = `${company} currently shows a ${signalType.toLowerCase()} Renaissance bias.${fcf ? ` With ${fcf} in free cash flow.` : ""}`;
+    if (signalType === "CAUTION") {
+      text += " Review the thesis and data quality before acting on the signal.";
+    }
+    return text;
   }, [row, signalType]);
 
   return (
@@ -95,6 +101,11 @@ export function RenaissanceVerdictCard({ row }: { row: KaiHomeRenaissanceItem })
           </Badge>
         )}
       </div>
+
+      {/* Footer disclaimer */}
+      <p className="border-t border-current/10 pt-3 text-[11px] leading-5 text-muted-foreground">
+        Kai presents this as market context, not a personalized instruction.
+      </p>
     </SurfaceInset>
   );
 }

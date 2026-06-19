@@ -11,11 +11,9 @@ import {
   Compass,
   FileSpreadsheet,
   House,
-  Landmark,
   Network,
   UserRound,
   Users,
-  WalletCards,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
