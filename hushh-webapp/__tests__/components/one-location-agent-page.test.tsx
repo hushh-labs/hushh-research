@@ -621,6 +621,20 @@ if (!window.localStorage) {
   });
 }
 
+if (!window.localStorage) {
+  const localStorageStore = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      clear: () => localStorageStore.clear(),
+      getItem: (key: string) => localStorageStore.get(key) ?? null,
+      removeItem: (key: string) => localStorageStore.delete(key),
+      setItem: (key: string, value: string) =>
+        localStorageStore.set(key, String(value)),
+    },
+  });
+}
+
 function locationState() {
   return {
     autoApprovePreference: {
@@ -5092,6 +5106,55 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.queryByRole("dialog", { name: /One Location guided tour/i }),
     ).toBeNull();
+  });
+
+  it("opens the section guided tour and lets the user skip it", async () => {
+    render(<OneLocationAgentPage />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(
+      screen.getByRole("button", { name: /Show onboarding tour/i }),
+    );
+
+    expect(
+      await screen.findByRole("dialog", { name: /One Location guided tour/i }),
+    ).toBeTruthy();
+    expect(screen.getByText("Check location readiness")).toBeTruthy();
+    expect(screen.getByText(/Highlighting: Device readiness/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Skip$/i }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: /One Location guided tour/i }),
+      ).toBeNull(),
+    );
+  });
+
+  it("previews my live location without creating a share, request, or public link", async () => {
+    mockGetState.mockResolvedValueOnce({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [],
+    });
+
+    render(<OneLocationAgentPage />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    expect(screen.getByText("My live location")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Show my location/i }),
+    );
+
+    await waitFor(() => expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1));
+    const mapPreview = await screen.findByTitle("Live location map preview");
+    expect(mapPreview.getAttribute("src")).toContain(
+      "https://www.google.com/maps?q=28.613900%2C77.209000",
+    );
+    expect(screen.getByText(/This preview stays on this device/i)).toBeTruthy();
+    expect(mockCreateGrant).not.toHaveBeenCalled();
+    expect(mockRequestAccess).not.toHaveBeenCalled();
+    expect(mockCreatePublicInvite).not.toHaveBeenCalled();
   });
 
   it("loads One Location setup without requiring backend phone verification", async () => {

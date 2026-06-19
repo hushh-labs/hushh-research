@@ -296,6 +296,7 @@ export class PostAuthRouteService {
     }
 
     if (
+      !shouldPreservePriorityReturn &&
       shouldRequirePhoneMandate({
         phoneNumber: params.phoneNumber,
         phoneVerified,

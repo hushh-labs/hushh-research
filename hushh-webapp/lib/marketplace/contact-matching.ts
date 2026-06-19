@@ -58,6 +58,18 @@ export type MarketplaceContactLookupResult = {
   truncated: boolean;
 };
 
+function normalizeEmailForContactHash(value: string): string | null {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized || !normalized.includes("@")) return null;
+  const [localPart, domain, ...rest] = normalized.split("@");
+  if (!localPart || !domain || rest.length > 0) return null;
+  return `${localPart}@${domain}`;
+}
+
+function emailDomain(value: string): string | null {
+  return value.split("@")[1] || null;
+}
+
 function contactDisplayName(contact: HushhContactRecord): string | null {
   const value = String(contact.displayName || "").trim();
   return value || null;
@@ -302,4 +314,37 @@ export async function buildMarketplaceContactLookups(options?: {
     limited: Boolean(result.limited),
     truncated: Boolean(result.truncated),
   };
+}
+
+export async function buildMarketplaceContactLookupsFromQuery(query: string): Promise<{
+  phoneLookups: MarketplaceContactLookup[];
+  emailLookups: MarketplaceEmailContactLookup[];
+}> {
+  const normalizedEmail = normalizeEmailForContactHash(query);
+  if (normalizedEmail) {
+    return {
+      phoneLookups: [],
+      emailLookups: [{ hash: await sha256Hex(normalizedEmail) }],
+    };
+  }
+
+  const queryDigits = String(query || "").replace(/\D/g, "");
+  if (queryDigits.length < 7) {
+    return { phoneLookups: [], emailLookups: [] };
+  }
+  const normalizedPhone = normalizePhoneForContactHash(query);
+  if (normalizedPhone) {
+    const digits = normalizedPhone.replace(/\D/g, "");
+    return {
+      phoneLookups: [
+        {
+          hash: await sha256Hex(normalizedPhone),
+          last4: digits.slice(-4),
+        },
+      ],
+      emailLookups: [],
+    };
+  }
+
+  return { phoneLookups: [], emailLookups: [] };
 }

@@ -18,6 +18,10 @@ import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
 
+// =============================================================================
+// TYPES
+// =============================================================================
+
 interface Holding {
   symbol: string;
   name: string;
@@ -34,18 +38,30 @@ interface PortfolioMetricsCardProps {
   className?: string;
 }
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
+// =============================================================================
+// SUB-COMPONENTS & HELPERS
+// =============================================================================
+
+const formatters = {
+  currency: (val: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(val),
+  percent: (val: number) => `${val.toFixed(2)}%`
+};
+
+function MetricItem({ label, value, icon, color = "text-foreground" }: { label: string; value: string | number; icon: any; color?: string }) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Icon icon={icon} size="sm" aria-hidden="true" />
+        <span>{label}</span>
+      </div>
+      <div className={cn("text-lg font-bold", color)}>{value}</div>
+    </div>
+  );
 }
 
-function formatPercent(value: number): string {
-  return `${value.toFixed(2)}%`;
-}
+// =============================================================================
+// MAIN COMPONENT
+// =============================================================================
 
 export function PortfolioMetricsCard({
   holdings,
@@ -130,70 +146,29 @@ export function PortfolioMetricsCard({
     return null;
   }
 
+  const { diversification, avgYield, costBasis, sectorCount } = metrics;
+
   return (
-    <Card variant="none" effect="glass" showRipple={false} className={className}>
+    <Card variant="none" effect="glass" showRipple={false} className={cn("w-full", className)}>
       <CardHeader className="pb-1 pt-3 px-4">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
-          <Icon icon={BarChart3} size="md" className="text-primary" aria-hidden="true" />
+          <Icon icon={BarChart3} size="md" className="text-primary" />
           Metrics
         </CardTitle>
       </CardHeader>
       <CardContent className="px-4 pb-4">
-        <div className="grid grid-cols-2 gap-3">
-          {/* Diversification Score */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Icon icon={Layers} size="md" aria-hidden="true" />
-              <span>Diversity</span>
-            </div>
-            <div className="flex items-baseline gap-1.5">
-              <span className={cn("text-lg font-bold", diversificationColor)}>
-                {diversificationScore}
-              </span>
-              <span className={cn("text-xs", diversificationColor)}>
-                {diversificationLabel}
-              </span>
-            </div>
-          </div>
-
-          {/* Sector Count */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Icon icon={Layers} size="md" aria-hidden="true" />
-              <span>Sectors</span>
-            </div>
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-lg font-bold">
-                {sectorCount > 0 ? sectorCount : "—"}
-              </span>
-            </div>
-          </div>
-
-          {/* Average Yield */}
+        <div className="grid grid-cols-2 gap-4">
+          <MetricItem
+            label="Diversity"
+            value={`${diversification.score} (${diversification.label})`}
+            icon={Layers}
+            color={diversification.color}
+          />
+          <MetricItem label="Sectors" value={sectorCount} icon={Layers} />
           {avgYield !== null && (
-            <div className="space-y-1">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Icon icon={Percent} size="md" aria-hidden="true" />
-                <span>Avg Yield</span>
-              </div>
-              <span className="text-lg font-bold text-emerald-500">
-                {formatPercent(avgYield)}
-              </span>
-            </div>
+            <MetricItem label="Avg Yield" value={formatters.percent(avgYield)} icon={Percent} color="text-emerald-500" />
           )}
-
-          {/* Total Cost Basis */}
-          {weightedCostBasis !== null && (
-            <div className="space-y-1">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Icon icon={DollarSign} size="md" aria-hidden="true" />
-                <span>Cost Basis</span>
-              </div>
-              <span className="text-lg font-bold">
-                {formatCurrency(weightedCostBasis)}
-              </span>
-            </div>
-          )}
+          <MetricItem label="Cost Basis" value={formatters.currency(costBasis)} icon={DollarSign} />
         </div>
       </CardContent>
     </Card>

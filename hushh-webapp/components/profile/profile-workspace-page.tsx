@@ -104,7 +104,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -3396,14 +3395,10 @@ function ProfilePageContent({
           title="Marketplace visibility"
           description={marketplaceStatusText}
           trailing={
-            <Switch
+            <PrivacyToggle
               checked={marketplaceOptIn}
               disabled={loadingMarketplaceOptIn || savingMarketplaceOptIn}
-              aria-label="Toggle marketplace visibility"
-              onPointerDown={(event) => {
-                event.stopPropagation();
-              }}
-              onClick={(event) => event.stopPropagation()}
+              ariaLabel="Toggle marketplace visibility for privacy preferences"
               onCheckedChange={() => void handleMarketplaceOptInToggle()}
             />
           }
