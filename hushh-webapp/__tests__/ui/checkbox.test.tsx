@@ -17,4 +17,15 @@ describe("Checkbox", () => {
       container.querySelector('[data-slot="checkbox-indicator"]'),
     ).toBeTruthy();
   });
+
+  it("reflects controlled checked state with aria-checked", () => {
+    const { container, rerender } = render(<Checkbox checked={false} />);
+    const checkbox = container.querySelector('[data-slot="checkbox"]');
+
+    expect(checkbox?.getAttribute("aria-checked")).toBe("false");
+
+    rerender(<Checkbox checked />);
+
+    expect(checkbox?.getAttribute("aria-checked")).toBe("true");
+  });
 });
