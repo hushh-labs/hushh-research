@@ -1471,6 +1471,13 @@ function publicInviteUrlPreview(value: string): string {
   return url.length > maxLength ? `${url.slice(0, maxLength)}...` : url;
 }
 
+function publicInviteUrlPreview(value: string): string {
+  const url = value.trim();
+  if (!url) return "";
+  const maxLength = 52;
+  return url.length > maxLength ? `${url.slice(0, maxLength)}...` : url;
+}
+
 function statusVariant(
   status: string,
 ): "default" | "secondary" | "outline" | "destructive" {
