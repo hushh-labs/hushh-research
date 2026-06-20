@@ -17,6 +17,7 @@ export type AgentTtsQueueOptions = {
   synthesize?: (input: AgentTtsRequest) => Promise<Response>;
   playAudio?: (audio: Blob, signal: AbortSignal) => Promise<void>;
   fallbackSpeak?: (text: string, signal: AbortSignal) => Promise<void>;
+  allowBrowserFallback?: boolean;
   onStateChange?: (state: "idle" | "speaking") => void;
   onError?: (failure: AgentTtsFailure) => void;
   requestTimeoutMs?: number;
@@ -37,7 +38,7 @@ export type SpeechChunks = {
 const MAX_TTS_CHUNK_CHARS = 220;
 const MIN_TTS_CHUNK_CHARS = 12;
 const EARLY_TTS_CHUNK_CHARS = 90;
-const DEFAULT_TTS_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_TTS_REQUEST_TIMEOUT_MS = 55_000;
 const DEFAULT_TTS_MAX_ATTEMPTS = 2;
 const FALLBACK_SPEECH_TIMEOUT_BASE_MS = 4_000;
 const FALLBACK_SPEECH_TIMEOUT_PER_CHAR_MS = 90;
@@ -133,32 +134,60 @@ async function defaultPlayAudio(audio: Blob, signal: AbortSignal): Promise<void>
   const element = new Audio(url);
   element.preload = "auto";
   element.setAttribute("playsinline", "true");
+  element.setAttribute("webkit-playsinline", "true");
+  (element as HTMLAudioElement & { playsInline?: boolean }).playsInline = true;
+  element.style.position = "fixed";
+  element.style.left = "-9999px";
+  element.style.top = "0";
+  element.style.width = "1px";
+  element.style.height = "1px";
+  element.style.opacity = "0";
 
   try {
     await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let playRequested = false;
       const cleanup = () => {
-        element.onended = null;
-        element.onerror = null;
+        element.removeEventListener("ended", handleEnded);
+        element.removeEventListener("error", handleError);
         signal.removeEventListener("abort", handleAbort);
+        element.pause();
+        element.removeAttribute("src");
+        element.load();
+        element.remove();
+      };
+      const settle = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        callback();
       };
       const handleAbort = () => {
-        element.pause();
-        cleanup();
-        reject(new DOMException("Aborted", "AbortError"));
+        settle(() => reject(new DOMException("Aborted", "AbortError")));
       };
-      element.onended = () => {
-        cleanup();
-        resolve();
+      const handleEnded = () => settle(resolve);
+      const handleError = () => {
+        settle(() => reject(new Error("Agent voice audio playback failed.")));
       };
-      element.onerror = () => {
-        cleanup();
-        reject(new Error("Agent voice audio playback failed."));
+      const requestPlayback = () => {
+        if (playRequested || settled) return;
+        playRequested = true;
+        void element.play().catch((error) => {
+          settle(() =>
+            reject(
+              error instanceof Error
+                ? error
+                : new Error("Agent voice playback failed.")
+            )
+          );
+        });
       };
+      element.addEventListener("ended", handleEnded);
+      element.addEventListener("error", handleError);
       signal.addEventListener("abort", handleAbort, { once: true });
-      void element.play().catch((error) => {
-        cleanup();
-        reject(error instanceof Error ? error : new Error("Agent voice playback failed."));
-      });
+      document.body?.appendChild(element);
+      element.load();
+      requestPlayback();
     });
   } finally {
     URL.revokeObjectURL(url);
@@ -222,7 +251,7 @@ export class AgentTtsQueue {
   private readonly voice?: string;
   private readonly synthesize: (input: AgentTtsRequest) => Promise<Response>;
   private readonly playAudio: (audio: Blob, signal: AbortSignal) => Promise<void>;
-  private readonly fallbackSpeak: (text: string, signal: AbortSignal) => Promise<void>;
+  private readonly fallbackSpeak?: (text: string, signal: AbortSignal) => Promise<void>;
   private readonly onStateChange?: (state: "idle" | "speaking") => void;
   private readonly onError?: (failure: AgentTtsFailure) => void;
   private readonly requestTimeoutMs: number;
@@ -240,7 +269,9 @@ export class AgentTtsQueue {
     this.voice = options.voice;
     this.synthesize = options.synthesize || defaultSynthesize;
     this.playAudio = options.playAudio || defaultPlayAudio;
-    this.fallbackSpeak = options.fallbackSpeak || defaultFallbackSpeak;
+    this.fallbackSpeak = options.allowBrowserFallback
+      ? options.fallbackSpeak || defaultFallbackSpeak
+      : undefined;
     this.onStateChange = options.onStateChange;
     this.onError = options.onError;
     this.requestTimeoutMs = Math.max(
@@ -389,6 +420,7 @@ export class AgentTtsQueue {
   }
 
   private async speakWithFallback(text: string, signal: AbortSignal): Promise<void> {
+    if (!this.fallbackSpeak) return;
     try {
       await this.fallbackSpeak(text, signal);
     } catch (error) {

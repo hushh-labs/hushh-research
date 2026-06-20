@@ -996,7 +996,7 @@ Think step by step in 2-3 sentences about what you'll analyze and why it matters
                     return
                 await asyncio.sleep(0.01)
     except Exception as e:
-        logger.error(f"[Kai Stream] Streaming error for {agent_name}: {e}", exc_info=True)
+        logger.error("[Kai Stream] Streaming error for %s: %s", agent_name, e, exc_info=True)
         # Non-fatal - analysis will continue without streaming
 
 
@@ -1037,7 +1037,7 @@ async def analyze_stream_generator(
             disconnection_event.set()  # Signal DebateEngine to stop
         return is_disconnected
 
-    logger.info(f"[Kai Stream] Starting analysis for {ticker} - user {user_id}")
+    logger.info("[Kai Stream] Starting analysis for %s - user %s", ticker, user_id)
 
     stream_token = _stream_ctx.set(CanonicalSSEStream("stock_analyze"))
     stream_ctx = _stream_ctx.get()
@@ -1594,7 +1594,7 @@ async def analyze_stream_generator(
                 },
             )
         except Exception as e:
-            logger.error(f"[Kai Stream] Fundamental agent error: {e}")
+            logger.error("[Kai Stream] Fundamental agent error: %s", e)
             yield create_event(
                 "agent_error",
                 {"agent": "fundamental", "error": str(e), "round": 1, "phase": "analysis"},
@@ -1734,7 +1734,7 @@ async def analyze_stream_generator(
                 },
             )
         except Exception as e:
-            logger.error(f"[Kai Stream] Sentiment agent error: {e}")
+            logger.error("[Kai Stream] Sentiment agent error: %s", e)
             yield create_event(
                 "agent_error",
                 {"agent": "sentiment", "error": str(e), "round": 1, "phase": "analysis"},
@@ -1869,7 +1869,7 @@ async def analyze_stream_generator(
                 },
             )
         except Exception as e:
-            logger.error(f"[Kai Stream] Valuation agent error: {e}")
+            logger.error("[Kai Stream] Valuation agent error: %s", e)
             yield create_event(
                 "agent_error",
                 {"agent": "valuation", "error": str(e), "round": 1, "phase": "analysis"},
@@ -2353,7 +2353,7 @@ async def analyze_stream_generator(
             terminal=True,
         )
 
-        logger.info(f"[Kai Stream] Analysis complete for {ticker}: {debate_result.decision}")
+        logger.info("[Kai Stream] Analysis complete for %s: %s", ticker, debate_result.decision)
 
     except asyncio.TimeoutError:
         logger.warning(
@@ -2495,7 +2495,7 @@ async def analyze_stream(
         metadata={"risk_profile": risk_profile, "endpoint": "stream/analyze"},
     )
 
-    logger.info(f"[Kai Stream] SSE connection opened for {ticker} - user {user_id}")
+    logger.info("[Kai Stream] SSE connection opened for %s - user %s", ticker, user_id)
 
     return _create_sse_response(
         analyze_stream_generator(

@@ -70,46 +70,44 @@ export {
 export type { CardProps } from "./card";
 
 // ============================================================================
-// UNIVERSITY TYPOGRAPHY SYSTEM (CENTRALIZED)
-// All typography classes must be referenced via this object.
-// Headings: Inter (.font-heading)
-// Body: Geist Sans (.font-sans)
-// Font families are defined in globals.css, classes are referenced here.
+// FOUNDATION TYPOGRAPHY SYSTEM (CENTRALIZED)
+// All typography classes must be referenced via Foundation roles.
+// Headings and body use the SF system stack from globals.css.
 // ============================================================================
 
 export const typography = {
   // Font weights
   weights: {
-    thin: "font-thin",
-    light: "font-light",
+    thin: "font-normal",
+    light: "font-normal",
     normal: "font-normal",
-    medium: "font-medium",
+    medium: "font-semibold",
     semibold: "font-semibold",
     bold: "font-bold",
-    extrabold: "font-extrabold",
-    black: "font-black",
+    extrabold: "font-bold",
+    black: "font-bold",
   },
   // Font sizes with line heights
   sizes: {
-    xs: ["0.75rem", { lineHeight: "1rem" }],
-    sm: ["0.875rem", { lineHeight: "1.25rem" }],
-    base: ["1rem", { lineHeight: "1.5rem" }],
-    lg: ["1.125rem", { lineHeight: "1.75rem" }],
-    xl: ["1.25rem", { lineHeight: "1.75rem" }],
-    "2xl": ["1.5rem", { lineHeight: "2rem" }],
-    "3xl": ["1.875rem", { lineHeight: "2.25rem" }],
-    "4xl": ["2.25rem", { lineHeight: "2.5rem" }],
-    "5xl": ["3rem", { lineHeight: "1" }],
-    "6xl": ["3.75rem", { lineHeight: "1" }],
-    "7xl": ["4.5rem", { lineHeight: "1" }],
-    "8xl": ["6rem", { lineHeight: "1" }],
-    "9xl": ["8rem", { lineHeight: "1" }],
+    xs: ["var(--foundation-caption-size)", { lineHeight: "var(--foundation-caption-line)" }],
+    sm: ["var(--foundation-footnote-size)", { lineHeight: "var(--foundation-footnote-line)" }],
+    base: ["var(--foundation-body-size)", { lineHeight: "var(--foundation-body-line)" }],
+    lg: ["var(--foundation-headline-size)", { lineHeight: "var(--foundation-headline-line)" }],
+    xl: ["var(--foundation-title3-size)", { lineHeight: "var(--foundation-title3-line)" }],
+    "2xl": ["var(--foundation-title2-size)", { lineHeight: "var(--foundation-title2-line)" }],
+    "3xl": ["var(--foundation-title1-size)", { lineHeight: "var(--foundation-title1-line)" }],
+    "4xl": ["var(--foundation-title1-size)", { lineHeight: "var(--foundation-title1-line)" }],
+    "5xl": ["var(--foundation-display-size)", { lineHeight: "var(--foundation-display-line)" }],
+    "6xl": ["var(--foundation-display-size)", { lineHeight: "var(--foundation-display-line)" }],
+    "7xl": ["var(--foundation-display-size)", { lineHeight: "var(--foundation-display-line)" }],
+    "8xl": ["var(--foundation-display-size)", { lineHeight: "var(--foundation-display-line)" }],
+    "9xl": ["var(--foundation-display-size)", { lineHeight: "var(--foundation-display-line)" }],
   },
   // Typography classes
   classes: {
-    heading: "font-heading",
-    body: "font-sans",
-    display: "font-heading",
+    heading: "type-title2",
+    body: "type-body",
+    display: "type-display",
   },
 } as const;
 
@@ -201,7 +199,7 @@ export const getBadgeClasses = (
   size: "sm" | "md" = "sm"
 ) => {
   const sizeClasses =
-    size === "sm" ? "text-[9px] px-1.5 py-0.5" : "text-[10px] px-2 py-0.5";
+    size === "sm" ? "type-micro px-1.5 py-0.5" : "type-caption px-2 py-0.5";
 
   return `${sizeClasses} rounded-full bg-gradient-to-r from-[var(--morphy-${variant}-start)]/20 to-[var(--morphy-${variant}-end)]/20 dark:from-[var(--morphy-${
     variant === "primary" ? "secondary" : "primary"

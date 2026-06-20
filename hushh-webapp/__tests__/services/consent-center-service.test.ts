@@ -200,3 +200,69 @@ describe("normalizeConsentEntry — local-override precedence matrix", () => {
   });
 });
 // ── End override-precedence proof ─────────────────────────────────────────────
+describe("normalizeConsentEntry - zero-value fallback", () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  const expectZeroValueConsentEntry = (item: unknown, index: number) => {
+    expect(item).toMatchObject({
+      id: `zero-value-consent-entry-${index}`,
+      kind: "history",
+      status: "revoked",
+      active: false,
+      granted: false,
+      action: "deny",
+      counterpart_type: "self",
+      metadata: {
+        fallback_reason: "empty_consent_entry",
+      },
+    });
+    expect(Object.isFrozen(item)).toBe(true);
+    expect(Object.isFrozen((item as { metadata?: unknown }).metadata)).toBe(true);
+  };
+
+  it("returns immutable revoked entries for empty or null consent payloads", async () => {
+    mockApiFetch.mockResolvedValueOnce(listResponse([{}, null, undefined]));
+
+    const { items } = await ConsentCenterService.listEntries({
+      idToken: "tok",
+      userId: "u-1",
+      surface: "active",
+    });
+
+    expect(items).toHaveLength(3);
+    expect(items.map((item) => item.id)).toEqual([
+      "zero-value-consent-entry-0",
+      "zero-value-consent-entry-1",
+      "zero-value-consent-entry-2",
+    ]);
+    expect(new Set(items).size).toBe(items.length);
+    items.forEach((item, index) => expectZeroValueConsentEntry(item, index));
+  });
+
+  it("returns an immutable revoked entry for an undefined runtime payload", async () => {
+    mockApiFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        user_id: "u-1",
+        actor: "investor",
+        mode: "consents",
+        surface: "active",
+        query: "",
+        page: 1,
+        limit: 20,
+        total: 1,
+        has_more: false,
+        items: [undefined],
+      }),
+    } as unknown as Response);
+
+    const { items } = await ConsentCenterService.listEntries({
+      idToken: "tok",
+      userId: "u-1",
+      surface: "active",
+    });
+
+    expect(items).toHaveLength(1);
+    expectZeroValueConsentEntry(items[0], 0);
+  });
+});
