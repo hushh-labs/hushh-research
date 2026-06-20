@@ -2717,7 +2717,7 @@ class RIAIAMService:
             return "re_request"
         if normalized == "blocked":
             return "resolve_block"
-            return "request_access"
+        return "request_access"
 
     @staticmethod
     def _relationship_share_descriptor(grant_key: str) -> dict[str, str]:

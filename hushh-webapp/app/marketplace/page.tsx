@@ -1089,9 +1089,9 @@ export default function MarketplacePage() {
     >
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="Connect"
-          title="Search people"
-          description="Find investors, RIAs, and contacts already on Hushh."
+          eyebrow="SEBI-registered network"
+          title="Connect"
+          description="Find a registered advisor. Connect with consent."
           icon={Compass}
           accent="marketplace"
           actions={
@@ -1109,7 +1109,7 @@ export default function MarketplacePage() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className="space-y-4 pb-24 pt-0">
-        <div className="rounded-[28px] bg-background/90 p-1.5 shadow-[var(--app-card-shadow-standard)] backdrop-blur-[var(--blur-standard)]">
+        <div className="rounded-[24px] border border-border/45 bg-card/88 p-1.5 shadow-[var(--app-card-shadow-standard)] backdrop-blur-[var(--blur-standard)]">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <button
@@ -1121,7 +1121,7 @@ export default function MarketplacePage() {
                 aria-label="Toggle search"
                 onClick={() => setSearchOpen((current) => !current)}
               >
-                <Search className="h-4 w-4" />
+                <Search className="h-4 w-4" aria-hidden="true" />
               </button>
               <Button
                 variant="none"
@@ -1172,7 +1172,10 @@ export default function MarketplacePage() {
           {searchOpen ? (
             <div className="mt-2">
               <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Search
+                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden="true"
+                />
                 <Input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
@@ -1252,7 +1255,7 @@ export default function MarketplacePage() {
       ) : null}
 
       {!iamUnavailable && view === "swipe" ? (
-        <div className={cn("pb-16", searchOpen && "pt-12")}>
+        <div className="pb-16">
           {!hasLoadedDirectory || loading ? (
             <div className="flex min-h-[420px] items-center justify-center px-6 py-14 text-center">
               <p className="text-sm text-muted-foreground">Loading discovery…</p>
