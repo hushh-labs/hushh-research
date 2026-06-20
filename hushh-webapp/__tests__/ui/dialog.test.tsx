@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
+  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 
