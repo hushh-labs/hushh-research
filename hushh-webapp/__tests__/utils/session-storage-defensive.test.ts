@@ -75,4 +75,31 @@ describe("defensive local storage handling", () => {
 
     expect(getLocalItem("hushh:test:tracking-state")).toBeNull();
   });
+
+  it("refuses to persist vault credential keys in persistent or fallback storage", () => {
+    const sensitiveEntries = [
+      ["vault_key", "vault-key-secret"],
+      ["vaultOwnerToken", "vault-owner-token-secret"],
+      ["vault_owner_token", "vault-owner-token-secret"],
+    ];
+
+    for (const [key, value] of sensitiveEntries) {
+      expect(() => setLocalItem(key, value)).not.toThrow();
+      expect(window.localStorage.getItem(key)).toBeNull();
+      expect(getLocalItem(key)).toBeNull();
+    }
+  });
+
+  it("does not retain vault credential keys in memory fallback when persistent storage is blocked", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("Quota exceeded", "QuotaExceededError");
+    });
+
+    expect(() => setLocalItem("vault_key", "vault-key-secret")).not.toThrow();
+
+    expect(getLocalItem("vault_key")).toBeNull();
+    expect(window.localStorage.getItem("vault_key")).toBeNull();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
 });

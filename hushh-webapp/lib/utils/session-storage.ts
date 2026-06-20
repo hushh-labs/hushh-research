@@ -20,6 +20,15 @@ function isNativeCapacitorPlatform(): boolean {
 const SESSION_PREFIX = "_session_";
 const BOOT_ID_KEY = "__hushh_boot_id__";
 const memoryLocalFallback = new Map<string, string>();
+const SENSITIVE_LOCAL_STORAGE_KEYS = new Set(["vaultkey", "vaultownertoken"]);
+
+function normalizeStorageKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function isSensitiveStorageKey(key: string): boolean {
+  return SENSITIVE_LOCAL_STORAGE_KEYS.has(normalizeStorageKey(key));
+}
 
 function isStorageQuotaExceededError(error: unknown): boolean {
   return (
@@ -201,6 +210,17 @@ export function clearSessionStorage(): void {
 }
 
 export function setLocalItem(key: string, value: string): void {
+  if (isSensitiveStorageKey(key)) {
+    memoryLocalFallback.delete(key);
+    const storage = getPersistentStorage();
+    try {
+      storage?.removeItem(key);
+    } catch {
+      // Persistent storage may be blocked; memory fallback has already been cleared.
+    }
+    return;
+  }
+
   const storage = getPersistentStorage();
   if (!storage) {
     memoryLocalFallback.set(key, value);
@@ -220,6 +240,8 @@ export function setLocalItem(key: string, value: string): void {
 }
 
 export function getLocalItem(key: string): string | null {
+  if (isSensitiveStorageKey(key)) return null;
+
   const fallbackValue = memoryLocalFallback.get(key);
   if (fallbackValue !== undefined) return fallbackValue;
 
