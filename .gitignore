@@ -128,6 +128,9 @@ hushh-webapp/android/app/build/
 
 envs
 envs_From_Others
+
+.claude/
+<<<<<<< Updated upstream
 envs_From_Others.zip
 Personal_Tasks/
 .ci-bin/
@@ -157,3 +160,13 @@ test_kai_endpoints.py
 ehthumbs.db
 ehthumbs_vista.db
 [Tt]humbs.db
+=======
+
+.claude/
+
+.claude/
+>>>>>>> Stashed changes
+
+hushh-research/
+
+/hushh-research/
