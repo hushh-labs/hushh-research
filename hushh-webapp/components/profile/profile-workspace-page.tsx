@@ -2463,6 +2463,11 @@ function ProfilePageContent({
             purpose: "Mail, phone, and sign-in identity.",
           },
           {
+            id: "connected-systems",
+            title: "Connected Systems",
+            purpose: "Salesforce CRM and MuleSoft-backed systems.",
+          },
+          {
             id: "preferences",
             title: PROFILE_LABELS.preferences,
             purpose: "Theme and accent preferences.",

@@ -17,6 +17,7 @@ TAG_LENGTH = 16
 ALGORITHM_NAME: Literal["aes-256-gcm"] = "aes-256-gcm"
 
 
+
 # ==================== Encrypt ====================
 def validate_key_hex(key_hex: str) -> None:
     if len(key_hex) != 64:

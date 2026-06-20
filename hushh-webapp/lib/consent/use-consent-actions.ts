@@ -52,6 +52,21 @@ export interface PendingConsent {
 }
 
 type RequestStatus = "pending" | "handling" | "handled";
+export type ConsentActionKind = "approve" | "deny" | "revoke";
+
+export interface ConsentActionState {
+  key: string;
+  kind: ConsentActionKind;
+  requestId?: string;
+  scope?: string;
+}
+
+export interface ConsentMutationDetail {
+  action: ConsentActionKind;
+  requestId?: string;
+  scope?: string;
+  source: "consent_actions";
+}
 
 /** At most this many item decisions of one grouped request run at once. */
 export const BUNDLE_DECISION_CONCURRENCY = 3;
