@@ -10,8 +10,8 @@ import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import {
-  kaiAppHeroBodyClassName,
-  kaiAppHeroTitleClassName,
+  kaiAppBodyClassName,
+  kaiAppCompactTitleClassName,
 } from "@/components/kai/shared/kai-typography";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -140,22 +140,22 @@ function PhoneMandatePageContent() {
           <Image
             src="/one-quiet-emoji.png"
             alt=""
-            width={52}
-            height={52}
+            width={48}
+            height={48}
             priority
             aria-hidden="true"
             draggable={false}
-            className="mx-auto h-[52px] w-[52px] select-none object-contain drop-shadow-[0_14px_28px_rgba(0,0,0,0.08)]"
+            className="mx-auto h-12 w-12 select-none object-contain drop-shadow-[0_14px_28px_rgba(0,0,0,0.08)]"
           />
           <div
             role="heading"
             aria-level={1}
             aria-label="Verify your phone number"
-            className={`mt-2.5 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
+            className={`mt-2.5 ${kaiAppCompactTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
           >
             Verify your phone number
           </div>
-          <p className={`mx-auto mt-3 max-w-[20rem] ${kaiAppHeroBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
+          <p className={`mx-auto mt-2.5 max-w-[20rem] ${kaiAppBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
             Add your phone number to continue.
           </p>
         </header>
@@ -167,7 +167,7 @@ function PhoneMandatePageContent() {
           onCompleted={continueToNextRoute}
           onContinueExisting={continueToNextRoute}
           confirmLabel="Verify and continue"
-          className="mt-10 min-h-[25rem] gap-5"
+          className="mt-8 min-h-[24rem] gap-5"
         />
 
         <div id="recaptcha-container" className="mt-6 min-h-0" />

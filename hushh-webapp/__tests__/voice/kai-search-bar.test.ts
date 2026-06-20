@@ -99,6 +99,7 @@ vi.mock("@/components/app-ui/shell-action-surface", () => ({
 
 vi.mock("@/components/agent/agent-popover-provider", () => ({
   useOptionalAgentPopover: () => ({
+    available: true,
     openAgent: mockOpenAgent,
   }),
 }));
@@ -432,6 +433,7 @@ describe("kai-search-bar helpers", () => {
         voiceAvailable: false,
         voiceVisibilityMode: "disabled",
         voiceUnavailableReason: "Unlock your vault to use voice",
+        showAgent: true,
       }),
     );
 
@@ -441,10 +443,27 @@ describe("kai-search-bar helpers", () => {
     expect(screen.getByRole("button", { name: "Start RIA voice" }).getAttribute("aria-disabled")).toBe(
       "true",
     );
+    expect(screen.queryByRole("button", { name: "Open Agent" })).toBeNull();
+    expect(mockOpenAgent).not.toHaveBeenCalled();
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "Open Agent" }));
+  it("hides Agent action until the shell marks Agent ready", () => {
+    vi.useRealTimers();
 
-    expect(mockOpenAgent).toHaveBeenCalledTimes(1);
+    render(
+      createElement(KaiSearchBar, {
+        onSelectAction: vi.fn(),
+        onVoiceResponse: vi.fn(),
+        surfaceVariant: "ria",
+        userId: "user_1",
+        vaultOwnerToken: "vault_token",
+        voiceAvailable: false,
+        voiceVisibilityMode: "disabled",
+        showAgent: false,
+      }),
+    );
+
+    expect(screen.queryByRole("button", { name: "Open Agent" })).toBeNull();
   });
 
   it("keeps Kai voice inside the compact search surface", () => {

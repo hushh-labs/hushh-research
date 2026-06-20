@@ -39,7 +39,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
             "line-clamp-2 text-[12px] leading-5 text-muted-foreground text-center sm:text-left",
           content: "flex-1 gap-1.5 text-center sm:text-left",
           closeButton:
-            "left-auto right-3 top-3 border-border/70 bg-background/90 text-muted-foreground hover:bg-muted hover:text-foreground",
+            "left-auto right-3 top-3 border-border/70 bg-background/90 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         },
       }}
       style={
