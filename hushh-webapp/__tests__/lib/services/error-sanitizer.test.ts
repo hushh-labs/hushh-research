@@ -429,4 +429,29 @@ describe("getErrorMessage", () => {
     expect(typeof result).toBe("string");
     expect(result.length).toBeGreaterThan(0);
   });
+
+  it("returns Error.message when the stack property is deleted", () => {
+    const error = err("missing stack message");
+
+    delete error.stack;
+
+    expect(() => getErrorMessage(error)).not.toThrow();
+    expect(getErrorMessage(error)).toBe("missing stack message");
+  });
+
+  it.each([
+    [{ frames: ["internal"] }],
+    [42],
+    [false],
+  ])("returns Error.message when stack is non-string data: %s", (stack) => {
+    const error = err("non-string stack message");
+
+    Object.defineProperty(error, "stack", {
+      configurable: true,
+      value: stack,
+    });
+
+    expect(() => getErrorMessage(error)).not.toThrow();
+    expect(getErrorMessage(error)).toBe("non-string stack message");
+  });
 });
