@@ -64,6 +64,14 @@ describe("normalizeConsentResponse", () => {
       expect(call({ scopes: { 0: "vault:read" } })).toStrictEqual(DENY);
     });
 
+    it("rejects permissions arrays containing non-string values", () => {
+      expect(call({ permissions: ["profile:read", 42, null] })).toStrictEqual(DENY);
+    });
+
+    it("rejects scopes arrays containing non-string values", () => {
+      expect(call({ scopes: ["vault:read", false, {}] })).toStrictEqual(DENY);
+    });
+
     it("rejects array top-level payload (not a plain object)", () => {
       expect(call([{ active: true }])).toStrictEqual(DENY);
     });
