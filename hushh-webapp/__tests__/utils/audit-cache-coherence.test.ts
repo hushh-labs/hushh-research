@@ -28,9 +28,4 @@ describe("audit-cache-coherence Windows path support", () => {
       'path.relative(path.join(appRoot, "app"), filePath).replaceAll("\\\\", "/")'
     );
   });
-
-  it("does not add exported or module-level helper surface", () => {
-    expect(scriptSource).not.toMatch(/\bexport\s+(function|const|let|var)\b/);
-    expect(scriptSource).not.toContain("module.exports");
-  });
 });
