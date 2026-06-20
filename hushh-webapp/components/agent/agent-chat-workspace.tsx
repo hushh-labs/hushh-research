@@ -14,19 +14,20 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Bot,
+  ChevronDown,
   Check,
   Copy,
   KeyRound,
   LogIn,
   Menu,
   Mic,
-  Minus,
   RotateCcw,
   Send,
   Sparkles,
   ThumbsDown,
   ThumbsUp,
   UserRound,
+  X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -284,7 +285,7 @@ function AgentWelcomePanel({
   return (
     <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-6 sm:py-10">
       <div className="mx-auto w-full max-w-2xl">
-        <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.035] px-3 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
+        <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-border bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground">
           <Sparkles className="h-3.5 w-3.5 text-primary" />
           Kai workspace
         </div>
@@ -301,7 +302,7 @@ function AgentWelcomePanel({
               type="button"
               disabled={disabled}
               onClick={() => onPromptSelect(prompt)}
-              className="group min-h-24 rounded-xl border border-black/10 bg-white/80 p-4 text-left text-sm font-medium text-[#1d1d1f] shadow-sm shadow-black/[0.03] transition hover:border-primary/40 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.035] dark:text-zinc-200 dark:hover:bg-white/[0.06]"
+              className="agent-themed-card-surface group min-h-24 rounded-xl border border-border/70 p-4 text-left text-sm font-medium shadow-sm transition hover:border-primary/40 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span className="block leading-5">{prompt}</span>
               <span className="mt-4 block h-px w-10 bg-primary/50 transition group-hover:w-14" />
@@ -529,7 +530,7 @@ function AgentBubble({
       )}
     >
       {!isUser ? (
-        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-black/10 bg-black/[0.035] text-[rgba(0,0,0,0.58)] sm:grid dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300">
+        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-border bg-muted/50 text-muted-foreground sm:grid">
           <Bot className="h-3.5 w-3.5" />
         </div>
       ) : null}
@@ -545,7 +546,7 @@ function AgentBubble({
             "text-sm leading-6",
             isUser
               ? "rounded-2xl bg-primary px-4 py-2.5 text-primary-foreground shadow-sm shadow-primary/10"
-              : "px-0 py-1 text-[#1d1d1f] dark:text-zinc-200",
+              : "px-0 py-1 text-foreground",
             isError &&
               "rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-destructive"
           )}
@@ -568,7 +569,7 @@ function AgentBubble({
         </div>
         <div
           className={cn(
-            "mt-1 flex items-center gap-2 text-[11px] text-[rgba(0,0,0,0.46)] dark:text-zinc-500",
+            "mt-1 flex items-center gap-2 text-[11px] text-muted-foreground",
             isUser && "justify-end text-right"
           )}
         >
@@ -578,7 +579,7 @@ function AgentBubble({
               <button
                 type="button"
                 onClick={handleCopy}
-                className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                 aria-label={copied ? "Response copied" : "Copy response"}
                 title={copied ? "Copied" : "Copy response"}
               >
@@ -594,8 +595,8 @@ function AgentBubble({
                 className={cn(
                   "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                   liked
-                    ? "border-black/10 bg-black/[0.06] text-[#1d1d1f] dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100"
-                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                    ? "border-border bg-muted text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
                 )}
                 aria-label="Like response"
                 aria-pressed={liked}
@@ -613,8 +614,8 @@ function AgentBubble({
                 className={cn(
                   "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                   disliked
-                    ? "border-black/10 bg-black/[0.06] text-[#1d1d1f] dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100"
-                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                    ? "border-border bg-muted text-foreground"
+                    : "border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
                 )}
                 aria-label="Dislike response"
                 aria-pressed={disliked}
@@ -627,7 +628,7 @@ function AgentBubble({
                   type="button"
                   onClick={onRetry}
                   disabled={retryDisabled}
-                  className="ml-1 inline-flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+                  className="ml-1 inline-flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium text-muted-foreground transition hover:border-border hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-45"
                   aria-label="Try again"
                   title="Try again"
                 >
@@ -640,7 +641,7 @@ function AgentBubble({
         </div>
       </div>
       {isUser ? (
-        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-black/10 bg-black/[0.035] text-[rgba(0,0,0,0.56)] sm:grid dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
+        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-border bg-muted/50 text-muted-foreground sm:grid">
           <UserRound className="h-3.5 w-3.5" />
         </div>
       ) : null}
@@ -1486,7 +1487,7 @@ export function AgentChatWorkspace({
           }
           if (!voiceTtsFailureReported) {
             voiceTtsFailureReported = true;
-            toast.error("Agent voice audio failed. Falling back to browser speech.");
+            toast.error("Agent voice audio failed. The text response is still available.");
           }
         },
       });
@@ -2687,7 +2688,7 @@ export function AgentChatWorkspace({
         </div>
         <div
           className={cn(
-            "fixed inset-0 z-[520] bg-black/35 backdrop-blur-sm transition-opacity duration-200 dark:bg-black/55 lg:hidden",
+            "fixed inset-0 z-[520] bg-foreground/25 backdrop-blur-sm transition-opacity duration-200 lg:hidden",
             isHistoryDrawerOpen ? "opacity-100" : "pointer-events-none opacity-0"
           )}
           aria-hidden="true"
@@ -2706,7 +2707,7 @@ export function AgentChatWorkspace({
           inert={!isHistoryDrawerOpen}
           onKeyDown={handleHistoryDrawerKeyDown}
         >
-          {renderHistorySidebar("h-full w-full shadow-2xl shadow-black/40", () =>
+          {renderHistorySidebar("h-full w-full shadow-2xl shadow-foreground/20", () =>
             setIsHistoryDrawerOpen(false)
           )}
         </div>
@@ -2714,13 +2715,13 @@ export function AgentChatWorkspace({
         <section
           className={cn(
             "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
-            isPopover && "rounded-lg border border-black/10 shadow-sm dark:border-white/10"
+            isPopover && "rounded-lg border border-border shadow-sm"
           )}
           inert={isHistoryDrawerOpen}
         >
           <div
             className={cn(
-              "flex shrink-0 touch-pan-y items-center justify-between gap-3 border-b border-border/70 bg-background/92 px-3 pt-[var(--app-safe-area-top-effective,0px)] backdrop-blur sm:px-5",
+              "relative flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-background/92 px-3 pt-[var(--app-safe-area-top-effective,0px)] backdrop-blur sm:px-5",
               isPopover
                 ? "h-14 sm:h-16"
                 : "h-[calc(3.5rem+var(--app-safe-area-top-effective,0px))] sm:h-[calc(4rem+var(--app-safe-area-top-effective,0px))]",
@@ -2732,13 +2733,14 @@ export function AgentChatWorkspace({
               swipeStartYRef.current = null;
             }}
           >
-            <div className="flex min-w-0 items-center gap-3">
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 border-b border-border/70" />
+            <div className="relative z-10 flex min-w-0 items-center gap-3">
               {!isPopover ? (
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 lg:hidden"
+                  className="h-9 w-9 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 lg:hidden"
                   onClick={openHistoryDrawer}
                   aria-label="Open chat history"
                   title="Open chat history"
@@ -2746,10 +2748,10 @@ export function AgentChatWorkspace({
                   <Menu className="h-4 w-4" />
                 </Button>
               ) : null}
-              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-black/10 bg-black/[0.035] text-primary dark:border-white/10 dark:bg-white/[0.04]">
+              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border bg-background text-primary shadow-sm">
                 <Bot className="h-4 w-4" />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 bg-background/95 pr-1">
                 <div className="truncate text-sm font-medium leading-5 text-foreground sm:text-base">
                   Agent
                 </div>
@@ -2759,8 +2761,8 @@ export function AgentChatWorkspace({
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-2">
-              <span className="hidden rounded-md border border-black/10 bg-black/[0.035] px-2.5 py-1 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.03] dark:text-zinc-400 sm:inline-flex">
+            <div className="relative z-10 flex shrink-0 items-center gap-2">
+              <span className="hidden rounded-md border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground sm:inline-flex">
                 {statusText}
               </span>
               {!isPopover ? (
@@ -2768,12 +2770,25 @@ export function AgentChatWorkspace({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 rounded-lg text-[rgba(0,0,0,0.56)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-50 lg:hidden"
+                  className="h-9 w-9 rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 lg:hidden"
                   onClick={handlePageMinimize}
-                  aria-label="Minimize Agent"
-                  title="Minimize Agent"
+                  aria-label="Close Agent"
+                  title="Close Agent"
                 >
-                  <Minus className="h-4 w-4" />
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              ) : null}
+              {isPopover && onMinimize ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 sm:hidden"
+                  onClick={onMinimize}
+                  aria-label="Close Agent"
+                  title="Close Agent"
+                >
+                  <X className="h-4 w-4" />
                 </Button>
               ) : null}
               {windowControls ? <div className="ml-1">{windowControls}</div> : null}
@@ -2782,8 +2797,8 @@ export function AgentChatWorkspace({
 
           <div
             className={cn(
-              "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
-              isPopover ? "pb-4" : "pb-6 lg:px-8"
+              "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
+              isPopover ? "pb-4 pt-5" : "pb-6 pt-8 sm:pt-10 lg:px-8 lg:pt-6"
             )}
           >
             <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-6">
@@ -2843,10 +2858,10 @@ export function AgentChatWorkspace({
           </div>
 
           {voiceTranscriptReview ? (
-            <div className="absolute inset-0 z-20 grid place-items-end bg-black/25 p-4 backdrop-blur-[2px] dark:bg-black/40 sm:place-items-center">
+            <div className="absolute inset-0 z-20 grid place-items-end bg-foreground/20 p-4 backdrop-blur-[2px] sm:place-items-center">
               <div
                 ref={voiceTranscriptDialogRef}
-                className="w-full max-w-sm rounded-xl border border-black/10 bg-white p-4 shadow-xl dark:border-white/10 dark:bg-[#15171c]"
+                className="agent-themed-popover-surface w-full max-w-sm rounded-xl border border-border p-4 shadow-xl"
                 role="dialog"
                 aria-modal="true"
                 aria-label="Confirm voice transcript"
@@ -2896,7 +2911,7 @@ export function AgentChatWorkspace({
           >
             <div className="mx-auto w-full max-w-3xl">
               {voiceActive ? (
-                <div className="rounded-2xl border border-black/10 bg-[#f5f5f7] p-2 shadow-lg shadow-black/[0.06] dark:border-white/10 dark:bg-[#0f1116] dark:shadow-black/15">
+                <div className="agent-themed-card-surface rounded-2xl border border-border p-2 shadow-[var(--app-card-shadow-standard)]">
                   <AgentVoiceWaveInput
                     status={voiceState}
                     level={voiceLevel}
@@ -2909,7 +2924,7 @@ export function AgentChatWorkspace({
                   />
                 </div>
               ) : (
-                <div className="flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-black/10 bg-[#f5f5f7] px-3 py-2 shadow-lg shadow-black/[0.06] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 dark:border-white/12 dark:bg-[#0f1116] dark:shadow-black/15">
+                <div className="agent-themed-card-surface flex min-h-14 items-end gap-2 rounded-[1.5rem] border border-border px-3 py-2 shadow-[var(--app-card-shadow-standard)] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20">
                   <textarea
                     ref={composerTextareaRef}
                     aria-label="Message Agent"
@@ -2927,14 +2942,14 @@ export function AgentChatWorkspace({
                     disabled={!hasChatAccess || isLoadingHistory || isVoiceConnecting}
                     placeholder="Message Agent..."
                     rows={1}
-                    className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-6 text-[#1d1d1f] outline-none placeholder:text-[rgba(0,0,0,0.42)] disabled:cursor-not-allowed disabled:opacity-60 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+                    className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
                   />
                   {agentVoiceEnabled ? (
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-9 w-9 shrink-0 rounded-xl text-[rgba(0,0,0,0.50)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100"
+                      className="h-9 w-9 shrink-0 rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60"
                       disabled={!canToggleVoice}
                       onClick={handleToggleVoice}
                       aria-label="Start voice mode"
@@ -2946,7 +2961,7 @@ export function AgentChatWorkspace({
                   <Button
                     type="submit"
                     size="icon"
-                    className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] disabled:shadow-none dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500"
+                    className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none"
                     disabled={!canSend}
                     aria-label="Send message"
                   >

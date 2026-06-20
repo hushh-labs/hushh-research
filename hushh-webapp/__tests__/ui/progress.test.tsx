@@ -23,7 +23,7 @@ describe("Progress", () => {
       '[data-slot="progress-indicator"]',
     ) as HTMLElement;
 
-    expect(indicator.style.width).toBe("50%");
+    expect(indicator.style.transform).toBe("translateX(-50%)");
   });
 
   it("clamps values above 100", () => {
@@ -33,7 +33,7 @@ describe("Progress", () => {
       '[data-slot="progress-indicator"]',
     ) as HTMLElement;
 
-    expect(indicator.style.width).toBe("100%");
+    expect(indicator.style.transform).toBe("translateX(-0%)");
   });
 
   it("clamps values below 0", () => {
@@ -43,6 +43,6 @@ describe("Progress", () => {
       '[data-slot="progress-indicator"]',
     ) as HTMLElement;
 
-    expect(indicator.style.width).toBe("0%");
+    expect(indicator.style.transform).toBe("translateX(-100%)");
   });
 });
