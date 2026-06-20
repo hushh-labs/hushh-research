@@ -32,7 +32,6 @@ Core commands:
 Operational commands:
   docs verify
   env bootstrap
-  env preflight [--json]
   env use --mode <local|uat|prod> [--dry-run]
   db init-iam
   db verify-iam-schema
@@ -588,10 +587,6 @@ run_env() {
     bootstrap)
       shift
       exec bash "$REPO_ROOT/scripts/env/bootstrap_profiles.sh" "$@"
-      ;;
-    preflight)
-      shift
-      exec node "$REPO_ROOT/scripts/env/env-preflight.mjs" "$@"
       ;;
     use)
       shift
