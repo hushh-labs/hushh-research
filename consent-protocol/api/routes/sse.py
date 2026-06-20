@@ -18,11 +18,11 @@ from fastapi import APIRouter, Header, HTTPException, Path, Request
 from sse_starlette.sse import EventSourceResponse
 
 from api.utils.firebase_auth import verify_firebase_bearer
-from mcp_modules.log_redaction import redact_log_value
 from hushh_mcp.services.consent_request_links import (
     build_consent_request_path,
     build_consent_request_url,
 )
+from mcp_modules.log_redaction import redact_log_value
 
 logger = logging.getLogger(__name__)
 
