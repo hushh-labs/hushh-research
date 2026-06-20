@@ -1697,6 +1697,24 @@ body:has([data-one-market-surface="true"]) .bar-glass-top {
   background: transparent;
 }
 
+.agent-themed-card-surface {
+  background-color: var(--app-card-surface-default-solid);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+
+.agent-themed-popover-surface {
+  background-color: var(--popover);
+  color: var(--popover-foreground);
+  border-color: var(--border);
+}
+
+.agent-themed-app-surface {
+  background-color: var(--background);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+
 /* Custom Scrollbar Styles */
 @layer utilities {
   .scrollbar-thin {
