@@ -112,6 +112,20 @@ describe("resolveSlowRequestTimeoutMs — fringe-input boundary fallbacks", () =
     expect(resolveSlowRequestTimeoutMs(0)).toBe(SAFE_FLOOR);
   });
 
+  it.each([-15.5, -0.001, -0, 0.000])(
+    "falls back to the safe floor for non-positive float defaultMs values: %s",
+    (defaultMs) => {
+      process.env.NEXT_PUBLIC_APP_ENV = "uat";
+      delete process.env.HUSHH_SLOW_REQUEST_TIMEOUT_MS;
+
+      const result = resolveSlowRequestTimeoutMs(defaultMs);
+
+      expect(result).toBe(SAFE_FLOOR);
+      expect(Number.isFinite(result)).toBe(true);
+      expect(result).toBeGreaterThan(0);
+    }
+  );
+
   // ── NaN defaultMs ─────────────────────────────────────────────────────────
 
   it("falls back to the safe floor when defaultMs is NaN — no NaN escapes the function", () => {
