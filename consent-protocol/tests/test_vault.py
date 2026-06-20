@@ -16,7 +16,12 @@ import base64
 import json
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
+import api.routes.db_proxy as db_proxy_module
+from api.middleware import require_firebase_auth
+from api.routes.db_proxy import router as db_proxy_router
 from hushh_mcp.types import EncryptedPayload
 from hushh_mcp.vault.encrypt import decrypt_data, encrypt_data
 
@@ -135,3 +140,41 @@ def test_encrypt_rejects_non_hex_key():
         match="Encryption failed: AES-256 key must be valid hexadecimal",
     ):
         encrypt_data("test data", "z" * 64)
+
+
+def test_vault_wrapper_upsert_suppresses_key_rotation_error_detail(monkeypatch):
+    app = FastAPI()
+    app.include_router(db_proxy_router)
+
+    async def fake_firebase_auth():
+        return "user-key-rotation"
+
+    class FailingVaultKeysService:
+        async def upsert_wrapper(self, **_kwargs):
+            raise RuntimeError("key rotation failed for raw vault key material")
+
+    app.dependency_overrides[require_firebase_auth] = fake_firebase_auth
+    monkeypatch.setattr(db_proxy_module, "VaultKeysService", FailingVaultKeysService)
+
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.post(
+        "/db/vault/wrapper/upsert",
+        headers={"x-hushh-client-version": "2.0.0"},
+        json={
+            "userId": "user-key-rotation",
+            "vaultKeyHash": "vault-hash",
+            "method": "generated_default_web_prf",
+            "wrapperId": "credential-1",
+            "encryptedVaultKey": "encrypted-wrapper",
+            "salt": "salt",
+            "iv": "iv",
+            "passkeyCredentialId": "credential-1",
+            "passkeyPrfSalt": "prf-salt",
+            "passkeyRpId": "localhost",
+        },
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Database error"}
+    assert "raw vault key material" not in response.text
+    assert "key rotation failed" not in response.text
