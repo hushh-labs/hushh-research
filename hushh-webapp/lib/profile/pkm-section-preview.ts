@@ -67,6 +67,21 @@ const HIDDEN_CONSUMER_KEYS = new Set([
   "contract_version",
   "projection_version",
 ]);
+const FALLBACK_SUPPORTED_CURRENCY_CODES = new Set([
+  "USD",
+  "EUR",
+  "GBP",
+  "CAD",
+  "AUD",
+  "JPY",
+  "CHF",
+  "INR",
+]);
+const SUPPORTED_CURRENCY_CODES = new Set(
+  typeof Intl.supportedValuesOf === "function"
+    ? Intl.supportedValuesOf("currency")
+    : FALLBACK_SUPPORTED_CURRENCY_CODES
+);
 
 const ENTITY_TITLE_KEYS = ["title", "name", "label", "summary", "merchant", "symbol", "entity_id", "id"];
 const ENTITY_SUBTITLE_KEYS = ["kind", "status", "category"];
@@ -188,7 +203,14 @@ function formatPercent(value: unknown): string | null {
 
 function formatAmountValue(amount: unknown, currency: unknown): string | null {
   if (typeof amount !== "number" || !Number.isFinite(amount)) return null;
-  const code = typeof currency === "string" && currency.trim() ? currency.trim().toUpperCase() : "USD";
+  const candidate =
+    typeof currency === "string" && currency.trim()
+      ? currency.trim().toUpperCase()
+      : "USD";
+  const code =
+    /^[A-Z]{3}$/.test(candidate) && SUPPORTED_CURRENCY_CODES.has(candidate)
+      ? candidate
+      : "USD";
   try {
     return new Intl.NumberFormat(undefined, {
       style: "currency",

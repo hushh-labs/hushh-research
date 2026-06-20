@@ -113,4 +113,90 @@ describe("buildPkmSectionPreviewPresentation", () => {
       "Preference signals",
     ]);
   });
+
+  it.each([
+    ["empty string", ""],
+    ["unsupported alphabetic code", "XYZ"],
+    ["numeric string", "123"],
+    ["number", 123],
+  ])("falls back to USD for malformed receipt currency codes: %s", (_label, currency) => {
+    const presentation = buildPkmSectionPreviewPresentation({
+      domain: "shopping",
+      domainTitle: "Shopping",
+      permissionLabel: "Receipts memory",
+      topLevelScopePath: "receipts_memory",
+      value: {
+        receipts_memory: {
+          observed_facts: {
+            recent_highlights: {
+              items: [
+                {
+                  merchant_label: "Test merchant",
+                  amount: 12.34,
+                  currency,
+                },
+              ],
+            },
+          },
+        },
+      },
+    });
+
+    const recentPurchases = presentation.groups.find(
+      (group) => group.kind === "entities" && group.title === "Recent purchases"
+    );
+
+    expect(recentPurchases?.kind).toBe("entities");
+    if (recentPurchases?.kind !== "entities") {
+      throw new Error("expected recent purchases entity group");
+    }
+
+    const amountField = recentPurchases.items[0]?.fields.find(
+      (field) => field.label === "Amount"
+    );
+
+    expect(amountField?.value).toMatch(/\$12\.34|US\$12\.34/);
+    if (String(currency)) {
+      expect(amountField?.value).not.toContain(String(currency));
+    }
+  });
+
+  it("preserves valid EUR receipt currency codes while guarding malformed values separately", () => {
+    const presentation = buildPkmSectionPreviewPresentation({
+      domain: "shopping",
+      domainTitle: "Shopping",
+      permissionLabel: "Receipts memory",
+      topLevelScopePath: "receipts_memory",
+      value: {
+        receipts_memory: {
+          observed_facts: {
+            recent_highlights: {
+              items: [
+                {
+                  merchant_label: "Euro merchant",
+                  amount: 45,
+                  currency: "eur",
+                },
+              ],
+            },
+          },
+        },
+      },
+    });
+
+    const recentPurchases = presentation.groups.find(
+      (group) => group.kind === "entities" && group.title === "Recent purchases"
+    );
+
+    expect(recentPurchases?.kind).toBe("entities");
+    if (recentPurchases?.kind !== "entities") {
+      throw new Error("expected recent purchases entity group");
+    }
+
+    const amountField = recentPurchases.items[0]?.fields.find(
+      (field) => field.label === "Amount"
+    );
+
+    expect(amountField?.value).toMatch(/€45\.00|EUR\s*45\.00/);
+  });
 });
