@@ -1,7 +1,7 @@
 "use client";
 
 export const kaiAppEyebrowClassName =
-  "text-[10.5px] font-medium uppercase tracking-[0.14em]";
+  "type-micro";
 
 export const kaiAppHeroTitleClassName =
   "text-[38px] font-medium leading-[1.05] tracking-normal sm:text-[40px]";
@@ -10,22 +10,22 @@ export const kaiAppHeroBodyClassName =
   "text-[17px] font-normal leading-[1.42] tracking-normal sm:text-[18px]";
 
 export const kaiAppDisplayTitleClassName =
-  "text-[30px] font-medium leading-[1.08] tracking-normal sm:text-[34px]";
+  "!text-[36px] !font-medium !leading-[1.06] !tracking-normal sm:!text-[48px]";
 
 export const kaiAppCompactTitleClassName =
-  "text-[30px] font-medium leading-[1.08] tracking-normal sm:text-[34px]";
+  "!text-[34px] !font-medium !leading-[1.06] !tracking-normal sm:!text-[42px]";
 
 export const kaiAppBodyClassName =
-  "text-[16px] font-normal leading-[1.45] tracking-normal sm:text-[17px]";
+  "!text-[16px] !font-normal !leading-[1.45] !tracking-normal sm:!text-[17px]";
 
 export const kaiAppSectionTitleClassName =
-  "text-[18px] font-medium leading-[1.18] tracking-normal sm:text-[20px]";
+  "!text-[21px] !font-medium !leading-[1.12] !tracking-normal sm:!text-[24px]";
 
 export const kaiAppCardTitleClassName =
-  "text-[15.5px] font-medium leading-[1.24] tracking-normal sm:text-[16px]";
+  "!text-[16.5px] !font-medium !leading-[1.22] !tracking-normal";
 
 export const kaiAppCardBodyClassName =
-  "text-[14px] font-normal leading-[1.42] tracking-normal";
+  "type-subhead";
 
 export const kaiAppHelperClassName =
-  "text-[12.5px] font-normal leading-[1.45] tracking-normal";
+  "type-footnote";

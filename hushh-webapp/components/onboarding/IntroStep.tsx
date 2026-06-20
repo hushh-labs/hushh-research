@@ -7,6 +7,7 @@ import {
   kaiAppHeroBodyClassName,
   kaiAppHeroTitleClassName,
 } from "@/components/kai/shared/kai-typography";
+import { OneLockup } from "@/components/app-ui/gold-period";
 
 function ShieldBadgeIcon(props: SVGProps<SVGSVGElement>) {
   return (
@@ -88,63 +89,65 @@ export function IntroStep({
 }) {
   return (
     <main className="min-h-[100dvh] w-full bg-[#ffffff] text-[#1d1d1f] transition-colors duration-300 dark:bg-[#000000] dark:text-[#f5f5f7]">
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col px-6 pt-[calc(42px+var(--app-safe-area-top-effective,0px))]">
-        <section className="relative flex flex-none flex-col items-center text-center">
-          <Image
-            src="/one-quiet-emoji.png"
-            alt=""
-            width={762}
-            height={766}
-            priority
-            unoptimized
-            aria-hidden="true"
-            draggable={false}
-            className="relative h-12 w-12 select-none object-contain"
-          />
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col px-6 pt-[calc(34px+var(--app-safe-area-top-effective,0px))] pb-[calc(18px+var(--app-safe-area-bottom-effective,0px))]">
+        <div className="flex min-h-0 flex-1 flex-col justify-center py-6">
+          <section className="relative flex flex-none flex-col items-center text-center">
+            <Image
+              src="/one-quiet-emoji.png"
+              alt=""
+              width={762}
+              height={766}
+              priority
+              unoptimized
+              aria-hidden="true"
+              draggable={false}
+              className="relative h-11 w-11 select-none object-contain"
+            />
 
-          <div
-            role="heading"
-            aria-level={1}
-            aria-label="Meet One, Your Personal Financial Advisor"
-            className={`relative mt-2.5 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
-          >
-            Meet One.
-          </div>
-          <p className={`relative mt-3 ${kaiAppHeroBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
-            Your personal financial advisor.
-          </p>
-        </section>
+            <div
+              role="heading"
+              aria-level={1}
+              aria-label="Meet One, Your Personal Financial Advisor"
+              className={`relative mt-2.5 ${kaiAppHeroTitleClassName} text-[#1d1d1f] dark:text-[#f5f5f7]`}
+            >
+              Meet <OneLockup />
+            </div>
+            <p className={`relative mt-3 ${kaiAppHeroBodyClassName} text-[rgba(0,0,0,0.56)] dark:text-[rgba(245,245,247,0.60)]`}>
+              Your personal financial advisor.
+            </p>
+          </section>
 
-        <div className="flex min-h-0 flex-1 items-center py-6">
-          <div className="relative w-full">
-            <div className="relative z-10 mx-auto flex w-full max-w-[340px] flex-col gap-4">
-              {INTRO_FEATURES.map((feature) => (
-                <div
-                  key={feature.title}
-                  className="grid min-h-[64px] grid-cols-[48px_minmax(0,1fr)] items-center gap-4 rounded-[22px]"
-                >
-                  <span
-                    className={`grid h-12 w-12 place-items-center rounded-full border border-black/[0.04] dark:border-white/10 ${feature.tileClassName}`}
+          <div className="flex-none pt-9">
+            <div className="relative w-full">
+              <div className="relative z-10 mx-auto flex w-full max-w-[340px] flex-col gap-3">
+                {INTRO_FEATURES.map((feature) => (
+                  <div
+                    key={feature.title}
+                    className="grid h-[70px] grid-cols-[48px_minmax(0,1fr)] items-center gap-4 rounded-[22px]"
                   >
-                    <feature.icon className="h-[22px] w-[22px]" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-[17px] font-medium leading-[1.22] tracking-normal text-[#1d1d1f] dark:text-[#f5f5f7]">
-                      {feature.title}
-                    </p>
-                    <p className="mt-1 text-[14.5px] leading-[1.35] tracking-normal text-[rgba(0,0,0,0.50)] dark:text-[rgba(245,245,247,0.56)]">
-                      {feature.subtitle}
-                    </p>
+                    <span
+                      className={`grid h-12 w-12 place-items-center rounded-full border border-black/[0.04] dark:border-white/10 ${feature.tileClassName}`}
+                    >
+                      <feature.icon className="h-[22px] w-[22px]" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-[16.5px] font-medium leading-[1.22] tracking-normal text-[#1d1d1f] dark:text-[#f5f5f7]">
+                        {feature.title}
+                      </p>
+                      <p className="mt-1 text-[14.5px] leading-[1.35] tracking-normal text-[rgba(0,0,0,0.50)] dark:text-[rgba(245,245,247,0.56)]">
+                        {feature.subtitle}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         </div>
 
-        <footer className="flex-none pb-[calc(18px+var(--app-safe-area-bottom-effective,0px))]">
+        <footer className="flex-none pt-3">
           <div className="space-y-4">
-            <p className="mx-auto max-w-[34ch] text-center text-[13.5px] leading-5 tracking-normal text-[#86868b] dark:text-[rgba(245,245,247,0.44)]">
+            <p className="type-footnote mx-auto max-w-[34ch] text-center text-[#86868b] dark:text-[rgba(245,245,247,0.44)]">
               One is consent-first. Your data stays in your vault — nothing is
               shared without your approval.
             </p>
@@ -153,14 +156,14 @@ export function IntroStep({
               fullWidth
               onClick={onNext}
               showRipple
-              className="h-[50px] rounded-full bg-[#0066cc] text-[17px] font-medium tracking-normal text-white shadow-none hover:bg-[#0071e3]"
+              className="type-headline h-[50px] rounded-full bg-[#0066cc] text-white shadow-none hover:bg-[#0071e3]"
             >
               Get started
             </Button>
             {onLogin ? (
               <button
                 type="button"
-                className="mx-auto block min-h-10 px-4 text-[15px] font-medium tracking-normal text-[#0066cc] transition-colors hover:text-[#0071e3] dark:text-[#2997ff] dark:hover:text-[#5eb0ff]"
+                className="type-subhead mx-auto block min-h-10 px-4 text-[#0066cc] transition-colors hover:text-[#0071e3] dark:text-[#2997ff] dark:hover:text-[#5eb0ff]"
                 onClick={onLogin}
               >
                 Log in

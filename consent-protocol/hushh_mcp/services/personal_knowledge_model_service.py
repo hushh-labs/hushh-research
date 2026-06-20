@@ -1418,7 +1418,7 @@ class PersonalKnowledgeModelService:
                 last_upgraded_at=last_upgraded_at,
             )
         except Exception as e:
-            logger.error(f"Error getting PKM index: {e}")
+            logger.error("pkm.get_index.error: %s", e)
             return None
 
     async def upsert_index_v2(self, index: PersonalKnowledgeModelIndex) -> bool:
@@ -1477,7 +1477,7 @@ class PersonalKnowledgeModelService:
             )
             return True
         except Exception as e:
-            logger.error(f"Error upserting PKM index: {e}")
+            logger.error("pkm.upsert_index.error: %s", e)
             return False
 
     async def update_domain_summary(
@@ -2653,7 +2653,7 @@ class PersonalKnowledgeModelService:
                 last_updated=index.last_active_at or datetime.now(UTC),
             )
         except Exception as e:
-            logger.error(f"Error getting user metadata: {e}")
+            logger.error("pkm.get_user_metadata.error: %s", e)
             return UserPersonalKnowledgeModelMetadata(user_id=user_id)
 
     # ==================== EMBEDDING OPERATIONS ====================
@@ -2695,7 +2695,7 @@ class PersonalKnowledgeModelService:
 
             return result.data or []
         except Exception as e:
-            logger.error(f"Error finding similar users: {e}")
+            logger.error("pkm.find_similar_users.error: %s", e)
             return []
 
     # ==================== PKM DATA OPERATIONS (BLOB-BASED) ====================
@@ -3069,7 +3069,7 @@ class PersonalKnowledgeModelService:
             result["updated_at"] = resolved_updated_at
             return result if return_result else True
         except Exception as e:
-            logger.error(f"Error storing domain data: {e}")
+            logger.error("pkm.store_domain_data.error: %s", e)
             return result if return_result else False
 
     async def get_encrypted_data(self, user_id: str) -> Optional[dict]:
@@ -3101,7 +3101,7 @@ class PersonalKnowledgeModelService:
                 "updated_at": row.get("updated_at"),
             }
         except Exception as e:
-            logger.error(f"Error getting encrypted data: {e}")
+            logger.error("pkm.get_encrypted_data.error: %s", e)
             return None
 
     async def get_domain_data(
@@ -3177,7 +3177,7 @@ class PersonalKnowledgeModelService:
             # Legacy fallback: domain exists only in the monolithic blob.
             index = await self.get_index_v2(user_id)
             if index is None or domain not in index.available_domains:
-                logger.info(f"Domain {domain} not found in user's available domains")
+                logger.info("pkm.get_domain_data.not_found domain=%s", domain)
                 return None
 
             legacy_blob = await self.get_encrypted_data(user_id)
@@ -3188,7 +3188,7 @@ class PersonalKnowledgeModelService:
                 "storage_mode": "legacy_full_blob",
             }
         except Exception as e:
-            logger.error(f"Error getting domain data: {e}")
+            logger.error("pkm.get_domain_data.error: %s", e)
             return None
 
     async def delete_user_data(self, user_id: str) -> bool:
@@ -3215,7 +3215,7 @@ class PersonalKnowledgeModelService:
 
             return True
         except Exception as e:
-            logger.error(f"Error deleting user data: {e}")
+            logger.error("pkm.delete_user_data.error: %s", e)
             return False
 
     async def delete_domain_data(self, user_id: str, domain: str) -> bool:
@@ -3263,12 +3263,12 @@ class PersonalKnowledgeModelService:
             # Get current index
             index = await self.get_index_v2(user_id)
             if index is None:
-                logger.warning(f"No index found for user {user_id} when deleting domain {domain}")
+                logger.warning("pkm.delete_domain.no_index user=[redacted] domain=%s", domain)
                 return True  # Nothing to delete
 
             # Check if domain exists
             if domain not in index.available_domains:
-                logger.info(f"Domain {domain} not in user {user_id}'s available domains")
+                logger.info("pkm.delete_domain.not_in_domains domain=%s", domain)
                 return True  # Domain doesn't exist, consider it deleted
 
             # Remove domain from available_domains
@@ -3291,17 +3291,17 @@ class PersonalKnowledgeModelService:
 
             # If no domains left, delete the entire index and data
             if not index.available_domains:
-                logger.info(f"No domains left for user {user_id}, deleting all data")
+                logger.info("pkm.delete_domain.last_domain user=[redacted]")
                 return await self.delete_user_data(user_id)
 
             # Update the index
             success = await self.upsert_index_v2(index)
             if success:
-                logger.info(f"Successfully deleted domain {domain} for user {user_id}")
+                logger.info("pkm.delete_domain.ok domain=%s", domain)
             return success
 
         except Exception as e:
-            logger.error(f"Error deleting domain {domain} for user {user_id}: {e}")
+            logger.error("pkm.delete_domain.error domain=%s: %s", domain, e)
             return False
 
     async def reconcile_user_index_domains(
@@ -3434,7 +3434,7 @@ class PersonalKnowledgeModelService:
             ).execute()
             return True
         except Exception as e:
-            logger.error(f"Error updating activity: {e}")
+            logger.error("pkm.update_activity.error: %s", e)
             return False
 
 
