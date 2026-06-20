@@ -1,5 +1,8 @@
 """CWE-400 bounds tests for Kai Gmail routes (6 models)."""
 
+import pathlib
+import re
+
 import pytest
 from pydantic import ValidationError
 
@@ -89,3 +92,26 @@ class TestGmailReceiptMemoryPreviewRequest:
     def test_user_id_bounds(self):
         with pytest.raises(ValidationError):
             GmailReceiptMemoryPreviewRequest(user_id="A" * 257)
+
+
+class TestGmailSyncRunQueryBounds:
+    """Verify max_length=128 on the user_id Query param in gmail_sync_run."""
+
+    def test_user_id_query_max_length_is_bounded(self):
+        src = (
+            pathlib.Path(__file__).parent.parent
+            / "api"
+            / "routes"
+            / "kai"
+            / "gmail.py"
+        ).read_text()
+
+        match = re.search(
+            r"def gmail_sync_run.*?user_id\s*:.*?Query\([^)]+\)",
+            src,
+            re.DOTALL,
+        )
+        assert match, "Could not find gmail_sync_run user_id Query parameter"
+        assert "max_length=128" in match.group(), (
+            "gmail_sync_run user_id Query param is missing max_length=128 bound (CWE-400)"
+        )

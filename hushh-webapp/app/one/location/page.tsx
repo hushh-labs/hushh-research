@@ -3389,7 +3389,10 @@ function OneLocationAgentPageContent() {
 
                 <div className="min-w-0 max-w-full space-y-3">
                   <div className="relative">
-                    <Search className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-[#8e8e93]" />
+                    <Search
+                      className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-[#8e8e93]"
+                      aria-hidden="true"
+                    />
                     <input
                       value={recipientSearch}
                       onChange={(event) =>
@@ -3459,6 +3462,7 @@ function OneLocationAgentPageContent() {
                     </div>
                     <div className="mt-3 grid gap-2 sm:grid-cols-2">
                       <ActionButton
+                        type="button"
                         busy={busy}
                         busyKey="contactSync"
                         onClick={() => void handleSyncContactSignal()}
@@ -3472,6 +3476,7 @@ function OneLocationAgentPageContent() {
                         Sync Contacts
                       </ActionButton>
                       <ActionButton
+                        type="button"
                         busy={busy}
                         busyKey="contactInvite"
                         onClick={() => void handleShareContactInvite()}

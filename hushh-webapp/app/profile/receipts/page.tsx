@@ -940,7 +940,7 @@ export default function ProfileReceiptsPage() {
               }
             >
               {syncing || (!isConnected && loadingStatus) ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
               ) : isConnected ? (
                 <RefreshCw className="mr-2 h-4 w-4" />
               ) : (
@@ -1015,7 +1015,7 @@ export default function ProfileReceiptsPage() {
 
             {receiptMemoryLoading && !receiptMemoryArtifact ? (
               <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-3 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                 Creating your shopping summary…
               </div>
             ) : null}
@@ -1080,7 +1080,7 @@ export default function ProfileReceiptsPage() {
                 data-voice-purpose="saves the current shopping summary into your personal memory."
               >
                 {receiptMemorySaving ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
                 ) : !vaultKey || !vaultOwnerToken || !isVaultUnlocked ? (
                   <Lock className="mr-2 h-4 w-4" />
                 ) : null}
@@ -1109,7 +1109,7 @@ export default function ProfileReceiptsPage() {
 
           {loadingStatus ? (
             <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               Loading Gmail connector status...
             </SurfaceInset>
           ) : null}
@@ -1177,7 +1177,7 @@ export default function ProfileReceiptsPage() {
 
           {isConnected && hasSealedReceiptAccess && loadingReceipts && !loadingStatus ? (
             <SurfaceInset className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               Loading your receipts…
             </SurfaceInset>
           ) : null}

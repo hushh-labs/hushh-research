@@ -42,10 +42,10 @@ export function KycPreviewCompact() {
         <div className="relative flex h-full flex-col">
           <div>
             <div className="flex items-center justify-between gap-4">
-            <span className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            <span className="type-caption text-muted-foreground">
               Identity check
             </span>
-            <span className="inline-flex items-center rounded-full bg-emerald-500/12 px-[11px] py-[5px] text-xs font-medium text-emerald-600 dark:text-emerald-300">
+            <span className="type-caption inline-flex items-center rounded-full bg-emerald-500/12 px-[11px] py-[5px] text-emerald-600 dark:text-emerald-300">
               Verified
             </span>
             </div>
@@ -68,7 +68,7 @@ export function KycPreviewCompact() {
                 >
                   <Icon icon={item.icon} size="md" />
                 </span>
-                <span className="flex-1 text-[15px] font-medium tracking-normal">
+                <span className="type-headline flex-1">
                   {item.label}
                 </span>
                 <span className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-full bg-emerald-500 text-white">
@@ -83,10 +83,10 @@ export function KycPreviewCompact() {
               <Icon icon={Zap} size="md" />
             </span>
             <div>
-              <p className="text-[14.5px] font-medium leading-tight tracking-normal">
+              <p className="type-headline">
                 KYC completed in minutes
               </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
+              <p className="type-footnote mt-0.5 text-muted-foreground">
                 90% faster than traditional KYC
               </p>
             </div>

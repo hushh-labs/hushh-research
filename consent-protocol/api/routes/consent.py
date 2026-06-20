@@ -322,7 +322,7 @@ class RefreshExportFailureRequest(BaseModel):
 
 @router.get("/pending")
 async def get_pending_consents(
-    userId: str = Query(..., max_length=128),
+    userId: str = Query(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -595,8 +595,8 @@ async def approve_consent(
     try:
         _consent_scope = resolve_scope_to_enum(requested_scope)
     except Exception as e:
-        logger.error("consent.scope_resolution_failed: %s", e)
-        raise HTTPException(status_code=400, detail=f"Invalid scope: {requested_scope}")
+        logger.error("consent.scope_resolution_failed scope=%r: %s", requested_scope, e)
+        raise HTTPException(status_code=400, detail="Invalid consent scope")
 
     # Optional metadata on pending request (used for expiry hints)
     metadata = pending_request.get("metadata", {})
@@ -618,7 +618,7 @@ async def approve_consent(
     )
     expiry_hours = metadata.get("expiry_hours", 24)
     if isinstance(requested_duration_hours, int) and requested_duration_hours > 0:
-        expiry_hours = min(requested_duration_hours, 24 * 365)
+        expiry_hours = min(requested_duration_hours, 24 * 30)
 
     # MODULAR COMPLIANCE CHECK: Idempotency
     # Before issuing a NEW token, check if a valid token for this scope/agent already exists.
@@ -738,20 +738,13 @@ async def approve_consent(
             else "superset",
         }
 
-    # CRITICAL FIX: Pass original scope STRING to issue_token, not enum
-    # This ensures token contains 'attr.financial.*' not 'pkm.read'
-    # The enum was validated above, but the token must preserve the exact scope
-    token = issue_token(
-        user_id=userId,
-        # Keep token agent_id aligned with consent_audit agent_id so DB revocation
-        # checks are deterministic across instances.
-        agent_id=pending_request["developer"],
-        scope=requested_scope,  # ✅ Pass string, not enum
-        expires_in_ms=expiry_hours * 60 * 60 * 1000,
-    )
+    # SECURITY: Validate the export payload BEFORE issuing a token.  If we
+    # issued the token first and a validation or storage step then raised an
+    # HTTP exception, a cryptographically valid token would already exist but
+    # would have no DB audit record and no way to revoke it.  All validation
+    # must complete successfully before any token string is materialised.
 
-    # Store encrypted export linked to token
-    # Persist to database for cross-instance consistency
+    # Build the wrapped key bundle (validation-only, no side effects yet)
     wrapped_key_bundle = None
     if connector_public_key:
         wrapped_key_bundle = _build_verified_wrapped_key_bundle(
@@ -782,6 +775,18 @@ async def approve_consent(
             encrypted_iv=encryptedIv,
             encrypted_tag=encryptedTag,
         )
+
+    # All validation passed - now safe to issue the token.  Scope is passed as
+    # the original string (not the enum) so that 'attr.financial.*' is preserved
+    # verbatim in the signed payload rather than being collapsed to 'pkm.read'.
+    token = issue_token(
+        user_id=userId,
+        # Keep agent_id aligned with consent_audit so DB revocation checks are
+        # deterministic across Cloud Run instances.
+        agent_id=pending_request["developer"],
+        scope=requested_scope,
+        expires_in_ms=expiry_hours * 60 * 60 * 1000,
+    )
 
     if encryptedData and wrapped_key_bundle:
         payload_data, payload_iv, payload_tag = encrypted_export_payload or (
@@ -918,8 +923,8 @@ async def approve_consent(
 
 @router.post("/pending/deny")
 async def deny_consent(
-    requestId: str,
-    userId: str = Query(..., max_length=128),
+    userId: str = Query(..., min_length=1, max_length=128),
+    requestId: str = Query(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
@@ -1047,7 +1052,7 @@ async def get_consent_center_list(
     mode: str = Query(default="consents", max_length=50),
     q: str | None = Query(default=None, max_length=200),
     top: int | None = Query(default=None, ge=1, le=10),
-    page: int = Query(default=1, ge=1),
+    page: int = Query(default=1, ge=1, le=1_000),
     limit: int = Query(default=20, ge=1, le=100),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
@@ -1107,7 +1112,7 @@ async def create_generic_consent_request(
 async def get_handshake_history(
     counterpart_id: str = Query(..., min_length=1, max_length=128),
     actor: str = Query(default="investor", max_length=50),
-    page: int = Query(default=1, ge=1),
+    page: int = Query(default=1, ge=1, le=1_000),
     limit: int = Query(default=50, ge=1, le=200),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
@@ -1300,7 +1305,7 @@ async def revoke_consent(
 
         if not token_to_revoke:
             raise HTTPException(
-                status_code=404, detail=f"No active consent found for scope: {scope}"
+                status_code=404, detail="No active consent found for the requested scope"
             )
 
         # CRITICAL: Add the actual token to in-memory revocation set
@@ -1535,7 +1540,7 @@ async def upload_refreshed_export(
         logger.warning("consent.export_refresh.token_invalid reason=%s", reason)
         raise HTTPException(
             status_code=401,
-            detail="Invalid or expired consent token.",
+            detail="Invalid or expired consent token",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if str(token_obj.user_id) != request.userId:

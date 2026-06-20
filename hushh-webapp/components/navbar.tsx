@@ -274,12 +274,12 @@ export const Navbar = () => {
     >
       <div
         className={cn(
-          "relative flex w-full max-w-[560px] items-end gap-2",
+          "relative flex w-full max-w-[548px] items-end gap-1",
           "pointer-events-none",
           hideBottomChrome && "pointer-events-none"
         )}
       >
-        <div className="min-w-0 pointer-events-auto" style={{ width: "calc(100% - 66px)" }}>
+        <div className="min-w-0 pointer-events-auto" style={{ width: "calc(100% - 62px)" }}>
           <SegmentedPill
             ref={pillRef}
             size="compact"
