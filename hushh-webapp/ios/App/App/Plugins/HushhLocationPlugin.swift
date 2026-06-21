@@ -16,11 +16,14 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     public let jsName = "HushhLocation"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getPermissionState", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "requestLocationPermission", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "openAppSettings", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openLocationSettings", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getCurrentPosition", returnType: CAPPluginReturnPromise)
     ]
 
     private let manager = CLLocationManager()
+    private var pendingPermissionCall: CAPPluginCall?
     private var pendingLocationCall: CAPPluginCall?
 
     public override func load() {
@@ -32,7 +35,29 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         call.resolve(permissionPayload())
     }
 
+    @objc func requestLocationPermission(_ call: CAPPluginCall) {
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse, .denied, .restricted:
+            call.resolve(permissionPayload())
+        case .notDetermined:
+            pendingPermissionCall = call
+            DispatchQueue.main.async {
+                self.manager.requestWhenInUseAuthorization()
+            }
+        @unknown default:
+            call.resolve(permissionPayload())
+        }
+    }
+
+    @objc func openAppSettings(_ call: CAPPluginCall) {
+        openAppSettingsPage(call)
+    }
+
     @objc func openLocationSettings(_ call: CAPPluginCall) {
+        openAppSettingsPage(call)
+    }
+
+    private func openAppSettingsPage(_ call: CAPPluginCall) {
         guard let settingsUrl = URL(string: UIApplication.openSettingsURLString) else {
             call.reject("Location settings are unavailable on this device.")
             return
@@ -108,6 +133,12 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     }
 
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        if let permissionCall = pendingPermissionCall {
+            pendingPermissionCall = nil
+            permissionCall.resolve(permissionPayload())
+            return
+        }
+
         guard let call = pendingLocationCall else { return }
 
         switch manager.authorizationStatus {

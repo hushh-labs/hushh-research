@@ -88,7 +88,7 @@ export function ThemeToggle({ className }: { className?: string }) {
             )}
           >
             <span className="relative z-10 inline-flex items-center gap-1.5">
-              <Icon icon={option.icon} size="sm" aria-hidden="true" />
+              <Icon icon={option.icon} size="sm" aria-hidden="true" className="text-current" />
               <span className="text-[11px] font-medium leading-none sm:text-xs">
                 {option.label}
               </span>
@@ -112,7 +112,7 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
     setMounted(true);
   }, []);
 
-  if (!mounted) return <div className="h-9 w-9" />;
+  if (!mounted) return <div className={cn("h-10 w-10", className)} />;
 
   const activeTheme = resolveActiveTheme(theme);
   const activeOption = THEME_OPTIONS.find((o) => o.value === activeTheme) ?? THEME_OPTIONS[0]!;
@@ -125,14 +125,14 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
           type="button"
           aria-label={`Theme: ${activeOption.label}`}
           className={cn(
-            "inline-flex h-9 w-9 items-center justify-center rounded-full border backdrop-blur-xl transition-all duration-150",
+            "inline-flex h-10 w-10 items-center justify-center rounded-full border backdrop-blur-xl transition-all duration-150",
             isDark
               ? "border-white/8 bg-black/85 text-zinc-100 hover:bg-neutral-900"
               : "border-slate-200 bg-white/85 text-slate-700 hover:bg-white",
             className
           )}
         >
-          <Icon icon={activeOption.icon} size="sm" aria-hidden="true" />
+          <Icon icon={activeOption.icon} size="sm" aria-hidden="true" className="text-current" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={8} className="min-w-[140px]">
@@ -142,9 +142,9 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
             <DropdownMenuItem
               key={option.value}
               onSelect={() => !isActive && setTheme(option.value)}
-              className={cn("flex items-center gap-2", isActive && "font-medium")}
+              className={cn("group flex items-center gap-2", isActive && "font-medium")}
             >
-              <Icon icon={option.icon} size="sm" aria-hidden="true" />
+              <Icon icon={option.icon} size="sm" aria-hidden="true" className="text-current" />
               <span className="flex-1">{option.label}</span>
               {isActive && <span className="text-xs">✓</span>}
             </DropdownMenuItem>

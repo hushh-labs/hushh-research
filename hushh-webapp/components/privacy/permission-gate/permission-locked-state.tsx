@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
+import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { Button } from "@/lib/morphy-ux/button";
 
 import type { PermissionRule } from "./permission-rules";
@@ -26,7 +27,9 @@ export function PermissionLockedState({ rule }: PermissionLockedStateProps) {
         </div>
 
         <Button asChild size="sm" variant="blue" showRipple>
-          <Link href="/consents">Review permissions</Link>
+          <Link href={buildConsentCenterHref("pending")}>
+            Review permissions
+          </Link>
         </Button>
       </SurfaceCardContent>
     </SurfaceCard>

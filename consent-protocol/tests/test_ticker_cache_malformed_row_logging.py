@@ -26,6 +26,7 @@ from hushh_mcp.services.ticker_cache import TickerCache
 # Unit-level: verify TickerCache.load_from_db() behaviour directly
 # ---------------------------------------------------------------------------
 
+
 def _make_mock_db(rows):
     """Return a mock db client whose table().select().order().execute() returns rows."""
     execute_result = MagicMock()
@@ -43,7 +44,12 @@ def _make_mock_db(rows):
 
 def test_malformed_rows_are_skipped_and_good_rows_loaded(caplog):
     """Good rows land in cache; bad rows are counted and warned about."""
-    good_row = {"ticker": "AAPL", "title": "Apple Inc.", "metadata_confidence": 0.9, "tradable": True}
+    good_row = {
+        "ticker": "AAPL",
+        "title": "Apple Inc.",
+        "metadata_confidence": 0.9,
+        "tradable": True,
+    }
     # This row will raise ValueError because metadata_confidence is not castable
     bad_row = {"ticker": "BAD1", "title": "Bad Corp", "metadata_confidence": "not-a-float"}
 
@@ -92,6 +98,7 @@ def test_all_good_rows_no_warning_emitted(caplog):
 # ---------------------------------------------------------------------------
 # HTTP proof: GET /api/tickers/all?refresh=true exercises load_from_db
 # ---------------------------------------------------------------------------
+
 
 def _make_app() -> FastAPI:
     app = FastAPI()

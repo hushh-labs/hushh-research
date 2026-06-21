@@ -7,11 +7,12 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { TrendingUp } from "lucide-react";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const domains = [
   {
     name: "Kai",
-    href: "/kai/portfolio",
+    href: ROUTES.KAI_PORTFOLIO,
     icon: TrendingUp,
     status: "active" as const,
     color: "text-primary",

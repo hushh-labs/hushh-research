@@ -56,6 +56,7 @@ const FIREBASE_WEB_PUSH_DATABASES = [
 ] as const;
 const FIREBASE_DEFAULT_WEB_PUSH_PUBLIC_KEY =
   "BDOU99-h67HcA6JeFXHbSNMu7e2yNNu3RzoMj8TM4W88jITfq7ZmPvIM1Iv-4_l2LxQcYwhqby2xGpWwzjfAnG4";
+const FIREBASE_MESSAGING_SW_PATH = "/firebase-messaging-sw.js";
 
 function hasValidWebMessagingConfig(app: {
   options?: {
@@ -332,20 +333,7 @@ async function registerWebPushTokenManually(
   throw new Error(lastError);
 }
 
-async function clearFirebaseWebPushState(
-  registration: ServiceWorkerRegistration
-): Promise<void> {
-  try {
-    const subscription = await registration.pushManager.getSubscription();
-    if (subscription) {
-      const endpoint = subscription.endpoint;
-      await subscription.unsubscribe();
-      console.log("[FCM] Cleared stale web push subscription:", endpoint);
-    }
-  } catch (error) {
-    console.warn("[FCM] Failed to clear existing push subscription:", error);
-  }
-
+async function clearFirebaseWebPushDatabases(): Promise<void> {
   if (!("indexedDB" in window)) {
     return;
   }
@@ -367,6 +355,42 @@ async function clearFirebaseWebPushState(
   );
 
   console.log("[FCM] Cleared cached Firebase web push state.");
+}
+
+async function resolveFirebaseMessagingRegistration(): Promise<ServiceWorkerRegistration | null> {
+  if (!("serviceWorker" in navigator)) {
+    return null;
+  }
+
+  try {
+    const existing = await navigator.serviceWorker.getRegistration(
+      FIREBASE_MESSAGING_SW_PATH
+    );
+    if (existing) {
+      return existing;
+    }
+    return await navigator.serviceWorker.register(FIREBASE_MESSAGING_SW_PATH);
+  } catch (error) {
+    console.warn("[FCM] Failed to resolve Firebase messaging service worker:", error);
+    return null;
+  }
+}
+
+async function clearFirebaseWebPushState(
+  registration: ServiceWorkerRegistration
+): Promise<void> {
+  try {
+    const subscription = await registration.pushManager.getSubscription();
+    if (subscription) {
+      const endpoint = subscription.endpoint;
+      await subscription.unsubscribe();
+      console.log("[FCM] Cleared stale web push subscription:", endpoint);
+    }
+  } catch (error) {
+    console.warn("[FCM] Failed to clear existing push subscription:", error);
+  }
+
+  await clearFirebaseWebPushDatabases();
 }
 
 /**
@@ -533,7 +557,7 @@ async function initializeWebFCM(
     }
 
     const registration = await navigator.serviceWorker.register(
-      "/firebase-messaging-sw.js"
+      FIREBASE_MESSAGING_SW_PATH
     );
     console.log("[FCM] Service worker registered:", registration.scope);
     await navigator.serviceWorker.ready;
@@ -915,7 +939,7 @@ export async function getFCMToken(): Promise<string | null> {
 
       const messaging = getMessaging(app);
       const registration = await navigator.serviceWorker.register(
-        "/firebase-messaging-sw.js"
+        FIREBASE_MESSAGING_SW_PATH
       );
       const token = await getToken(messaging, {
         vapidKey,
@@ -994,25 +1018,28 @@ export async function deleteFCMToken(
       }
     }
 
-    // Step 2: Delete the token from Firebase SDK
+    // Step 2: Clear the token/subscription from the current platform
     if (isNative) {
       const { FirebaseMessaging } = await import(
         "@capacitor-firebase/messaging"
       );
       await FirebaseMessaging.deleteToken();
     } else {
-      const { getMessaging, deleteToken } = await import("firebase/messaging");
       const { app } = await import("@/lib/firebase/config");
       if (!hasValidWebMessagingConfig(app)) {
         console.warn("[FCM] Missing Firebase Messaging config. Skipping token deletion.");
         return;
       }
 
-      const messaging = getMessaging(app);
-      await deleteToken(messaging);
+      const registration = await resolveFirebaseMessagingRegistration();
+      if (registration) {
+        await clearFirebaseWebPushState(registration);
+      } else {
+        await clearFirebaseWebPushDatabases();
+      }
     }
 
-    console.log("[FCM] Token deleted (Firebase + backend)");
+    console.log("[FCM] Token deleted (backend + local push state)");
   } catch (error) {
     console.error("[FCM] Failed to delete token:", error);
   }
