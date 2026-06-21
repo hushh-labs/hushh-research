@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 66,
+  "expected_migration_version": 67,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -506,6 +506,58 @@
       "error_count",
       "source_errors",
       "metadata"
+    ],
+    "connected_system_intents": [
+      "intent_id",
+      "user_id",
+      "system_id",
+      "action",
+      "status",
+      "target",
+      "object_type",
+      "record_id",
+      "approval_id",
+      "request_payload_json",
+      "readback_payload_json",
+      "field_names_json",
+      "result_class",
+      "result_payload_json",
+      "readback_result_json",
+      "error_code",
+      "error_message",
+      "created_at",
+      "updated_at"
+    ],
+    "connected_system_record_bindings": [
+      "binding_id",
+      "user_id",
+      "system_id",
+      "target",
+      "object_type",
+      "record_id",
+      "status",
+      "created_intent_id",
+      "last_intent_id",
+      "created_at",
+      "updated_at",
+      "deleted_at"
+    ],
+    "connected_system_audit_events": [
+      "event_id",
+      "user_id",
+      "system_id",
+      "target",
+      "object_type",
+      "action",
+      "record_id",
+      "intent_id",
+      "approval_id",
+      "field_names_json",
+      "mcp_result_class",
+      "readback_result_class",
+      "status",
+      "metadata_json",
+      "created_at"
     ]
   }
 }

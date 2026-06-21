@@ -23,6 +23,7 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { KaiProfileService } from "@/lib/services/kai-profile-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { cn } from "@/lib/utils";
+import { ROUTES } from "@/lib/navigation/routes";
 import { toInvestorMessage, toInvestorStreamText } from "@/lib/copy/investor-language";
 import type { PortfolioSource } from "@/lib/kai/brokerage/portfolio-sources";
 import {
@@ -1434,7 +1435,7 @@ export function DebateStreamView({
                 label: "Open active",
                 onClick: () => {
                   requestInternalAppNavigation({
-                    href: "/kai/analysis",
+                    href: ROUTES.KAI_ANALYSIS,
                     scroll: false,
                   });
                 },

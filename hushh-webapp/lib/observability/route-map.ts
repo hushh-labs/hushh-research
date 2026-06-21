@@ -1,13 +1,16 @@
 import { ROUTES } from "@/lib/navigation/routes";
 
 export const ROUTE_ID_VALUES = [
-  "landing",
+  "one_dashboard",
   "developers",
   "login",
   "logout",
   "phone_mandate",
   "labs_profile_appearance",
   "profile",
+  "gmail",
+  "pkm",
+  "connected_systems",
   "profile_pkm",
   "profile_pkm_agent_lab",
   "profile_receipts",
@@ -46,13 +49,27 @@ export const ROUTE_ID_VALUES = [
 export type RouteId = (typeof ROUTE_ID_VALUES)[number];
 
 export function resolveRouteId(pathname: string): RouteId {
-  if (pathname === ROUTES.HOME) return "landing";
+  if (pathname === ROUTES.HOME || pathname === ROUTES.ONE_HOME) return "one_dashboard";
   if (pathname === ROUTES.DEVELOPERS) return "developers";
   if (pathname === ROUTES.LOGIN) return "login";
   if (pathname === ROUTES.LOGOUT) return "logout";
   if (pathname === ROUTES.PHONE_MANDATE) return "phone_mandate";
   if (pathname === ROUTES.LABS_PROFILE_APPEARANCE) return "labs_profile_appearance";
   if (pathname === ROUTES.PROFILE) return "profile";
+  if (pathname === ROUTES.GMAIL || pathname === ROUTES.LEGACY_GMAIL) return "gmail";
+  if (pathname === ROUTES.PKM || pathname === ROUTES.LEGACY_PKM) return "pkm";
+  if (
+    pathname === ROUTES.CONNECTED_SYSTEMS ||
+    pathname === ROUTES.LEGACY_CONNECTED_SYSTEMS
+  ) {
+    return "connected_systems";
+  }
+  if (
+    pathname.startsWith(`${ROUTES.CONNECTED_SYSTEMS}/`) ||
+    pathname.startsWith(`${ROUTES.LEGACY_CONNECTED_SYSTEMS}/`)
+  ) {
+    return "connected_systems";
+  }
   if (pathname === ROUTES.PROFILE_PKM) return "profile_pkm";
   if (pathname === ROUTES.PROFILE_PKM_AGENT_LAB) return "profile_pkm_agent_lab";
   if (pathname === ROUTES.PROFILE_RECEIPTS) return "profile_receipts";
@@ -89,16 +106,47 @@ export function resolveRouteId(pathname: string): RouteId {
   ) {
     return "ria_workspace";
   }
-  if (pathname === ROUTES.KAI_HOME) return "kai_home";
-  if (pathname === ROUTES.KAI_ONBOARDING) return "kai_onboarding";
-  if (pathname === ROUTES.KAI_IMPORT) return "kai_import";
-  if (pathname === ROUTES.KAI_PLAID_OAUTH_RETURN) return "kai_plaid_oauth_return";
-  if (pathname === ROUTES.KAI_ALPACA_OAUTH_RETURN) return "kai_alpaca_oauth_return";
-  if (pathname === ROUTES.KAI_DASHBOARD) return "kai_dashboard";
-  if (pathname === ROUTES.KAI_INVESTMENTS) return "kai_investments";
-  if (pathname === ROUTES.KAI_FUNDING_TRADE) return "kai_funding_trade";
-  if (pathname === ROUTES.KAI_ANALYSIS) return "kai_analysis";
-  if (pathname === ROUTES.KAI_OPTIMIZE) return "kai_optimize";
+  if (pathname === ROUTES.KAI_HOME || pathname === ROUTES.LEGACY_KAI_HOME) return "kai_home";
+  if (
+    pathname === ROUTES.ONE_ONBOARDING ||
+    pathname === ROUTES.LEGACY_ONE_KAI_ONBOARDING ||
+    pathname === ROUTES.LEGACY_KAI_ONBOARDING
+  ) {
+    return "kai_onboarding";
+  }
+  if (pathname === ROUTES.KAI_IMPORT || pathname === ROUTES.LEGACY_KAI_IMPORT) {
+    return "kai_import";
+  }
+  if (
+    pathname === ROUTES.KAI_PLAID_OAUTH_RETURN ||
+    pathname === ROUTES.LEGACY_KAI_PLAID_OAUTH_RETURN
+  ) {
+    return "kai_plaid_oauth_return";
+  }
+  if (
+    pathname === ROUTES.KAI_ALPACA_OAUTH_RETURN ||
+    pathname === ROUTES.LEGACY_KAI_ALPACA_OAUTH_RETURN
+  ) {
+    return "kai_alpaca_oauth_return";
+  }
+  if (pathname === ROUTES.KAI_DASHBOARD || pathname === ROUTES.LEGACY_KAI_PORTFOLIO) {
+    return "kai_dashboard";
+  }
+  if (pathname === ROUTES.KAI_INVESTMENTS || pathname === ROUTES.LEGACY_KAI_INVESTMENTS) {
+    return "kai_investments";
+  }
+  if (
+    pathname === ROUTES.KAI_FUNDING_TRADE ||
+    pathname === ROUTES.LEGACY_KAI_FUNDING_TRADE
+  ) {
+    return "kai_funding_trade";
+  }
+  if (pathname === ROUTES.KAI_ANALYSIS || pathname === ROUTES.LEGACY_KAI_ANALYSIS) {
+    return "kai_analysis";
+  }
+  if (pathname === ROUTES.KAI_OPTIMIZE || pathname === ROUTES.LEGACY_KAI_OPTIMIZE) {
+    return "kai_optimize";
+  }
   if (pathname === "/kai/dashboard") return "kai_dashboard_legacy_redirect";
 
   if (pathname.startsWith(`${ROUTES.KAI_DASHBOARD}/`)) {
@@ -469,6 +517,34 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
   {
     regex: /^\/api\/developer\/access\/rotate-key(?:\?.*)?$/i,
     template: "/api/developer/access/rotate-key",
+  },
+  {
+    regex: /^\/api\/connected-systems(?:\?.*)?$/i,
+    template: "/api/connected-systems",
+  },
+  {
+    regex: /^\/api\/connected-systems\/[^/?]+\/schema(?:\?.*)?$/i,
+    template: "/api/connected-systems/{system_id}/schema",
+  },
+  {
+    regex: /^\/api\/connected-systems\/[^/?]+\/records\/read(?:\?.*)?$/i,
+    template: "/api/connected-systems/{system_id}/records/read",
+  },
+  {
+    regex: /^\/api\/connected-systems\/[^/?]+\/records\/create-intents(?:\?.*)?$/i,
+    template: "/api/connected-systems/{system_id}/records/create-intents",
+  },
+  {
+    regex: /^\/api\/connected-systems\/[^/?]+\/records\/update-intents(?:\?.*)?$/i,
+    template: "/api/connected-systems/{system_id}/records/update-intents",
+  },
+  {
+    regex: /^\/api\/connected-systems\/[^/?]+\/intents\/[^/?]+\/approve(?:\?.*)?$/i,
+    template: "/api/connected-systems/{system_id}/intents/{intent_id}/approve",
+  },
+  {
+    regex: /^\/api\/connected-systems\/[^/?]+\/intents\/[^/?]+\/reject(?:\?.*)?$/i,
+    template: "/api/connected-systems/{system_id}/intents/{intent_id}/reject",
   },
   {
     regex: /^\/api\/iam\/persona(?:\?.*)?$/i,

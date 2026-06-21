@@ -1128,7 +1128,10 @@ async def analyze_portfolio_losers_stream(
             logger.error("Streaming losers analysis failed: %s", e, exc_info=True)
             yield stream.event(
                 "error",
-                {"code": "OPTIMIZE_STREAM_FAILED", "message": "Optimization failed. Please try again."},
+                {
+                    "code": "OPTIMIZE_STREAM_FAILED",
+                    "message": "Optimization failed. Please try again.",
+                },
                 terminal=True,
             )
 

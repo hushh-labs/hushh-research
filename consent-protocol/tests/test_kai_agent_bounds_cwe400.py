@@ -91,22 +91,16 @@ class TestAgentRealtimeSessionResponse:
 
 class TestAgentVoiceTranscriptionResponse:
     def test_valid(self):
-        resp = AgentVoiceTranscriptionResponse(
-            transcript="hello world", uncertain=False
-        )
+        resp = AgentVoiceTranscriptionResponse(transcript="hello world", uncertain=False)
         assert resp.transcript == "hello world"
 
     def test_transcript_bounds(self):
         with pytest.raises(ValidationError):
-            AgentVoiceTranscriptionResponse(
-                transcript="A" * 16385, uncertain=False
-            )
+            AgentVoiceTranscriptionResponse(transcript="A" * 16385, uncertain=False)
 
     def test_reason_bounds(self):
         with pytest.raises(ValidationError):
-            AgentVoiceTranscriptionResponse(
-                transcript="hello", uncertain=False, reason="A" * 513
-            )
+            AgentVoiceTranscriptionResponse(transcript="hello", uncertain=False, reason="A" * 513)
 
 
 class TestAgentVoiceTTSRequest:

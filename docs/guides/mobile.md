@@ -202,7 +202,7 @@ All 11 plugins exist on both platforms with matching methods:
 
 Visible page routes are governed through `hushh-webapp/lib/navigation/routes.ts` together with the architecture/mobile parity docs. That coverage includes:
 
-- product routes (`/kai`, `/consents`, `/profile`, `/one/kyc`, `/marketplace`, `/ria`)
+- product routes (`/one/kai`, `/consents`, `/profile`, `/one/kyc`, `/marketplace`, `/ria`)
 - `/developers`
 - public/auth content pages (`/`, `/login`, `/logout`)
 - visible lab routes
@@ -687,8 +687,8 @@ The app follows a **Layered Navigation** model:
 
 | Level  | Description | Examples                      | Back Button        |
 | ------ | ----------- | ----------------------------- | ------------------ |
-| **1**  | Root Tabs   | `/kai`, `/consents`, `/profile` | Exit/Lock Dialog |
-| **2+** | Sub Pages   | `/kai/onboarding`, `/kai/import`, `/kai/portfolio` | Navigate to Parent |
+| **1**  | Root Tabs   | `/one/kai`, `/consents`, `/profile` | Exit/Lock Dialog |
+| **2+** | Sub Pages   | `/one/onboarding`, `/one/kai/import`, `/one/kai/portfolio` | Navigate to Parent |
 
 ### Exit Dialog Security
 
@@ -778,7 +778,7 @@ For `CAPACITOR_BUILD=true` (`output: "export"`), treat App Router files as the o
 
 Required rule:
 - Do not depend on legacy alias redirects for mobile navigation.
-- Keep only canonical pages: `/`, `/login`, `/kai`, `/kai/onboarding`, `/kai/import`, `/kai/plaid/oauth/return`, `/kai/portfolio`.
+- Keep only canonical pages: `/`, `/login`, `/one`, `/one/onboarding`, `/one/kai`, `/one/kai/import`, `/one/kai/plaid/oauth/return`, `/one/kai/portfolio`.
 - Any removed alias route must stay removed from both `app/` and `next.config.ts`.
 
 ---
@@ -833,10 +833,14 @@ Local verification:
 ```bash
 cd hushh-webapp
 npm run typecheck
-npm run cap:build
-npm run cap:sync:ios
 npm run ios:test
 ```
+
+`ios:test` runs `ios:prepare:uat` before building so simulator validation uses
+the same UAT backend target as the archive path. `ios:prepare:uat` loads the
+maintainer-only UAT profile, regenerates the static web bundle, syncs Capacitor
+iOS, and verifies that the generated native `capacitor.config.json` is not
+pointing at localhost.
 
 Run the connected-device UI lane before archiving when native permissions,
 contacts, vault unlock, or role sync behavior changed:
@@ -848,9 +852,24 @@ npm run ios:device:ui:test
 
 Archive and upload:
 
+- Immediately before creating the Xcode archive, rerun:
+  ```bash
+  cd hushh-webapp
+  npm run ios:prepare:uat
+  ```
+  This is intentionally repeated because any later generic `cap:sync:ios` can
+  replace the ignored generated native config. Xcode Release archives for
+  physical iPhoneOS also run a build-phase guard that blocks archives when the
+  bundled native plugin backend is local.
 - In Xcode, archive the app and use Organizer distribution with
   `TestFlight & App Store` / App Store Connect upload, including symbols. Apple
   documents this flow in [Distributing your app for beta testing and releases][apple-xcode-distribution].
+- Before distributing the archive, verify or repair embedded Firebase/Google
+  framework dSYM bundles:
+  ```bash
+  cd hushh-webapp
+  npm run ios:verify-archive-symbols -- --repair "<path-to.xcarchive>"
+  ```
 - Wait for App Store Connect processing; Apple notes that uploaded builds must
   be processed before they appear for selection in [Upload builds][apple-upload-builds].
 
