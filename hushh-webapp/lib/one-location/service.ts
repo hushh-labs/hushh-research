@@ -365,6 +365,10 @@ export class OneLocationService {
     return HushhLocation.openAppSettings();
   }
 
+  static async openAppSettings() {
+    return HushhLocation.openAppSettings();
+  }
+
   static async openLocationSettings() {
     return HushhLocation.openLocationSettings();
   }
