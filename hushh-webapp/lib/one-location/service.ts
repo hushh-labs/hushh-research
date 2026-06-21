@@ -7,6 +7,7 @@ import type {
   OneLocationCircleInvite,
   OneLocationEncryptedEnvelope,
   OneLocationGrant,
+  OneLocationNetworkConnection,
   OneLocationPublicInvite,
   OneLocationPublicInviteSubmission,
   OneLocationRecipient,
@@ -237,7 +238,7 @@ export class OneLocationService {
     message?: string;
   }): Promise<{
     invite: OneLocationCircleInvite;
-    request: OneLocationAccessRequest;
+    connection: OneLocationNetworkConnection;
   }> {
     return apiJsonWithRetry(
       `/api/one/location/circle-invites/${encodeURIComponent(params.inviteToken)}/claim`,

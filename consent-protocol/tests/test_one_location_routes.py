@@ -278,7 +278,7 @@ def test_public_location_invite_route_returns_snapshot_on_resolve(
     assert "ciphertext" not in serialized_private_surfaces
 
 
-def test_circle_invite_route_claims_into_pending_request_without_grant(
+def test_circle_invite_route_claims_into_network_connection_without_grant(
     monkeypatch,
 ) -> None:
     service = FourUserMemoryService()
@@ -290,7 +290,7 @@ def test_circle_invite_route_claims_into_pending_request_without_grant(
 
     invite_response = client.post(
         "/api/one/location/circle-invites",
-        json={"durationHours": 1, "message": "Join my One Location Circle."},
+        json={"durationHours": 1, "message": "Join me on One."},
     )
     assert invite_response.status_code == 200
     invite_payload = invite_response.json()
@@ -316,9 +316,10 @@ def test_circle_invite_route_claims_into_pending_request_without_grant(
     assert claim_response.status_code == 200
     claim_payload = claim_response.json()
     assert claim_payload["invite"]["status"] == "claimed"
-    assert claim_payload["request"]["ownerUserId"] == "user_a"
-    assert claim_payload["request"]["requesterUserId"] == "user_b"
-    assert claim_payload["request"]["status"] == "pending"
+    assert claim_payload["connection"]["status"] == "active"
+    assert claim_payload["connection"]["inviterUserId"] == "user_a"
+    assert claim_payload["connection"]["inviteeUserId"] == "user_b"
+    assert service.requests == {}
     assert service.grants == {}
 
     duplicate_response = client.post(

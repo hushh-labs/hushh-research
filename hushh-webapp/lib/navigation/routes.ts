@@ -110,6 +110,14 @@ export function buildOneOnboardingRoute(entries?: {
 
 export const buildKaiOnboardingRoute = buildOneOnboardingRoute;
 
+export function buildProfileVaultRoute(returnTo?: string | null) {
+  return withQuery(ROUTES.PROFILE, {
+    panel: "security",
+    unlock_vault: "1",
+    return_to: returnTo,
+  });
+}
+
 export function buildMarketplaceConnectionsRoute(entries?: {
   tab?: "pending" | "active" | "previous" | null;
   selected?: string | null;

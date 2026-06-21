@@ -190,6 +190,15 @@ class AccountService:
                    OR claimed_by_user_id = :user_id
                 """
             ),
+            "one_location_network_connections": text(
+                """
+                DELETE FROM one_location_network_connections
+                WHERE user_a_id = :user_id
+                   OR user_b_id = :user_id
+                   OR inviter_user_id = :user_id
+                   OR invitee_user_id = :user_id
+                """
+            ),
             "one_location_recipient_keys": text(
                 "DELETE FROM one_location_recipient_keys WHERE user_id = :user_id"
             ),
@@ -507,6 +516,7 @@ class AccountService:
             "one_location_public_invite_submissions": False,
             "one_location_public_invites": False,
             "one_location_circle_invites": False,
+            "one_location_network_connections": False,
             "one_location_share_grants": False,
             "one_location_recipient_keys": False,
             "runtime_persona_state": False,
@@ -722,6 +732,7 @@ class AccountService:
                     "one_location_public_invite_submissions",
                     "one_location_public_invites",
                     "one_location_circle_invites",
+                    "one_location_network_connections",
                     "one_location_access_requests",
                     "one_location_envelopes",
                     "one_location_share_grants",

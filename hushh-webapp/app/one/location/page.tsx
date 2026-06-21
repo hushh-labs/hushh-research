@@ -124,9 +124,9 @@ const LIVE_LOCATION_UPDATE_INTERVAL_MS = 20_000;
 const LIVE_LOCATION_STALE_THRESHOLD_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS * 3;
 const FOREGROUND_RETRY_DELAYS_MS = [450, 900] as const;
 const ONE_NETWORK_PREVIEW_LIMIT = 3;
-const ONE_LOCATION_SHARE_TITLE = "Join my One Location circle";
+const ONE_LOCATION_SHARE_TITLE = "Join me on One";
 const ONE_LOCATION_PUBLIC_SHARE_COPY = "Join my One Location circle";
-const ONE_LOCATION_CIRCLE_SHARE_COPY = "Join my private One Location Circle";
+const ONE_LOCATION_CIRCLE_SHARE_COPY = "Join me on One";
 const SHOW_LOCATION_ACTIVITY_SECTION = false;
 const SHOW_OWNER_GRANTS_SECTION = false;
 const SHOW_PUBLIC_RESPONSES_SECTION = false;
@@ -501,10 +501,10 @@ function publicSubmissionLabel(
 
 function publicInviteUrlLabel(value: string): string {
   if (!value) return "";
-  if (/^https?:\/\//i.test(value)) return value;
   const configuredOrigin = String(process.env.NEXT_PUBLIC_APP_URL || "")
     .trim()
     .replace(/\/+$/, "");
+  if (/^https?:\/\//i.test(value)) return value;
   const origin =
     /^https?:\/\//i.test(configuredOrigin) ||
     typeof window === "undefined"
@@ -1434,6 +1434,10 @@ function OneLocationAgentPageContent() {
   const searchParams = useSearchParams();
   const auth = useRequireAuth();
   const { isVaultUnlocked, vaultOwnerToken } = useVault();
+  const pendingCircleInviteToken = useMemo(
+    () => String(searchParams.get("circleInviteToken") || "").trim(),
+    [searchParams],
+  );
   const [state, setState] = useState<OneLocationState | null>(null);
   const [permission, setPermission] =
     useState<HushhLocationPermissionState | null>(null);
@@ -1835,10 +1839,9 @@ function OneLocationAgentPageContent() {
   );
 
   useEffect(() => {
-    const circleInviteToken = String(searchParams.get("circleInviteToken") || "").trim();
-    if (!circleInviteToken || !vaultOwnerToken) return;
-    router.push(`/one/location/invite/${encodeURIComponent(circleInviteToken)}`);
-  }, [router, searchParams, vaultOwnerToken]);
+    if (!pendingCircleInviteToken || !vaultOwnerToken) return;
+    router.push(`/one/location/invite/${encodeURIComponent(pendingCircleInviteToken)}`);
+  }, [pendingCircleInviteToken, router, vaultOwnerToken]);
 
   const refresh = useCallback(async () => {
     if (!auth.userId) {
@@ -2959,7 +2962,7 @@ function OneLocationAgentPageContent() {
       const response = await OneLocationService.createCircleInvite({
         vaultOwnerToken,
         durationHours: Number(durationHours),
-        message: "Join my private One Location Circle.",
+        message: "Join me on One.",
       });
       const url = publicInviteUrlLabel(response.inviteUrl);
       setCircleInviteUrl(url);
@@ -2973,8 +2976,8 @@ function OneLocationAgentPageContent() {
       });
       toast.success(
         copiedToClipboard
-          ? "Circle invite created and copied."
-          : "Circle invite created.",
+          ? "Invite to One link created and copied."
+          : "Invite to One link created.",
       );
       await refresh();
     } catch (error) {
@@ -2986,7 +2989,7 @@ function OneLocationAgentPageContent() {
         active_invite_count: activeCircleInvites.length,
       });
       toast.error(
-        oneLocationErrorMessage(error, "Could not create Circle invite."),
+        oneLocationErrorMessage(error, "Could not create Invite to One link."),
       );
     } finally {
       setBusy(null);
@@ -2998,12 +3001,12 @@ function OneLocationAgentPageContent() {
     try {
       const copiedToClipboard = await copyToClipboard(circleInviteUrl);
       if (copiedToClipboard) {
-        toast.success("Circle invite copied.");
+        toast.success("Invite to One link copied.");
       } else {
-        toast.error("Could not copy the Circle invite.");
+        toast.error("Could not copy the Invite to One link.");
       }
     } catch {
-      toast.error("Could not copy the Circle invite.");
+      toast.error("Could not copy the Invite to One link.");
     }
   }, [circleInviteUrl]);
 
@@ -3014,10 +3017,10 @@ function OneLocationAgentPageContent() {
         title: ONE_LOCATION_SHARE_TITLE,
         text: ONE_LOCATION_CIRCLE_SHARE_COPY,
         url: circleInviteUrl,
-        dialogTitle: "Share Circle invite",
+        dialogTitle: "Share Invite to One",
       });
       if (delivery === "copied") {
-        toast.success("Circle invite copied.");
+        toast.success("Invite to One link copied.");
       }
     } catch (error) {
       if (isShareAbortError(error)) return;
@@ -3035,11 +3038,11 @@ function OneLocationAgentPageContent() {
           inviteId: invite.id,
         });
         setCircleInviteUrl("");
-        toast.success("Circle invite revoked.");
+        toast.success("Invite to One link revoked.");
         await refresh();
       } catch (error) {
         toast.error(
-          oneLocationErrorMessage(error, "Could not revoke Circle invite."),
+          oneLocationErrorMessage(error, "Could not revoke Invite to One link."),
         );
       } finally {
         setBusy(null);
@@ -4221,21 +4224,21 @@ function OneLocationAgentPageContent() {
               </section>
 
               <section className="min-w-0 max-w-full space-y-2 px-1">
-                {sectionLabel("Invite to One Circle")}
+                {sectionLabel("Invite to One")}
                 <div className={cn(onePanelClassName, "space-y-4 p-3.5")}>
                   <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_150px]">
                     <div className={cn(oneInsetClassName, "min-w-0 px-3 py-2 text-sm")}>
                       {circleInviteUrl ? (
                         <span
                           title={circleInviteUrl}
-                          aria-label={`One Location Circle invite ${circleInviteUrl}`}
+                          aria-label={`Invite to One link ${circleInviteUrl}`}
                           className="block truncate text-[13px] font-medium text-[#1c1c1e] dark:text-white"
                         >
                           {publicInviteUrlPreview(circleInviteUrl)}
                         </span>
                       ) : (
                         <span className={cn(oneSecondaryTextClassName, "block text-[13px] leading-5")}>
-                          Create a private Circle invite. Recipients sign in, unlock vault, and send you an approval request.
+                          Share an Invite to One link. After they sign in, verify phone, and accept it, both of you become One Network connections. Live location sharing still starts only from an explicit Share Location action.
                         </span>
                       )}
                     </div>
@@ -4290,7 +4293,7 @@ function OneLocationAgentPageContent() {
                       <div className="flex flex-col gap-3 rounded-[14px] bg-[#f2f2f7] p-3 sm:flex-row sm:items-center sm:justify-between dark:bg-white/10">
                         <div className="min-w-0">
                           <p className="text-[14px] font-semibold text-[#1c1c1e] dark:text-white">
-                            Latest active Circle invite
+                            Latest active Invite to One link
                           </p>
                           <p className="break-words text-[12px] text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
                             Expires {formatDateTime(latestActiveCircleInvite.expiresAt)}
