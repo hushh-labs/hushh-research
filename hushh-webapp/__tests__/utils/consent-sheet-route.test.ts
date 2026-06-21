@@ -56,6 +56,16 @@ describe("consent sheet route helpers", () => {
     );
   });
 
+  it("keeps the bare consent manager on the One access view by default", () => {
+    expect(buildConsentCenterHref("pending")).toBe("/consents?tab=pending");
+  });
+
+  it("builds explicit RIA consent manager links for advisor-only entry points", () => {
+    expect(buildRiaConsentManagerHref("pending")).toBe(
+      "/consents?tab=pending&actor=ria&view=outgoing",
+    );
+  });
+
   it("adds a safe internal origin when routing into the consent manager", () => {
     expect(
       resolveConsentRequestHref(null, "pending", {

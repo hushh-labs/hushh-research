@@ -131,6 +131,66 @@ class TestConsentCenterDbReads:
         assert pending == []
         assert [item["scope"] for item in active] == ["attr.financial.portfolio.*"]
 
+    def select(self, selected="*", **kwargs):
+        self._selected = selected
+        self._calls.append(("select", selected, kwargs))
+        return self
+
+    def eq(self, key, value):
+        self._filters.append(("eq", key, value))
+        self._calls.append(("eq", key, value))
+        return self
+
+    def in_(self, key, values):
+        self._filters.append(("in", key, list(values)))
+        self._calls.append(("in", key, list(values)))
+        return self
+
+    def order(self, *_args, **_kwargs):
+        return self
+
+    def limit(self, value):
+        self._limit = value
+        return self
+
+    def offset(self, value):
+        self._offset = value
+        return self
+
+    def execute(self):
+        rows = list(self._rows)
+        for kind, key, value in self._filters:
+            if kind == "eq":
+                rows = [row for row in rows if row.get(key) == value]
+            elif kind == "in":
+                allowed = set(value)
+                rows = [row for row in rows if row.get(key) in allowed]
+        if self._limit is not None:
+            rows = rows[self._offset : self._offset + self._limit]
+        elif self._offset:
+            rows = rows[self._offset :]
+        return _FakeResponse(rows)
+
+
+class _FakeSupabase:
+    def __init__(self, rows: list[dict], calls: list[tuple]):
+        self._rows = rows
+        self._calls = calls
+
+    def table(self, name):
+        if name == "internal_access_events":
+            return _FakeTable([], self._calls)
+        assert name == "consent_audit"
+        return _FakeTable(self._rows, self._calls)
+
+
+def _service(rows: list[dict], calls: list[tuple], monkeypatch) -> ConsentDBService:
+    service = ConsentDBService()
+    monkeypatch.setattr(service, "_get_supabase", lambda: _FakeSupabase(rows, calls))
+    return service
+
+
+class TestConsentCenterDbReads:
     @pytest.mark.asyncio
     async def test_exact_retired_pending_lookup_remains_available_for_terminal_rejection(
         self, monkeypatch

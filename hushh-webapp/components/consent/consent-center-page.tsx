@@ -383,6 +383,81 @@ function isAuthConsentLoadError(error?: string | null) {
   );
 }
 
+function eventTimeMs(value?: string | number | null) {
+  if (!value) return 0;
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function trailTimeMs(trail: ConsentTrail) {
+  return Math.max(
+    eventTimeMs(trail.issued_at || trail.expires_at),
+    ...(trail.events || []).map((event) =>
+      eventTimeMs(event.issued_at || event.expires_at),
+    ),
+  );
+}
+
+function sortedConsentTrails(entry: ConsentCenterEntry) {
+  return [...(entry.consent_trails || [])].sort(
+    (left, right) => trailTimeMs(right) - trailTimeMs(left),
+  );
+}
+
+function sortedTrailEvents(trail: ConsentTrail) {
+  return [...(trail.events || [])].sort(
+    (left, right) =>
+      eventTimeMs(right.issued_at || right.expires_at) -
+      eventTimeMs(left.issued_at || left.expires_at),
+  );
+}
+
+function parseDurationHours(value?: string | null) {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function formatDurationHours(value?: number | string | null) {
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0) return null;
+  if (hours % 24 === 0) {
+    const days = hours / 24;
+    return `${days} day${days === 1 ? "" : "s"}`;
+  }
+  return `${hours} hour${hours === 1 ? "" : "s"}`;
+}
+
+function durationOptionsFor(requestedDurationHours?: number | string | null) {
+  const maxHours = Number(requestedDurationHours);
+  if (!Number.isFinite(maxHours) || maxHours <= 0) return DURATION_OPTIONS;
+  const options = DURATION_OPTIONS.filter(
+    (option) => Number(option.value) <= maxHours,
+  );
+  const requestedValue = String(maxHours);
+  if (!options.some((option) => option.value === requestedValue)) {
+    options.push({
+      value: requestedValue,
+      label: formatDurationHours(maxHours) || `${maxHours} hours`,
+    });
+  }
+  return options.sort(
+    (left, right) => Number(left.value) - Number(right.value),
+  );
+}
+
+function isAuthConsentLoadError(error?: string | null) {
+  const normalized = String(error || "").toLowerCase();
+  return (
+    normalized.includes("401") ||
+    normalized.includes("403") ||
+    normalized.includes("missing authorization") ||
+    normalized.includes("invalid firebase") ||
+    normalized.includes("session") ||
+    normalized.includes("sign in")
+  );
+}
+
 function badgeClassName(status?: string | null) {
   switch (String(status || "").toLowerCase()) {
     case "approved":
@@ -3918,6 +3993,9 @@ export function ConsentCenterPage() {
                       variant="none"
                       effect="fade"
                       size="sm"
+                      disabled={isRequestBusy(
+                        selectedEntry.request_id || selectedEntry.id,
+                      )}
                       onClick={() => {
                         closeDetailPanel();
                         commitConsentTab("history");

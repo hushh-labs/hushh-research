@@ -5428,13 +5428,13 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   );
 }
 
-/* Shared frosted surface for persistent chrome (tabs / bottom nav / command bar). */
+/* Shared flat glass surface for persistent chrome (tabs / bottom nav / command bar). */
 .chrome-glass-surface {
-  background-color: rgba(245, 245, 247, 0.8);
+  background-color: rgba(245, 245, 247, 0.84);
   border: none;
-  box-shadow: 0 11px 34px 0 var(--theme-color-boxShadow);
-  -webkit-backdrop-filter: blur(var(--blur-standard)) saturate(150%);
-  backdrop-filter: blur(var(--blur-standard)) saturate(150%);
+  box-shadow: 0 10px 26px -18px rgb(0 0 0 / 0.28);
+  -webkit-backdrop-filter: blur(var(--blur-standard)) saturate(112%);
+  backdrop-filter: blur(var(--blur-standard)) saturate(112%);
   transform: translate3d(0, 0, 0);
   will-change: transform;
 }
@@ -5442,7 +5442,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 .dark .chrome-glass-surface {
   background-color: color-mix(in oklab, var(--background) 80%, transparent);
   border: none;
-  box-shadow: 0 11px 34px 0 var(--theme-color-boxShadow);
+  box-shadow: 0 10px 26px -18px rgb(0 0 0 / 0.58);
 }
 
 /* Persistent bottom chrome uses two distinct, shared-material pills: the
@@ -5803,6 +5803,49 @@ html.kb-open.kb-resizes [data-agent-dock-chat] [data-bottom-shell-navigation-slo
   }
 }
 
+@keyframes segmented-pill-active-content-pop {
+  0% {
+    transform: translateY(1px) scale(0.965);
+  }
+  56% {
+    transform: translateY(-1px) scale(1.035);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes segmented-pill-active-pulse {
+  0% {
+    opacity: 0.32;
+    transform: scale(0.84);
+  }
+  54% {
+    opacity: 0.2;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.16);
+  }
+}
+
+.segmented-pill-active-choice {
+  animation: segmented-pill-active-content-pop 420ms
+    cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+[data-segment-active-pulse] {
+  animation: segmented-pill-active-pulse 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segmented-pill-active-choice,
+  [data-segment-active-pulse] {
+    animation: none;
+  }
+}
+
 .kai-bottom-nav-pill [role="radio"] {
   color: #6e6e73 !important;
   min-height: 44px;
@@ -5888,9 +5931,10 @@ html.kb-open.kb-resizes [data-agent-dock-chat] [data-bottom-shell-navigation-slo
 }
 
 body:has([data-one-market-surface="true"]) .bar-glass-top {
-  --app-bar-glass-bg-light: var(--background) !important;
-  --app-bar-glass-bg-dark: rgb(28, 28, 30) !important;
+  --app-bar-glass-bg-light: transparent !important;
+  --app-bar-glass-bg-dark: transparent !important;
   --app-bar-shadow: none !important;
+  opacity: 0;
   --app-bar-fade-top-strong: transparent !important;
   --app-bar-fade-top-medium: transparent !important;
   --app-bar-fade-top-soft: transparent !important;
