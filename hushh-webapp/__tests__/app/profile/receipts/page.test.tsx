@@ -2383,4 +2383,45 @@ describe("ProfileReceiptsPage", () => {
       expect(screen.queryByText("Stored Shop")).toBeNull();
     });
   });
+
+  it("shows one clear Gmail connect action when Gmail is not connected", async () => {
+    mocks.useGmailConnectorStatus.mockReturnValue(
+      makeGmailView({
+        status: {
+          configured: true,
+          connected: false,
+          status: "disconnected",
+          scope_csv: null,
+          last_sync_status: null,
+          auto_sync_enabled: false,
+          revoked: false,
+          latest_run: null,
+          google_email: null,
+        },
+        presentation: {
+          state: "disconnected",
+          badgeLabel: "Not connected",
+          description: "Gmail not connected.",
+          latestSyncText: "Connect once to sync receipts.",
+          latestSyncBadge: null,
+          isConnected: false,
+        },
+      }),
+    );
+
+    render(<ProfileReceiptsPage />);
+
+    expect(
+      screen.getByRole("heading", { name: /gmail not connected/i }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/connect once to sync receipt emails/i),
+    ).toBeTruthy();
+    expect(
+      screen.getAllByRole("button", { name: /connect gmail/i }),
+    ).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /connect gmail/i }));
+    expect(mocks.routerPush).toHaveBeenCalledWith("/profile?panel=gmail");
+  });
 });
