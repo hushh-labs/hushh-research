@@ -7,12 +7,7 @@ that prevent importing the module directly.
 import pathlib
 import re
 
-_SRC = (
-    pathlib.Path(__file__).parent.parent
-    / "hushh_mcp"
-    / "services"
-    / "kai_chat_service.py"
-)
+_SRC = pathlib.Path(__file__).parent.parent / "hushh_mcp" / "services" / "kai_chat_service.py"
 
 
 def test_datetime_import_includes_utc():

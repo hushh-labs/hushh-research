@@ -411,8 +411,8 @@ class DomainInferrer:
         return domain
 
     def infer_with_confidence(
-    self, attribute_key: str, value_hint: Optional[str] = None
-                        ) -> tuple[str, float]:
+        self, attribute_key: str, value_hint: Optional[str] = None
+    ) -> tuple[str, float]:
         """
         Infer domain with confidence score.
 
@@ -447,8 +447,8 @@ class DomainInferrer:
                 if keyword in key_lower:
                     score += 1
                     domain_max += 1
-            
-            #pattens
+
+            # pattens
             patterns = self._compiled_patterns.get(domain, [])
             for pattern in patterns:
                 if pattern.match(key_lower):
@@ -479,8 +479,7 @@ class DomainInferrer:
             second_domain, second_score = ranked[1]
             if (best_score - second_score) <= 2:
                 logger.info(
-                    "[DomainInferrer] Ambiguous key '%s': "
-                    "%s(%d) vs %s(%d) — flagging as ambiguous",
+                    "[DomainInferrer] Ambiguous key '%s': %s(%d) vs %s(%d) — flagging as ambiguous",
                     attribute_key,
                     best_domain,
                     best_score,
@@ -558,9 +557,7 @@ class DomainInferrer:
         """List all known domain keys."""
         return list(self.rules.keys())
 
-    def infer_with_candidates(
-        self, attribute_key: str, value_hint: Optional[str] = None
-    ) -> dict:
+    def infer_with_candidates(self, attribute_key: str, value_hint: Optional[str] = None) -> dict:
         """
         Infer domain and return full candidate list for ambiguous keys.
         Use this when you need to show the user a choice between domains.
@@ -597,9 +594,7 @@ class DomainInferrer:
 
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         best_score = ranked[0][1]
-        is_ambiguous = (
-            len(ranked) >= 2 and (best_score - ranked[1][1]) <= 2
-        )
+        is_ambiguous = len(ranked) >= 2 and (best_score - ranked[1][1]) <= 2
         domain, confidence = self.infer_with_confidence(attribute_key, value_hint)
 
         return {

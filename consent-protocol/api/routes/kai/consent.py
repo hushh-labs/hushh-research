@@ -47,10 +47,12 @@ router = APIRouter()
 # Only financial data and Kai agent scopes may be issued at this boundary.
 # Broader PKM domains (health, food, travel, etc.) are outside the Kai
 # finance/analysis contract and must be rejected.
-_KAI_DYNAMIC_SCOPE_PREFIXES: frozenset[str] = frozenset({
-    "attr.financial",
-    "agent.kai",
-})
+_KAI_DYNAMIC_SCOPE_PREFIXES: frozenset[str] = frozenset(
+    {
+        "attr.financial",
+        "agent.kai",
+    }
+)
 
 # Structural format check: a valid dynamic scope looks like attr.domain.sub.*
 _DYNAMIC_SCOPE_PATTERN = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z*][a-z0-9_.*]*)*$")
@@ -83,6 +85,7 @@ def _validate_scope(scope_str: str) -> None:
         return
 
     raise ValueError(f"Scope is outside the Kai consent contract: {scope_str!r}")
+
 
 # ============================================================================
 # MODELS
@@ -160,10 +163,17 @@ async def grant_consent(
         except HTTPException:
             raise
         except ValueError:
-            logger.warning("grant_consent.invalid_scope user_id=%s scope=%s", request.user_id, scope_str)
+            logger.warning(
+                "grant_consent.invalid_scope user_id=%s scope=%s", request.user_id, scope_str
+            )
             raise HTTPException(status_code=400, detail="Invalid scope requested.")
         except Exception as e:
-            logger.error("grant_consent.token_issue_failed user_id=%s scope=%s: %s", request.user_id, scope_str, e)
+            logger.error(
+                "grant_consent.token_issue_failed user_id=%s scope=%s: %s",
+                request.user_id,
+                scope_str,
+                e,
+            )
             raise HTTPException(status_code=500, detail="Failed to issue consent token.")
 
     if not tokens:

@@ -406,6 +406,21 @@ class HushhConsentPlugin : Plugin() {
     }
 
     @PluginMethod
+    fun publishIMessageSession(call: PluginCall) {
+        // iMessage shared session publishing is iOS-only. Android exposes the
+        // bridge method so shared vault flows do not need platform branching.
+        Log.d(TAG, "ℹ️ [publishIMessageSession] Android no-op")
+        call.resolve(JSObject().put("published", true))
+    }
+
+    @PluginMethod
+    fun clearIMessageSession(call: PluginCall) {
+        // iMessage shared session storage is iOS-only.
+        Log.d(TAG, "ℹ️ [clearIMessageSession] Android no-op")
+        call.resolve(JSObject().put("cleared", true))
+    }
+
+    @PluginMethod
     fun getPending(call: PluginCall) {
         val userId = call.getString("userId")
         if (userId == null) {

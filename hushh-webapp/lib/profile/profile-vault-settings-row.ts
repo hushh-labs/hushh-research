@@ -67,11 +67,11 @@ export function resolveProfileVaultSettingsRow(
   if (vaultAccess.hasVault) {
     return {
       action: "manage",
-      title: vaultAccess.canMutateSecureData ? "Manage vault" : "Vault security",
+      title: "Vault security",
       description: "Review vault security, passphrase, and unlock methods.",
       disabled: false,
       chevron: true,
-      voiceLabel: vaultAccess.canMutateSecureData ? "Manage vault" : "Vault security",
+      voiceLabel: "Vault security",
       voicePurpose: "Opens vault security and unlock method settings.",
     };
   }
