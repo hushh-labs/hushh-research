@@ -133,6 +133,23 @@ def _expected_connector_wrapping_alg(metadata: dict | None) -> str:
     return _clean_text((metadata or {}).get("connector_wrapping_alg")) or _CONNECTOR_WRAPPING_ALG
 
 
+def _resolve_approval_expiry_hours(
+    *,
+    metadata: dict | None,
+    requested_duration_hours: int | None,
+    is_developer_request: bool,
+) -> int:
+    try:
+        requested_expiry_hours = int((metadata or {}).get("expiry_hours", 24))
+    except (TypeError, ValueError):
+        requested_expiry_hours = 24
+    expiry_hours = requested_expiry_hours
+    if isinstance(requested_duration_hours, int) and requested_duration_hours > 0:
+        max_duration_hours = requested_expiry_hours if is_developer_request else 24 * 365
+        expiry_hours = min(requested_duration_hours, max_duration_hours)
+    return expiry_hours
+
+
 def _build_verified_wrapped_key_bundle(
     *,
     metadata: dict | None,
@@ -388,10 +405,15 @@ async def lookup_pending_consents(
         raise HTTPException(status_code=400, detail="At most 25 request ids can be looked up.")
 
     service = ConsentDBService()
+    owned_identifiers = await _owned_consent_identifiers(userId)
     items = []
     missing_request_ids = []
     for request_id_value in request_ids:
-        pending = await service.get_pending_by_request_id(userId, request_id_value)
+        pending = await service.get_pending_by_request_id(
+            userId,
+            request_id_value,
+            **_identifier_filter_kwargs(userId, owned_identifiers),
+        )
         if pending:
             items.append(pending)
         else:
@@ -616,9 +638,11 @@ async def approve_consent(
             )
         )
     )
-    expiry_hours = metadata.get("expiry_hours", 24)
-    if isinstance(requested_duration_hours, int) and requested_duration_hours > 0:
-        expiry_hours = min(requested_duration_hours, 24 * 30)
+    expiry_hours = _resolve_approval_expiry_hours(
+        metadata=metadata if isinstance(metadata, dict) else None,
+        requested_duration_hours=requested_duration_hours,
+        is_developer_request=is_developer_request,
+    )
 
     # MODULAR COMPLIANCE CHECK: Idempotency
     # Before issuing a NEW token, check if a valid token for this scope/agent already exists.
@@ -835,6 +859,7 @@ async def approve_consent(
         logger.info("   Stored encrypted export for token (DB + cache)")
 
     granted_event_metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    granted_event_metadata["approved_duration_hours"] = expiry_hours
 
     # Log CONSENT_GRANTED with the normalized requested scope string.
     if subject_user_id != userId:
@@ -1037,7 +1062,7 @@ async def get_consent_center(firebase_uid: str = Depends(require_firebase_auth))
 
 @router.get("/center/summary")
 async def get_consent_center_summary(
-    actor: str = Query(default="investor", max_length=50),
+    actor: str | None = Query(default=None, max_length=50),
     mode: str = Query(default="consents", max_length=50),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
@@ -1047,7 +1072,7 @@ async def get_consent_center_summary(
 
 @router.get("/center/list")
 async def get_consent_center_list(
-    actor: str = Query(default="investor", max_length=50),
+    actor: str | None = Query(default=None, max_length=50),
     surface: str = Query(default="pending", max_length=50),
     mode: str = Query(default="consents", max_length=50),
     q: str | None = Query(default=None, max_length=200),

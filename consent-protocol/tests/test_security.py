@@ -159,16 +159,12 @@ class TestSanitizePayload:
         assert out == {"amount": 42, "active": True, "note": None}
 
     def test_nested_dict_sanitized(self):
-        out = sanitize_payload(
-            {"user": {"email": "bob@example.com", "score": 99}}
-        )
+        out = sanitize_payload({"user": {"email": "bob@example.com", "score": 99}})
         assert "bob@example.com" not in out["user"]["email"]
         assert out["user"]["score"] == 99
 
     def test_list_of_strings_sanitized(self):
-        out = sanitize_payload(
-            {"contacts": ["alice@example.com", "bob@example.com"]}
-        )
+        out = sanitize_payload({"contacts": ["alice@example.com", "bob@example.com"]})
         for item in out["contacts"]:
             assert "@example.com" in item
             assert "***" in item
@@ -197,9 +193,7 @@ class TestSanitizePayload:
         assert out["amount"] == 100
 
     def test_deeply_nested_payload(self):
-        out = sanitize_payload(
-            {"level1": {"level2": {"email": "deep@example.com"}}}
-        )
+        out = sanitize_payload({"level1": {"level2": {"email": "deep@example.com"}}})
         assert "deep@example.com" not in out["level1"]["level2"]["email"]
 
     def test_list_of_dicts_sanitized(self):

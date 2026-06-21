@@ -48,9 +48,7 @@ from utils.security import sanitize_log_value
 # creating a circular dependency (utils/ never imports from api/).
 # ---------------------------------------------------------------------------
 
-_trace_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "audit_trace_id", default=""
-)
+_trace_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("audit_trace_id", default="")
 
 
 def get_trace_id() -> str:
@@ -155,9 +153,7 @@ class AuditJsonFormatter(logging.Formatter):
         safe_message = sanitize_log_value(message)
 
         entry: dict[str, Any] = {
-            "timestamp": time.strftime(
-                "%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)
-            )
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created))
             + f".{int(record.msecs):03d}Z",
             "level": record.levelname,
             "logger": record.name,
@@ -197,9 +193,7 @@ def get_audit_logger(name: str) -> logging.Logger:
     logger with a single handler, not two stacked handlers.
     """
     logger = logging.getLogger(name)
-    has_audit_handler = any(
-        isinstance(h.formatter, AuditJsonFormatter) for h in logger.handlers
-    )
+    has_audit_handler = any(isinstance(h.formatter, AuditJsonFormatter) for h in logger.handlers)
     if not has_audit_handler:
         handler = logging.StreamHandler()
         handler.setFormatter(_AUDIT_FORMATTER)
