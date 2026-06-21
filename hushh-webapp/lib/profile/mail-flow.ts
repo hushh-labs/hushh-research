@@ -275,8 +275,8 @@ export function resolveGmailStatusSummary(options: {
   if (status?.configured === false) {
     return {
       tone: "neutral",
-      title: "Gmail sync isn't available here",
-      detail: "This workspace isn't set up for Gmail receipt sync yet.",
+      title: "Gmail isn't available here",
+      detail: "Receipt sync is not enabled for this workspace.",
       helper: null,
     };
   }
@@ -287,9 +287,8 @@ export function resolveGmailStatusSummary(options: {
   ) {
     return {
       tone: "error",
-      title: "Reconnect Gmail to keep syncing receipts",
-      detail:
-        "Your Gmail permission needs to be refreshed before we can import new receipts.",
+      title: "Reconnect Gmail",
+      detail: "Refresh access to keep receipts syncing.",
       helper: lastUpdated,
     };
   }
@@ -297,9 +296,8 @@ export function resolveGmailStatusSummary(options: {
   if (connected && isBackfillRunning(status)) {
     return {
       tone: "success",
-      title: "Older receipts are still loading",
-      detail:
-        "Your recent receipts are ready while we fetch older receipts in the background.",
+      title: "Loading older receipts",
+      detail: "Recent receipts are ready.",
       helper: lastUpdated || connectedLabel,
     };
   }
@@ -307,8 +305,8 @@ export function resolveGmailStatusSummary(options: {
   if (connected && (hasActiveSync(status) || isBootstrapRunning(status))) {
     return {
       tone: "loading",
-      title: "Syncing your receipts…",
-      detail: "We're fetching your recent purchases.",
+      title: "Syncing receipts",
+      detail: "Fetching recent purchases.",
       helper: lastUpdated || connectedLabel,
     };
   }
@@ -316,7 +314,7 @@ export function resolveGmailStatusSummary(options: {
   if (connected && (status?.last_sync_status === "failed" || errorText)) {
     return {
       tone: "error",
-      title: "We couldn't sync your receipts",
+      title: "Sync failed",
       detail: sanitizeGmailUserMessage(errorText, {
         fallback: "Please try again in a moment.",
         authFallback: "Reconnect Gmail to continue syncing your receipts.",
@@ -328,18 +326,16 @@ export function resolveGmailStatusSummary(options: {
   if (connected) {
     return {
       tone: "success",
-      title: lastUpdated
-        ? "Your receipts are up to date"
-        : "Your Gmail is connected",
+      title: lastUpdated ? "Receipts are up to date" : "Gmail connected",
       detail: connectedLabel,
-      helper: lastUpdated || "Sync receipts to bring in your recent purchases.",
+      helper: lastUpdated || "Sync when you want the latest receipts.",
     };
   }
 
   if (errorText) {
     return {
       tone: "error",
-      title: "We couldn't check your Gmail connection",
+      title: "Couldn't check Gmail",
       detail: sanitizeGmailUserMessage(errorText, {
         fallback: GMAIL_GENERIC_CONNECTION_ERROR,
         authFallback: "Reconnect Gmail to continue syncing your receipts.",
@@ -350,9 +346,8 @@ export function resolveGmailStatusSummary(options: {
 
   return {
     tone: "neutral",
-    title: "Connect Gmail to sync your receipts",
-    detail:
-      "We'll look for receipt emails and keep them together in one place.",
+    title: "Gmail not connected",
+    detail: "Connect once to sync receipt emails.",
     helper: null,
   };
 }

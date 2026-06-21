@@ -22,12 +22,12 @@ Canonical visual owner: [Hussh Webapp Docs](README.md). Use that map for the top
   - `--app-top-content-offset`
 - Route profile groups:
   - hidden shell: `/`, `/login`, `/logout`
-  - visible shell with tabs: `/kai` family (except onboarding/import)
+  - visible shell with tabs: `/one/kai` family (except onboarding/import)
   - visible shell without tabs: remaining app routes by default
-  - fullscreen-flow spacer exemption: `/kai/onboarding`, `/kai/import`
+  - fullscreen-flow spacer exemption: `/one/kai/onboarding`, `/one/kai/import`
 - Main scroll root inserts a structural spacer with `height: var(--app-top-content-offset)` so page content starts below top chrome even when nested layouts use full-height wrappers.
 - Result:
-  - Shell-visible routes (for example `/kai`, `/consents`, `/profile`) start below masked top chrome by default.
+  - Shell-visible routes (for example `/one/kai`, `/consents`, `/profile`) start below masked top chrome by default.
   - Page-level top padding hacks should not be added for shell overlap fixes.
   - Onboarding/import keep fullscreen-flow route behavior (spacer suppressed).
 

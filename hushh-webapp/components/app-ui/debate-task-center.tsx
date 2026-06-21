@@ -40,6 +40,7 @@ import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-servi
 import { getSessionItem, removeSessionItem } from "@/lib/utils/session-storage";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
+import { ROUTES } from "@/lib/navigation/routes";
 
 function statusLabel(task: DebateRunTask): string {
   if (task.status === "running") return "Running";
@@ -174,7 +175,7 @@ type NotificationItem =
 export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTaskCenterProps = {}) {
   const router = useRouter();
   const { userId } = useAuth();
-  const { vaultOwnerToken } = useVault();
+  const { vaultKey, vaultOwnerToken } = useVault();
   const [debateState, setDebateState] = useState(DebateRunManagerService.getState());
   const [appTaskState, setAppTaskState] = useState(AppBackgroundTaskService.getState());
   const [isBusy, setIsBusy] = useState<Record<string, boolean>>({});
@@ -247,17 +248,17 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
       const params = new URLSearchParams();
       params.set("focus", "active");
       params.set("run_id", normalizedRunId);
-      router.push(`/kai/analysis?${params.toString()}`);
+      router.push(`${ROUTES.KAI_ANALYSIS}?${params.toString()}`);
       return;
     }
     if (latestActiveTask) {
       const params = new URLSearchParams();
       params.set("focus", "active");
       params.set("run_id", latestActiveTask.runId);
-      router.push(`/kai/analysis?${params.toString()}`);
+      router.push(`${ROUTES.KAI_ANALYSIS}?${params.toString()}`);
       return;
     }
-    router.push("/kai/analysis");
+    router.push(ROUTES.KAI_ANALYSIS);
   };
 
   const runAction = async (taskId: string, action: () => Promise<void>) => {
@@ -470,9 +471,14 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
                         {item.task.persistenceState === "pending" ? (
                           <p className="mt-1 text-xs text-amber-500">Saving to history…</p>
                         ) : null}
+                        {item.task.persistenceState === "saved" ? (
+                          <p className="mt-1 text-xs text-emerald-500">Saved to history.</p>
+                        ) : null}
                         {item.task.persistenceState === "failed" ? (
                           <p className="mt-1 text-xs text-rose-500">
-                            {item.task.persistenceError || "History save failed."}
+                            {!vaultKey || !vaultOwnerToken
+                              ? "Unlock your vault to retry history save."
+                              : item.task.persistenceError || "History save failed."}
                           </p>
                         ) : null}
                       </div>
@@ -514,10 +520,21 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
                             effect="fade"
                             size="icon"
                             className="h-8 w-8"
-                            disabled={Boolean(isBusy[item.task.runId])}
+                            disabled={
+                              !vaultKey ||
+                              !vaultOwnerToken ||
+                              Boolean(isBusy[item.task.runId])
+                            }
                             onClick={() =>
                               runAction(item.task.runId, async () => {
-                                await DebateRunManagerService.retryTaskPersistence(item.task.runId);
+                                if (!vaultKey || !vaultOwnerToken) return;
+                                await DebateRunManagerService.retryTaskPersistence(
+                                  item.task.runId,
+                                  {
+                                    vaultKey,
+                                    vaultOwnerToken,
+                                  },
+                                );
                               })
                             }
                             aria-label="Retry save"

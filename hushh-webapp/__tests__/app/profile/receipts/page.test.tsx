@@ -43,13 +43,27 @@ vi.mock("@/lib/services/gmail-receipts-service", () => ({
 }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
-  AppPageShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  AppPageHeaderRegion: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  AppPageContentRegion: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  AppPageShell: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AppPageHeaderRegion: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AppPageContentRegion: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
 }));
 
 vi.mock("@/components/app-ui/page-sections", () => ({
-  PageHeader: ({ title, description, actions }: { title?: React.ReactNode; description?: React.ReactNode; actions?: React.ReactNode }) => (
+  PageHeader: ({
+    title,
+    description,
+    actions,
+  }: {
+    title?: React.ReactNode;
+    description?: React.ReactNode;
+    actions?: React.ReactNode;
+  }) => (
     <div>
       <div>{title}</div>
       <div>{description}</div>
@@ -59,8 +73,12 @@ vi.mock("@/components/app-ui/page-sections", () => ({
 }));
 
 vi.mock("@/components/app-ui/surfaces", () => ({
-  SurfaceInset: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  SurfaceStack: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  SurfaceInset: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  SurfaceStack: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
 }));
 
 vi.mock("@/components/ui/progress", () => ({
@@ -96,10 +114,15 @@ vi.mock("lucide-react", () => ({
   Lock: () => <span />,
   Mail: () => <span />,
   RefreshCw: () => <span />,
+  Search: () => <span />,
 }));
 
 vi.mock("@/lib/navigation/routes", () => ({
-  ROUTES: { PROFILE: "/profile", PROFILE_RECEIPTS: "/profile/receipts" },
+  ROUTES: {
+    PROFILE: "/profile",
+    GMAIL: "/gmail",
+    PROFILE_RECEIPTS: "/profile/receipts",
+  },
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -248,7 +271,7 @@ vi.mock("@/lib/profile/gmail-receipt-memory-pkm", () => ({
   hasMatchingReceiptMemoryProvenance: vi.fn().mockReturnValue(false),
 }));
 
-import ProfileReceiptsPage from "@/app/profile/receipts/page";
+import ProfileReceiptsPage from "@/components/gmail/gmail-receipts-page";
 import {
   clearCachedGmailReceipts,
   primeCachedGmailReceipts,
@@ -370,7 +393,9 @@ describe("ProfileReceiptsPage", () => {
       expect(gmailView.syncNow).toHaveBeenCalledTimes(1);
     });
 
-    expect(mocks.toast.message).toHaveBeenCalledWith("Syncing your receipts now.");
+    expect(mocks.toast.message).toHaveBeenCalledWith(
+      "Syncing your receipts now.",
+    );
   });
 
   it("holds sealed receipts behind vault unlock when the vault is locked", async () => {
@@ -383,51 +408,61 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage />);
 
     expect(
-      await screen.findByText("Unlock your vault to view and summarize synced receipts.")
+      await screen.findByText(
+        "Unlock your vault to view and summarize synced receipts.",
+      ),
     ).toBeTruthy();
     expect(vi.mocked(GmailReceiptsService.listReceipts)).not.toHaveBeenCalled();
     expect(vi.mocked(GmailReceiptMemoryService.preview)).not.toHaveBeenCalled();
   });
 
   it("keeps older receipts appended after loading the next page", async () => {
-    vi.mocked(GmailReceiptsService.listReceipts).mockImplementation(async ({ page }) => {
-      if (page === 1) {
+    vi.mocked(GmailReceiptsService.listReceipts).mockImplementation(
+      async ({ page }) => {
+        if (page === 1) {
+          return {
+            items: [makeReceipt(1, "Page One Shop")],
+            page: 1,
+            per_page: 20,
+            total: 2,
+            has_more: true,
+          };
+        }
+
         return {
-          items: [makeReceipt(1, "Page One Shop")],
-          page: 1,
+          items: [makeReceipt(2, "Page Two Shop")],
+          page: 2,
           per_page: 20,
           total: 2,
-          has_more: true,
+          has_more: false,
         };
-      }
-
-      return {
-        items: [makeReceipt(2, "Page Two Shop")],
-        page: 2,
-        per_page: 20,
-        total: 2,
-        has_more: false,
-      };
-    });
+      },
+    );
 
     render(<ProfileReceiptsPage />);
 
     expect(await screen.findByText("Page One Shop")).toBeTruthy();
-    expect(vi.mocked(GmailReceiptsService.listReceipts)).toHaveBeenNthCalledWith(
+    expect(
+      vi.mocked(GmailReceiptsService.listReceipts),
+    ).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         idToken: "token-abc",
         vaultOwnerToken: "vault-owner-token-123",
-      })
+      }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /load older receipts/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /load older receipts/i }),
+    );
 
     expect(await screen.findByText("Page Two Shop")).toBeTruthy();
     expect(screen.getByText("Page One Shop")).toBeTruthy();
 
     await waitFor(() => {
-      expect(vi.mocked(GmailReceiptsService.listReceipts)).toHaveBeenCalledTimes(2);
+      expect(
+        vi.mocked(GmailReceiptsService.listReceipts),
+      ).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -448,7 +483,9 @@ describe("ProfileReceiptsPage", () => {
 
     expect(await screen.findByText("Cached Shop")).toBeTruthy();
     await waitFor(() => {
-      expect(vi.mocked(GmailReceiptsService.listReceipts)).toHaveBeenCalledTimes(1);
+      expect(
+        vi.mocked(GmailReceiptsService.listReceipts),
+      ).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -464,19 +501,25 @@ describe("ProfileReceiptsPage", () => {
       userId: "user-123",
       response: cachedResponse,
     });
-    vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue(cachedResponse);
+    vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue(
+      cachedResponse,
+    );
 
     const renderResult = render(<ProfileReceiptsPage />);
 
     expect(await screen.findByText("Current Watermark Shop")).toBeTruthy();
     await waitFor(() => {
-      expect(vi.mocked(GmailReceiptMemoryService.preview)).toHaveBeenCalledTimes(1);
+      expect(
+        vi.mocked(GmailReceiptMemoryService.preview),
+      ).toHaveBeenCalledTimes(1);
     });
-    expect(vi.mocked(GmailReceiptMemoryService.preview)).toHaveBeenNthCalledWith(
+    expect(
+      vi.mocked(GmailReceiptMemoryService.preview),
+    ).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         forceRefresh: false,
-      })
+      }),
     );
 
     gmailView = makeGmailView({
@@ -517,13 +560,17 @@ describe("ProfileReceiptsPage", () => {
     renderResult.rerender(<ProfileReceiptsPage />);
 
     await waitFor(() => {
-      expect(vi.mocked(GmailReceiptMemoryService.preview)).toHaveBeenCalledTimes(2);
+      expect(
+        vi.mocked(GmailReceiptMemoryService.preview),
+      ).toHaveBeenCalledTimes(2);
     });
-    expect(vi.mocked(GmailReceiptMemoryService.preview)).toHaveBeenNthCalledWith(
+    expect(
+      vi.mocked(GmailReceiptMemoryService.preview),
+    ).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         forceRefresh: false,
-      })
+      }),
     );
   });
 
@@ -542,7 +589,7 @@ describe("ProfileReceiptsPage", () => {
           ...buildGmailView().status,
           last_sync_status: "running",
         },
-      })
+      }),
     );
     vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
       items: [makeReceipt(1, "Backfill Shop")],
@@ -556,35 +603,39 @@ describe("ProfileReceiptsPage", () => {
 
     expect(await screen.findByText("Backfill Shop")).toBeTruthy();
     expect(
-      screen.getByText(/we'll prepare your shopping summary after gmail finishes syncing/i)
+      screen.getByText(
+        /we'll prepare your shopping summary after gmail finishes syncing/i,
+      ),
     ).toBeTruthy();
 
     await waitFor(() => {
-      expect(vi.mocked(GmailReceiptsService.listReceipts)).toHaveBeenCalledTimes(1);
+      expect(
+        vi.mocked(GmailReceiptsService.listReceipts),
+      ).toHaveBeenCalledTimes(1);
     });
     expect(vi.mocked(GmailReceiptMemoryService.preview)).not.toHaveBeenCalled();
   });
 
   it("shows the loading summary while Gmail status is still loading", async () => {
-    mocks.useGmailConnectorStatus.mockReturnValue(
-      {
-        ...buildGmailView(),
-        status: null,
-        loadingStatus: true,
-        presentation: {
-          state: "loading",
-          badgeLabel: "Checking",
-          description: "Checking your Gmail connection…",
-          latestSyncText: "Loading the latest connection details.",
-          latestSyncBadge: null,
-          isConnected: false,
-        },
-      } as ReturnType<typeof buildGmailView>
-    );
+    mocks.useGmailConnectorStatus.mockReturnValue({
+      ...buildGmailView(),
+      status: null,
+      loadingStatus: true,
+      presentation: {
+        state: "loading",
+        badgeLabel: "Checking",
+        description: "Checking your Gmail connection…",
+        latestSyncText: "Loading the latest connection details.",
+        latestSyncBadge: null,
+        isConnected: false,
+      },
+    } as ReturnType<typeof buildGmailView>);
 
     render(<ProfileReceiptsPage />);
 
-    expect(screen.getByRole("heading", { name: /checking your gmail connection/i })).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: /checking your gmail connection/i }),
+    ).toBeTruthy();
     expect(screen.getByText(/this should only take a moment/i)).toBeTruthy();
   });
 
@@ -610,7 +661,7 @@ describe("ProfileReceiptsPage", () => {
           latestSyncBadge: null,
           isConnected: false,
         },
-      })
+      }),
     );
     vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
       items: [makeReceipt(1, "Stored Shop")],
@@ -623,9 +674,52 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage />);
 
     expect(await screen.findByText("Stored Shop")).toBeTruthy();
-    expect(screen.getByText(/saved receipts are still available here/i)).toBeTruthy();
     expect(
-      screen.getByRole("heading", { name: /reconnect gmail to keep syncing receipts/i })
+      screen.getByText(/saved receipts are still available here/i),
     ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: /reconnect gmail/i }),
+    ).toBeTruthy();
+  });
+
+  it("shows one clear Gmail connect action when Gmail is not connected", async () => {
+    mocks.useGmailConnectorStatus.mockReturnValue(
+      makeGmailView({
+        status: {
+          configured: true,
+          connected: false,
+          status: "disconnected",
+          scope_csv: null,
+          last_sync_status: null,
+          auto_sync_enabled: false,
+          revoked: false,
+          latest_run: null,
+          google_email: null,
+        },
+        presentation: {
+          state: "disconnected",
+          badgeLabel: "Not connected",
+          description: "Gmail not connected.",
+          latestSyncText: "Connect once to sync receipts.",
+          latestSyncBadge: null,
+          isConnected: false,
+        },
+      }),
+    );
+
+    render(<ProfileReceiptsPage />);
+
+    expect(
+      screen.getByRole("heading", { name: /gmail not connected/i }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/connect once to sync receipt emails/i),
+    ).toBeTruthy();
+    expect(
+      screen.getAllByRole("button", { name: /connect gmail/i }),
+    ).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /connect gmail/i }));
+    expect(mocks.routerPush).toHaveBeenCalledWith("/profile?panel=gmail");
   });
 });

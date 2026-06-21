@@ -41,6 +41,7 @@ _MIN_PUBLIC_EXPIRY_HOURS = 24
 _MAX_PUBLIC_EXPIRY_HOURS = 24 * 90
 _MIN_PUBLIC_APPROVAL_TIMEOUT_MINUTES = 5
 _MAX_PUBLIC_APPROVAL_TIMEOUT_MINUTES = 24 * 60
+_CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM"
 
 
 class DeveloperScopeDescriptor(BaseModel):
@@ -152,6 +153,28 @@ class ExportFields(TypedDict):
     export_refresh_status: str | None
 
 
+class DeveloperConsentOffer(BaseModel):
+    """Optional priced-consent offer (the consent reverse-auction bid).
+
+    When a Demand Agent requests consent it MAY attach an ``offer`` — a bid to
+    pay the user for scoped, time-boxed access to their consented context. The
+    bid rides inside ``request_consent`` (it is a data-access offer), is recorded
+    on the consent event metadata, and surfaces in the response so the user side
+    (One holds the reserve price, Nav clears it) can decide. SETTLEMENT of the
+    bid is AP2's job at the money boundary — this layer authorizes the read and
+    carries the bid; it never moves money. See the consent reverse-auction plan.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    bid_amount: float = Field(..., gt=0, le=1_000_000)
+    currency: str = Field(default="USD", min_length=3, max_length=3)
+    offer_summary: str | None = Field(default=None, max_length=500)
+    # Correlation id linking a cleared consent receipt (CRT) to its AP2 Payment
+    # Mandate. The two ledgers stay separate; this is the only cross-reference.
+    settlement_ref: str | None = Field(default=None, max_length=128)
+
+
 class DeveloperConsentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -163,6 +186,7 @@ class DeveloperConsentRequest(BaseModel):
     connector_public_key: str = Field(min_length=16)
     connector_key_id: str = Field(min_length=1, max_length=128)
     connector_wrapping_alg: str = Field(min_length=1, max_length=128)
+    offer: DeveloperConsentOffer | None = None
 
 
 class DeveloperScopedExportRequest(BaseModel):
@@ -344,6 +368,19 @@ def _validate_public_approval_timeout_minutes(approval_timeout_minutes: int) -> 
     )
 
 
+def _validate_connector_wrapping_alg(connector_wrapping_alg: str) -> str:
+    normalized = str(connector_wrapping_alg or "").strip()
+    if normalized == _CONNECTOR_WRAPPING_ALG:
+        return normalized
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={
+            "error_code": "INVALID_CONNECTOR_WRAPPING_ALG",
+            "message": f"connector_wrapping_alg must be {_CONNECTOR_WRAPPING_ALG}",
+        },
+    )
+
+
 def _request_url_from_metadata(
     request_id: str | None,
     metadata: dict[str, object] | None,
@@ -395,6 +432,22 @@ def _optional_int(value: object | None) -> int | None:
             return None
         try:
             return int(normalized)
+        except ValueError:
+            return None
+    return None
+
+
+def _optional_float(value: object | None) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return None
+        try:
+            return float(normalized)
         except ValueError:
             return None
     return None
@@ -484,6 +537,52 @@ def _scope_upgrade_fields(
             requested_scope=requested_scope,
             existing_granted_scopes=unique_scopes,
         ),
+    }
+
+
+def _offer_metadata(offer: "DeveloperConsentOffer | None") -> dict[str, object]:
+    """Flatten a priced-consent offer into consent-event metadata keys.
+
+    Stored alongside the consent event so the bid is auditable and the user
+    side can clear it against a reserve price. Returns {} when no offer.
+    """
+    if offer is None:
+        return {}
+    meta: dict[str, object] = {
+        "offer_kind": "consent_reverse_auction_bid",
+        "offer_bid_amount": round(float(offer.bid_amount), 2),
+        "offer_currency": offer.currency.upper(),
+    }
+    if offer.offer_summary:
+        meta["offer_summary"] = offer.offer_summary
+    if offer.settlement_ref:
+        meta["offer_settlement_ref"] = offer.settlement_ref
+    return meta
+
+
+def _offer_response_fields(metadata: dict[str, object] | None) -> dict[str, object | None]:
+    """Surface the offer back to the caller, reading from event metadata.
+
+    A non-null ``offer`` block tells the Demand Agent its bid was recorded and
+    is awaiting the user's reserve-price clearance (handled by One/Nav). The
+    bid is NOT settled here — AP2 settles at the money boundary on approval.
+    """
+    metadata = metadata or {}
+    if metadata.get("offer_kind") != "consent_reverse_auction_bid":
+        return {"offer": None}
+    bid_amount = _optional_float(metadata.get("offer_bid_amount"))
+    if bid_amount is None:
+        return {"offer": None}
+    return {
+        "offer": {
+            "kind": "consent_reverse_auction_bid",
+            "bid_amount": bid_amount,
+            "currency": _optional_str(metadata.get("offer_currency")) or "USD",
+            "offer_summary": _optional_str(metadata.get("offer_summary")),
+            "settlement_ref": _optional_str(metadata.get("offer_settlement_ref")),
+            "settlement_status": "pending_user_clearance",
+            "settlement_rail": "ap2",
+        }
     }
 
 
@@ -983,6 +1082,7 @@ async def request_consent(
     approval_timeout_minutes = _validate_public_approval_timeout_minutes(
         payload.approval_timeout_minutes
     )
+    connector_wrapping_alg = _validate_connector_wrapping_alg(payload.connector_wrapping_alg)
 
     # Keep default developer discovery compact, but validate requestable scopes
     # against the full resolver output so explicitly requested leaf paths found via
@@ -1065,6 +1165,7 @@ async def request_consent(
             "agent_id": principal.agent_id,
             "app_id": principal.app_id,
             "app_display_name": principal.display_name,
+            **_offer_response_fields(active_metadata),
         }
 
     pending = await service.get_pending_request_for_scope(
@@ -1106,6 +1207,7 @@ async def request_consent(
             "additional_access_summary": pending.get("additionalAccessSummary")
             or str(pending_metadata.get("additional_access_summary") or "").strip()
             or None,
+            **_offer_response_fields(pending_metadata),
         }
 
     if await service.was_recently_denied(
@@ -1144,9 +1246,10 @@ async def request_consent(
         reason=payload.reason,
         connector_public_key=payload.connector_public_key,
         connector_key_id=payload.connector_key_id,
-        connector_wrapping_alg=payload.connector_wrapping_alg,
+        connector_wrapping_alg=connector_wrapping_alg,
     )
     request_url = build_consent_request_url(request_id=request_id)
+    offer_meta = _offer_metadata(payload.offer)
     metadata.update(
         {
             "expiry_hours": expiry_hours,
@@ -1154,6 +1257,7 @@ async def request_consent(
             "approval_timeout_at": poll_timeout_at,
             "request_url": request_url,
             **scope_upgrade_fields,
+            **offer_meta,
         }
     )
 
@@ -1198,6 +1302,7 @@ async def request_consent(
         "is_scope_upgrade": scope_upgrade_fields["is_scope_upgrade"],
         "existing_granted_scopes": scope_upgrade_fields["existing_granted_scopes"],
         "additional_access_summary": scope_upgrade_fields["additional_access_summary"],
+        **_offer_response_fields(metadata),
     }
 
 

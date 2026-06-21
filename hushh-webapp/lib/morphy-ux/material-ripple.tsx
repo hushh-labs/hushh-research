@@ -1,4 +1,3 @@
-
 "use client";
 
 /**
@@ -23,6 +22,8 @@ import { type ColorVariant, type ComponentEffect } from "./types";
 
 interface MdRipple extends HTMLElement {
   disabled: boolean;
+  attach?: (control: HTMLElement) => void;
+  detach?: () => void;
 }
 
 // ============================================================================
@@ -32,7 +33,7 @@ interface MdRipple extends HTMLElement {
 export const getMaterialRippleColors = (
   variant: ColorVariant,
   effect: ComponentEffect = "fill",
-  isDarkMode: boolean = false
+  isDarkMode: boolean = false,
 ): {
   hoverColor: string;
   pressedColor: string;
@@ -176,7 +177,7 @@ export const MaterialRipple = ({
       } catch (error) {
         console.warn(
           "[MaterialRipple] Material Web ripple is unavailable. Rendering without the custom ripple element.",
-          error
+          error,
         );
         if (!cancelled) setIsRippleReady(false);
       }
@@ -196,9 +197,13 @@ export const MaterialRipple = ({
     rippleElement.className = "morphy-md-ripple";
     rippleElement.disabled = disabled;
     containerRef.current.appendChild(rippleElement);
+    rippleElement.attach?.(
+      containerRef.current.parentElement || containerRef.current,
+    );
     rippleRef.current = rippleElement;
 
     return () => {
+      rippleElement.detach?.();
       if (rippleRef.current === rippleElement) {
         rippleRef.current = null;
       }
@@ -223,19 +228,19 @@ export const MaterialRipple = ({
     if (containerRef.current) {
       containerRef.current.style.setProperty(
         "--md-ripple-hover-color",
-        colors.hoverColor
+        colors.hoverColor,
       );
       containerRef.current.style.setProperty(
         "--md-ripple-pressed-color",
-        colors.pressedColor
+        colors.pressedColor,
       );
       containerRef.current.style.setProperty(
         "--md-ripple-hover-opacity",
-        String(colors.hoverOpacity)
+        String(colors.hoverOpacity),
       );
       containerRef.current.style.setProperty(
         "--md-ripple-pressed-opacity",
-        String(colors.pressedOpacity)
+        String(colors.pressedOpacity),
       );
     }
   }, [variant, effect]);
@@ -252,11 +257,11 @@ export const MaterialRipple = ({
           if (containerRef.current) {
             containerRef.current.style.setProperty(
               "--md-ripple-hover-color",
-              colors.hoverColor
+              colors.hoverColor,
             );
             containerRef.current.style.setProperty(
               "--md-ripple-pressed-color",
-              colors.pressedColor
+              colors.pressedColor,
             );
           }
         }
@@ -270,9 +275,18 @@ export const MaterialRipple = ({
   return (
     <div
       ref={containerRef}
-      className={`morphy-ripple-host absolute inset-0 isolate overflow-hidden ${className}`}
+      className={`morphy-ripple-host pointer-events-none absolute inset-0 isolate overflow-hidden ${className}`}
       // Let the ripple host own the clip boundary for rounded actionables.
-      style={{ borderRadius: "inherit", contain: "paint" }}
+      // pointer-events:none is critical: the host overlays the actionable's
+      // content (absolute inset-0). On iOS WKWebView an overlay without it can
+      // swallow the first tap, which surfaced as "bottom nav needs a double tap
+      // / never switches". The ripple is purely visual; the parent button still
+      // receives the pointer events md-ripple observes.
+      style={{
+        borderRadius: "inherit",
+        contain: "paint",
+        pointerEvents: "none",
+      }}
     />
   );
 };

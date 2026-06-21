@@ -185,6 +185,7 @@ export type OneLocationPublicInvite = {
   ownerLabel?: string | null;
   ownerDisplayName?: string | null;
   ownerMaskedPhone?: string | null;
+  locationAvailable?: boolean;
   status: "active" | "expired" | "revoked" | string;
   durationHours: number;
   expiresAt?: string | null;
