@@ -1471,6 +1471,13 @@ function publicInviteUrlPreview(value: string): string {
   return url.length > maxLength ? `${url.slice(0, maxLength)}...` : url;
 }
 
+function publicInviteUrlPreview(value: string): string {
+  const url = value.trim();
+  if (!url) return "";
+  const maxLength = 52;
+  return url.length > maxLength ? `${url.slice(0, maxLength)}...` : url;
+}
+
 function statusVariant(
   status: string,
 ): "default" | "secondary" | "outline" | "destructive" {
@@ -4914,9 +4921,11 @@ export function OneLocationAgentPageContent({
     async (options?: {
       capturePoint?: boolean;
       autoOpenSettings?: boolean;
+      requestNativePrompt?: boolean;
     }): Promise<{ ready: boolean; point?: PlainLocationPoint }> => {
       const shouldCapturePoint = Boolean(options?.capturePoint);
       const shouldOpenSettings = options?.autoOpenSettings !== false;
+      const shouldRequestNativePrompt = options?.requestNativePrompt === true;
       const currentPermission = await refreshLocationPermission();
 
       if (isLocationServicesDisabled(currentPermission)) {
@@ -4928,8 +4937,8 @@ export function OneLocationAgentPageContent({
       }
 
       if (
-        currentPermission.state === "denied" ||
-        currentPermission.state === "restricted"
+        currentPermission.state === "restricted" ||
+        (currentPermission.state === "denied" && !shouldRequestNativePrompt)
       ) {
         toast.error("Allow location permission before sharing.");
         if (shouldOpenSettings) {
@@ -4995,37 +5004,34 @@ export function OneLocationAgentPageContent({
   }, []);
 
   useEffect(() => {
-    if (
-      !auth.userId ||
-      !state ||
-      permission?.state !== "prompt" ||
-      permissionPromptInFlightRef.current
-    ) {
+    if (auth.loading) {
+      setLocationOnboardingGate("checking");
+      return;
+    }
+    if (!auth.userId || loadError) {
+      setLocationOnboardingGate("hidden");
+      return;
+    }
+    if (!vaultOwnerToken) {
+      setLocationOnboardingGate("checking");
       return;
     }
 
-    let cancelled = false;
-    permissionPromptInFlightRef.current = true;
-    const promptForForegroundLocation = async () => {
-      try {
-        await ensureForegroundLocationReady({
-          capturePoint: false,
-          autoOpenSettings: false,
-        });
-      } finally {
-        if (!cancelled) {
-          permissionPromptInFlightRef.current = false;
-        }
-      }
-    };
+    if (locationOnboardingGate === "hidden") {
+      return;
+    }
 
-    void promptForForegroundLocation();
-
-    return () => {
-      cancelled = true;
-      permissionPromptInFlightRef.current = false;
-    };
-  }, [auth.userId, ensureForegroundLocationReady, permission?.state, state]);
+    if (locationOnboardingGate !== "show") {
+      setLocationOnboardingStep("intro");
+    }
+    setLocationOnboardingGate("show");
+  }, [
+    auth.loading,
+    auth.userId,
+    loadError,
+    locationOnboardingGate,
+    vaultOwnerToken,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -14993,6 +14999,126 @@ export function OneLocationAgentPageContent({
           {...contactDiscoverabilityConsentDialogProps}
         />
       </AppPageShell>
+    );
+  }
+
+  const dismissLocationOnboarding = useCallback(() => {
+    setLocationOnboardingGate("hidden");
+    setLocationOnboardingBusy(false);
+  }, []);
+
+  const handleContinueLocationOnboardingIntro = useCallback(() => {
+    setLocationOnboardingStep("permission");
+  }, []);
+
+  const handleSkipLocationOnboarding = useCallback(() => {
+    dismissLocationOnboarding();
+  }, [dismissLocationOnboarding]);
+
+  const openLocationSettingsForOnboarding = useCallback(async () => {
+    await OneLocationService.openLocationSettings().catch(() => null);
+    toast.info("Turn on phone Location, then return to continue.");
+    window.setTimeout(() => void refreshLocationPermission(), 1200);
+  }, [refreshLocationPermission]);
+
+  const openAppSettingsForOnboarding = useCallback(async () => {
+    await OneLocationService.openAppSettings().catch(() => null);
+    toast.info("Allow Location for One in Settings, then return.");
+    window.setTimeout(() => void refreshLocationPermission(), 1200);
+  }, [refreshLocationPermission]);
+
+  const handleLocationOnboardingPermission = useCallback(async () => {
+    if (locationOnboardingBusy) return;
+    setLocationOnboardingBusy(true);
+    try {
+      if (isLocationServicesDisabled(permission)) {
+        await openLocationSettingsForOnboarding();
+        return;
+      }
+
+      if (
+        permission?.state === "denied" ||
+        permission?.state === "restricted"
+      ) {
+        await openAppSettingsForOnboarding();
+        return;
+      }
+
+      if (permission?.state === "granted") {
+        const refreshedPermission = await refreshLocationPermission();
+        if (!isLocationServicesDisabled(refreshedPermission)) {
+          dismissLocationOnboarding();
+        } else {
+          await openLocationSettingsForOnboarding();
+        }
+        return;
+      }
+
+      const requestedPermission =
+        await OneLocationService.requestLocationPermission();
+      setPermission(requestedPermission);
+
+      if (
+        requestedPermission.locationServicesEnabled === false ||
+        (requestedPermission.state === "unavailable" &&
+          requestedPermission.precise !== false)
+      ) {
+        await openLocationSettingsForOnboarding();
+        return;
+      }
+
+      if (requestedPermission.state !== "granted") {
+        await openAppSettingsForOnboarding();
+        return;
+      }
+
+      if (isLocationServicesDisabled(requestedPermission)) {
+        await openLocationSettingsForOnboarding();
+        return;
+      }
+
+      dismissLocationOnboarding();
+    } finally {
+      setLocationOnboardingBusy(false);
+    }
+  }, [
+    dismissLocationOnboarding,
+    locationOnboardingBusy,
+    openAppSettingsForOnboarding,
+    openLocationSettingsForOnboarding,
+    permission,
+    refreshLocationPermission,
+  ]);
+
+  const nativeTestConfig: OneLocationNativeTestConfig = {
+    routeId: "/one/location",
+    marker: "native-route-one-location",
+    authState: auth.loading
+      ? "pending"
+      : auth.isAuthenticated
+        ? "authenticated"
+        : "anonymous",
+    dataState,
+    errorCode: loadError ? "one_location_unavailable" : null,
+    errorMessage: loadError,
+  };
+
+  const showLocationOnboarding =
+    locationOnboardingGate === "show" &&
+    !loadError &&
+    Boolean(auth.userId && vaultOwnerToken);
+
+  if (showLocationOnboarding) {
+    return (
+      <OneLocationOnboardingFlow
+        step={locationOnboardingStep}
+        busy={locationOnboardingBusy}
+        permission={permission}
+        nativeTest={nativeTestConfig}
+        onContinueIntro={handleContinueLocationOnboardingIntro}
+        onRequestPermission={handleLocationOnboardingPermission}
+        onSkip={handleSkipLocationOnboarding}
+      />
     );
   }
 
