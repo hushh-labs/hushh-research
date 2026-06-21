@@ -17,4 +17,12 @@ describe("Checkbox", () => {
       container.querySelector('[data-slot="checkbox-indicator"]'),
     ).toBeTruthy();
   });
+
+  it("sets aria-required when required is true", () => {
+    const { container } = render(<Checkbox required />);
+
+    const el = container.querySelector('[data-slot="checkbox"]');
+
+    expect(el?.getAttribute("aria-required")).toBe("true");
+  });
 });
