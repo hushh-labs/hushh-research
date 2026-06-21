@@ -325,7 +325,35 @@ interface ErrorPayload {
   error?: string;
 }
 
-function normalizeConsentEntry(entry: ConsentCenterEntry): ConsentCenterEntry {
+const ZERO_VALUE_CONSENT_ENTRY_ID = "zero-value-consent-entry";
+const EMPTY_CONSENT_ENTRY_REASON = "empty_consent_entry";
+
+function buildZeroValueConsentEntry(index = 0): ConsentCenterEntry {
+  return Object.freeze({
+    id: `${ZERO_VALUE_CONSENT_ENTRY_ID}-${index}`,
+    kind: "history",
+    status: "revoked",
+    active: false,
+    granted: false,
+    action: "deny",
+    counterpart_type: "self",
+    metadata: Object.freeze({
+      fallback_reason: EMPTY_CONSENT_ENTRY_REASON,
+    }),
+  } satisfies ConsentCenterEntry);
+}
+
+function isConsentEntryRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeConsentEntry(entry: unknown, index = 0): ConsentCenterEntry {
+  if (!isConsentEntryRecord(entry) || Object.keys(entry).length === 0) {
+    return buildZeroValueConsentEntry(index);
+  }
+
+  const consentEntry = entry as unknown as ConsentCenterEntry;
+
   // ── Local-override precedence matrix (inline) ─────────────────────────────
   // When entry.active is an explicit boolean it carries a local user decision
   // that must bypass every system-derived inference, including the
@@ -348,16 +376,16 @@ function normalizeConsentEntry(entry: ConsentCenterEntry): ConsentCenterEntry {
       return { ...entry, status };
     }
     // Explicit local revocation — return entry as-is, no promotion.
-    return entry;
+    return consentEntry;
   }
   // ── End override matrix ───────────────────────────────────────────────────
 
   const normalized = normalizeConsentResponse({
-    active: entry.active,
-    granted: entry.granted,
-    status: entry.status,
-    permissions: entry.existing_granted_scopes || undefined,
-    scopes: entry.scope ? [entry.scope] : undefined,
+    active: consentEntry.active,
+    granted: consentEntry.granted,
+    status: consentEntry.status,
+    permissions: consentEntry.existing_granted_scopes || undefined,
+    scopes: consentEntry.scope ? [consentEntry.scope] : undefined,
   });
   if (
     normalized.isGranted &&
@@ -368,7 +396,7 @@ function normalizeConsentEntry(entry: ConsentCenterEntry): ConsentCenterEntry {
       status: entry.kind === "active_grant" ? "active" : "approved",
     };
   }
-  return entry;
+  return consentEntry;
 }
 
 function normalizeConsentEntries(

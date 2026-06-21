@@ -317,6 +317,20 @@ function verifiedBackendPhoneNumber(
   return phone || null;
 }
 
+function verifiedBackendPhoneNumber(
+  identity:
+    | {
+        phone_number?: string | null;
+        phone_verified?: boolean;
+      }
+    | null
+    | undefined
+): string | null {
+  if (identity?.phone_verified !== true) return null;
+  const phone = String(identity.phone_number ?? "").trim();
+  return phone || null;
+}
+
 // ============================================================================
 // Types
 // ============================================================================

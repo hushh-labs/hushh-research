@@ -495,9 +495,10 @@ export function VaultFlow({
     preferPassphraseUnlockForAutomation(nativeTestConfig);
   const skipGeneratedUnlockForAutomation =
     shouldSkipGeneratedVaultUnlockForAutomation();
+  const hostname = useHostname();
   const currentRpId = resolvePasskeyRpId({
     isNative: Capacitor.isNativePlatform(),
-    hostname: typeof window !== "undefined" ? window.location.hostname : null,
+    hostname: hostname,
   });
 
   const { isVaultUnlocked, unlockVault } = useVault();
@@ -935,11 +936,7 @@ export function VaultFlow({
     } catch (err: any) {
       if (!isCurrentAttempt(attempt)) return;
       console.error("Create vault error:", err);
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : "We could not create your Vault. Please try again."
-      );
+      toast.error(err.message || "We could not create your Vault. Please try again.");
     } finally {
       createPassphraseAttemptRef.current = false;
       finishAttempt(attempt);
@@ -2006,7 +2003,7 @@ export function VaultFlow({
                   >
                     {isUnlocking ? (
                       <>
-                        <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" /> Unlocking...
+                        <Icon aria-hidden="true" icon={Loader2} size="sm" className="mr-2 animate-spin" /> Unlocking...
                       </>
                     ) : (
                       "Unlock"
@@ -2098,7 +2095,7 @@ export function VaultFlow({
                 >
                   {isUnlocking ? (
                     <>
-                      <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" /> Unlocking...
+                      <Icon aria-hidden="true" icon={Loader2} size="sm" className="mr-2 animate-spin" /> Unlocking...
                     </>
                   ) : (
                     "Unlock"
@@ -2197,7 +2194,7 @@ export function VaultFlow({
                 >
                   {isUnlocking ? (
                     <>
-                      <Icon icon={Loader2} size="md" className="mr-2 animate-spin" />
+                      <Icon aria-hidden="true" icon={Loader2} size="md" className="mr-2 animate-spin" />
                       Enabling...
                     </>
                   ) : (

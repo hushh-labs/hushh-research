@@ -6,6 +6,7 @@ const apiMocks = vi.hoisted(() => ({
   streamKaiDebateRun: vi.fn(),
   cancelKaiDebateRun: vi.fn(),
   consumeCanonicalKaiStream: vi.fn(),
+  saveAnalysis: vi.fn(async () => true),
 }));
 
 vi.mock("@/lib/services/api-service", () => ({
@@ -32,7 +33,7 @@ vi.mock("@/lib/services/app-background-task-service", () => ({
 
 vi.mock("@/lib/services/kai-history-service", () => ({
   KaiHistoryService: {
-    saveAnalysis: vi.fn(async () => true),
+    saveAnalysis: (...args: unknown[]) => apiMocks.saveAnalysis(...args),
   },
 }));
 
@@ -62,7 +63,11 @@ function runPayload(runId: string, userId = "user-1", ticker = "AAPL") {
   };
 }
 
-function persistedTask(runId: string, userId = "user-1") {
+function persistedTask(
+  runId: string,
+  userId = "user-1",
+  overrides: Record<string, unknown> = {},
+) {
   return {
     runId,
     userId,
@@ -77,6 +82,7 @@ function persistedTask(runId: string, userId = "user-1") {
     persistenceError: null,
     dismissedAt: null,
     finalDecision: null,
+    ...overrides,
   };
 }
 
@@ -129,6 +135,8 @@ describe("DebateRunManagerService start gate", () => {
     apiMocks.streamKaiDebateRun.mockReset();
     apiMocks.cancelKaiDebateRun.mockReset();
     apiMocks.consumeCanonicalKaiStream.mockReset();
+    apiMocks.saveAnalysis.mockReset();
+    apiMocks.saveAnalysis.mockResolvedValue(true);
     apiMocks.streamKaiDebateRun.mockResolvedValue(response(200));
     apiMocks.consumeCanonicalKaiStream.mockResolvedValue(undefined);
     window.localStorage.clear();
@@ -352,5 +360,69 @@ describe("DebateRunManagerService start gate", () => {
       .DebateRunManagerService;
     expect(fresh.getDebateSessionId()).not.toBe(SESSION_ID);
     expect(window.localStorage.getItem(REATTACH_KEY)).toBeNull();
+  });
+
+  it("recovers interrupted completed history saves as retryable failures on hydration", async () => {
+    const manager = await loadManager([
+      persistedTask("completed-run", "user-1", {
+        status: "completed",
+        completedAt: "2026-05-27T00:01:00.000Z",
+        updatedAt: "2026-05-27T00:01:00.000Z",
+        latestCursor: 42,
+        persistenceState: "pending",
+        finalDecision: {
+          decision: "hold",
+          confidence: 0.7,
+          finalStatement: "Hold for now.",
+        },
+      }),
+    ]);
+
+    const task = manager.getTask("completed-run");
+
+    expect(task?.status).toBe("completed");
+    expect(task?.persistenceState).toBe("failed");
+    expect(task?.persistenceError).toBe(
+      "History save was interrupted. Retry from task center.",
+    );
+  });
+
+  it("retries interrupted history save with current vault credentials after reload", async () => {
+    const manager = await loadManager([
+      persistedTask("completed-run", "user-1", {
+        ticker: "TSLA",
+        status: "completed",
+        completedAt: "2026-05-27T00:01:00.000Z",
+        updatedAt: "2026-05-27T00:01:00.000Z",
+        latestCursor: 42,
+        persistenceState: "pending",
+        finalDecision: {
+          decision: "hold",
+          confidence: 0.7,
+          finalStatement: "Hold for now.",
+        },
+      }),
+    ]);
+
+    await manager.retryTaskPersistence("completed-run", {
+      vaultOwnerToken: "fresh-vault-token",
+      vaultKey: "fresh-vault-key",
+    });
+
+    expect(apiMocks.saveAnalysis).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user-1",
+        vaultOwnerToken: "fresh-vault-token",
+        vaultKey: "fresh-vault-key",
+        entry: expect.objectContaining({
+          ticker: "TSLA",
+          decision: "hold",
+          confidence: 0.7,
+          final_statement: "Hold for now.",
+        }),
+      }),
+    );
+    expect(manager.getTask("completed-run")?.persistenceState).toBe("saved");
+    expect(manager.getTask("completed-run")?.persistenceError).toBeNull();
   });
 });

@@ -77,6 +77,16 @@ function FilledChatCircleIcon(props: PhosphorIconProps) {
 
 const BOTTOM_GAP_PX = 4;
 
+const BOTTOM_NAV_MAX_SLOT_COUNT = 5;
+const BOTTOM_NAV_SLOT_WIDTH_REM = 5.4;
+const BOTTOM_NAV_SEARCH_BUBBLE_WIDTH = "70px";
+const BOTTOM_NAV_EMPTY_GROUP_WIDTH = "58px";
+
+function resolveBottomNavMaxWidth(count: number): string {
+  const slotCount = Math.min(Math.max(count, 1), BOTTOM_NAV_MAX_SLOT_COUNT);
+  return `${slotCount * BOTTOM_NAV_SLOT_WIDTH_REM}rem`;
+}
+
 const BOTTOM_NAV_OPTION_META: Record<
   AppBottomNavKey,
   Omit<SegmentedPillOption, "badge">
@@ -486,6 +496,7 @@ export const Navbar = ({
         transitionMode: "contextual",
       });
     }
+    if (action.type === "route") router.push(action.href);
   };
 
   const nativeNavigation = useNativeNavigation({
@@ -543,6 +554,8 @@ export const Navbar = ({
           "pointer-events-none mx-auto flex justify-center",
           BOTTOM_CHROME_COLUMN_CLASSNAME,
         )}
+        style={{ width: bottomNavGroupWidth }}
+        ref={pillRef}
       >
         <div
           className={cn(
@@ -578,6 +591,27 @@ export const Navbar = ({
             />
           </div>}
         </div>
+        <button
+          type="button"
+          aria-label="Search"
+          className={cn(
+            "pointer-events-auto relative z-20 inline-flex h-[58px] w-[58px] shrink-0 items-center justify-center overflow-hidden rounded-full",
+            "kai-bottom-search-action border text-foreground/70",
+            "transition-[color,transform,background-color] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+            "hover:text-foreground active:scale-[0.985] chrome-bottom-foreground",
+          )}
+          onClick={() => {
+            if (busyOperations["portfolio_save"]) {
+              toast.info(
+                "Saving to vault. Please wait until encryption completes.",
+              );
+              return;
+            }
+            openKaiCommandBar();
+          }}
+        >
+          <Icon icon={SearchIcon} size="md" className="shrink-0" />
+        </button>
       </div>
     </nav>
   );
