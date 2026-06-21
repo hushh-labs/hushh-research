@@ -32,7 +32,7 @@ export function AgentVoiceWaveInput({
           ) : (
             <Mic className="h-3.5 w-3.5 text-primary" />
           )}
-          <span>{label}</span>
+          <span className="truncate">{label}</span>
         </div>
         <AgentVoiceWaveform
           className="mt-2"
@@ -46,7 +46,7 @@ export function AgentVoiceWaveInput({
         type="button"
         variant="ghost"
         size="icon"
-        className="h-9 w-9 shrink-0"
+        className="h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:text-foreground"
         disabled={disabled}
         onClick={onCancel}
         aria-label="Cancel command"
