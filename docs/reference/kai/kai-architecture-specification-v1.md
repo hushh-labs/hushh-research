@@ -7,12 +7,12 @@ Status: canonical current-state architecture specification for Kai as implemente
 ```mermaid
 flowchart TB
   subgraph surfaces["Kai product surfaces"]
-    onboarding["/kai/onboarding"]
-    import["/kai/import"]
-    home["/kai"]
-    portfolio["/kai/portfolio"]
-    analysis["/kai/analysis"]
-    optimize["/kai/optimize"]
+    onboarding["/one/onboarding"]
+    import["/one/kai/import"]
+    home["/one/kai"]
+    portfolio["/one/kai/portfolio"]
+    analysis["/one/kai/analysis"]
+    optimize["/one/kai/optimize"]
     profile["/profile"]
   end
 
@@ -115,13 +115,13 @@ The repo is moving toward the Hussh / One / Kai / Nav ontology: Hussh as platfor
 
 The current Kai route map is intentional and stable unless route governance changes:
 
-- `/kai/onboarding`: canonical onboarding and persona capture
-- `/kai/import`: statement upload, brokerage connect, and first portfolio setup
-- `/kai/plaid/oauth/return`: Plaid OAuth resume surface
-- `/kai`: signed-in live market home
-- `/kai/portfolio`: holdings, analytics, and dashboard views
-- `/kai/analysis`: debate stream and decision views
-- `/kai/optimize`: optimization workflow
+- `/one/onboarding`: canonical setup and persona capture
+- `/one/kai/import`: statement upload, brokerage connect, and first portfolio setup
+- `/one/kai/plaid/oauth/return`: Plaid OAuth resume surface
+- `/one/kai`: signed-in live market home
+- `/one/kai/portfolio`: holdings, analytics, and dashboard views
+- `/one/kai/analysis`: debate stream and decision views
+- `/one/kai/optimize`: optimization workflow
 - `/profile`: profile and adjacent user settings surfaces that also publish Kai actionability
 
 Current route invariants:
@@ -233,9 +233,9 @@ Current brokerage model:
 
 Current decision and analysis model:
 
-- `/kai` provides cache-first market intelligence and market-home context
-- `/kai/analysis` uses streamed debate output and explicit degraded markers
-- `/kai/optimize` fails closed when decision-critical realtime dependencies are unavailable
+- `/one/kai` provides cache-first market intelligence and market-home context
+- `/one/kai/analysis` uses streamed debate output and explicit degraded markers
+- `/one/kai/optimize` fails closed when decision-critical realtime dependencies are unavailable
 - every dashboard KPI and decision-critical claim must map back to explicit provenance
 
 ## Trust And Security Model

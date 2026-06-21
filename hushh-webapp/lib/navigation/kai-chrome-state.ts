@@ -15,14 +15,17 @@ export interface KaiChromeState {
 }
 
 function isKaiImportRoute(pathname: string): boolean {
-  return pathname === ROUTES.KAI_IMPORT || pathname.startsWith(`${ROUTES.KAI_IMPORT}/`);
+  return (
+    pathname === ROUTES.KAI_IMPORT ||
+    pathname.startsWith(`${ROUTES.KAI_IMPORT}/`)
+  );
 }
 
 export function getKaiChromeState(
   pathname: string | null | undefined,
   options?: {
     onboardingFlowActive?: boolean;
-  }
+  },
 ): KaiChromeState {
   const path = pathname ?? "";
   const isOnboardingRoute = isKaiOnboardingRoute(path);
@@ -33,7 +36,8 @@ export function getKaiChromeState(
   // Onboarding chrome should only appear on:
   // 1) explicit onboarding routes, or
   // 2) import routes while onboarding flow is active.
-  const useOnboardingChrome = isOnboardingRoute || (isImportRoute && onboardingFlowActive);
+  const useOnboardingChrome =
+    isOnboardingRoute || (isImportRoute && onboardingFlowActive);
   const hideCommandBar =
     useOnboardingChrome ||
     path === ROUTES.HOME ||

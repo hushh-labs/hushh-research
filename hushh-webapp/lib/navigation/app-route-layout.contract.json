@@ -2,7 +2,15 @@
   {
     "route": "/",
     "mode": "hidden",
-    "exemptionReason": "Public landing route uses chrome-free marketing layout."
+    "exemptionReason": "Anonymous auth-split entry route redirects signed-in users to /one and intentionally does not own the signed-in dashboard shell."
+  },
+  {
+    "route": "/one",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/dashboard/one-dashboard-page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
+    }
   },
   {
     "route": "/developers",
@@ -47,6 +55,58 @@
     "exemptionReason": "Public one-location invite route is a standalone external-request form outside the signed-in app shell."
   },
   {
+    "route": "/gmail",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/gmail surface."
+  },
+  {
+    "route": "/one/gmail",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/gmail/gmail-receipts-page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/pkm",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/pkm surface."
+  },
+  {
+    "route": "/one/pkm",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/profile/pkm-settings-shell.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/connected-systems",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/connected-systems surface."
+  },
+  {
+    "route": "/connected-systems/[systemId]",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/connected-systems/[systemId] surface."
+  },
+  {
+    "route": "/one/connected-systems",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/connected-systems/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "ConnectedSystemsPanel"]
+    }
+  },
+  {
+    "route": "/one/connected-systems/[systemId]",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/connected-systems/[systemId]/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "ConnectedSystemsPanel"]
+    }
+  },
+  {
     "route": "/register-phone",
     "mode": "hidden",
     "exemptionReason": "Mandatory post-login phone verification flow intentionally bypasses the signed-in app shell."
@@ -71,6 +131,11 @@
   },
   {
     "route": "/kai",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai market surface."
+  },
+  {
+    "route": "/one/kai",
     "mode": "standard",
     "shellVerification": {
       "file": "components/kai/views/kai-market-preview-view.tsx",
@@ -79,9 +144,14 @@
   },
   {
     "route": "/kai/analysis",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai/analysis surface."
+  },
+  {
+    "route": "/one/kai/analysis",
     "mode": "standard",
     "shellVerification": {
-      "file": "app/kai/analysis/page.tsx",
+      "file": "app/one/kai/analysis/page.tsx",
       "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"]
     }
   },
@@ -101,15 +171,25 @@
   },
   {
     "route": "/kai/import",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai/import flow."
+  },
+  {
+    "route": "/one/kai/import",
     "mode": "flow",
     "exemptionReason": "Fullscreen import flow uses FullscreenFlowShell instead of standard AppPageShell.",
     "shellVerification": {
-      "file": "app/kai/import/page.tsx",
+      "file": "app/one/kai/import/page.tsx",
       "includes": ["FullscreenFlowShell", "KaiFlow"]
     }
   },
   {
     "route": "/kai/investments",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai/investments surface."
+  },
+  {
+    "route": "/one/kai/investments",
     "mode": "standard",
     "shellVerification": {
       "file": "components/kai/views/investments-master-view.tsx",
@@ -118,6 +198,11 @@
   },
   {
     "route": "/kai/funding-trade",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai/funding-trade surface."
+  },
+  {
+    "route": "/one/kai/funding-trade",
     "mode": "standard",
     "shellVerification": {
       "file": "components/kai/views/funding-trade-view.tsx",
@@ -126,38 +211,68 @@
   },
   {
     "route": "/kai/onboarding",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/onboarding flow."
+  },
+  {
+    "route": "/one/kai/onboarding",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/onboarding flow."
+  },
+  {
+    "route": "/one/onboarding",
     "mode": "flow",
     "exemptionReason": "Fullscreen onboarding flow owns its own shell and safe-area spacing."
   },
   {
     "route": "/kai/optimize",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai/optimize surface."
+  },
+  {
+    "route": "/one/kai/optimize",
     "mode": "standard",
     "shellVerification": {
-      "file": "app/kai/optimize/page.tsx",
+      "file": "app/one/kai/optimize/page.tsx",
       "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack", "PageHeader"]
     }
   },
   {
     "route": "/kai/plaid/oauth/return",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai/plaid/oauth/return surface."
+  },
+  {
+    "route": "/one/kai/plaid/oauth/return",
     "mode": "standard",
     "shellVerification": {
-      "file": "app/kai/plaid/oauth/return/page.tsx",
+      "file": "app/one/kai/plaid/oauth/return/page.tsx",
       "includes": ["AppPageShell", "AppPageContentRegion"]
     }
   },
   {
     "route": "/kai/alpaca/oauth/return",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai/alpaca/oauth/return surface."
+  },
+  {
+    "route": "/one/kai/alpaca/oauth/return",
     "mode": "standard",
     "shellVerification": {
-      "file": "app/kai/alpaca/oauth/return/page.tsx",
+      "file": "app/one/kai/alpaca/oauth/return/page.tsx",
       "includes": ["AppPageShell", "AppPageContentRegion"]
     }
   },
   {
     "route": "/kai/portfolio",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai/portfolio surface."
+  },
+  {
+    "route": "/one/kai/portfolio",
     "mode": "standard",
     "shellVerification": {
-      "file": "app/kai/portfolio/page.tsx",
+      "file": "app/one/kai/portfolio/page.tsx",
       "includes": ["AppPageShell", "AppPageContentRegion"]
     }
   },
@@ -210,16 +325,13 @@
   },
   {
     "route": "/profile/receipts",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "app/profile/receipts/page.tsx",
-      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
-    }
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route forwards to canonical /gmail."
   },
   {
     "route": "/profile/pkm",
     "mode": "redirect",
-    "exemptionReason": "Redirect route that forwards to /profile/pkm-agent-lab or /profile in production."
+    "exemptionReason": "Compatibility redirect route forwards to canonical /pkm."
   },
   {
     "route": "/profile/pkm-agent-lab",

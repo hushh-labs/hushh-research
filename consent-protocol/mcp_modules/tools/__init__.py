@@ -3,6 +3,7 @@
 MCP tool definitions and handlers.
 """
 
+from .campaign_context_tools import handle_prepare_campaign_context
 from .consent_tools import handle_check_consent_status, handle_request_consent
 from .data_tools import (
     handle_get_encrypted_scoped_export,
@@ -41,6 +42,7 @@ from .utility_tools import (
 __all__ = [
     "get_tool_definitions",
     # Consent
+    "handle_prepare_campaign_context",
     "handle_request_consent",
     "handle_check_consent_status",
     # Data

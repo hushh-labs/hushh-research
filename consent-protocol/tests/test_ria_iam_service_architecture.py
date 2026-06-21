@@ -842,6 +842,134 @@ def test_consent_center_pending_surface_only_returns_actionable_ria_rows():
     }
 
 
+def test_consent_center_collapses_visible_entries_by_requester_subject_and_scope():
+    entries = [
+        {
+            "id": "req_latest",
+            "request_id": "req_latest",
+            "status": "pending",
+            "action": "REQUESTED",
+            "scope": "attr.shopping.receipts_memory.*",
+            "counterpart_type": "developer",
+            "counterpart_id": "developer:google_ads",
+            "counterpart_label": "Google Ads Agent",
+            "issued_at": 200,
+            "metadata": {"subject_user_id": "user_123"},
+        },
+        {
+            "id": "req_older",
+            "request_id": "req_older",
+            "status": "expired",
+            "action": "TIMEOUT",
+            "scope": "attr.shopping.receipts_memory.*",
+            "counterpart_type": "developer",
+            "counterpart_id": "developer:google_ads",
+            "counterpart_label": "Google Ads Agent",
+            "issued_at": 100,
+            "metadata": {"subject_user_id": "user_123"},
+        },
+    ]
+
+    collapsed = ConsentCenterService._collapse_consent_chains(entries)
+
+    assert len(collapsed) == 1
+    assert collapsed[0]["request_id"] == "req_latest"
+    assert collapsed[0]["chain_request_count"] == 2
+    assert collapsed[0]["chain_request_ids"] == ["req_latest", "req_older"]
+    assert collapsed[0]["normalized_scope"] == "attr.shopping.receipts_memory.*"
+    assert len(collapsed[0]["consent_chain"]) == 2
+
+
+def test_consent_center_history_groups_one_identifier_with_scope_trails():
+    entries = [
+        {
+            "id": "evt_latest",
+            "request_id": "req_latest",
+            "status": "approved",
+            "action": "CONSENT_GRANTED",
+            "scope": "attr.shopping.receipts_memory.*",
+            "scope_description": "Shopping receipts",
+            "counterpart_type": "developer",
+            "counterpart_id": "developer:google_ads",
+            "counterpart_label": "Google Ads Agent",
+            "issued_at": 300,
+            "metadata": {"subject_user_id": "user_123"},
+        },
+        {
+            "id": "evt_scope_2",
+            "request_id": "req_scope_2",
+            "status": "denied",
+            "action": "CONSENT_DENIED",
+            "scope": "attr.email.receipts.*",
+            "scope_description": "Email receipts",
+            "counterpart_type": "developer",
+            "counterpart_id": "developer:google_ads",
+            "counterpart_label": "Google Ads Agent",
+            "issued_at": 200,
+            "metadata": {"subject_user_id": "user_123"},
+        },
+        {
+            "id": "evt_older",
+            "request_id": "req_older",
+            "status": "expired",
+            "action": "TIMEOUT",
+            "scope": "attr.shopping.receipts_memory.*",
+            "scope_description": "Shopping receipts",
+            "counterpart_type": "developer",
+            "counterpart_id": "developer:google_ads",
+            "counterpart_label": "Google Ads Agent",
+            "issued_at": 100,
+            "metadata": {"subject_user_id": "user_123"},
+        },
+    ]
+
+    grouped = ConsentCenterService._group_history_identifier_trails(entries)
+
+    assert len(grouped) == 1
+    assert grouped[0]["id"] == "identifier:developer|developer:google_ads|user_123"
+    assert grouped[0]["request_id"] == "req_latest"
+    assert grouped[0]["trail_count"] == 3
+    assert grouped[0]["event_count"] == 3
+    assert grouped[0]["consent_trails"][0]["scope"] == "attr.shopping.receipts_memory.*"
+    assert grouped[0]["consent_trails"][0]["request_ids"] == ["req_latest"]
+    assert [event["request_id"] for event in grouped[0]["consent_chain"]] == [
+        "req_latest",
+    ]
+
+
+def test_consent_center_history_keeps_different_subjects_separate():
+    entries = [
+        {
+            "id": "evt_user_1",
+            "request_id": "req_user_1",
+            "status": "approved",
+            "scope": "attr.shopping.receipts_memory.*",
+            "counterpart_type": "developer",
+            "counterpart_id": "developer:google_ads",
+            "issued_at": 200,
+            "metadata": {"subject_user_id": "user_1"},
+        },
+        {
+            "id": "evt_user_2",
+            "request_id": "req_user_2",
+            "status": "approved",
+            "scope": "attr.shopping.receipts_memory.*",
+            "counterpart_type": "developer",
+            "counterpart_id": "developer:google_ads",
+            "issued_at": 100,
+            "metadata": {"subject_user_id": "user_2"},
+        },
+    ]
+
+    grouped = ConsentCenterService._group_history_identifier_trails(entries)
+
+    assert len(grouped) == 2
+    assert {entry["identifier_key"] for entry in grouped} == {
+        "developer|developer:google_ads|user_1",
+        "developer|developer:google_ads|user_2",
+    }
+
+
 @pytest.mark.asyncio
 async def test_consent_center_summary_uses_surface_loaders_without_get_center(monkeypatch):
     service = ConsentCenterService()
@@ -856,7 +984,11 @@ async def test_consent_center_summary_uses_surface_loaders_without_get_center(mo
         return [{"id": "active_1"}]
 
     async def _previous(_user_id: str):
-        return [{"id": "history_1"}, {"id": "history_2"}, {"id": "history_3"}]
+        return [
+            {"id": "history_1", "counterpart_id": "developer:one"},
+            {"id": "history_2", "counterpart_id": "developer:two"},
+            {"id": "history_3", "counterpart_id": "developer:three"},
+        ]
 
     monkeypatch.setattr(service, "get_center", _unexpected_get_center)
     monkeypatch.setattr(service, "_load_investor_pending_entries", _pending)
@@ -912,6 +1044,75 @@ async def test_consent_center_list_investor_pending_avoids_monolithic_center(mon
     assert payload["total"] == 1
     assert payload["has_more"] is False
     assert [item["id"] for item in payload["items"]] == ["req_2"]
+
+
+@pytest.mark.asyncio
+async def test_consent_center_list_investor_previous_totals_identifier_rows(monkeypatch):
+    service = ConsentCenterService()
+
+    async def _previous(_user_id: str):
+        return [
+            {
+                "id": "evt_latest",
+                "request_id": "req_latest",
+                "issued_at": 300,
+                "status": "approved",
+                "scope": "attr.shopping.receipts_memory.*",
+                "counterpart_type": "developer",
+                "counterpart_id": "developer:google_ads",
+                "metadata": {"subject_user_id": "user_123"},
+            },
+            {
+                "id": "evt_other_scope",
+                "request_id": "req_other_scope",
+                "issued_at": 200,
+                "status": "denied",
+                "scope": "attr.email.receipts.*",
+                "scope_description": "Email receipts",
+                "counterpart_type": "developer",
+                "counterpart_id": "developer:google_ads",
+                "metadata": {"subject_user_id": "user_123"},
+            },
+            {
+                "id": "evt_other_identifier",
+                "request_id": "req_other_identifier",
+                "issued_at": 100,
+                "status": "expired",
+                "scope": "attr.shopping.receipts_memory.*",
+                "counterpart_type": "developer",
+                "counterpart_id": "developer:crm",
+                "metadata": {"subject_user_id": "user_123"},
+            },
+        ]
+
+    monkeypatch.setattr(service, "_load_investor_previous_entries", _previous)
+
+    payload = await service.list_center(
+        "investor_1",
+        actor="investor",
+        surface="previous",
+        page=1,
+        limit=20,
+    )
+
+    assert payload["total"] == 2
+    assert payload["items"][0]["identifier_key"] == "developer|developer:google_ads|user_123"
+    assert payload["items"][0]["trail_count"] == 2
+    assert payload["items"][0]["event_count"] == 2
+
+    filtered_payload = await service.list_center(
+        "investor_1",
+        actor="investor",
+        surface="previous",
+        query="Email receipts",
+        page=1,
+        limit=20,
+    )
+
+    assert filtered_payload["total"] == 1
+    assert filtered_payload["items"][0]["identifier_key"] == (
+        "developer|developer:google_ads|user_123"
+    )
 
 
 @pytest.mark.asyncio

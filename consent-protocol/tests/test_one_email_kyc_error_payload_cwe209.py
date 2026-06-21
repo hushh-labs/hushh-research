@@ -106,12 +106,8 @@ def test_kyc_error_payload_not_in_exception_detail() -> None:
     http_exc = _to_http_exception(exc, operation="test")
 
     detail_str = str(http_exc.detail)
-    assert SENTINEL not in detail_str, (
-        f"KYC payload sentinel leaked into detail: {detail_str}"
-    )
-    assert "payload" not in http_exc.detail, (
-        "OneEmailKycError.payload forwarded to HTTP response"
-    )
+    assert SENTINEL not in detail_str, f"KYC payload sentinel leaked into detail: {detail_str}"
+    assert "payload" not in http_exc.detail, "OneEmailKycError.payload forwarded to HTTP response"
 
 
 def test_kyc_error_code_is_preserved() -> None:

@@ -12,6 +12,7 @@ import { AppBackgroundTaskService } from "@/lib/services/app-background-task-ser
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
+import { ROUTES } from "@/lib/navigation/routes";
 
 export type UnlockWarmResult = {
   onboardingSynced: boolean;
@@ -61,16 +62,28 @@ function toSymbolsKey(symbols: string[]): string {
 function resolveWarmPriority(routePath?: string | null): WarmPriority {
   const path = String(routePath || "").trim().toLowerCase();
   if (!path) return "default";
-  if (path === "/kai" || path.startsWith("/kai?")) return "market";
   if (
+    path === ROUTES.KAI_HOME ||
+    path.startsWith(`${ROUTES.KAI_HOME}?`) ||
+    path === ROUTES.LEGACY_KAI_HOME ||
+    path.startsWith(`${ROUTES.LEGACY_KAI_HOME}?`)
+  ) {
+    return "market";
+  }
+  if (
+    path.startsWith("/one/kai/dashboard/analysis") ||
     path.startsWith("/kai/dashboard/analysis") ||
+    path.startsWith(ROUTES.KAI_ANALYSIS) ||
     path.startsWith("/kai/analysis")
   ) {
     return "analysis";
   }
   if (
-    path.startsWith("/kai/portfolio") ||
+    path.startsWith(ROUTES.KAI_PORTFOLIO) ||
+    path.startsWith(ROUTES.LEGACY_KAI_PORTFOLIO) ||
+    path.startsWith("/one/kai/dashboard") ||
     path.startsWith("/kai/dashboard") ||
+    path.startsWith(ROUTES.KAI_OPTIMIZE) ||
     path.startsWith("/kai/optimize")
   ) {
     return "dashboard";
