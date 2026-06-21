@@ -203,7 +203,8 @@
         "expectedAuth": "authenticated",
         "allowedDataStates": [
           "loaded"
-        ]
+        ],
+        "legacyAlias": true
       },
       "observed": {
         "route": "/one/setup",
@@ -292,7 +293,8 @@
         "expectedAuth": "authenticated",
         "allowedDataStates": [
           "loaded"
-        ]
+        ],
+        "legacyAlias": true
       },
       "observed": {
         "route": "/one/setup/connections",
@@ -470,7 +472,8 @@
         "expectedAuth": "authenticated",
         "allowedDataStates": [
           "loaded"
-        ]
+        ],
+        "legacyAlias": true
       },
       "observed": {
         "route": "/one/setup/finance",
@@ -559,7 +562,8 @@
         "expectedAuth": "authenticated",
         "allowedDataStates": [
           "loaded"
-        ]
+        ],
+        "legacyAlias": true
       },
       "observed": {
         "route": "/one/setup/finance/import",
@@ -650,7 +654,8 @@
           "loaded",
           "empty-valid",
           "unavailable-valid"
-        ]
+        ],
+        "legacyAlias": true
       },
       "observed": {
         "route": "/one/setup",
@@ -832,7 +837,8 @@
           "loaded",
           "empty-valid",
           "unavailable-valid"
-        ]
+        ],
+        "legacyAlias": true
       },
       "observed": {
         "route": "/one/kyc",

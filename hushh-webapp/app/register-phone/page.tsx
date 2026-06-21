@@ -11,6 +11,7 @@ import { SessionVerificationRecovery } from "@/components/auth/session-verificat
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { OneArcIllustration } from "@/components/onboarding/OneArcIllustration";
 import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
@@ -226,6 +227,17 @@ export function PhoneMandatePageContent() {
     // form opens, keep it mounted until its completion handler settles.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.uid, redirectPath, admissionRetry, sessionVerificationRequired]);
+
+  const handleSignOut = useCallback(async () => {
+    try {
+      setOnboardingRequiredCookie(false);
+      setOnboardingFlowActiveCookie(false);
+      await signOut({ redirectTo: ROUTES.HOME });
+    } catch (error) {
+      console.error("[RegisterPhonePage] Failed to sign out:", error);
+      toast.error("Couldn't sign out. Please retry.");
+    }
+  }, [signOut]);
 
   const handleSignOut = useCallback(async () => {
     try {
