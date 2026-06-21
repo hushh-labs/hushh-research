@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 67,
+  "expected_migration_version": 68,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -505,6 +505,35 @@
       "suppressed_count",
       "error_count",
       "source_errors",
+      "metadata"
+    ],
+    "one_location_circle_invites": [
+      "id",
+      "owner_user_id",
+      "invite_code_hash",
+      "status",
+      "duration_hours",
+      "expires_at",
+      "claimed_by_user_id",
+      "message",
+      "claimed_at",
+      "created_at",
+      "updated_at",
+      "revoked_at",
+      "metadata"
+    ],
+    "one_location_network_connections": [
+      "id",
+      "user_a_id",
+      "user_b_id",
+      "inviter_user_id",
+      "invitee_user_id",
+      "invite_id",
+      "status",
+      "connected_at",
+      "created_at",
+      "updated_at",
+      "revoked_at",
       "metadata"
     ],
     "connected_system_intents": [

@@ -17,9 +17,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
+import { buildPhoneMandateRoute, buildProfileVaultRoute } from "@/lib/navigation/routes";
 import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationCircleInvite } from "@/lib/one-location/types";
+import { ApiError } from "@/lib/services/api-client";
+import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { useVault } from "@/lib/vault/vault-context";
 
 function formatDateTime(value?: string | null): string {
@@ -42,6 +45,35 @@ function loginHref(inviteToken: string): string {
   return `/login?redirect=${encodeURIComponent(`/one/location/invite/${inviteToken}`)}`;
 }
 
+function phoneMandateHref(inviteToken: string): string {
+  return buildPhoneMandateRoute(`/one/location/invite/${inviteToken}`);
+}
+
+function vaultHandoffHref(inviteToken: string): string {
+  return buildProfileVaultRoute(`/one/location/invite/${inviteToken}`);
+}
+
+function isPhoneVerificationRequiredError(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false;
+  if (error.status !== 409) return false;
+  const message = error.message.toLowerCase();
+  let payloadCode = "";
+  if (error.payload && typeof error.payload === "object" && !Array.isArray(error.payload)) {
+    const payload = error.payload as Record<string, unknown>;
+    const detail = payload.detail;
+    if (typeof payload.code === "string") {
+      payloadCode = payload.code;
+    } else if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+      const detailCode = (detail as Record<string, unknown>).code;
+      payloadCode = typeof detailCode === "string" ? detailCode : "";
+    }
+  }
+  return (
+    payloadCode === "LOCATION_PHONE_VERIFICATION_REQUIRED" ||
+    (message.includes("phone") && message.includes("verify"))
+  );
+}
+
 export default function OneLocationCircleInvitePageClient() {
   const router = useRouter();
   const params = useParams<{ token?: string }>();
@@ -56,6 +88,10 @@ export default function OneLocationCircleInvitePageClient() {
   const [claiming, setClaiming] = useState(false);
   const [claimed, setClaimed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [claimError, setClaimError] = useState<string | null>(null);
+  const [checkingPhone, setCheckingPhone] = useState(false);
+  const [phoneVerificationRequired, setPhoneVerificationRequired] =
+    useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,7 +106,7 @@ export default function OneLocationCircleInvitePageClient() {
           setError(
             loadError instanceof Error
               ? loadError.message
-              : "This One Location Circle invite is unavailable.",
+              : "This Invite to One link is unavailable.",
           );
         }
       } finally {
@@ -80,7 +116,7 @@ export default function OneLocationCircleInvitePageClient() {
     if (inviteToken) {
       void loadInvite();
     } else {
-      setError("This One Location Circle invite is invalid.");
+      setError("This Invite to One link is invalid.");
       setLoading(false);
     }
     return () => {
@@ -88,10 +124,45 @@ export default function OneLocationCircleInvitePageClient() {
     };
   }, [inviteToken]);
 
+  useEffect(() => {
+    if (!auth.user || !auth.userId || auth.loading) {
+      setCheckingPhone(false);
+      setPhoneVerificationRequired(false);
+      return;
+    }
+
+    let cancelled = false;
+    setCheckingPhone(true);
+    void AccountIdentityService.syncCurrentUser(auth.user)
+      .then((identity) => {
+        if (cancelled) return;
+        setPhoneVerificationRequired(
+          !AccountIdentityService.hasVerifiedPhone(identity),
+        );
+      })
+      .catch((syncError) => {
+        if (cancelled) return;
+        console.warn("[OneLocationInvite] Failed to check account identity:", syncError);
+        setPhoneVerificationRequired(false);
+      })
+      .finally(() => {
+        if (!cancelled) setCheckingPhone(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.loading, auth.user, auth.userId]);
+
   const handleClaim = useCallback(async () => {
     if (!auth.userId || !vaultOwnerToken) return;
     setClaiming(true);
+    setClaimError(null);
+    setPhoneVerificationRequired(false);
     try {
+      await AccountIdentityService.syncCurrentUser(auth.user).catch((syncError) => {
+        console.warn("[OneLocationInvite] Failed to sync account identity:", syncError);
+      });
       await bootstrapCurrentUserLocationRecipientKey({
         userId: auth.userId,
         vaultOwnerToken,
@@ -99,24 +170,33 @@ export default function OneLocationCircleInvitePageClient() {
       await OneLocationService.claimCircleInvite({
         vaultOwnerToken,
         inviteToken,
-        message: "Joined from a One Location Circle invite.",
+        message: "Joined from an Invite to One link.",
       });
       setClaimed(true);
-      toast.success("Circle request sent for approval.");
-      router.push("/one/location?section=my_requests");
+      toast.success("You're connected on One.");
+      router.push("/one/location?section=circle");
     } catch (claimError) {
-      toast.error(
+      const message =
         claimError instanceof Error
           ? claimError.message
-          : "Could not join this One Location Circle.",
-      );
+          : "Could not accept this Invite to One link.";
+      setClaimError(message);
+      if (isPhoneVerificationRequiredError(claimError)) {
+        setPhoneVerificationRequired(true);
+      }
+      toast.error(message);
     } finally {
       setClaiming(false);
     }
-  }, [auth.userId, inviteToken, router, vaultOwnerToken]);
+  }, [auth.user, auth.userId, inviteToken, router, vaultOwnerToken]);
 
   const signedIn = Boolean(auth.userId && auth.isAuthenticated);
-  const canClaim = signedIn && isVaultUnlocked && Boolean(vaultOwnerToken) && !claimed;
+  const canClaim =
+    signedIn &&
+    isVaultUnlocked &&
+    Boolean(vaultOwnerToken) &&
+    !claimed &&
+    !phoneVerificationRequired;
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -137,16 +217,16 @@ export default function OneLocationCircleInvitePageClient() {
                 One Location
               </div>
               <h1 className="mt-2 text-[28px] font-medium leading-[1.12] tracking-normal sm:text-[32px]">
-                Join a private Circle
+                Join One
               </h1>
               <p className="mt-3 text-sm leading-6 text-muted-foreground">
                 {loading
-                  ? "Checking Circle invite."
+                  ? "Checking Invite to One link."
                   : error
                     ? error
                     : claimed
-                      ? "Your request is waiting for owner approval."
-                      : `${ownerLabel(invite)} invited you to join their One Location Circle.`}
+                      ? "You're connected on One."
+                      : `${ownerLabel(invite)} invited you to One.`}
               </p>
             </div>
           </div>
@@ -166,7 +246,7 @@ export default function OneLocationCircleInvitePageClient() {
                   Expires {formatDateTime(invite.expiresAt)}
                 </Badge>
                 <Badge variant="outline">
-                  {invite.durationHours}h approval window
+                  {invite.durationHours}h invite window
                 </Badge>
               </div>
 
@@ -177,14 +257,21 @@ export default function OneLocationCircleInvitePageClient() {
               ) : null}
 
               <div className="rounded-[var(--app-card-radius-standard)] border border-blue-500/25 bg-blue-500/10 p-4 text-sm leading-6 text-blue-900 dark:text-blue-100">
-                This invite sends a private request to the owner. Location access starts only
-                after they approve it, and encrypted sharing still happens from One Location.
+                Accepting connects both of you on One. Live location still starts only
+                when someone taps Share Location, confirms permission, and sends an
+                encrypted share from One Location.
               </div>
 
-              {auth.loading ? (
+              {claimError ? (
+                <div className="rounded-[var(--app-card-radius-standard)] border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-6 text-amber-950 dark:text-amber-100">
+                  {claimError}
+                </div>
+              ) : null}
+
+              {auth.loading || checkingPhone ? (
                 <Button disabled className="h-11 rounded-full">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-                  Checking sign in
+                  {auth.loading ? "Checking sign in" : "Checking phone"}
                 </Button>
               ) : !signedIn ? (
                 <Button asChild className="h-11 rounded-full">
@@ -193,11 +280,18 @@ export default function OneLocationCircleInvitePageClient() {
                     Sign in to join
                   </Link>
                 </Button>
+              ) : phoneVerificationRequired ? (
+                <Button asChild className="h-11 rounded-full">
+                  <Link href={phoneMandateHref(inviteToken)}>
+                    <ShieldCheck className="mr-2 h-4 w-4" aria-hidden="true" />
+                    Verify phone to continue
+                  </Link>
+                </Button>
               ) : !isVaultUnlocked || !vaultOwnerToken ? (
                 <Button asChild className="h-11 rounded-full">
-                  <Link href={`/one/location?circleInviteToken=${encodeURIComponent(inviteToken)}`}>
+                  <Link href={vaultHandoffHref(inviteToken)}>
                     <ShieldCheck className="mr-2 h-4 w-4" aria-hidden="true" />
-                    Unlock vault to join
+                    Continue to Vault
                   </Link>
                 </Button>
               ) : (
@@ -211,7 +305,7 @@ export default function OneLocationCircleInvitePageClient() {
                   ) : (
                     <UserPlus className="mr-2 h-4 w-4" aria-hidden="true" />
                   )}
-                  Join Circle
+                  Accept Invite
                 </Button>
               )}
             </div>

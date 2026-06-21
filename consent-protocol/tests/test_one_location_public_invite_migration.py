@@ -37,7 +37,7 @@ def test_one_location_public_invite_migration_sequence_is_current_and_unique() -
         path.name for path in MIGRATIONS_DIR.glob("*one_location_retention_indexes.sql")
     }
     assert len(ordered) == len(set(ordered))
-    assert schema_contract["expected_migration_version"] == 67
+    assert schema_contract["expected_migration_version"] == 68
     assert migration_name in manifest["groups"]["iam"]
     assert retention_name in manifest["groups"]["iam"]
     assert circle_invite_name in manifest["groups"]["iam"]
@@ -62,14 +62,21 @@ def test_one_location_retention_migration_covers_public_request_state() -> None:
     assert "idx_one_location_events_retention_links" in sql
 
 
-def test_one_location_circle_invite_migration_is_hash_only_and_request_gated() -> None:
+def test_one_location_circle_invite_migration_is_hash_only_and_network_gated() -> None:
     sql = (MIGRATIONS_DIR / "068_one_location_circle_invites.sql").read_text(encoding="utf-8")
+    schema_contract = json.loads(SCHEMA_CONTRACT_PATH.read_text(encoding="utf-8"))
+    required_tables = schema_contract["required_tables"]
 
     assert "one_location_circle_invites" in sql
+    assert "one_location_network_connections" in sql
+    assert "one_location_circle_invites" in required_tables
+    assert "one_location_network_connections" in required_tables
     assert "invite_code_hash" in sql
     assert "invite_code TEXT" not in sql
     assert "invite_token" not in sql
-    assert "request_id UUID REFERENCES one_location_access_requests" in sql
+    assert "request_id UUID REFERENCES one_location_access_requests" not in sql
     assert "claimed_by_user_id" in sql
+    assert "idx_one_location_network_connections_pair" in sql
     assert "location_circle_invite_claimed" in sql
+    assert "location_one_network_joined" in sql
     assert "idx_one_location_circle_invites_terminal_retention" in sql

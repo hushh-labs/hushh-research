@@ -4,19 +4,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_connected_systems_migration_is_release_version_067():
+def test_connected_systems_migration_is_registered_before_current_release_head():
     migration = ROOT / "db" / "migrations" / "067_connected_systems.sql"
     assert migration.exists()
 
     manifest = json.loads((ROOT / "db" / "release_migration_manifest.json").read_text())
-    assert manifest["ordered_migrations"][-2:] == [
+    assert manifest["ordered_migrations"][-3:] == [
         "066_marketplace_visibility_posture.sql",
         "067_connected_systems.sql",
+        "068_one_location_circle_invites.sql",
     ]
     assert "067_connected_systems.sql" in manifest["groups"]["iam"]
 
     contract = json.loads((ROOT / "db" / "contracts" / "uat_integrated_schema.json").read_text())
-    assert contract["expected_migration_version"] == 67
+    assert contract["expected_migration_version"] == 68
     assert contract["migration_version_policy"] == "exact"
 
 

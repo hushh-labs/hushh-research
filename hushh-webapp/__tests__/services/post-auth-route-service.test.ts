@@ -35,7 +35,11 @@ vi.mock("@/lib/services/ria-service", () => ({
   },
 }));
 
-import { buildPhoneMandateRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildPhoneMandateRoute,
+  buildProfileVaultRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 
 describe("PostAuthRouteService", () => {
@@ -267,6 +271,89 @@ describe("PostAuthRouteService", () => {
         phoneVerified: true,
       })
     ).resolves.toBe(ROUTES.ONE_HOME);
+  });
+
+  it("routes phone-verified no-vault Invite to One users through the shared vault flow", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: false,
+      preOnboardingCompleted: true,
+      preOnboardingCompletedAt: 1,
+      preOnboardingSkipped: false,
+    });
+    loadPendingOnboardingMock.mockResolvedValue(null);
+
+    const inviteRedirect = "/one/location/invite/invite_token_123";
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        redirectPath: inviteRedirect,
+        phoneVerified: true,
+      })
+    ).resolves.toBe(buildProfileVaultRoute(inviteRedirect));
+  });
+
+  it("keeps the Invite to One token when a no-vault user must verify phone first", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: false,
+      preOnboardingCompleted: true,
+      preOnboardingCompletedAt: 1,
+      preOnboardingSkipped: false,
+    });
+    loadPendingOnboardingMock.mockResolvedValue(null);
+
+    const inviteRedirect = "/one/location/invite/invite_token_123";
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        redirectPath: inviteRedirect,
+        phoneNumber: null,
+        phoneVerified: false,
+        hostname: "uat.kai.hushh.ai",
+      })
+    ).resolves.toBe(buildPhoneMandateRoute(inviteRedirect));
+  });
+
+  it("preserves Invite to One return targets that are already inside the profile vault handoff", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: false,
+      preOnboardingCompleted: true,
+      preOnboardingCompletedAt: 1,
+      preOnboardingSkipped: false,
+    });
+    loadPendingOnboardingMock.mockResolvedValue(null);
+
+    const inviteRedirect = "/one/location/invite/invite_token_123";
+    const profileVaultRoute = buildProfileVaultRoute(inviteRedirect);
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        redirectPath: profileVaultRoute,
+        phoneVerified: true,
+      })
+    ).resolves.toBe(profileVaultRoute);
+  });
+
+  it("routes Invite to One redirects through phone verification before claim", async () => {
+    bootstrapStateMock.mockResolvedValue({
+      hasVault: true,
+      preOnboardingCompleted: true,
+      preOnboardingCompletedAt: 1,
+    });
+
+    const inviteRedirect = "/one/location/invite/invite_token_123";
+
+    await expect(
+      PostAuthRouteService.resolveAfterLogin({
+        userId: "user_123",
+        redirectPath: inviteRedirect,
+        phoneNumber: null,
+        phoneVerified: false,
+        hostname: "uat.kai.hushh.ai",
+      })
+    ).resolves.toBe(buildPhoneMandateRoute(inviteRedirect));
   });
 
   it("skips the phone mandate for localhost development sessions", async () => {
