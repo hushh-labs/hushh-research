@@ -45,4 +45,11 @@ describe("Progress", () => {
 
     expect(indicator.style.transform).toBe("translateX(-100%)");
   });
+  it("sets aria-valuenow to the provided value", () => {
+    const { container } = render(<Progress value={50} />);
+
+    const root = container.querySelector('[data-slot="progress"]');
+
+    expect(root?.getAttribute("aria-valuenow")).toBe("50");
+  });
 });
