@@ -1402,6 +1402,58 @@
     }
   },
   {
+    "route": "/gmail",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/gmail surface."
+  },
+  {
+    "route": "/one/gmail",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/gmail/gmail-receipts-page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/pkm",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/pkm surface."
+  },
+  {
+    "route": "/one/pkm",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/profile/pkm-settings-shell.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"]
+    }
+  },
+  {
+    "route": "/connected-systems",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/connected-systems surface."
+  },
+  {
+    "route": "/connected-systems/[systemId]",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect route only launches the canonical /one/connected-systems/[systemId] surface."
+  },
+  {
+    "route": "/one/connected-systems",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/connected-systems/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "ConnectedSystemsPanel"]
+    }
+  },
+  {
+    "route": "/one/connected-systems/[systemId]",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/connected-systems/[systemId]/page.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "ConnectedSystemsPanel"]
+    }
+  },
+  {
     "route": "/register-phone",
     "mode": "hidden",
     "persistentChrome": "none",
