@@ -175,9 +175,13 @@ export function normalizeInternalAppHref(href: string | null | undefined): strin
 
 function appendFromIfNeeded(href: string, from: string | null | undefined): string {
   const safeFrom = normalizeInternalAppHref(from);
-  if (!safeFrom || !href.startsWith(`${ROUTES.CONSENTS}`)) {
+  // Guard against open-redirect persistence: normalizeInternalAppHref returns
+  // external/unknown hrefs unchanged (not null), so re-verify the normalized
+  // value is a known internal app route before persisting it as `from`.
+  if (!safeFrom || !isInternalAppHref(safeFrom) || !href.startsWith(`${ROUTES.CONSENTS}`)) {
     return href;
   }
+
   const [rawPathPart = "", hashPart = ""] = href.split("#", 2);
   const pathPart = rawPathPart || href;
   const [pathname, queryPart = ""] = pathPart.split("?", 2);
@@ -203,6 +207,11 @@ export function resolveConsentRequestHref(
     from?: string;
   }
 ): string {
+  // Sanitize `from` once at the entry point: only persist it when it normalizes
+  // to a known internal app route. This prevents an external/protocol-relative
+  // `from` value from being written into the consent URL via the fallback path.
+  const safeFromRaw = normalizeInternalAppHref(options?.from);
+  const safeFrom = safeFromRaw && isInternalAppHref(safeFromRaw) ? safeFromRaw : undefined;
   const target =
     normalizeInternalAppHref(href) ||
     buildConsentCenterHref(fallbackView, {
@@ -210,9 +219,9 @@ export function resolveConsentRequestHref(
       bundleId: options?.bundleId,
       actor: options?.actor,
       managerView: options?.managerView,
-      from: options?.from,
+      from: safeFrom,
     });
-  return appendFromIfNeeded(target, options?.from);
+  return appendFromIfNeeded(target, safeFrom);
 }
 
 export function resolveConsentNavigationTarget(

@@ -67,6 +67,42 @@ describe("consent sheet route helpers", () => {
     );
   });
 
+  it("drops an external from origin instead of persisting an open redirect", () => {
+    expect(
+      resolveConsentRequestHref(null, "pending", {
+        requestId: "req_123",
+        from: "https://evil.example.com/phish",
+      }),
+    ).toBe("/consents?tab=pending&requestId=req_123");
+  });
+
+  it("drops a protocol-relative from origin instead of persisting an open redirect", () => {
+    expect(
+      resolveConsentRequestHref(null, "pending", {
+        requestId: "req_123",
+        from: "//evil.example.com/phish",
+      }),
+    ).toBe("/consents?tab=pending&requestId=req_123");
+  });
+
+  it("drops an unknown internal-looking from path that is not a known app route", () => {
+    expect(
+      resolveConsentRequestHref(null, "pending", {
+        requestId: "req_123",
+        from: "/not-a-real-app-route",
+      }),
+    ).toBe("/consents?tab=pending&requestId=req_123");
+  });
+
+  it("ignores an empty or whitespace-only from value", () => {
+    expect(
+      resolveConsentRequestHref(null, "pending", {
+        requestId: "req_123",
+        from: "   ",
+      }),
+    ).toBe("/consents?tab=pending&requestId=req_123");
+  });
+
   it("classifies internal consent links as SPA routes", () => {
     expect(
       resolveConsentNavigationTarget(
