@@ -22,8 +22,8 @@ from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.utils.firebase_auth import verify_firebase_bearer
-from hushh_mcp.consent.privacy_engine import noisy_approval_count
 from hushh_mcp.consent.consent_schemas import ConsentExpiredError
+from hushh_mcp.consent.privacy_engine import noisy_approval_count
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
 from hushh_mcp.consent.token import issue_token, revoke_token, validate_token_with_db
