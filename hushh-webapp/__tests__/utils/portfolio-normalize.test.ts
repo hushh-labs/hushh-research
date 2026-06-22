@@ -61,7 +61,8 @@ describe("portfolio normalize helpers", () => {
     expect(normalized.holdings[0].market_value).toBe(800);
     expect(normalized.holdings[0].quantity).toBe(3);
   });
-       it("parses formatted currency strings and parenthesized negatives in numeric fields", () => {
+
+  it("parses formatted currency strings and parenthesized negatives in numeric fields", () => {
     const consolidated = consolidateHoldingsBySymbol([
       {
         symbol: "msft",
@@ -270,5 +271,26 @@ describe("portfolio normalizer - negative currency boundaries", () => {
     expect(Number.isFinite(consolidated[0].cost_basis)).toBe(true);
     expect(consolidated[0].market_value).toBeCloseTo(-5400.22, 8);
     expect(consolidated[0].cost_basis).toBeCloseTo(-0.0001, 8);
+  });
+});
+
+describe("portfolio normalizer - scientific notation numeric boundaries", () => {
+  it("parses extreme scientific notation strings into finite numeric values", () => {
+    const consolidated = consolidateHoldingsBySymbol([
+      {
+        symbol: "SCI",
+        name: "Scientific Notation Holding",
+        quantity: "1e-5",
+        market_value: "2.5e3",
+        cost_basis: "1e3",
+      },
+    ]);
+
+    expect(consolidated).toHaveLength(1);
+    expect(Number.isNaN(consolidated[0].quantity)).toBe(false);
+    expect(Number.isNaN(consolidated[0].market_value)).toBe(false);
+    expect(consolidated[0].quantity).toBeCloseTo(0.00001, 10);
+    expect(consolidated[0].market_value).toBe(2500);
+    expect(consolidated[0].cost_basis).toBe(1000);
   });
 });
