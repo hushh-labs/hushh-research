@@ -46,7 +46,7 @@ export function OnboardingShell({
             )}
             aria-label="Go back"
           >
-            <ArrowLeft className="h-5 w-5" />
+            <ArrowLeft aria-hidden="true" className="h-5 w-5" />
           </button>
 
           <span
@@ -97,16 +97,19 @@ export function OnboardingShell({
             )}
           >
             {saving ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
+              <>
+                <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin" />
+                <span className="sr-only">Saving</span>
+              </>
             ) : isLastStep && advisoryAccessReady ? (
               <>
                 Continue to Dashboard
-                <ArrowRight className="h-4 w-4" />
+                <ArrowRight aria-hidden="true" className="h-4 w-4" />
               </>
             ) : (
               <>
                 Continue
-                <ArrowRight className="h-4 w-4" />
+                <ArrowRight aria-hidden="true" className="h-4 w-4" />
               </>
             )}
           </button>

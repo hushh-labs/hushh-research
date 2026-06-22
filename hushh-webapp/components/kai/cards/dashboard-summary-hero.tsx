@@ -59,7 +59,7 @@ export function DashboardSummaryHero({
       <CardContent className="space-y-4 p-5 sm:p-6">
         <div className="space-y-2 text-center">
           <p className="text-sm font-medium text-muted-foreground">Total portfolio value</p>
-          <div className="flex items-center justify-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-2">
             <Badge className="rounded-full bg-muted px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
               Risk: {normalizeRiskLabel(riskLabel)}
             </Badge>
@@ -72,14 +72,12 @@ export function DashboardSummaryHero({
               </Badge>
             )}
           </div>
-          <h2 className="text-[34px] font-medium leading-tight tracking-normal">{formatCurrency(totalValue)}</h2>
+          <h2 className="text-[28px] font-medium leading-tight tracking-normal sm:text-[32px]">{formatCurrency(totalValue)}</h2>
           <div className="flex items-center justify-center gap-2 text-sm">
-            <span className={positive ? "text-emerald-600" : "text-red-500"}>
-              <span className="inline-flex items-center font-medium">
-                <Icon icon={positive ? ArrowUpRight : ArrowDownRight} size="sm" className="mr-1" />
-                {formatChange(netChange)} ({changePct >= 0 ? "+" : ""}
-                {changePct.toFixed(2)}%)
-              </span>
+            <span className={positive ? "inline-flex items-center font-medium text-emerald-600 dark:text-emerald-400" : "inline-flex items-center font-medium text-rose-500 dark:text-rose-400"}>
+              <Icon icon={positive ? ArrowUpRight : ArrowDownRight} size="sm" className="mr-1" />
+              {formatChange(netChange)} ({changePct >= 0 ? "+" : ""}
+              {changePct.toFixed(2)}%)
             </span>
             <span className="text-muted-foreground">•</span>
             <span className="font-medium text-muted-foreground">{periodLabel}</span>

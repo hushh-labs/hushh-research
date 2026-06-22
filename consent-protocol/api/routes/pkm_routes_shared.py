@@ -1,6 +1,6 @@
 # consent-protocol/api/routes/pkm_routes_shared.py
 """
-Shared PKM request/response models and route handlers.
+Shared PKM request/response models and route handlers with bounded path parameters (CWE-400).
 
 Implements the current PKM architecture:
 - pkm_blobs: encrypted per-domain payloads
@@ -29,6 +29,7 @@ router = APIRouter(prefix="/api/pkm", tags=["pkm"])
 # Bounded path-parameter aliases (CWE-400: uncontrolled resource consumption).
 _UserId = Annotated[str, Path(min_length=1, max_length=128)]
 _Domain = Annotated[str, Path(min_length=1, max_length=200)]
+_RunId = Annotated[str, Path(min_length=1, max_length=128)]
 _AttributeKey = Annotated[str, Path(min_length=1, max_length=256)]
 
 _COMPACT_SCOPE_SOURCE_KINDS = {"pkm_index", "pkm_manifests.top_level_scope_paths"}
@@ -400,7 +401,9 @@ class StoreDomainRequest(BaseModel):
     """Request to store domain data."""
 
     user_id: str = Field(..., min_length=1, max_length=256, description="User's ID")
-    domain: str = Field(..., min_length=1, max_length=128, description="Domain key (e.g., 'financial')")
+    domain: str = Field(
+        ..., min_length=1, max_length=128, description="Domain key (e.g., 'financial')"
+    )
     encrypted_blob: EncryptedBlob = Field(..., description="Pre-encrypted data from client")
     summary: dict = Field(..., description="Non-sensitive metadata for index")
     structure_decision: Optional[StructureDecisionPayload] = Field(
@@ -775,7 +778,7 @@ class DefaultAvailableProjectionResponse(BaseModel):
 
 @router.post("/domains/{domain}/scope-exposure", response_model=ScopeExposureResponse)
 async def update_scope_exposure(
-    domain: str,
+    domain: _Domain,
     request: ScopeExposureRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
@@ -979,16 +982,30 @@ async def delete_attribute_legacy(
 class DomainMetadata(BaseModel):
     """Domain metadata for UI display."""
 
-    key: str = Field(..., min_length=1, max_length=128, description="Domain key (e.g., 'financial')")
-    display_name: str = Field(..., min_length=1, max_length=256, description="Human-readable domain name")
+    key: str = Field(
+        ..., min_length=1, max_length=128, description="Domain key (e.g., 'financial')"
+    )
+    display_name: str = Field(
+        ..., min_length=1, max_length=256, description="Human-readable domain name"
+    )
     icon: str = Field(default="folder", min_length=1, max_length=64, description="Icon name for UI")
-    color: str = Field(default="#6366F1", min_length=1, max_length=64, description="Color hex for UI")
-    attribute_count: int = Field(default=0, ge=0, le=1000000, description="Number of attributes in domain")
+    color: str = Field(
+        default="#6366F1", min_length=1, max_length=64, description="Color hex for UI"
+    )
+    attribute_count: int = Field(
+        default=0, ge=0, le=1000000, description="Number of attributes in domain"
+    )
     summary: dict = Field(default_factory=dict, description="Domain-specific summary data")
-    available_scopes: List[str] = Field(default_factory=list, max_length=1000, description="Available MCP scopes")
-    last_updated: Optional[str] = Field(default=None, max_length=64, description="ISO timestamp of last update")
+    available_scopes: List[str] = Field(
+        default_factory=list, max_length=1000, description="Available MCP scopes"
+    )
+    last_updated: Optional[str] = Field(
+        default=None, max_length=64, description="ISO timestamp of last update"
+    )
     readable_summary: Optional[str] = Field(
-        default=None, max_length=8192, description="Optional consumer-readable summary for this domain"
+        default=None,
+        max_length=8192,
+        description="Optional consumer-readable summary for this domain",
     )
     readable_highlights: List[str] = Field(
         default_factory=list,
@@ -999,16 +1016,22 @@ class DomainMetadata(BaseModel):
         default=None, max_length=64, description="ISO timestamp of the readable summary refresh"
     )
     readable_source_label: Optional[str] = Field(
-        default=None, max_length=256, description="Short label describing where the readable summary came from"
+        default=None,
+        max_length=256,
+        description="Short label describing where the readable summary came from",
     )
-    domain_contract_version: int = Field(default=1, ge=1, le=1000, description="Current domain contract version")
+    domain_contract_version: int = Field(
+        default=1, ge=1, le=1000, description="Current domain contract version"
+    )
     pkm_contract_version: Optional[str] = Field(default=None, max_length=256)
     readable_summary_version: int = Field(
         default=0, ge=0, le=1000, description="Current readable summary contract version"
     )
     readable_projection_version: Optional[str] = Field(default=None, max_length=256)
     upgraded_at: Optional[str] = Field(
-        default=None, max_length=64, description="ISO timestamp of the last successful PKM upgrade for this domain"
+        default=None,
+        max_length=64,
+        description="ISO timestamp of the last successful PKM upgrade for this domain",
     )
 
 
@@ -1018,8 +1041,12 @@ class PersonalKnowledgeModelMetadataResponse(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=256)
     domains: List[DomainMetadata]
     total_attributes: int = Field(..., ge=0, le=1000000)
-    model_completeness: int = Field(..., ge=0, le=100, description="Percentage of recommended domains filled (0-100)")
-    model_version: int = Field(default=1, ge=1, le=1000, description="Current PKM model version for this user")
+    model_completeness: int = Field(
+        ..., ge=0, le=100, description="Percentage of recommended domains filled (0-100)"
+    )
+    model_version: int = Field(
+        default=1, ge=1, le=1000, description="Current PKM model version for this user"
+    )
     stored_model_version: int = Field(
         default=1,
         ge=1,
@@ -1032,7 +1059,9 @@ class PersonalKnowledgeModelMetadataResponse(BaseModel):
         le=1000,
         description="Effective PKM model version after reconciling manifest truth",
     )
-    target_model_version: int = Field(default=1, ge=1, le=1000, description="Latest PKM model version supported")
+    target_model_version: int = Field(
+        default=1, ge=1, le=1000, description="Latest PKM model version supported"
+    )
     current_pkm_contract_version: Optional[str] = Field(default=None, max_length=256)
     target_pkm_contract_version: Optional[str] = Field(default=None, max_length=256)
     current_readable_projection_version: Optional[str] = Field(default=None, max_length=256)
@@ -1048,8 +1077,8 @@ class PersonalKnowledgeModelMetadataResponse(BaseModel):
 
 @router.get("/metadata/{user_id}", response_model=PersonalKnowledgeModelMetadataResponse)
 async def get_metadata(
-    user_id: str,
-    token_data: dict,
+    user_id: _UserId,
+    token_data: dict = Depends(require_vault_owner_token),
 ):
     """
     Get user's PKM metadata for UI display.
@@ -1434,7 +1463,7 @@ async def _maybe_reconcile_upgrade_status(
 
 @router.get("/upgrade/status/{user_id}", response_model=PkmUpgradeStatusResponse)
 async def get_upgrade_status(
-    user_id: str,
+    user_id: _UserId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != user_id:
@@ -1470,8 +1499,8 @@ async def start_or_resume_upgrade(
 
 @router.post("/upgrade/runs/{run_id}/status", response_model=PkmUpgradeStatusResponse)
 async def update_upgrade_run_status(
+    run_id: _RunId,
     request: UpdateUpgradeRunRequest,
-    run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != request.user_id:
@@ -1495,9 +1524,9 @@ async def update_upgrade_run_status(
 
 @router.post("/upgrade/runs/{run_id}/steps/{domain}", response_model=PkmUpgradeStatusResponse)
 async def update_upgrade_step(
+    run_id: _RunId,
+    domain: _Domain,
     request: UpdateUpgradeStepRequest,
-    run_id: str = Path(..., min_length=1, max_length=128),
-    domain: str = Path(..., min_length=1, max_length=200),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != request.user_id:
@@ -1523,8 +1552,8 @@ async def update_upgrade_step(
 
 @router.post("/upgrade/runs/{run_id}/complete", response_model=PkmUpgradeStatusResponse)
 async def complete_upgrade_run(
+    run_id: _RunId,
     request: StartOrResumeUpgradeRequest,
-    run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != request.user_id:
@@ -1547,8 +1576,8 @@ async def complete_upgrade_run(
 
 @router.post("/upgrade/runs/{run_id}/fail", response_model=PkmUpgradeStatusResponse)
 async def fail_upgrade_run(
+    run_id: _RunId,
     request: UpdateUpgradeRunRequest,
-    run_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     if token_data.get("user_id") != request.user_id:
@@ -1638,7 +1667,7 @@ async def get_domain_registry(
 
 @router.get("/scopes/{user_id}", response_model=UserScopesResponse)
 async def get_user_scopes(
-    user_id: str,
+    user_id: _UserId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """

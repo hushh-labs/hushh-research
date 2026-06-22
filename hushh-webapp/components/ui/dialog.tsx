@@ -41,7 +41,7 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[499] bg-transparent touch-none",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[499] bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)] touch-none",
         className
       )}
       {...props}
@@ -59,10 +59,6 @@ function DialogContent({
 }) {
   return (
     <DialogPortal data-slot="dialog-portal">
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 z-[499] bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)]"
-      />
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"
@@ -72,10 +68,6 @@ function DialogContent({
         )}
         {...props}
       >
-        <DialogDescription className="sr-only">
-          Dialog content
-        </DialogDescription>
-
         {children}
 
         {showCloseButton && (
@@ -83,7 +75,7 @@ function DialogContent({
             data-slot="dialog-close"
             className="ring-offset-background focus:ring-ring group absolute top-4 right-4 z-30 isolate overflow-hidden rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-[opacity,transform] duration-200 hover:opacity-100 active:scale-[0.97] focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
-            <XIcon />
+            <XIcon aria-hidden="true" />
             <MaterialRipple variant="none" effect="fade" className="z-10" />
             <span className="sr-only">Close</span>
           </DialogPrimitive.Close>

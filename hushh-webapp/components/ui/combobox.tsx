@@ -32,6 +32,7 @@ function ComboboxTrigger({
     >
       {children}
       <ChevronDownIcon
+        aria-hidden="true"
         data-slot="combobox-trigger-icon"
         className="text-muted-foreground pointer-events-none size-4"
       />
@@ -43,11 +44,12 @@ function ComboboxClear({ className, ...props }: ComboboxPrimitive.Clear.Props) {
   return (
     <ComboboxPrimitive.Clear
       data-slot="combobox-clear"
+      aria-label="Clear"
       render={<InputGroupButton variant="ghost" size="icon-xs" />}
       className={cn(className)}
       {...props}
     >
-      <XIcon className="pointer-events-none" />
+      <XIcon aria-hidden="true" className="pointer-events-none" />
     </ComboboxPrimitive.Clear>
   )
 }
@@ -160,7 +162,7 @@ function ComboboxItem({
           <span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center" />
         }
       >
-        <CheckIcon className="pointer-events-none size-4 pointer-coarse:size-5" />
+        <CheckIcon aria-hidden="true" className="pointer-events-none size-4 pointer-coarse:size-5" />
       </ComboboxPrimitive.ItemIndicator>
     </ComboboxPrimitive.Item>
   )

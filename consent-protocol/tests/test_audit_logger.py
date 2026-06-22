@@ -59,7 +59,16 @@ class TestAuditJsonFormatter:
         logger, buf = _capture_logger("test.fields")
         logger.info("test message")
         record = _last_record(buf)
-        for field in ("timestamp", "level", "logger", "trace_id", "message", "service", "env", "telemetry_engine"):
+        for field in (
+            "timestamp",
+            "level",
+            "logger",
+            "trace_id",
+            "message",
+            "service",
+            "env",
+            "telemetry_engine",
+        ):
             assert field in record, f"Missing field: {field}"
 
     def test_identity_label_in_every_record(self):
@@ -202,7 +211,8 @@ class TestGetAuditLogger:
         get_audit_logger(name)
         get_audit_logger(name)
         handlers_with_audit = [
-            h for h in logging.getLogger(name).handlers
+            h
+            for h in logging.getLogger(name).handlers
             if isinstance(h.formatter, AuditJsonFormatter)
         ]
         assert len(handlers_with_audit) == 1
@@ -231,10 +241,7 @@ class TestConfigureLogging:
     def test_root_logger_gets_audit_formatter(self):
         configure_logging()
         root = logging.getLogger()
-        audit_handlers = [
-            h for h in root.handlers
-            if isinstance(h.formatter, AuditJsonFormatter)
-        ]
+        audit_handlers = [h for h in root.handlers if isinstance(h.formatter, AuditJsonFormatter)]
         assert len(audit_handlers) >= 1
         # Restore default config to avoid polluting other tests
         for h in root.handlers[:]:

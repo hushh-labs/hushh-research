@@ -88,7 +88,10 @@ import {
 } from "@/lib/kai/brokerage/plaid-oauth-session";
 import { saveAlpacaOAuthResumeSession } from "@/lib/kai/brokerage/alpaca-oauth-session";
 import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
-import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
+import {
+  PlaidPortfolioService,
+  requirePlaidLinkTokenReady,
+} from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
   buildPortfolioSharePayloadFromDashboardModel,
@@ -158,7 +161,7 @@ const portfolioChipTones = {
 const portfolioMetricLabelClassName =
   "text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground";
 const portfolioMetricValueClassName =
-  "mt-1 text-2xl font-medium tracking-normal sm:text-[1.65rem]";
+  "mt-1 text-[1.35rem] font-medium tracking-normal sm:text-[1.5rem]";
 const portfolioSummaryPillClassName =
   "rounded-2xl px-3 py-2 text-[12px] leading-5 text-muted-foreground";
 
@@ -838,14 +841,12 @@ export function DashboardMasterView({
           updateMode: Boolean(itemId),
           redirectUri,
         });
-        if (!linkToken.configured || !linkToken.link_token) {
-          throw new Error("Plaid is not configured for this environment.");
-        }
-        if (linkToken.resume_session_id) {
+        const readyLinkToken = requirePlaidLinkTokenReady(linkToken);
+        if (readyLinkToken.resume_session_id) {
           savePlaidOAuthResumeSession({
             version: 1,
             userId,
-            resumeSessionId: linkToken.resume_session_id,
+            resumeSessionId: readyLinkToken.resume_session_id,
             returnPath: ROUTES.KAI_PORTFOLIO,
             startedAt: new Date().toISOString(),
           });
@@ -861,14 +862,14 @@ export function DashboardMasterView({
           };
 
           const handler = Plaid.create({
-            token: linkToken.link_token,
+            token: readyLinkToken.link_token,
             onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
               void PlaidPortfolioService.exchangePublicToken({
                 userId,
                 publicToken,
                 vaultOwnerToken,
                 metadata,
-                resumeSessionId: linkToken.resume_session_id || null,
+                resumeSessionId: readyLinkToken.resume_session_id || null,
               })
                 .then(async () => {
                   clearPlaidOAuthResumeSession();
@@ -935,15 +936,13 @@ export function DashboardMasterView({
           itemId,
           redirectUri,
         });
-        if (!linkToken.configured || !linkToken.link_token) {
-          throw new Error("Plaid is not configured for this environment.");
-        }
-        if (linkToken.resume_session_id) {
+        const readyLinkToken = requirePlaidLinkTokenReady(linkToken);
+        if (readyLinkToken.resume_session_id) {
           savePlaidOAuthResumeSession({
             version: 1,
             flowKind: "funding",
             userId,
-            resumeSessionId: linkToken.resume_session_id,
+            resumeSessionId: readyLinkToken.resume_session_id,
             returnPath: ROUTES.KAI_PORTFOLIO,
             startedAt: new Date().toISOString(),
           });
@@ -959,14 +958,14 @@ export function DashboardMasterView({
           };
 
           const handler = Plaid.create({
-            token: linkToken.link_token,
+            token: readyLinkToken.link_token,
             onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
               void PlaidPortfolioService.exchangeFundingPublicToken({
                 userId,
                 publicToken,
                 vaultOwnerToken,
                 metadata,
-                resumeSessionId: linkToken.resume_session_id || null,
+                resumeSessionId: readyLinkToken.resume_session_id || null,
                 consentTimestamp: new Date().toISOString(),
               })
                 .then(async () => {
@@ -2777,7 +2776,7 @@ export function DashboardMasterView({
                 </span>
               ) : null}
             </div>
-            <p className="text-[2.35rem] font-medium leading-none tracking-normal text-foreground sm:text-5xl">
+            <p className="text-[2rem] font-medium leading-none tracking-normal text-foreground sm:text-[2.5rem]">
               {formatCurrency(model.hero.totalValue)}
             </p>
             <div className="flex flex-wrap items-center justify-center gap-2 text-sm">

@@ -2720,7 +2720,7 @@ class BrokerFundingService:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return
-        loop.create_task(
+        task = loop.create_task(
             self._send_transfer_status_notification(
                 user_id=user_id,
                 transfer_id=transfer_id,
@@ -2731,6 +2731,10 @@ class BrokerFundingService:
                 failure_reason=failure_reason,
             )
         )
+        # Retain a strong reference until completion so the loop does not garbage
+        # collect this notification task mid-execution.
+        _transfer_notification_tasks.add(task)
+        task.add_done_callback(_transfer_notification_tasks.discard)
 
     async def exchange_funding_public_token(
         self,
@@ -4193,16 +4197,27 @@ class BrokerFundingService:
                 "Plaid webhook verification key payload is invalid."
             )
 
+        # Reject any algorithm other than RS256 before key construction.
+        # An attacker controlling webhook traffic could set alg to "none"
+        # (skip signature verification) or "HS256" (HMAC confusion).
+        _PLAID_WEBHOOK_JWT_ALG = "RS256"
+        header_alg = _clean_text(unverified_header.get("alg")) or ""
+        if header_alg != _PLAID_WEBHOOK_JWT_ALG:
+            logger.warning(
+                "plaid.webhook.jwt_alg_rejected header_alg=%r expected=%s",
+                header_alg,
+                _PLAID_WEBHOOK_JWT_ALG,
+            )
+            raise PlaidWebhookVerificationError("Plaid webhook signature validation failed.")
+
         modulus = self._jwk_to_int(key_payload.get("n"))
         exponent = self._jwk_to_int(key_payload.get("e"))
         public_key = rsa.RSAPublicNumbers(exponent, modulus).public_key()
-
-        algorithm = _clean_text(unverified_header.get("alg"), default="RS256")
         try:
             claims = jwt.decode(
                 header_value,
                 public_key,
-                algorithms=[algorithm],
+                algorithms=[_PLAID_WEBHOOK_JWT_ALG],
                 options={"verify_aud": False},
             )
         except Exception as exc:
@@ -4701,6 +4716,13 @@ class BrokerFundingService:
 
 
 _broker_funding_service: BrokerFundingService | None = None
+
+# Strong references to in-flight transfer status notification tasks.
+# asyncio only keeps weak references to tasks created with create_task, so a
+# task that is not referenced elsewhere can be garbage collected before it
+# finishes. Holding the task here until its done callback fires keeps the
+# transfer status notification alive for its full duration.
+_transfer_notification_tasks: set[asyncio.Task] = set()
 
 
 def get_broker_funding_service() -> BrokerFundingService:

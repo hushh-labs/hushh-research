@@ -55,13 +55,12 @@ Non-owned surfaces:
 
 ## Workflow
 
-### Default PR-Train Mode / PR Governance Subagent Train Mode
-
-Use the async PR-train method as the default for multi-PR work, now formalized
-as the PR governance subagent train method. Contributors may open PRs against
-`main`; before review, approval, maintainer patching, harvest, queue, or merge,
-normal intake must be retargeted to `integration/pr-train`. `main` receives
-only `integration/pr-train` promotion PRs except explicit emergency hotfixes.
+Default PR-Train Mode: Use the async PR-train method as the default for
+multi-PR work, now formalized as the PR governance subagent train method.
+Contributors may open PRs against `main`; before review, approval, maintainer
+patching, harvest, queue, or merge, normal intake must be retargeted to
+`integration/pr-train`. `main` receives only `integration/pr-train` promotion
+PRs except explicit emergency hotfixes.
 
 1. Lock the current PR head SHA, current `CI Status Gate`, mergeability, draft state, and review state before judging.
 2. Run the delegation router at intake; use real read-only subagent evidence lanes for non-trivial, high-risk, or multi-PR work.
@@ -72,6 +71,7 @@ only `integration/pr-train` promotion PRs except explicit emergency hotfixes.
 7. Prefer direct contributor PR merge, then `maintainer_patch_then_merge`, then maintainer harvest. Harvest is allowed only when the source PR should not be the merge vehicle and the plan names accepted value, canonical attach point, write set, dropped/deferred pieces, proof, source PR close-or-hold state, and co-author attribution when code/tests are materially reused.
 8. Use `comment-and-report-contract.md` for every GitHub write; edit existing maintainer records first and post one post-merge closeout after smoke.
 9. Keep branch switching, commits, GitHub writes, approvals, merges, deploys, report refreshes, and final decisions in the parent session.
+10. Preserve the current operating-history lessons in `evolution-history.md`; do not append incident history to this compact kernel.
 
 ## Handoff Rules
 

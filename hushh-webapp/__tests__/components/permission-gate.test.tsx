@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { PermissionGate } from "@/components/privacy/permission-gate/permission-gate";
+import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 
 const mockUseVault = vi.fn();
 
@@ -41,7 +42,7 @@ describe("PermissionGate", () => {
     expect(screen.queryByRole("button", { name: "Connect Portfolio" })).toBeNull();
     expect(screen.getByTestId("permission-locked-state")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Review permissions" }).getAttribute("href")).toBe(
-      "/consents"
+      buildConsentCenterHref("pending")
     );
   });
   it("preserves locked-state rendering when children are empty", () => {
@@ -59,7 +60,7 @@ describe("PermissionGate", () => {
     expect(screen.getByTestId("permission-locked-state")).toBeTruthy();
     expect(screen.getByText("Vault permission required")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Review permissions" }).getAttribute("href")).toBe(
-      "/consents"
+      buildConsentCenterHref("pending")
     );
   });
 });

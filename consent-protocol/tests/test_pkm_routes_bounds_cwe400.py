@@ -246,23 +246,17 @@ class TestStructureDecisionPayload:
     def test_json_paths_list_max_length(self):
         """JSON paths list bounded to 1000 items."""
         with pytest.raises(ValidationError):
-            StructureDecisionPayload(
-                json_paths=["$.path" for _ in range(1001)]
-            )
+            StructureDecisionPayload(json_paths=["$.path" for _ in range(1001)])
 
     def test_top_level_scope_paths_max_length(self):
         """Top level scope paths list bounded to 1000 items."""
         with pytest.raises(ValidationError):
-            StructureDecisionPayload(
-                top_level_scope_paths=["scope" for _ in range(1001)]
-            )
+            StructureDecisionPayload(top_level_scope_paths=["scope" for _ in range(1001)])
 
     def test_externalizable_paths_max_length(self):
         """Externalizable paths list bounded to 1000 items."""
         with pytest.raises(ValidationError):
-            StructureDecisionPayload(
-                externalizable_paths=["path" for _ in range(1001)]
-            )
+            StructureDecisionPayload(externalizable_paths=["path" for _ in range(1001)])
 
     def test_confidence_bounds(self):
         """Confidence must be 0.0-1.0."""
@@ -415,8 +409,7 @@ class TestStoreDomainRequest:
                 encrypted_blob=self._valid_blob(),
                 summary={},
                 write_projections=[
-                    WriteProjectionPayload(projection_type="proj")
-                    for _ in range(101)
+                    WriteProjectionPayload(projection_type="proj") for _ in range(101)
                 ],
             )
 

@@ -493,7 +493,7 @@ function ConsensusDonut({ result }: { result: DecisionResult }) {
       <div className="space-y-3">
         <div className="flex items-end justify-between gap-3">
           <div>
-            <p className="text-2xl font-black tracking-tight text-foreground">{agreePct}%</p>
+            <p className="text-2xl font-semibold tracking-tight text-foreground">{agreePct}%</p>
             <p className="text-xs text-muted-foreground">Agents align with the final call</p>
           </div>
           <div className="rounded-xl border border-amber-500/15 bg-amber-500/[0.08] px-3 py-2 text-right">
@@ -759,7 +759,7 @@ function ConfidenceGauge({ confidence }: { confidence: number }) {
                       <tspan
                         x={viewBox.cx}
                         y={viewBox.cy}
-                        className="fill-foreground text-3xl font-black tracking-tighter"
+                        className="fill-foreground text-3xl font-semibold tracking-tighter"
                       >
                         {score}%
                       </tspan>
@@ -923,7 +923,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             {/* Main Decision Pill */}
             <div
                 className={cn(
-                "px-10 py-5 rounded-2xl border-2 text-4xl font-black uppercase tracking-tighter shadow-xl backdrop-blur-md transform transition-all duration-300 hover:scale-[1.02]",
+                "px-10 py-5 rounded-2xl border-2 text-2xl font-semibold uppercase tracking-normal shadow-xl backdrop-blur-md transform transition-all duration-300 hover:scale-[1.02]",
                 isBuy
                     ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500 shadow-emerald-500/10"
                     : isReduce
