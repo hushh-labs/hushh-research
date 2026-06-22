@@ -9,10 +9,9 @@ import { Button } from "@/components/ui/button"
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple"
 
 function Dialog({
-  modal = false,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="dialog" modal={modal} {...props} />
+  return <DialogPrimitive.Root data-slot="dialog" {...props} />
 }
 
 function DialogTrigger({
