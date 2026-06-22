@@ -67,10 +67,13 @@ describe("consent sheet route helpers", () => {
     });
   });
 
-  it("preserves percent-encoded internal consent subpaths for notification deep-link routing", () => {
-    // FCM and consent notification click handlers call resolveConsentNavigationTarget
-    // before handing internal hrefs to the SPA router. Encoded path segments must
-    // stay intact so "/consents/user%20verification/*" remains an internal app route.
+  it("passes percent-encoded internal consent subpaths through verbatim (no decode, no double-encode)", () => {
+    // The resolver treats internal "/"-prefixed paths as opaque strings: it does not
+    // decode or re-encode them. The deep-internal classification itself is already
+    // covered by "classifies /consents/* deep paths as internal"; this locks the
+    // distinct byte-preservation property that the deep-path test (plain ASCII) does
+    // not exercise -- "%20" must survive exactly, never decoded to a space nor
+    // double-encoded to "%2520" -- so FCM/notification deep links stay byte-stable.
     const encodedPathInput = "/consents/user%20verification/callback";
     const result = resolveConsentNavigationTarget(encodedPathInput, "pending", {
       requestId: "req_123",
@@ -82,6 +85,9 @@ describe("consent sheet route helpers", () => {
       href: encodedPathInput,
       pathname: "/consents/user%20verification/callback",
     });
+    // Guard the specific failure modes a decode/re-encode regression would introduce.
+    expect(result.href).not.toContain("user verification");
+    expect(result.href).not.toContain("%2520");
   });
 
   it("keeps external consent review links as external navigation", () => {
